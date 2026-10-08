@@ -209,17 +209,27 @@ active delivery.` opens the existing delivery.
 Design: `specs/architecture/fraud-detection-architecture.md` 3.0.0, sections 14 to 18; escrow side
 in `escrow-protocol.md` 1.7.0. Nothing here is deployed yet.
 
-- **No new order status.** `OrderTransitions` and the actor rules are unchanged. The hold lives on
-  the escrow (`status: held`), so invariant 3 does not apply.
+- **No new order status.** `OrderTransitions` and the actor rules are unchanged; the only new rule
+  is the accept refusal below. The hold lives on the escrow (`status: held`), so invariant 3 does
+  not apply.
 - **What the parties see.** Order detail and the order list show "Under review" for the buyer, the
-  farmer and the trucker when the order's escrow is `held`. Logistics continue: a held escrow does
-  not stop pickup, transit or delivery updates, and the delivery-confirmation stamp is still written.
+  farmer and the trucker when the order's escrow is `held`.
 - **When it happens.** Only when the order's escrow is due to settle (auto-release after the dispute
   window, the 7-day refund sweep, or a dispute verdict) and a party is suspended or at risk tier
-  CRITICAL. The refund sweep checks risk before it cancels a stale `funded` order or restores its
-  listing stock, so the order keeps its status until the admin releases or refunds. On an admin
-  refund the order is cancelled (`cancelReason: escrow_refunded`) and restocked as the sweep would
-  have done; a progressing order is not refunded.
+  CRITICAL. At that point no logistics step is left: the order is `delivered`, `disputed`, terminal
+  or a stale `funded` order. The refund sweep checks risk before it cancels a stale `funded` order or
+  restores its listing stock, so the order keeps its status until the admin releases or refunds.
+- **Accept while held**: the farmer's `accepted` on a `funded` order whose escrow is `held` is
+  refused with `ORDER_VALIDATION: This order is under review and cannot be accepted. Contact
+  support.` (planned FRD-03), because a delivery created after it could never link to the held
+  escrow. Reject and cancel stay allowed.
+- **Admin refund, order side.** For an escrow held before a refund (`heldFor: refund`) the order is
+  cancelled (`cancelReason: escrow_refunded`) and restocked as the sweep would have done, and a
+  progressing order is not refunded. For an escrow held before a payout (`heldFor: release`) the
+  refund is always allowed: the order goes `delivered` to `disputed` to `dispute_resolved` (or
+  `disputed` to `dispute_resolved`), system actor, version-checked, one transaction-audit row per
+  hop, with the escrow's `disputeResolution: buyer_wins`; the listing is not restocked because the
+  goods were delivered. Admin release keeps today's order behaviour.
 - **Order create by a CRITICAL buyer** is refused with `FRAUD_ACCOUNT_HELD` (permanent, nothing
   written). Crop create (farmer) and trip create (trucker) get the same code; see
   `sync-protocol.md` 1.9.0.
@@ -235,7 +245,7 @@ in `escrow-protocol.md` 1.7.0. Nothing here is deployed yet.
 
 ## Changelog
 
-- **1.9.0 (2026-10-06)**: Fraud hold and risk tiers (planned FRD-03, FRD-04): no new order status; an order whose escrow is `held` shows "Under review" to all three roles while logistics continue; the refund sweep checks risk before cancelling or restocking a stale-funded order; `payment_submitted` gains the CRITICAL (`FRAUD_ACCOUNT_HELD`), MEDIUM and HIGH step-up rows and its gate order is stated; order create by a CRITICAL buyer is refused.
+- **1.9.0 (2026-10-06)**: Fraud hold and risk tiers (planned FRD-03, FRD-04): no new order status; an order whose escrow is `held` shows "Under review" to all three roles; the farmer's accept of a funded order whose escrow is held is refused (`ORDER_VALIDATION`); an admin refund of an escrow held before a payout moves the order to `dispute_resolved` (`buyer_wins`); the refund sweep checks risk before cancelling or restocking a stale-funded order; `payment_submitted` gains the CRITICAL (`FRAUD_ACCOUNT_HELD`), MEDIUM and HIGH step-up rows and its gate order is stated; order create by a CRITICAL buyer is refused.
 - **1.7.2 (2026-10-06)**: Client order previews use the server formula, commission on the crop cost only (SIM-53). The place-order preview charged it on crop plus transport and showed more than the server charges (18375 instead of 18350 ETB for 17000 of crop and 500 of transport). Doc-only, no wire change.
 - **1.7.1 (2026-10-06)**: The payment screen shows the full order id as the transfer reference (SIM-54); it was the first 8 characters upper-cased, which repeated across orders (`ORD_1790` for every legacy web order). Demo references are `MOCK-CBE-{orderId}` / `MOCK-TBR-{orderId}`. No wire change; live payments are still matched by the server's `merch_order_id`.
 - **1.7.0 (2026-09-30)**: Live order funding (ESC-01): with the live gateway the buyer pays a `payment_submitted` order through `POST /escrow/order-checkout`, and the Telebirr webhook funds it exactly once with the same side effects as the mock path; the funding stock decrement is idempotent per order; the Telebirr references are server-only order fields; `payment_failed` is system-only. The server stamps `paymentSubmittedAt` on `payment_submitted`; the order cron moves an order that stayed `payment_submitted` for 24 hours to `payment_failed`; with the live gateway `payment_submitted` refuses an `orderTotal` outside 100 to 500,000 ETB.

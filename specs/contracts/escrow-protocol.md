@@ -487,7 +487,7 @@ Refunds escrowed funds to the buyer. Triggered by admin (dispute resolution) or 
 | `401` | `ESCROW_005` | Invalid or expired JWT token |
 | `403` | `ESCROW_021` | Unauthorized to refund (not admin/system) |
 | `404` | `ESCROW_016` | Escrow not found |
-| `422` | `ESCROW_INVALID_TRANSITION` | Escrow is not in `escrowed`, `disputed` or `dispute_resolved` state (1.3.0); from 1.7.0 the admin may also settle `held` (planned FRD-03) |
+| `422` | `ESCROW_INVALID_TRANSITION` | Escrow is not in `escrowed`, `disputed` or `dispute_resolved` state (1.3.0); from 1.7.0 the admin may also settle `held` (planned FRD-03), except a `heldFor: refund` order escrow whose order is progressing |
 | `502` | `ESCROW_013` | Telebirr gateway error |
 | `503` | `ESCROW_014` | Telebirr service unavailable |
 
@@ -1465,18 +1465,29 @@ returned. The `AUTH_041` message becomes amount-neutral; clients key on the code
 - **Write**: conditional on `status = heldFromStatus AND attribute_not_exists(settlementLock)`; a
   settlement already in progress wins. Fields: `holdReason`, `heldAt`, `heldBy`, `heldFromStatus`,
   `heldFor` (`release` or `refund`).
-- **Exits**: admin group only, `POST /escrow/release` or `POST /escrow/refund`. No resume. The admin
-  exit runs the steps the sweep skipped: a refund of an order escrow cancels a still `funded` order
-  and restores its stock first, and is refused with `422 ESCROW_INVALID_TRANSITION` while the order
-  is progressing; a release resolves the payout as today.
+- **Exits**: admin group only, `POST /escrow/release` or `POST /escrow/refund`. No resume. A release
+  resolves the payout as today. A refund depends on `heldFor`:
+  - `heldFor: refund`: the steps the sweep skipped. For the auto-refund of an order escrow it cancels
+    a still `funded` order and restores its stock first, and is refused with
+    `422 ESCROW_INVALID_TRANSITION` while the order is progressing; a `buyer_wins` dispute escrow is
+    refunded as the dispute sweep would.
+  - `heldFor: release`: allowed whatever the order status, because otherwise a payout to the flagged
+    party would be the only exit. The order takes the dispute path, `delivered` to `disputed` to
+    `dispute_resolved` (or `disputed` to `dispute_resolved`), system actor, version-checked, each hop
+    in transaction-audit. The escrow records `disputeResolution: buyer_wins`, `disputeResolvedBy`
+    and `disputeResolvedAt`, then goes `held` to `refunded` directly. Listing stock is not
+    restored (the goods were delivered).
 - **Settlement lock**: the settleable set becomes `escrowed`, `disputed` and `dispute_resolved` for
   every caller, plus `held` for the admin routes only. Today the lock condition omits
   `dispute_resolved`, so dispute settlements fail at the lock; FRD-03 fixes that with it.
 - **One active escrow per order**: `held` counts as active, so a second `/escrow/initiate` on the
   order still gets `ESCROW_024` and delivery linkage does not mint a second escrow. Linkage and
   refund scheduling require `escrowed` and do nothing on `held`.
-- **Crons** never select `held`. The delivery-confirmation stamp (`deliveryConfirmedAt`,
-  `disputeWindowEndsAt`) is written on `held` as well and keeps the status.
+- **Crons** never select `held`. Delivery linkage and the delivery-confirmation stamp keep requiring
+  `escrowed`: a hold happens only once no logistics step is left (order `delivered`, `disputed`,
+  terminal, or a stale `funded` order). On a stale `funded` order whose escrow is held, the farmer's
+  `accepted` is refused with `ORDER_VALIDATION` (`order-lifecycle.md` 1.9.0), since a delivery
+  created after it could never link to the held escrow.
 - `POST /escrow/dispute` on a held escrow is refused (`ESCROW_INVALID_TRANSITION`).
 - **Visibility**: parties see `status: held` ("Under review"); `holdReason`, `heldBy`,
   `heldFromStatus` and `heldFor` appear in admin responses only. Party scoping is unchanged.
@@ -1484,12 +1495,17 @@ returned. The `AUTH_041` message becomes amount-neutral; clients key on the code
   escrow-audit and transaction-audit, tier and score in the metadata. `hold_success`,
   `hold_pending` and `hold_failed` remain the Telebirr hold.
 - **Flag**: `FRAUD_HOLD_ENABLED`, default false. Off, a sweep that finds a trigger skips the escrow
-  (status unchanged, no money, alarm token `RISK_SETTLEMENT_SKIPPED`) and retries next hour.
+  (status unchanged, no money, alarm token `RISK_SETTLEMENT_SKIPPED`) and retries next hour. A sweep
+  that cannot read a party's tier or user row also skips the escrow for that run (no settlement) and
+  logs the same token with its reason. With the flag on and no `FRAUD_SIGNALS_TABLE` configured the
+  sweep logs `RISK_TABLE_UNCONFIGURED` once per run.
 - **Client compatibility**: `held` is a value shipped clients do not parse (mobile throws, web shows
   `initiated`), as is `dispute_resolved` already. FRD-06 ships the tolerant parser and the
   "Under review" badge for mobile and web; the flag is turned on only after FRD-06 is on web and in
-  both stores, and either ESC-25's minimum app version gate is live or the lead accepts that
-  un-updated installs fail escrow detail for held escrows.
+  both stores, and after older clients are protected on the escrow reads (`GET /escrow/{id}`,
+  `GET /escrow/by-delivery/{deliveryId}`, `GET /escrow/history`): either a minimum app version gate
+  that covers those reads (ESC-25 as written gates order commands only) or a server-side mapping
+  that answers older clients with `escrowed` instead of `held`.
 
 ---
 
@@ -1497,7 +1513,7 @@ returned. The `AUTH_041` message becomes amount-neutral; clients key on the code
 
 | Version | Date | Change |
 |---------|------|--------|
-| 1.7.0 | 2026-10-06 | Fraud hold and risk tiers (planned FRD-03, FRD-04): new status `held` with `holdReason`, `heldAt`, `heldBy`, `heldFromStatus`, `heldFor`; settlement-only entry from `escrowed` or `dispute_resolved`, admin-only exits, `held` counts as active, crons never select it, `FRAUD_HOLD_ENABLED`; `403 FRAUD_ACCOUNT_HELD` on initiate and order-checkout; `AUTH_040`/`AUTH_041` also from the risk tier; clients tolerate unknown status values; state table gains `dispute_resolved`, `held` and the missing 1.3.0 transitions; `dispute_resolved` named in the release and refund transition errors; amount anomaly marked planned (FRD-09) |
+| 1.7.0 | 2026-10-06 | Fraud hold and risk tiers (planned FRD-03, FRD-04): new status `held` with `holdReason`, `heldAt`, `heldBy`, `heldFromStatus`, `heldFor`; settlement-only entry from `escrowed` or `dispute_resolved`, admin-only exits (an admin refund of a `heldFor: release` escrow moves the order to `dispute_resolved` as `buyer_wins`), `held` counts as active, crons never select it, `FRAUD_HOLD_ENABLED`; `403 FRAUD_ACCOUNT_HELD` on initiate and order-checkout; `AUTH_040`/`AUTH_041` also from the risk tier; clients tolerate unknown status values; state table gains `dispute_resolved`, `held` and the missing 1.3.0 transitions; `dispute_resolved` named in the release and refund transition errors; amount anomaly marked planned (FRD-09) |
 | 1.5.1 | 2026-10-01 | Dispute propagation fixed (SIM-47): the escrow Lambda can write the order and delivery it mirrors a dispute onto (UpdateItem only); legs independent, order conflicts retried, failures logged as `DISPUTE_PROPAGATION_FAILED` and audited with the failed leg; response unchanged |
 | 1.5.0 | 2026-09-30 | Live order payments (ESC-01): `POST /escrow/order-checkout` (server-generated hashed merch_order_id, one open checkout per order until 130 minutes after Telebirr answered, re-signed URL on retry, mapping written before Telebirr and never deleted, 400-day TTL, no Telebirr call 20 hours after `paymentSubmittedAt` or `createdAt`, each checkout bound to the order's payment attempt); the webhook funds a paid order checkout exactly once (payment-reference classification, status-conditional funding write, idempotent stock and escrow repair except on closed orders, inbox row, alarm tokens, a failed or malformed mapping lookup alarmed instead of dropped, `Failed` only audited, a refused payment keeps its verdict on redelivery, a payment from an earlier attempt never funds); `/escrow/initiate` refuses an order that is already funded or paid (`ESCROW_024`) even without its escrow record; order escrows take the server-only `telebirrPaymentOrderId` as hold reference; new codes `ESCROW_030` to `ESCROW_033`; header version corrected (it still read 1.3.0) |
 | 1.4.0 | 2026-09-29 | Tiered step-up on initiate: a fresh password up to 10,000 ETB (`AUTH_040`, now for every amount), a fresh Fayda login above it (`AUTH_041`), `503 ESCROW_012` when the buyer profile cannot be read for the Fayda check; clients keep the server's step-up code; dispute step-up unchanged |

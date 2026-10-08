@@ -332,6 +332,7 @@ Depends on: `feat/auth-hardening` (worktree `.claude/worktrees/auth-hardening`, 
 
 Priority: P0 money moves despite a known red flag; P1 detection or enforcement gap on a money path; P2 evidence, admin tooling or coverage; P3 deferred / needs data.
 Every task must follow `.ai/completeness-rules.md` (all 3 roles, mobile+web pair, tests, contracts, 3 languages).
+FRD-01 v3 (`specs/architecture/fraud-detection-architecture.md`) supersedes the wording of FRD-02, FRD-04 and FRD-05 where they differ.
 
 Stories:
 - **S1 Risk score + enforcement**: turn signals into a per-user score and act on it at every money action.
