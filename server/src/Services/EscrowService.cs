@@ -2012,15 +2012,17 @@ public sealed class EscrowService
     /// status write and audit entry as <see cref="DisputeAsync"/>, but no idempotency
     /// record (the sync operation is already idempotent) and no window check (the
     /// delivery handler enforced the 48-hour window). The delivery's free-text reason is
-    /// kept as the description under the <c>other</c> reason code. Returns false when
-    /// there is nothing to freeze: no escrow for the delivery, or not <c>escrowed</c>.
+    /// kept as the description under the <c>other</c> reason code. Returns
+    /// <see cref="DeliveryDisputeFreeze.NothingToFreeze"/> when there is no escrow for the
+    /// delivery or it is not <c>escrowed</c>, and <see cref="DeliveryDisputeFreeze.RefusedManualPayout"/>
+    /// when its settlement already waits in the manual payout queue (ESC-02).
     /// </summary>
-    public async Task<bool> MarkDisputedFromDeliveryAsync(string deliveryId, string disputedBy, string? description)
+    public async Task<DeliveryDisputeFreeze> MarkDisputedFromDeliveryAsync(string deliveryId, string disputedBy, string? description)
     {
         var escrow = await _escrowRepo.GetByDeliveryIdAsync(deliveryId);
         if (escrow == null || GetString(escrow, "status") != "escrowed")
         {
-            return false;
+            return DeliveryDisputeFreeze.NothingToFreeze;
         }
 
         var escrowId = GetString(escrow, "escrowId");
@@ -2033,7 +2035,7 @@ public sealed class EscrowService
             await AppendAuditAsync(escrowId, "dispute_refused_manual_payout", "escrowed", "escrowed", disputedBy,
                 metadata: $"deliveryId={deliveryId};op={GetStringOrNull(escrow, ManualPayoutFields.Op)}");
             Console.WriteLine($"ESCROW_MANUAL_PAYOUT_DISPUTE_REFUSED escrowId={escrowId}");
-            return false;
+            return DeliveryDisputeFreeze.RefusedManualPayout;
         }
         var now = DateTime.UtcNow;
         var confirmedAt = GetStringOrNull(escrow, "deliveryConfirmedAt");
@@ -2060,7 +2062,7 @@ public sealed class EscrowService
 
         await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "disputed", "escrowed", fields);
         await AppendAuditAsync(escrowId, "dispute", "escrowed", "disputed", disputedBy);
-        return true;
+        return DeliveryDisputeFreeze.Frozen;
     }
 
     /// <summary>
@@ -2544,9 +2546,20 @@ public sealed class EscrowService
                 GetStringOrNull(escrow, ManualPayoutFields.RefAttr(closingLeg)), "manual");
         }
 
-        return currentStatus == "released"
-            ? await FinishManualReleaseAsync(escrowId, GetString(escrow, "createdAt"), "system")
-            : currentStatus;
+        if (currentStatus == "released")
+        {
+            return await FinishManualReleaseAsync(escrowId, GetString(escrow, "createdAt"), "system");
+        }
+
+        // Completed already: its complete row sits at completedAt, the key both this service and
+        // the cron's crash recovery write it under, so re-ensuring it never duplicates it.
+        var completedAt = GetStringOrNull(escrow, "completedAt");
+        if (currentStatus == "completed" && completedAt != null)
+        {
+            await EnsureAuditAsync(escrowId, completedAt, "complete", "released", "completed", "system", metadata: "manual");
+        }
+
+        return currentStatus;
     }
 
     private static string ManualPaidMetadata(string leg, decimal amount, string payeeId)
@@ -2563,17 +2576,15 @@ public sealed class EscrowService
     /// </summary>
     private async Task<string> FinishManualReleaseAsync(string escrowId, string createdAt, string actor)
     {
+        var completedAt = DateTime.UtcNow.ToString("o");
         try
         {
-            var completedAt = DateTime.UtcNow.ToString("o");
             await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "completed", "released",
                 new Dictionary<string, object> { { "completedAt", completedAt } });
-            await EnsureAuditAsync(escrowId, completedAt, "complete", "released", "completed", actor, metadata: "manual");
-            return "completed";
         }
         catch (ConditionalCheckFailedException)
         {
-            // Already completed by a parallel sweep or replay.
+            // Already completed by a parallel sweep or replay, which writes its own complete row.
             return "completed";
         }
         catch (Exception ex)
@@ -2581,6 +2592,19 @@ public sealed class EscrowService
             Console.WriteLine($"ESCROW_MANUAL_PAYOUT_COMPLETE_DEFERRED escrowId={escrowId} error={ex.GetType().Name}");
             return "released";
         }
+
+        // The status is completed now, whatever happens to its audit row; a replay re-ensures
+        // the row at the same key (completedAt).
+        try
+        {
+            await EnsureAuditAsync(escrowId, completedAt, "complete", "released", "completed", actor, metadata: "manual");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_COMPLETE_AUDIT_DEFERRED escrowId={escrowId} error={ex.GetType().Name}");
+        }
+
+        return "completed";
     }
 
     private static CompleteManualPayoutResponse BuildCompleteResponse(
@@ -3222,9 +3246,9 @@ public sealed class EscrowService
         string escrowId, string timestamp, string action, string fromState, string toState,
         string actor, string? telebirrRef = null, string? metadata = null)
     {
-        var auditId = $"audit-{action}-{new string(timestamp.Where(char.IsAsciiLetterOrDigit).ToArray())}";
         await _auditRepo.AppendIfAbsentAsync(BuildAuditEntry(
-            auditId, timestamp, escrowId, action, fromState, toState, actor, telebirrRef, metadata));
+            EscrowAuditRepository.DeterministicAuditId(action, timestamp), timestamp,
+            escrowId, action, fromState, toState, actor, telebirrRef, metadata));
     }
 
     private Dictionary<string, object> BuildAuditEntry(
@@ -3483,4 +3507,17 @@ public sealed class EscrowService
             _ => false
         };
     }
+}
+
+/// <summary>What <see cref="EscrowService.MarkDisputedFromDeliveryAsync"/> did with the escrow behind a disputed delivery.</summary>
+public enum DeliveryDisputeFreeze
+{
+    /// <summary>The escrow moved to <c>disputed</c>.</summary>
+    Frozen,
+
+    /// <summary>No escrow for the delivery, or it is not <c>escrowed</c>.</summary>
+    NothingToFreeze,
+
+    /// <summary>ESC-02: the settlement waits in the manual payout queue; nothing was frozen and the order must not be mirrored either.</summary>
+    RefusedManualPayout
 }

@@ -792,8 +792,19 @@ public class EscrowCronFunction
                 await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "completed", "released",
                     new Dictionary<string, object> { { "completedAt", now } });
 
-                await AppendAuditAsync(escrowId, "complete", "released", "completed",
-                    "system", metadata: "crash_recovery");
+                // Keyed on completedAt like the escrow service's complete row (ESC-02), so a
+                // manual payout replay that re-ensures it never writes a second one.
+                await _auditRepo.AppendIfAbsentAsync(new Dictionary<string, object>
+                {
+                    { "auditId", EscrowAuditRepository.DeterministicAuditId("complete", now) },
+                    { "escrowId", escrowId },
+                    { "action", "complete" },
+                    { "fromState", "released" },
+                    { "toState", "completed" },
+                    { "actor", "system" },
+                    { "timestamp", now },
+                    { "metadata", "crash_recovery" }
+                });
 
                 completedCount++;
             }

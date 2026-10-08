@@ -1555,7 +1555,7 @@ and `Success = true` with an empty `TelebirrRef` (reason `GATEWAY_REF_MISSING`, 
 instead of completing with `""`). Every other failure keeps the retryable failure path.
 
 - The escrow keeps its status (`escrowed`, `disputed` or `dispute_resolved`); clients see no
-  new state. Mobile and web are unaffected.
+  new state. The only client change is the `ESCROW_038` message below.
 - The settlement lock is **kept on purpose**: nothing else may release or refund the escrow
   until an admin has paid every leg. Any stale-lock recovery (ESC-05) must skip a row whose
   `manualPayout` is `open`.
@@ -1580,8 +1580,11 @@ instead of completing with `""`). Every other failure keeps the retryable failur
 - Disputes: `POST /escrow/dispute` refuses an escrow with an open manual payout
   (`409 ESCROW_038`), and the status write to `disputed` carries the same guard, so a dispute
   cannot race in after the queue entry. A delivery dispute through sync does not freeze a
-  queued escrow; it writes `dispute_refused_manual_payout` (metadata `deliveryId=...;op=...`)
-  to escrow-audit and logs `ESCROW_MANUAL_PAYOUT_DISPUTE_REFUSED`, so the admin sees it.
+  queued escrow and does not mirror the order to `disputed` either (the delivery itself keeps
+  its `disputed` status); it writes `dispute_refused_manual_payout` (metadata
+  `deliveryId=...;op=...`) to escrow-audit and logs `ESCROW_MANUAL_PAYOUT_DISPUTE_REFUSED`, so
+  the admin sees it. The app (mobile and web) shows `ESCROW_038` with its own message in en,
+  am and om.
 - KYC-blocked payouts (`ESCROW_029`, `release_blocked_kyc`) do NOT enter the queue: paying an
   unverified party by hand would bypass the gate.
 - The trucker leg follows the same rule: `PAYOUT_NOT_SUPPORTED`, or a success without a
@@ -1722,10 +1725,12 @@ metadata `leg=...;amount=...;payee=...`), then `release` + `complete` or `refund
 metadata `manual`. These rows sit at deterministic keys, written with a conditional put
 (`attribute_not_exists(escrowId)`, still append-only): `manual_payout_queued` at
 `manualPayoutQueuedAt`, `manual_payout_paid` at the leg's `paidAt`, `release` or `refund` at
-the closing leg's `paidAt` plus one 100 ns tick, and `complete` at `completedAt`. A replay of
-the same reference re-ensures them (the `complete` row only while the escrow is still
-`released`, see the known limits), so a crash between the money write and its audit row is
-repaired without a duplicate. A refused completion on an existing escrow (`ESCROW_035`, `ESCROW_036`,
+the closing leg's `paidAt` plus one 100 ns tick, and `complete` at `completedAt`. The escrow-cron
+crash recovery writes its `complete` row under the same `completedAt` key, so whichever writer
+completes the escrow, there is one `complete` row. A replay of the same reference re-ensures all
+of them, so a crash between the money write and its audit row is repaired without a duplicate.
+A failed `complete` audit write never changes the answer: the response reports the escrow's
+real status. A refused completion on an existing escrow (`ESCROW_035`, `ESCROW_036`,
 `ESCROW_029`, `ESCROW_INVALID_TRANSITION`) writes `manual_payout_refused` (metadata
 `leg=...;code=...;attemptedRef=...`); a failed write of that row never changes the answer.
 transaction-audit: `admin_manual_payout` (metadata `leg=...;ref=...`).
@@ -1783,9 +1788,6 @@ duplicate refunds).
   waits. While the alarm is already in ALARM, a new overdue payout does not change its state,
   so it is not announced separately: read the `MANUAL_PAYOUT_OVERDUE` lines or the admin page
   (oldest first) rather than relying on a fresh alarm transition.
-- If the `complete` audit write fails after `released` moved to `completed`, a replay does not
-  rewrite it (the cron's crash-recovery sweep writes its own `complete` row when it finishes a
-  stuck `released` escrow, and a second row would be a duplicate).
 - ESC-20 (ledger) maps the legs to `release#farmer`, `release#trucker#{id}` and `refund#all`
   and replaces this row-level queue.
 
@@ -1795,7 +1797,7 @@ duplicate refunds).
 
 | Version | Date | Change |
 |---------|------|--------|
-| 1.8.0 | 2026-10-09 | Fail-closed live payouts and the manual payout queue (ESC-02): the live gateway's release and refund return `PAYOUT_NOT_SUPPORTED`; the service queues such settlements (and gateway successes without a reference, trucker leg included) on the escrow row with the lock held, returns `202 ESCROW_034`, and stays quiet on later sweeps; a failed queue write is re-read strongly consistent; the lock and any `released`/`refunded` status write refuse a queued row; new sparse `ManualPayoutIndex`; `GET /admin/payouts/manual` and `POST /admin/payouts/{escrowId}/{ref}/complete` (admin group only) with codes `ESCROW_035` to `ESCROW_037` and `409 ESCROW_029` (`alreadyRecorded` on a replay, no second transaction-audit row); cron status queries filter out queued rows and page through filtered-empty pages; `409 ESCROW_038` on a dispute against a queued escrow (delivery disputes through sync are refused and audited); queue audit rows at deterministic keys, re-ensured on replay; `deliveryConfirmedAt` on list items; `409 ADMIN_013` on a dispute verdict against a queued payout; audit actions `manual_payout_queued`, `manual_payout_paid`, `manual_payout_refused`; hourly `MANUAL_PAYOUT_OVERDUE` producer for the ESC-13 alarm; `order_payment_refunded_manual` reserved for ACC; known limits listed; mobile and web unchanged |
+| 1.8.0 | 2026-10-09 | Fail-closed live payouts and the manual payout queue (ESC-02): the live gateway's release and refund return `PAYOUT_NOT_SUPPORTED`; the service queues such settlements (and gateway successes without a reference, trucker leg included) on the escrow row with the lock held, returns `202 ESCROW_034`, and stays quiet on later sweeps; a failed queue write is re-read strongly consistent; the lock and any `released`/`refunded` status write refuse a queued row; new sparse `ManualPayoutIndex`; `GET /admin/payouts/manual` and `POST /admin/payouts/{escrowId}/{ref}/complete` (admin group only) with codes `ESCROW_035` to `ESCROW_037` and `409 ESCROW_029` (`alreadyRecorded` on a replay, no second transaction-audit row); cron status queries filter out queued rows and page through filtered-empty pages; `409 ESCROW_038` on a dispute against a queued escrow (delivery disputes through sync are refused and audited, and the order is not mirrored); queue audit rows at deterministic keys, re-ensured on replay, with the cron crash recovery keying its `complete` row on `completedAt` too; `deliveryConfirmedAt` on list items; `409 ADMIN_013` on a dispute verdict against a queued payout; audit actions `manual_payout_queued`, `manual_payout_paid`, `manual_payout_refused`; hourly `MANUAL_PAYOUT_OVERDUE` producer for the ESC-13 alarm; `order_payment_refunded_manual` reserved for ACC; known limits listed; `ESCROW_038` localized in the app (mobile and web, en/am/om), no other client change |
 | 1.7.0 | 2026-10-06 | Fraud hold and risk tiers (planned FRD-03, FRD-04): new status `held` with `holdReason`, `heldAt`, `heldBy`, `heldFromStatus`, `heldFor`; settlement-only entry from `escrowed` or `dispute_resolved`, admin-only exits (an admin refund of a `heldFor: release` escrow moves the order to `dispute_resolved` as `buyer_wins`; the auto-refund hold is fenced on the order's version), `held` counts as active, crons never select it, `FRAUD_HOLD_ENABLED`; `403 FRAUD_ACCOUNT_HELD` on initiate and order-checkout; `AUTH_040`/`AUTH_041` also from the risk tier; clients tolerate unknown status values; state table gains `dispute_resolved`, `held` and the missing 1.3.0 transitions; `dispute_resolved` named in the release and refund transition errors; amount anomaly marked planned (FRD-09) |
 | 1.5.1 | 2026-10-01 | Dispute propagation fixed (SIM-47): the escrow Lambda can write the order and delivery it mirrors a dispute onto (UpdateItem only); legs independent, order conflicts retried, failures logged as `DISPUTE_PROPAGATION_FAILED` and audited with the failed leg; response unchanged |
 | 1.5.0 | 2026-09-30 | Live order payments (ESC-01): `POST /escrow/order-checkout` (server-generated hashed merch_order_id, one open checkout per order until 130 minutes after Telebirr answered, re-signed URL on retry, mapping written before Telebirr and never deleted, 400-day TTL, no Telebirr call 20 hours after `paymentSubmittedAt` or `createdAt`, each checkout bound to the order's payment attempt); the webhook funds a paid order checkout exactly once (payment-reference classification, status-conditional funding write, idempotent stock and escrow repair except on closed orders, inbox row, alarm tokens, a failed or malformed mapping lookup alarmed instead of dropped, `Failed` only audited, a refused payment keeps its verdict on redelivery, a payment from an earlier attempt never funds); `/escrow/initiate` refuses an order that is already funded or paid (`ESCROW_024`) even without its escrow record; order escrows take the server-only `telebirrPaymentOrderId` as hold reference; new codes `ESCROW_030` to `ESCROW_033`; header version corrected (it still read 1.3.0) |

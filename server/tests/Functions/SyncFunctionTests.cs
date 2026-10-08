@@ -4683,6 +4683,45 @@ public class SyncFunctionTests
                 f["disputedBy"].ToString() == "buyer-001" && f["disputeDescription"].ToString() == "wet bags"));
     }
 
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_QueuedManualPayout_LeavesEscrowAndOrder()
+    {
+        // ESC-02: the escrow's settlement already waits for an admin in the manual payout
+        // queue. The delivery dispute is recorded on the escrow's audit, but neither the
+        // escrow nor the order moves to disputed.
+        var escrowRepo = Substitute.For<IEscrowRepository>();
+        escrowRepo.GetByDeliveryIdAsync("del-001").Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-d1" }, { "createdAt", "2026-02-17T10:00:00.0000000Z" },
+            { "status", "escrowed" }, { "deliveryConfirmedAt", "2026-02-18T10:00:00.0000000Z" },
+            { "settlementLock", "release" }, { "manualPayout", "open" }, { "manualPayoutOp", "release" },
+            { "version", 1 }
+        });
+        var auditRepo = Substitute.For<IEscrowAuditRepository>();
+        var escrowService = new EscrowService(escrowRepo, auditRepo, idempotencyRepo: null, telebirrGateway: null);
+        var function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+            "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, orderRepo: _mockOrderRepo,
+            escrowRepo: escrowRepo, orderEscrowService: escrowService);
+        SetupExistingOrder(status: "delivered");
+        SetupOrderUpdateSucceeds();
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "delivered",
+            confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o")));
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "disputed" }, { "disputeReason", "wet bags" }, { "version", 1 }
+            })), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("success", response.Body);
+        await escrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await auditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(d =>
+            (string)d["action"] == "dispute_refused_manual_payout" && (string)d["escrowId"] == "escrow-d1"));
+    }
+
     // --- SIM-13: a funded order that dies gives its listing stock back ---
 
     [Theory]

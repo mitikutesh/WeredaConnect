@@ -30,7 +30,11 @@ void main() {
 
         expect(message, l10n.escrowErrorPayoutInProgress, reason: code);
         expect(message, isNot(l10n.escrowErrorGeneric), reason: code);
-        expect(message, isNot(l10n.escrowErrorDisputeAlreadyExists), reason: code);
+        expect(
+          message,
+          isNot(l10n.escrowErrorDisputeAlreadyExists),
+          reason: code,
+        );
       }
     });
 

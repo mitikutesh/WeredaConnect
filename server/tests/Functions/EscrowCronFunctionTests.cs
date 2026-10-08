@@ -870,11 +870,18 @@ public class EscrowCronFunctionTests
             "completed",
             "released",
             Arg.Any<Dictionary<string, object>>());
-        await _mockAuditRepo.Received(1).AppendAsync(
+        // ESC-02: keyed on the completedAt it wrote, the key a manual payout replay re-ensures.
+        var completedAt = (string)((Dictionary<string, object>)_mockEscrowRepo.ReceivedCalls()
+            .Single(c => c.GetMethodInfo().Name == nameof(IEscrowRepository.UpdateStatusAsync))
+            .GetArguments()[4]!)["completedAt"];
+        await _mockAuditRepo.Received(1).AppendIfAbsentAsync(
             Arg.Is<Dictionary<string, object>>(d =>
                 d.ContainsKey("action") && d["action"].ToString() == "complete" &&
                 d.ContainsKey("fromState") && d["fromState"].ToString() == "released" &&
-                d.ContainsKey("toState") && d["toState"].ToString() == "completed"));
+                d.ContainsKey("toState") && d["toState"].ToString() == "completed" &&
+                (string)d["timestamp"] == completedAt &&
+                (string)d["auditId"] == EscrowAuditRepository.DeterministicAuditId("complete", completedAt)));
+        await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
     }
 
     [Fact]

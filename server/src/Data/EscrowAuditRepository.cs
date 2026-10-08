@@ -46,6 +46,14 @@ public sealed class EscrowAuditRepository : IEscrowAuditRepository
         await _dynamoDb.PutItemAsync(request);
     }
 
+    /// <summary>
+    /// The auditId of a row written at a deterministic key (ESC-02). Every writer of such a
+    /// row (the escrow service and the escrow-cron crash recovery) uses it, so the same
+    /// event is never stored twice.
+    /// </summary>
+    public static string DeterministicAuditId(string action, string timestamp)
+        => $"audit-{action}-{new string(timestamp.Where(char.IsAsciiLetterOrDigit).ToArray())}";
+
     /// <inheritdoc />
     public async Task<bool> AppendIfAbsentAsync(Dictionary<string, object> auditEntry)
     {

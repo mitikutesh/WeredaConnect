@@ -1031,6 +1031,42 @@ public class EscrowServiceManualPayoutTests
     }
 
     [Fact]
+    public async Task Complete_CompleteAuditFailsAfterTheStatusWrite_ResponseStillSaysCompleted()
+    {
+        // The released to completed write landed; only its audit row failed. The answer must
+        // match the row (completed), and the error must not surface as a failed payout.
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"));
+        _auditRepo.AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(e => (string)e["action"] == "complete"))
+            .Returns<bool>(_ => throw new AmazonDynamoDBException("audit down"));
+
+        var result = await Complete("trucker", "TB-REF-0002");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.EscrowStatus.Should().Be("completed");
+        await _escrowRepo.Received(1).UpdateStatusAsync(EscrowId, CreatedAt, "completed", "released",
+            Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task Complete_ReplayOnACompletedEscrow_ReEnsuresTheCompleteRowAtCompletedAt()
+    {
+        var completed = Escrow(status: "completed", queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid", truckerLeg: "paid");
+        completed.Remove(ManualPayoutFields.Marker);
+        completed["completedAt"] = "2026-10-02T10:06:00.0000000Z";
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(completed);
+
+        var result = await Complete("trucker", "TB-REF-TRUCKER");
+
+        result.Value!.AlreadyRecorded.Should().BeTrue();
+        result.Value.EscrowStatus.Should().Be("completed");
+        var complete = AuditEntries().Single(e => (string)e["action"] == "complete");
+        ((string)complete["timestamp"]).Should().Be("2026-10-02T10:06:00.0000000Z");
+        ((string)complete["auditId"]).Should().Be(EscrowAuditRepository.DeterministicAuditId("complete", "2026-10-02T10:06:00.0000000Z"));
+        await _escrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+    }
+
+    [Fact]
     public async Task Complete_PaidAuditUsesTheLegPaidAtAsItsKey()
     {
         _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease));
@@ -1105,7 +1141,7 @@ public class EscrowServiceManualPayoutTests
 
         var frozen = await _service.MarkDisputedFromDeliveryAsync("del-1", BuyerId, "never arrived");
 
-        frozen.Should().BeFalse();
+        frozen.Should().Be(DeliveryDisputeFreeze.RefusedManualPayout);
         await _escrowRepo.DidNotReceive().UpdateStatusAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
         (await AuditWritten("dispute_refused_manual_payout", "deliveryId=del-1;op=release")).Should().BeTrue();
