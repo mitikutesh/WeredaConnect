@@ -35,6 +35,7 @@ String localizeEscrowError(
     'ESCROW_025' => l10n.escrowErrorUnauthorized,
     'ESCROW_026' => l10n.escrowErrorUnauthorized,
     'ESCROW_028' => l10n.escrowErrorInvalidAmount,
+    'ESCROW_038' => l10n.escrowErrorPayoutInProgress,
     'ESCROW_INVALID_TRANSITION' => l10n.escrowErrorInvalidTransition,
     'ESCROW_OFFLINE' => l10n.escrowErrorOffline,
     _ => l10n.escrowErrorGeneric,

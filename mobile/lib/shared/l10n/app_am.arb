@@ -1521,6 +1521,10 @@
   "@escrowErrorDisputeAlreadyExists": {
     "description": "Error when a duplicate dispute is attempted"
   },
+  "escrowErrorPayoutInProgress": "ይህ ክፍያ በአስተዳዳሪ እየተከፈለ ስለሆነ ከእንግዲህ ክርክር ማንሳት አይቻልም። ድጋፍ ሰጪን ያግኙ።",
+  "@escrowErrorPayoutInProgress": {
+    "description": "Error when a dispute is raised on a payment an admin is already paying out by hand (ESCROW_038)"
+  },
   "escrowErrorInvalidTransition": "ይህ ድርጊት በአሁኑ የክፍያ ሁኔታ አይፈቀድም።",
   "@escrowErrorInvalidTransition": {
     "description": "Error when escrow state transition is invalid"

@@ -1180,6 +1180,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'A dispute has already been raised for this payment.';
 
   @override
+  String get escrowErrorPayoutInProgress =>
+      'This payment is already being paid out by an admin, so it can no longer be disputed. Contact support.';
+
+  @override
   String get escrowErrorInvalidTransition =>
       'This action is not allowed in the current payment state.';
 

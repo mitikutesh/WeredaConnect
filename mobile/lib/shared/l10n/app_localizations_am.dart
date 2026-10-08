@@ -1141,6 +1141,10 @@ class AppLocalizationsAm extends AppLocalizations {
   String get escrowErrorDisputeAlreadyExists => 'ለዚህ ክፍያ ቀድሞ ክርክር ተነስቷል።';
 
   @override
+  String get escrowErrorPayoutInProgress =>
+      'ይህ ክፍያ በአስተዳዳሪ እየተከፈለ ስለሆነ ከእንግዲህ ክርክር ማንሳት አይቻልም። ድጋፍ ሰጪን ያግኙ።';
+
+  @override
   String get escrowErrorInvalidTransition => 'ይህ ድርጊት በአሁኑ የክፍያ ሁኔታ አይፈቀድም።';
 
   @override

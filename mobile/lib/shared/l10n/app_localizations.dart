@@ -2272,6 +2272,12 @@ abstract class AppLocalizations {
   /// **'A dispute has already been raised for this payment.'**
   String get escrowErrorDisputeAlreadyExists;
 
+  /// Error when a dispute is raised on a payment an admin is already paying out by hand (ESCROW_038)
+  ///
+  /// In en, this message translates to:
+  /// **'This payment is already being paid out by an admin, so it can no longer be disputed. Contact support.'**
+  String get escrowErrorPayoutInProgress;
+
   /// Error when escrow state transition is invalid
   ///
   /// In en, this message translates to:
