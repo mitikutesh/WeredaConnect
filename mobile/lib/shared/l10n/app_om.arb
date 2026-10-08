@@ -1520,6 +1520,10 @@
   "@escrowErrorDisputeAlreadyExists": {
     "description": "Error when a duplicate dispute is attempted"
   },
+  "escrowErrorPayoutInProgress": "Kaffaltiin kun bulchaan kaffalamaa waan jiruuf, amma komiin itti ka'uu hin danda'u. Deeggarsa qunnamaa.",
+  "@escrowErrorPayoutInProgress": {
+    "description": "Error when a dispute is raised on a payment an admin is already paying out by hand (ESCROW_038)"
+  },
   "escrowErrorInvalidTransition": "Gochi kun haala kaffaltii ammaa keessatti hin hayyamamu.",
   "@escrowErrorInvalidTransition": {
     "description": "Error when escrow state transition is invalid"

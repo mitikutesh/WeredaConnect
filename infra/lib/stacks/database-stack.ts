@@ -352,6 +352,18 @@ export class DatabaseStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // GSI: Manual payout queue (ESC-02). Sparse: only escrows whose release or
+    // refund the live gateway could not make carry manualPayout = "open"; the
+    // sort key orders the queue oldest first. The marker is removed when an
+    // admin records the last leg. See EscrowRepository.QueryOpenManualPayoutsAsync
+    // and GET /admin/payouts/manual.
+    this.escrowsTable.addGlobalSecondaryIndex({
+      indexName: "ManualPayoutIndex",
+      partitionKey: { name: "manualPayout", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "manualPayoutQueuedAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // Escrow audit table (immutable append-only, no updates or deletes)
     const escrowAudit = new WeredaDynamoTable(this, "EscrowAuditTable", {
       tableName: `${prefix}-escrow-audit`,

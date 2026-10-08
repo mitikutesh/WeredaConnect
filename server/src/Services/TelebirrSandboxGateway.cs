@@ -15,8 +15,9 @@ namespace WeredaConnect.Server.Services;
 ///
 /// C2B is asynchronous: HoldFundsAsync returns a ToPayUrl for the buyer to pay;
 /// the escrow only becomes 'escrowed' when TelebirrWebhookFunction receives the
-/// signed notification. Release/Refund (B2B disbursement) remain logged intents
-/// in this phase (SANDBOX-SIM- refs).
+/// signed notification. Release/Refund (B2B disbursement) are NOT integrated:
+/// they fail closed with PAYOUT_NOT_SUPPORTED and the escrow service queues the
+/// settlement for a manual payout in the merchant portal (ESC-02).
 ///
 /// AOT-safe: System.Text.Json source-gen + System.Security.Cryptography only.
 /// </summary>
@@ -144,21 +145,31 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
         }
     }
 
-    /// <summary>Release (B2B disbursement) — logged intent this phase.</summary>
+    /// <summary>
+    /// Release (B2B disbursement): not integrated. Fails closed with
+    /// <see cref="TelebirrGatewayErrors.PayoutNotSupported"/> and makes no HTTP call, so no
+    /// escrow can complete on a payout that never happened (ESC-02). The escrow service
+    /// queues the legs for a manual payout.
+    /// </summary>
     public Task<ReleaseFundsResponse> ReleaseFundsAsync(ReleaseFundsRequest request)
         => Task.FromResult(new ReleaseFundsResponse
         {
-            Success = true,
-            TelebirrRef = $"SANDBOX-SIM-PAYOUT-{ShortHash(request.TransactionRef)}",
+            Success = false,
+            ErrorCode = TelebirrGatewayErrors.PayoutNotSupported,
+            ErrorMessage = PayoutNotSupportedMessage,
         });
 
-    /// <summary>Refund (B2B reverse) — logged intent this phase.</summary>
+    /// <summary>Refund (B2B reverse): not integrated, same fail-closed rule as release.</summary>
     public Task<RefundFundsResponse> RefundFundsAsync(RefundFundsRequest request)
         => Task.FromResult(new RefundFundsResponse
         {
-            Success = true,
-            TelebirrRef = $"SANDBOX-SIM-REFUND-{ShortHash(request.TransactionRef)}",
+            Success = false,
+            ErrorCode = TelebirrGatewayErrors.PayoutNotSupported,
+            ErrorMessage = PayoutNotSupportedMessage,
         });
+
+    private const string PayoutNotSupportedMessage =
+        "Telebirr payouts are not integrated yet. An admin pays this in the merchant portal.";
 
     /// <summary>No status-polling endpoint in H5 C2B; reconciliation relies on webhooks.</summary>
     public Task<TransactionStatusResponse> GetTransactionStatusAsync(string transactionRef)

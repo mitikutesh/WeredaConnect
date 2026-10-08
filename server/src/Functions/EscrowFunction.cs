@@ -413,7 +413,7 @@ public class EscrowFunction
             AuditLogger.LogAudit("ESCROW", "RELEASE",
                 userId: userId, correlationId: releaseCorrelationId,
                 entityType: "escrow", entityId: body.EscrowId,
-                outcome: result.IsSuccess ? "success" : "failure",
+                outcome: SettlementOutcome(result.IsSuccess, result.Error?.Code),
                 errorCode: result.Error?.Code);
 
             return MapResult(result,
@@ -553,7 +553,7 @@ public class EscrowFunction
             AuditLogger.LogAudit("ESCROW", "REFUND",
                 userId: userId, correlationId: refundCorrelationId,
                 entityType: "escrow", entityId: body.EscrowId,
-                outcome: result.IsSuccess ? "success" : "failure",
+                outcome: SettlementOutcome(result.IsSuccess, result.Error?.Code),
                 errorCode: result.Error?.Code);
 
             return MapResult(result,
@@ -777,6 +777,10 @@ public class EscrowFunction
     // ──────────────────────────────────────────────
     // Result mapping
     // ──────────────────────────────────────────────
+
+    /// <summary>ESC-02: a settlement parked in the manual payout queue (202 ESCROW_034) is "queued", not a failure.</summary>
+    private static string SettlementOutcome(bool isSuccess, string? errorCode)
+        => isSuccess ? "success" : errorCode == "ESCROW_034" ? "queued" : "failure";
 
     /// <summary>
     /// Map an EscrowResult to an APIGatewayProxyResponse.

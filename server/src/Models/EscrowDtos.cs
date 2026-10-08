@@ -230,6 +230,100 @@ public sealed record GetEscrowHistoryResponse
 }
 
 // ──────────────────────────────────────────────
+// Manual payout queue (ESC-02, admin)
+// ──────────────────────────────────────────────
+
+/// <summary>
+/// One payee leg of a queued manual payout: who gets paid, how much, and whether an
+/// admin (or the gateway) already paid it.
+/// </summary>
+public sealed record ManualPayoutLegDto
+{
+    /// <summary>Leg name used in the completion URL: farmer, trucker or buyer.</summary>
+    public required string Ref { get; init; }
+
+    public required string PayeeRole { get; init; }
+    public required string PayeeId { get; init; }
+    public string? PayeeName { get; init; }
+
+    /// <summary>Registered phone the admin pays in the merchant portal; null when the profile is missing.</summary>
+    public string? PayeePhone { get; init; }
+
+    /// <summary>False when the payee fails the same identity gate the gateway release applies.</summary>
+    public required bool PayeeVerified { get; init; }
+    public string? BlockReason { get; init; }
+    public required decimal Amount { get; init; }
+
+    /// <summary>pending or paid.</summary>
+    public required string Status { get; init; }
+    public string? ExternalRef { get; init; }
+    public string? PaidBy { get; init; }
+    public string? PaidAt { get; init; }
+}
+
+/// <summary>
+/// An escrow waiting in the manual payout queue (GET /admin/payouts/manual).
+/// </summary>
+public sealed record ManualPayoutDto
+{
+    public required string EscrowId { get; init; }
+    public string? OrderId { get; init; }
+    public string? DeliveryId { get; init; }
+
+    /// <summary>release or refund.</summary>
+    public required string Op { get; init; }
+
+    /// <summary>PAYOUT_NOT_SUPPORTED or GATEWAY_REF_MISSING.</summary>
+    public required string Reason { get; init; }
+    public required string EscrowStatus { get; init; }
+
+    /// <summary>Escrow status when it was queued; differs from <see cref="EscrowStatus"/> after a later dispute.</summary>
+    public required string FromStatus { get; init; }
+
+    /// <summary>
+    /// When the delivery was confirmed, if it was. On a queued refund this means the goods
+    /// arrived after the refund was queued: check before refunding.
+    /// </summary>
+    public string? DeliveryConfirmedAt { get; init; }
+    public required string QueuedAt { get; init; }
+    public required string Currency { get; init; }
+    public required List<ManualPayoutLegDto> Legs { get; init; }
+
+    /// <summary>Sum of the legs still pending.</summary>
+    public required decimal PendingAmount { get; init; }
+}
+
+public sealed record ManualPayoutListResponse
+{
+    public required List<ManualPayoutDto> Payouts { get; init; }
+    public string? NextToken { get; init; }
+    public required int Total { get; init; }
+}
+
+/// <summary>POST /admin/payouts/{escrowId}/{ref}/complete body.</summary>
+public sealed record CompleteManualPayoutRequest
+{
+    /// <summary>The Telebirr merchant-portal transaction id of the payment the admin made.</summary>
+    public string? ExternalRef { get; init; }
+}
+
+public sealed record CompleteManualPayoutResponse
+{
+    public required string EscrowId { get; init; }
+    public string? OrderId { get; init; }
+    public required string Ref { get; init; }
+    public required string LegStatus { get; init; }
+    public required string EscrowStatus { get; init; }
+    public required string ExternalRef { get; init; }
+    public required string PaidAt { get; init; }
+    public required List<string> RemainingLegs { get; init; }
+    public string? Message { get; init; }
+
+    /// <summary>True when this leg was already recorded with the same reference (a replay); nothing new was paid or settled.</summary>
+    public bool AlreadyRecorded { get; init; }
+}
+
+// ──────────────────────────────────────────────
 // Domain DTOs
 // ──────────────────────────────────────────────
 

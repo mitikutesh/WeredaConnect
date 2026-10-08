@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Amazon.DynamoDBv2.Model;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
 using NSubstitute;
@@ -49,6 +50,9 @@ public class EscrowCronFunctionTests
         // Default: every status sweep sees an empty page (tests override the ones they exercise).
         _mockEscrowRepo.QueryByStatusForCronAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
             .Returns(new List<Dictionary<string, object>>());
+        // Default: the manual payout queue is empty.
+        _mockEscrowRepo.QueryOpenManualPayoutsAsync(Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>>(), (Dictionary<string, AttributeValue>?)null));
 
         var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
         _function = new EscrowCronFunction(service, _mockEscrowRepo, _mockAuditRepo, _mockTelebirrGateway);
@@ -110,6 +114,374 @@ public class EscrowCronFunctionTests
         }
 
         return item;
+    }
+
+    // ──────────────────────────────────────────────
+    // Manual payout queue (ESC-02)
+    // ──────────────────────────────────────────────
+
+    private static ReleaseFundsResponse PayoutNotSupportedRelease() => new()
+    {
+        Success = false,
+        ErrorCode = TelebirrGatewayErrors.PayoutNotSupported,
+        ErrorMessage = "not integrated"
+    };
+
+    [Fact]
+    public async Task AutoRelease_ManualPayoutWaiting_IsCountedNotFailed_AndNothingSettles()
+    {
+        var pastWindow = DateTime.UtcNow.AddHours(-49).ToString("o");
+        var deliveryConfirmed = DateTime.UtcNow.AddHours(-50).ToString("o");
+        var escrow = MakeEscrowItem("escrow-q-1", deliveryConfirmedAt: deliveryConfirmed, disputeWindowEndsAt: pastWindow);
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        _mockEscrowRepo.GetByIdAsync("escrow-q-1").Returns(escrow);
+        _mockEscrowRepo.TryQueueManualPayoutAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+            .Returns(true);
+        _mockTelebirrGateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>()).Returns(PayoutNotSupportedRelease());
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"released\":\"0\"", response.Body);
+        Assert.Contains("\"manualPayoutsWaiting\":\"1\"", response.Body);
+        await _mockEscrowRepo.Received(1).TryQueueManualPayoutAsync(
+            "escrow-q-1", Arg.Any<string>(), "release", "PAYOUT_NOT_SUPPORTED", "escrowed",
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
+        await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        await _mockEscrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task AutoRelease_AlreadyQueuedEscrow_SecondRunIsQuiet()
+    {
+        var pastWindow = DateTime.UtcNow.AddHours(-49).ToString("o");
+        var deliveryConfirmed = DateTime.UtcNow.AddHours(-50).ToString("o");
+        var queued = MakeEscrowItem("escrow-q-2", deliveryConfirmedAt: deliveryConfirmed, disputeWindowEndsAt: pastWindow);
+        queued["settlementLock"] = "release";
+        queued[ManualPayoutFields.Marker] = ManualPayoutFields.MarkerOpen;
+        queued[ManualPayoutFields.Op] = "release";
+        queued[ManualPayoutFields.QueuedAt] = DateTime.UtcNow.AddHours(-1).ToString("o");
+        queued[ManualPayoutFields.StatusAttr("farmer")] = "pending";
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { queued });
+        _mockEscrowRepo.GetByIdAsync("escrow-q-2").Returns(queued);
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"manualPayoutsWaiting\":\"1\"", response.Body);
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        await _mockEscrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task AutoRefund_OrderFunded_PayoutNotSupported_CancelsOrderRestoresStockThenQueuesRefund()
+    {
+        var expiredAt = DateTime.UtcNow.AddDays(-1).ToString("o");
+        var escrow = MakeOrderSourcedEscrowItem("escrow-order-ord-9", "ord-9", expiresAt: expiredAt);
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>>());
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", expiresAtBefore: Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        _mockEscrowRepo.GetByIdAsync("escrow-order-ord-9").Returns(escrow);
+        _mockEscrowRepo.TryQueueManualPayoutAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+            .Returns(true);
+        _mockTelebirrGateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>())
+            .Returns(new RefundFundsResponse { Success = false, ErrorCode = TelebirrGatewayErrors.PayoutNotSupported });
+
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("ord-9").Returns(new Dictionary<string, object>
+        {
+            { "orderId", "ord-9" }, { "status", "funded" }, { "version", "2" }, { "listingId", "crop-9" }, { "quantity", "500" }
+        });
+        orderRepo.UpdateAsync("ord-9", Arg.Any<Dictionary<string, object>>(), 2)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "ord-9" }, { "status", "cancelled" }, { "version", "3" }
+            }));
+        var cropRepo = Substitute.For<ICropRepository>();
+
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
+        var function = new EscrowCronFunction(service, _mockEscrowRepo, _mockAuditRepo, _mockTelebirrGateway,
+            orderRepo: orderRepo, cropRepo: cropRepo);
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"refunded\":\"0\"", response.Body);
+        Assert.Contains("\"manualPayoutsWaiting\":\"1\"", response.Body);
+        // The order side effects still run first; only the money waits for the admin.
+        await orderRepo.Received(1).UpdateAsync("ord-9",
+            Arg.Is<Dictionary<string, object>>(d => (string)d["status"] == "cancelled"), 2);
+        await cropRepo.ReceivedWithAnyArgs(1).TryRestoreStockAsync(default!, default!, default);
+        await _mockEscrowRepo.Received(1).TryQueueManualPayoutAsync(
+            "escrow-order-ord-9", Arg.Any<string>(), "refund", "PAYOUT_NOT_SUPPORTED", "escrowed",
+            Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(l => l.Count == 1 && l[0].Leg == "buyer"), Arg.Any<string>());
+        await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), "refunded", Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+    }
+
+    [Fact]
+    public async Task AutoRefund_AlreadyQueuedOrderFundedRefund_SkipsOrderCancelRestockAndService()
+    {
+        var expiredAt = DateTime.UtcNow.AddDays(-1).ToString("o");
+        var escrow = MakeOrderSourcedEscrowItem("escrow-order-ord-9", "ord-9", expiresAt: expiredAt);
+        escrow["settlementLock"] = "refund";
+        escrow[ManualPayoutFields.Marker] = ManualPayoutFields.MarkerOpen;
+        escrow[ManualPayoutFields.Op] = ManualPayoutFields.OpRefund;
+        escrow[ManualPayoutFields.StatusAttr("buyer")] = ManualPayoutFields.LegPending;
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", expiresAtBefore: Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        var orderRepo = Substitute.For<IOrderRepository>();
+        var cropRepo = Substitute.For<ICropRepository>();
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
+        var function = new EscrowCronFunction(service, _mockEscrowRepo, _mockAuditRepo, _mockTelebirrGateway,
+            deliveryRepo: deliveryRepo, orderRepo: orderRepo, cropRepo: cropRepo);
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"manualPayoutsWaiting\":\"1\"", response.Body);
+        await orderRepo.DidNotReceiveWithAnyArgs().GetByIdAsync(default!);
+        await orderRepo.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default!, default);
+        await cropRepo.DidNotReceiveWithAnyArgs().TryRestoreStockAsync(default!, default!, default);
+        await deliveryRepo.DidNotReceiveWithAnyArgs().GetByIdAsync(default!);
+        await _mockEscrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>());
+        await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task AutoRelease_150QueuedRowsAhead_FreshEscrowStillReleased()
+    {
+        // Review finding: queued escrows keep status escrowed and their old expiresAt, so they
+        // sat at the head of the oldest-first StatusExpiresIndex window (limit 100) and no new
+        // escrow was ever released. With the real repository over a DynamoDB that applies
+        // Limit before the filter, the fresh escrow behind 150 queued rows is released.
+        var pastWindow = DateTime.UtcNow.AddHours(-49).ToString("o");
+        var index = Enumerable.Range(0, 150)
+            .Select(n => new Dictionary<string, AttributeValue>
+            {
+                { "escrowId", new AttributeValue { S = $"escrow-queued-{n:D3}" } },
+                { "createdAt", new AttributeValue { S = "2026-09-01T00:00:00Z" } },
+                { "status", new AttributeValue { S = "escrowed" } },
+                { "expiresAt", new AttributeValue { S = $"2026-09-01T00:{n / 60:D2}:{n % 60:D2}Z" } },
+                { "deliveryConfirmedAt", new AttributeValue { S = pastWindow } },
+                { "disputeWindowEndsAt", new AttributeValue { S = pastWindow } },
+                { "settlementLock", new AttributeValue { S = "release" } },
+                { "manualPayout", new AttributeValue { S = "open" } }
+            })
+            .ToList();
+        var fresh = new Dictionary<string, AttributeValue>
+        {
+            { "escrowId", new AttributeValue { S = "escrow-fresh" } },
+            { "createdAt", new AttributeValue { S = "2026-10-01T00:00:00Z" } },
+            { "deliveryId", new AttributeValue { S = "del-fresh" } },
+            { "buyerId", new AttributeValue { S = "buyer-1" } },
+            { "farmerId", new AttributeValue { S = "farmer-1" } },
+            { "status", new AttributeValue { S = "escrowed" } },
+            { "amount", new AttributeValue { N = "1000" } },
+            { "commission", new AttributeValue { N = "25" } },
+            { "farmerPayout", new AttributeValue { N = "975" } },
+            { "telebirrHoldRef", new AttributeValue { S = "HOLD-FRESH" } },
+            { "expiresAt", new AttributeValue { S = "2026-10-08T00:00:00Z" } },
+            { "deliveryConfirmedAt", new AttributeValue { S = pastWindow } },
+            { "disputeWindowEndsAt", new AttributeValue { S = pastWindow } },
+            { "version", new AttributeValue { N = "1" } }
+        };
+        index.Add(fresh);
+        var statusQueries = new List<QueryRequest>();
+        var db = Substitute.For<Amazon.DynamoDBv2.IAmazonDynamoDB>();
+        db.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            var r = call.Arg<QueryRequest>();
+            if (r.IndexName == "StatusExpiresIndex")
+            {
+                statusQueries.Add(r);
+                if (r.ExpressionAttributeValues[":status"].S != "escrowed" || r.KeyConditionExpression.Contains("expiresAt"))
+                {
+                    return new QueryResponse { Items = new List<Dictionary<string, AttributeValue>>() };
+                }
+
+                var start = r.ExclusiveStartKey is { Count: > 0 } key
+                    ? index.FindIndex(i => i["escrowId"].S == key["escrowId"].S) + 1
+                    : 0;
+                var evaluated = index.Skip(start).Take(r.Limit).ToList();
+                return new QueryResponse
+                {
+                    Items = evaluated.Where(i => !(r.FilterExpression ?? "").Contains("attribute_not_exists(#manualPayout)")
+                                                 || !i.ContainsKey("manualPayout")).ToList(),
+                    LastEvaluatedKey = start + evaluated.Count < index.Count
+                        ? new Dictionary<string, AttributeValue> { { "escrowId", evaluated[^1]["escrowId"] } }
+                        : new Dictionary<string, AttributeValue>()
+                };
+            }
+
+            if (r.IndexName == null && r.ExpressionAttributeValues[":id"].S == "escrow-fresh")
+            {
+                return new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { fresh } };
+            }
+
+            return new QueryResponse { Items = new List<Dictionary<string, AttributeValue>>() };
+        });
+        db.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>()).Returns(new UpdateItemResponse());
+        var repo = new EscrowRepository(db, "escrows");
+        _mockIdempotencyRepo.StoreAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
+            .Returns(true);
+        var service = new EscrowService(repo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
+        var function = new EscrowCronFunction(service, repo, _mockAuditRepo, _mockTelebirrGateway);
+
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockTelebirrGateway.Received(1).ReleaseFundsAsync(
+            Arg.Is<ReleaseFundsRequest>(r => r.TransactionRef == "release:escrow-fresh"));
+        Assert.Contains("\"released\":\"1\"", response.Body);
+        var releaseSweep = statusQueries
+            .Where(q => q.ExpressionAttributeValues[":status"].S == "escrowed" && !q.KeyConditionExpression.Contains("expiresAt"))
+            .ToList();
+        Assert.Equal(2, releaseSweep.Count); // the first page held only queued rows; paging went on
+        Assert.All(statusQueries, q => Assert.Contains("attribute_not_exists(#manualPayout)", q.FilterExpression));
+    }
+
+    // ──────────────────────────────────────────────
+    // ESC-02 producer of the ESC-13 MANUAL_PAYOUT_OVERDUE alarm
+    // ──────────────────────────────────────────────
+
+    private string Logs => ((TestLambdaLogger)_context.Logger).Buffer.ToString();
+
+    private static Dictionary<string, object> QueuedRow(
+        string escrowId, double hoursAgo, string op = "release", params (string Leg, string Status)[] legs)
+    {
+        var row = new Dictionary<string, object>
+        {
+            { "escrowId", escrowId },
+            { "createdAt", "2026-10-01T10:00:00.0000000Z" },
+            { "status", "escrowed" },
+            { ManualPayoutFields.Marker, ManualPayoutFields.MarkerOpen },
+            { ManualPayoutFields.Op, op },
+            { ManualPayoutFields.QueuedAt, DateTime.UtcNow.AddHours(-hoursAgo).ToString("o") }
+        };
+        foreach (var (leg, status) in legs)
+        {
+            row[ManualPayoutFields.StatusAttr(leg)] = status;
+        }
+
+        return row;
+    }
+
+    private void StubQueue(params (List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? Next)[] pages)
+    {
+        var first = pages[0];
+        var rest = pages.Skip(1).ToArray();
+        _mockEscrowRepo.QueryOpenManualPayoutsAsync(Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns(first, rest);
+    }
+
+    [Fact]
+    public async Task ManualPayoutOverdue_LogsOneLinePerPendingLegOlderThan24h()
+    {
+        StubQueue((new List<Dictionary<string, object>>
+        {
+            QueuedRow("escrow-old", 26.5, "release", ("farmer", "pending"), ("trucker", "paid")),
+            QueuedRow("escrow-young", 2, "refund", ("buyer", "pending"))
+        }, null));
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("MANUAL_PAYOUT_OVERDUE escrowId=escrow-old ref=release:farmer ageHours=26", Logs);
+        Assert.DoesNotContain("ref=release:trucker", Logs);
+        Assert.DoesNotContain("escrowId=escrow-young", Logs);
+        Assert.Contains("\"manualPayoutsOverdue\":\"1\"", response.Body);
+    }
+
+    [Fact]
+    public async Task ManualPayoutOverdue_EveryPendingLegGetsALine()
+    {
+        StubQueue((new List<Dictionary<string, object>>
+        {
+            QueuedRow("escrow-old", 30, "release", ("farmer", "pending"), ("trucker", "pending"))
+        }, null));
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Contains("MANUAL_PAYOUT_OVERDUE escrowId=escrow-old ref=release:farmer ageHours=30", Logs);
+        Assert.Contains("MANUAL_PAYOUT_OVERDUE escrowId=escrow-old ref=release:trucker ageHours=30", Logs);
+        Assert.Contains("\"manualPayoutsOverdue\":\"2\"", response.Body);
+    }
+
+    [Fact]
+    public async Task ManualPayoutOverdue_OpenRowWithoutPendingLeg_StillLogsALine()
+    {
+        // Every leg paid but the marker is still open: the admin page cannot close it.
+        StubQueue((new List<Dictionary<string, object>>
+        {
+            QueuedRow("escrow-stuck", 40, "refund", ("buyer", "paid"))
+        }, null));
+
+        await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Contains("MANUAL_PAYOUT_OVERDUE escrowId=escrow-stuck ref=refund:no_pending_leg ageHours=40", Logs);
+    }
+
+    [Fact]
+    public async Task ManualPayoutOverdue_PagesWhileTheOldestAreOverdue_StopsAtTheFirstYoungRow()
+    {
+        var next = new Dictionary<string, AttributeValue> { { "escrowId", new AttributeValue { S = "escrow-a" } } };
+        StubQueue(
+            (new List<Dictionary<string, object>> { QueuedRow("escrow-a", 50, "refund", ("buyer", "pending")) }, next),
+            (new List<Dictionary<string, object>>
+            {
+                QueuedRow("escrow-b", 25, "refund", ("buyer", "pending")),
+                QueuedRow("escrow-c", 1, "refund", ("buyer", "pending"))
+            }, next));
+
+        await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Contains("escrowId=escrow-a ref=refund:buyer", Logs);
+        Assert.Contains("escrowId=escrow-b ref=refund:buyer", Logs);
+        Assert.DoesNotContain("escrowId=escrow-c", Logs);
+        // Two pages read; the young row ended the report before a third page.
+        await _mockEscrowRepo.Received(2).QueryOpenManualPayoutsAsync(50, Arg.Any<Dictionary<string, AttributeValue>?>());
+        await _mockEscrowRepo.Received(1).QueryOpenManualPayoutsAsync(50, next);
+    }
+
+    [Fact]
+    public async Task ManualPayoutOverdue_QueryFails_LogsSettlementFailedAndTheSweepsStillRun()
+    {
+        _mockEscrowRepo.QueryOpenManualPayoutsAsync(Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .ThrowsAsync(new InvalidOperationException("index missing"));
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains(
+            "ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_failed outcome=failed code=manual_payout_query:InvalidOperationException",
+            Logs);
+        await _mockEscrowRepo.Received().QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task ManualPayoutOverdue_RunsEvenWhenALaterSweepThrows()
+    {
+        StubQueue((new List<Dictionary<string, object>>
+        {
+            QueuedRow("escrow-old", 26, "refund", ("buyer", "pending"))
+        }, null));
+        _mockEscrowRepo.QueryByStatusForCronAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .ThrowsAsync(new InvalidOperationException("query failed"));
+
+        await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Contains("MANUAL_PAYOUT_OVERDUE escrowId=escrow-old ref=refund:buyer ageHours=26", Logs);
     }
 
     // ──────────────────────────────────────────────
@@ -498,11 +870,18 @@ public class EscrowCronFunctionTests
             "completed",
             "released",
             Arg.Any<Dictionary<string, object>>());
-        await _mockAuditRepo.Received(1).AppendAsync(
+        // ESC-02: keyed on the completedAt it wrote, the key a manual payout replay re-ensures.
+        var completedAt = (string)((Dictionary<string, object>)_mockEscrowRepo.ReceivedCalls()
+            .Single(c => c.GetMethodInfo().Name == nameof(IEscrowRepository.UpdateStatusAsync))
+            .GetArguments()[4]!)["completedAt"];
+        await _mockAuditRepo.Received(1).AppendIfAbsentAsync(
             Arg.Is<Dictionary<string, object>>(d =>
                 d.ContainsKey("action") && d["action"].ToString() == "complete" &&
                 d.ContainsKey("fromState") && d["fromState"].ToString() == "released" &&
-                d.ContainsKey("toState") && d["toState"].ToString() == "completed"));
+                d.ContainsKey("toState") && d["toState"].ToString() == "completed" &&
+                (string)d["timestamp"] == completedAt &&
+                (string)d["auditId"] == EscrowAuditRepository.DeterministicAuditId("complete", completedAt)));
+        await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
     }
 
     [Fact]

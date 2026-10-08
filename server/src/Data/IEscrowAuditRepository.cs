@@ -12,6 +12,13 @@ public interface IEscrowAuditRepository
     Task AppendAsync(Dictionary<string, object> auditEntry);
 
     /// <summary>
+    /// ESC-02: append an entry whose key (<c>escrowId</c> + <c>timestamp</c>) is deterministic,
+    /// only if no entry with that key exists. Returns false when it already exists, so a
+    /// replay can re-ensure an audit row without writing it twice.
+    /// </summary>
+    Task<bool> AppendIfAbsentAsync(Dictionary<string, object> auditEntry);
+
+    /// <summary>
     /// Get the full audit trail for an escrow, ordered by timestamp.
     /// </summary>
     Task<List<Dictionary<string, object>>> GetAuditTrailAsync(string escrowId);

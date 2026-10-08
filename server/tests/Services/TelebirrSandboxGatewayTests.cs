@@ -151,22 +151,45 @@ public class TelebirrSandboxGatewayTests
     }
 
     [Fact]
-    public async Task Release_and_refund_return_sandbox_sim_refs()
+    public async Task Release_and_refund_fail_closed_with_payout_not_supported()
     {
+        // ESC-02: no B2B payout API yet, so the gateway must never report a payout it
+        // did not make. No HTTP request may leave the gateway either.
+        var requests = 0;
         var gateway = new TelebirrSandboxGateway(
-            new HttpClient(new FakeHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)))),
+            new HttpClient(new FakeHandler(_ =>
+            {
+                requests++;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+            })),
             new TelebirrSignatureService(TestPrivateKeyPem, TestPublicKeyPem),
             TestConfig());
 
-        (await gateway.ReleaseFundsAsync(new ReleaseFundsRequest
+        var release = await gateway.ReleaseFundsAsync(new ReleaseFundsRequest
         {
-            TransactionRef = "release:e1", HoldRef = "h", FarmerPhone = "+2519", Amount = 1m, PlatformCommission = 0m,
-        })).TelebirrRef.Should().StartWith("SANDBOX-SIM-PAYOUT-");
+            TransactionRef = "release:e1",
+            HoldRef = "h",
+            FarmerPhone = "+2519",
+            Amount = 1m,
+            PlatformCommission = 0m,
+        });
+        release.Success.Should().BeFalse();
+        release.ErrorCode.Should().Be(TelebirrGatewayErrors.PayoutNotSupported);
+        release.TelebirrRef.Should().BeNull();
+        release.ErrorMessage.Should().Contain("merchant portal");
 
-        (await gateway.RefundFundsAsync(new RefundFundsRequest
+        var refund = await gateway.RefundFundsAsync(new RefundFundsRequest
         {
-            TransactionRef = "refund:e1", HoldRef = "h", BuyerPhone = "+2519", Amount = 1m,
-        })).TelebirrRef.Should().StartWith("SANDBOX-SIM-REFUND-");
+            TransactionRef = "refund:e1",
+            HoldRef = "h",
+            BuyerPhone = "+2519",
+            Amount = 1m,
+        });
+        refund.Success.Should().BeFalse();
+        refund.ErrorCode.Should().Be(TelebirrGatewayErrors.PayoutNotSupported);
+        refund.TelebirrRef.Should().BeNull();
+
+        requests.Should().Be(0);
     }
 
     /// <summary>

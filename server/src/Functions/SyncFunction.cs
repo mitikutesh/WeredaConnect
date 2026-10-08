@@ -4708,19 +4708,24 @@ public partial class SyncFunction
                             && operation.Data.TryGetValue("status", out var followStatusObj)
                             && followStatusObj?.ToString() is string followStatus)
                         {
-                            if (existing.TryGetValue("orderId", out var followOid) && !string.IsNullOrEmpty(followOid.S))
-                            {
-                                await TryAdvanceOrderForDeliveryAsync(followOid.S, followStatus, context);
-                            }
-
                             // SIM-12: a disputed handoff must freeze the escrowed money too, or the
-                            // 48-hour auto-release would still pay the farmer.
+                            // 48-hour auto-release would still pay the farmer. ESC-02: an escrow whose
+                            // settlement waits in the manual payout queue refuses the freeze, and the
+                            // order is then left as it is too (no disputed order over a queued payout).
+                            var mirrorOrder = true;
                             if (followStatus == "disputed")
                             {
                                 var disputeText = operation.Data.TryGetValue("disputeReason", out var disputeTextObj)
                                     ? disputeTextObj?.ToString() : null;
-                                await TryFreezeEscrowForDisputedDeliveryAsync(
-                                    operation.EntityId, authenticatedUserId, disputeText, context);
+                                mirrorOrder = await TryFreezeEscrowForDisputedDeliveryAsync(
+                                    operation.EntityId, authenticatedUserId, disputeText, context)
+                                    != DeliveryDisputeFreeze.RefusedManualPayout;
+                            }
+
+                            if (mirrorOrder
+                                && existing.TryGetValue("orderId", out var followOid) && !string.IsNullOrEmpty(followOid.S))
+                            {
+                                await TryAdvanceOrderForDeliveryAsync(followOid.S, followStatus, context);
                             }
                         }
 
@@ -5589,25 +5594,31 @@ public partial class SyncFunction
     /// service's status write and audit (no idempotency record: the sync op is already
     /// idempotent). Best-effort; a failure is logged and never fails the delivery update.
     /// </summary>
-    private async Task TryFreezeEscrowForDisputedDeliveryAsync(
+    private async Task<DeliveryDisputeFreeze> TryFreezeEscrowForDisputedDeliveryAsync(
         string deliveryId, string? disputedBy, string? reason, ILambdaContext context)
     {
         if (_orderEscrowService == null || string.IsNullOrEmpty(disputedBy))
         {
-            return;
+            return DeliveryDisputeFreeze.NothingToFreeze;
         }
 
         try
         {
-            var frozen = await _orderEscrowService.MarkDisputedFromDeliveryAsync(deliveryId, disputedBy, reason);
-            context.Logger.LogInformation(frozen
-                ? $"Escrow for delivery {deliveryId} disputed by {disputedBy}"
-                : $"No escrowed money to freeze for disputed delivery {deliveryId}");
+            var outcome = await _orderEscrowService.MarkDisputedFromDeliveryAsync(deliveryId, disputedBy, reason);
+            context.Logger.LogInformation(outcome switch
+            {
+                DeliveryDisputeFreeze.Frozen => $"Escrow for delivery {deliveryId} disputed by {disputedBy}",
+                DeliveryDisputeFreeze.RefusedManualPayout =>
+                    $"Escrow for disputed delivery {deliveryId} waits in the manual payout queue; escrow and order left as they are",
+                _ => $"No escrowed money to freeze for disputed delivery {deliveryId}"
+            });
+            return outcome;
         }
         catch (Exception ex)
         {
             context.Logger.LogWarning(
                 $"Failed to freeze escrow for disputed delivery {deliveryId}: [{ex.GetType().Name}] {ex.Message}");
+            return DeliveryDisputeFreeze.NothingToFreeze;
         }
     }
 

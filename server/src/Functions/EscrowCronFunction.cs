@@ -58,6 +58,21 @@ public class EscrowCronFunction
 
     private const int OrderEscrowExpiryExtensionHours = 48;
 
+    /// <summary>
+    /// ESC-02: settlements this run found waiting in the manual payout queue (202
+    /// ESCROW_034). Not a failure: the gateway cannot pay out and an admin settles them.
+    /// Reset at the start of each auto_release_and_refund run; Lambda runs one invocation
+    /// per instance at a time.
+    /// </summary>
+    private int _manualPayoutsWaiting;
+
+    /// <summary>ESC-02: page size and page cap of the hourly overdue-payout report.</summary>
+    private const int ManualPayoutReportPageSize = 50;
+    private const int ManualPayoutReportMaxPages = 20;
+
+    /// <summary>A manual payout older than this logs MANUAL_PAYOUT_OVERDUE every run (ESC-13).</summary>
+    private static readonly TimeSpan ManualPayoutOverdueAfter = TimeSpan.FromHours(24);
+
     private const int ReconciliationStaleMinutes = 30;
 
     /// <summary>
@@ -201,6 +216,9 @@ public class EscrowCronFunction
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleAutoReleaseAndRefundAsync(ILambdaContext context)
     {
+        _manualPayoutsWaiting = 0;
+        // First and self-contained, so a failing sweep below can never skip the overdue alarm lines.
+        var overdueCount = await ReportOverdueManualPayoutsAsync(context);
         var releaseCount = await AutoReleaseAsync(context);
         var refundCount = await AutoRefundAsync(context);
         var (settledReleases, settledRefunds) = await SettleResolvedDisputesAsync(context);
@@ -213,12 +231,15 @@ public class EscrowCronFunction
             { "refunded", (refundCount + settledRefunds).ToString() },
             { "disputesSettled", (settledReleases + settledRefunds).ToString() },
             { "completed", completedCount.ToString() },
+            { "manualPayoutsWaiting", _manualPayoutsWaiting.ToString() },
+            { "manualPayoutsOverdue", overdueCount.ToString() },
             { "completedAt", DateTime.UtcNow.ToString("o") }
         };
 
         context.Logger.LogInformation(
             $"Auto-release/refund complete: {releaseCount} released, {refundCount} refunded, "
-            + $"{settledReleases + settledRefunds} resolved disputes settled, {completedCount} crash-recovered to completed.");
+            + $"{settledReleases + settledRefunds} resolved disputes settled, {completedCount} crash-recovered to completed, "
+            + $"{_manualPayoutsWaiting} waiting for a manual payout, {overdueCount} manual payout legs overdue.");
 
         return new APIGatewayProxyResponse
         {
@@ -263,49 +284,57 @@ public class EscrowCronFunction
                 switch (resolution)
                 {
                     case "farmer_wins":
-                    {
-                        var result = await _escrowService.ReleaseAsync(
-                            new ReleaseEscrowRequest
+                        {
+                            var result = await _escrowService.ReleaseAsync(
+                                new ReleaseEscrowRequest
+                                {
+                                    EscrowId = escrowId,
+                                    Trigger = "dispute_resolved",
+                                    DeliveryId = deliveryId,
+                                    IdempotencyKey = $"system:{escrowId}:dispute_release:{hourBucket}"
+                                },
+                                authenticatedUserId: "system");
+                            if (result.IsSuccess)
                             {
-                                EscrowId = escrowId,
-                                Trigger = "dispute_resolved",
-                                DeliveryId = deliveryId,
-                                IdempotencyKey = $"system:{escrowId}:dispute_release:{hourBucket}"
-                            },
-                            authenticatedUserId: "system");
-                        if (result.IsSuccess)
-                        {
-                            released++;
+                                released++;
+                            }
+                            else if (IsManualPayoutWaiting(result.Error))
+                            {
+                                NoteManualPayoutWaiting(context, escrowId, "dispute release");
+                            }
+                            else
+                            {
+                                context.Logger.LogError(
+                                    $"Dispute settlement (release) failed for {escrowId}: {result.Error?.Code} - {result.Error?.Message}");
+                            }
+                            break;
                         }
-                        else
-                        {
-                            context.Logger.LogError(
-                                $"Dispute settlement (release) failed for {escrowId}: {result.Error?.Code} - {result.Error?.Message}");
-                        }
-                        break;
-                    }
                     case "buyer_wins":
-                    {
-                        var result = await _escrowService.RefundAsync(
-                            new RefundEscrowRequest
+                        {
+                            var result = await _escrowService.RefundAsync(
+                                new RefundEscrowRequest
+                                {
+                                    EscrowId = escrowId,
+                                    Trigger = "dispute_resolved",
+                                    Reason = "Dispute resolved in the buyer's favour.",
+                                    IdempotencyKey = $"system:{escrowId}:dispute_refund:{hourBucket}"
+                                },
+                                authenticatedUserId: "system");
+                            if (result.IsSuccess)
                             {
-                                EscrowId = escrowId,
-                                Trigger = "dispute_resolved",
-                                Reason = "Dispute resolved in the buyer's favour.",
-                                IdempotencyKey = $"system:{escrowId}:dispute_refund:{hourBucket}"
-                            },
-                            authenticatedUserId: "system");
-                        if (result.IsSuccess)
-                        {
-                            refunded++;
+                                refunded++;
+                            }
+                            else if (IsManualPayoutWaiting(result.Error))
+                            {
+                                NoteManualPayoutWaiting(context, escrowId, "dispute refund");
+                            }
+                            else
+                            {
+                                context.Logger.LogError(
+                                    $"Dispute settlement (refund) failed for {escrowId}: {result.Error?.Code} - {result.Error?.Message}");
+                            }
+                            break;
                         }
-                        else
-                        {
-                            context.Logger.LogError(
-                                $"Dispute settlement (refund) failed for {escrowId}: {result.Error?.Code} - {result.Error?.Message}");
-                        }
-                        break;
-                    }
                     default:
                         context.Logger.LogWarning(
                             $"Dispute {escrowId} resolved as '{resolution ?? "unset"}': no automatic settlement, admin must release or refund.");
@@ -380,6 +409,10 @@ public class EscrowCronFunction
                 {
                     releaseCount++;
                 }
+                else if (IsManualPayoutWaiting(result.Error))
+                {
+                    NoteManualPayoutWaiting(context, escrowId, "auto-release");
+                }
                 else
                 {
                     context.Logger.LogError(
@@ -417,6 +450,15 @@ public class EscrowCronFunction
                 var deliveryConfirmedAt = GetStringOrNull(escrow, "deliveryConfirmedAt");
                 if (!string.IsNullOrEmpty(deliveryConfirmedAt))
                 {
+                    continue;
+                }
+
+                // ESC-02: a refund already waiting in the manual payout queue is left to the admin.
+                // Skipped before the delivery stamp and the order cancel and restock below, which
+                // must not run again.
+                if (EscrowService.IsManualPayoutOpen(escrow))
+                {
+                    NoteManualPayoutWaiting(context, GetString(escrow, "escrowId"), "auto-refund");
                     continue;
                 }
 
@@ -522,6 +564,10 @@ public class EscrowCronFunction
                 {
                     refundCount++;
                 }
+                else if (IsManualPayoutWaiting(result.Error))
+                {
+                    NoteManualPayoutWaiting(context, escrowId, "auto-refund");
+                }
                 else
                 {
                     context.Logger.LogError(
@@ -536,6 +582,101 @@ public class EscrowCronFunction
         }
 
         return refundCount;
+    }
+
+    /// <summary>ESC-02: 202 ESCROW_034 means the settlement sits in the manual payout queue.</summary>
+    private static bool IsManualPayoutWaiting(EscrowResultError? error)
+        => error != null && error.HttpStatus == 202 && error.Code == "ESCROW_034";
+
+    /// <summary>
+    /// Logged at Information with a stable token, never as an error: the gateway cannot pay
+    /// out and the admin queue owns the settlement. No alarm counts it; the overdue report
+    /// below feeds the alarm.
+    /// </summary>
+    private void NoteManualPayoutWaiting(ILambdaContext context, string escrowId, string sweep)
+    {
+        _manualPayoutsWaiting++;
+        context.Logger.LogInformation($"ESCROW_MANUAL_PAYOUT_WAITING escrowId={escrowId} sweep={sweep}");
+    }
+
+    /// <summary>
+    /// ESC-02 producer of the ESC-13 <c>MANUAL_PAYOUT_OVERDUE</c> alarm: one line per pending
+    /// leg of every manual payout queued more than 24 hours ago, every hourly run (the
+    /// metric filter sits on this Lambda's log group). The index is oldest first, so paging
+    /// stops at the first younger row. An open row without a pending leg cannot close from
+    /// the admin page, so it gets a line too. Never throws: a failed query logs a
+    /// settlement-failure line instead, so the operator still hears about it.
+    /// </summary>
+    private async Task<int> ReportOverdueManualPayoutsAsync(ILambdaContext context)
+    {
+        var now = DateTime.UtcNow;
+        var lines = 0;
+        try
+        {
+            Dictionary<string, Amazon.DynamoDBv2.Model.AttributeValue>? startKey = null;
+            for (var page = 1; page <= ManualPayoutReportMaxPages; page++)
+            {
+                var (items, lastKey) = await _escrowRepo.QueryOpenManualPayoutsAsync(ManualPayoutReportPageSize, startKey);
+                foreach (var item in items)
+                {
+                    var queuedAt = GetStringOrNull(item, ManualPayoutFields.QueuedAt);
+                    var age = DateTime.TryParse(queuedAt, CultureInfo.InvariantCulture,
+                        DateTimeStyles.RoundtripKind, out var queued)
+                        ? now - queued.ToUniversalTime()
+                        : ManualPayoutOverdueAfter; // unreadable time: treat as overdue
+                    if (age < ManualPayoutOverdueAfter)
+                    {
+                        return lines;
+                    }
+
+                    var escrowId = GetStringOrNull(item, "escrowId");
+                    var op = GetStringOrNull(item, ManualPayoutFields.Op) ?? "unknown";
+                    var ageHours = (int)age.TotalHours;
+                    var pending = ManualPayoutFields.AllLegs
+                        .Where(leg => GetStringOrNull(item, ManualPayoutFields.StatusAttr(leg)) == ManualPayoutFields.LegPending)
+                        .ToList();
+                    foreach (var leg in pending.Count > 0 ? pending : ["no_pending_leg"])
+                    {
+                        context.Logger.LogWarning(ManualPayoutOverdueLine(escrowId, $"{op}:{leg}", ageHours));
+                        lines++;
+                    }
+                }
+
+                if (lastKey == null)
+                {
+                    return lines;
+                }
+
+                startKey = lastKey;
+            }
+
+            context.Logger.LogWarning(
+                $"Manual payout report stopped after {ManualPayoutReportMaxPages} pages; older entries may be unreported.");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(
+                $"ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_failed outcome=failed code={AlarmField($"manual_payout_query:{ex.GetType().Name}")}");
+        }
+
+        return lines;
+    }
+
+    /// <summary>
+    /// The ESC-13 line format (<c>MoneyAlarmLog.ManualPayoutOverdue</c> in PR #113, which
+    /// switches this producer to that helper when it lands).
+    /// </summary>
+    private static string ManualPayoutOverdueLine(string? escrowId, string reference, int ageHours)
+        => $"MANUAL_PAYOUT_OVERDUE escrowId={AlarmField(escrowId)} ref={AlarmField(reference)} ageHours={Math.Max(0, ageHours)}";
+
+    /// <summary>Keep [A-Za-z0-9-_.:], cut at 64 characters, empty becomes "-" (ESC-13 field rule).</summary>
+    private static string AlarmField(string? value)
+    {
+        var safe = new string((value ?? "")
+            .Where(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.' or ':')
+            .Take(64)
+            .ToArray());
+        return safe.Length == 0 ? "-" : safe;
     }
 
     /// <summary>
@@ -651,8 +792,19 @@ public class EscrowCronFunction
                 await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "completed", "released",
                     new Dictionary<string, object> { { "completedAt", now } });
 
-                await AppendAuditAsync(escrowId, "complete", "released", "completed",
-                    "system", metadata: "crash_recovery");
+                // Keyed on completedAt like the escrow service's complete row (ESC-02), so a
+                // manual payout replay that re-ensures it never writes a second one.
+                await _auditRepo.AppendIfAbsentAsync(new Dictionary<string, object>
+                {
+                    { "auditId", EscrowAuditRepository.DeterministicAuditId("complete", now) },
+                    { "escrowId", escrowId },
+                    { "action", "complete" },
+                    { "fromState", "released" },
+                    { "toState", "completed" },
+                    { "actor", "system" },
+                    { "timestamp", now },
+                    { "metadata", "crash_recovery" }
+                });
 
                 completedCount++;
             }

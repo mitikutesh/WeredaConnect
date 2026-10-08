@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
 // Dashboard
@@ -95,6 +95,44 @@ export function useUserAction() {
       api.post(`/admin/users/${id}/action`, action),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+    },
+  });
+}
+
+// Manual payout queue (ESC-02): settlements the live gateway could not make.
+// Oldest first, 50 per page; the page loads the next page on demand.
+export function useManualPayouts() {
+  return useInfiniteQuery({
+    queryKey: ["admin", "payouts"],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.get<{ payouts?: unknown[]; nextToken?: string | null }>(
+        `/admin/payouts/manual?limit=50${pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""}`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
+  });
+}
+
+export function useCompleteManualPayout() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      escrowId,
+      ref,
+      externalRef,
+    }: {
+      escrowId: string;
+      ref: string;
+      externalRef: string;
+    }) =>
+      api.post(
+        `/admin/payouts/${encodeURIComponent(escrowId)}/${encodeURIComponent(ref)}/complete`,
+        { externalRef },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "payouts"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "escrows"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
     },
   });
 }

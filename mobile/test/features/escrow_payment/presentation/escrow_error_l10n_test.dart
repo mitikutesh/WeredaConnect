@@ -21,6 +21,23 @@ void main() {
       }
     });
 
+    test(
+        'ESCROW_038 (dispute on a payout an admin is paying by hand) has its '
+        'own message in all three languages', () async {
+      for (final code in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(code));
+        final message = localizeEscrowError(l10n, 'ESCROW_038', 'raw');
+
+        expect(message, l10n.escrowErrorPayoutInProgress, reason: code);
+        expect(message, isNot(l10n.escrowErrorGeneric), reason: code);
+        expect(
+          message,
+          isNot(l10n.escrowErrorDisputeAlreadyExists),
+          reason: code,
+        );
+      }
+    });
+
     test('the SIM-04 initiate codes no longer fall through to generic',
         () async {
       final l10n = await AppLocalizations.delegate.load(const Locale('en'));

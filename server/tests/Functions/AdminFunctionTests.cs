@@ -5,6 +5,7 @@ using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
 using FluentAssertions;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Functions;
 using Xunit;
 using WeredaConnect.Server.Services;
@@ -789,7 +790,300 @@ public class AdminFunctionTests
         response.Body.Should().Contain("dispute_resolved");
         response.Body.Should().Contain("settlement sweep releases");
         await _dynamoDb.Received(1).UpdateItemAsync(
-            Arg.Is<UpdateItemRequest>(u => u.ExpressionAttributeValues[":resolution"].S == "farmer_wins"),
+            Arg.Is<UpdateItemRequest>(u => u.ExpressionAttributeValues[":resolution"].S == "farmer_wins"
+                                           && u.ConditionExpression.Contains("attribute_not_exists(#manualPayout)")),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveDispute_ManualPayoutOpen_Returns409Admin013()
+    {
+        // ESC-02: a verdict cannot contradict a settlement already waiting in the queue.
+        _dynamoDb.QueryAsync(Arg.Any<QueryRequest>()).Returns(new QueryResponse
+        {
+            Items =
+            [
+                new Dictionary<string, AttributeValue>
+                {
+                    { "escrowId", new AttributeValue { S = "escrow-9" } },
+                    { "createdAt", new AttributeValue { S = "2026-09-20T10:00:00Z" } },
+                    { "status", new AttributeValue { S = "disputed" } },
+                    { "manualPayout", new AttributeValue { S = "open" } },
+                    { "manualPayoutOp", new AttributeValue { S = "release" } }
+                }
+            ]
+        });
+        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("queued"));
+        var authorizer = new APIGatewayCustomAuthorizerContext { { "sub", "admin-1" }, { "role", "admin" } };
+        var request = new APIGatewayProxyRequest
+        {
+            HttpMethod = "POST",
+            Path = "/admin/disputes/escrow-9/resolve",
+            Body = JsonSerializer.Serialize(new { resolution = "buyer_wins", action = "refund" }),
+            RequestContext = new APIGatewayProxyRequest.ProxyRequestContext { Authorizer = authorizer },
+        };
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        response.StatusCode.Should().Be(409);
+        response.Body.Should().Contain("ADMIN_013");
+        await _dynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    // ──────────────────────────────────────────────
+    // Manual payout queue (ESC-02)
+    // ──────────────────────────────────────────────
+
+    private static APIGatewayProxyRequest AdminGroupRequest(
+        string method, string path, string? body = null, Dictionary<string, string>? query = null)
+    {
+        // Admin-pool tokens carry cognito:groups; money-affecting routes require the group.
+        var authorizer = new APIGatewayCustomAuthorizerContext
+        {
+            { "sub", "admin-1" },
+            { "cognito:groups", "admin" },
+        };
+        return new APIGatewayProxyRequest
+        {
+            HttpMethod = method,
+            Path = path,
+            Body = body,
+            QueryStringParameters = query,
+            RequestContext = new APIGatewayProxyRequest.ProxyRequestContext { Authorizer = authorizer },
+        };
+    }
+
+    private static Dictionary<string, AttributeValue> QueuedRefundEscrowItem() => new()
+    {
+        ["escrowId"] = S("escrow-order-ord-7"),
+        ["createdAt"] = S("2026-10-01T10:00:00Z"),
+        ["orderId"] = S("ord-7"),
+        ["buyerId"] = S("buyer-7"),
+        ["farmerId"] = S("farmer-7"),
+        ["status"] = S("escrowed"),
+        ["amount"] = Num("20000"),
+        ["farmerPayout"] = Num("19500"),
+        ["commission"] = Num("500"),
+        ["currency"] = S("ETB"),
+        ["settlementLock"] = S("refund"),
+        ["manualPayout"] = S("open"),
+        ["manualPayoutQueuedAt"] = S("2026-10-02T09:00:00Z"),
+        ["manualPayoutOp"] = S("refund"),
+        ["manualPayoutReason"] = S("PAYOUT_NOT_SUPPORTED"),
+        ["manualPayoutFromStatus"] = S("escrowed"),
+        ["manualBuyerStatus"] = S("pending"),
+    };
+
+    private static Dictionary<string, AttributeValue> BuyerUserItem() => new()
+    {
+        ["userId"] = S("buyer-7"),
+        ["phoneNumber"] = S("+251911000007"),
+        ["displayName"] = S("Sara"),
+        ["role"] = S("buyer"),
+        ["woreda"] = S("w"),
+        ["isPhoneVerified"] = new AttributeValue { BOOL = true },
+        ["createdAt"] = S("2026-01-01T00:00:00Z"),
+        ["updatedAt"] = S("2026-01-01T00:00:00Z"),
+    };
+
+    private static AdminFunction PayoutFunction(IAmazonDynamoDB db) =>
+        new(db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable);
+
+    [Fact]
+    public async Task ManualPayouts_List_QueriesTheIndexAndMapsLegs()
+    {
+        var db = Substitute.For<IAmazonDynamoDB>();
+        db.QueryAsync(Arg.Is<QueryRequest>(q => q.IndexName == "ManualPayoutIndex"), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { QueuedRefundEscrowItem() } });
+        db.GetItemAsync(Arg.Any<GetItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new GetItemResponse { Item = BuyerUserItem() });
+
+        var response = await PayoutFunction(db).FunctionHandler(
+            AdminGroupRequest("GET", "/admin/payouts/manual", query: new Dictionary<string, string> { { "limit", "10" } }),
+            _context);
+
+        response.StatusCode.Should().Be(200);
+        response.Body.Should().Contain("\"payouts\"")
+            .And.Contain("escrow-order-ord-7")
+            .And.Contain("\"op\":\"refund\"")
+            .And.Contain("\"ref\":\"buyer\"")
+            .And.Contain("251911000007")
+            .And.Contain("\"payeeVerified\":true");
+        await db.Received(1).QueryAsync(
+            Arg.Is<QueryRequest>(q => q.IndexName == "ManualPayoutIndex" && q.ScanIndexForward == true && q.Limit == 10),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ManualPayouts_Complete_ClosesRefundAndEmitsAudits()
+    {
+        var db = Substitute.For<IAmazonDynamoDB>();
+        db.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { QueuedRefundEscrowItem() } });
+        db.GetItemAsync(Arg.Any<GetItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new GetItemResponse { Item = BuyerUserItem() });
+        db.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>()).Returns(new UpdateItemResponse());
+        db.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>()).Returns(new PutItemResponse());
+
+        var response = await PayoutFunction(db).FunctionHandler(
+            AdminGroupRequest("POST", "/admin/payouts/escrow-order-ord-7/buyer/complete",
+                JsonSerializer.Serialize(new { externalRef = "TB-REF-0009" })),
+            _context);
+
+        response.StatusCode.Should().Be(200);
+        response.Body.Should().Contain("\"escrowStatus\":\"refunded\"").And.Contain("TB-REF-0009");
+        await db.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(u =>
+                u.TableName == EscrowsTable
+                && u.ExpressionAttributeValues[":newStatus"].S == "refunded"
+                && u.ExpressionAttributeValues[":ref"].S == "TB-REF-0009"
+                && u.ExpressionAttributeValues[":paidBy"].S == "admin-1"
+                && u.UpdateExpression.Contains("REMOVE #marker")),
+            Arg.Any<CancellationToken>());
+        await db.Received().PutItemAsync(
+            Arg.Is<PutItemRequest>(p => p.TableName == AuditTable && p.Item["action"].S == "manual_payout_paid"),
+            Arg.Any<CancellationToken>());
+        await db.Received().PutItemAsync(
+            Arg.Is<PutItemRequest>(p => p.TableName == AuditTable && p.Item["action"].S == "refund"
+                                        && p.Item["metadata"].S == "manual"),
+            Arg.Any<CancellationToken>());
+        await db.Received().PutItemAsync(
+            Arg.Is<PutItemRequest>(p => p.TableName == TxAuditTable && p.Item["action"].S == "admin_manual_payout"
+                                        && p.Item["transactionId"].S == "ord-7"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ManualPayouts_Complete_Replay_ReEnsuresAuditRows_NoSecondTxAudit()
+    {
+        // The refund already closed (marker gone, refunded) with this reference, but the audit
+        // writes after the close may have failed: the replay re-ensures them with conditional
+        // puts at deterministic keys and writes no second transaction-audit row.
+        var closed = QueuedRefundEscrowItem();
+        closed.Remove("manualPayout");
+        closed["status"] = S("refunded");
+        closed["manualBuyerStatus"] = S("paid");
+        closed["manualBuyerRef"] = S("TB-REF-0009");
+        closed["manualBuyerPaidBy"] = S("admin-1");
+        closed["manualBuyerPaidAt"] = S("2026-10-02T10:00:00.0000000Z");
+        var db = Substitute.For<IAmazonDynamoDB>();
+        db.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { closed } });
+        db.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>()).Returns(new PutItemResponse());
+
+        var response = await PayoutFunction(db).FunctionHandler(
+            AdminGroupRequest("POST", "/admin/payouts/escrow-order-ord-7/buyer/complete",
+                JsonSerializer.Serialize(new { externalRef = "TB-REF-0009" })),
+            _context);
+
+        response.StatusCode.Should().Be(200);
+        response.Body.Should().Contain("\"alreadyRecorded\":true").And.Contain("\"escrowStatus\":\"refunded\"");
+        await db.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+        await db.Received(1).PutItemAsync(
+            Arg.Is<PutItemRequest>(p => p.TableName == AuditTable && p.Item["action"].S == "manual_payout_paid"
+                                        && p.Item["timestamp"].S == "2026-10-02T10:00:00.0000000Z"
+                                        && p.ConditionExpression == "attribute_not_exists(escrowId)"),
+            Arg.Any<CancellationToken>());
+        await db.Received(1).PutItemAsync(
+            Arg.Is<PutItemRequest>(p => p.TableName == AuditTable && p.Item["action"].S == "refund"
+                                        && p.Item["timestamp"].S == "2026-10-02T10:00:00.0000001Z"
+                                        && p.ConditionExpression == "attribute_not_exists(escrowId)"),
+            Arg.Any<CancellationToken>());
+        await db.DidNotReceive().PutItemAsync(
+            Arg.Is<PutItemRequest>(p => p.TableName == TxAuditTable), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ManualPayouts_Complete_RoleClaimOnly_Returns403_NoWrite()
+    {
+        // A marketplace token that merely claims role=admin is not in the admin group and is
+        // not an admin profile either: refused before the escrow is even read.
+        var db = Substitute.For<IAmazonDynamoDB>();
+        db.GetItemAsync(Arg.Any<GetItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new GetItemResponse { Item = new Dictionary<string, AttributeValue>() });
+        var authorizer = new APIGatewayCustomAuthorizerContext { { "sub", "admin-1" }, { "role", "admin" } };
+        var request = new APIGatewayProxyRequest
+        {
+            HttpMethod = "POST",
+            Path = "/admin/payouts/escrow-order-ord-7/buyer/complete",
+            Body = JsonSerializer.Serialize(new { externalRef = "TB-REF-0009" }),
+            RequestContext = new APIGatewayProxyRequest.ProxyRequestContext { Authorizer = authorizer },
+        };
+
+        var response = await PayoutFunction(db).FunctionHandler(request, _context);
+
+        response.StatusCode.Should().Be(403);
+        response.Body.Should().Contain("ESCROW_015");
+        await db.DidNotReceive().QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>());
+        await db.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ManualPayouts_Complete_BadJson_Returns400()
+    {
+        var db = Substitute.For<IAmazonDynamoDB>();
+
+        var response = await PayoutFunction(db).FunctionHandler(
+            AdminGroupRequest("POST", "/admin/payouts/escrow-order-ord-7/buyer/complete", "{not json"), _context);
+
+        response.StatusCode.Should().Be(400);
+        response.Body.Should().Contain("ADMIN_005");
+    }
+
+    [Fact]
+    public async Task ManualPayouts_Complete_EmptyReference_Returns400Escrow037_NoRead()
+    {
+        var db = Substitute.For<IAmazonDynamoDB>();
+
+        var response = await PayoutFunction(db).FunctionHandler(
+            AdminGroupRequest("POST", "/admin/payouts/escrow-order-ord-7/buyer/complete",
+                JsonSerializer.Serialize(new { externalRef = "" })),
+            _context);
+
+        response.StatusCode.Should().Be(400);
+        response.Body.Should().Contain("ESCROW_037");
+        await db.DidNotReceive().QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("/admin/payouts/escrow-order-ord-7/platform/complete")]
+    [InlineData("/admin/payouts/bad%20id/buyer/complete")]
+    public async Task ManualPayouts_Complete_UnknownLegOrBadId_Returns404(string path)
+    {
+        var db = Substitute.For<IAmazonDynamoDB>();
+
+        var response = await PayoutFunction(db).FunctionHandler(
+            AdminGroupRequest("POST", path, JsonSerializer.Serialize(new { externalRef = "TB-REF-0009" })), _context);
+
+        response.StatusCode.Should().Be(404);
+        response.Body.Should().Contain("ESCROW_035");
+        await db.DidNotReceive().QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ManualPayouts_Complete_UnknownEscrow_Returns404Escrow016()
+    {
+        var db = Substitute.For<IAmazonDynamoDB>();
+        db.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>>() });
+
+        var response = await PayoutFunction(db).FunctionHandler(
+            AdminGroupRequest("POST", "/admin/payouts/escrow-e2e-missing/farmer/complete",
+                JsonSerializer.Serialize(new { externalRef = "E2E-NOT-A-REAL-REF" })),
+            _context);
+
+        response.StatusCode.Should().Be(404);
+        response.Body.Should().Contain("ESCROW_016");
+        await db.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ManualPayouts_WithoutEscrowTables_Returns503()
+    {
+        var response = await _function.FunctionHandler(AdminGroupRequest("GET", "/admin/payouts/manual"), _context);
+
+        response.StatusCode.Should().Be(503);
+        response.Body.Should().Contain("ADMIN_004");
     }
 }

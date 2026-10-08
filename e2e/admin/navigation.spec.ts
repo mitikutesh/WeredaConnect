@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { test, expect } from "@playwright/test";
 
 /**
@@ -11,21 +13,22 @@ import { test, expect } from "@playwright/test";
  * For authenticated navigation testing, we mock the auth state.
  */
 
-test.describe("Admin Navigation - Unauthenticated", () => {
-  const protectedRoutes = [
-    "/",
-    "/escrows",
-    "/disputes",
-    "/fraud-review",
-    "/users",
-    "/revenue",
-    "/transactions",
-    "/analytics",
-    "/audit-log",
-    "/system-health",
-    "/compliance",
-  ];
+const protectedRoutes = [
+  "/",
+  "/escrows",
+  "/disputes",
+  "/payouts",
+  "/fraud-review",
+  "/users",
+  "/revenue",
+  "/transactions",
+  "/analytics",
+  "/audit-log",
+  "/system-health",
+  "/compliance",
+];
 
+test.describe("Admin Navigation - Unauthenticated", () => {
   for (const route of protectedRoutes) {
     test(`${route} redirects to /login`, async ({ page }) => {
       await page.goto(route);
@@ -62,30 +65,18 @@ test.describe("Admin Navigation - UI Structure", () => {
     expect(criticalErrors).toEqual([]);
   });
 
-  test("sidebar nav items are defined correctly", async ({ page }) => {
-    // This verifies the sidebar structure by checking the source
-    // When authenticated, these nav items should be present:
-    const expectedNavLabels = [
-      "dashboard",
-      "escrows",
-      "disputes",
-      "fraud",
-      "users",
-      "revenue",
-      "transactions",
-      "analytics",
-      "audit",
-      "system",
-      "compliance",
-    ];
+  test("every sidebar link is a protected route checked above", () => {
+    // The sidebar is not rendered on the login page, so read its link list from the source
+    // (admin/src/components/layout/Sidebar.test.tsx asserts the rendered links match it).
+    const source = readFileSync(
+      path.resolve(__dirname, "../../admin/src/components/layout/Sidebar.tsx"),
+      "utf-8",
+    );
+    const navBlock = source.slice(source.indexOf("const navItems"), source.indexOf("];"));
+    const sidebarPaths = [...navBlock.matchAll(/path: "([^"]+)"/g)].map((m) => m[1]);
 
-    // On login page, sidebar is not shown. We verify the redirect works.
-    await page.goto("/login");
-    const form = page.locator("form");
-    await expect(form).toBeVisible();
-
-    // The sidebar items are defined in source and verified through navigation tests
-    expect(expectedNavLabels.length).toBe(10);
+    expect(sidebarPaths.length).toBeGreaterThan(0);
+    expect([...sidebarPaths].sort()).toEqual([...protectedRoutes].sort());
   });
 
   test("unknown routes redirect to home (then to login)", async ({ page }) => {

@@ -956,7 +956,7 @@ public class EscrowServiceTests
 
         var frozen = await _service.MarkDisputedFromDeliveryAsync(DeliveryId, BuyerId, "wet bags");
 
-        Assert.True(frozen);
+        Assert.Equal(DeliveryDisputeFreeze.Frozen, frozen);
         await _mockEscrowRepo.Received(1).UpdateStatusAsync(
             "escrow-001", "2026-02-17T10:00:00.0000000Z", "disputed", "escrowed",
             Arg.Is<Dictionary<string, object>>(f =>
@@ -975,7 +975,7 @@ public class EscrowServiceTests
 
         var frozen = await _service.MarkDisputedFromDeliveryAsync(DeliveryId, BuyerId, null);
 
-        Assert.False(frozen);
+        Assert.Equal(DeliveryDisputeFreeze.NothingToFreeze, frozen);
         await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
     }

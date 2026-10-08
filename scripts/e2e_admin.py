@@ -4,8 +4,9 @@ WeredaConnect Admin Dashboard API E2E
 =====================================
 Logs in as the dashboard admin through Cognito and reads every endpoint the
 admin dashboard (admin/) renders: dashboard stats, users, escrows,
-transactions, audit, fraud signals, disputes, health, compliance, analytics,
-plus one detail read per list that has rows. Stdlib only, no AWS CLI.
+transactions, audit, fraud signals, disputes, manual payouts, health, compliance,
+analytics, plus one detail read per list that has rows, and two refused manual
+payout writes (ESC-02). Stdlib only, no AWS CLI.
 
 deploy-server.yml runs this after every dev deploy (non-blocking) right after
 scripts/seed-admin-user.sh has made sure the admin exists (SIM-18).
@@ -42,10 +43,19 @@ LIST_ENDPOINTS = [
     ("/admin/audit", "entries"),
     ("/admin/fraud-signals", "signals"),
     ("/admin/disputes", "disputes"),
+    ("/admin/payouts/manual", "payouts"),
     ("/admin/health/overview", None),
     ("/admin/compliance/summary", None),
     ("/admin/analytics/revenue", None),
     ("/admin/analytics/transactions", None),
+]
+
+# Negative POST checks that must write nothing: (path, body, expected status, expected code).
+# ESC-02 manual payout completion: an unknown escrow is refused before any write, and an
+# empty reference is refused by validation.
+NEGATIVE_POSTS = [
+    ("/admin/payouts/escrow-e2e-missing/farmer/complete", {"externalRef": "E2E-NOT-A-REAL-REF"}, 404, "ESCROW_016"),
+    ("/admin/payouts/escrow-e2e-missing/farmer/complete", {"externalRef": ""}, 400, "ESCROW_037"),
 ]
 
 # (list path, id field candidates, detail path template)
@@ -252,6 +262,19 @@ def main():
         ok = status == 200
         print(f"  [{'+' if ok else 'X'}] GET {path}: {'PASS' if ok else 'FAIL'} -- HTTP {status}"
               + ("" if ok else f", {body[:160]}"))
+        failures += 0 if ok else 1
+
+    print("\n--- Negative writes (must be refused, nothing written)")
+    for path, body, want_status, want_code in NEGATIVE_POSTS:
+        status, raw = http("POST", base + path, headers=headers, body=body)
+        try:
+            payload = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            payload = {}
+        code = (payload.get("error") or {}).get("code") if isinstance(payload, dict) else None
+        ok = status == want_status and code == want_code
+        print(f"  [{'+' if ok else 'X'}] POST {path} {json.dumps(body)}: {'PASS' if ok else 'FAIL'}"
+              f" -- HTTP {status} {code or ''} (want {want_status} {want_code})")
         failures += 0 if ok else 1
 
     print(f"\n=== {'ALL PASSED' if failures == 0 else f'{failures} FAILED'} ===")

@@ -82,6 +82,14 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(RefundEscrowRequest))]
 [JsonSerializable(typeof(RefundEscrowResponse))]
 [JsonSerializable(typeof(GetEscrowHistoryResponse))]
+// Manual payout queue DTOs (ESC-02, admin)
+[JsonSerializable(typeof(ManualPayoutLegDto))]
+[JsonSerializable(typeof(List<ManualPayoutLegDto>))]
+[JsonSerializable(typeof(ManualPayoutDto))]
+[JsonSerializable(typeof(List<ManualPayoutDto>))]
+[JsonSerializable(typeof(ManualPayoutListResponse))]
+[JsonSerializable(typeof(CompleteManualPayoutRequest))]
+[JsonSerializable(typeof(CompleteManualPayoutResponse))]
 // Escrow domain DTOs
 [JsonSerializable(typeof(EscrowDto))]
 [JsonSerializable(typeof(DisputeDto))]

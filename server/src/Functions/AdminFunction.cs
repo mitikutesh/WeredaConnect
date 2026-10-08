@@ -30,6 +30,8 @@ namespace WeredaConnect.Server.Functions;
 /// - GET  /admin/analytics/transactions → volume metrics
 /// - GET  /admin/transactions           → transaction monitor list (order-anchored)
 /// - GET  /admin/transactions/{orderId} → stitched transaction detail + timeline
+/// - GET  /admin/payouts/manual         → manual payout queue (ESC-02)
+/// - POST /admin/payouts/{escrowId}/{ref}/complete → record an admin-paid leg (admin group only)
 /// </summary>
 public class AdminFunction
 {
@@ -164,6 +166,8 @@ public class AdminFunction
                 ("GET", ["admin", "transactions"]) => await HandleListTransactionsAsync(request, context),
                 ("GET", ["admin", "transactions", _]) => await HandleGetTransactionAsync(segments[2], context),
                 ("GET", ["admin", "audit"]) => await HandleAuditLogAsync(request, context),
+                ("GET", ["admin", "payouts", "manual"]) => await HandleListManualPayoutsAsync(request, context),
+                ("POST", ["admin", "payouts", _, _, "complete"]) => await HandleCompleteManualPayoutAsync(segments[2], segments[3], request, context),
                 _ => LambdaResponse.Error(404, "ADMIN_002", "Admin endpoint not found.")
             };
         }
@@ -386,15 +390,18 @@ public class AdminFunction
             },
             UpdateExpression = "SET #status = :newStatus, #updatedAt = :now, #resolution = :resolution, #resolvedBy = :resolvedBy, #resolvedAt = :resolvedAt",
             // Only resolve an escrow that is actually disputed — prevents force-
-            // transitioning held/released/refunded/already-resolved escrows.
-            ConditionExpression = "#status = :disputed",
+            // transitioning held/released/refunded/already-resolved escrows. ESC-02: a
+            // settlement already waiting in the manual payout queue cannot be contradicted
+            // by a verdict; the admin settles or clears the queue first.
+            ConditionExpression = "#status = :disputed AND attribute_not_exists(#manualPayout)",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
                 { "#status", "status" },
                 { "#updatedAt", "updatedAt" },
                 { "#resolution", "disputeResolution" },
                 { "#resolvedBy", "disputeResolvedBy" },
-                { "#resolvedAt", "disputeResolvedAt" }
+                { "#resolvedAt", "disputeResolvedAt" },
+                { "#manualPayout", ManualPayoutFields.Marker }
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
@@ -413,6 +420,14 @@ public class AdminFunction
         }
         catch (ConditionalCheckFailedException)
         {
+            var latest = await QuerySingleItemAsync(_escrowsTable, "escrowId", escrowId);
+            if (latest != null && latest.TryGetValue(ManualPayoutFields.Marker, out var marker)
+                && marker.S == ManualPayoutFields.MarkerOpen)
+            {
+                return LambdaResponse.Error(409, "ADMIN_013",
+                    "A payout for this escrow is waiting in the manual payout queue. Settle it there first.");
+            }
+
             return LambdaResponse.Error(409, "ADMIN_010",
                 "Escrow is not in a disputed state.");
         }
@@ -467,6 +482,126 @@ public class AdminFunction
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.ResolveDisputeResponse);
     }
+
+    // ──────────────────────────────────────────────
+    // Manual payout queue (ESC-02)
+    // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// The escrow service without gateway or idempotency wiring: the queue endpoints never
+    /// call Telebirr. Null when the escrow tables are not configured.
+    /// </summary>
+    private EscrowService? ManualPayoutService()
+    {
+        if (string.IsNullOrEmpty(_escrowsTable) || string.IsNullOrEmpty(_escrowAuditTable))
+        {
+            return null;
+        }
+
+        return new EscrowService(
+            new EscrowRepository(_dynamoDb, _escrowsTable),
+            new EscrowAuditRepository(_dynamoDb, _escrowAuditTable),
+            idempotencyRepo: null,
+            telebirrGateway: null,
+            userRepo: string.IsNullOrEmpty(_usersTable) ? null : new UserRepository(_dynamoDb, _usersTable));
+    }
+
+    /// <summary>GET /admin/payouts/manual?limit=&nextToken= (oldest first).</summary>
+    private async Task<APIGatewayProxyResponse> HandleListManualPayoutsAsync(
+        APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        var service = ManualPayoutService();
+        if (service == null)
+        {
+            return LambdaResponse.Error(503, "ADMIN_004", "Escrow tables not configured.");
+        }
+
+        var queryParams = request.QueryStringParameters ?? new Dictionary<string, string>();
+        queryParams.TryGetValue("nextToken", out var nextToken);
+        var limit = Math.Min(ParseLimit(queryParams, 20), 50);
+
+        var result = await service.ListManualPayoutsAsync(limit, nextToken);
+        if (!result.IsSuccess)
+        {
+            var error = result.Error!;
+            return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message, error.Field);
+        }
+
+        return LambdaResponse.Ok(result.Value!, AppJsonContext.Default.ManualPayoutListResponse);
+    }
+
+    /// <summary>
+    /// POST /admin/payouts/{escrowId}/{ref}/complete with {externalRef}. Money-affecting, so
+    /// it requires the admin pool's admin group (a role claim alone gets ESCROW_015).
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleCompleteManualPayoutAsync(
+        string escrowId, string leg, APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        var service = ManualPayoutService();
+        if (service == null)
+        {
+            return LambdaResponse.Error(503, "ADMIN_004", "Escrow tables not configured.");
+        }
+
+        CompleteManualPayoutRequest? body;
+        try
+        {
+            body = JsonSerializer.Deserialize(request.Body ?? "", AppJsonContext.Default.CompleteManualPayoutRequest);
+        }
+        catch (JsonException)
+        {
+            return LambdaResponse.Error(400, "ADMIN_005", "Invalid JSON in request body.");
+        }
+
+        if (body == null)
+        {
+            return LambdaResponse.Error(400, "ADMIN_005", "Request body is required.");
+        }
+
+        if (!IsSafeEscrowId(escrowId) || !ManualPayoutFields.IsLeg(leg))
+        {
+            return LambdaResponse.Error(404, "ESCROW_035", "No such payout leg.");
+        }
+
+        var adminUserId = AuthHelper.GetUserId(request) ?? "admin";
+        var adminGroupVerified = AdminAuthHelper.IsInAdminGroup(request);
+        var auditContext = AuditContext.From(request, adminUserId, "admin");
+        var correlationId = AuditLogger.GetCorrelationId(request);
+
+        var result = await service.CompleteManualPayoutAsync(
+            escrowId, leg, body.ExternalRef, adminUserId, adminGroupVerified, auditContext);
+
+        if (!result.IsSuccess)
+        {
+            var error = result.Error!;
+            AuditLogger.LogAudit("ADMIN", "MANUAL_PAYOUT",
+                userId: adminUserId, correlationId: correlationId,
+                entityType: "escrow", entityId: escrowId, outcome: "failure", errorCode: error.Code);
+            return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message, error.Field);
+        }
+
+        var value = result.Value!;
+        // A replay of an already recorded leg moved nothing: no second transaction-audit row.
+        if (!value.AlreadyRecorded)
+        {
+            await TransactionAuditWriter.EmitAsync(
+                TxAuditRepo(), context, value.OrderId ?? escrowId, "escrow", escrowId,
+                "admin_manual_payout", null, value.EscrowStatus, auditContext,
+                metadata: $"leg={leg};ref={value.ExternalRef}");
+        }
+
+        AuditLogger.LogAudit("ADMIN", "MANUAL_PAYOUT",
+            userId: adminUserId, correlationId: correlationId,
+            entityType: "escrow", entityId: escrowId, outcome: value.AlreadyRecorded ? "replay" : "success",
+            detail: $"leg={leg};escrowStatus={value.EscrowStatus}");
+
+        return LambdaResponse.Ok(value, AppJsonContext.Default.CompleteManualPayoutResponse);
+    }
+
+    /// <summary>Escrow ids are server-generated: 1 to 128 of [A-Za-z0-9_-].</summary>
+    private static bool IsSafeEscrowId(string escrowId)
+        => escrowId.Length is >= 1 and <= 128
+           && escrowId.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-');
 
     // ──────────────────────────────────────────────
     // Fraud Signals
