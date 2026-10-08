@@ -396,20 +396,33 @@ every release and refund fails closed and the escrow waits in the manual payout
 queue; mock mode (`TELEBIRR_MOCK=true`, dev) never queues anything.
 
 1. Open the admin app, "Manual Payouts" (`/payouts`). Each row is one payee leg:
-   escrow, order, operation (release or refund), payee role, name, registered
-   phone and the exact amount to pay. Rows older than 24 hours are flagged.
-2. Pay that amount to that phone in the Telebirr merchant portal.
+   escrow, order, operation (release or refund), reason, payee role, name,
+   registered phone and the exact amount. Rows older than 24 hours are flagged.
+   Only one admin works the queue at a time: there is no claim step, so two
+   admins could both pay the same leg in the portal.
+2. Check the reason before paying:
+   - "Gateway has no payout API" (`PAYOUT_NOT_SUPPORTED`): nothing was paid. Pay
+     that amount to that phone in the Telebirr merchant portal.
+   - "Gateway returned no reference" (`GATEWAY_REF_MISSING`): the gateway said
+     it paid, so the money has probably moved. Find that payment in the portal
+     and record its id. Pay only if it is really missing.
 3. Paste the portal's transaction id into "Telebirr transaction ID", click
-   "Mark as paid" and confirm the amount and phone. The last leg of an escrow
-   moves it to `completed` (release) or `refunded` (refund); until then the
-   escrow keeps its status and stays locked against any other settlement.
+   "Mark as paid" (or "Record reference") and confirm the amount and phone. The
+   last leg of an escrow moves it to `completed` (release) or `refunded`
+   (refund); until then the escrow keeps its status and stays locked against any
+   other settlement.
 4. Errors: `ESCROW_037` bad reference format; `ESCROW_036` the reference was
    already recorded for this escrow (another admin, or a replay with a different
    id); `ESCROW_029` the payee fails the identity gate (phone or Fayda), wait for
-   them to verify; `ESCROW_035` the leg is not open any more (reload).
-5. Check the page daily until the ESC-13 alarms exist. The cron logs
-   `ESCROW_MANUAL_PAYOUT_WAITING` for every queued escrow it skips, and the
-   service logs `ESCROW_MANUAL_PAYOUT_QUEUED` when one enters the queue.
+   them to verify (the leg stays in the queue and the overdue alarm stays on);
+   `ESCROW_035` the leg is not open any more (reload). Refusals are audited as
+   `manual_payout_refused`.
+5. Alarm: the hourly escrow-cron logs `MANUAL_PAYOUT_OVERDUE` for every pending
+   leg queued more than 24 hours ago, which feeds
+   `${prefix}-manual-payouts-overdue` (ESC-13). Until that alarm is deployed,
+   check the page daily. The cron also logs `ESCROW_MANUAL_PAYOUT_WAITING` for
+   every queued escrow a sweep skips, and the service logs
+   `ESCROW_MANUAL_PAYOUT_QUEUED` when one enters the queue.
 
 Every step is audited: escrow-audit `manual_payout_queued`, `manual_payout_paid`,
 then `release` + `complete` or `refund` with metadata `manual`; transaction-audit

@@ -19,8 +19,17 @@ public interface IEscrowRepository
     Task<Dictionary<string, object>?> GetByIdAsync(string escrowId);
 
     /// <summary>
+    /// Get an escrow by ID with a strongly consistent read when
+    /// <paramref name="consistentRead"/> is true. The manual payout queue (ESC-02) uses it
+    /// to decide on the row's current state after a conditional write failed or threw.
+    /// </summary>
+    Task<Dictionary<string, object>?> GetByIdAsync(string escrowId, bool consistentRead);
+
+    /// <summary>
     /// Update escrow status with optimistic concurrency check on the expected current status.
     /// Throws ConditionalCheckFailedException if the current status doesn't match expectedCurrentStatus.
+    /// A move to <c>released</c> or <c>refunded</c> also requires that the escrow has no open
+    /// manual payout (ESC-02); a queued escrow settles only through TryCloseManualPayoutAsync.
     /// </summary>
     /// <param name="escrowId">The escrow partition key.</param>
     /// <param name="createdAt">The escrow sort key.</param>
@@ -33,7 +42,7 @@ public interface IEscrowRepository
     /// Atomically claim settlement (release or refund) for an escrow BEFORE any
     /// irreversible Telebirr call. Sets a <c>settlementLock</c> attribute conditional
     /// on no lock already existing AND the escrow being in a settleable state
-    /// (escrowed/disputed). Returns false if another settlement already holds the
+    /// (escrowed/disputed) with no open manual payout (ESC-02). Returns false if another settlement already holds the
     /// lock or the escrow is no longer settleable — in which case the caller MUST NOT
     /// call Telebirr. This is the mutual-exclusion guard that prevents a release and a
     /// refund (or two releases) from both moving funds for the same escrow.

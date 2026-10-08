@@ -62,6 +62,13 @@ public sealed class EscrowRepository : IEscrowRepository
     }
 
     /// <inheritdoc />
+    public async Task<Dictionary<string, object>?> GetByIdAsync(string escrowId, bool consistentRead)
+    {
+        var item = await GetItemAsync(escrowId, consistentRead);
+        return item != null ? CropRepository.FromItem(item) : null;
+    }
+
+    /// <inheritdoc />
     public async Task UpdateStatusAsync(string escrowId, string createdAt, string newStatus, string? expectedCurrentStatus = null, Dictionary<string, object>? additionalFields = null)
     {
         var now = DateTime.UtcNow.ToString("o");
@@ -116,10 +123,24 @@ public sealed class EscrowRepository : IEscrowRepository
         };
 
         // Optimistic concurrency: verify expected current status before update
+        var conditions = new List<string>();
         if (!string.IsNullOrEmpty(expectedCurrentStatus))
         {
-            request.ConditionExpression = "#status = :expectedStatus";
+            conditions.Add("#status = :expectedStatus");
             request.ExpressionAttributeValues[":expectedStatus"] = new AttributeValue { S = expectedCurrentStatus };
+        }
+
+        // ESC-02: a gateway settlement never lands on an escrow waiting in the manual payout
+        // queue; only TryCloseManualPayoutAsync settles those (and removes the marker).
+        if (newStatus is "released" or "refunded")
+        {
+            conditions.Add("attribute_not_exists(#manualPayout)");
+            request.ExpressionAttributeNames["#manualPayout"] = ManualPayoutFields.Marker;
+        }
+
+        if (conditions.Count > 0)
+        {
+            request.ConditionExpression = string.Join(" AND ", conditions);
         }
 
         await _dynamoDb.UpdateItemAsync(request);
@@ -141,12 +162,15 @@ public sealed class EscrowRepository : IEscrowRepository
             // Acquire only if no settlement is already in progress AND the escrow is
             // still in a settleable state. This is the atomic guard that runs BEFORE
             // any Telebirr call, so only the winner ever moves funds.
+            // ESC-02: never on an escrow waiting in the manual payout queue.
             ConditionExpression =
-                "attribute_not_exists(settlementLock) AND (#status = :escrowed OR #status = :disputed)",
+                "attribute_not_exists(settlementLock) AND attribute_not_exists(#manualPayout) "
+                + "AND (#status = :escrowed OR #status = :disputed)",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
                 { "#status", "status" },
-                { "#updated", "updatedAt" }
+                { "#updated", "updatedAt" },
+                { "#manualPayout", ManualPayoutFields.Marker }
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
@@ -709,7 +733,7 @@ public sealed class EscrowRepository : IEscrowRepository
     /// Query for an item by escrowId (partition key). Since sort key is createdAt,
     /// we query with limit 1 to get the single matching item.
     /// </summary>
-    private async Task<Dictionary<string, AttributeValue>?> GetItemAsync(string escrowId)
+    private async Task<Dictionary<string, AttributeValue>?> GetItemAsync(string escrowId, bool consistentRead = false)
     {
         var request = new QueryRequest
         {
@@ -719,7 +743,8 @@ public sealed class EscrowRepository : IEscrowRepository
             {
                 { ":id", new AttributeValue { S = escrowId } }
             },
-            Limit = 1
+            Limit = 1,
+            ConsistentRead = consistentRead
         };
 
         var response = await _dynamoDb.QueryAsync(request);

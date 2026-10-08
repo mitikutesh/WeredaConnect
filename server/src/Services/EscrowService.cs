@@ -1552,7 +1552,12 @@ public sealed class EscrowService
                 // instead of paying an unknown wallet.
                 : new ReleaseFundsResponse { Success = false, ErrorMessage = truckerPayoutDest.Error!.Message };
 
-            if (truckerRelease.Success)
+            // ESC-02: decided before the success branch, so a trucker "success" without a
+            // reference is queued too instead of completing with no truckerTelebirrRef.
+            var truckerManualReason = truckerPayoutDest.IsSuccess
+                ? ManualPayoutReason(truckerRelease.Success, truckerRelease.ErrorCode, truckerRelease.TelebirrRef)
+                : null;
+            if (truckerRelease.Success && truckerManualReason == null)
             {
                 truckerReleaseRef = truckerRelease.TelebirrRef;
                 await AppendAuditAsync(request.EscrowId, "trucker_release", currentStatus, currentStatus,
@@ -1566,9 +1571,6 @@ public sealed class EscrowService
                 // write below; if it still fails, fall back to today's truckerPayoutPending
                 // completion instead of stranding the escrow under a held lock. An unverified
                 // trucker (no gateway call) keeps the truckerPayoutPending behaviour (ESC-04).
-                var truckerManualReason = truckerPayoutDest.IsSuccess
-                    ? ManualPayoutReason(truckerRelease.Success, truckerRelease.ErrorCode, truckerRelease.TelebirrRef)
-                    : null;
                 if (truckerManualReason != null)
                 {
                     var legs = new List<ManualPayoutLegSeed>
@@ -2275,7 +2277,8 @@ public sealed class EscrowService
     {
         _auditContext = auditContext;
 
-        if (!await IsSystemOrAdminAsync(actorUserId, "admin", adminGroupVerified))
+        // The admin pool's admin group only: no users-table role fallback for this money action.
+        if (!adminGroupVerified)
         {
             return EscrowResult<CompleteManualPayoutResponse>.Failure(
                 403, "ESCROW_015", "Only an admin can record a manual payout.");
@@ -2296,10 +2299,30 @@ public sealed class EscrowService
                 404, "ESCROW_035", "No such payout leg.");
         }
 
+        // A refusal on an existing escrow is audited too, so a second admin who tried to record
+        // another reference (or a blocked payee) leaves a trace next to the leg.
+        async Task<EscrowResult<CompleteManualPayoutResponse>> RefuseAsync(
+            string status, int httpStatus, string code, string message)
+        {
+            try
+            {
+                await AppendAuditAsync(escrowId, "manual_payout_refused", status, status, actorUserId,
+                    metadata: $"leg={leg};code={code};attemptedRef={reference}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ESCROW_MANUAL_PAYOUT_REFUSAL_AUDIT_FAILED escrowId={escrowId} error={ex.GetType().Name}");
+            }
+
+            return EscrowResult<CompleteManualPayoutResponse>.Failure(httpStatus, code, message);
+        }
+
         const int maxAttempts = 3;
         for (var attempt = 1; ; attempt++)
         {
-            var escrow = await _escrowRepo.GetByIdAsync(escrowId);
+            // Strongly consistent: a stale copy would burn the retries below on a row that
+            // already moved.
+            var escrow = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
             if (escrow == null)
             {
                 return EscrowResult<CompleteManualPayoutResponse>.Failure(
@@ -2318,7 +2341,7 @@ public sealed class EscrowService
             {
                 if (!string.Equals(legRef, reference, StringComparison.Ordinal))
                 {
-                    return EscrowResult<CompleteManualPayoutResponse>.Failure(
+                    return await RefuseAsync(currentStatus,
                         409, "ESCROW_036", "This leg was already recorded with a different reference.");
                 }
 
@@ -2334,7 +2357,7 @@ public sealed class EscrowService
 
             if (!IsManualPayoutOpen(escrow) || legStatus == null || !ManualPayoutFields.LegBelongsToOp(leg, op))
             {
-                return EscrowResult<CompleteManualPayoutResponse>.Failure(
+                return await RefuseAsync(currentStatus,
                     404, "ESCROW_035", "This escrow has no open manual payout for that leg.");
             }
 
@@ -2343,14 +2366,14 @@ public sealed class EscrowService
                 if (other != leg && string.Equals(
                         GetStringOrNull(escrow, ManualPayoutFields.RefAttr(other)), reference, StringComparison.Ordinal))
                 {
-                    return EscrowResult<CompleteManualPayoutResponse>.Failure(
+                    return await RefuseAsync(currentStatus,
                         409, "ESCROW_036", "This reference was already used for another leg of this escrow.");
                 }
             }
 
             if (!ManualPayoutSettleableStatuses.Contains(currentStatus))
             {
-                return EscrowResult<CompleteManualPayoutResponse>.Failure(
+                return await RefuseAsync(currentStatus,
                     409, "ESCROW_INVALID_TRANSITION",
                     $"Escrow is '{currentStatus}' and can no longer be settled from the queue.");
             }
@@ -2362,7 +2385,7 @@ public sealed class EscrowService
             var (payeeVerified, blockReason) = EvaluateManualPayee(escrow, leg, payee, amount);
             if (!payeeVerified)
             {
-                return EscrowResult<CompleteManualPayoutResponse>.Failure(
+                return await RefuseAsync(currentStatus,
                     409, "ESCROW_029", blockReason ?? "Payout blocked.");
             }
 
@@ -2415,7 +2438,7 @@ public sealed class EscrowService
                     continue;
                 }
 
-                return EscrowResult<CompleteManualPayoutResponse>.Failure(
+                return await RefuseAsync(currentStatus,
                     409, "ESCROW_036", "The payout changed while this leg was being recorded. Reload and try again.");
             }
 
@@ -2599,8 +2622,10 @@ public sealed class EscrowService
 
     /// <summary>
     /// Queue a settlement the gateway could not make. Returns false (and writes nothing
-    /// else) when the conditional write fails or throws, so the caller decides what to do
-    /// with the lock. On success writes the audit row and the alarm token.
+    /// else) when the conditional write fails or throws and a strongly consistent re-read
+    /// shows no queue entry for <paramref name="op"/>, so the caller decides what to do
+    /// with the lock. A write that committed although the client saw an error (timeout)
+    /// counts as queued. On success writes the audit row and the log token.
     /// </summary>
     private async Task<bool> TryQueueManualPayoutAsync(
         string escrowId, string createdAt, string op, string reason, string fromStatus,
@@ -2619,7 +2644,22 @@ public sealed class EscrowService
 
         if (!queued)
         {
-            return false;
+            Dictionary<string, object>? latest;
+            try
+            {
+                latest = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ESCROW_MANUAL_PAYOUT_QUEUE_RECHECK_FAILED escrowId={escrowId} op={op} error={ex.GetType().Name}");
+                return false;
+            }
+
+            if (latest == null || !IsManualPayoutOpen(latest)
+                || !string.Equals(GetStringOrNull(latest, ManualPayoutFields.Op), op, StringComparison.Ordinal))
+            {
+                return false;
+            }
         }
 
         var legNames = string.Join(",", legs.Select(l => l.Leg));

@@ -213,4 +213,58 @@ public class EscrowRepositoryManualPayoutTests
         lastKey.Should().BeSameAs(lastEvaluated);
         _query!.Limit.Should().Be(10);
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task GetById_PassesTheConsistentReadFlag(bool consistent)
+    {
+        await _repo.GetByIdAsync(EscrowId, consistent);
+
+        _query!.ConsistentRead.Should().Be(consistent);
+        _query.KeyConditionExpression.Should().Be("escrowId = :id");
+        _query.ExpressionAttributeValues[":id"].S.Should().Be(EscrowId);
+    }
+
+    [Theory]
+    [InlineData("released")]
+    [InlineData("refunded")]
+    public async Task UpdateStatus_ToASettledStatus_RequiresNoOpenManualPayout(string newStatus)
+    {
+        await _repo.UpdateStatusAsync(EscrowId, CreatedAt, newStatus, "escrowed",
+            new Dictionary<string, object> { { "telebirrReleaseRef", "GW-1" } });
+
+        _update!.ConditionExpression.Should().Be("#status = :expectedStatus AND attribute_not_exists(#manualPayout)");
+        Name(_update, "#manualPayout").Should().Be("manualPayout");
+    }
+
+    [Theory]
+    [InlineData("completed", "released")]
+    [InlineData("escrowed", "escrowed")]
+    public async Task UpdateStatus_OtherStatuses_KeepTheirCondition(string newStatus, string expected)
+    {
+        await _repo.UpdateStatusAsync(EscrowId, CreatedAt, newStatus, expected);
+
+        _update!.ConditionExpression.Should().Be("#status = :expectedStatus");
+        _update.ExpressionAttributeNames.Should().NotContainKey("#manualPayout");
+    }
+
+    [Fact]
+    public async Task UpdateStatus_SettledStatusWithoutExpectedStatus_StillGuardsTheQueue()
+    {
+        await _repo.UpdateStatusAsync(EscrowId, CreatedAt, "refunded");
+
+        _update!.ConditionExpression.Should().Be("attribute_not_exists(#manualPayout)");
+    }
+
+    [Fact]
+    public async Task AcquireLock_RefusesAnEscrowWithAnOpenManualPayout()
+    {
+        var ok = await _repo.TryAcquireSettlementLockAsync(EscrowId, CreatedAt, "refund");
+
+        ok.Should().BeTrue();
+        _update!.ConditionExpression.Should().Contain("attribute_not_exists(settlementLock)")
+            .And.Contain("attribute_not_exists(#manualPayout)");
+        Name(_update, "#manualPayout").Should().Be("manualPayout");
+    }
 }

@@ -778,15 +778,15 @@ public class EscrowFunction
     // Result mapping
     // ──────────────────────────────────────────────
 
+    /// <summary>ESC-02: a settlement parked in the manual payout queue (202 ESCROW_034) is "queued", not a failure.</summary>
+    private static string SettlementOutcome(bool isSuccess, string? errorCode)
+        => isSuccess ? "success" : errorCode == "ESCROW_034" ? "queued" : "failure";
+
     /// <summary>
     /// Map an EscrowResult to an APIGatewayProxyResponse.
     /// On success/duplicate: use the provided success mapper.
     /// On failure: map EscrowResultError to LambdaResponse.Error.
     /// </summary>
-    /// <summary>ESC-02: a settlement parked in the manual payout queue (202 ESCROW_034) is "queued", not a failure.</summary>
-    private static string SettlementOutcome(bool isSuccess, string? errorCode)
-        => isSuccess ? "success" : errorCode == "ESCROW_034" ? "queued" : "failure";
-
     private static APIGatewayProxyResponse MapResult<T>(
         EscrowResult<T> result,
         Func<T, APIGatewayProxyResponse> onSuccess)

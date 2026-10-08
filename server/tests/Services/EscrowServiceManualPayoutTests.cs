@@ -1,4 +1,5 @@
 using System.Globalization;
+using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using FluentAssertions;
 using NSubstitute;
@@ -371,6 +372,94 @@ public class EscrowServiceManualPayoutTests
     }
 
     [Fact]
+    public async Task Release_TruckerSuccessWithEmptyRef_QueuesTruckerLeg()
+    {
+        // The gateway says the trucker leg went out but gives no reference: fail closed,
+        // never complete with an empty truckerTelebirrRef.
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        _gateway.ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => !r.TransactionRef.EndsWith(":trucker")))
+            .Returns(new ReleaseFundsResponse { Success = true, TelebirrRef = "GW-FARMER-1" });
+        _gateway.ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.TransactionRef.EndsWith(":trucker")))
+            .Returns(new ReleaseFundsResponse { Success = true, TelebirrRef = "" });
+
+        var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
+
+        AssertWaiting(result);
+        await _escrowRepo.Received(1).TryQueueManualPayoutAsync(
+            EscrowId, CreatedAt, ManualPayoutFields.OpRelease, ManualPayoutFields.ReasonGatewayRefMissing, "escrowed",
+            Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(legs =>
+                legs.Count == 2
+                && legs[0].Leg == "farmer" && legs[0].Status == "paid" && legs[0].Ref == "GW-FARMER-1"
+                && legs[1].Leg == "trucker" && legs[1].Status == "pending"));
+        await AssertNothingSettled();
+        (await AuditWritten("trucker_release")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Release_QueueWriteThrowsButCommitted_TreatedAsQueued_LockKept()
+    {
+        // A timeout after the write committed: the strongly consistent re-read shows the
+        // queue entry, so nothing is unlocked and no failure is audited.
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease));
+        _escrowRepo.TryQueueManualPayoutAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>())
+            .ThrowsAsync(new AmazonDynamoDBException("timeout"));
+
+        var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
+
+        AssertWaiting(result);
+        await _escrowRepo.Received(1).GetByIdAsync(EscrowId, true);
+        await _escrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
+        await _idempotencyRepo.DidNotReceive().DeleteAsync(Arg.Any<string>());
+        await AssertNothingSettled();
+        (await AuditWritten("manual_payout_queued")).Should().BeTrue();
+        (await AuditWritten("release_failed")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Release_QueueWriteFailed_ReReadShowsOtherOp_IsNotTreatedAsQueued()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
+        _escrowRepo.TryQueueManualPayoutAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>())
+            .Returns(false);
+
+        var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
+
+        result.Error!.Code.Should().Be("ESCROW_013");
+        (await AuditWritten("manual_payout_queued")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Release_TruckerQueueWriteAmbiguous_DoesNotCompleteWithMarkerOpen()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        _escrowRepo.GetByIdAsync(EscrowId, true)
+            .Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"));
+        _gateway.ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => !r.TransactionRef.EndsWith(":trucker")))
+            .Returns(new ReleaseFundsResponse { Success = true, TelebirrRef = "GW-FARMER-1" });
+        _gateway.ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.TransactionRef.EndsWith(":trucker")))
+            .Returns(NotSupportedRelease());
+        _escrowRepo.TryQueueManualPayoutAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>())
+            .Returns(false);
+
+        var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
+
+        AssertWaiting(result);
+        await _escrowRepo.Received(1).TryQueueManualPayoutAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>());
+        await AssertNothingSettled();
+        (await AuditWritten("trucker_release_failed")).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Release_UnverifiedTrucker_KeepsTruckerPayoutPendingBehaviour()
     {
         // ESC-04 owns the KYC-blocked trucker leg: no gateway call, no queue entry.
@@ -473,6 +562,24 @@ public class EscrowServiceManualPayoutTests
     }
 
     [Fact]
+    public async Task Refund_QueueWriteFailsButCommitted_TreatedAsQueued()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
+        _escrowRepo.TryQueueManualPayoutAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>())
+            .Returns(false);
+
+        var result = await _service.RefundAsync(RefundRequest(), "system");
+
+        AssertWaiting(result);
+        await _escrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
+        (await AuditWritten("refund_failed")).Should().BeFalse();
+        (await AuditWritten("manual_payout_queued", "op=refund")).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Refund_ManualPayoutOpen_Returns202_NoGatewayNoLockNoAudit()
     {
         _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
@@ -511,7 +618,7 @@ public class EscrowServiceManualPayoutTests
     [Fact]
     public async Task Complete_FirstReleaseLeg_MarksPaid_EscrowStaysEscrowed()
     {
-        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease));
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease));
 
         var result = await Complete("farmer", "TB-REF-0001");
 
@@ -529,7 +636,7 @@ public class EscrowServiceManualPayoutTests
     [Fact]
     public async Task Complete_LastReleaseLeg_ClosesReleasedThenCompleted_WithAdminRefs()
     {
-        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"));
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"));
 
         var result = await Complete("trucker", "TB-REF-0002");
 
@@ -559,7 +666,7 @@ public class EscrowServiceManualPayoutTests
     [Fact]
     public async Task Complete_OnlyFarmerLeg_ClosesWithFarmerRefAndNoTruckerRef()
     {
-        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(withTrucker: false, queuedOp: ManualPayoutFields.OpRelease));
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(withTrucker: false, queuedOp: ManualPayoutFields.OpRelease));
 
         var result = await Complete("farmer", "TB-REF-0001");
 
@@ -574,7 +681,7 @@ public class EscrowServiceManualPayoutTests
     [Fact]
     public async Task Complete_BuyerLeg_ClosesRefunded_WithAdminRef()
     {
-        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
 
         var result = await Complete("buyer", "TB-REF-0009");
 
@@ -596,7 +703,7 @@ public class EscrowServiceManualPayoutTests
     {
         // First read: both legs pending, so the mark write runs; it fails because another
         // admin paid the trucker meanwhile. Second read shows that, and the close write runs.
-        _escrowRepo.GetByIdAsync(EscrowId).Returns(
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(
             Escrow(queuedOp: ManualPayoutFields.OpRelease),
             Escrow(queuedOp: ManualPayoutFields.OpRelease, truckerLeg: "paid"));
         _escrowRepo.TryMarkManualLegPaidAsync(
@@ -618,7 +725,7 @@ public class EscrowServiceManualPayoutTests
     [Fact]
     public async Task Complete_WriteKeepsFailing_Returns409AfterThreeAttempts()
     {
-        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
         _escrowRepo.TryCloseManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>(),
@@ -629,14 +736,14 @@ public class EscrowServiceManualPayoutTests
 
         result.Error!.HttpStatus.Should().Be(409);
         result.Error.Code.Should().Be("ESCROW_036");
-        await _escrowRepo.Received(3).GetByIdAsync(EscrowId);
+        await _escrowRepo.Received(3).GetByIdAsync(EscrowId, true);
         (await AuditWritten("manual_payout_paid")).Should().BeFalse();
     }
 
     [Fact]
     public async Task Complete_SameRefReplay_IsIdempotent()
     {
-        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"));
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"));
 
         var result = await Complete("farmer", "TB-REF-FARMER");
 
@@ -656,7 +763,7 @@ public class EscrowServiceManualPayoutTests
         stuck[ManualPayoutFields.Op] = ManualPayoutFields.OpRelease;
         stuck[ManualPayoutFields.StatusAttr("farmer")] = "paid";
         stuck[ManualPayoutFields.RefAttr("farmer")] = "TB-REF-FARMER";
-        _escrowRepo.GetByIdAsync(EscrowId).Returns(stuck);
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(stuck);
 
         var result = await Complete("farmer", "TB-REF-FARMER");
 
@@ -669,7 +776,7 @@ public class EscrowServiceManualPayoutTests
     [Fact]
     public async Task Complete_DifferentRefOnPaidLeg_Returns409Escrow036()
     {
-        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"));
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"));
 
         var result = await Complete("farmer", "TB-REF-OTHER");
 
@@ -678,9 +785,43 @@ public class EscrowServiceManualPayoutTests
     }
 
     [Fact]
+    public async Task Complete_DifferentRefOnPaidLeg_AuditsTheRefusal()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"));
+
+        await Complete("farmer", "TB-REF-OTHER");
+
+        (await AuditWritten("manual_payout_refused", "leg=farmer;code=ESCROW_036;attemptedRef=TB-REF-OTHER")).Should().BeTrue();
+        (await AuditWritten("manual_payout_paid")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Complete_RefusalAuditFails_StillAnswersTheRefusal()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"));
+        _auditRepo.AppendAsync(Arg.Any<Dictionary<string, object>>()).ThrowsAsync(new AmazonDynamoDBException("down"));
+
+        var result = await Complete("farmer", "TB-REF-OTHER");
+
+        result.Error!.Code.Should().Be("ESCROW_036");
+    }
+
+    [Fact]
+    public async Task Complete_ReadsTheEscrowStronglyConsistent()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
+
+        var result = await Complete("buyer", "TB-REF-0009");
+
+        result.IsSuccess.Should().BeTrue();
+        await _escrowRepo.Received(1).GetByIdAsync(EscrowId, true);
+        await _escrowRepo.DidNotReceive().GetByIdAsync(EscrowId);
+    }
+
+    [Fact]
     public async Task Complete_SameRefForFarmerAndTrucker_Returns409Escrow036()
     {
-        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"));
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"));
 
         var result = await Complete("trucker", "TB-REF-FARMER");
 
@@ -691,7 +832,7 @@ public class EscrowServiceManualPayoutTests
     [Fact]
     public async Task Complete_NoOpenPayout_Returns404Escrow035()
     {
-        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow());
 
         var result = await Complete("farmer", "TB-REF-0001");
 
@@ -705,7 +846,7 @@ public class EscrowServiceManualPayoutTests
     [InlineData("platform")]
     public async Task Complete_LegNotInOpOrUnknown_Returns404(string leg)
     {
-        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
 
         var result = await Complete(leg, "TB-REF-0001");
 
@@ -716,11 +857,13 @@ public class EscrowServiceManualPayoutTests
     [Fact]
     public async Task Complete_EscrowMissing_Returns404Escrow016()
     {
-        _escrowRepo.GetByIdAsync(EscrowId).Returns((Dictionary<string, object>?)null);
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns((Dictionary<string, object>?)null);
 
         var result = await Complete("farmer", "TB-REF-0001");
 
         result.Error!.Code.Should().Be("ESCROW_016");
+        // No escrow row to hang an audit entry on.
+        await _auditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
     }
 
     [Theory]
@@ -738,7 +881,7 @@ public class EscrowServiceManualPayoutTests
         result.Error!.HttpStatus.Should().Be(400);
         result.Error.Code.Should().Be("ESCROW_037");
         result.Error.Field.Should().Be("externalRef");
-        await _escrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>());
+        await _escrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
     }
 
     [Fact]
@@ -752,7 +895,7 @@ public class EscrowServiceManualPayoutTests
     [Fact]
     public async Task Complete_ExternalRefIsTrimmed_AndAllowedPunctuationAccepted()
     {
-        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
 
         var result = await Complete("buyer", "  TB.2026_10:06/0001-x  ");
 
@@ -763,7 +906,7 @@ public class EscrowServiceManualPayoutTests
     [Fact]
     public async Task Complete_UnverifiedPayee_Returns409Escrow029_NoWrite()
     {
-        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"));
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"));
         _userRepo.GetUserByIdAsync(TruckerId).Returns(User(TruckerId, "trucker", TruckerPhone, phoneVerified: false));
 
         var result = await Complete("trucker", "TB-REF-0002");
@@ -779,7 +922,7 @@ public class EscrowServiceManualPayoutTests
     [Fact]
     public async Task Complete_FarmerWithoutFaydaAboveThreshold_Returns409Escrow029()
     {
-        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(withTrucker: false, queuedOp: ManualPayoutFields.OpRelease));
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(withTrucker: false, queuedOp: ManualPayoutFields.OpRelease));
         _userRepo.GetUserByIdAsync(FarmerId).Returns(User(FarmerId, "farmer", FarmerPhone, fayda: false));
 
         var result = await Complete("farmer", "TB-REF-0001");
@@ -791,7 +934,7 @@ public class EscrowServiceManualPayoutTests
     [Fact]
     public async Task Complete_BuyerWithoutProfile_Returns409Escrow029()
     {
-        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
         _userRepo.GetUserByIdAsync(BuyerId).Returns((UserDto?)null);
 
         var result = await Complete("buyer", "TB-REF-0009");
@@ -808,14 +951,27 @@ public class EscrowServiceManualPayoutTests
 
         result.Error!.HttpStatus.Should().Be(403);
         result.Error.Code.Should().Be("ESCROW_015");
-        await _escrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>());
+        await _escrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+    }
+
+    [Fact]
+    public async Task Complete_RoleAdminInUsersTableButNoGroup_Returns403Escrow015()
+    {
+        // The users-table role is not enough for this money action: admin group only.
+        _userRepo.GetUserByIdAsync(AdminId).Returns(User(AdminId, "admin", "+251911000009"));
+
+        var result = await Complete("farmer", "TB-REF-0001", adminGroup: false);
+
+        result.Error!.HttpStatus.Should().Be(403);
+        result.Error.Code.Should().Be("ESCROW_015");
+        await _escrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
     }
 
     [Fact]
     public async Task Complete_EscrowAlreadySettled_Returns409InvalidTransition()
     {
         var item = Escrow(status: "completed", queuedOp: ManualPayoutFields.OpRelease);
-        _escrowRepo.GetByIdAsync(EscrowId).Returns(item);
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(item);
 
         var result = await Complete("farmer", "TB-REF-0001");
 
@@ -922,7 +1078,7 @@ public class EscrowServiceManualPayoutTests
             Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>());
 
         // Only the admin's references settle the queued escrow.
-        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"));
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"));
         var done = await service.CompleteManualPayoutAsync(EscrowId, "trucker", "TB-REF-0002", AdminId, true);
         done.IsSuccess.Should().BeTrue();
         done.Value!.EscrowStatus.Should().Be("completed");

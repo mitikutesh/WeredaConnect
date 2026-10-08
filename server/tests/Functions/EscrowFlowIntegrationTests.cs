@@ -928,6 +928,7 @@ public class EscrowFlowIntegrationTests
         await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
 
         // Admin: pays in the portal and records the reference; that, and only that, completes it.
+        _mockEscrowRepo.GetByIdAsync(escrowId, true).Returns(queued);
         var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, null, null, MakeUserRepoForPayout());
         var done = await service.CompleteManualPayoutAsync(escrowId, "farmer", "TB-PORTAL-0001", "admin-1", adminGroupVerified: true);
 
