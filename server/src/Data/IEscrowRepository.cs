@@ -48,6 +48,47 @@ public interface IEscrowRepository
     Task ReleaseSettlementLockAsync(string escrowId, string createdAt);
 
     /// <summary>
+    /// ESC-02: put a settlement the gateway could not make into the manual payout queue.
+    /// Marks the row <c>manualPayout = open</c> with the given legs, conditional on the
+    /// caller holding the settlement lock for <paramref name="op"/> and no queue entry
+    /// existing yet. The lock is deliberately KEPT: nothing else may settle this escrow
+    /// until an admin has paid every leg. Returns false when the condition fails.
+    /// </summary>
+    Task<bool> TryQueueManualPayoutAsync(
+        string escrowId, string createdAt, string op, string reason, string fromStatus,
+        IReadOnlyList<ManualPayoutLegSeed> legs);
+
+    /// <summary>
+    /// ESC-02: record an admin-paid leg that is NOT the last pending one. Conditional on
+    /// the queue being open for <paramref name="op"/>, this leg still pending and
+    /// <paramref name="otherLegMustBePending"/> (when given) still pending, which proves
+    /// another leg remains and the escrow must stay in its current status. Returns false
+    /// when the condition fails (the caller re-reads and decides again).
+    /// </summary>
+    Task<bool> TryMarkManualLegPaidAsync(
+        string escrowId, string createdAt, string op, string leg, string externalRef,
+        string paidBy, string paidAt, string? otherLegMustBePending);
+
+    /// <summary>
+    /// ESC-02: record the LAST pending leg and close the queue in one write: the leg
+    /// becomes paid, <paramref name="otherLegsMustBePaid"/> are checked paid, the escrow
+    /// moves to <paramref name="newStatus"/> (<c>released</c> or <c>refunded</c>) with the
+    /// given settlement fields, and the <c>manualPayout</c> marker is removed. Conditional
+    /// on the queue being open for <paramref name="op"/> and the status still settleable.
+    /// Returns false when the condition fails.
+    /// </summary>
+    Task<bool> TryCloseManualPayoutAsync(
+        string escrowId, string createdAt, string op, string leg, string externalRef,
+        string paidBy, string paidAt, IReadOnlyList<string> otherLegsMustBePaid,
+        string newStatus, Dictionary<string, object> settlementFields);
+
+    /// <summary>
+    /// ESC-02: open manual payouts, oldest first, from the sparse <c>ManualPayoutIndex</c>.
+    /// </summary>
+    Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryOpenManualPayoutsAsync(
+        int limit, Dictionary<string, AttributeValue>? exclusiveStartKey);
+
+    /// <summary>
     /// Get an escrow by its associated delivery ID using the DeliveryIndex GSI.
     /// </summary>
     Task<Dictionary<string, object>?> GetByDeliveryIdAsync(string deliveryId);

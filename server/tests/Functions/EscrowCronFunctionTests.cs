@@ -113,6 +113,117 @@ public class EscrowCronFunctionTests
     }
 
     // ──────────────────────────────────────────────
+    // Manual payout queue (ESC-02)
+    // ──────────────────────────────────────────────
+
+    private static ReleaseFundsResponse PayoutNotSupportedRelease() => new()
+    {
+        Success = false,
+        ErrorCode = TelebirrGatewayErrors.PayoutNotSupported,
+        ErrorMessage = "not integrated"
+    };
+
+    [Fact]
+    public async Task AutoRelease_ManualPayoutWaiting_IsCountedNotFailed_AndNothingSettles()
+    {
+        var pastWindow = DateTime.UtcNow.AddHours(-49).ToString("o");
+        var deliveryConfirmed = DateTime.UtcNow.AddHours(-50).ToString("o");
+        var escrow = MakeEscrowItem("escrow-q-1", deliveryConfirmedAt: deliveryConfirmed, disputeWindowEndsAt: pastWindow);
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        _mockEscrowRepo.GetByIdAsync("escrow-q-1").Returns(escrow);
+        _mockEscrowRepo.TryQueueManualPayoutAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>())
+            .Returns(true);
+        _mockTelebirrGateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>()).Returns(PayoutNotSupportedRelease());
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"released\":\"0\"", response.Body);
+        Assert.Contains("\"manualPayoutsWaiting\":\"1\"", response.Body);
+        await _mockEscrowRepo.Received(1).TryQueueManualPayoutAsync(
+            "escrow-q-1", Arg.Any<string>(), "release", "PAYOUT_NOT_SUPPORTED", "escrowed",
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>());
+        await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        await _mockEscrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task AutoRelease_AlreadyQueuedEscrow_SecondRunIsQuiet()
+    {
+        var pastWindow = DateTime.UtcNow.AddHours(-49).ToString("o");
+        var deliveryConfirmed = DateTime.UtcNow.AddHours(-50).ToString("o");
+        var queued = MakeEscrowItem("escrow-q-2", deliveryConfirmedAt: deliveryConfirmed, disputeWindowEndsAt: pastWindow);
+        queued["settlementLock"] = "release";
+        queued[ManualPayoutFields.Marker] = ManualPayoutFields.MarkerOpen;
+        queued[ManualPayoutFields.Op] = "release";
+        queued[ManualPayoutFields.QueuedAt] = DateTime.UtcNow.AddHours(-1).ToString("o");
+        queued[ManualPayoutFields.StatusAttr("farmer")] = "pending";
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { queued });
+        _mockEscrowRepo.GetByIdAsync("escrow-q-2").Returns(queued);
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"manualPayoutsWaiting\":\"1\"", response.Body);
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        await _mockEscrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task AutoRefund_OrderFunded_PayoutNotSupported_CancelsOrderRestoresStockThenQueuesRefund()
+    {
+        var expiredAt = DateTime.UtcNow.AddDays(-1).ToString("o");
+        var escrow = MakeOrderSourcedEscrowItem("escrow-order-ord-9", "ord-9", expiresAt: expiredAt);
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>>());
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", expiresAtBefore: Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        _mockEscrowRepo.GetByIdAsync("escrow-order-ord-9").Returns(escrow);
+        _mockEscrowRepo.TryQueueManualPayoutAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>())
+            .Returns(true);
+        _mockTelebirrGateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>())
+            .Returns(new RefundFundsResponse { Success = false, ErrorCode = TelebirrGatewayErrors.PayoutNotSupported });
+
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("ord-9").Returns(new Dictionary<string, object>
+        {
+            { "orderId", "ord-9" }, { "status", "funded" }, { "version", "2" }, { "listingId", "crop-9" }, { "quantity", "500" }
+        });
+        orderRepo.UpdateAsync("ord-9", Arg.Any<Dictionary<string, object>>(), 2)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "ord-9" }, { "status", "cancelled" }, { "version", "3" }
+            }));
+        var cropRepo = Substitute.For<ICropRepository>();
+
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
+        var function = new EscrowCronFunction(service, _mockEscrowRepo, _mockAuditRepo, _mockTelebirrGateway,
+            orderRepo: orderRepo, cropRepo: cropRepo);
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"refunded\":\"0\"", response.Body);
+        Assert.Contains("\"manualPayoutsWaiting\":\"1\"", response.Body);
+        // The order side effects still run first; only the money waits for the admin.
+        await orderRepo.Received(1).UpdateAsync("ord-9",
+            Arg.Is<Dictionary<string, object>>(d => (string)d["status"] == "cancelled"), 2);
+        await cropRepo.ReceivedWithAnyArgs(1).TryRestoreStockAsync(default!, default!, default);
+        await _mockEscrowRepo.Received(1).TryQueueManualPayoutAsync(
+            "escrow-order-ord-9", Arg.Any<string>(), "refund", "PAYOUT_NOT_SUPPORTED", "escrowed",
+            Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(l => l.Count == 1 && l[0].Leg == "buyer"));
+        await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), "refunded", Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+    }
+
+    // ──────────────────────────────────────────────
     // EventBridge payload shape (regression guard for the cron silent no-op, Review C3)
     // ──────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.7.0
+1.8.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -84,6 +84,10 @@ Also:
 | `refunded` | Funds returned to buyer's Telebirr account | Yes |
 | `dispute_resolved` | Admin verdict recorded (`disputeResolution`); the hourly sweep settles it (1.3.0) | No |
 | `held` | Frozen for fraud review by a settlement sweep; only an admin release or refund leaves it (1.7.0, planned FRD-03) | No |
+
+An escrow waiting in the manual payout queue (1.8.0) keeps the status it had when it was
+queued (`escrowed`, `disputed` or `dispute_resolved`); the queue is a flag on the row, not a
+state.
 
 ### Valid State Transitions
 
@@ -357,6 +361,7 @@ Triggers release of escrowed funds to the farmer. This is an **internal trigger*
 | `403` | `ESCROW_015` | Unauthorized to release (not system/admin) |
 | `404` | `ESCROW_016` | Escrow not found |
 | `422` | `ESCROW_INVALID_TRANSITION` | Escrow is not in `escrowed`, `disputed` or `dispute_resolved` state (1.3.0); from 1.7.0 the admin may also settle `held` (planned FRD-03) |
+| `202` | `ESCROW_034` | The release is waiting in the manual payout queue; nothing moved by this call (1.8.0) |
 | `502` | `ESCROW_013` | Telebirr gateway error |
 | `503` | `ESCROW_014` | Telebirr service unavailable |
 
@@ -437,6 +442,7 @@ runs, and failing the request would make the client retry into `ESCROW_020`.
 | `403` | `ESCROW_019` | User is not buyer or farmer on this escrow |
 | `404` | `ESCROW_016` | Escrow not found |
 | `409` | `ESCROW_020` | Dispute already exists for this escrow |
+| `409` | `ESCROW_038` | The escrow's settlement is waiting in the manual payout queue; it can no longer be disputed (1.8.0) |
 | `422` | `ESCROW_INVALID_TRANSITION` | Escrow is not in `escrowed` state (a `held` escrow is refused too, 1.7.0) |
 | `500` | `ESCROW_012` | Internal server error |
 
@@ -488,6 +494,7 @@ Refunds escrowed funds to the buyer. Triggered by admin (dispute resolution) or 
 | `403` | `ESCROW_021` | Unauthorized to refund (not admin/system) |
 | `404` | `ESCROW_016` | Escrow not found |
 | `422` | `ESCROW_INVALID_TRANSITION` | Escrow is not in `escrowed`, `disputed` or `dispute_resolved` state (1.3.0); from 1.7.0 the admin may also settle `held` (planned FRD-03), except a `heldFor: refund` order escrow whose order is progressing |
+| `202` | `ESCROW_034` | The refund is waiting in the manual payout queue; nothing moved by this call (1.8.0) |
 | `502` | `ESCROW_013` | Telebirr gateway error |
 | `503` | `ESCROW_014` | Telebirr service unavailable |
 
@@ -889,6 +896,16 @@ Examples:
 - Sort key: `expiresAt`
 - Use case: Find escrowed items nearing expiry (for auto-refund cron)
 
+**GSI: OrderIndex** (sparse):
+- Partition key: `orderId`
+- Sort key: `createdAt`
+- Use case: the admin transaction monitor join; only order-funded escrows carry `orderId`
+
+**GSI: ManualPayoutIndex** (sparse, 1.8.0):
+- Partition key: `manualPayout` (always `open`)
+- Sort key: `manualPayoutQueuedAt`
+- Use case: the manual payout queue, oldest first; the marker is removed when the last leg is paid
+
 ### EscrowAuditTable
 
 | Key | Field | Description |
@@ -915,7 +932,8 @@ TTL field: `expiresAt` (30 days). No GSIs needed.
 | Buyer's history | BuyerStatusIndex | `buyerId = X`, SK between dates | `status = Y` (optional) |
 | Farmer's history | FarmerStatusIndex | `farmerId = X`, SK between dates | `status = Y` (optional) |
 | Trucker's history | TruckerStatusIndex | `truckerId = X`, SK between dates | `status = Y` (optional) |
-| Expiring escrows | StatusExpiresIndex | `status = escrowed`, SK < now + 24h | -- |
+| Expiring escrows | StatusExpiresIndex | `status = escrowed`, SK < now + 24h | `attribute_not_exists(manualPayout)` (1.8.0, every cron status query) |
+| Manual payout queue | ManualPayoutIndex | `manualPayout = open`, oldest first | -- |
 | Audit trail | EscrowAuditTable | `escrowId = X` | -- |
 | Idempotency check | EscrowIdempotencyTable (PK) | `idempotencyKey = X` | -- |
 
@@ -1278,8 +1296,8 @@ Before 1.5.0 only the mock auto-fund could move an order to `funded`, so with th
 gateway no order could ever be paid. An order is now paid through a hosted Telebirr
 checkout that the server opens for it, and the webhook funds the order.
 
-> **Deploy gate:** do not enable live money until live release and refund stop reporting
-> fake success (ESC-02). Otherwise a funded order that is later rejected refunds nothing.
+> **Deploy gate:** live release and refund fail closed since 1.8.0 (ESC-02); the remaining
+> P0 money-safety gates (ESC-03, ESC-05 at least) still apply before `enableTelebirrLive`.
 
 ### POST /escrow/order-checkout
 
@@ -1521,10 +1539,263 @@ returned. The `AUTH_041` message becomes amount-neutral; clients key on the code
 
 ---
 
+## Additions in 1.8.0 (fail-closed payouts and the manual payout queue, ESC-02)
+
+### Gateway rule
+A gateway without a payout API returns `Success = false` with `ErrorCode = PAYOUT_NOT_SUPPORTED`
+from `ReleaseFundsAsync` and `RefundFundsAsync` and makes no call. It never reports a payout
+it did not make, and a success always carries a non-empty `TelebirrRef`. The live H5/C2B
+gateway (`TelebirrSandboxGateway`, used whenever `enableTelebirrLive` is set) does exactly
+this until the B2B disbursement API is integrated; the mock gateway (`TELEBIRR_MOCK=true`)
+is unchanged.
+
+### What the service does with such an answer
+Two gateway answers send a settlement to the **manual payout queue**: `PAYOUT_NOT_SUPPORTED`,
+and `Success = true` with an empty `TelebirrRef` (reason `GATEWAY_REF_MISSING`, fail closed
+instead of completing with `""`). Every other failure keeps the retryable failure path.
+
+- The escrow keeps its status (`escrowed`, `disputed` or `dispute_resolved`); clients see no
+  new state. Mobile and web are unaffected.
+- The settlement lock is **kept on purpose**: nothing else may release or refund the escrow
+  until an admin has paid every leg. Any stale-lock recovery (ESC-05) must skip a row whose
+  `manualPayout` is `open`.
+- The call returns `202 ESCROW_034` in the standard error envelope ("waiting in the manual
+  payout queue; nothing moved"). Later release or refund calls on that escrow return the same
+  `202` at once, with no gateway call, no lock attempt and no audit row, so the hourly sweeps
+  stay quiet. The cron counts them as `manualPayoutsWaiting` in its run summary and logs
+  `ESCROW_MANUAL_PAYOUT_WAITING escrowId=...` at Information.
+- If the queue write fails or throws, the service re-reads the row strongly consistent. A
+  queue entry for the same operation means the write committed (for example a timeout after
+  the commit) and counts as queued. Otherwise nothing has moved and today's retryable failure
+  applies (`502 ESCROW_013`, lock released, audit `release_failed` or `refund_failed` with
+  metadata `MANUAL_QUEUE_FAILED:<reason>`).
+- Guards on the row: acquiring the settlement lock requires `attribute_not_exists(manualPayout)`,
+  and any status write to `released` or `refunded` other than the queue close requires it too,
+  so no gateway settlement can land on a queued escrow.
+- Every cron status query on `StatusExpiresIndex` filters out rows with `manualPayout` and keeps
+  paging through pages the filter emptied. Queued rows keep `escrowed` and their old
+  `expiresAt`, so without the filter they filled the oldest-first window (100 rows) and no
+  newer escrow was ever released or refunded. The auto-refund sweep also skips a queued
+  escrow before the delivery stamp and the order cancel and restock.
+- Disputes: `POST /escrow/dispute` refuses an escrow with an open manual payout
+  (`409 ESCROW_038`), and the status write to `disputed` carries the same guard, so a dispute
+  cannot race in after the queue entry. A delivery dispute through sync does not freeze a
+  queued escrow; it writes `dispute_refused_manual_payout` (metadata `deliveryId=...;op=...`)
+  to escrow-audit and logs `ESCROW_MANUAL_PAYOUT_DISPUTE_REFUSED`, so the admin sees it.
+- KYC-blocked payouts (`ESCROW_029`, `release_blocked_kyc`) do NOT enter the queue: paying an
+  unverified party by hand would bypass the gate.
+- The trucker leg follows the same rule: `PAYOUT_NOT_SUPPORTED`, or a success without a
+  reference, queues it. When the farmer leg was paid by the gateway and only the trucker leg
+  needs a manual payout, the farmer leg is seeded `paid` with its gateway reference
+  (`paidBy = gateway`). If that
+  queue write keeps failing after the farmer was paid, the escrow completes with
+  `truckerPayoutPending = true` as before 1.8.0 (ESC-04) instead of stranding under a held lock.
+
+### Row attributes (escrows table, flat)
+
+| Attribute | Value |
+|---|---|
+| `manualPayout` | `open` while waiting; removed on close. Partition key of the sparse `ManualPayoutIndex` |
+| `manualPayoutQueuedAt` | ISO time; sort key of the index (oldest first). Kept after close |
+| `manualPayoutOp` | `release` or `refund`; equals the held `settlementLock` |
+| `manualPayoutReason` | `PAYOUT_NOT_SUPPORTED` or `GATEWAY_REF_MISSING` |
+| `manualPayoutFromStatus` | escrow status when queued |
+| `manualFarmerStatus`, `manualTruckerStatus`, `manualBuyerStatus` | `pending` or `paid`; only the legs of the operation exist |
+| `manual{Leg}Ref`, `manual{Leg}PaidBy`, `manual{Leg}PaidAt` | portal or gateway reference, admin id (or `gateway`), time |
+
+Legs and amounts: `release` pays `farmer` (`farmerPayout`) and, when `truckerPayout > 0`,
+`trucker` (`truckerPayout`); `refund` pays `buyer` (`amount`). The commission has no leg.
+Phones are never stored on the row; they are read from the profile when listing and completing.
+
+### GET /admin/payouts/manual
+Admin pool. Query `limit` (1 to 50, default 20) and `nextToken`. Response:
+
+```json
+{
+  "payouts": [
+    {
+      "escrowId": "escrow-order-...",
+      "orderId": "...",
+      "deliveryId": "...",
+      "op": "release",
+      "reason": "PAYOUT_NOT_SUPPORTED",
+      "escrowStatus": "escrowed",
+      "fromStatus": "escrowed",
+      "queuedAt": "2026-10-06T08:00:00Z",
+      "currency": "ETB",
+      "pendingAmount": 19500,
+      "legs": [
+        {
+          "ref": "farmer",
+          "payeeRole": "farmer",
+          "payeeId": "...",
+          "payeeName": "...",
+          "payeePhone": "+2519...",
+          "payeeVerified": true,
+          "blockReason": null,
+          "amount": 16500,
+          "status": "pending",
+          "externalRef": null,
+          "paidBy": null,
+          "paidAt": null
+        }
+      ]
+    }
+  ],
+  "nextToken": null,
+  "total": 1
+}
+```
+
+`payeeVerified` applies the same identity gate as the gateway release: farmer and trucker
+need a verified phone and, above 10,000 ETB (judged on the whole held amount for the
+farmer, on the transport leg for the trucker), a verified Fayda; the buyer only needs a
+profile with a phone. Errors: `400 ESCROW_023` invalid token, `503 ADMIN_004` tables not
+configured.
+
+### POST /admin/payouts/{escrowId}/{ref}/complete
+Admin pool **and** the `admin` group (`cognito:groups`); a role claim alone gets
+`403 ESCROW_015`. `ref` is `farmer`, `trucker` or `buyer`. Body `{"externalRef": "<Telebirr
+merchant-portal transaction id>"}`: trimmed, 4 to 64 characters, a letter or digit first,
+then letters, digits, `.`, `_`, `:`, `/` or `-`.
+
+The call records one paid leg. The last pending leg closes the queue in one conditional
+write: the escrow moves to `released` with `telebirrReleaseRef` (farmer reference) and
+`truckerTelebirrRef` (when a trucker leg exists), then to `completed`; or to `refunded`
+with `telebirrRefundRef`. The gateway is never called. A crash between `released` and
+`completed` is recovered by the cron's `CompleteReleasedAsync` sweep or by replaying the
+same call. Response:
+
+```json
+{
+  "escrowId": "...",
+  "orderId": "...",
+  "ref": "trucker",
+  "legStatus": "paid",
+  "escrowStatus": "completed",
+  "externalRef": "TB2026...",
+  "paidAt": "2026-10-06T09:00:00Z",
+  "remainingLegs": [],
+  "message": "Payout recorded. The escrow is completed.",
+  "alreadyRecorded": false
+}
+```
+
+`alreadyRecorded` is `true` on a replay of a leg already recorded with the same reference:
+nothing new was paid or settled, and no second transaction-audit row is written.
+
+| Status | Code | When |
+|---|---|---|
+| `200` | | leg recorded; a replay with the same reference is idempotent |
+| `400` | `ESCROW_037` | `externalRef` missing or malformed (field `externalRef`) |
+| `400` | `ADMIN_005` | body is not JSON |
+| `403` | `ESCROW_015` | caller not in the admin group |
+| `404` | `ESCROW_016` | escrow not found |
+| `404` | `ESCROW_035` | unknown leg, leg not part of this operation, or no open manual payout |
+| `409` | `ESCROW_036` | this leg already carries a different reference, the reference was used for another leg of this escrow, or the row changed three times while recording |
+| `409` | `ESCROW_029` | the payee fails the identity gate (409, not 403, so the admin app keeps the session) |
+| `409` | `ESCROW_INVALID_TRANSITION` | the escrow is no longer in a settleable status |
+| `503` | `ADMIN_004` | escrow tables not configured |
+
+Two admins recording the two release legs at the same time are safe: the second write fails
+its condition, the handler re-reads (strongly consistent), sees it is now the last leg, and
+closes.
+
+Each list item also carries `deliveryConfirmedAt` (null when the delivery was never confirmed).
+On a refund queued before the delivery was confirmed, the admin page warns that the goods
+arrived after the refund was queued. The page reads 50 items per page and loads the next page
+(`nextToken`) on demand.
+
+A `GATEWAY_REF_MISSING` leg is different from a `PAYOUT_NOT_SUPPORTED` one: the gateway said
+it paid, so the money has probably moved. The admin page says so on the row ("find it in the
+portal and record its ID; pay only if it is missing") and asks the admin to confirm the
+payment is in the portal, not to pay it.
+
+### POST /admin/disputes/{id}/resolve
+Refuses with `409 ADMIN_013` when the escrow has an open manual payout, so a verdict cannot
+contradict a settlement already waiting for the admin.
+
+### Audit
+escrow-audit: `manual_payout_queued` (from = to = current status, metadata
+`op=...;legs=...;reason=...`), `manual_payout_paid` (telebirrRef = the entered reference,
+metadata `leg=...;amount=...;payee=...`), then `release` + `complete` or `refund` with
+metadata `manual`. These rows sit at deterministic keys, written with a conditional put
+(`attribute_not_exists(escrowId)`, still append-only): `manual_payout_queued` at
+`manualPayoutQueuedAt`, `manual_payout_paid` at the leg's `paidAt`, `release` or `refund` at
+the closing leg's `paidAt` plus one 100 ns tick, and `complete` at `completedAt`. A replay of
+the same reference re-ensures them (the `complete` row only while the escrow is still
+`released`, see the known limits), so a crash between the money write and its audit row is
+repaired without a duplicate. A refused completion on an existing escrow (`ESCROW_035`, `ESCROW_036`,
+`ESCROW_029`, `ESCROW_INVALID_TRANSITION`) writes `manual_payout_refused` (metadata
+`leg=...;code=...;attemptedRef=...`); a failed write of that row never changes the answer.
+transaction-audit: `admin_manual_payout` (metadata `leg=...;ref=...`).
+
+Log lines: `ESCROW_MANUAL_PAYOUT_QUEUED`, `ESCROW_MANUAL_PAYOUT_PAID` and
+`ESCROW_MANUAL_PAYOUT_QUEUE_FAILED` from the service, `ESCROW_MANUAL_PAYOUT_WAITING` from the
+cron (informational, no alarm counts it).
+
+### Overdue alarm producer (ESC-13)
+The hourly escrow-cron run first reads `ManualPayoutIndex` (oldest first, 50 per page, at
+most 20 pages) and logs one line per pending leg of every manual payout queued more than 24
+hours ago, in the ESC-13 format:
+
+```
+MANUAL_PAYOUT_OVERDUE escrowId=<id> ref=<op>:<leg> ageHours=<n>
+```
+
+for example `MANUAL_PAYOUT_OVERDUE escrowId=escrow-order-ord-1 ref=release:farmer ageHours=26`.
+An open row with no pending leg left (it cannot close from the admin page) logs
+`ref=<op>:no_pending_leg`. Paging stops at the first row younger than 24 hours. The report runs
+before the settlement sweeps and on its own, so a failing sweep cannot skip it; a failed
+index query logs `ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_failed outcome=failed
+code=manual_payout_query:<exception type>`. The run summary carries `manualPayoutsOverdue`
+(lines logged).
+
+### Reserved: manual refund of an unapplied payment
+`account-deletion.md` keeps a buyer's `payment_review` blocker until a manual refund is
+recorded for a captured payment the webhook did not apply (`order_payment_unmatched`,
+`order_payment_duplicate`, `order_payment_unprocessed` under `escrow-order-{orderId}`). The
+resolution row is reserved here: escrow-audit action `order_payment_refunded_manual` under
+the same `escrow-order-{orderId}` key, `telebirrRef` = the merchant-portal transaction id,
+metadata `paymentOrderId=<Telebirr payment_order_id>;amount=<n>`, actor = the admin id. 1.8.0
+has no endpoint that writes it; a follow-up task adds it (or ESC-20, which owns automatic
+duplicate refunds).
+
+### Not in 1.8.0 (known limits)
+- No cancel or reassign of a queued payout, no cross-escrow uniqueness of references and no
+  verification of the reference against Telebirr (no API).
+- No claim step: two admins can both pay the same leg in the merchant portal before either
+  records it. The second record is refused (`ESCROW_036`, audited as
+  `manual_payout_refused`), but the second payment has already left; it is recovered by hand.
+  One admin works the queue at a time until a claim step exists.
+- A leg the identity gate blocks (`ESCROW_029`: an unverified trucker, an escrow without
+  `truckerId`, a buyer without a profile or phone) cannot be recorded and has no unqueue path.
+  It stays in the queue and keeps `${prefix}-manual-payouts-overdue` in ALARM until the payee
+  verifies (ESC-04 owns the trucker backfill).
+- FRD-03 (`held`, 1.7.0): a queued escrow keeps its settlement lock, so the hold write
+  (`attribute_not_exists(settlementLock)`) never holds it, and the cron queries already skip
+  it. The reverse case is open: when FRD-03 lets an admin settle a `held` escrow and the live
+  gateway queues that settlement, `held` must join the statuses a queued payout may close from
+  (`escrowed`, `disputed`, `dispute_resolved`), or the queue close fails its condition and the
+  leg can never be recorded. Any other later sweep that moves escrows by status must skip rows
+  with `manualPayout = open` the same way.
+- A leg that stays blocked keeps `${prefix}-manual-payouts-overdue` in ALARM for as long as it
+  waits. While the alarm is already in ALARM, a new overdue payout does not change its state,
+  so it is not announced separately: read the `MANUAL_PAYOUT_OVERDUE` lines or the admin page
+  (oldest first) rather than relying on a fresh alarm transition.
+- If the `complete` audit write fails after `released` moved to `completed`, a replay does not
+  rewrite it (the cron's crash-recovery sweep writes its own `complete` row when it finishes a
+  stuck `released` escrow, and a second row would be a duplicate).
+- ESC-20 (ledger) maps the legs to `release#farmer`, `release#trucker#{id}` and `refund#all`
+  and replaces this row-level queue.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.8.0 | 2026-10-09 | Fail-closed live payouts and the manual payout queue (ESC-02): the live gateway's release and refund return `PAYOUT_NOT_SUPPORTED`; the service queues such settlements (and gateway successes without a reference, trucker leg included) on the escrow row with the lock held, returns `202 ESCROW_034`, and stays quiet on later sweeps; a failed queue write is re-read strongly consistent; the lock and any `released`/`refunded` status write refuse a queued row; new sparse `ManualPayoutIndex`; `GET /admin/payouts/manual` and `POST /admin/payouts/{escrowId}/{ref}/complete` (admin group only) with codes `ESCROW_035` to `ESCROW_037` and `409 ESCROW_029` (`alreadyRecorded` on a replay, no second transaction-audit row); cron status queries filter out queued rows and page through filtered-empty pages; `409 ESCROW_038` on a dispute against a queued escrow (delivery disputes through sync are refused and audited); queue audit rows at deterministic keys, re-ensured on replay; `deliveryConfirmedAt` on list items; `409 ADMIN_013` on a dispute verdict against a queued payout; audit actions `manual_payout_queued`, `manual_payout_paid`, `manual_payout_refused`; hourly `MANUAL_PAYOUT_OVERDUE` producer for the ESC-13 alarm; `order_payment_refunded_manual` reserved for ACC; known limits listed; mobile and web unchanged |
 | 1.7.0 | 2026-10-06 | Fraud hold and risk tiers (planned FRD-03, FRD-04): new status `held` with `holdReason`, `heldAt`, `heldBy`, `heldFromStatus`, `heldFor`; settlement-only entry from `escrowed` or `dispute_resolved`, admin-only exits (an admin refund of a `heldFor: release` escrow moves the order to `dispute_resolved` as `buyer_wins`; the auto-refund hold is fenced on the order's version), `held` counts as active, crons never select it, `FRAUD_HOLD_ENABLED`; `403 FRAUD_ACCOUNT_HELD` on initiate and order-checkout; `AUTH_040`/`AUTH_041` also from the risk tier; clients tolerate unknown status values; state table gains `dispute_resolved`, `held` and the missing 1.3.0 transitions; `dispute_resolved` named in the release and refund transition errors; amount anomaly marked planned (FRD-09) |
 | 1.5.1 | 2026-10-01 | Dispute propagation fixed (SIM-47): the escrow Lambda can write the order and delivery it mirrors a dispute onto (UpdateItem only); legs independent, order conflicts retried, failures logged as `DISPUTE_PROPAGATION_FAILED` and audited with the failed leg; response unchanged |
 | 1.5.0 | 2026-09-30 | Live order payments (ESC-01): `POST /escrow/order-checkout` (server-generated hashed merch_order_id, one open checkout per order until 130 minutes after Telebirr answered, re-signed URL on retry, mapping written before Telebirr and never deleted, 400-day TTL, no Telebirr call 20 hours after `paymentSubmittedAt` or `createdAt`, each checkout bound to the order's payment attempt); the webhook funds a paid order checkout exactly once (payment-reference classification, status-conditional funding write, idempotent stock and escrow repair except on closed orders, inbox row, alarm tokens, a failed or malformed mapping lookup alarmed instead of dropped, `Failed` only audited, a refused payment keeps its verdict on redelivery, a payment from an earlier attempt never funds); `/escrow/initiate` refuses an order that is already funded or paid (`ESCROW_024`) even without its escrow record; order escrows take the server-only `telebirrPaymentOrderId` as hold reference; new codes `ESCROW_030` to `ESCROW_033`; header version corrected (it still read 1.3.0) |
@@ -1542,6 +1813,6 @@ returned. The `AUTH_041` message becomes amount-neutral; clients key on the code
 
 ---
 
-**Last Updated**: 2026-10-06
-**Version**: 1.7.0
+**Last Updated**: 2026-10-09
+**Version**: 1.8.0
 **Status**: Draft (Phase R4)

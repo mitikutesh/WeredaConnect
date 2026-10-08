@@ -383,9 +383,37 @@ POST /escrow/refund
 | GET | `/admin/compliance/summary` | Compliance metrics |
 | GET | `/admin/analytics/revenue` | Revenue analytics |
 | GET | `/admin/analytics/transactions` | Transaction analytics |
+| GET | `/admin/payouts/manual` | Manual payout queue (ESC-02): settlements the live gateway could not make |
 | POST | `/admin/disputes/{id}/resolve` | Resolve dispute (farmer_wins, buyer_wins, partial_refund) |
 | POST | `/admin/fraud-signals/{id}/action` | Flag/investigate fraud |
 | POST | `/admin/users/{id}/action` | Disable/enable user |
+| POST | `/admin/payouts/{escrowId}/{ref}/complete` | Record an admin-paid manual payout leg (`{externalRef}`, admin group only) |
+
+#### Manual payout queue (live mode runbook, ESC-02)
+
+The live Telebirr gateway has no payout API yet. In live mode (`enableTelebirrLive`)
+every release and refund fails closed and the escrow waits in the manual payout
+queue; mock mode (`TELEBIRR_MOCK=true`, dev) never queues anything.
+
+1. Open the admin app, "Manual Payouts" (`/payouts`). Each row is one payee leg:
+   escrow, order, operation (release or refund), payee role, name, registered
+   phone and the exact amount to pay. Rows older than 24 hours are flagged.
+2. Pay that amount to that phone in the Telebirr merchant portal.
+3. Paste the portal's transaction id into "Telebirr transaction ID", click
+   "Mark as paid" and confirm the amount and phone. The last leg of an escrow
+   moves it to `completed` (release) or `refunded` (refund); until then the
+   escrow keeps its status and stays locked against any other settlement.
+4. Errors: `ESCROW_037` bad reference format; `ESCROW_036` the reference was
+   already recorded for this escrow (another admin, or a replay with a different
+   id); `ESCROW_029` the payee fails the identity gate (phone or Fayda), wait for
+   them to verify; `ESCROW_035` the leg is not open any more (reload).
+5. Check the page daily until the ESC-13 alarms exist. The cron logs
+   `ESCROW_MANUAL_PAYOUT_WAITING` for every queued escrow it skips, and the
+   service logs `ESCROW_MANUAL_PAYOUT_QUEUED` when one enters the queue.
+
+Every step is audited: escrow-audit `manual_payout_queued`, `manual_payout_paid`,
+then `release` + `complete` or `refund` with metadata `manual`; transaction-audit
+`admin_manual_payout`.
 
 ### Scheduled Jobs (EventBridge, not HTTP)
 

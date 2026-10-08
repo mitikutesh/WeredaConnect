@@ -309,9 +309,12 @@ Their answers → drop their public key + `signPadding` into the secret; set
    for production.
 
 > **Still not built** (out of scope for this prep): the payout/refund
-> disbursement leg (release/refund return `SANDBOX-SIM-…` logged intents only —
-> `TelebirrSandboxGateway.cs:146-160`). Real B2B disbursement is required before
-> a farmer can actually be paid on a live payment.
+> disbursement leg. Since ESC-02 the live gateway's release and refund fail
+> closed with `PAYOUT_NOT_SUPPORTED` (no fake `SANDBOX-SIM-…` success) and the
+> escrow goes to the manual payout queue (`GET /admin/payouts/manual`, admin
+> page "Manual Payouts"), where an admin pays in the merchant portal and records
+> the transaction id. Real B2B disbursement is still required before payouts
+> run without an admin.
 
 > `Demo_Project` lives under `~/Downloads`, which macOS privacy protection blocks
 > from the CLI. Copy it into the repo (or grant the terminal Full-Disk / Downloads

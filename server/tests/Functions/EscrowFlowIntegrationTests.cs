@@ -846,6 +846,111 @@ public class EscrowFlowIntegrationTests
     }
 
     // ──────────────────────────────────────────────
+    // Flow 11b: ESC-02, the live gateway cannot pay out: the sweep queues a manual payout,
+    // the next sweep is quiet, and only the admin's reference completes the escrow.
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task Flow_CronAutoRelease_PayoutNotSupported_QueuesThenAdminCompletes()
+    {
+        var pastWindow = DateTime.UtcNow.AddHours(-49).ToString("o");
+        var deliveryConfirmed = DateTime.UtcNow.AddHours(-50).ToString("o");
+        var escrowId = "escrow-cron-manual-int-001";
+        var escrow = new Dictionary<string, object>
+        {
+            { "escrowId", escrowId },
+            { "deliveryId", $"del-{escrowId}" },
+            { "orderId", "ord-manual-1" },
+            { "buyerId", BuyerId },
+            { "farmerId", FarmerId },
+            { "amount", 15_000m },
+            { "commission", 375m },
+            { "commissionRate", 0.025m },
+            { "farmerPayout", 14_625m },
+            { "currency", "ETB" },
+            { "status", "escrowed" },
+            { "telebirrHoldRef", "MOCK-HOLD-INT-REF" },
+            { "createdAt", "2026-02-10T10:00:00.0000000Z" },
+            { "updatedAt", "2026-02-10T10:00:00.0000000Z" },
+            { "expiresAt", "2026-02-27T10:00:00.0000000Z" },
+            { "deliveryConfirmedAt", deliveryConfirmed },
+            { "disputeWindowEndsAt", pastWindow },
+            { "version", 2 }
+        };
+        _mockTelebirrGateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
+            .Returns(new ReleaseFundsResponse { Success = false, ErrorCode = TelebirrGatewayErrors.PayoutNotSupported });
+        _mockEscrowRepo.TryQueueManualPayoutAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>())
+            .Returns(true);
+        _mockEscrowRepo.TryCloseManualPayoutAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>(),
+                Arg.Any<Dictionary<string, object>>())
+            .Returns(true);
+        _mockEscrowRepo
+            .QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        _mockEscrowRepo.GetByIdAsync(escrowId).Returns(escrow);
+
+        // Sweep 1: the gateway refuses, the escrow is queued, nothing settles.
+        var first = await _cronFunction.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+        Assert.Equal(200, first.StatusCode);
+        Assert.Contains("\"released\":\"0\"", first.Body);
+        Assert.Contains("\"manualPayoutsWaiting\":\"1\"", first.Body);
+        await _mockEscrowRepo.Received(1).TryQueueManualPayoutAsync(
+            escrowId, Arg.Any<string>(), "release", "PAYOUT_NOT_SUPPORTED", "escrowed",
+            Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(l => l.Count == 1 && l[0].Leg == "farmer"));
+        await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+
+        // Sweep 2: the row now carries the open queue marker; no gateway call, no audit.
+        var queued = new Dictionary<string, object>(escrow)
+        {
+            ["settlementLock"] = "release",
+            [ManualPayoutFields.Marker] = ManualPayoutFields.MarkerOpen,
+            [ManualPayoutFields.Op] = "release",
+            [ManualPayoutFields.Reason] = "PAYOUT_NOT_SUPPORTED",
+            [ManualPayoutFields.FromStatus] = "escrowed",
+            [ManualPayoutFields.QueuedAt] = DateTime.UtcNow.ToString("o"),
+            [ManualPayoutFields.StatusAttr("farmer")] = "pending"
+        };
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { queued });
+        _mockEscrowRepo.GetByIdAsync(escrowId).Returns(queued);
+        _mockTelebirrGateway.ClearReceivedCalls();
+        _mockAuditRepo.ClearReceivedCalls();
+
+        var second = await _cronFunction.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+        Assert.Equal(200, second.StatusCode);
+        Assert.Contains("\"manualPayoutsWaiting\":\"1\"", second.Body);
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+
+        // Admin: pays in the portal and records the reference; that, and only that, completes it.
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, null, null, MakeUserRepoForPayout());
+        var done = await service.CompleteManualPayoutAsync(escrowId, "farmer", "TB-PORTAL-0001", "admin-1", adminGroupVerified: true);
+
+        Assert.True(done.IsSuccess);
+        Assert.Equal("completed", done.Value!.EscrowStatus);
+        await _mockEscrowRepo.Received(1).TryCloseManualPayoutAsync(
+            escrowId, Arg.Any<string>(), "release", "farmer", "TB-PORTAL-0001", "admin-1", Arg.Any<string>(),
+            Arg.Any<IReadOnlyList<string>>(), "released",
+            Arg.Is<Dictionary<string, object>>(f => (string)f["telebirrReleaseRef"] == "TB-PORTAL-0001"));
+        await _mockEscrowRepo.Received(1).UpdateStatusAsync(escrowId, Arg.Any<string>(), "completed", "released",
+            Arg.Any<Dictionary<string, object>>());
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+    }
+
+    private static IUserRepository MakeUserRepoForPayout()
+    {
+        var repo = Substitute.For<IUserRepository>();
+        repo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
+        repo.GetUserByIdAsync(BuyerId).Returns(MakeVerifiedUser(BuyerId, "buyer"));
+        return repo;
+    }
+
+    // ──────────────────────────────────────────────
     // Flow 12: Cron auto-refund — expired escrow, no delivery confirmed
     // ──────────────────────────────────────────────
 

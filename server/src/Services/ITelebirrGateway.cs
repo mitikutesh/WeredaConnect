@@ -16,11 +16,15 @@ public interface ITelebirrGateway
 
     /// <summary>
     /// Release held funds to the farmer's Telebirr account (minus platform commission).
+    /// A gateway that cannot pay out returns <c>Success = false</c> with
+    /// <see cref="TelebirrGatewayErrors.PayoutNotSupported"/> (ESC-02); it never reports a
+    /// payout it did not make. A success always carries a non-empty <c>TelebirrRef</c>.
     /// </summary>
     Task<ReleaseFundsResponse> ReleaseFundsAsync(ReleaseFundsRequest request);
 
     /// <summary>
     /// Refund held funds to the buyer's Telebirr account (full amount, no commission).
+    /// Same fail-closed rule as <see cref="ReleaseFundsAsync"/>.
     /// </summary>
     Task<RefundFundsResponse> RefundFundsAsync(RefundFundsRequest request);
 
@@ -43,4 +47,16 @@ public interface ITelebirrGateway
     /// checkout.
     /// </summary>
     string? BuildCheckoutUrl(string prepayId);
+}
+
+/// <summary>
+/// Gateway error codes the escrow service reacts to by name.
+/// </summary>
+public static class TelebirrGatewayErrors
+{
+    /// <summary>
+    /// The gateway has no payout (B2B disbursement) API yet. The settlement is not
+    /// made and goes to the manual payout queue (ESC-02).
+    /// </summary>
+    public const string PayoutNotSupported = "PAYOUT_NOT_SUPPORTED";
 }

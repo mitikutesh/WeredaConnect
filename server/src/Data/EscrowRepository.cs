@@ -14,6 +14,9 @@ namespace WeredaConnect.Server.Data;
 ///   GSI BuyerStatusIndex: buyerId (PK) + createdAt (SK)
 ///   GSI FarmerStatusIndex: farmerId (PK) + createdAt (SK)
 ///   GSI StatusExpiresIndex: status (PK) + expiresAt (SK)
+///   GSI TruckerStatusIndex: truckerId (PK) + createdAt (SK), sparse
+///   GSI OrderIndex: orderId (PK) + createdAt (SK), sparse
+///   GSI ManualPayoutIndex: manualPayout (PK) + manualPayoutQueuedAt (SK), sparse (ESC-02)
 /// </summary>
 public sealed class EscrowRepository : IEscrowRepository
 {
@@ -190,6 +193,274 @@ public sealed class EscrowRepository : IEscrowRepository
 
         await _dynamoDb.UpdateItemAsync(request);
     }
+
+    /// <inheritdoc />
+    public async Task<bool> TryQueueManualPayoutAsync(
+        string escrowId, string createdAt, string op, string reason, string fromStatus,
+        IReadOnlyList<ManualPayoutLegSeed> legs)
+    {
+        var now = DateTime.UtcNow.ToString("o");
+        var sets = new List<string>
+        {
+            "#marker = :open", "#queuedAt = :now", "#op = :op", "#reason = :reason",
+            "#fromStatus = :fromStatus", "#updated = :now"
+        };
+        var names = new Dictionary<string, string>
+        {
+            { "#marker", ManualPayoutFields.Marker },
+            { "#queuedAt", ManualPayoutFields.QueuedAt },
+            { "#op", ManualPayoutFields.Op },
+            { "#reason", ManualPayoutFields.Reason },
+            { "#fromStatus", ManualPayoutFields.FromStatus },
+            { "#updated", "updatedAt" },
+            { "#version", "version" },
+            { "#lock", "settlementLock" }
+        };
+        var values = new Dictionary<string, AttributeValue>
+        {
+            { ":open", new AttributeValue { S = ManualPayoutFields.MarkerOpen } },
+            { ":now", new AttributeValue { S = now } },
+            { ":op", new AttributeValue { S = op } },
+            { ":reason", new AttributeValue { S = reason } },
+            { ":fromStatus", new AttributeValue { S = fromStatus } },
+            { ":one", new AttributeValue { N = "1" } }
+        };
+
+        var i = 0;
+        foreach (var leg in legs)
+        {
+            names[$"#ls{i}"] = ManualPayoutFields.StatusAttr(leg.Leg);
+            values[$":ls{i}"] = new AttributeValue { S = leg.Status };
+            sets.Add($"#ls{i} = :ls{i}");
+            if (!string.IsNullOrEmpty(leg.Ref))
+            {
+                names[$"#lr{i}"] = ManualPayoutFields.RefAttr(leg.Leg);
+                values[$":lr{i}"] = new AttributeValue { S = leg.Ref };
+                sets.Add($"#lr{i} = :lr{i}");
+            }
+
+            if (!string.IsNullOrEmpty(leg.PaidBy))
+            {
+                names[$"#lb{i}"] = ManualPayoutFields.PaidByAttr(leg.Leg);
+                values[$":lb{i}"] = new AttributeValue { S = leg.PaidBy };
+                sets.Add($"#lb{i} = :lb{i}");
+            }
+
+            if (!string.IsNullOrEmpty(leg.PaidAt))
+            {
+                names[$"#la{i}"] = ManualPayoutFields.PaidAtAttr(leg.Leg);
+                values[$":la{i}"] = new AttributeValue { S = leg.PaidAt };
+                sets.Add($"#la{i} = :la{i}");
+            }
+
+            i++;
+        }
+
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "SET " + string.Join(", ", sets) + " ADD #version :one",
+            // Only the settlement that holds the lock may queue, and only once. The lock
+            // stays in place on purpose: a queued escrow must not be settled by anyone else.
+            ConditionExpression = "#lock = :op AND attribute_not_exists(#marker)",
+            ExpressionAttributeNames = names,
+            ExpressionAttributeValues = values
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryMarkManualLegPaidAsync(
+        string escrowId, string createdAt, string op, string leg, string externalRef,
+        string paidBy, string paidAt, string? otherLegMustBePending)
+    {
+        var names = new Dictionary<string, string>
+        {
+            { "#marker", ManualPayoutFields.Marker },
+            { "#op", ManualPayoutFields.Op },
+            { "#legStatus", ManualPayoutFields.StatusAttr(leg) },
+            { "#legRef", ManualPayoutFields.RefAttr(leg) },
+            { "#legPaidBy", ManualPayoutFields.PaidByAttr(leg) },
+            { "#legPaidAt", ManualPayoutFields.PaidAtAttr(leg) },
+            { "#updated", "updatedAt" },
+            { "#version", "version" }
+        };
+        var values = new Dictionary<string, AttributeValue>
+        {
+            { ":open", new AttributeValue { S = ManualPayoutFields.MarkerOpen } },
+            { ":op", new AttributeValue { S = op } },
+            { ":pending", new AttributeValue { S = ManualPayoutFields.LegPending } },
+            { ":paid", new AttributeValue { S = ManualPayoutFields.LegPaid } },
+            { ":ref", new AttributeValue { S = externalRef } },
+            { ":paidBy", new AttributeValue { S = paidBy } },
+            { ":paidAt", new AttributeValue { S = paidAt } },
+            { ":one", new AttributeValue { N = "1" } }
+        };
+        var condition = "#marker = :open AND #op = :op AND #legStatus = :pending";
+        if (!string.IsNullOrEmpty(otherLegMustBePending))
+        {
+            names["#otherStatus"] = ManualPayoutFields.StatusAttr(otherLegMustBePending);
+            condition += " AND #otherStatus = :pending";
+        }
+
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression =
+                "SET #legStatus = :paid, #legRef = :ref, #legPaidBy = :paidBy, #legPaidAt = :paidAt, #updated = :paidAt "
+                + "ADD #version :one",
+            ConditionExpression = condition,
+            ExpressionAttributeNames = names,
+            ExpressionAttributeValues = values
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryCloseManualPayoutAsync(
+        string escrowId, string createdAt, string op, string leg, string externalRef,
+        string paidBy, string paidAt, IReadOnlyList<string> otherLegsMustBePaid,
+        string newStatus, Dictionary<string, object> settlementFields)
+    {
+        var sets = new List<string>
+        {
+            "#legStatus = :paid", "#legRef = :ref", "#legPaidBy = :paidBy", "#legPaidAt = :paidAt",
+            "#status = :newStatus", "#updated = :paidAt"
+        };
+        var names = new Dictionary<string, string>
+        {
+            { "#marker", ManualPayoutFields.Marker },
+            { "#op", ManualPayoutFields.Op },
+            { "#legStatus", ManualPayoutFields.StatusAttr(leg) },
+            { "#legRef", ManualPayoutFields.RefAttr(leg) },
+            { "#legPaidBy", ManualPayoutFields.PaidByAttr(leg) },
+            { "#legPaidAt", ManualPayoutFields.PaidAtAttr(leg) },
+            { "#status", "status" },
+            { "#updated", "updatedAt" },
+            { "#version", "version" }
+        };
+        var values = new Dictionary<string, AttributeValue>
+        {
+            { ":open", new AttributeValue { S = ManualPayoutFields.MarkerOpen } },
+            { ":op", new AttributeValue { S = op } },
+            { ":pending", new AttributeValue { S = ManualPayoutFields.LegPending } },
+            { ":paid", new AttributeValue { S = ManualPayoutFields.LegPaid } },
+            { ":ref", new AttributeValue { S = externalRef } },
+            { ":paidBy", new AttributeValue { S = paidBy } },
+            { ":paidAt", new AttributeValue { S = paidAt } },
+            { ":newStatus", new AttributeValue { S = newStatus } },
+            { ":escrowed", new AttributeValue { S = "escrowed" } },
+            { ":disputed", new AttributeValue { S = "disputed" } },
+            { ":disputeResolved", new AttributeValue { S = "dispute_resolved" } },
+            { ":one", new AttributeValue { N = "1" } }
+        };
+
+        var condition = "#marker = :open AND #op = :op AND #legStatus = :pending"
+                        + " AND (#status = :escrowed OR #status = :disputed OR #status = :disputeResolved)";
+        var i = 0;
+        foreach (var other in otherLegsMustBePaid)
+        {
+            names[$"#other{i}"] = ManualPayoutFields.StatusAttr(other);
+            condition += $" AND #other{i} = :paid";
+            i++;
+        }
+
+        i = 0;
+        foreach (var kvp in settlementFields)
+        {
+            if (kvp.Value == null || kvp.Key is "escrowId" or "createdAt" or "status" or "updatedAt" or "version")
+            {
+                continue;
+            }
+
+            names[$"#f{i}"] = kvp.Key;
+            values[$":f{i}"] = CropRepository.ToAttributeValue(kvp.Value);
+            sets.Add($"#f{i} = :f{i}");
+            i++;
+        }
+
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "SET " + string.Join(", ", sets) + " REMOVE #marker ADD #version :one",
+            ConditionExpression = condition,
+            ExpressionAttributeNames = names,
+            ExpressionAttributeValues = values
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryOpenManualPayoutsAsync(
+        int limit, Dictionary<string, AttributeValue>? exclusiveStartKey)
+    {
+        if (limit < 1 || limit > 50)
+        {
+            limit = 20;
+        }
+
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = ManualPayoutFields.IndexName,
+            KeyConditionExpression = "#marker = :open",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#marker", ManualPayoutFields.Marker }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":open", new AttributeValue { S = ManualPayoutFields.MarkerOpen } }
+            },
+            Limit = limit,
+            ScanIndexForward = true
+        };
+
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
+        }
+
+        var response = await _dynamoDb.QueryAsync(request);
+        var items = response.Items.Select(CropRepository.FromItem).ToList();
+        return (items, response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null);
+    }
+
+    private static Dictionary<string, AttributeValue> EscrowKey(string escrowId, string createdAt) => new()
+    {
+        { "escrowId", new AttributeValue { S = escrowId } },
+        { "createdAt", new AttributeValue { S = createdAt } }
+    };
 
     /// <inheritdoc />
     public async Task<Dictionary<string, object>?> GetByDeliveryIdAsync(string deliveryId)

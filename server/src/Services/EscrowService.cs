@@ -1410,6 +1410,13 @@ public sealed class EscrowService
                 $"Cannot release escrow in '{currentStatus}' state. Must be 'escrowed' or 'disputed'.");
         }
 
+        // 4a. ESC-02: a settlement already waiting for an admin in the manual payout queue is
+        //     neither retried nor audited again, so the hourly sweeps stay quiet.
+        if (IsManualPayoutOpen(escrowItem))
+        {
+            return ManualPayoutWaiting<ReleaseEscrowResponse>();
+        }
+
         var farmerPayout = GetDecimal(escrowItem, "farmerPayout");
         var commission = GetDecimal(escrowItem, "commission");
         var holdRef = GetStringOrNull(escrowItem, "telebirrHoldRef") ?? "";
@@ -1448,6 +1455,10 @@ public sealed class EscrowService
                 // A prior release already settled this escrow — safe to return the result.
                 return EscrowResult<ReleaseEscrowResponse>.Duplicate(BuildReleaseResponse(latest));
             }
+            if (latest != null && IsManualPayoutOpen(latest))
+            {
+                return ManualPayoutWaiting<ReleaseEscrowResponse>();
+            }
             // A settlement (possibly a refund) is in progress or the escrow moved on.
             // Do NOT call Telebirr.
             return EscrowResult<ReleaseEscrowResponse>.Failure(
@@ -1469,6 +1480,45 @@ public sealed class EscrowService
             PlatformCommission = commission
         });
 
+        var truckerPayout = GetDecimalOrNull(escrowItem, "truckerPayout");
+        var truckerPayoutAmount = truckerPayout ?? 0m;
+        var hasTruckerLeg = truckerPayoutAmount > 0;
+        const int maxReleaseWriteAttempts = 4;
+
+        // 6a. ESC-02: a gateway that cannot pay out, or reports a payout without a reference,
+        //     sends the whole settlement to the manual payout queue. Nothing has moved, the
+        //     escrow keeps its status, and the settlement lock stays held on purpose so no
+        //     other release or refund can run until an admin has paid every leg.
+        var farmerManualReason = ManualPayoutReason(
+            releaseResponse.Success, releaseResponse.ErrorCode, releaseResponse.TelebirrRef);
+        if (farmerManualReason != null)
+        {
+            var legs = new List<ManualPayoutLegSeed>
+            {
+                new(ManualPayoutFields.LegFarmer, ManualPayoutFields.LegPending, null, null, null)
+            };
+            if (hasTruckerLeg)
+            {
+                legs.Add(new(ManualPayoutFields.LegTrucker, ManualPayoutFields.LegPending, null, null, null));
+            }
+
+            if (await TryQueueManualPayoutAsync(request.EscrowId, createdAt, ManualPayoutFields.OpRelease,
+                    farmerManualReason, currentStatus, legs, authenticatedUserId))
+            {
+                await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "manual_payout");
+                return ManualPayoutWaiting<ReleaseEscrowResponse>();
+            }
+
+            // The queue write failed and nothing moved: today's retryable failure path.
+            await AppendAuditAsync(request.EscrowId, "release_failed", currentStatus, currentStatus,
+                authenticatedUserId, metadata: $"MANUAL_QUEUE_FAILED:{farmerManualReason}");
+            await _escrowRepo.ReleaseSettlementLockAsync(request.EscrowId, createdAt);
+            await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
+            return EscrowResult<ReleaseEscrowResponse>.Failure(
+                502, "ESCROW_013",
+                "The payout could not be queued for manual settlement. It is retried by the next sweep.");
+        }
+
         if (!releaseResponse.Success)
         {
             await AppendAuditAsync(request.EscrowId, "release_failed", currentStatus, currentStatus,
@@ -1483,20 +1533,19 @@ public sealed class EscrowService
 
         // 5b. 3-way split: If trucker payout exists, release transport cost to trucker.
         //     Stable per-escrow ref so Telebirr dedupes the trucker leg on retry.
-        var truckerPayout = GetDecimalOrNull(escrowItem, "truckerPayout");
         string? truckerReleaseRef = null;
         var truckerReleasePending = false;
-        if (truckerPayout.HasValue && truckerPayout.Value > 0)
+        if (hasTruckerLeg)
         {
             var truckerIdValue = GetStringOrNull(escrowItem, "truckerId") ?? "";
-            var truckerPayoutDest = await ResolvePayoutAsync(truckerIdValue, truckerPayout.Value, "trucker");
+            var truckerPayoutDest = await ResolvePayoutAsync(truckerIdValue, truckerPayoutAmount, "trucker");
             var truckerRelease = truckerPayoutDest.IsSuccess
                 ? await _telebirrGateway.ReleaseFundsAsync(new ReleaseFundsRequest
                 {
                     TransactionRef = $"release:{request.EscrowId}:trucker",
                     HoldRef = holdRef,
                     FarmerPhone = truckerPayoutDest.Value!,
-                    Amount = truckerPayout.Value,
+                    Amount = truckerPayoutAmount,
                     PlatformCommission = 0m
                 })
                 // No verified destination yet: the leg stays pending (truckerPayoutPending)
@@ -1511,6 +1560,45 @@ public sealed class EscrowService
             }
             else
             {
+                // ESC-02: the farmer is paid but the gateway could not pay the trucker (or gave
+                // no reference). Queue the trucker leg with the farmer leg already closed by the
+                // gateway. Money has moved, so the queue write is retried like the released
+                // write below; if it still fails, fall back to today's truckerPayoutPending
+                // completion instead of stranding the escrow under a held lock. An unverified
+                // trucker (no gateway call) keeps the truckerPayoutPending behaviour (ESC-04).
+                var truckerManualReason = truckerPayoutDest.IsSuccess
+                    ? ManualPayoutReason(truckerRelease.Success, truckerRelease.ErrorCode, truckerRelease.TelebirrRef)
+                    : null;
+                if (truckerManualReason != null)
+                {
+                    var legs = new List<ManualPayoutLegSeed>
+                    {
+                        new(ManualPayoutFields.LegFarmer, ManualPayoutFields.LegPaid, releaseResponse.TelebirrRef,
+                            ManualPayoutFields.PaidByGateway, DateTime.UtcNow.ToString("o")),
+                        new(ManualPayoutFields.LegTrucker, ManualPayoutFields.LegPending, null, null, null)
+                    };
+                    for (var attempt = 1; attempt <= maxReleaseWriteAttempts; attempt++)
+                    {
+                        if (await TryQueueManualPayoutAsync(request.EscrowId, createdAt, ManualPayoutFields.OpRelease,
+                                truckerManualReason, currentStatus, legs, authenticatedUserId))
+                        {
+                            await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "manual_payout");
+                            return ManualPayoutWaiting<ReleaseEscrowResponse>();
+                        }
+
+                        if (attempt < maxReleaseWriteAttempts)
+                        {
+                            await Task.Delay(TimeSpan.FromMilliseconds(150 * attempt));
+                        }
+                    }
+
+                    truckerRelease = new ReleaseFundsResponse
+                    {
+                        Success = false,
+                        ErrorCode = $"MANUAL_QUEUE_FAILED:{truckerManualReason}"
+                    };
+                }
+
                 // Do NOT silently swallow: audit the failure and mark the payout as owed so
                 // reconciliation/admin can retry. The farmer leg still succeeds (funds already moved).
                 truckerReleasePending = true;
@@ -1546,7 +1634,6 @@ public sealed class EscrowService
         // moved) is NOT retried and is allowed to surface. Re-disbursement is not a risk:
         // the stable Telebirr ref (release:{escrowId}) dedupes, and this write does not call
         // Telebirr.
-        const int maxReleaseWriteAttempts = 4;
         for (var attempt = 1; ; attempt++)
         {
             try
@@ -2010,6 +2097,12 @@ public sealed class EscrowService
                 $"Cannot refund escrow in '{currentStatus}' state. Must be 'escrowed' or 'disputed'.");
         }
 
+        // 4a. ESC-02: already waiting for an admin in the manual payout queue (see ReleaseAsync).
+        if (IsManualPayoutOpen(escrowItem))
+        {
+            return ManualPayoutWaiting<RefundEscrowResponse>();
+        }
+
         var amount = GetDecimal(escrowItem, "amount");
         var holdRef = GetStringOrNull(escrowItem, "telebirrHoldRef") ?? "";
         var createdAt = GetString(escrowItem, "createdAt");
@@ -2029,6 +2122,10 @@ public sealed class EscrowService
                 // A prior refund already settled this escrow — safe to return the result.
                 return EscrowResult<RefundEscrowResponse>.Duplicate(BuildRefundResponse(latest));
             }
+            if (latest != null && IsManualPayoutOpen(latest))
+            {
+                return ManualPayoutWaiting<RefundEscrowResponse>();
+            }
             // A settlement (possibly a release) is in progress or already completed.
             // Do NOT call Telebirr.
             return EscrowResult<RefundEscrowResponse>.Failure(
@@ -2047,6 +2144,32 @@ public sealed class EscrowService
             BuyerPhone = await ResolveRefundPhoneAsync(GetString(escrowItem, "buyerId")),
             Amount = amount
         });
+
+        // 5a. ESC-02: the gateway cannot refund (or gave no reference): queue the buyer leg for
+        //     an admin, keep the lock, leave the status alone. See ReleaseAsync 6a.
+        var refundManualReason = ManualPayoutReason(
+            refundResponse.Success, refundResponse.ErrorCode, refundResponse.TelebirrRef);
+        if (refundManualReason != null)
+        {
+            var legs = new List<ManualPayoutLegSeed>
+            {
+                new(ManualPayoutFields.LegBuyer, ManualPayoutFields.LegPending, null, null, null)
+            };
+            if (await TryQueueManualPayoutAsync(request.EscrowId, createdAt, ManualPayoutFields.OpRefund,
+                    refundManualReason, currentStatus, legs, authenticatedUserId))
+            {
+                await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "manual_payout");
+                return ManualPayoutWaiting<RefundEscrowResponse>();
+            }
+
+            await AppendAuditAsync(request.EscrowId, "refund_failed", currentStatus, currentStatus,
+                authenticatedUserId, metadata: $"MANUAL_QUEUE_FAILED:{refundManualReason}");
+            await _escrowRepo.ReleaseSettlementLockAsync(request.EscrowId, createdAt);
+            await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
+            return EscrowResult<RefundEscrowResponse>.Failure(
+                502, "ESCROW_013",
+                "The refund could not be queued for manual settlement. It is retried by the next sweep.");
+        }
 
         if (!refundResponse.Success)
         {
@@ -2089,6 +2212,472 @@ public sealed class EscrowService
             RefundedAt = now,
             Message = "Funds refunded to buyer's Telebirr account."
         });
+    }
+
+    // ──────────────────────────────────────────────
+    // Manual payout queue (ESC-02)
+    // ──────────────────────────────────────────────
+
+    /// <summary>Escrow statuses from which a queued settlement may still close.</summary>
+    private static readonly HashSet<string> ManualPayoutSettleableStatuses = new()
+    {
+        "escrowed", "disputed", "dispute_resolved"
+    };
+
+    /// <summary>
+    /// GET /admin/payouts/manual: escrows whose release or refund the gateway could not make,
+    /// oldest first, with one row per payee leg (amount, registered phone, identity gate).
+    /// </summary>
+    public async Task<EscrowResult<ManualPayoutListResponse>> ListManualPayoutsAsync(int limit, string? nextToken)
+    {
+        if (limit < 1 || limit > 50)
+        {
+            limit = 20;
+        }
+
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null;
+        if (!string.IsNullOrEmpty(nextToken))
+        {
+            exclusiveStartKey = PaginationTokenHelper.DecodeNextToken(nextToken);
+            if (exclusiveStartKey == null)
+            {
+                return EscrowResult<ManualPayoutListResponse>.Failure(
+                    400, "ESCROW_023", "Invalid pagination token.");
+            }
+        }
+
+        var (items, lastEvaluatedKey) = await _escrowRepo.QueryOpenManualPayoutsAsync(limit, exclusiveStartKey);
+        var userCache = new Dictionary<string, UserDto?>(StringComparer.Ordinal);
+        var payouts = new List<ManualPayoutDto>(items.Count);
+        foreach (var item in items)
+        {
+            payouts.Add(await MapManualPayoutAsync(item, userCache));
+        }
+
+        return EscrowResult<ManualPayoutListResponse>.Success(new ManualPayoutListResponse
+        {
+            Payouts = payouts,
+            NextToken = lastEvaluatedKey != null ? PaginationTokenHelper.EncodeNextToken(lastEvaluatedKey) : null,
+            Total = payouts.Count
+        });
+    }
+
+    /// <summary>
+    /// POST /admin/payouts/{escrowId}/{leg}/complete: an admin paid one leg in the Telebirr
+    /// merchant portal and records its transaction id. The last leg closes the queue and
+    /// moves the escrow to <c>released</c> then <c>completed</c>, or to <c>refunded</c>,
+    /// with the admin-entered references as the settlement references. This is the only
+    /// way a queued escrow ever settles; the gateway is never called here.
+    /// </summary>
+    public async Task<EscrowResult<CompleteManualPayoutResponse>> CompleteManualPayoutAsync(
+        string escrowId, string leg, string? externalRef, string actorUserId,
+        bool adminGroupVerified, AuditContext? auditContext = null)
+    {
+        _auditContext = auditContext;
+
+        if (!await IsSystemOrAdminAsync(actorUserId, "admin", adminGroupVerified))
+        {
+            return EscrowResult<CompleteManualPayoutResponse>.Failure(
+                403, "ESCROW_015", "Only an admin can record a manual payout.");
+        }
+
+        var reference = (externalRef ?? "").Trim();
+        if (!IsValidExternalRef(reference))
+        {
+            return EscrowResult<CompleteManualPayoutResponse>.Failure(
+                400, "ESCROW_037",
+                "externalRef must be the Telebirr transaction id: 4 to 64 letters, digits or . _ : / -",
+                "externalRef");
+        }
+
+        if (!ManualPayoutFields.IsLeg(leg))
+        {
+            return EscrowResult<CompleteManualPayoutResponse>.Failure(
+                404, "ESCROW_035", "No such payout leg.");
+        }
+
+        const int maxAttempts = 3;
+        for (var attempt = 1; ; attempt++)
+        {
+            var escrow = await _escrowRepo.GetByIdAsync(escrowId);
+            if (escrow == null)
+            {
+                return EscrowResult<CompleteManualPayoutResponse>.Failure(
+                    404, "ESCROW_016", "Escrow not found.");
+            }
+
+            var op = GetString(escrow, ManualPayoutFields.Op);
+            var currentStatus = GetString(escrow, "status");
+            var createdAt = GetString(escrow, "createdAt");
+            var legStatus = GetStringOrNull(escrow, ManualPayoutFields.StatusAttr(leg));
+            var legRef = GetStringOrNull(escrow, ManualPayoutFields.RefAttr(leg));
+
+            // Replay of a recorded leg, before or after the queue closed: same reference is
+            // idempotent, a different one is refused (ESCROW_036).
+            if (legStatus == ManualPayoutFields.LegPaid)
+            {
+                if (!string.Equals(legRef, reference, StringComparison.Ordinal))
+                {
+                    return EscrowResult<CompleteManualPayoutResponse>.Failure(
+                        409, "ESCROW_036", "This leg was already recorded with a different reference.");
+                }
+
+                if (currentStatus == "released")
+                {
+                    currentStatus = await FinishManualReleaseAsync(escrowId, createdAt, actorUserId);
+                }
+
+                return EscrowResult<CompleteManualPayoutResponse>.Success(BuildCompleteResponse(
+                    escrow, leg, reference, currentStatus, PendingLegs(escrow, op, except: leg),
+                    "Already recorded."));
+            }
+
+            if (!IsManualPayoutOpen(escrow) || legStatus == null || !ManualPayoutFields.LegBelongsToOp(leg, op))
+            {
+                return EscrowResult<CompleteManualPayoutResponse>.Failure(
+                    404, "ESCROW_035", "This escrow has no open manual payout for that leg.");
+            }
+
+            foreach (var other in ManualPayoutFields.AllLegs)
+            {
+                if (other != leg && string.Equals(
+                        GetStringOrNull(escrow, ManualPayoutFields.RefAttr(other)), reference, StringComparison.Ordinal))
+                {
+                    return EscrowResult<CompleteManualPayoutResponse>.Failure(
+                        409, "ESCROW_036", "This reference was already used for another leg of this escrow.");
+                }
+            }
+
+            if (!ManualPayoutSettleableStatuses.Contains(currentStatus))
+            {
+                return EscrowResult<CompleteManualPayoutResponse>.Failure(
+                    409, "ESCROW_INVALID_TRANSITION",
+                    $"Escrow is '{currentStatus}' and can no longer be settled from the queue.");
+            }
+
+            // The payee must still pass the identity gate the gateway release applies.
+            var payeeId = GetString(escrow, ManualPayoutPayeeField(leg));
+            var amount = ManualPayoutLegAmount(escrow, leg);
+            var payee = await GetUserCachedAsync(payeeId, new Dictionary<string, UserDto?>(StringComparer.Ordinal));
+            var (payeeVerified, blockReason) = EvaluateManualPayee(escrow, leg, payee, amount);
+            if (!payeeVerified)
+            {
+                return EscrowResult<CompleteManualPayoutResponse>.Failure(
+                    409, "ESCROW_029", blockReason ?? "Payout blocked.");
+            }
+
+            var pendingOthers = PendingLegs(escrow, op, except: leg);
+            var paidOthers = ManualPayoutFields.AllLegs
+                .Where(l => l != leg && ManualPayoutFields.LegBelongsToOp(l, op)
+                            && GetStringOrNull(escrow, ManualPayoutFields.StatusAttr(l)) == ManualPayoutFields.LegPaid)
+                .ToList();
+            var now = DateTime.UtcNow.ToString("o");
+            var newStatus = currentStatus;
+            bool written;
+            if (pendingOthers.Count > 0)
+            {
+                written = await _escrowRepo.TryMarkManualLegPaidAsync(
+                    escrowId, createdAt, op, leg, reference, actorUserId, now, pendingOthers[0]);
+            }
+            else
+            {
+                newStatus = op == ManualPayoutFields.OpRelease ? "released" : "refunded";
+                var fields = new Dictionary<string, object>();
+                if (op == ManualPayoutFields.OpRelease)
+                {
+                    var farmerRef = leg == ManualPayoutFields.LegFarmer
+                        ? reference
+                        : GetStringOrNull(escrow, ManualPayoutFields.RefAttr(ManualPayoutFields.LegFarmer)) ?? "";
+                    fields["telebirrReleaseRef"] = farmerRef;
+                    fields["releasedAt"] = now;
+                    if (GetStringOrNull(escrow, ManualPayoutFields.StatusAttr(ManualPayoutFields.LegTrucker)) != null)
+                    {
+                        fields["truckerTelebirrRef"] = leg == ManualPayoutFields.LegTrucker
+                            ? reference
+                            : GetStringOrNull(escrow, ManualPayoutFields.RefAttr(ManualPayoutFields.LegTrucker)) ?? "";
+                    }
+                }
+                else
+                {
+                    fields["telebirrRefundRef"] = reference;
+                    fields["refundedAt"] = now;
+                }
+
+                written = await _escrowRepo.TryCloseManualPayoutAsync(
+                    escrowId, createdAt, op, leg, reference, actorUserId, now, paidOthers, newStatus, fields);
+            }
+
+            if (!written)
+            {
+                // Another admin recorded a leg in between (or the escrow moved): re-read and decide again.
+                if (attempt < maxAttempts)
+                {
+                    continue;
+                }
+
+                return EscrowResult<CompleteManualPayoutResponse>.Failure(
+                    409, "ESCROW_036", "The payout changed while this leg was being recorded. Reload and try again.");
+            }
+
+            await AppendAuditAsync(escrowId, "manual_payout_paid", currentStatus, currentStatus, actorUserId,
+                reference, $"leg={leg};amount={amount.ToString("F2", CultureInfo.InvariantCulture)};payee={payeeId}");
+            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_PAID escrowId={escrowId} op={op} leg={leg} remaining={pendingOthers.Count}");
+
+            var finalStatus = currentStatus;
+            if (newStatus != currentStatus)
+            {
+                await AppendAuditAsync(escrowId, op == ManualPayoutFields.OpRelease ? "release" : "refund",
+                    currentStatus, newStatus, actorUserId, reference, "manual");
+                finalStatus = newStatus == "released"
+                    ? await FinishManualReleaseAsync(escrowId, createdAt, actorUserId)
+                    : newStatus;
+            }
+
+            return EscrowResult<CompleteManualPayoutResponse>.Success(BuildCompleteResponse(
+                escrow, leg, reference, finalStatus, pendingOthers,
+                pendingOthers.Count > 0
+                    ? $"Leg recorded. {pendingOthers.Count} leg(s) still waiting."
+                    : finalStatus == "refunded"
+                        ? "Refund recorded. The escrow is refunded."
+                        : "Payout recorded. The escrow is completed."));
+        }
+    }
+
+    /// <summary>
+    /// released to completed after a manual release close. A transient failure here is
+    /// recovered by the cron's CompleteReleasedAsync sweep, so it is logged, not thrown.
+    /// </summary>
+    private async Task<string> FinishManualReleaseAsync(string escrowId, string createdAt, string actor)
+    {
+        try
+        {
+            await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "completed", "released",
+                new Dictionary<string, object> { { "completedAt", DateTime.UtcNow.ToString("o") } });
+            await AppendAuditAsync(escrowId, "complete", "released", "completed", actor, metadata: "manual");
+            return "completed";
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            // Already completed by a parallel sweep or replay.
+            return "completed";
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_COMPLETE_DEFERRED escrowId={escrowId} error={ex.GetType().Name}");
+            return "released";
+        }
+    }
+
+    private static CompleteManualPayoutResponse BuildCompleteResponse(
+        Dictionary<string, object> escrow, string leg, string reference, string escrowStatus,
+        List<string> remainingLegs, string message) => new()
+    {
+        EscrowId = GetString(escrow, "escrowId"),
+        OrderId = GetStringOrNull(escrow, "orderId"),
+        Ref = leg,
+        LegStatus = ManualPayoutFields.LegPaid,
+        EscrowStatus = escrowStatus,
+        ExternalRef = reference,
+        PaidAt = GetStringOrNull(escrow, ManualPayoutFields.PaidAtAttr(leg)) ?? DateTime.UtcNow.ToString("o"),
+        RemainingLegs = remainingLegs,
+        Message = message
+    };
+
+    private static List<string> PendingLegs(Dictionary<string, object> escrow, string op, string except)
+        => ManualPayoutFields.AllLegs
+            .Where(l => l != except && ManualPayoutFields.LegBelongsToOp(l, op)
+                        && GetStringOrNull(escrow, ManualPayoutFields.StatusAttr(l)) == ManualPayoutFields.LegPending)
+            .ToList();
+
+    private async Task<ManualPayoutDto> MapManualPayoutAsync(
+        Dictionary<string, object> item, Dictionary<string, UserDto?> userCache)
+    {
+        var op = GetString(item, ManualPayoutFields.Op);
+        var legs = new List<ManualPayoutLegDto>();
+        foreach (var leg in ManualPayoutFields.AllLegs)
+        {
+            var status = GetStringOrNull(item, ManualPayoutFields.StatusAttr(leg));
+            if (status == null)
+            {
+                continue;
+            }
+
+            var payeeId = GetString(item, ManualPayoutPayeeField(leg));
+            var amount = ManualPayoutLegAmount(item, leg);
+            var payee = await GetUserCachedAsync(payeeId, userCache);
+            var (verified, blockReason) = EvaluateManualPayee(item, leg, payee, amount);
+            legs.Add(new ManualPayoutLegDto
+            {
+                Ref = leg,
+                PayeeRole = leg,
+                PayeeId = payeeId,
+                PayeeName = payee?.DisplayName ?? payee?.FullName,
+                PayeePhone = payee?.PhoneNumber,
+                PayeeVerified = verified,
+                BlockReason = blockReason,
+                Amount = amount,
+                Status = status,
+                ExternalRef = GetStringOrNull(item, ManualPayoutFields.RefAttr(leg)),
+                PaidBy = GetStringOrNull(item, ManualPayoutFields.PaidByAttr(leg)),
+                PaidAt = GetStringOrNull(item, ManualPayoutFields.PaidAtAttr(leg))
+            });
+        }
+
+        return new ManualPayoutDto
+        {
+            EscrowId = GetString(item, "escrowId"),
+            OrderId = GetStringOrNull(item, "orderId"),
+            DeliveryId = GetStringOrNull(item, "deliveryId"),
+            Op = op,
+            Reason = GetString(item, ManualPayoutFields.Reason),
+            EscrowStatus = GetString(item, "status"),
+            FromStatus = GetString(item, ManualPayoutFields.FromStatus),
+            QueuedAt = GetString(item, ManualPayoutFields.QueuedAt),
+            Currency = GetStringOrNull(item, "currency") ?? "ETB",
+            Legs = legs,
+            PendingAmount = legs.Where(l => l.Status == ManualPayoutFields.LegPending).Sum(l => l.Amount)
+        };
+    }
+
+    /// <summary>The user the leg pays: farmerId, truckerId or buyerId.</summary>
+    private static string ManualPayoutPayeeField(string leg) => leg switch
+    {
+        ManualPayoutFields.LegFarmer => "farmerId",
+        ManualPayoutFields.LegTrucker => "truckerId",
+        _ => "buyerId"
+    };
+
+    /// <summary>What the admin pays for the leg: the crop leg, the transport leg, or the whole hold.</summary>
+    private static decimal ManualPayoutLegAmount(Dictionary<string, object> escrow, string leg) => leg switch
+    {
+        ManualPayoutFields.LegFarmer => GetDecimal(escrow, "farmerPayout"),
+        ManualPayoutFields.LegTrucker => GetDecimalOrNull(escrow, "truckerPayout") ?? 0m,
+        _ => GetDecimal(escrow, "amount")
+    };
+
+    /// <summary>
+    /// The same gate the gateway settlement applies: farmer and trucker through the payout
+    /// identity rules (the farmer's Fayda tier is judged on the whole held amount, as in
+    /// ReleaseAsync), the buyer only needs a profile with a phone (it is their own money).
+    /// Without a user repository the gate passes, as ResolvePayoutAsync does.
+    /// </summary>
+    private (bool Verified, string? BlockReason) EvaluateManualPayee(
+        Dictionary<string, object> escrow, string leg, UserDto? payee, decimal amount)
+    {
+        if (_userRepo == null)
+        {
+            return (true, null);
+        }
+
+        if (leg == ManualPayoutFields.LegBuyer)
+        {
+            return payee != null && !string.IsNullOrEmpty(payee.PhoneNumber)
+                ? (true, null)
+                : (false, "Refund blocked: buyer profile or phone not found.");
+        }
+
+        var thresholdAmount = leg == ManualPayoutFields.LegFarmer ? GetDecimal(escrow, "amount") : amount;
+        var check = CheckPayoutEligibility(payee, thresholdAmount, leg);
+        return check.IsSuccess ? (true, null) : (false, check.Error!.Message);
+    }
+
+    private async Task<UserDto?> GetUserCachedAsync(string userId, Dictionary<string, UserDto?> cache)
+    {
+        if (_userRepo == null || string.IsNullOrEmpty(userId))
+        {
+            return null;
+        }
+
+        if (!cache.TryGetValue(userId, out var user))
+        {
+            user = await _userRepo.GetUserByIdAsync(userId);
+            cache[userId] = user;
+        }
+
+        return user;
+    }
+
+    /// <summary>
+    /// Queue a settlement the gateway could not make. Returns false (and writes nothing
+    /// else) when the conditional write fails or throws, so the caller decides what to do
+    /// with the lock. On success writes the audit row and the alarm token.
+    /// </summary>
+    private async Task<bool> TryQueueManualPayoutAsync(
+        string escrowId, string createdAt, string op, string reason, string fromStatus,
+        List<ManualPayoutLegSeed> legs, string actor)
+    {
+        bool queued;
+        try
+        {
+            queued = await _escrowRepo.TryQueueManualPayoutAsync(escrowId, createdAt, op, reason, fromStatus, legs);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_QUEUE_FAILED escrowId={escrowId} op={op} error={ex.GetType().Name}");
+            queued = false;
+        }
+
+        if (!queued)
+        {
+            return false;
+        }
+
+        var legNames = string.Join(",", legs.Select(l => l.Leg));
+        await AppendAuditAsync(escrowId, "manual_payout_queued", fromStatus, fromStatus, actor,
+            metadata: $"op={op};legs={legNames};reason={reason}");
+        Console.WriteLine($"ESCROW_MANUAL_PAYOUT_QUEUED escrowId={escrowId} op={op} legs={legNames} reason={reason}");
+        return true;
+    }
+
+    /// <summary>
+    /// Why a gateway answer needs a manual payout: the gateway said it cannot pay out, or it
+    /// claimed success without a reference (fail closed rather than complete with ""). Any
+    /// other failure keeps the retryable failure path.
+    /// </summary>
+    private static string? ManualPayoutReason(bool success, string? errorCode, string? telebirrRef)
+    {
+        if (!success && string.Equals(errorCode, TelebirrGatewayErrors.PayoutNotSupported, StringComparison.Ordinal))
+        {
+            return ManualPayoutFields.ReasonPayoutNotSupported;
+        }
+
+        if (success && string.IsNullOrWhiteSpace(telebirrRef))
+        {
+            return ManualPayoutFields.ReasonGatewayRefMissing;
+        }
+
+        return null;
+    }
+
+    internal static bool IsManualPayoutOpen(Dictionary<string, object> escrow)
+        => string.Equals(GetStringOrNull(escrow, ManualPayoutFields.Marker), ManualPayoutFields.MarkerOpen,
+            StringComparison.Ordinal);
+
+    /// <summary>
+    /// 202 ESCROW_034: the settlement is waiting in the manual payout queue; this call moved
+    /// nothing. Returned to the cron and the admin settlement routes only.
+    /// </summary>
+    private static EscrowResult<T> ManualPayoutWaiting<T>() => EscrowResult<T>.Failure(
+        202, "ESCROW_034",
+        "This payout is waiting in the manual payout queue. An admin pays it in the Telebirr portal and records the reference.");
+
+    /// <summary>4 to 64 characters: a letter or digit first, then letters, digits, '.', '_', ':', '/' or '-'.</summary>
+    internal static bool IsValidExternalRef(string reference)
+    {
+        if (reference.Length is < 4 or > 64 || !char.IsAsciiLetterOrDigit(reference[0]))
+        {
+            return false;
+        }
+
+        foreach (var c in reference)
+        {
+            if (!char.IsAsciiLetterOrDigit(c) && c is not ('.' or '_' or ':' or '/' or '-'))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -2514,6 +3103,12 @@ public sealed class EscrowService
         }
 
         var user = string.IsNullOrEmpty(userId) ? null : await _userRepo.GetUserByIdAsync(userId);
+        return CheckPayoutEligibility(user, amount, legLabel);
+    }
+
+    /// <summary>The identity rules behind <see cref="ResolvePayoutAsync"/>, also applied to manual payouts (ESC-02).</summary>
+    private static EscrowResult<string> CheckPayoutEligibility(UserDto? user, decimal amount, string legLabel)
+    {
         if (user == null)
         {
             return EscrowResult<string>.Failure(422, "ESCROW_029",

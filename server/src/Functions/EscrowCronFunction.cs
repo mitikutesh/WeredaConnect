@@ -58,6 +58,14 @@ public class EscrowCronFunction
 
     private const int OrderEscrowExpiryExtensionHours = 48;
 
+    /// <summary>
+    /// ESC-02: settlements this run found waiting in the manual payout queue (202
+    /// ESCROW_034). Not a failure: the gateway cannot pay out and an admin settles them.
+    /// Reset at the start of each auto_release_and_refund run; Lambda runs one invocation
+    /// per instance at a time.
+    /// </summary>
+    private int _manualPayoutsWaiting;
+
     private const int ReconciliationStaleMinutes = 30;
 
     /// <summary>
@@ -201,6 +209,7 @@ public class EscrowCronFunction
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleAutoReleaseAndRefundAsync(ILambdaContext context)
     {
+        _manualPayoutsWaiting = 0;
         var releaseCount = await AutoReleaseAsync(context);
         var refundCount = await AutoRefundAsync(context);
         var (settledReleases, settledRefunds) = await SettleResolvedDisputesAsync(context);
@@ -213,12 +222,14 @@ public class EscrowCronFunction
             { "refunded", (refundCount + settledRefunds).ToString() },
             { "disputesSettled", (settledReleases + settledRefunds).ToString() },
             { "completed", completedCount.ToString() },
+            { "manualPayoutsWaiting", _manualPayoutsWaiting.ToString() },
             { "completedAt", DateTime.UtcNow.ToString("o") }
         };
 
         context.Logger.LogInformation(
             $"Auto-release/refund complete: {releaseCount} released, {refundCount} refunded, "
-            + $"{settledReleases + settledRefunds} resolved disputes settled, {completedCount} crash-recovered to completed.");
+            + $"{settledReleases + settledRefunds} resolved disputes settled, {completedCount} crash-recovered to completed, "
+            + $"{_manualPayoutsWaiting} waiting for a manual payout.");
 
         return new APIGatewayProxyResponse
         {
@@ -277,6 +288,10 @@ public class EscrowCronFunction
                         {
                             released++;
                         }
+                        else if (IsManualPayoutWaiting(result.Error))
+                        {
+                            NoteManualPayoutWaiting(context, escrowId, "dispute release");
+                        }
                         else
                         {
                             context.Logger.LogError(
@@ -298,6 +313,10 @@ public class EscrowCronFunction
                         if (result.IsSuccess)
                         {
                             refunded++;
+                        }
+                        else if (IsManualPayoutWaiting(result.Error))
+                        {
+                            NoteManualPayoutWaiting(context, escrowId, "dispute refund");
                         }
                         else
                         {
@@ -379,6 +398,10 @@ public class EscrowCronFunction
                 if (result.IsSuccess)
                 {
                     releaseCount++;
+                }
+                else if (IsManualPayoutWaiting(result.Error))
+                {
+                    NoteManualPayoutWaiting(context, escrowId, "auto-release");
                 }
                 else
                 {
@@ -522,6 +545,10 @@ public class EscrowCronFunction
                 {
                     refundCount++;
                 }
+                else if (IsManualPayoutWaiting(result.Error))
+                {
+                    NoteManualPayoutWaiting(context, escrowId, "auto-refund");
+                }
                 else
                 {
                     context.Logger.LogError(
@@ -536,6 +563,20 @@ public class EscrowCronFunction
         }
 
         return refundCount;
+    }
+
+    /// <summary>ESC-02: 202 ESCROW_034 means the settlement sits in the manual payout queue.</summary>
+    private static bool IsManualPayoutWaiting(EscrowResultError? error)
+        => error != null && error.HttpStatus == 202 && error.Code == "ESCROW_034";
+
+    /// <summary>
+    /// Logged at Information with a stable token (ESC-13 alarms count it), never as an
+    /// error: the gateway cannot pay out and the admin queue owns the settlement.
+    /// </summary>
+    private void NoteManualPayoutWaiting(ILambdaContext context, string escrowId, string sweep)
+    {
+        _manualPayoutsWaiting++;
+        context.Logger.LogInformation($"ESCROW_MANUAL_PAYOUT_WAITING escrowId={escrowId} sweep={sweep}");
     }
 
     /// <summary>
