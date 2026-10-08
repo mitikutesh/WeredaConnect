@@ -1758,6 +1758,17 @@ class AppLocalizationsOm extends AppLocalizations {
   String get searchListings => 'Midhaan, qonnaan bultoota barbaadi...';
 
   @override
+  String get noListingsMatchFilters =>
+      'Tarreen barbaacha kee wajjin walsimu hin jiru';
+
+  @override
+  String get noListingsMatchFiltersHint =>
+      'Midhaan, qonnaan bulaa ykn bakka biraa yaali, ykn calleessitoota haqi';
+
+  @override
+  String get clearFilters => 'Calleessitoota haqi';
+
+  @override
   String get trackTradesEscrow => 'Daldalaa fi eeskiroo hordofi';
 
   @override

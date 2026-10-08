@@ -48,4 +48,27 @@ void main() {
       expect(CropType.labelFor('quinoa', am), 'quinoa');
     });
   });
+
+  group('CropType.keysMatching (SIM-51)', () {
+    test('matches the key and English name, ignoring case and spaces', () {
+      expect(CropType.keysMatching('teff'), {'teff'});
+      expect(CropType.keysMatching(' TEFF '), {'teff'});
+      expect(CropType.keysMatching('whe'), {'wheat'});
+    });
+
+    test('matches the Amharic and Afan Oromo names', () async {
+      final am = await AppLocalizations.delegate.load(const Locale('am'));
+      final om = await AppLocalizations.delegate.load(const Locale('om'));
+      expect(CropType.keysMatching(am.cropTypeTeff), {'teff'});
+      expect(CropType.keysMatching(om.cropTypeTeff), {'teff'});
+      expect(CropType.keysMatching(om.cropTypeTeff.toLowerCase()), {'teff'});
+      expect(CropType.keysMatching(am.cropTypeCoffee), {'coffee'});
+    });
+
+    test('an unknown crop or a blank term matches nothing', () {
+      expect(CropType.keysMatching('quinoa'), isEmpty);
+      expect(CropType.keysMatching(''), isEmpty);
+      expect(CropType.keysMatching('   '), isEmpty);
+    });
+  });
 }

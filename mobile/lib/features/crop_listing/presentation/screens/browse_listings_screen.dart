@@ -51,7 +51,7 @@ class BrowseListingsScreen extends StatefulWidget {
 
 class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
   String? _selectedCropType;
-  String? _weredaFilter;
+  String? _searchQuery;
   double? _priceMin;
   double? _priceMax;
   Timer? _debounce;
@@ -91,6 +91,38 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     _debounce = Timer(const Duration(milliseconds: 300), _applyFilters);
   }
 
+  /// Search box text (crop, farmer or place, SIM-51); blank means no search.
+  void _onSearchChanged(String value) {
+    setState(() {
+      _searchQuery = value.trim().isEmpty ? null : value;
+    });
+    _debouncedApplyFilters();
+  }
+
+  /// True when the visible list is narrowed by the crop chip or, in buyer
+  /// browse, by the search box or a price bound. An empty result then means
+  /// nothing matches, not that nothing has synced yet (SIM-51).
+  bool get _hasActiveFilters =>
+      _selectedCropType != null ||
+      (!widget.ownerMode &&
+          (_searchQuery != null || _priceMin != null || _priceMax != null));
+
+  /// Resets the search box, crop chip and price range, then reloads the
+  /// unfiltered list.
+  void _clearFilters() {
+    _debounce?.cancel();
+    _searchController.clear();
+    _priceMinController.clear();
+    _priceMaxController.clear();
+    setState(() {
+      _selectedCropType = null;
+      _searchQuery = null;
+      _priceMin = null;
+      _priceMax = null;
+    });
+    _loadListings();
+  }
+
   String? _getFarmerId() {
     final authState = context.read<AuthBloc>().state;
     if (authState is AuthAuthenticated) return authState.userId;
@@ -127,7 +159,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
       context.read<CropListingBloc>().add(
             LoadActiveListings(
               cropTypeFilter: _selectedCropType,
-              weredaFilter: _weredaFilter,
+              searchQuery: _searchQuery,
               priceMin: _priceMin,
               priceMax: _priceMax,
             ),
@@ -180,8 +212,8 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                         color: Colors.white.withAlpha(180),
                       ),
                     ),
-                    // Search bar (marketplace browse only — wereda
-                    // filter is not used in owner mode)
+                    // Search bar (marketplace browse only: owner mode
+                    // has no search)
                     if (!widget.ownerMode) ...[
                       const SizedBox(height: 10),
                       Material(
@@ -205,12 +237,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                               contentPadding:
                                   const EdgeInsets.symmetric(vertical: 10),
                             ),
-                            onChanged: (value) {
-                              setState(() {
-                                _weredaFilter = value.isEmpty ? null : value;
-                              });
-                              _debouncedApplyFilters();
-                            },
+                            onChanged: _onSearchChanged,
                           ),
                         ),
                       ),
@@ -244,12 +271,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                         contentPadding:
                             const EdgeInsets.symmetric(vertical: 10),
                       ),
-                      onChanged: (value) {
-                        setState(() {
-                          _weredaFilter = value.isEmpty ? null : value;
-                        });
-                        _debouncedApplyFilters();
-                      },
+                      onChanged: _onSearchChanged,
                     ),
                   ),
                 ),
@@ -365,7 +387,8 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                           ),
                           const SizedBox(height: 20),
                           FilledButton(
-                            onPressed: _loadListings,
+                            // Keep the visible search and filters.
+                            onPressed: _applyFilters,
                             child: Text(l10n.retry),
                           ),
                         ],
@@ -374,6 +397,50 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                   }
 
                   if (state is CropListingsLoaded) {
+                    if (state.listings.isEmpty && _hasActiveFilters) {
+                      // A search or filter with no hits says so and offers a
+                      // way back, instead of the offline copy below (SIM-51).
+                      return Center(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.search_off,
+                                size: 64,
+                                color: AppTheme.textMuted,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                l10n.noListingsMatchFilters,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500,
+                                  color: AppTheme.textMuted,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                l10n.noListingsMatchFiltersHint,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: AppTheme.textMuted,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 20),
+                              OutlinedButton(
+                                onPressed: _clearFilters,
+                                child: Text(l10n.clearFilters),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+
                     if (state.listings.isEmpty) {
                       return Center(
                         child: Column(
@@ -408,7 +475,8 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                     }
 
                     return RefreshIndicator(
-                      onRefresh: () async => _loadListings(),
+                      // Refresh keeps the visible search and filters.
+                      onRefresh: () async => _applyFilters(),
                       child: ListView.separated(
                         physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.symmetric(

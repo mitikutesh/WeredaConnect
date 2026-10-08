@@ -124,7 +124,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
   @override
   Future<List<CropListing>> getActiveListings({
     String? cropTypeFilter,
-    String? weredaFilter,
+    String? searchQuery,
     double? priceMin,
     double? priceMax,
   }) async {
@@ -145,14 +145,9 @@ class WebCropListingRepository extends BaseCropListingRepository {
       nextToken = data['nextToken'] as String?;
     } while (nextToken != null && nextToken.isNotEmpty);
 
-    // woreda is a free-text search: match the mobile repo's case-insensitive
-    // substring on locationName rather than an exact server-side woreda equality.
-    if (weredaFilter != null && weredaFilter.isNotEmpty) {
-      final needle = weredaFilter.toLowerCase();
-      listings = listings
-          .where((l) => l.locationName.toLowerCase().contains(needle))
-          .toList();
-    }
+    // The search box is free text over crop, farmer and place. It runs here,
+    // not on the server, with the same rules as the Isar repo (SIM-51).
+    listings = BaseCropListingRepository.filterBySearch(listings, searchQuery);
 
     // Client-side price filtering (server may not support price range)
     if (priceMin != null) {

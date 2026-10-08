@@ -90,4 +90,30 @@ enum CropType {
   /// rather than the raw key (SIM-22).
   static String labelFor(String key, AppLocalizations l10n) =>
       tryFromKey(key)?.displayName(l10n) ?? key;
+
+  /// Lowercased names a buyer may type for each crop: the stored key plus
+  /// the display name in every supported locale. Built once, on first use,
+  /// so a search keystroke does not rebuild the labels for every listing.
+  static final Map<CropType, List<String>> _searchLabels = {
+    for (final type in CropType.values)
+      type: [
+        type.name,
+        for (final locale in AppLocalizations.supportedLocales)
+          type.displayName(lookupAppLocalizations(locale)).toLowerCase(),
+      ],
+  };
+
+  /// Keys of every crop whose stored key, or name in any supported language
+  /// (English, Amharic, Afan Oromo), contains [term] case-insensitively.
+  /// All locales are searched, not only the active one: a buyer on an
+  /// Amharic UI may type "teff" and one on an English UI may type "ጤፍ"
+  /// (SIM-51). A blank term matches nothing.
+  static Set<String> keysMatching(String term) {
+    final needle = term.trim().toLowerCase();
+    if (needle.isEmpty) return const <String>{};
+    return {
+      for (final entry in _searchLabels.entries)
+        if (entry.value.any((label) => label.contains(needle))) entry.key.name,
+    };
+  }
 }

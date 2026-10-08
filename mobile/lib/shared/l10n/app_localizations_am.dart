@@ -1699,6 +1699,16 @@ class AppLocalizationsAm extends AppLocalizations {
   String get searchListings => 'ሰብሎችን፣ ገበሬዎችን ይፈልጉ...';
 
   @override
+  String get noListingsMatchFilters => 'ከፍለጋዎ ጋር የሚዛመድ ዝርዝር የለም';
+
+  @override
+  String get noListingsMatchFiltersHint =>
+      'ሌላ ሰብል፣ ገበሬ ወይም ቦታ ይሞክሩ፣ ወይም ማጣሪያዎቹን ያጽዱ';
+
+  @override
+  String get clearFilters => 'ማጣሪያዎችን አጽዳ';
+
+  @override
   String get trackTradesEscrow => 'ንግዶች እና ኢስክሮ ይከታተሉ';
 
   @override
