@@ -99,6 +99,38 @@ export function useUserAction() {
   });
 }
 
+// Manual payout queue (ESC-02): settlements the live gateway could not make.
+export function useManualPayouts() {
+  return useQuery({
+    queryKey: ["admin", "payouts"],
+    queryFn: () => api.get("/admin/payouts/manual"),
+  });
+}
+
+export function useCompleteManualPayout() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      escrowId,
+      ref,
+      externalRef,
+    }: {
+      escrowId: string;
+      ref: string;
+      externalRef: string;
+    }) =>
+      api.post(
+        `/admin/payouts/${encodeURIComponent(escrowId)}/${encodeURIComponent(ref)}/complete`,
+        { externalRef },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "payouts"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "escrows"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+    },
+  });
+}
+
 // Transaction Monitor (unified order + delivery + escrow lifecycle view)
 export function useTransactions(params?: string) {
   return useQuery({
