@@ -1813,7 +1813,11 @@ text may spell one. Every token contains `_`, and every client-influenced value 
 escrow, escrow-cron, sync and telebirr-webhook log groups (ids, path parameters, headers,
 error and exception messages that may echo input, the ids in the JSON audit line) has its `_`
 turned into `-` (`MoneyAlarmLog.LogId`, `LogText`, `Defang`). The escrow Lambda logs the route
-template, not the request path.
+template, not the request path, and defangs it too. Two sources stay unsanitized because no
+client reaches them: escrow-cron's `Cron action` line (escrow-cron has only EventBridge
+triggers, so only an IAM principal picks the action) and the message the Lambda runtime prints
+for an unhandled exception (the handlers catch client-reachable exceptions and log a type name
+or `LogText`).
 
 ```
 ESCROW_SETTLEMENT_FAILED escrowId=<id> action=<action> outcome=<failed|unknown> code=<code>

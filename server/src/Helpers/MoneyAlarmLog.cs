@@ -36,6 +36,10 @@ namespace WeredaConnect.Server.Helpers;
 /// escrow, escrow-cron, sync or webhook log group goes through <see cref="LogId"/> (ids,
 /// path parameters, headers) or <see cref="LogText"/> (messages that may echo input), which
 /// turn <c>_</c> into <c>-</c>. Action, outcome, code, ref and reason are server values.
+/// Two sources stay unsanitized because no client reaches them: escrow-cron's <c>Cron action</c>
+/// line (escrow-cron has only EventBridge triggers, so only an IAM principal picks the action)
+/// and the message the Lambda runtime prints for an unhandled exception (the handlers catch
+/// client-reachable exceptions and log a type name or <see cref="LogText"/>).
 /// </para>
 /// <para>
 /// The overdue line is written with <c>LogWarning</c> and the failure lines with

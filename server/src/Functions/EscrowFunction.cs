@@ -105,9 +105,10 @@ public class EscrowFunction
         ILambdaContext context)
     {
         // The route template, never the raw path: a path segment is client text and this log
-        // group carries the settlement-failure alarm filter (ESC-13).
+        // group carries the settlement-failure alarm filter (ESC-13). Defanged as well, because
+        // AWS does not promise that a payload 1.0 resource is always the template.
         context.Logger.LogInformation(
-            $"EscrowFunction invoked: {MoneyAlarmLog.LogId(request.HttpMethod)} {request.Resource ?? "-"}");
+            $"EscrowFunction invoked: {MoneyAlarmLog.LogId(request.HttpMethod)} {MoneyAlarmLog.LogText(request.Resource)}");
 
         var action = ExtractAction(request);
 

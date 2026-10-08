@@ -1188,4 +1188,20 @@ public class EscrowFunctionTests
         Assert.Contains($"EscrowFunction invoked: GET {request.Resource}", Logs);
         Assert.DoesNotContain(WeredaConnect.Server.Tests.Helpers.MoneyAlarmLogTests.AlarmTokens, Logs.Contains);
     }
+
+    [Fact]
+    public async Task ResourceThatIsTheRawPath_CannotFireAMoneyAlarm()
+    {
+        // AWS does not promise that a payload 1.0 resource is the route template; if it ever
+        // carries the client path, the invocation line must still match no money filter.
+        _mockEscrowRepo.GetByIdAsync(Arg.Any<string>()).Returns((Dictionary<string, object>?)null);
+        var request = MakeGetRequest("/escrow/ESCROW_SETTLEMENT_FAILED", "buyer-001",
+            pathParams: new Dictionary<string, string> { { "id", "ESCROW_SETTLEMENT_FAILED" } }, role: "buyer");
+        request.Resource = "/escrow/ESCROW_SETTLEMENT_FAILED";
+
+        await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("EscrowFunction invoked: GET /escrow/ESCROW-SETTLEMENT-FAILED", Logs);
+        Assert.DoesNotContain(WeredaConnect.Server.Tests.Helpers.MoneyAlarmLogTests.AlarmTokens, Logs.Contains);
+    }
 }
