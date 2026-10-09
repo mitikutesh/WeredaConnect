@@ -12,13 +12,54 @@ import { TEST_USERS, apiLogin, API_URL } from "../helpers/auth";
  * These tests hit the live API directly (not the Flutter UI) to validate
  * the data flow that the overview stats depend on.
  *
- * NOTE: Fraud detection allows max 5 listings/hour/farmer. The creation
- * test gracefully skips if rate-limited (429). Read-only tests always run.
+ * NOTE: Fraud detection allows max 5 listings/hour/farmer and rejects a
+ * near-duplicate of a listing created in the last hour. The server reports
+ * both as HTTP 200 with a per-operation "error" result (not 429), so the
+ * creation test skips on those two codes and fails on anything else, for
+ * example CROP_VALIDATION. Read-only tests always run.
+ *
+ * The created listing is deleted in afterAll with the version the create
+ * returned. A failed delete fails the run: a leftover listing trips the
+ * duplicate check on every run for the next hour.
  */
 
 interface CropsResponse {
   crops: Array<{ cropId: string; farmerId: string; status: string }>;
   nextToken?: string;
+}
+
+/**
+ * Must be one of the server's AllowedCropTypes (SyncFunction.cs), which
+ * mirror the mobile CropType enum: teff, wheat, barley, maize, chickpea,
+ * lentils, sorghum, coffee, sesame. Anything else is rejected with
+ * "CROP_VALIDATION: Invalid cropType.".
+ */
+const E2E_CROP_TYPE = "sorghum";
+
+/** Fraud throttles that make the creation test skip instead of fail. */
+const FRAUD_THROTTLE_CODES = [
+  "FRAUD_VELOCITY_EXCEEDED",
+  "FRAUD_DUPLICATE_LISTING",
+];
+
+type CreateListingResult =
+  | { listingId: string; version: number; skipReason?: undefined }
+  | { listingId: null; skipReason: string };
+
+interface SyncOperationResult {
+  status?: string;
+  serverVersion?: number;
+  message?: string;
+}
+
+/** The single per-operation result of a one-operation /sync batch. */
+async function readOpResult(res: Response): Promise<SyncOperationResult> {
+  const syncResult = await res.json();
+  const opResult: SyncOperationResult | undefined = syncResult.results?.[0];
+  if (!opResult) {
+    throw new Error(`POST /sync returned no operation result: ${JSON.stringify(syncResult)}`);
+  }
+  return opResult;
 }
 
 /** Fetch all crops for a user via paginated API calls. */
@@ -48,13 +89,15 @@ async function fetchAllCrops(
 
 /**
  * Try to create a listing via the /sync endpoint (same as mobile app).
- * Returns the listing ID on success, or null if rate-limited (429).
+ * Returns the listing ID on success, or a skip reason when the request was
+ * throttled (HTTP 429, or a fraud velocity/duplicate rejection). Any other
+ * failed operation throws so the test fails.
  */
 async function tryCreateListing(
   token: string,
   farmerId: string,
   cropType: string,
-): Promise<string | null> {
+): Promise<CreateListingResult> {
   const listingId = `e2e_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const now = new Date().toISOString();
 
@@ -93,30 +136,41 @@ async function tryCreateListing(
     }),
   });
 
-  // Gracefully handle rate limiting from fraud detection
+  // API-level throttling (rate limiter in front of /sync)
   if (res.status === 429) {
-    return null;
+    return { listingId: null, skipReason: "POST /sync returned 429" };
   }
 
   expect(res.ok, `POST /sync failed: ${res.status}`).toBeTruthy();
 
-  const syncResult = await res.json();
-  const opResult = syncResult.results?.[0];
-  if (opResult && opResult.status !== "success") {
-    throw new Error(`Sync operation failed: ${opResult.status} - ${opResult.message}`);
+  const opResult = await readOpResult(res);
+  if (opResult.status !== "success") {
+    const message = opResult.message ?? "";
+    if (FRAUD_THROTTLE_CODES.some((code) => message.startsWith(code))) {
+      return { listingId: null, skipReason: message };
+    }
+    throw new Error(`Sync operation failed: ${opResult.status} - ${message}`);
+  }
+  if (typeof opResult.serverVersion !== "number") {
+    throw new Error(`Create of ${listingId} returned no serverVersion`);
   }
 
-  return listingId;
+  return { listingId, version: opResult.serverVersion };
 }
 
-/** Delete a listing via the /sync endpoint. */
+/**
+ * Delete a listing via the /sync endpoint. The server only deletes when
+ * clientVersion matches the stored version, so pass the version the create
+ * returned. Throws unless the delete operation succeeded.
+ */
 async function deleteListing(
   token: string,
   farmerId: string,
   listingId: string,
+  version: number,
 ): Promise<void> {
   const now = new Date().toISOString();
-  await fetch(`${API_URL}/sync`, {
+  const res = await fetch(`${API_URL}/sync`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -133,11 +187,20 @@ async function deleteListing(
           entityId: listingId,
           timestamp: now,
           idempotencyKey: `e2e_delete_${listingId}`,
+          clientVersion: version,
           data: { farmerId },
         },
       ],
     }),
   });
+  expect(res.ok, `POST /sync (delete) failed: ${res.status}`).toBeTruthy();
+
+  const opResult = await readOpResult(res);
+  if (opResult.status !== "success") {
+    throw new Error(
+      `Cleanup of ${listingId} failed: ${opResult.status} - ${opResult.message ?? ""}`,
+    );
+  }
 }
 
 test.describe("Listing Creation Flow", () => {
@@ -150,6 +213,7 @@ test.describe("Listing Creation Flow", () => {
 
   // Shared listing created once, verified by multiple tests (null if rate-limited)
   let sharedListingId: string | null = null;
+  let sharedListingVersion = 0;
   let countBefore: number;
 
   test.beforeAll(async () => {
@@ -180,25 +244,26 @@ test.describe("Listing Creation Flow", () => {
 
   test.afterAll(async () => {
     if (sharedListingId) {
-      try {
-        await deleteListing(farmerToken, farmerId, sharedListingId);
-      } catch {
-        // Ignore cleanup failures
-      }
+      await deleteListing(
+        farmerToken,
+        farmerId,
+        sharedListingId,
+        sharedListingVersion,
+      );
     }
   });
 
   test("farmer creates a listing and count increases", async () => {
-    const uniqueCrop = `sorghum_${Date.now()}`;
+    const result = await tryCreateListing(farmerToken, farmerId, E2E_CROP_TYPE);
 
-    sharedListingId = await tryCreateListing(farmerToken, farmerId, uniqueCrop);
-
-    if (sharedListingId === null) {
-      // Rate-limited — skip creation assertions but don't fail.
-      // The farmer already has listings from previous runs.
-      test.skip(true, "Skipped: farmer hit fraud velocity limit (5/hour). Existing listings used for read tests.");
+    if (result.listingId === null) {
+      // Fraud throttle, not a product bug: skip the creation assertions.
+      // The read-only tests below use the farmer's existing listings.
+      test.skip(true, `Skipped: ${result.skipReason}`);
       return;
     }
+    sharedListingId = result.listingId;
+    sharedListingVersion = result.version;
 
     // Verify count increased
     const after = await fetchAllCrops(farmerToken, { farmerId });
