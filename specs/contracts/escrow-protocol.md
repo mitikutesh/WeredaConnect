@@ -2468,13 +2468,15 @@ and decides on the base row, never on an index copy:
    `dispute_refused_settlement_in_flight`, ESC-03).
 4. `escrowed`: frozen with the write `#status = escrowed AND attribute_not_exists(manualPayout) AND
    attribute_not_exists(settlementLock)` (reason `other`, the delivery's text as the description;
-   the version is added to with `ADD`, never written from the read). The `dispute` audit row goes to
-   a deterministic key, the escrow's `disputeCreatedAt`, written only if absent. When the condition
+   the version is added to with `ADD`, never written from the read). The same write stamps the
+   server-only `disputeAuditAt` (equal to `disputeCreatedAt`), and the `dispute` audit row goes to
+   that deterministic key, written only if absent. When the condition
    fails, the row is read again and decided by steps 3 to 5; still `escrowed` with nothing in the way
    is an unknown outcome (retry).
-5. `disputed`: already frozen (no status write); the `dispute` row is written at its deterministic
-   key if it is missing (the freeze's own audit write may have failed), and the delivery and order
-   may follow. This repairs a trade whose `POST /escrow/dispute` mirror failed, and finishes a
+5. `disputed`: already frozen (no status write); when the escrow carries `disputeAuditAt`, the
+   `dispute` row is written at that key if it is missing (the freeze's own audit write may have
+   failed), and the delivery and order may follow. An escrow disputed before 1.12.0 has no marker:
+   its row sits at the old write's own time, so no row is added (the ledger is append-only). This repairs a trade whose `POST /escrow/dispute` mirror failed, and finishes a
    delivery dispute whose audit or delivery write failed after its freeze.
 6. Any other status (`initiated`, `released`, `completed`, `refunded`, `dispute_resolved`,
    `cancelled`, `held`, unknown): refused (audit `dispute_refused_not_held`, metadata
@@ -2507,10 +2509,16 @@ party's dispute) is not written again: a participant's request runs the freeze (
 `AlreadyDisputed`) and the order mirror, then answers `conflict` with the delivery row. Anything
 else but `delivered` at the client's version is a `conflict` that freezes nothing.
 
-`POST /escrow/dispute` follows the same rule: its `dispute` row is at the deterministic key of the
-`disputeCreatedAt` it writes, and a party's request that finds the escrow already `disputed` (no
-manual payout, no lock) writes a missing `dispute` row and runs the mirror before it answers
-`422 ESCROW_INVALID_TRANSITION`.
+`POST /escrow/dispute` follows the same rule: it stamps `disputeAuditAt` with the status and its
+`dispute` row is at that key, and a party's request that finds the escrow already `disputed` (no
+manual payout, no lock) writes a missing `dispute` row (marker present) and runs the mirror before
+it answers `422 ESCROW_INVALID_TRANSITION`; a failure of that repair is logged and the answer stays
+`422`.
+
+The repeat path can freeze an `escrowed` escrow behind a delivery that was already `disputed` before
+1.12.0 (a legacy row whose freeze never happened) without the 48-hour window or the step-up checks
+the first dispute passed. That is intended: it only ever freezes money behind a delivery that is
+already in dispute.
 
 ### Follow-ups
 

@@ -5393,6 +5393,21 @@ public class SyncFunctionTests
     }
 
     [Fact]
+    public async Task DeliveryUpdate_Disputed_AgainButTheFreezeIsUndecided_AsksForARetry()
+    {
+        var rig = DisputeFunction(null);
+        rig.EscrowRepo.GetByIdAsync(OrderEscrowId, true).ThrowsAsync(new ProvisionedThroughputExceededException("slow down"));
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "disputed", version: 2,
+            confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o")));
+
+        var response = await SendDeliveryDisputeAsync(rig.Function, version: 1);
+
+        Assert.Contains("DELIVERY_DISPUTE_RETRY", response.Body);
+        await DidNotWriteTheDelivery();
+        await DidNotWriteTheOrder();
+    }
+
+    [Fact]
     public async Task DeliveryUpdate_Disputed_AgainByAnOutsider_IsUnauthorized()
     {
         var rig = DisputeFunction(OrderEscrowRow(status: "disputed"));

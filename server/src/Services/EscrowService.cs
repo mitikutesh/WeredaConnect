@@ -135,6 +135,12 @@ public sealed class EscrowService
     /// </summary>
     internal const string SystemActor = "system";
 
+    /// <summary>
+    /// ESC-07: server-only escrow field the dispute freeze writes with the status: the timestamp
+    /// (and so the deterministic key) of its <c>dispute</c> audit row.
+    /// </summary>
+    internal const string DisputeAuditAtField = "disputeAuditAt";
+
     private static readonly HashSet<string> ValidDisputeReasons = new()
     {
         "damaged_goods", "wrong_quantity", "wrong_crop",
@@ -1915,7 +1921,16 @@ public sealed class EscrowService
             // request failed after the freeze) finishes them; both are idempotent.
             if (currentStatus == "disputed")
             {
-                await RepairFrozenDisputeAsync(escrowItem);
+                try
+                {
+                    await RepairFrozenDisputeAsync(escrowItem);
+                }
+                catch (Exception ex)
+                {
+                    // The refusal stands; the next retry or a delivery dispute repairs it.
+                    Console.WriteLine(
+                        $"DISPUTE_REPAIR_FAILED escrowId={MoneyAlarmLog.LogId(request.EscrowId)} reason=[{ex.GetType().Name}]");
+                }
             }
 
             return EscrowResult<DisputeEscrowResponse>.Failure(
@@ -2016,6 +2031,7 @@ public sealed class EscrowService
             { "disputedBy", request.DisputedBy },
             { "disputeReason", request.Reason },
             { "disputeCreatedAt", disputeCreatedAt },
+            { DisputeAuditAtField, disputeCreatedAt },
             { "disputeWindowEndsAt", disputeWindowEndsAt }
         };
 
@@ -2532,6 +2548,7 @@ public sealed class EscrowService
             { "disputedBy", disputedBy },
             { "disputeReason", "other" },
             { "disputeCreatedAt", disputeCreatedAt },
+            { DisputeAuditAtField, disputeCreatedAt },
             { "disputeWindowEndsAt", disputeWindowEndsAt }
         };
         if (!string.IsNullOrWhiteSpace(description))
@@ -2645,19 +2662,21 @@ public sealed class EscrowService
     }
 
     /// <summary>
-    /// ESC-07: the escrow's <c>dispute</c> audit row at its deterministic key (the escrow's
-    /// <c>disputeCreatedAt</c>), written only if absent. Repairs a freeze whose own audit write
-    /// failed after the status write; a row without <c>disputeCreatedAt</c> has nothing to key on.
+    /// ESC-07: the escrow's <c>dispute</c> audit row at its deterministic key, written only if
+    /// absent. Repairs a freeze whose own audit write failed after the status write. The key is the
+    /// <see cref="DisputeAuditAtField"/> marker the freeze wrote with the status: an escrow disputed
+    /// before ESC-07 has no marker (its row sits at the old write's own time), so it is left alone
+    /// rather than given a second row in the immutable ledger.
     /// </summary>
     private async Task EnsureDisputeAuditAsync(Dictionary<string, object> escrow)
     {
-        var disputeCreatedAt = GetStringOrNull(escrow, "disputeCreatedAt");
-        if (string.IsNullOrEmpty(disputeCreatedAt))
+        var auditAt = GetStringOrNull(escrow, DisputeAuditAtField);
+        if (string.IsNullOrEmpty(auditAt))
         {
             return;
         }
 
-        await EnsureAuditAsync(GetString(escrow, "escrowId"), disputeCreatedAt, "dispute", "escrowed", "disputed",
+        await EnsureAuditAsync(GetString(escrow, "escrowId"), auditAt, "dispute", "escrowed", "disputed",
             GetStringOrNull(escrow, "disputedBy") ?? SystemActor);
     }
 

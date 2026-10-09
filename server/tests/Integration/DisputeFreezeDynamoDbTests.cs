@@ -472,7 +472,8 @@ public sealed class DisputeFreezeDynamoDbTests
         // delivery disputed, order still delivered. The client's queued operation (version 1) comes
         // again: the order follows, the delivery is not written again, the answer is the row.
         var trade = await SeedTradeAsync(escrowStatus: "disputed", deliveryVersion: 2,
-            escrowExtra: [("disputeCreatedAt", "2026-10-10T07:00:00.0000000Z"), ("disputedBy", _buyerId)]);
+            escrowExtra: [("disputeCreatedAt", "2026-10-10T07:00:00.0000000Z"), ("disputeAuditAt", "2026-10-10T07:00:00.0000000Z"),
+                ("disputedBy", _buyerId)]);
         await Ddb.UpdateItemAsync(new UpdateItemRequest
         {
             TableName = _db.Deliveries,
@@ -493,6 +494,67 @@ public sealed class DisputeFreezeDynamoDbTests
         (await TxRowsAsync(trade.OrderId)).Should().Equal("order:dispute:delivered>disputed:system");
         // The lost dispute row of the first request is written at its own key.
         (await EscrowAuditActionsAsync(trade.EscrowId)).Should().Equal("dispute");
+    }
+
+    /// <summary>
+    /// An escrow disputed before ESC-07: no <c>disputeAuditAt</c> marker, and its <c>dispute</c> row at
+    /// the old write's own time, a few milliseconds after <c>disputeCreatedAt</c>.
+    /// </summary>
+    private async Task<Trade> SeedLegacyDisputedTradeAsync()
+    {
+        var trade = await SeedTradeAsync(escrowStatus: "disputed", deliveryVersion: 2, escrowExtra:
+        [
+            ("disputeId", "dispute-legacy"), ("disputedBy", _buyerId), ("disputeReason", "other"),
+            ("disputeCreatedAt", "2026-10-09T09:00:00.0000000Z")
+        ]);
+        await Ddb.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _db.Deliveries,
+            Key = new Dictionary<string, AttributeValue> { ["deliveryId"] = S(trade.DeliveryId), ["tripId"] = S("trip-it") },
+            UpdateExpression = "SET #s = :d",
+            ExpressionAttributeNames = new Dictionary<string, string> { ["#s"] = "status" },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":d"] = S("disputed") }
+        });
+        await Ddb.PutItemAsync(new PutItemRequest
+        {
+            TableName = _db.EscrowAudit,
+            Item = new Dictionary<string, AttributeValue>
+            {
+                ["escrowId"] = S(trade.EscrowId),
+                ["timestamp"] = S("2026-10-09T09:00:00.0031234Z"),
+                ["auditId"] = S($"audit-{Guid.NewGuid():N}"),
+                ["action"] = S("dispute"),
+                ["fromState"] = S("escrowed"),
+                ["toState"] = S("disputed"),
+                ["actor"] = S(_buyerId)
+            }
+        });
+        return trade;
+    }
+
+    [LocalDynamoDbFact]
+    public async Task LegacyDisputedEscrow_EscrowEndpointRetry_Answers422_WithNoSecondDisputeRow()
+    {
+        var trade = await SeedLegacyDisputedTradeAsync();
+
+        var result = await EndpointEscrowService().DisputeAsync(EscrowDisputeRequest(trade.EscrowId, _farmerId), _farmerId);
+
+        result.Error!.HttpStatus.Should().Be(422);
+        (await EscrowAuditActionsAsync(trade.EscrowId)).Count(a => a == "dispute").Should().Be(1);
+        // The order still follows the frozen escrow.
+        Str(await OrderAsync(trade.OrderId), "status").Should().Be("disputed");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task LegacyDisputedDelivery_SyncRepeat_AnswersConflict_WithNoSecondDisputeRow()
+    {
+        var trade = await SeedLegacyDisputedTradeAsync();
+
+        var result = await SendAsync(Sync(), DeliveryDisputeOp(trade.DeliveryId, _farmerId, 2), _farmerId);
+
+        result.GetProperty("status").GetString().Should().Be("conflict", result.ToString());
+        (await EscrowAuditActionsAsync(trade.EscrowId)).Count(a => a == "dispute").Should().Be(1);
+        Str(await OrderAsync(trade.OrderId), "status").Should().Be("disputed");
     }
 
     // ──────────────────────────────────────────────

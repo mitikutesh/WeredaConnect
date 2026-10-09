@@ -1573,6 +1573,7 @@ public class EscrowServiceTests
     {
         var escrow = MakeOrderEscrow("disputed");
         escrow["disputeCreatedAt"] = "2026-10-09T08:00:00.0000000Z";
+        escrow["disputeAuditAt"] = "2026-10-09T08:00:00.0000000Z";
         escrow["disputedBy"] = FarmerId;
         _mockEscrowRepo.GetByIdAsync("escrow-order-order-1", true).Returns(escrow);
 
@@ -1582,6 +1583,23 @@ public class EscrowServiceTests
             (string)e["auditId"] == EscrowAuditRepository.DeterministicAuditId("dispute", "2026-10-09T08:00:00.0000000Z")
             && (string)e["timestamp"] == "2026-10-09T08:00:00.0000000Z"
             && (string)e["action"] == "dispute" && (string)e["actor"] == FarmerId));
+    }
+
+    [Fact]
+    public async Task FreezeForDeliveryDispute_AlreadyDisputedBeforeEsc07_WritesNoSecondDisputeRow()
+    {
+        // Disputed by the old code: its row sits at that write's own time, not at disputeCreatedAt,
+        // and there is no disputeAuditAt marker. A row keyed on disputeCreatedAt would be a second one.
+        var legacy = MakeOrderEscrow("disputed");
+        legacy["disputeCreatedAt"] = "2026-10-09T08:00:00.0000000Z";
+        legacy["disputedBy"] = FarmerId;
+        _mockEscrowRepo.GetByIdAsync("escrow-order-order-1", true).Returns(legacy);
+
+        var frozen = await _service.FreezeForDeliveryDisputeAsync(DeliveryId, "order-1", BuyerId, null);
+
+        Assert.Equal(DeliveryDisputeFreeze.AlreadyDisputed, frozen.Outcome);
+        await _mockAuditRepo.DidNotReceive().AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>());
+        await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
     }
 
     [Fact]
@@ -1602,6 +1620,7 @@ public class EscrowServiceTests
 
             var disputed = MakeOrderEscrow("disputed");
             disputed["disputeCreatedAt"] = written["disputeCreatedAt"];
+            disputed["disputeAuditAt"] = written["disputeAuditAt"];
             disputed["disputedBy"] = written["disputedBy"];
             return disputed;
         });
@@ -1804,6 +1823,7 @@ public class EscrowServiceTests
         Assert.True(result.IsSuccess);
         Assert.False(written!.ContainsKey("version"));
         var createdAt = written["disputeCreatedAt"].ToString()!;
+        Assert.Equal(createdAt, written["disputeAuditAt"].ToString());
         await _mockAuditRepo.Received(1).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(e =>
             (string)e["auditId"] == EscrowAuditRepository.DeterministicAuditId("dispute", createdAt)
             && (string)e["action"] == "dispute"));
@@ -1817,6 +1837,7 @@ public class EscrowServiceTests
         var escrowItem = MakeEscrowItem(status: "disputed");
         escrowItem["orderId"] = "order-1";
         escrowItem["disputeCreatedAt"] = "2026-10-09T08:00:00.0000000Z";
+        escrowItem["disputeAuditAt"] = "2026-10-09T08:00:00.0000000Z";
         escrowItem["disputedBy"] = BuyerId;
         escrowItem["disputeReason"] = "damaged_goods";
         _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
@@ -1836,6 +1857,23 @@ public class EscrowServiceTests
         await deliveryRepo.Received(1).TryMarkDisputedAsync(DeliveryId, BuyerId, "damaged_goods");
         await orderRepo.Received(1).UpdateAsync("order-1",
             Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 2);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_RepairThatThrows_StillAnswers422()
+    {
+        // The repair is best-effort: a failing audit write never turns the refusal into a 500.
+        var escrowItem = MakeEscrowItem(status: "disputed");
+        escrowItem["disputeAuditAt"] = "2026-10-09T08:00:00.0000000Z";
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+        _mockAuditRepo.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>())
+            .ThrowsAsync(new AmazonDynamoDBException("audit table down"));
+
+        var result = await _service.DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(422, result.Error!.HttpStatus);
+        Assert.Equal("ESCROW_INVALID_TRANSITION", result.Error.Code);
     }
 
     [Fact]
