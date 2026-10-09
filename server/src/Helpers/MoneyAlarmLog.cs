@@ -25,7 +25,7 @@ namespace WeredaConnect.Server.Helpers;
 /// mirror's failed-legs text, defanged, with <c>,</c> turned into <c>.</c>. The blocked line (ESC-03)
 /// is logged each time a settlement fails closed because the order or delivery could not be read,
 /// or a <c>buyer_wins</c> order could not be cancelled or restocked first; its alarm counts only
-/// escrow-cron and fires when the sweep stays blocked for three hourly runs in a row.
+/// escrow-cron and fires when the sweep is blocked in three of four hourly periods.
 /// </para>
 /// <para>
 /// <c>outcome=unknown</c> means the gateway may already have moved the money (a timeout,

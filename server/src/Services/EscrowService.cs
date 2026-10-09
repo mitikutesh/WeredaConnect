@@ -2092,7 +2092,7 @@ public sealed class EscrowService
     /// <item>a read failed before the legs were decided, or a <c>buyer_wins</c> refund could not cancel
     /// the order or give its stock back first (<c>503 ESCROW_012</c>, fail closed; the next run
     /// retries). Logged as <c>DISPUTE_VERDICT_SETTLEMENT_BLOCKED</c> for the money alarm (escrow-cron,
-    /// three hourly runs in a row) and audited once as <c>dispute_settlement_blocked</c>;</item>
+    /// three of four hourly periods) and audited once as <c>dispute_settlement_blocked</c>;</item>
     /// <item>a leg cannot follow the verdict (<c>422 ESCROW_INVALID_TRANSITION</c>, alarm line
     /// <c>DISPUTE_VERDICT_ORDER_MISMATCH</c>), unless an admin overrides a <c>buyer_wins</c> refund
     /// with a reason.</item>
@@ -2169,7 +2169,7 @@ public sealed class EscrowService
 
     /// <summary>
     /// The settlement fails closed (read, cancel or restock did not land). The hourly sweep retries;
-    /// a cause that persists is alarmed (three hourly blocked runs in a row on escrow-cron) and the
+    /// a cause that persists is alarmed (blocked in three of four hourly periods on escrow-cron) and the
     /// admin timeline shows one <c>dispute_settlement_blocked</c> row with the reason.
     /// </summary>
     private async Task<SettlementBlock> SettlementBlockedAsync(

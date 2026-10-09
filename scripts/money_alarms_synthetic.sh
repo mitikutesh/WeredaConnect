@@ -90,7 +90,7 @@ A_ORDER="${PREFIX}-order-escrow-problems"
 A_PAYOUT="${PREFIX}-manual-payouts-overdue"
 A_QUEUE="${PREFIX}-admin-queue-overdue"
 A_MISMATCH="${PREFIX}-dispute-verdict-order-mismatch"
-# Persistence alarm (three hourly datapoints in a row): checked, never fired by this script.
+# Persistence alarm (three of four hourly datapoints): checked, never fired by this script.
 A_BLOCKED="${PREFIX}-dispute-verdict-settlement-blocked"
 ALL_ALARMS=("$A_SETTLE" "$A_CRON" "$A_ORDER" "$A_PAYOUT" "$A_QUEUE" "$A_MISMATCH" "$A_BLOCKED")
 
@@ -215,7 +215,7 @@ PENDING=()
 SKIPPED=()
 for a in "${ALL_ALARMS[@]}"; do
   if [ "$a" = "$A_BLOCKED" ]; then
-    echo "  SKIP  ${a} needs three hourly datapoints in a row: its filter is checked above, it is not fired here"
+    echo "  SKIP  ${a} needs three of four hourly datapoints: its filter is checked above, it is not fired here"
     continue
   fi
   state="$(aws_text cloudwatch describe-alarms --alarm-names "$a" --query 'MetricAlarms[0].StateValue' 2>/dev/null)"

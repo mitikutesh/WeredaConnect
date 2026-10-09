@@ -953,7 +953,7 @@ describe('MonitoringStack', () => {
     });
   });
 
-  test('ESC-03: a settlement blocked for three hourly sweeps in a row alarms (escrow-cron only)', () => {
+  test('ESC-03: a settlement blocked in three of four hourly periods alarms (escrow-cron only)', () => {
     const template = monitoringTemplate(false);
     const filter = metricFilter(template, ESCROW_CRON_LG, 'DisputeVerdictSettlementBlocked');
     expect(filter.Properties.MetricTransformations[0].MetricValue).toBe('1');
@@ -981,7 +981,8 @@ describe('MonitoringStack', () => {
       Metrics: [customMetric('DisputeVerdictSettlementBlocked', 3600)],
       Threshold: 0,
       ComparisonOperator: 'GreaterThanThreshold',
-      EvaluationPeriods: 3,
+      // 3 of 4: hourly-sweep jitter can leave one clock-hour empty without breaking the alarm.
+      EvaluationPeriods: 4,
       DatapointsToAlarm: 3,
       TreatMissingData: 'notBreaching',
     });
