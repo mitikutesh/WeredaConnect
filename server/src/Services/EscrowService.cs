@@ -2030,22 +2030,11 @@ public sealed class EscrowService
         catch (ConditionalCheckFailedException)
         {
             // Lost a race: the escrow moved, or it was queued for a manual payout meanwhile.
+            // ESC-07: every outcome frees the idempotency key (a retry is answered from the
+            // escrow as it is then) and none is a 500.
+            await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
             var latest = await _escrowRepo.GetByIdAsync(request.EscrowId, consistentRead: true);
-            if (latest != null && IsManualPayoutOpen(latest))
-            {
-                await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
-                return DisputeRefusedManualPayout();
-            }
-
-            // ESC-03: a settlement holds the lock; it wins, and the dispute is refused.
-            if (latest != null && GetStringOrNull(latest, "settlementLock") != null)
-            {
-                await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
-                return EscrowResult<DisputeEscrowResponse>.Failure(
-                    409, "ESCROW_INVALID_TRANSITION", "A settlement is in progress for this escrow; it can no longer be disputed.");
-            }
-
-            throw;
+            return DisputeRaceRefusal(latest);
         }
 
         // 10. Audit log
@@ -2053,7 +2042,9 @@ public sealed class EscrowService
 
         // SIM-12: a dispute freezes the whole trade, not just the money. Mirror it onto
         // the order (delivered -> disputed, which blocks ratings) and the delivery.
-        await TryPropagateDisputeAsync(escrowItem, request.EscrowId, request.DisputedBy, request.Reason);
+        await MirrorDisputeAsync(
+            request.EscrowId, GetStringOrNull(escrowItem, "orderId"), GetStringOrNull(escrowItem, "deliveryId"),
+            request.DisputedBy, request.Reason, markDelivery: true);
 
         await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "completed");
 
@@ -2072,39 +2063,109 @@ public sealed class EscrowService
     }
 
     /// <summary>
-    /// SIM-12: mirror an escrow dispute onto the linked delivery (delivered -> disputed)
-    /// and order (delivered -> disputed). Best-effort: the dispute itself is already
-    /// recorded and audited, so a propagation failure never surfaces as a failed dispute.
-    /// The order id comes from the escrow record, or from the delivery when an older
-    /// escrow carries none.
-    /// SIM-47: the delivery and order legs run independently, so one failing leg never
-    /// skips the other. The order write uses a consistent read and retries a version
-    /// conflict (3 attempts in all); a missing order or one that is no longer
-    /// <c>delivered</c> is nothing to do. A failed leg is logged as
-    /// <c>DISPUTE_PROPAGATION_FAILED</c> and written to the escrow audit ledger as
-    /// <c>dispute_propagation_failed</c> with <c>metadata = legs=&lt;leg&gt;:&lt;reason&gt;</c>
-    /// so the admin timeline shows which leg failed and why.
+    /// 409 or 422 for a dispute whose escrow write failed its condition (ESC-07: never a 500).
+    /// Checked in the order the write's conditions are: the manual payout queue (ESC-02), a
+    /// settlement in flight (ESC-03), then the status.
     /// </summary>
-    private async Task TryPropagateDisputeAsync(
-        Dictionary<string, object> escrowItem, string escrowId, string disputedBy, string reason)
+    private static EscrowResult<DisputeEscrowResponse> DisputeRaceRefusal(Dictionary<string, object>? latest)
     {
-        var deliveryId = GetStringOrNull(escrowItem, "deliveryId");
-        var orderId = GetStringOrNull(escrowItem, "orderId");
+        if (latest == null)
+        {
+            return EscrowResult<DisputeEscrowResponse>.Failure(404, "ESCROW_016", "Escrow not found.");
+        }
+
+        if (IsManualPayoutOpen(latest))
+        {
+            return DisputeRefusedManualPayout();
+        }
+
+        // ESC-03: a settlement holds the lock; it wins, and the dispute is refused.
+        if (GetStringOrNull(latest, "settlementLock") != null)
+        {
+            return EscrowResult<DisputeEscrowResponse>.Failure(
+                409, "ESCROW_INVALID_TRANSITION", "A settlement is in progress for this escrow; it can no longer be disputed.");
+        }
+
+        var status = GetString(latest, "status");
+        return status switch
+        {
+            "disputed" => EscrowResult<DisputeEscrowResponse>.Failure(
+                409, "ESCROW_020", "A dispute already exists for this escrow."),
+            "escrowed" => EscrowResult<DisputeEscrowResponse>.Failure(
+                409, "ESCROW_INVALID_TRANSITION", "The escrow changed while the dispute was recorded. Try again."),
+            _ => EscrowResult<DisputeEscrowResponse>.Failure(
+                422, "ESCROW_INVALID_TRANSITION", $"Cannot dispute escrow in '{status}' state. Must be 'escrowed'.")
+        };
+    }
+
+    /// <summary>Order statuses a dispute mirror may first advance to <c>delivered</c> (ESC-07).</summary>
+    private static readonly HashSet<string> LogisticsOrderStatuses = new(StringComparer.Ordinal)
+    {
+        "accepted", "pickup_confirmed", "in_transit"
+    };
+
+    /// <summary>
+    /// SIM-12, ESC-07: move the delivery and order behind a frozen dispute to <c>disputed</c>.
+    /// Called only once the escrow is <c>disputed</c> (frozen now, or already): by
+    /// <see cref="DisputeAsync"/>, and by the sync delivery dispute after its own delivery write
+    /// (<paramref name="markDelivery"/> false). Best-effort: the money is already frozen, so a
+    /// failed leg never fails the dispute, and the verdict mirror repairs it before settlement.
+    /// <list type="bullet">
+    /// <item>Ids: the escrow's, else the delivery's <c>orderId</c>, else the order's
+    /// <c>activeDeliveryId</c>.</item>
+    /// <item>Delivery: <c>delivered</c> to <c>disputed</c> (status-conditioned, version added),
+    /// one transaction-audit row <c>dispute</c>.</item>
+    /// <item>Order: <c>delivered</c> to <c>disputed</c>; an order left at <c>accepted</c>,
+    /// <c>pickup_confirmed</c> or <c>in_transit</c> behind a <c>delivered</c> or <c>disputed</c>
+    /// delivery is first advanced to <c>delivered</c>. Version-checked system writes from a
+    /// consistent read, the third conflict gives up, one transaction-audit row per hop
+    /// (<c>order_updated</c>, <c>dispute</c>). Any other status is left alone.</item>
+    /// </list>
+    /// A failed leg is logged as <c>DISPUTE_PROPAGATION_FAILED</c> and audited on the escrow as
+    /// <c>dispute_propagation_failed</c> with <c>metadata = legs=&lt;leg&gt;:&lt;reason&gt;</c>.
+    /// Returns those legs, or null when every leg reached <c>disputed</c> or had nothing to do.
+    /// </summary>
+    public async Task<string?> MirrorDisputeAsync(
+        string escrowId, string? orderId, string? deliveryId, string disputedBy, string? reason, bool markDelivery)
+    {
         var failures = new List<string>();
-        const int maxOrderAttempts = 3;
+        string? deliveryStatus = null;
+
+        try
+        {
+            if (string.IsNullOrEmpty(orderId) && _deliveryRepo != null && !string.IsNullOrEmpty(deliveryId))
+            {
+                var delivery = await _deliveryRepo.GetByIdAsync(deliveryId);
+                orderId = delivery != null ? GetStringOrNull(delivery, "orderId") : null;
+            }
+
+            if (string.IsNullOrEmpty(deliveryId) && _orderRepo != null && !string.IsNullOrEmpty(orderId))
+            {
+                var order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+                deliveryId = order != null ? GetStringOrNull(order, "activeDeliveryId") : null;
+            }
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"lookup:[{ex.GetType().Name}]");
+        }
+
+        var transactionId = string.IsNullOrEmpty(orderId) ? escrowId : orderId;
+        var metadata = $"escrowId={escrowId}";
 
         if (_deliveryRepo != null && !string.IsNullOrEmpty(deliveryId))
         {
             try
             {
-                if (string.IsNullOrEmpty(orderId))
+                // False means the delivery is missing or no longer delivered: nothing to mirror.
+                if (markDelivery && await _deliveryRepo.TryMarkDisputedAsync(deliveryId, disputedBy, reason))
                 {
-                    var delivery = await _deliveryRepo.GetByIdAsync(deliveryId);
-                    orderId = delivery != null ? GetStringOrNull(delivery, "orderId") : null;
+                    await TransactionAuditWriter.EmitAsync(_transactionAuditRepo, null, transactionId, "delivery", deliveryId,
+                        "dispute", "delivered", "disputed", AuditContext.ForSystem(), metadata);
                 }
 
-                // False means the delivery is missing or not delivered: nothing to mirror.
-                await _deliveryRepo.TryMarkDisputedAsync(deliveryId, disputedBy, reason);
+                var latest = await _deliveryRepo.GetByIdAsync(deliveryId, consistentRead: true);
+                deliveryStatus = latest != null ? GetStringOrNull(latest, "status") : null;
             }
             catch (Exception ex)
             {
@@ -2116,33 +2177,7 @@ public sealed class EscrowService
         {
             try
             {
-                string? orderFailure = "conflict";
-                for (var attempt = 0; attempt < maxOrderAttempts; attempt++)
-                {
-                    var order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
-                    if (order == null || GetString(order, "status") != "delivered")
-                    {
-                        // Missing, not delivered yet, or already moved on (for example a
-                        // concurrent writer marked it disputed): nothing to mirror.
-                        orderFailure = null;
-                        break;
-                    }
-
-                    var update = await _orderRepo.UpdateAsync(
-                        orderId, new Dictionary<string, object> { { "status", "disputed" } }, GetInt(order, "version"));
-                    if (update.IsSuccess)
-                    {
-                        orderFailure = null;
-                        break;
-                    }
-
-                    if (update.Error?.HttpStatus != 409)
-                    {
-                        orderFailure = update.Error?.Code ?? "unknown";
-                        break;
-                    }
-                }
-
+                var orderFailure = await MoveOrderToDisputedAsync(orderId, deliveryStatus, transactionId, metadata);
                 if (orderFailure != null)
                 {
                     failures.Add($"order:{orderFailure}");
@@ -2156,7 +2191,7 @@ public sealed class EscrowService
 
         if (failures.Count == 0)
         {
-            return;
+            return null;
         }
 
         var legs = string.Join(",", failures);
@@ -2173,6 +2208,68 @@ public sealed class EscrowService
             Console.WriteLine(
                 $"DISPUTE_PROPAGATION_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
         }
+
+        return legs;
+    }
+
+    /// <summary>
+    /// The order hops of <see cref="MirrorDisputeAsync"/>: at most two (advance to
+    /// <c>delivered</c>, then <c>disputed</c>), each retried on a version conflict until the
+    /// third. Returns the failure reason, or null when the order is <c>disputed</c> now or had
+    /// nothing to do (missing, already <c>disputed</c> or later, terminal, before delivery).
+    /// </summary>
+    private async Task<string?> MoveOrderToDisputedAsync(
+        string orderId, string? deliveryStatus, string transactionId, string metadata)
+    {
+        const int maxConflicts = 3;
+        var conflicts = 0;
+        var order = await _orderRepo!.GetByIdAsync(orderId, consistentRead: true);
+        while (order != null)
+        {
+            var status = GetString(order, "status");
+            string next;
+            if (status == "delivered")
+            {
+                next = "disputed";
+            }
+            else if (LogisticsOrderStatuses.Contains(status) && deliveryStatus is "delivered" or "disputed")
+            {
+                next = "delivered";
+            }
+            else
+            {
+                return null;
+            }
+
+            var update = await _orderRepo.UpdateAsync(
+                orderId, new Dictionary<string, object> { { "status", next } }, GetInt(order, "version"));
+            if (update.IsSuccess)
+            {
+                await TransactionAuditWriter.EmitAsync(_transactionAuditRepo, null, transactionId, "order", orderId,
+                    next == "disputed" ? "dispute" : "order_updated", status, next, AuditContext.ForSystem(), metadata);
+                if (next == "disputed")
+                {
+                    return null;
+                }
+
+                order = update.Value ?? await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+                continue;
+            }
+
+            if (update.Error?.HttpStatus != 409)
+            {
+                return update.Error?.Code ?? "unknown";
+            }
+
+            if (++conflicts >= maxConflicts)
+            {
+                return "conflict";
+            }
+
+            order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -2369,37 +2466,51 @@ public sealed class EscrowService
     }
 
     /// <summary>
-    /// SIM-12: freeze the escrow behind a delivery that was disputed through sync. Same
-    /// status write and audit entry as <see cref="DisputeAsync"/>, but no idempotency
-    /// record (the sync operation is already idempotent) and no window check (the
-    /// delivery handler enforced the 48-hour window). The delivery's free-text reason is
-    /// kept as the description under the <c>other</c> reason code. Returns
-    /// <see cref="DeliveryDisputeFreeze.NothingToFreeze"/> when there is no escrow for the
-    /// delivery or it is not <c>escrowed</c>, <see cref="DeliveryDisputeFreeze.RefusedManualPayout"/>
-    /// when its settlement already waits in the manual payout queue (ESC-02), and
-    /// <see cref="DeliveryDisputeFreeze.RefusedSettlementInFlight"/> when a release or refund holds
-    /// the settlement lock (ESC-03): the settlement wins, and the caller leaves the order alone.
+    /// SIM-12, ESC-07: freeze the escrow behind a delivery disputed through sync, before the
+    /// delivery or order is written. Same status write and audit entry as
+    /// <see cref="DisputeAsync"/>, but no idempotency record (the sync operation is already
+    /// idempotent) and no window check (the delivery handler enforced the 48-hour window). The
+    /// delivery's free-text reason is kept as the description under the <c>other</c> reason code.
+    /// <para>
+    /// The escrow: for a delivery with an order, the order escrow (<c>escrow-order-{orderId}</c>,
+    /// strongly consistent, any status); otherwise, or when the order has none (paid through
+    /// <c>POST /escrow/initiate</c>), the one on the <c>DeliveryIndex</c>, re-read consistently.
+    /// The decision is always made on the base row: a manual payout queued (ESC-02) or a
+    /// settlement lock held (ESC-03) refuses first, then <c>escrowed</c> is frozen,
+    /// <c>disputed</c> is already frozen, and every other status (<c>initiated</c>,
+    /// <c>released</c>, <c>completed</c>, <c>refunded</c>, <c>dispute_resolved</c>,
+    /// <c>cancelled</c>, <c>held</c>, unknown) is refused. An order escrow linked to another
+    /// delivery is refused too. Refusals are audited on the escrow; a caller writes nothing on a
+    /// refusal. Throws when the outcome is unknown (the caller answers with a retry).
+    /// </para>
     /// </summary>
-    public async Task<DeliveryDisputeFreeze> MarkDisputedFromDeliveryAsync(string deliveryId, string disputedBy, string? description)
+    public async Task<DeliveryDisputeFreezeResult> FreezeForDeliveryDisputeAsync(
+        string deliveryId, string? orderId, string disputedBy, string? description)
     {
-        var escrow = await _escrowRepo.GetByDeliveryIdAsync(deliveryId);
-        if (escrow == null || GetString(escrow, "status") != "escrowed")
+        var escrow = await FindDeliveryDisputeEscrowAsync(deliveryId, orderId);
+        if (escrow == null)
         {
-            return DeliveryDisputeFreeze.NothingToFreeze;
+            return new DeliveryDisputeFreezeResult(DeliveryDisputeFreeze.NoEscrow);
         }
 
         var escrowId = GetString(escrow, "escrowId");
-        var createdAt = GetString(escrow, "createdAt");
-
-        // ESC-02: a queued manual payout is not frozen (the admin queue owns it). The refusal
-        // is audited so the admin sees the delivery dispute on the escrow's timeline.
-        if (IsManualPayoutOpen(escrow))
+        var linkedDeliveryId = GetStringOrNull(escrow, "deliveryId");
+        if (!string.IsNullOrEmpty(linkedDeliveryId)
+            && !string.Equals(linkedDeliveryId, deliveryId, StringComparison.Ordinal))
         {
-            await AppendAuditAsync(escrowId, "dispute_refused_manual_payout", "escrowed", "escrowed", disputedBy,
-                metadata: $"deliveryId={deliveryId};op={GetStringOrNull(escrow, ManualPayoutFields.Op)}");
-            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_DISPUTE_REFUSED escrowId={MoneyAlarmLog.LogId(escrowId)}");
-            return DeliveryDisputeFreeze.RefusedManualPayout;
+            var status = GetString(escrow, "status");
+            await AppendAuditAsync(escrowId, "dispute_refused_other_delivery", status, status, disputedBy,
+                metadata: $"deliveryId={deliveryId}");
+            Console.WriteLine($"ESCROW_DISPUTE_REFUSED_OTHER_DELIVERY escrowId={MoneyAlarmLog.LogId(escrowId)}");
+            return new DeliveryDisputeFreezeResult(DeliveryDisputeFreeze.RefusedOtherDelivery, escrowId, status);
         }
+
+        var decided = await ClassifyDeliveryDisputeAsync(escrow, deliveryId, disputedBy);
+        if (decided != null)
+        {
+            return decided;
+        }
+
         var now = DateTime.UtcNow;
         var confirmedAt = GetStringOrNull(escrow, "deliveryConfirmedAt");
         var disputeWindowEndsAt = confirmedAt != null
@@ -2423,33 +2534,90 @@ public sealed class EscrowService
                 : description;
         }
 
-        // The settlement lock is checked by the write itself (ESC-03), never on this
-        // DeliveryIndex copy, which can be stale.
         try
         {
-            await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "disputed", "escrowed", fields);
+            await _escrowRepo.UpdateStatusAsync(escrowId, GetString(escrow, "createdAt"), "disputed", "escrowed", fields);
         }
         catch (ConditionalCheckFailedException)
         {
-            // Lost a race: a settlement took the lock, or the payout was queued, meanwhile.
+            // Lost a race: a settlement took the lock, the payout was queued, or another
+            // dispute froze it meanwhile.
             var latest = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
-            if (latest != null && IsManualPayoutOpen(latest))
+            var after = latest != null ? await ClassifyDeliveryDisputeAsync(latest, deliveryId, disputedBy) : null;
+            if (after != null)
             {
-                await AppendAuditAsync(escrowId, "dispute_refused_manual_payout", "escrowed", "escrowed", disputedBy,
-                    metadata: $"deliveryId={deliveryId};op={GetStringOrNull(latest, ManualPayoutFields.Op)}");
-                return DeliveryDisputeFreeze.RefusedManualPayout;
+                return after;
             }
 
-            if (latest != null && GetStringOrNull(latest, "settlementLock") != null)
-            {
-                return await RefuseFreezeSettlementInFlightAsync(escrowId, deliveryId, disputedBy, GetString(latest, "status"));
-            }
-
+            // Still escrowed with nothing in the way, or gone: the outcome is unknown.
             throw;
         }
 
         await AppendAuditAsync(escrowId, "dispute", "escrowed", "disputed", disputedBy);
-        return DeliveryDisputeFreeze.Frozen;
+        return new DeliveryDisputeFreezeResult(DeliveryDisputeFreeze.Frozen, escrowId, "disputed");
+    }
+
+    /// <summary>The escrow a delivery dispute freezes, as a strongly consistent base row (ESC-07).</summary>
+    private async Task<Dictionary<string, object>?> FindDeliveryDisputeEscrowAsync(string deliveryId, string? orderId)
+    {
+        if (!string.IsNullOrEmpty(orderId))
+        {
+            var orderEscrow = await _escrowRepo.GetByIdAsync($"escrow-order-{orderId}", consistentRead: true);
+            if (orderEscrow != null)
+            {
+                return orderEscrow;
+            }
+        }
+
+        // The DeliveryIndex copy only names the escrow: it can lag the base row.
+        var indexed = await _escrowRepo.GetByDeliveryIdAsync(deliveryId);
+        var indexedId = indexed != null ? GetStringOrNull(indexed, "escrowId") : null;
+        return string.IsNullOrEmpty(indexedId)
+            ? null
+            : await _escrowRepo.GetByIdAsync(indexedId, consistentRead: true);
+    }
+
+    /// <summary>
+    /// ESC-07: what a delivery dispute may do with this escrow row. Null when it is
+    /// <c>escrowed</c> with nothing in the way (freeze it); otherwise the outcome, audited when it
+    /// is a refusal. The manual payout marker and the lock are checked before the status, so a
+    /// <c>disputed</c> row a manual payout queue still owns is refused, never mirrored.
+    /// </summary>
+    private async Task<DeliveryDisputeFreezeResult?> ClassifyDeliveryDisputeAsync(
+        Dictionary<string, object> escrow, string deliveryId, string disputedBy)
+    {
+        var escrowId = GetString(escrow, "escrowId");
+        var status = GetString(escrow, "status");
+
+        // ESC-02: a queued manual payout is not frozen (the admin queue owns it). The refusal
+        // is audited so the admin sees the delivery dispute on the escrow's timeline.
+        if (IsManualPayoutOpen(escrow))
+        {
+            await AppendAuditAsync(escrowId, "dispute_refused_manual_payout", status, status, disputedBy,
+                metadata: $"deliveryId={deliveryId};op={GetStringOrNull(escrow, ManualPayoutFields.Op)}");
+            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_DISPUTE_REFUSED escrowId={MoneyAlarmLog.LogId(escrowId)}");
+            return new DeliveryDisputeFreezeResult(DeliveryDisputeFreeze.RefusedManualPayout, escrowId, status);
+        }
+
+        if (GetStringOrNull(escrow, "settlementLock") != null)
+        {
+            await RefuseFreezeSettlementInFlightAsync(escrowId, deliveryId, disputedBy, status);
+            return new DeliveryDisputeFreezeResult(DeliveryDisputeFreeze.RefusedSettlementInFlight, escrowId, status);
+        }
+
+        switch (status)
+        {
+            case "escrowed":
+                return null;
+            case "disputed":
+                return new DeliveryDisputeFreezeResult(DeliveryDisputeFreeze.AlreadyDisputed, escrowId, status);
+            default:
+                await AppendAuditAsync(escrowId, "dispute_refused_not_held", status, status, disputedBy,
+                    metadata: $"deliveryId={deliveryId}");
+                Console.WriteLine(
+                    $"ESCROW_DISPUTE_REFUSED_NOT_HELD escrowId={MoneyAlarmLog.LogId(escrowId)} status={MoneyAlarmLog.LogId(status)}");
+                return new DeliveryDisputeFreezeResult(DeliveryDisputeFreeze.RefusedNotHeld, escrowId, status);
+        }
     }
 
     /// <summary>
@@ -2457,13 +2625,12 @@ public sealed class EscrowService
     /// is not frozen onto the escrow (the settlement wins). Audited so the admin sees the
     /// delivery dispute on the escrow's timeline.
     /// </summary>
-    private async Task<DeliveryDisputeFreeze> RefuseFreezeSettlementInFlightAsync(
+    private async Task RefuseFreezeSettlementInFlightAsync(
         string escrowId, string deliveryId, string disputedBy, string status)
     {
         await AppendAuditAsync(escrowId, "dispute_refused_settlement_in_flight", status, status, disputedBy,
             metadata: $"deliveryId={deliveryId}");
         Console.WriteLine($"ESCROW_DISPUTE_REFUSED_SETTLEMENT_IN_FLIGHT escrowId={MoneyAlarmLog.LogId(escrowId)}");
-        return DeliveryDisputeFreeze.RefusedSettlementInFlight;
     }
 
     /// <summary>
@@ -5027,18 +5194,34 @@ public sealed class EscrowService
     }
 }
 
-/// <summary>What <see cref="EscrowService.MarkDisputedFromDeliveryAsync"/> did with the escrow behind a disputed delivery.</summary>
+/// <summary>What <see cref="EscrowService.FreezeForDeliveryDisputeAsync"/> did with the escrow behind a disputed delivery.</summary>
 public enum DeliveryDisputeFreeze
 {
     /// <summary>The escrow moved to <c>disputed</c>.</summary>
     Frozen,
 
-    /// <summary>No escrow for the delivery, or it is not <c>escrowed</c>.</summary>
-    NothingToFreeze,
+    /// <summary>ESC-07: the escrow was <c>disputed</c> already (no manual payout, no lock); the delivery and order may follow.</summary>
+    AlreadyDisputed,
 
-    /// <summary>ESC-02: the settlement waits in the manual payout queue; nothing was frozen and the order must not be mirrored either.</summary>
+    /// <summary>ESC-07: no escrow for the delivery or its order.</summary>
+    NoEscrow,
+
+    /// <summary>ESC-02: the settlement waits in the manual payout queue; nothing was frozen and the delivery and order must not move either.</summary>
     RefusedManualPayout,
 
-    /// <summary>ESC-03: a release or refund holds the settlement lock; nothing was frozen and the order must not be mirrored either.</summary>
-    RefusedSettlementInFlight
+    /// <summary>ESC-03: a release or refund holds the settlement lock; nothing was frozen and the delivery and order must not move either.</summary>
+    RefusedSettlementInFlight,
+
+    /// <summary>ESC-07: the escrow holds no money a dispute can freeze (any status but <c>escrowed</c> and <c>disputed</c>).</summary>
+    RefusedNotHeld,
+
+    /// <summary>ESC-07: the order escrow is linked to another delivery.</summary>
+    RefusedOtherDelivery
+}
+
+/// <summary>ESC-07: the outcome of a delivery dispute's freeze, with the escrow it was decided on.</summary>
+public sealed record DeliveryDisputeFreezeResult(DeliveryDisputeFreeze Outcome, string? EscrowId = null, string? EscrowStatus = null)
+{
+    /// <summary>True when the delivery and order may follow: the escrow is frozen now or was already.</summary>
+    public bool MayMirror => Outcome is DeliveryDisputeFreeze.Frozen or DeliveryDisputeFreeze.AlreadyDisputed;
 }

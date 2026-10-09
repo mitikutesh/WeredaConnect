@@ -188,7 +188,9 @@ export class MonitoringStack extends cdk.Stack {
     //   ORDER_ESCROW_CREATE_FAILED: no escrow record (delivery-time linkage self-heals);
     //   ORDER_ESCROW_LINK_FAILED: the delivery is not tied to the escrow, so delivery
     //     confirmation may never reach it and the refund-safety check cannot see it;
-    //   ORDER_ESCROW_REFUND_SCHEDULE_FAILED: a cancelled order's money stays held.
+    //   ORDER_ESCROW_REFUND_SCHEDULE_FAILED: a cancelled order's money stays held;
+    //   DISPUTE_NO_ESCROW (ESC-07): a funded order's delivery was disputed but no escrow
+    //     holds its money, so the dispute was refused.
     const syncLogGroup = logs.LogGroup.fromLogGroupName(
       this,
       'SyncLogGroup',
@@ -200,6 +202,7 @@ export class MonitoringStack extends cdk.Stack {
         'ORDER_ESCROW_CREATE_FAILED',
         'ORDER_ESCROW_LINK_FAILED',
         'ORDER_ESCROW_REFUND_SCHEDULE_FAILED',
+        'DISPUTE_NO_ESCROW',
       ),
       metricNamespace,
       metricName: 'OrderEscrowProblems',
@@ -783,15 +786,17 @@ export class MonitoringStack extends cdk.Stack {
       {
         alarmName: `${prefix}-order-escrow-problems`,
         alarmDescription:
-          'The sync Lambda logged ORDER_ESCROW_CREATE_FAILED, ORDER_ESCROW_LINK_FAILED or ' +
-          'ORDER_ESCROW_REFUND_SCHEDULE_FAILED (the line carries the orderId). CREATE: a ' +
+          'The sync Lambda logged ORDER_ESCROW_CREATE_FAILED, ORDER_ESCROW_LINK_FAILED, ' +
+          'ORDER_ESCROW_REFUND_SCHEDULE_FAILED or DISPUTE_NO_ESCROW (the line carries the orderId). CREATE: a ' +
           'funded order has no escrow record; the buyer\'s money is held but invisible to ' +
           '/escrow/history and refund scheduling; delivery-time linkage self-heals it, ' +
           'verify via the OrderIndex GSI. LINK: the delivery is not tied to the order ' +
           'escrow, so delivery confirmation may never reach it and the refund-safety check ' +
           'cannot see the delivery; link them by hand. REFUND_SCHEDULE: a rejected or ' +
           'cancelled order\'s money stays in escrow; set the escrow expiry by hand so the ' +
-          'hourly sweep refunds the buyer.',
+          'hourly sweep refunds the buyer. DISPUTE_NO_ESCROW (ESC-07): a delivery of the order ' +
+          'was disputed but no escrow-order row holds its money, so the dispute was refused; ' +
+          'find where the payment is held and contact the parties.',
         metric: new cloudwatch.Metric({
           namespace: metricNamespace,
           metricName: 'OrderEscrowProblems',

@@ -782,6 +782,8 @@ describe('MonitoringStack', () => {
   const LINK_LINE =
     'ORDER_ESCROW_LINK_FAILED orderId=ord-1 deliveryId=del-1 reason=[ProvisionedThroughputExceededException]';
   const REFUND_SCHEDULE_LINE = 'ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId=ord-1 reason=[TimeoutException]';
+  // ESC-07: a funded order's delivery disputed with no escrow holding its money.
+  const DISPUTE_NO_ESCROW_LINE = 'DISPUTE_NO_ESCROW orderId=ord-1 deliveryId=del-1';
   // ESC-02's producer: one line per pending leg, ref=<op>:<leg>.
   const PAYOUT_LINE = 'MANUAL_PAYOUT_OVERDUE escrowId=escrow-order-ord-1 ref=release:farmer ageHours=26';
   const QUEUE_LINE = 'ADMIN_QUEUE_OVERDUE orderId=ord-1 reason=undelivered ageHours=30';
@@ -948,10 +950,10 @@ describe('MonitoringStack', () => {
     });
   });
 
-  test('ESC-13: order escrow problems cover create, link and refund-schedule failures', () => {
+  test('ESC-13: order escrow problems cover create, link and refund-schedule failures (ESC-07: and a dispute with no escrow)', () => {
     const template = monitoringTemplate(false);
     const filter = metricFilter(template, SYNC_LG, 'OrderEscrowProblems');
-    for (const line of [CREATE_LINE, LINK_LINE, REFUND_SCHEDULE_LINE]) {
+    for (const line of [CREATE_LINE, LINK_LINE, REFUND_SCHEDULE_LINE, DISPUTE_NO_ESCROW_LINE]) {
       expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, line)).toBe(true);
     }
     template.hasResourceProperties('AWS::CloudWatch::Alarm', {

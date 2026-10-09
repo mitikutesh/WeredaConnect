@@ -191,8 +191,9 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
   /// this throws when the read fails: a guessed version would only conflict,
   /// and a conflict is now reported as a failure.
   Future<int> _currentVersion(String deliveryId) async {
-    final data =
-        await _api.get<Map<String, dynamic>>('/deliveries/$deliveryId');
+    final data = await _api.get<Map<String, dynamic>>(
+      '/deliveries/$deliveryId',
+    );
     final envelope = data['delivery'] ?? data['item'];
     final map = envelope is Map<String, dynamic>
         ? envelope
@@ -365,7 +366,17 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
         ],
       },
     );
-    ensureSyncSucceeded(response);
+    try {
+      ensureSyncSucceeded(response);
+    } on SyncConflictException {
+      // ESC-07: the server freezes the payment before it writes the delivery.
+      // When the delivery changed in between (or the other party disputed
+      // first), the server still marks it disputed and answers a conflict.
+      // Then the dispute is done; any other conflict, or a re-read that
+      // failed, is still a failure.
+      final current = await getDeliveryById(deliveryId, userId: userId);
+      if (current?.status != DeliveryStatus.disputed) rethrow;
+    }
   }
 
   @override
@@ -435,8 +446,9 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     required String userId,
   }) async {
     try {
-      final data =
-          await _api.get<Map<String, dynamic>>('/deliveries/$deliveryId');
+      final data = await _api.get<Map<String, dynamic>>(
+        '/deliveries/$deliveryId',
+      );
       // Server wraps the single-GET response as {"delivery": {...}}.
       if (data['delivery'] is Map<String, dynamic>) {
         return _parseDeliveryMap(data['delivery'] as Map<String, dynamic>);

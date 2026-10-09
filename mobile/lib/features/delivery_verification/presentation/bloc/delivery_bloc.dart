@@ -59,13 +59,17 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         code: DeliveryErrorCode.qrPending,
       );
     }
-    // Web calls /sync directly, so the server's cancel refusal arrives here.
-    if (e is SyncRejectedException &&
-        isDeliveryCancelRefusalMessage(e.message)) {
-      return DeliveryError(
-        message: e.message,
-        code: DeliveryErrorCode.cancelNotAllowed,
-      );
+    // Web calls /sync directly, so the server's cancel and dispute refusals
+    // arrive here.
+    if (e is SyncRejectedException) {
+      final code = isDeliveryCancelRefusalMessage(e.message)
+          ? DeliveryErrorCode.cancelNotAllowed
+          : isDeliveryDisputeRefusalMessage(e.message)
+              ? DeliveryErrorCode.disputeRefused
+              : isDeliveryDisputeExpiredMessage(e.message)
+                  ? DeliveryErrorCode.disputeExpired
+                  : null;
+      if (code != null) return DeliveryError(message: e.message, code: code);
     }
     return DeliveryError(
       message: e.toString(),

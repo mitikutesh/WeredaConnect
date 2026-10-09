@@ -881,6 +881,27 @@ public class EscrowFunctionTests
     }
 
     [Fact]
+    public async Task Dispute_LostToAnotherDispute_Returns409Escrow020_Not500()
+    {
+        // ESC-07: the other party's dispute (POST /escrow/dispute or a delivery dispute) froze the
+        // escrow between the read and the write. Before, the failed condition was a 500.
+        SetupEscrow("escrow-small", 5_000m);
+        _mockEscrowRepo.GetByIdAsync("escrow-small", true).Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-small" }, { "status", "disputed" }, { "createdAt", "2026-02-17T10:00:00Z" }
+        });
+        _mockEscrowRepo.UpdateStatusAsync("escrow-small", Arg.Any<string>(), "disputed", "escrowed",
+                Arg.Any<Dictionary<string, object>?>())
+            .ThrowsAsync(new ConditionalCheckFailedException("moved"));
+
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/dispute", DisputeBody("escrow-small"), BuyerId), _context);
+
+        Assert.Equal(409, response.StatusCode);
+        Assert.Contains("ESCROW_020", response.Body);
+    }
+
+    [Fact]
     public async Task Dispute_NonParty_GetsServiceErrorNotStepUp()
     {
         SetupEscrow("escrow-big", 15_000m);

@@ -2084,6 +2084,7 @@
   "@deliveryErrorNotFound": {
     "description": "Error when delivery cannot be found"
   },
+  "deliveryErrorDisputeRefused": "Kaffaltiin kun kaffalamaa ykn xumuramaa waan jiruuf komiin hin galmoofne. Rakkoon yoo jiraate deeggarsa qunnamaa.",
   "deliveryQrTooLarge": "QR koodiin baay'ee guddaadha",
   "@deliveryQrTooLarge": {
     "description": "Error when scanned QR code exceeds size limit"

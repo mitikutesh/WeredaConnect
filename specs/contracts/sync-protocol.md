@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.11.0
+1.12.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -200,6 +200,7 @@ These rules must always hold:
 - Fraud rejections (`FRAUD_*`, including `FRAUD_ACCOUNT_HELD` since 1.9.0, and `SYNC_VALIDATION`) → Mark as permanently rejected
 - Order rejections (every `ORDER_*` code except `ORDER_KYC_REQUIRED`, since 1.10.0) → Mark as permanently rejected and revert the local order (see Permanent order rejections)
 - `DELIVERY_CANCEL_NOT_ALLOWED` (since 1.11.0) → Mark as permanently rejected and revert the local delivery (see Delivery cancel)
+- `DELIVERY_DISPUTE_REFUSED` and `DELIVERY_DISPUTE_EXPIRED` (since 1.12.0) → Mark as permanently rejected and revert the local delivery (see Delivery dispute); `DELIVERY_DISPUTE_RETRY` is transient and retried
 
 **Retry State Management**:
 - `retryCount` field in `SyncOperation` entity tracks attempts (only incremented by server errors, not network failures)
@@ -357,10 +358,34 @@ Clients older than 1.11.0 keep retrying `DELIVERY_CANCEL_NOT_ALLOWED`, as they r
 
 ---
 
+## Delivery dispute (1.12.0, ESC-07)
+
+A party disputes a delivered delivery with `action: "update"` and
+`data: {"status": "disputed", "disputeReason": "...", "version": n}` (unchanged). Since 1.12.0
+the server freezes the order's escrow before it writes the delivery (`escrow-protocol.md` 1.12.0,
+"Additions in 1.12.0"), so a dispute can be refused with nothing written. A client order update
+to `disputed` is refused `ORDER_UNAUTHORIZED` (`order-lifecycle.md` 1.14.0); no shipped app sent
+it, and clients since 1.10.0 revert it like any `ORDER_*` refusal.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `success` | Synced. | Done. |
+| `DELIVERY_DISPUTE_REFUSED:` (the payment is queued for an admin payout, being settled or no longer held, the order's payment belongs to another delivery, or no payment is on record for the order) | Permanent: mark the operation rejected and revert the local delivery exactly as for `DELIVERY_CANCEL_NOT_ALLOWED` (re-read `GET /deliveries/{id}`, server wins; else the lowest sent version). Explained in en, am and om ("This payment is already being paid out or settled, so the dispute was not recorded..."). | Shows the same message. |
+| `DELIVERY_DISPUTE_EXPIRED:` (after the 48-hour window) | Permanent since 1.12.0, reverted the same way, explained with the existing "Dispute window has expired" text. Before 1.12.0 it was retried and the local row stayed `disputed`. | Shows the same message. |
+| `DELIVERY_DISPUTE_RETRY:` (the freeze could not be decided) | Transient: marked failed and retried, nothing was written. | Failure (generic message); the user can try again. |
+| `conflict` with the row | Server wins, as for any conflict. The row may already show `disputed`: when the delivery changed after the version check but the payment was frozen, the server still marks the delivery and order disputed and answers `conflict`. | A re-read showing `disputed` means the dispute is done; anything else is a failure. |
+| error after a successful freeze (for example a throttled delivery write) | Retried; the retry finds the payment already frozen and finishes the delivery and order. | Failure; the user's next try finishes it the same way. |
+
+Clients older than 1.12.0 retry `DELIVERY_DISPUTE_REFUSED` until the retry limit and keep the
+local row `disputed` until a pull overwrites it.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.12.0 | 2026-10-10 | Delivery dispute (ESC-07): the server freezes the escrow before it writes a disputed delivery; new `DELIVERY_DISPUTE_REFUSED` (permanent, the mobile client reverts the delivery like a refused cancel and explains it in en, am and om) and `DELIVERY_DISPUTE_RETRY` (transient); `DELIVERY_DISPUTE_EXPIRED` becomes permanent and reverted; a conflict after a successful freeze carries the row already `disputed` (web: done when a re-read shows `disputed`); a client order update to `disputed` is `ORDER_UNAUTHORIZED` |
 | 1.11.0 | 2026-10-09 | Delivery cancel (ESC-08): sent as `update {status, version}` by every party; `delete` still accepted under the same rules (old queued operations are not rewritten); `DELIVERY_CANCEL_NOT_ALLOWED` is permanent, the mobile client reverts the delivery (read-back, else the lowest sent version) and explains it in en, am and om; a cancel of a cancelled delivery answers `conflict` with the row (web: done when a re-read shows `cancelled`) |
 | 1.10.0 | 2026-10-09 | Permanent order rejections (ESC-12 part A): every `ORDER_*` operation error except `ORDER_KYC_REQUIRED` is permanent; the mobile client marks it rejected, reverts the local order (create: remove it; update: re-read `GET /orders/{id}`, 404/403 remove it, other failures restore the lowest sent version), shows a localized reason (kept until the UI listens, per user, dropped on logout), rejects the operations queued behind any refused create, and stops rejected operations from blocking pulls; other permanent rejections of order operations are reverted the same way; other entities' permanent rejections are explained and still counted as failed; web treats `conflict` as a failure and reads versions strictly; server rules for `ORDER_*` errors and new order fields; the five non-order codes wait for part B |
 | 1.9.0 | 2026-10-06 | `FRAUD_ACCOUNT_HELD:` operation error (planned FRD-04) on crop, trip and order create and on order `payment_submitted`, permanent under the existing `FRAUD_*` rule; `AUTH_040:` and `AUTH_041:` may also come from the account's risk tier at any amount; `ORDER_VALIDATION:` on the farmer's accept while the order's escrow is `held` (planned FRD-03) |
@@ -375,5 +400,5 @@ Clients older than 1.11.0 keep retrying `DELIVERY_CANCEL_NOT_ALLOWED`, as they r
 
 ---
 
-**Last Updated**: 2026-10-09
-**Version**: 1.11.0
+**Last Updated**: 2026-10-10
+**Version**: 1.12.0

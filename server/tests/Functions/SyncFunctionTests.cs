@@ -5044,161 +5044,347 @@ public class SyncFunctionTests
         await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
     }
 
-    // --- SIM-12: a disputed delivery disputes the order and freezes the escrow ---
+    // --- SIM-12, ESC-07: a delivery dispute freezes the escrow first, then the delivery and order follow ---
 
-    [Fact]
-    public async Task DeliveryUpdate_Disputed_MovesOrderToDisputed()
+    private const string OrderEscrowId = "escrow-order-order-001";
+
+    private static Dictionary<string, object> OrderEscrowRow(string status = "escrowed")
+        => new()
+        {
+            { "escrowId", OrderEscrowId }, { "orderId", "order-001" }, { "deliveryId", "del-001" },
+            { "createdAt", "2026-02-17T10:00:00.0000000Z" }, { "status", status },
+            { "deliveryConfirmedAt", "2026-02-18T10:00:00.0000000Z" }, { "version", 1 }
+        };
+
+    private sealed record DisputeRig(
+        SyncFunction Function, IEscrowRepository EscrowRepo, IEscrowAuditRepository AuditRepo,
+        IDeliveryRepository DeliveryRepo, ITransactionAuditRepository TxRepo);
+
+    /// <summary>
+    /// A sync function with the escrow service wired as in the Lambda (same order repository,
+    /// transaction audit), a delivered delivery of order-001 and the order at <paramref name="orderStatus"/>.
+    /// </summary>
+    private DisputeRig DisputeFunction(Dictionary<string, object>? escrow, string orderStatus = "delivered")
     {
-        SetupExistingOrder(status: "delivered");
+        var escrowRepo = Substitute.For<IEscrowRepository>();
+        if (escrow != null)
+        {
+            escrowRepo.GetByIdAsync(OrderEscrowId, true).Returns(escrow);
+        }
+
+        var auditRepo = Substitute.For<IEscrowAuditRepository>();
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        deliveryRepo.GetByIdAsync("del-001", true).Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", "del-001" }, { "orderId", "order-001" }, { "status", "disputed" }
+        });
+        var txRepo = Substitute.For<ITransactionAuditRepository>();
+        var service = new EscrowService(escrowRepo, auditRepo, idempotencyRepo: null, telebirrGateway: null,
+            orderRepo: _mockOrderRepo, deliveryRepo: deliveryRepo, transactionAuditRepo: txRepo);
+        var function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+            "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, orderRepo: _mockOrderRepo, escrowRepo: escrowRepo,
+            transactionAuditRepo: txRepo, orderEscrowService: service);
+        var order = SetupExistingOrder(status: orderStatus);
+        _mockOrderRepo.GetByIdAsync("order-001", true).Returns(order);
         SetupOrderUpdateSucceeds();
         SetupDeliveryQuery(DeliveryItemForOrder(status: "delivered",
             confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o")));
+        return new DisputeRig(function, escrowRepo, auditRepo, deliveryRepo, txRepo);
+    }
 
-        var response = await _function.FunctionHandler(
+    private Task<APIGatewayProxyResponse> SendDeliveryDisputeAsync(
+        SyncFunction function, int version = 1, string userId = "buyer-001", string role = "buyer")
+        => function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
             {
-                { "status", "disputed" }, { "disputeReason", "wet bags" }, { "version", 1 }
-            })), "buyer-001", "buyer"), _context);
+                { "status", "disputed" }, { "disputeReason", "wet bags" }, { "version", version }
+            })), userId, role), _context);
+
+    private Task<UpdateItemResponse> DidNotWriteTheDelivery()
+        => _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Is<UpdateItemRequest>(r => r.TableName == "test-deliveries-table"));
+
+    private Task<AuthResult<Dictionary<string, object>>> DidNotWriteTheOrder()
+        => _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+
+    private static Task DidNotWriteTheEscrow(IEscrowRepository escrowRepo)
+        => escrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_FreezesTheEscrowFirst_ThenWritesTheDeliveryAndTheOrder()
+    {
+        // Without the freeze the 48-hour auto-release still paid the farmer for a disputed handoff.
+        var rig = DisputeFunction(OrderEscrowRow());
+        var writes = new List<string>();
+        rig.EscrowRepo.When(r => r.UpdateStatusAsync(OrderEscrowId, Arg.Any<string>(), "disputed", "escrowed",
+                Arg.Any<Dictionary<string, object>?>()))
+            .Do(_ => writes.Add("escrow"));
+        _mockDynamoDb.When(d => d.UpdateItemAsync(Arg.Is<UpdateItemRequest>(r => r.TableName == "test-deliveries-table")))
+            .Do(_ => writes.Add("delivery"));
+        _mockOrderRepo.When(o => o.UpdateAsync("order-001", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>()))
+            .Do(_ => writes.Add("order"));
+
+        var response = await SendDeliveryDisputeAsync(rig.Function);
 
         Assert.Contains("success", response.Body);
+        Assert.Equal(new[] { "escrow", "delivery", "order" }, writes);
+        await rig.EscrowRepo.Received(1).UpdateStatusAsync(
+            OrderEscrowId, "2026-02-17T10:00:00.0000000Z", "disputed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f =>
+                f["disputedBy"].ToString() == "buyer-001" && f["disputeDescription"].ToString() == "wet bags"));
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 1);
+        await rig.AuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(d => (string)d["action"] == "dispute"));
+        // The order hop is audited as a system move, the delivery hop as the buyer's.
+        await rig.TxRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+            (string)e["entityType"] == "order" && (string)e["action"] == "dispute"
+            && (string)e["fromState"] == "delivered" && (string)e["toState"] == "disputed" && (string)e["actor"] == "system"));
+        await rig.TxRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+            (string)e["entityType"] == "delivery" && (string)e["action"] == "dispute" && (string)e["actor"] == "buyer-001"));
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_OrderLeftBehindItsDelivery_IsAdvancedThenDisputed()
+    {
+        // ESC-07: the order lagged at in_transit (its advance failed); the dispute brings it to
+        // delivered first, then disputed, like the verdict mirror.
+        var rig = DisputeFunction(OrderEscrowRow(), orderStatus: "in_transit");
+        _mockOrderRepo.UpdateAsync("order-001", Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "delivered"), 1)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "order-001" }, { "status", "delivered" }, { "version", "2" }
+            }));
+
+        var response = await SendDeliveryDisputeAsync(rig.Function);
+
+        Assert.Contains("success", response.Body);
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "delivered"), 1);
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 2);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_EscrowAlreadyDisputed_RepairsTheDeliveryAndOrder()
+    {
+        // POST /escrow/dispute froze the money but its delivery leg failed: the delivery dispute
+        // writes the delivery and order, and the escrow is left as it is.
+        var rig = DisputeFunction(OrderEscrowRow(status: "disputed"));
+
+        var response = await SendDeliveryDisputeAsync(rig.Function);
+
+        Assert.Contains("success", response.Body);
+        await DidNotWriteTheEscrow(rig.EscrowRepo);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r => r.TableName == "test-deliveries-table"));
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 1);
+        await rig.AuditRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(d => (string)d["action"] == "dispute"));
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_QueuedManualPayout_IsRefused_AndNothingIsWritten()
+    {
+        // ESC-02: the settlement waits for an admin in the manual payout queue. ESC-07: the
+        // delivery is not marked either (before, it was disputed over money being paid out).
+        var escrow = OrderEscrowRow();
+        escrow["manualPayout"] = "open";
+        escrow["manualPayoutOp"] = "release";
+        var rig = DisputeFunction(escrow);
+
+        var response = await SendDeliveryDisputeAsync(rig.Function);
+
+        Assert.Contains("DELIVERY_DISPUTE_REFUSED", response.Body);
+        Assert.Contains("paid out by an admin", response.Body);
+        await DidNotWriteTheEscrow(rig.EscrowRepo);
+        await DidNotWriteTheDelivery();
+        await DidNotWriteTheOrder();
+        await rig.AuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(d =>
+            (string)d["action"] == "dispute_refused_manual_payout" && (string)d["escrowId"] == OrderEscrowId));
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_WhileASettlementHoldsTheLock_IsRefused_AndNothingIsWritten()
+    {
+        // ESC-03: the release took the settlement lock between the read and the disputed write, so
+        // the write fails its lock condition. The settlement wins and nothing else moves.
+        var rig = DisputeFunction(null);
+        var locked = OrderEscrowRow();
+        locked["settlementLock"] = "release";
+        rig.EscrowRepo.GetByIdAsync(OrderEscrowId, true).Returns(OrderEscrowRow(), locked);
+        rig.EscrowRepo.UpdateStatusAsync(OrderEscrowId, Arg.Any<string>(), "disputed", "escrowed", Arg.Any<Dictionary<string, object>?>())
+            .ThrowsAsync(new ConditionalCheckFailedException("locked"));
+
+        var response = await SendDeliveryDisputeAsync(rig.Function);
+
+        Assert.Contains("DELIVERY_DISPUTE_REFUSED", response.Body);
+        Assert.Contains("being settled", response.Body);
+        await DidNotWriteTheDelivery();
+        await DidNotWriteTheOrder();
+        await rig.AuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(d =>
+            (string)d["action"] == "dispute_refused_settlement_in_flight" && (string)d["escrowId"] == OrderEscrowId
+            && (string)d["metadata"] == "deliveryId=del-001"));
+        await rig.AuditRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(d => (string)d["action"] == "dispute"));
+    }
+
+    [Theory]
+    [InlineData("released")]
+    [InlineData("completed")]
+    [InlineData("refunded")]
+    [InlineData("initiated")]
+    public async Task DeliveryUpdate_Disputed_EscrowHoldingNoMoney_IsRefused(string status)
+    {
+        var rig = DisputeFunction(OrderEscrowRow(status: status));
+
+        var response = await SendDeliveryDisputeAsync(rig.Function);
+
+        Assert.Contains("DELIVERY_DISPUTE_REFUSED", response.Body);
+        Assert.Contains($"status: {status}", response.Body);
+        await DidNotWriteTheEscrow(rig.EscrowRepo);
+        await DidNotWriteTheDelivery();
+        await DidNotWriteTheOrder();
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_FundedOrderWithoutEscrow_IsRefused_AndAlarmed()
+    {
+        var rig = DisputeFunction(null);
+
+        var response = await SendDeliveryDisputeAsync(rig.Function);
+
+        Assert.Contains("DELIVERY_DISPUTE_REFUSED", response.Body);
+        Assert.Contains("No payment is on record", response.Body);
+        Assert.Contains("DISPUTE_NO_ESCROW orderId=order-001 deliveryId=del-001",
+            ((TestLambdaLogger)_context.Logger).Buffer.ToString());
+        await DidNotWriteTheDelivery();
+        await DidNotWriteTheOrder();
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_FreezeUndecided_AsksForARetry_AndWritesNothing()
+    {
+        var rig = DisputeFunction(null);
+        rig.EscrowRepo.GetByIdAsync(OrderEscrowId, true).ThrowsAsync(new ProvisionedThroughputExceededException("slow down"));
+
+        var response = await SendDeliveryDisputeAsync(rig.Function);
+
+        Assert.Contains("DELIVERY_DISPUTE_RETRY", response.Body);
+        Assert.DoesNotContain("DELIVERY_DISPUTE_REFUSED", response.Body);
+        await DidNotWriteTheDelivery();
+        await DidNotWriteTheOrder();
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_OrderBearingDelivery_WithoutEscrowService_AsksForARetry()
+    {
+        // Fail closed: a funded order's delivery is never disputed without its escrow frozen.
+        SetupExistingOrder(status: "delivered");
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "delivered",
+            confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o")));
+
+        var response = await SendDeliveryDisputeAsync(_function);
+
+        Assert.Contains("DELIVERY_DISPUTE_RETRY", response.Body);
+        await DidNotWriteTheDelivery();
+        await DidNotWriteTheOrder();
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_StaleVersion_IsAConflict_AndFreezesNothing()
+    {
+        var rig = DisputeFunction(OrderEscrowRow());
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "delivered", version: 2,
+            confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o")));
+
+        var response = await SendDeliveryDisputeAsync(rig.Function, version: 1);
+
+        Assert.Contains("conflict", response.Body);
+        await rig.EscrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+        await DidNotWriteTheEscrow(rig.EscrowRepo);
+        await DidNotWriteTheDelivery();
+        await DidNotWriteTheOrder();
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_DeliveryWriteConflictsAfterTheFreeze_TheTradeStillFollows()
+    {
+        // A concurrent update landed between the version check and the write. The money is
+        // frozen, so the delivery and order follow through the status-conditioned mirror.
+        var rig = DisputeFunction(OrderEscrowRow());
+        _mockDynamoDb.UpdateItemAsync(Arg.Is<UpdateItemRequest>(r => r.TableName == "test-deliveries-table"))
+            .ThrowsAsync(new ConditionalCheckFailedException("version moved"));
+        rig.DeliveryRepo.TryMarkDisputedAsync("del-001", "buyer-001", "wet bags").Returns(true);
+
+        var response = await SendDeliveryDisputeAsync(rig.Function);
+
+        Assert.Contains("conflict", response.Body);
+        await rig.EscrowRepo.Received(1).UpdateStatusAsync(
+            OrderEscrowId, Arg.Any<string>(), "disputed", "escrowed", Arg.Any<Dictionary<string, object>?>());
+        await rig.DeliveryRepo.Received(1).TryMarkDisputedAsync("del-001", "buyer-001", "wet bags");
         await _mockOrderRepo.Received(1).UpdateAsync("order-001",
             Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 1);
     }
 
     [Fact]
-    public async Task DeliveryUpdate_Disputed_OrderNotDelivered_IsLeftAlone()
+    public async Task DeliveryUpdate_Disputed_DeliveryWriteThrowsAfterTheFreeze_TheRetryFinishesWithOneDispute()
     {
-        SetupExistingOrder(status: "in_transit");
-        SetupDeliveryQuery(DeliveryItemForOrder(status: "delivered",
-            confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o")));
+        // ESC-07 partial write: the freeze landed, then the delivery write was throttled. The first
+        // attempt errors (escrow disputed, delivery and order still delivered); the retry finds the
+        // escrow already disputed and finishes the delivery and the order. One dispute row in all.
+        var rig = DisputeFunction(null);
+        rig.EscrowRepo.GetByIdAsync(OrderEscrowId, true).Returns(OrderEscrowRow(), OrderEscrowRow(status: "disputed"));
+        var deliveredItem = DeliveryItemForOrder(status: "delivered", confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o"));
+        var deliveryWrites = 0;
+        _mockDynamoDb.UpdateItemAsync(Arg.Is<UpdateItemRequest>(r => r.TableName == "test-deliveries-table"))
+            .Returns(_ => ++deliveryWrites == 1
+                ? throw new ProvisionedThroughputExceededException("throttled")
+                : new UpdateItemResponse { Attributes = deliveredItem });
+
+        var first = await SendDeliveryDisputeAsync(rig.Function);
+        await DidNotWriteTheOrder();
+        var retry = await SendDeliveryDisputeAsync(rig.Function);
+
+        Assert.Contains("error", first.Body);
+        Assert.Contains("success", retry.Body);
+        await rig.EscrowRepo.Received(1).UpdateStatusAsync(
+            OrderEscrowId, Arg.Any<string>(), "disputed", "escrowed", Arg.Any<Dictionary<string, object>?>());
+        await rig.AuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(d => (string)d["action"] == "dispute"));
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 1);
+    }
+
+    [Theory]
+    [InlineData("buyer-001", "buyer")]
+    [InlineData("farmer-001", "farmer")]
+    public async Task OrderUpdate_DeliveredToDisputed_IsRefused_AsSystemManaged(string userId, string role)
+    {
+        // ESC-07: a client order dispute froze no money and the 48-hour release still paid out.
+        SetupExistingOrder(status: "delivered");
 
         var response = await _function.FunctionHandler(
-            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeOrderUpdateOp(new Dictionary<string, object>
             {
-                { "status", "disputed" }, { "disputeReason", "wet bags" }, { "version", 1 }
-            })), "buyer-001", "buyer"), _context);
+                { "status", "disputed" }, { "version", 1 }
+            })), userId, role), _context);
 
-        Assert.Contains("success", response.Body);
-        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        // System.Text.Json escapes the quotes around the status.
+        Assert.Contains("ORDER_UNAUTHORIZED: \\u0027disputed\\u0027 is a system-managed transition.", response.Body);
+        await DidNotWriteTheOrder();
     }
 
     [Fact]
-    public async Task DeliveryUpdate_Disputed_FreezesTheEscrow()
+    public async Task OrderUpdate_TruckerSendsDisputed_IsRefused()
     {
-        // Without this the 48-hour auto-release still paid the farmer for a disputed handoff.
-        var escrowRepo = Substitute.For<IEscrowRepository>();
-        escrowRepo.GetByDeliveryIdAsync("del-001").Returns(new Dictionary<string, object>
-        {
-            { "escrowId", "escrow-d1" }, { "createdAt", "2026-02-17T10:00:00.0000000Z" },
-            { "status", "escrowed" }, { "deliveryConfirmedAt", "2026-02-18T10:00:00.0000000Z" },
-            { "version", 1 }
-        });
-        var escrowService = new EscrowService(
-            escrowRepo, Substitute.For<IEscrowAuditRepository>(), idempotencyRepo: null, telebirrGateway: null);
-        var function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
-            "test-trips-table", "test-deliveries-table",
-            userRepo: _mockUserRepo, orderRepo: _mockOrderRepo,
-            escrowRepo: escrowRepo, orderEscrowService: escrowService);
         SetupExistingOrder(status: "delivered");
-        SetupOrderUpdateSucceeds();
-        SetupDeliveryQuery(DeliveryItemForOrder(status: "delivered",
-            confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o")));
 
-        var response = await function.FunctionHandler(
-            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeOrderUpdateOp(new Dictionary<string, object>
             {
-                { "status", "disputed" }, { "disputeReason", "wet bags" }, { "version", 1 }
-            })), "buyer-001", "buyer"), _context);
+                { "status", "disputed" }, { "version", 1 }
+            })), "trucker-001", "trucker"), _context);
 
-        Assert.Contains("success", response.Body);
-        await escrowRepo.Received(1).UpdateStatusAsync(
-            "escrow-d1", "2026-02-17T10:00:00.0000000Z", "disputed", "escrowed",
-            Arg.Is<Dictionary<string, object>>(f =>
-                f["disputedBy"].ToString() == "buyer-001" && f["disputeDescription"].ToString() == "wet bags"));
-    }
-
-    [Fact]
-    public async Task DeliveryUpdate_Disputed_QueuedManualPayout_LeavesEscrowAndOrder()
-    {
-        // ESC-02: the escrow's settlement already waits for an admin in the manual payout
-        // queue. The delivery dispute is recorded on the escrow's audit, but neither the
-        // escrow nor the order moves to disputed.
-        var escrowRepo = Substitute.For<IEscrowRepository>();
-        escrowRepo.GetByDeliveryIdAsync("del-001").Returns(new Dictionary<string, object>
-        {
-            { "escrowId", "escrow-d1" }, { "createdAt", "2026-02-17T10:00:00.0000000Z" },
-            { "status", "escrowed" }, { "deliveryConfirmedAt", "2026-02-18T10:00:00.0000000Z" },
-            { "settlementLock", "release" }, { "manualPayout", "open" }, { "manualPayoutOp", "release" },
-            { "version", 1 }
-        });
-        var auditRepo = Substitute.For<IEscrowAuditRepository>();
-        var escrowService = new EscrowService(escrowRepo, auditRepo, idempotencyRepo: null, telebirrGateway: null);
-        var function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
-            "test-trips-table", "test-deliveries-table",
-            userRepo: _mockUserRepo, orderRepo: _mockOrderRepo,
-            escrowRepo: escrowRepo, orderEscrowService: escrowService);
-        SetupExistingOrder(status: "delivered");
-        SetupOrderUpdateSucceeds();
-        SetupDeliveryQuery(DeliveryItemForOrder(status: "delivered",
-            confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o")));
-
-        var response = await function.FunctionHandler(
-            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
-            {
-                { "status", "disputed" }, { "disputeReason", "wet bags" }, { "version", 1 }
-            })), "buyer-001", "buyer"), _context);
-
-        Assert.Contains("success", response.Body);
-        await escrowRepo.DidNotReceive().UpdateStatusAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
-        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
-        await auditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(d =>
-            (string)d["action"] == "dispute_refused_manual_payout" && (string)d["escrowId"] == "escrow-d1"));
-    }
-
-    [Fact]
-    public async Task DeliveryUpdate_Disputed_WhileASettlementHoldsTheLock_LeavesEscrowAndOrder()
-    {
-        // ESC-03: the release took the settlement lock between the read and the disputed write,
-        // so the write fails its lock condition. The settlement wins: the escrow is not frozen
-        // and the order is not moved to disputed over money that is being paid out.
-        var escrowRepo = Substitute.For<IEscrowRepository>();
-        var escrow = new Dictionary<string, object>
-        {
-            { "escrowId", "escrow-d1" }, { "createdAt", "2026-02-17T10:00:00.0000000Z" },
-            { "status", "escrowed" }, { "deliveryConfirmedAt", "2026-02-18T10:00:00.0000000Z" },
-            { "version", 1 }
-        };
-        escrowRepo.GetByDeliveryIdAsync("del-001").Returns(escrow);
-        escrowRepo.GetByIdAsync("escrow-d1", true).Returns(new Dictionary<string, object>(escrow)
-        {
-            ["settlementLock"] = "release"
-        });
-        escrowRepo.UpdateStatusAsync("escrow-d1", Arg.Any<string>(), "disputed", "escrowed", Arg.Any<Dictionary<string, object>?>())
-            .ThrowsAsync(new ConditionalCheckFailedException("locked"));
-        var auditRepo = Substitute.For<IEscrowAuditRepository>();
-        var escrowService = new EscrowService(escrowRepo, auditRepo, idempotencyRepo: null, telebirrGateway: null);
-        var function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
-            "test-trips-table", "test-deliveries-table",
-            userRepo: _mockUserRepo, orderRepo: _mockOrderRepo,
-            escrowRepo: escrowRepo, orderEscrowService: escrowService);
-        SetupExistingOrder(status: "delivered");
-        SetupOrderUpdateSucceeds();
-        SetupDeliveryQuery(DeliveryItemForOrder(status: "delivered",
-            confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o")));
-
-        var response = await function.FunctionHandler(
-            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
-            {
-                { "status", "disputed" }, { "disputeReason", "wet bags" }, { "version", 1 }
-            })), "buyer-001", "buyer"), _context);
-
-        Assert.Contains("success", response.Body);
-        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
-        await auditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(d =>
-            (string)d["action"] == "dispute_refused_settlement_in_flight" && (string)d["escrowId"] == "escrow-d1"
-            && (string)d["metadata"] == "deliveryId=del-001"));
-        await auditRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(d => (string)d["action"] == "dispute"));
+        Assert.Contains("ORDER_UNAUTHORIZED", response.Body);
+        await DidNotWriteTheOrder();
     }
 
     // --- SIM-13: a funded order that dies gives its listing stock back ---
@@ -6222,39 +6408,70 @@ public class SyncFunctionTests
         }
     };
 
+    /// <summary>A sync function whose escrow service finds <paramref name="orderId"/>'s escrow held (ESC-07).</summary>
+    private (SyncFunction Function, IEscrowRepository EscrowRepo) StepUpDisputeFunction(string orderId)
+    {
+        var escrowRepo = Substitute.For<IEscrowRepository>();
+        escrowRepo.GetByIdAsync($"escrow-order-{orderId}", true).Returns(new Dictionary<string, object>
+        {
+            { "escrowId", $"escrow-order-{orderId}" }, { "orderId", orderId }, { "deliveryId", "del-001" },
+            { "createdAt", "2026-02-17T10:00:00.0000000Z" }, { "status", "escrowed" }, { "version", 1 }
+        });
+        var service = new EscrowService(escrowRepo, Substitute.For<IEscrowAuditRepository>(),
+            idempotencyRepo: null, telebirrGateway: null, orderRepo: _mockOrderRepo,
+            deliveryRepo: Substitute.For<IDeliveryRepository>());
+        var function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+            "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, orderRepo: _mockOrderRepo, escrowRepo: escrowRepo, orderEscrowService: service);
+        return (function, escrowRepo);
+    }
+
     [Fact]
     public async Task DeliveryDispute_LargeOrder_StaleAuth_RequiresStepUp()
     {
         SetupDeliveredDeliveryWithOrder("order-big", 15_000m);
+        var (function, escrowRepo) = StepUpDisputeFunction("order-big");
 
-        var response = await _function.FunctionHandler(
+        var response = await function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(DisputeOp()), "buyer-001", "buyer",
                 authTime: DateTimeOffset.UtcNow.AddHours(-2).ToUnixTimeSeconds()), _context);
 
         Assert.Contains("AUTH_040", response.Body);
         await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
+        await escrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
     }
 
     [Fact]
     public async Task DeliveryDispute_LargeOrder_FreshAuth_PassesStepUp()
     {
         SetupDeliveredDeliveryWithOrder("order-big", 15_000m);
+        var (function, escrowRepo) = StepUpDisputeFunction("order-big");
 
-        var response = await _function.FunctionHandler(
+        var response = await function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(DisputeOp()), "buyer-001", "buyer",
                 authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
 
+        Assert.Contains("success", response.Body);
         Assert.DoesNotContain("AUTH_040", response.Body);
+        await escrowRepo.Received(1).UpdateStatusAsync(
+            "escrow-order-order-big", Arg.Any<string>(), "disputed", "escrowed", Arg.Any<Dictionary<string, object>?>());
+        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r => r.TableName == "test-deliveries-table"));
     }
 
     [Fact]
     public async Task DeliveryDispute_SmallOrder_NeedsNoStepUp()
     {
         SetupDeliveredDeliveryWithOrder("order-small", 800m);
+        var (function, escrowRepo) = StepUpDisputeFunction("order-small");
 
-        var response = await _function.FunctionHandler(
+        var response = await function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(DisputeOp()), "buyer-001", "buyer"), _context);
 
+        Assert.Contains("success", response.Body);
         Assert.DoesNotContain("AUTH_040", response.Body);
+        await escrowRepo.Received(1).UpdateStatusAsync(
+            "escrow-order-order-small", Arg.Any<string>(), "disputed", "escrowed", Arg.Any<Dictionary<string, object>?>());
+        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r => r.TableName == "test-deliveries-table"));
     }
 }

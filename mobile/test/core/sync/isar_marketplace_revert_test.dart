@@ -410,6 +410,72 @@ void main() {
     });
   });
 
+  // ESC-07: the buyer disputed offline, but the payment was already being
+  // settled, so the server refused the dispute for good and wrote nothing.
+  // The device must show the delivery as delivered again.
+  group('revertRejected for a refused delivery dispute', () {
+    const deliveryId = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+    const refusal = 'DELIVERY_DISPUTE_REFUSED: The payment for this delivery '
+        'is being settled, so it can no longer be disputed. Contact support.';
+
+    Future<Delivery?> loadDelivery() =>
+        isar.deliverys.filter().deliveryIdEqualTo(deliveryId).findFirst();
+
+    test('goes back to the server delivery', () async {
+      final confirmedAt = DateTime.now().toUtc().subtract(
+            const Duration(hours: 2),
+          );
+      await isar.writeTxn(() async {
+        await isar.deliverys.put(
+          Delivery()
+            ..deliveryId = deliveryId
+            ..tripId = 'trip-1'
+            ..listingId = 'listing-1'
+            ..farmerId = 'farmer-1'
+            ..farmerName = 'Farmer'
+            ..truckerId = 'trucker-1'
+            ..truckerName = 'Trucker'
+            ..buyerId = 'buyer-1'
+            ..buyerName = 'Buyer'
+            ..qrToken = 'qr'
+            ..status = DeliveryStatus.delivered
+            ..confirmedAt = confirmedAt
+            ..createdAt = DateTime.utc(2026, 10, 9)
+            ..updatedAt = DateTime.utc(2026, 10, 9)
+            ..version = 3,
+        );
+      });
+      await DeliveryRepository(isar: isar, syncQueue: queue).raiseDispute(
+        deliveryId: deliveryId,
+        userId: 'buyer-1',
+        reason: 'Half the sacks were wet.',
+      );
+      expect((await loadDelivery())!.status, DeliveryStatus.disputed);
+      final op = (await opsFor(deliveryId)).single;
+      await queue.markAsRejected(op.operationId);
+      when(() => api.get<Map<String, dynamic>>('/deliveries/$deliveryId'))
+          .thenAnswer(
+        (_) async => {
+          'delivery': {
+            'deliveryId': deliveryId,
+            'farmerId': 'farmer-1',
+            'truckerId': 'trucker-1',
+            'buyerId': 'buyer-1',
+            'status': 'delivered',
+            'confirmedAt': confirmedAt.toIso8601String(),
+            'version': 3,
+          },
+        },
+      );
+
+      await sync.revertRejected(op, refusal);
+
+      final delivery = await loadDelivery();
+      expect(delivery!.status, DeliveryStatus.delivered);
+      expect(delivery.version, 3);
+    });
+  });
+
   group('pullOrder (ESC-44)', () {
     test('a queued payment: null, and no request', () async {
       await putOrder(status: OrderStatus.created);

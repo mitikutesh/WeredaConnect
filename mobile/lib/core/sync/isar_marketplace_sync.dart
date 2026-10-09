@@ -182,9 +182,10 @@ class IsarMarketplaceSync implements MarketplaceSync {
   ///   the row.
   ///
   /// Every path clears the order pull stamp so that pull is not throttled.
-  /// A delivery cancel refused after pickup is undone the same way from
-  /// `GET /deliveries/{id}` (ESC-08, never removing the delivery). Other
-  /// entity types are left alone.
+  /// A delivery cancel refused after pickup (ESC-08) and a refused or late
+  /// delivery dispute (ESC-07) are undone the same way from
+  /// `GET /deliveries/{id}`, never removing the delivery. Other entity types
+  /// are left alone.
   Future<void> revertRejected(SyncOperation operation, String message) async {
     if (operation.entityType == 'delivery') {
       await _revertRejectedDelivery(operation);
@@ -232,7 +233,9 @@ class IsarMarketplaceSync implements MarketplaceSync {
   }
 
   /// ESC-08: the server refused a delivery cancel because the delivery was
-  /// picked up meanwhile. Server wins, as for an order update: the local row
+  /// picked up meanwhile; ESC-07: it refused a dispute (the payment could not
+  /// be frozen, or the 48-hour window had passed), so the delivery is still
+  /// `delivered` there. Server wins, as for an order update: the local row
   /// is replaced by `GET /deliveries/{id}` unless another upload for it is on
   /// its way; when that read fails the version goes back for the next
   /// [pullDeliveries].

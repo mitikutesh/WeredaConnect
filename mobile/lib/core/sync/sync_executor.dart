@@ -240,10 +240,11 @@ class SyncBatchResult {
 /// - `error` with `ORDER_KYC_REQUIRED` → reject, undo the local change via
 ///   [KycRejectionHandler], ask the UI to offer Fayda verification
 /// - `error` with any other `ORDER_*` code, `FRAUD_*`, `SYNC_VALIDATION`,
-///   `DELIVERY_ORDER_REQUIRED` or `DELIVERY_CANCEL_NOT_ALLOWED` → reject
+///   `DELIVERY_ORDER_REQUIRED`, `DELIVERY_CANCEL_NOT_ALLOWED`,
+///   `DELIVERY_DISPUTE_REFUSED` or `DELIVERY_DISPUTE_EXPIRED` → reject
 ///   (never retried) and explain through a [SyncOperationRejected] event; a
-///   refused order change or delivery cancel is first undone via
-///   [PermanentRejectionHandler]
+///   refused order change, delivery cancel or delivery dispute is first undone
+///   via [PermanentRejectionHandler]
 /// - `error` → mark failed (retry up to 3 times via [SyncQueue])
 ///
 /// A refused `create` also rejects the operations queued behind it for that
@@ -887,15 +888,16 @@ class SyncExecutor {
   /// orderId and replaying the identical payload can never succeed (delivery
   /// creates enqueued before the orderId requirement shipped). Every
   /// `ORDER_*` code but `ORDER_KYC_REQUIRED` (matched earlier) is
-  /// deterministic too (sync-protocol.md 1.10.0), and so is a delivery cancel
-  /// refused after pickup (1.11.0).
+  /// deterministic too (sync-protocol.md 1.10.0), and so are a delivery cancel
+  /// refused after pickup (1.11.0) and a delivery dispute that was refused or
+  /// came after the 48-hour window (1.12.0, ESC-07).
   static bool _isPermanentRejection(String? message) {
     if (message == null) return false;
     return message.startsWith('FRAUD_') ||
         message.startsWith('SYNC_VALIDATION') ||
         message.startsWith('DELIVERY_ORDER_REQUIRED') ||
         isRevertableRejectionMessage(message) ||
-        isDeliveryCancelRefusalMessage(message);
+        isRevertableDeliveryRejectionMessage(message);
   }
 
   /// Background operations the user never made (matching analytics): a
@@ -906,8 +908,8 @@ class SyncExecutor {
   /// when the whole batch was refused):
   /// - a refused `create` rejects the operations queued behind it for that
   ///   entity, which could only loop on a transient "not found";
-  /// - a refused order change (or any `ORDER_*` refusal), and a delivery
-  ///   cancel refused after pickup, are undone through
+  /// - a refused order change (or any `ORDER_*` refusal), a delivery cancel
+  ///   refused after pickup and a refused delivery dispute are undone through
   ///   [PermanentRejectionHandler];
   /// - every refusal is announced as a [SyncOperationRejected] event, once
   ///   per entity. The batch's events go out together after every undo has
@@ -936,7 +938,7 @@ class SyncExecutor {
       final reason = message ?? '';
       if (operation.entityType == 'order' ||
           isRevertableRejectionMessage(message) ||
-          isDeliveryCancelRefusalMessage(message)) {
+          isRevertableDeliveryRejectionMessage(message)) {
         try {
           await _onPermanentRejection?.call(operation, reason);
         } on Object catch (e) {
