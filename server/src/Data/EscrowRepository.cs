@@ -132,10 +132,19 @@ public sealed class EscrowRepository : IEscrowRepository
 
         // ESC-02: neither a gateway settlement nor a dispute lands on an escrow waiting in the
         // manual payout queue; only TryCloseManualPayoutAsync settles those (and removes the marker).
-        if (newStatus is "released" or "refunded" or "disputed")
+        // ESC-04: nor does the move to completed, which a queued trucker leg must close first.
+        if (newStatus is "released" or "refunded" or "disputed" or "completed")
         {
             conditions.Add("attribute_not_exists(#manualPayout)");
             request.ExpressionAttributeNames["#manualPayout"] = ManualPayoutFields.Marker;
+        }
+
+        // ESC-04: an escrow is completed only once every leg is paid; a pending trucker leg keeps
+        // it released until the trucker retry or the manual payout queue records the leg.
+        if (newStatus == "completed")
+        {
+            conditions.Add("attribute_not_exists(#truckerPending)");
+            request.ExpressionAttributeNames["#truckerPending"] = TruckerPayoutFields.Pending;
         }
 
         // ESC-03: a dispute never lands on an escrow whose settlement is in flight, which would
@@ -274,6 +283,7 @@ public sealed class EscrowRepository : IEscrowRepository
         var request = BuildQueueRequest(escrowId, createdAt, op, reason, fromStatus, legs, queuedAt);
         // Only the settlement that holds the lock may queue, and only once. The lock
         // stays in place on purpose: a queued escrow must not be settled by anyone else.
+        request.ExpressionAttributeNames["#lock"] = SettlementLockFields.Lock;
         request.ConditionExpression = "#lock = :op AND attribute_not_exists(#marker)";
         return await TryConditionalUpdateAsync(request);
     }
@@ -290,6 +300,7 @@ public sealed class EscrowRepository : IEscrowRepository
         request.ExpressionAttributeValues[":parkId"] = new AttributeValue { S = parkId };
         // The same lock the recovery step read, and still the status it read: a lock released and
         // taken again in between (a new lock id) is someone else's settlement.
+        request.ExpressionAttributeNames["#lock"] = SettlementLockFields.Lock;
         request.ExpressionAttributeNames["#lockId"] = SettlementLockFields.LockId;
         request.ExpressionAttributeNames["#status"] = "status";
         var lockCondition = "attribute_not_exists(#lockId)";
@@ -317,7 +328,11 @@ public sealed class EscrowRepository : IEscrowRepository
         }
     }
 
-    /// <summary>The queue write without its condition (ESC-02, shared with the ESC-05 recovery step).</summary>
+    /// <summary>
+    /// The queue write without its condition (ESC-02, shared with the ESC-05 recovery step and the
+    /// ESC-04 trucker leg). It registers only the names its own expression uses: DynamoDB refuses an
+    /// unused name, so each caller adds the names of its condition.
+    /// </summary>
     private UpdateItemRequest BuildQueueRequest(
         string escrowId, string createdAt, string op, string reason, string fromStatus,
         IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt)
@@ -336,8 +351,7 @@ public sealed class EscrowRepository : IEscrowRepository
             { "#reason", ManualPayoutFields.Reason },
             { "#fromStatus", ManualPayoutFields.FromStatus },
             { "#updated", "updatedAt" },
-            { "#version", "version" },
-            { "#lock", "settlementLock" }
+            { "#version", "version" }
         };
         var values = new Dictionary<string, AttributeValue>
         {
@@ -485,8 +499,13 @@ public sealed class EscrowRepository : IEscrowRepository
             { ":one", new AttributeValue { N = "1" } }
         };
 
+        // ESC-04: a trucker leg queued on a released escrow closes from released, and only when
+        // it was queued from there (the farmer leg was paid by the release itself).
+        names["#fromStatus"] = ManualPayoutFields.FromStatus;
+        values[":released"] = new AttributeValue { S = "released" };
         var condition = "#marker = :open AND #op = :op AND #legStatus = :pending"
-                        + " AND (#status = :escrowed OR #status = :disputed OR #status = :disputeResolved)";
+                        + " AND (#status = :escrowed OR #status = :disputed OR #status = :disputeResolved"
+                        + " OR (#status = :released AND #fromStatus = :released))";
         var i = 0;
         foreach (var other in otherLegsMustBePaid)
         {
@@ -509,11 +528,22 @@ public sealed class EscrowRepository : IEscrowRepository
             i++;
         }
 
+        // ESC-04: once a release closes, no trucker leg is owed any more.
+        var removes = "#marker";
+        if (op == ManualPayoutFields.OpRelease)
+        {
+            names["#tPending"] = TruckerPayoutFields.Pending;
+            names["#tBlock"] = TruckerPayoutFields.BlockReason;
+            names["#tLockId"] = TruckerPayoutFields.LockId;
+            names["#tLockAt"] = TruckerPayoutFields.LockAt;
+            removes += ", #tPending, #tBlock, #tLockId, #tLockAt";
+        }
+
         var request = new UpdateItemRequest
         {
             TableName = _tableName,
             Key = EscrowKey(escrowId, createdAt),
-            UpdateExpression = "SET " + string.Join(", ", sets) + " REMOVE #marker ADD #version :one",
+            UpdateExpression = "SET " + string.Join(", ", sets) + " REMOVE " + removes + " ADD #version :one",
             ConditionExpression = condition,
             ExpressionAttributeNames = names,
             ExpressionAttributeValues = values
@@ -791,8 +821,11 @@ public sealed class EscrowRepository : IEscrowRepository
         // ESC-02: escrows waiting in the manual payout queue keep their status and expiresAt,
         // so they would sit at the head of this oldest-first window and starve every newer
         // escrow. The sweeps have nothing to do with them; the admin queue owns them.
-        var filters = new List<string> { "attribute_not_exists(#manualPayout)" };
+        // ESC-04: a released escrow whose trucker leg is still owed belongs to the trucker retry;
+        // the crash recovery must not complete it, and it must not fill the window either.
+        var filters = new List<string> { "attribute_not_exists(#manualPayout)", "attribute_not_exists(#truckerPending)" };
         request.ExpressionAttributeNames["#manualPayout"] = ManualPayoutFields.Marker;
+        request.ExpressionAttributeNames["#truckerPending"] = TruckerPayoutFields.Pending;
 
         // Post-query filter for deliveryConfirmedBefore
         if (!string.IsNullOrEmpty(deliveryConfirmedBefore))
@@ -870,6 +903,270 @@ public sealed class EscrowRepository : IEscrowRepository
         } while (lastKey != null && items.Count < limit);
 
         return items.Take(limit).ToList();
+    }
+
+    /// <inheritdoc />
+    public Task<List<Dictionary<string, object>>> QueryPendingTruckerLegsAsync(int limit)
+        => QueryTruckerLegsAsync("released", limit);
+
+    /// <inheritdoc />
+    public Task<List<Dictionary<string, object>>> QueryLegacyTruckerLegsAsync(int limit)
+        => QueryTruckerLegsAsync("completed", limit);
+
+    /// <summary>
+    /// ESC-04: rows of one status whose trucker leg is pending and not queued, oldest
+    /// <c>expiresAt</c> first. The filter drops most rows of the partition, so paging goes on
+    /// through empty pages to the limit or the end of the partition.
+    /// </summary>
+    private async Task<List<Dictionary<string, object>>> QueryTruckerLegsAsync(string status, int limit)
+    {
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = "StatusExpiresIndex",
+            KeyConditionExpression = "#status = :status",
+            FilterExpression = "#pending = :true AND attribute_not_exists(#manualPayout)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" },
+                { "#pending", TruckerPayoutFields.Pending },
+                { "#manualPayout", ManualPayoutFields.Marker }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":status", new AttributeValue { S = status } },
+                { ":true", new AttributeValue { BOOL = true } }
+            },
+            ScanIndexForward = true
+        };
+
+        var items = new List<Dictionary<string, object>>();
+        Dictionary<string, AttributeValue>? lastKey = null;
+        do
+        {
+            if (lastKey != null)
+            {
+                request.ExclusiveStartKey = lastKey;
+            }
+
+            var response = await _dynamoDb.QueryAsync(request);
+            items.AddRange(response.Items.Select(CropRepository.FromItem));
+            lastKey = response.LastEvaluatedKey?.Count > 0 ? response.LastEvaluatedKey : null;
+        } while (lastKey != null && items.Count < limit);
+
+        return items.Take(limit).ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TrySetTruckerBlockReasonAsync(string escrowId, string createdAt, string reason)
+    {
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "SET #reason = :reason, #updated = :now",
+            ConditionExpression =
+                "(attribute_not_exists(#reason) OR #reason <> :reason) AND #status = :released AND #pending = :true "
+                + "AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#lockId)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#reason", TruckerPayoutFields.BlockReason },
+                { "#updated", "updatedAt" },
+                { "#status", "status" },
+                { "#pending", TruckerPayoutFields.Pending },
+                { "#manualPayout", ManualPayoutFields.Marker },
+                { "#lockId", TruckerPayoutFields.LockId }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":reason", new AttributeValue { S = reason } },
+                { ":now", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
+                { ":released", new AttributeValue { S = "released" } },
+                { ":true", new AttributeValue { BOOL = true } }
+            }
+        };
+        return await TryConditionalUpdateAsync(request);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryBackfillTruckerIdAsync(string escrowId, string createdAt, string truckerId)
+    {
+        // truckerId keys the TruckerStatusIndex, so it is never stored empty: absent means none.
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "SET #truckerId = :truckerId, #updated = :now",
+            ConditionExpression = "attribute_exists(escrowId) AND attribute_not_exists(#truckerId)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#truckerId", "truckerId" },
+                { "#updated", "updatedAt" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":truckerId", new AttributeValue { S = truckerId } },
+                { ":now", new AttributeValue { S = DateTime.UtcNow.ToString("o") } }
+            }
+        };
+        return await TryConditionalUpdateAsync(request);
+    }
+
+    /// <inheritdoc />
+    public async Task<string?> TryAcquireTruckerPayoutLockAsync(string escrowId, string createdAt)
+    {
+        var lockId = Guid.NewGuid().ToString("N");
+        var now = DateTime.UtcNow.ToString("o");
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "SET #lockId = :lockId, #lockAt = :now, #updated = :now REMOVE #reason",
+            ConditionExpression =
+                "#status = :released AND #pending = :true AND attribute_not_exists(#lockId) "
+                + "AND attribute_not_exists(#manualPayout)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#lockId", TruckerPayoutFields.LockId },
+                { "#lockAt", TruckerPayoutFields.LockAt },
+                { "#updated", "updatedAt" },
+                { "#reason", TruckerPayoutFields.BlockReason },
+                { "#status", "status" },
+                { "#pending", TruckerPayoutFields.Pending },
+                { "#manualPayout", ManualPayoutFields.Marker }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":lockId", new AttributeValue { S = lockId } },
+                { ":now", new AttributeValue { S = now } },
+                { ":released", new AttributeValue { S = "released" } },
+                { ":true", new AttributeValue { BOOL = true } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return lockId;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            // As for the settlement lock (ESC-05): the SDK retries a write whose answer was lost,
+            // and only the random id we wrote tells our lock from another one.
+            var latest = await GetItemAsync(escrowId, consistentRead: true);
+            return latest != null
+                   && latest.TryGetValue(TruckerPayoutFields.LockId, out var held) && held.S == lockId
+                ? lockId
+                : null;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> ReleaseTruckerPayoutLockAsync(string escrowId, string createdAt, string lockId)
+    {
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "REMOVE #lockId, #lockAt SET #updated = :now",
+            // A queued leg keeps its lock, even when the caller missed that its queue write committed.
+            ConditionExpression = "#lockId = :lockId AND attribute_not_exists(#manualPayout)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#lockId", TruckerPayoutFields.LockId },
+                { "#lockAt", TruckerPayoutFields.LockAt },
+                { "#updated", "updatedAt" },
+                { "#manualPayout", ManualPayoutFields.Marker }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":lockId", new AttributeValue { S = lockId } },
+                { ":now", new AttributeValue { S = DateTime.UtcNow.ToString("o") } }
+            }
+        };
+        return await TryConditionalUpdateAsync(request);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryRecordTruckerPayoutAsync(
+        string escrowId, string createdAt, string lockId, string truckerRef, string paidAt, string completedAt)
+    {
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression =
+                "SET #status = :completed, #ref = :ref, #paidAt = :paidAt, #completedAt = :completedAt, "
+                + "#updated = :completedAt REMOVE #pending, #reason, #lockId, #lockAt ADD #version :one",
+            ConditionExpression = "#status = :released AND #lockId = :lockId AND attribute_not_exists(#manualPayout)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" },
+                { "#ref", TruckerPayoutFields.Ref },
+                { "#paidAt", TruckerPayoutFields.PaidAt },
+                { "#completedAt", "completedAt" },
+                { "#updated", "updatedAt" },
+                { "#pending", TruckerPayoutFields.Pending },
+                { "#reason", TruckerPayoutFields.BlockReason },
+                { "#lockId", TruckerPayoutFields.LockId },
+                { "#lockAt", TruckerPayoutFields.LockAt },
+                { "#version", "version" },
+                { "#manualPayout", ManualPayoutFields.Marker }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":completed", new AttributeValue { S = "completed" } },
+                { ":released", new AttributeValue { S = "released" } },
+                { ":ref", new AttributeValue { S = truckerRef } },
+                { ":paidAt", new AttributeValue { S = paidAt } },
+                { ":completedAt", new AttributeValue { S = completedAt } },
+                { ":lockId", new AttributeValue { S = lockId } },
+                { ":one", new AttributeValue { N = "1" } }
+            }
+        };
+        return await TryConditionalUpdateAsync(request);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryQueueTruckerLegAsync(
+        string escrowId, string createdAt, string reason, IReadOnlyList<ManualPayoutLegSeed> legs,
+        string queuedAt, string lockId, string? parkId)
+    {
+        var request = BuildQueueRequest(escrowId, createdAt, ManualPayoutFields.OpRelease, reason, "released", legs, queuedAt);
+        if (parkId != null)
+        {
+            request.UpdateExpression = request.UpdateExpression.Replace("SET ", "SET #parkId = :parkId, ");
+            request.ExpressionAttributeNames["#parkId"] = ManualPayoutFields.ParkId;
+            request.ExpressionAttributeValues[":parkId"] = new AttributeValue { S = parkId };
+        }
+
+        // Only the holder of the trucker lock queues, and only once. Not the release's
+        // settlementLock: a row from before the lock existed has none.
+        request.ExpressionAttributeNames["#status"] = "status";
+        request.ExpressionAttributeNames["#lockId"] = TruckerPayoutFields.LockId;
+        request.ExpressionAttributeValues[":lockId"] = new AttributeValue { S = lockId };
+        request.ConditionExpression = "#status = :fromStatus AND #lockId = :lockId AND attribute_not_exists(#marker)";
+        return await TryConditionalUpdateAsync(request);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryReopenLegacyTruckerLegAsync(
+        string escrowId, string createdAt, IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt, string pendingSince)
+    {
+        var request = BuildQueueRequest(
+            escrowId, createdAt, ManualPayoutFields.OpRelease, ManualPayoutFields.ReasonGatewayOutcomeUnknown,
+            "released", legs, queuedAt);
+        request.UpdateExpression = request.UpdateExpression.Replace("SET ", "SET #status = :fromStatus, #pendingSince = :pendingSince, ")
+                                   + " REMOVE #completedAt";
+        request.ExpressionAttributeNames["#status"] = "status";
+        request.ExpressionAttributeNames["#pendingSince"] = TruckerPayoutFields.PendingSince;
+        request.ExpressionAttributeNames["#completedAt"] = "completedAt";
+        request.ExpressionAttributeNames["#pending"] = TruckerPayoutFields.Pending;
+        request.ExpressionAttributeValues[":pendingSince"] = new AttributeValue { S = pendingSince };
+        request.ExpressionAttributeValues[":completed"] = new AttributeValue { S = "completed" };
+        request.ExpressionAttributeValues[":true"] = new AttributeValue { BOOL = true };
+        request.ConditionExpression = "#status = :completed AND #pending = :true AND attribute_not_exists(#marker)";
+        return await TryConditionalUpdateAsync(request);
     }
 
     /// <summary>

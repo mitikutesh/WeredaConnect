@@ -149,6 +149,21 @@ export class GithubActionsStack extends cdk.Stack {
       }),
     );
 
+    // ESC-04: after each server deploy the workflow invokes escrow-cron once with
+    // `park_legacy_trucker_legs` (idempotent; it never calls Telebirr). This one function
+    // only. The role can already deploy it through the CDK bootstrap roles, so the grant
+    // adds no new power.
+    deployRole.addToPolicy(
+      new iam.PolicyStatement({
+        sid: "InvokeEscrowCronAfterDeploy",
+        effect: iam.Effect.ALLOW,
+        actions: ["lambda:InvokeFunction"],
+        resources: [
+          `arn:aws:lambda:${this.region}:${this.account}:function:${prefix}-escrow-cron`,
+        ],
+      }),
+    );
+
     // Non-prod only: the deploy workflow seeds SSM SecureString secrets
     // (scripts/seed-ssm-secrets.sh) before `cdk deploy`, copying values out of
     // the legacy Secrets Manager secrets on first migration. Scoped to the

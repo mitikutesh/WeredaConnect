@@ -17,7 +17,15 @@ namespace WeredaConnect.Server.Helpers;
 /// ADMIN_QUEUE_OVERDUE orderId=&lt;id&gt; reason=&lt;code&gt; ageHours=&lt;n&gt;
 /// DISPUTE_VERDICT_ORDER_MISMATCH escrowId=&lt;id&gt; op=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=&lt;id&gt; op=&lt;release|refund&gt; legs=&lt;legs&gt;
+/// TRUCKER_PAYOUT_OVERDUE escrowId=&lt;id&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
 /// </code>
+/// <para>
+/// The trucker line (ESC-04) is logged by escrow-cron's trucker retry, once per hourly run for
+/// each released escrow whose trucker leg is still owed and not queued after
+/// <see cref="QueueAlarmAfter"/>; <c>reason</c> is the payout block (<c>phone_unverified</c>,
+/// <c>fayda_required</c>, <c>profile_missing</c>, <c>no_trucker</c>, <c>trucker_mismatch</c>) or why
+/// the retry did not pay (<c>gateway_refused</c>, <c>queue_failed</c>, <c>in_flight</c>, ...).
+/// </para>
 /// <para>
 /// The mismatch line (ESC-03) is logged by the escrow service each time it refuses to settle a
 /// dispute verdict whose order or delivery cannot follow it: from escrow-cron on the hourly
@@ -68,6 +76,7 @@ public static class MoneyAlarmLog
     public const string AdminQueueOverdueToken = "ADMIN_QUEUE_OVERDUE";
     public const string DisputeVerdictOrderMismatchToken = "DISPUTE_VERDICT_ORDER_MISMATCH";
     public const string DisputeVerdictSettlementBlockedToken = "DISPUTE_VERDICT_SETTLEMENT_BLOCKED";
+    public const string TruckerPayoutOverdueToken = "TRUCKER_PAYOUT_OVERDUE";
 
     /// <summary>The gateway definitely refused the settlement; no money moved.</summary>
     public const string OutcomeFailed = "failed";
@@ -121,6 +130,10 @@ public static class MoneyAlarmLog
 
     public static string AdminQueueOverdue(string? orderId, string? reason, int ageHours)
         => $"{AdminQueueOverdueToken} orderId={LogId(orderId)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}";
+
+    /// <summary>ESC-04: a released escrow's trucker leg is still owed (and not queued) after <see cref="QueueAlarmAfter"/>.</summary>
+    public static string TruckerPayoutOverdue(string? escrowId, string? reason, int ageHours)
+        => $"{TruckerPayoutOverdueToken} escrowId={LogId(escrowId)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}";
 
     /// <summary>ESC-03: a dispute verdict was not settled because its order or delivery cannot follow it.</summary>
     public static string DisputeVerdictOrderMismatch(string? escrowId, string? op, string? legs)

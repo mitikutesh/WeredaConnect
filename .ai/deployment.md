@@ -140,6 +140,34 @@ python3 scripts/e2e_admin.py   # dev defaults; --base-url / --client-id to overr
 
 Staging and prod are never auto-seeded: create admins by hand (prod requires MFA).
 
+### 3c. Post-deploy on every environment: legacy trucker legs (ESC-04)
+
+`deploy-server.yml` ends every run (dev, staging, prod), once the CDK deploy
+succeeded, with one invocation of escrow-cron's `park_legacy_trucker_legs`
+action. Before ESC-04 a release could complete an escrow with its trucker leg
+unpaid (`completed` with `truckerPayoutPending = true`), and the runbook said
+to pay such a leg by hand. The action moves each such escrow back to
+`released` and puts the leg into Manual Payouts as `GATEWAY_OUTCOME_UNKNOWN`,
+so the admin checks the portal before paying. It never calls Telebirr, is
+idempotent (a parked row is no longer `completed`), and answers 500 when a row
+could not be parked, which fails the step: re-run the workflow. The IAM grant is
+`InvokeEscrowCronAfterDeploy` in `github-actions-stack.ts` (this one function).
+
+Manual equivalent:
+
+```bash
+# Count first (read-only): escrows completed with the trucker leg still owed
+aws dynamodb scan --table-name wereda-connect-dev-escrows \
+  --filter-expression "truckerPayoutPending = :t AND #s = :c" \
+  --expression-attribute-names '{"#s":"status"}' \
+  --expression-attribute-values '{":t":{"BOOL":true},":c":{"S":"completed"}}' --select COUNT
+
+# Park them (the handler reads the action from the request body)
+aws lambda invoke --function-name wereda-connect-dev-escrow-cron \
+  --cli-binary-format raw-in-base64-out --cli-read-timeout 330 \
+  --payload '{"body":"{\"action\":\"park_legacy_trucker_legs\"}"}' /dev/stdout
+```
+
 ### 4. Web App Deploys (CI/CD)
 
 Automatic on push to `main` when files change in the relevant directory:
@@ -602,16 +630,17 @@ nothing.
 
 | Alarm | Meaning | First action |
 |---|---|---|
-| `<prefix>-escrow-settlement-failures` | a release, refund or trucker leg failed, or a sweep hit an exception (`ESCROW_SETTLEMENT_FAILED` in the escrow or escrow-cron log group); a payout queued for an admin (`202 ESCROW_034`) is not counted | find the line by escrowId. `outcome=failed` (a definite refusal, a failure before the settlement lock, or a bookkeeping failure after the payout was recorded: the escrow row is `released` or `refunded`, and the crash recovery completes a `released` one): `release_failed` and `refund_failed`: the next sweep retries; `trucker_release_failed`: the escrow completed with `truckerPayoutPending` and nothing retries until ESC-04, so pay the trucker by hand. `outcome=unknown`: see the next row |
+| `<prefix>-escrow-settlement-failures` | a release, refund or trucker leg failed, or a sweep hit an exception (`ESCROW_SETTLEMENT_FAILED` in the escrow or escrow-cron log group); a payout queued for an admin (`202 ESCROW_034`) is not counted | find the line by escrowId. `outcome=failed` (a definite refusal, a failure before the settlement lock, or a bookkeeping failure after the payout was recorded: the escrow row is `released` or `refunded`, and the crash recovery completes a `released` one): `release_failed` and `refund_failed`: the next sweep retries; `trucker_release_failed`: the farmer is paid and the escrow stays `released` with `truckerPayoutPending`; the hourly trucker retry pays the leg with the same reference (ESC-04), so do not pay the trucker by hand (`<prefix>-trucker-payouts-overdue` fires if it is still owed after 24 hours). `outcome=unknown`: see the next row |
 | `<prefix>-escrow-settlement-unknown-outcomes` | (ESC-05) a line above with `outcome=unknown`: a Telebirr timeout or lost answer, a gateway call that threw, a queue write that failed after the gateway answered, an exception after the settlement lock, or a stale lock parked by the recovery step (`action=stale_lock_parked`); the money may have moved and nothing retries it | never release or refund it by hand. Open Manual Payouts (`/payouts`): the escrow is there as `GATEWAY_OUTCOME_UNKNOWN` (or `GATEWAY_REF_MISSING`), or will be within about 75 minutes. Search the portal for the row's gateway reference, record it if found, pay only if it is still missing (runbook above). `ESCROW_SETTLEMENT_PAID_UNRECORDED` lines in the same log group carry the gateway references of a payout that was made but not recorded |
 | `<prefix>-escrow-cron-errors` | escrow-cron was killed (5 minute timeout, out of memory) or crashed; a run killed mid-settlement logs no token; 4 periods of 5 minutes, clears 20 to 25 minutes after the last error | find the failed RequestId (REPORT line, "Task timed out") and the last escrowId it logged. An escrow left holding its settlement lock is parked in Manual Payouts by the next hourly run once the lock is 15 minutes old (ESC-05, `stale_lock_parked` line and the unknown-outcomes alarm); treat it as an unknown outcome |
 | `<prefix>-order-escrow-problems` | `ORDER_ESCROW_CREATE_FAILED`, `_LINK_FAILED` or `_REFUND_SCHEDULE_FAILED` in the sync Lambda | create self-heals at delivery linkage; link: tie the delivery to the order escrow by hand; refund schedule: set the escrow expiry by hand so the sweep refunds |
 | `<prefix>-manual-payouts-overdue` | a manual payout leg (ESC-02) has waited more than 24 hours (`MANUAL_PAYOUT_OVERDUE ... ref=<op>:<leg>`) | open Manual Payouts (`/payouts`), check the reason before paying (runbook above) and record the portal transaction id |
+| `<prefix>-trucker-payouts-overdue` | (ESC-04) a trucker leg is still owed more than 24 hours after the farmer was paid (`TRUCKER_PAYOUT_OVERDUE escrowId=.. reason=.. ageHours=..` in the escrow-cron log group); the escrow stays `released` and the hourly retry keeps trying | `reason=phone_unverified` or `fayda_required`: ask the trucker to verify; the next hourly run pays the leg (with the live gateway it moves to Manual Payouts). `reason=no_trucker`, `profile_missing` or `trucker_mismatch`: the escrow has no payable trucker. The hourly run copies the truckerId from the order when the delivery names the same trucker; if the order has none, the leg has no payee until ESC-20. Escalate, and never edit the escrow row by hand. `reason=gateway_refused` or `queue_failed`: see the settlement-failures row |
 | `<prefix>-admin-queue-overdue` | a stuck order in the admin queue (ESC-06) has waited more than 24 hours; no producer until ESC-06, so it stays OK | decide it in the admin stuck-order queue (release, refund or extend) |
 | `<prefix>-dispute-verdict-settlement-blocked` | a dispute verdict's settlement failed closed in three of the last four hourly periods (1 hour periods, 3 of 4 datapoints, so sweep jitter that leaves one hour empty does not hide it) (`DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=.. op=.. legs=..` in the escrow-cron log group, ESC-03): `read:<error>` (the order or delivery cannot be read), `cancel:<reason>` or `restock:<reason>` (a `buyer_wins` order could not be cancelled or its stock given back before the refund); no money moved | find the escrow (escrow-audit row `dispute_settlement_blocked` has the legs), fix the cause (Lambda permissions, throttling, the order or listing row), and let the next sweep settle it; it clears once a sweep is no longer blocked |
 | `<prefix>-dispute-verdict-order-mismatch` | a dispute verdict was not settled because its order or delivery is in a status the verdict cannot follow (`DISPUTE_VERDICT_ORDER_MISMATCH escrowId=.. op=.. legs=..` in the escrow or escrow-cron log group, ESC-03); usually a dispute raised while the goods were moving, or a `farmer_wins` before delivery; no money moved and the hourly sweep retries | find the escrow by escrowId (the escrow-audit row `dispute_verdict_mismatch` carries the legs). `farmer_wins`: it settles by itself once the delivery is confirmed and the order reaches `delivered`. `buyer_wins` with the goods moving: confirm the delivery, or refund by hand with `POST /escrow/refund` (admin group) and `{"escrowId": ..., "trigger": "dispute_resolved", "reason": "<10-500 chars>", "overrideOrderMismatch": true, "idempotencyKey": ...}`; the override is audited with your id and reason and the order is flagged (`disputeOverrideBy`) |
 
-The settlement-failure, the unknown-outcome, the verdict-mismatch and the two queue alarms evaluate 5 periods of 15 minutes, so an
+The settlement-failure, the unknown-outcome, the verdict-mismatch, the trucker-payouts and the two queue alarms evaluate 5 periods of 15 minutes, so an
 hourly producer keeps them in ALARM without flapping; they clear by themselves 75 to 90
 minutes after the last line. Order escrow problems uses one 15 minute period.
 

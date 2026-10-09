@@ -31,6 +31,8 @@ public interface IEscrowRepository
     /// A move to <c>released</c>, <c>refunded</c> or <c>disputed</c> also requires that the escrow
     /// has no open manual payout (ESC-02); a queued escrow settles only through TryCloseManualPayoutAsync.
     /// A move to <c>disputed</c> also requires that no settlement holds the lock (ESC-03).
+    /// ESC-04: a move to <c>completed</c> requires no open manual payout and no pending trucker leg
+    /// (<c>truckerPayoutPending</c>): an escrow is completed only once every leg is paid.
     /// </summary>
     /// <param name="escrowId">The escrow partition key.</param>
     /// <param name="createdAt">The escrow sort key.</param>
@@ -113,7 +115,9 @@ public interface IEscrowRepository
     /// moves to <paramref name="newStatus"/> (<c>released</c> or <c>refunded</c>) with the
     /// given settlement fields, and the <c>manualPayout</c> marker is removed. Conditional
     /// on the queue being open for <paramref name="op"/> and the status still settleable.
-    /// Returns false when the condition fails.
+    /// ESC-04: a trucker leg queued on a <c>released</c> escrow (from status <c>released</c>)
+    /// closes too, to <c>completed</c>; a release close also removes the trucker leg's pending
+    /// flag, block reason and lock. Returns false when the condition fails.
     /// </summary>
     Task<bool> TryCloseManualPayoutAsync(
         string escrowId, string createdAt, string op, string leg, string externalRef,
@@ -125,6 +129,79 @@ public interface IEscrowRepository
     /// </summary>
     Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryOpenManualPayoutsAsync(
         int limit, Dictionary<string, AttributeValue>? exclusiveStartKey);
+
+    /// <summary>
+    /// ESC-04: <c>released</c> escrows whose trucker leg is still owed and not queued, from
+    /// <c>StatusExpiresIndex</c> (oldest <c>expiresAt</c> first), paging through filtered-empty
+    /// pages up to <paramref name="limit"/>.
+    /// </summary>
+    Task<List<Dictionary<string, object>>> QueryPendingTruckerLegsAsync(int limit);
+
+    /// <summary>
+    /// ESC-04: <c>completed</c> escrows still flagged <c>truckerPayoutPending</c> (written before
+    /// ESC-04, when a release completed without its trucker leg) and not queued, up to
+    /// <paramref name="limit"/>. Only the one-off legacy action reads them.
+    /// </summary>
+    Task<List<Dictionary<string, object>>> QueryLegacyTruckerLegsAsync(int limit);
+
+    /// <summary>
+    /// ESC-04: record why the payout gate blocks the trucker, as a compare-and-set: only when the
+    /// stored reason is missing or different, the escrow is still <c>released</c> with the leg
+    /// pending, unqueued and unlocked. Returns false when the condition fails, so a reason is
+    /// audited once however many runs see it.
+    /// </summary>
+    Task<bool> TrySetTruckerBlockReasonAsync(string escrowId, string createdAt, string reason);
+
+    /// <summary>
+    /// ESC-04: copy the trucker the escrow pays from its order, only when the escrow has none.
+    /// Returns false when the condition fails (a truckerId is already there).
+    /// </summary>
+    Task<bool> TryBackfillTruckerIdAsync(string escrowId, string createdAt, string truckerId);
+
+    /// <summary>
+    /// ESC-04: take the trucker leg's lock (<c>truckerPayoutLockId</c>, <c>truckerPayoutLockAt</c>)
+    /// before the gateway call, conditional on the escrow being <c>released</c> with the leg
+    /// pending, unlocked and unqueued; clears the block reason. Returns the lock id, or null when
+    /// the condition fails. A failed condition whose strongly consistent re-read shows this very
+    /// lock id (an earlier attempt whose answer was lost) counts as acquired.
+    /// </summary>
+    Task<string?> TryAcquireTruckerPayoutLockAsync(string escrowId, string createdAt);
+
+    /// <summary>
+    /// ESC-04: release the trucker leg's lock after a definite refusal, only when it is still
+    /// <paramref name="lockId"/> and the escrow is not queued. Returns false when the condition fails.
+    /// </summary>
+    Task<bool> ReleaseTruckerPayoutLockAsync(string escrowId, string createdAt, string lockId);
+
+    /// <summary>
+    /// ESC-04: the gateway paid the trucker. One write moves the escrow from <c>released</c> to
+    /// <c>completed</c> with the trucker's reference, conditional on the lock still being
+    /// <paramref name="lockId"/> and no queue entry, and removes the pending flag, the block reason
+    /// and the lock. Returns false when the condition fails.
+    /// </summary>
+    Task<bool> TryRecordTruckerPayoutAsync(
+        string escrowId, string createdAt, string lockId, string truckerRef, string paidAt, string completedAt);
+
+    /// <summary>
+    /// ESC-04: put the trucker leg of a <c>released</c> escrow into the manual payout queue (op
+    /// <c>release</c>, from status <c>released</c>, the farmer leg seeded paid), conditional on the
+    /// escrow still being <c>released</c>, the trucker lock still being <paramref name="lockId"/>
+    /// and no queue entry. The lock and the pending flag stay. With <paramref name="parkId"/> (the
+    /// recovery of a stale trucker lock) also stamps <c>manualPayoutParkId</c>. Returns false when
+    /// the condition fails.
+    /// </summary>
+    Task<bool> TryQueueTruckerLegAsync(
+        string escrowId, string createdAt, string reason, IReadOnlyList<ManualPayoutLegSeed> legs,
+        string queuedAt, string lockId, string? parkId);
+
+    /// <summary>
+    /// ESC-04 legacy: move a <c>completed</c> escrow whose trucker leg is still owed back to
+    /// <c>released</c> and queue that leg (reason <c>GATEWAY_OUTCOME_UNKNOWN</c>) in one write,
+    /// conditional on the escrow still being <c>completed</c>, pending and unqueued. Returns false
+    /// when the condition fails.
+    /// </summary>
+    Task<bool> TryReopenLegacyTruckerLegAsync(
+        string escrowId, string createdAt, IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt, string pendingSince);
 
     /// <summary>
     /// Get an escrow by its associated delivery ID using the DeliveryIndex GSI.
@@ -160,8 +237,9 @@ public interface IEscrowRepository
 
     /// <summary>
     /// Query escrows by status for cron/background processing using the StatusExpiresIndex GSI.
-    /// Escrows with an open manual payout (ESC-02) are filtered out, and paging continues
-    /// through filtered-empty pages, so queued rows can never fill the window.
+    /// Escrows with an open manual payout (ESC-02) or a pending trucker leg (ESC-04, owned by
+    /// the trucker retry) are filtered out, and paging continues through filtered-empty pages,
+    /// so such rows can never fill the window.
     /// </summary>
     /// <param name="status">Status to query (e.g. "held", "pending_release").</param>
     /// <param name="expiresAtBefore">Optional upper bound for expiresAt (ISO 8601).</param>

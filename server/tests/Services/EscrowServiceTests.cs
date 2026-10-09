@@ -3660,7 +3660,7 @@ public class EscrowServiceTests
             .Returns(true);
 
     [Fact]
-    public async Task ReleaseAsync_UnverifiedTrucker_LogsTruckerReleaseFailed()
+    public async Task ReleaseAsync_UnverifiedTrucker_AuditsTheBlockReason_WithoutAMoneyAlarm()
     {
         var item = MakeEscrowItem(status: "escrowed", amount: 16_000m, commission: 400m, farmerPayout: 14_600m);
         item["truckerPayout"] = 1_000m;
@@ -3673,12 +3673,17 @@ public class EscrowServiceTests
 
         var result = await CreateServiceCapturingAlarms(lines, userRepo).ReleaseAsync(SystemRelease(), "system");
 
-        // The farmer leg still succeeds; the pending trucker leg is what the alarm must show
-        // (nothing retries it until ESC-04), with no gateway code because no call was made.
+        // ESC-04: the farmer leg succeeds and the escrow stays released. A blocked trucker is a known
+        // wait, like release_blocked_kyc: its reason is audited, and the overdue alarm (24 hours)
+        // rather than a settlement failure says it is still owed.
         Assert.True(result.IsSuccess);
-        Assert.Equal(
-            new[] { "ESCROW_SETTLEMENT_FAILED escrowId=escrow-001 action=trucker_release_failed outcome=failed code=-" },
-            lines);
+        Assert.Equal("released", result.Value!.Status);
+        Assert.Empty(lines);
+        await _mockAuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+            (string)e["action"] == "trucker_release_blocked_kyc"
+            && (string)e["metadata"] == "code=ESCROW_029;reason=profile_missing"));
+        await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), "completed",
+            Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
     }
 
     [Fact]

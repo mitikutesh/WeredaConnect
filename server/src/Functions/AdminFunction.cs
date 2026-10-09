@@ -604,7 +604,8 @@ public class AdminFunction
 
     /// <summary>
     /// The escrow service without gateway or idempotency wiring: the queue endpoints never
-    /// call Telebirr. Null when the escrow tables are not configured.
+    /// call Telebirr. Null when the escrow tables are not configured. The order and delivery
+    /// repositories (read only here) find the trucker of an escrow that has none (ESC-04).
     /// </summary>
     private EscrowService? ManualPayoutService()
     {
@@ -618,7 +619,9 @@ public class AdminFunction
             new EscrowAuditRepository(_dynamoDb, _escrowAuditTable),
             idempotencyRepo: null,
             telebirrGateway: null,
-            userRepo: string.IsNullOrEmpty(_usersTable) ? null : new UserRepository(_dynamoDb, _usersTable));
+            userRepo: string.IsNullOrEmpty(_usersTable) ? null : new UserRepository(_dynamoDb, _usersTable),
+            orderRepo: string.IsNullOrEmpty(_ordersTable) ? null : new OrderRepository(_dynamoDb, _ordersTable),
+            deliveryRepo: string.IsNullOrEmpty(_deliveriesTable) ? null : new DeliveryRepository(_dynamoDb, _deliveriesTable));
     }
 
     /// <summary>GET /admin/payouts/manual?limit=&nextToken= (oldest first).</summary>
@@ -1226,8 +1229,9 @@ public class AdminFunction
         period ??= "all";
 
         var (totalVolume, totalCommissions) = await ScanEscrowTotalsAsync();
-        // "completed" is the terminal settled state (contract §Status Definitions);
-        // "released" is transient and immediately transitions to "completed".
+        // "completed" is the terminal settled state (contract §Status Definitions): every leg is
+        // paid. "released" means the farmer is paid; it stays released while the trucker leg is
+        // still owed (ESC-04), so such an escrow counts here only once that leg is paid.
         var completedCount = await ScanCountWithFilterAsync(_escrowsTable, "status", "completed");
 
         var avgCommission = completedCount > 0 ? totalCommissions / completedCount : 0m;
@@ -1255,7 +1259,8 @@ public class AdminFunction
         period ??= "all";
 
         var total = await ScanCountAsync(_escrowsTable);
-        // Terminal settled state is "completed", not the transient "released".
+        // Terminal settled state is "completed", not "released" (the farmer is paid but a
+        // trucker leg may still be owed, ESC-04).
         var completed = await ScanCountWithFilterAsync(_escrowsTable, "status", "completed");
         // In-flight (funded, not yet released) escrows are stored as "escrowed",
         // not "held" — the old filter always returned 0.

@@ -137,14 +137,22 @@ public class EscrowRepositoryManualPayoutTests
         ok.Should().BeTrue();
         _update!.ConditionExpression.Should().Be(
             "#marker = :open AND #op = :op AND #legStatus = :pending"
-            + " AND (#status = :escrowed OR #status = :disputed OR #status = :disputeResolved)"
+            + " AND (#status = :escrowed OR #status = :disputed OR #status = :disputeResolved"
+            + " OR (#status = :released AND #fromStatus = :released))"
             + " AND #other0 = :paid");
         Name(_update, "#legStatus").Should().Be("manualTruckerStatus");
         Name(_update, "#other0").Should().Be("manualFarmerStatus");
+        Name(_update, "#fromStatus").Should().Be("manualPayoutFromStatus");
+        _update.ExpressionAttributeValues[":released"].S.Should().Be("released");
         _update.ExpressionAttributeValues[":newStatus"].S.Should().Be("released");
+        // ESC-04: once a release closes no trucker leg is owed, so its pending attributes go too.
         _update.UpdateExpression.Should().Contain("#status = :newStatus")
-            .And.Contain("REMOVE #marker")
+            .And.Contain("REMOVE #marker, #tPending, #tBlock, #tLockId, #tLockAt")
             .And.Contain("ADD #version :one");
+        Name(_update, "#tPending").Should().Be("truckerPayoutPending");
+        Name(_update, "#tBlock").Should().Be("truckerPayoutBlockReason");
+        Name(_update, "#tLockId").Should().Be("truckerPayoutLockId");
+        Name(_update, "#tLockAt").Should().Be("truckerPayoutLockAt");
 
         var setNames = _update.ExpressionAttributeNames.Values.ToList();
         setNames.Should().Contain(new[] { "telebirrReleaseRef", "truckerTelebirrRef", "releasedAt" });
@@ -165,6 +173,17 @@ public class EscrowRepositoryManualPayoutTests
             Array.Empty<string>(), "refunded", new Dictionary<string, object> { { "telebirrRefundRef", "TB-REF-0009" } });
 
         ok.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Close_Refund_RemovesOnlyTheMarker()
+    {
+        await _repo.TryCloseManualPayoutAsync(
+            EscrowId, CreatedAt, "refund", "buyer", "TB-REF-0009", "admin-1", "2026-10-02T10:05:00Z",
+            Array.Empty<string>(), "refunded", new Dictionary<string, object> { { "telebirrRefundRef", "TB-REF-0009" } });
+
+        _update!.UpdateExpression.Should().Contain("REMOVE #marker ADD #version :one");
+        _update.ExpressionAttributeNames.Should().NotContainKey("#tPending");
     }
 
     [Fact]
@@ -250,15 +269,26 @@ public class EscrowRepositoryManualPayoutTests
         Name(_update, "#lock").Should().Be("settlementLock");
     }
 
-    [Theory]
-    [InlineData("completed", "released")]
-    [InlineData("escrowed", "escrowed")]
-    public async Task UpdateStatus_OtherStatuses_KeepTheirCondition(string newStatus, string expected)
+    [Fact]
+    public async Task UpdateStatus_ToCompleted_RequiresNoOpenManualPayoutAndNoPendingTruckerLeg()
     {
-        await _repo.UpdateStatusAsync(EscrowId, CreatedAt, newStatus, expected);
+        // ESC-04: an escrow is completed only once every leg is paid.
+        await _repo.UpdateStatusAsync(EscrowId, CreatedAt, "completed", "released");
+
+        _update!.ConditionExpression.Should().Be(
+            "#status = :expectedStatus AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending)");
+        Name(_update, "#manualPayout").Should().Be("manualPayout");
+        Name(_update, "#truckerPending").Should().Be("truckerPayoutPending");
+    }
+
+    [Fact]
+    public async Task UpdateStatus_OtherStatuses_KeepTheirCondition()
+    {
+        await _repo.UpdateStatusAsync(EscrowId, CreatedAt, "escrowed", "escrowed");
 
         _update!.ConditionExpression.Should().Be("#status = :expectedStatus");
         _update.ExpressionAttributeNames.Should().NotContainKey("#manualPayout");
+        _update.ExpressionAttributeNames.Should().NotContainKey("#truckerPending");
     }
 
     [Fact]
@@ -344,8 +374,10 @@ public class EscrowRepositoryManualPayoutTests
         requests.Should().AllSatisfy(r =>
         {
             r.IndexName.Should().Be("StatusExpiresIndex");
-            r.FilterExpression.Should().Be("attribute_not_exists(#manualPayout)");
+            // ESC-04: a released escrow with an owed trucker leg belongs to the trucker retry.
+            r.FilterExpression.Should().Be("attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending)");
             r.ExpressionAttributeNames["#manualPayout"].Should().Be("manualPayout");
+            r.ExpressionAttributeNames["#truckerPending"].Should().Be("truckerPayoutPending");
         });
     }
 
@@ -354,7 +386,8 @@ public class EscrowRepositoryManualPayoutTests
     {
         await _repo.QueryByStatusForCronAsync("escrowed", deliveryConfirmedBefore: "2026-10-01T00:00:00Z");
 
-        _query!.FilterExpression.Should().Be("attribute_not_exists(#manualPayout) AND #confirmedAt <= :confirmedBefore");
+        _query!.FilterExpression.Should().Be(
+            "attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending) AND #confirmedAt <= :confirmedBefore");
     }
 
     /// <summary>
