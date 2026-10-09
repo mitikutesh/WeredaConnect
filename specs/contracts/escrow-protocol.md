@@ -1953,6 +1953,8 @@ escrow, else the order's `activeDeliveryId`.
 - Delivery (`delivery-verification-api.md` 1.8.0): a `delivered` delivery is marked `disputed`;
   a `disputed` delivery gets `disputeResolution` and `disputeResolvedAt`, conditional on no
   verdict yet. Its status stays `disputed`.
+- The delivery that counts is the order's `activeDeliveryId` when it has one (the escrow may
+  still name an earlier, cancelled delivery), else the escrow's `deliveryId`.
 - Both legs are decided before anything is written. A read that fails before both legs are
   decided fails closed: release and refund answer `503 ESCROW_012` with nothing locked or paid,
   the sweep skips the escrow until its next run, and `DISPUTE_VERDICT_MIRROR_READ_FAILED
@@ -1964,8 +1966,8 @@ escrow, else the order's `activeDeliveryId`.
   | Verdict | Order (and its delivery) | Settlement |
   |---------|--------------------------|------------|
   | either | `delivered`, `disputed`, `dispute_resolved`, or left at `accepted`/`pickup_confirmed`/`in_transit` behind a `delivered` or `disputed` delivery | the order moves to `dispute_resolved`, then the money moves |
-  | `buyer_wins` | `cancelled` or `rejected` | nothing to move: refunded |
-  | `buyer_wins` | before pickup: `funded`, or `accepted` with no delivery or a `pending` one | the refund settlement (sweep or admin) first cancels the pending delivery, then the order (`cancelReason: escrow_refunded`, version-checked), restores its listing stock (idempotent per order), then refunds, as the auto-refund sweep's cancel-then-refund does; the admin verdict itself leaves this to the settlement |
+  | `buyer_wins` | `cancelled` or `rejected` | nothing to move: the settlement makes sure the listing stock is back (idempotent per order; a restore that does not land refuses the refund for that run), then refunds |
+  | `buyer_wins` | before pickup: `funded`, or `accepted` with no delivery or a `pending` one | the refund settlement (sweep or admin) first cancels the pending delivery, then the order (`cancelReason: escrow_refunded`, version-checked), restores its listing stock (idempotent per order), then refunds, as the auto-refund sweep's cancel-then-refund does; a cancel or stock restore that does not land (an error, three version conflicts, an exception) refuses the refund for that run with `503 ESCROW_012`, and the next run, finding the order closed, retries the restore before refunding; the admin verdict itself leaves all of this to the settlement |
   | `buyer_wins` | goods moving: `pickup_confirmed`/`in_transit`, or a delivery picked up but not delivered | refused (`422`), unless an admin in the admin group refunds with `overrideOrderMismatch: true` and a `reason` of 10 to 500 characters; the sweep never overrides |
   | `farmer_wins` | before delivery (`funded`, `accepted`, `pickup_confirmed`, `in_transit` behind an undelivered delivery) or closed | refused (`422`), no override; it settles by itself once the order reaches `delivered` |
   | either | anything else, a missing order or delivery, or a delivery with another verdict | refused (`422`) |

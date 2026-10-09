@@ -41,7 +41,13 @@ public enum VerdictLegOutcome
     Skipped,
 
     /// <summary>A read failed before the legs could be decided; nothing was decided or written.</summary>
-    Unknown
+    Unknown,
+
+    /// <summary>
+    /// A write the refund depends on did not land (the order cancel, or its stock restore, before a
+    /// <c>buyer_wins</c> refund). The refund must not go ahead on this run; the next run retries.
+    /// </summary>
+    Blocked
 }
 
 /// <summary>What <see cref="DisputeVerdictMirror.ApplyAsync"/> did to the order and the delivery.</summary>
@@ -75,6 +81,13 @@ public sealed record DisputeVerdictMirrorResult
     /// </summary>
     public bool IsUndecided => Order == VerdictLegOutcome.Unknown || Delivery == VerdictLegOutcome.Unknown;
 
+    /// <summary>
+    /// True when the settlement must not go ahead on this run: a read failed
+    /// (<see cref="IsUndecided"/>), or the cancel-then-refund could not cancel the order or give its
+    /// stock back. Fails closed; the next run retries.
+    /// </summary>
+    public bool BlocksSettlement => IsUndecided || Order == VerdictLegOutcome.Blocked || Delivery == VerdictLegOutcome.Blocked;
+
     /// <summary>The escrow-audit action that records <see cref="FailedLegs"/>.</summary>
     public string AuditAction => IsMismatch
         ? DisputeVerdictMirror.MismatchAuditAction
@@ -102,11 +115,14 @@ public sealed record DisputeVerdictMirrorResult
 /// with no delivery picked up) is cancelled by the refund settlement, as the auto-refund sweep's
 /// cancel-then-refund does: its pending delivery is cancelled first, then the order
 /// (<c>cancelReason: escrow_refunded</c>), then its listing stock is restored. Other callers report
-/// such an order as <see cref="VerdictLegOutcome.Deferred"/>.
+/// such an order as <see cref="VerdictLegOutcome.Deferred"/>. A cancel or restore that does not land
+/// is <see cref="VerdictLegOutcome.Blocked"/>: the refund waits for the next run, which finds the
+/// order closed and retries the restore before refunding.
 ///
 /// Both legs are decided before anything is written: when either one cannot follow the verdict
 /// (<see cref="DisputeVerdictMirrorResult.IsMismatch"/>), or a read failed
-/// (<see cref="DisputeVerdictMirrorResult.IsUndecided"/>), nothing is written. Never throws; the
+/// (<see cref="DisputeVerdictMirrorResult.IsUndecided"/>), nothing is written. The order's active
+/// delivery is the one that counts, not an earlier delivery the escrow may still name. Never throws; the
 /// caller logs and audits <see cref="DisputeVerdictMirrorResult.FailedLegs"/>.
 /// </summary>
 public sealed class DisputeVerdictMirror
@@ -189,9 +205,14 @@ public sealed class DisputeVerdictMirror
             if (_orderRepo != null && !string.IsNullOrEmpty(orderId))
             {
                 order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
-                if (string.IsNullOrEmpty(deliveryId) && order != null)
+
+                // The order's active delivery is the current one: the escrow may still name an
+                // earlier delivery that was cancelled before this one was created.
+                var activeDeliveryId = order != null ? Str(order, "activeDeliveryId") : null;
+                if (!string.IsNullOrEmpty(activeDeliveryId) && activeDeliveryId != deliveryId)
                 {
-                    deliveryId = Str(order, "activeDeliveryId");
+                    deliveryId = activeDeliveryId;
+                    delivery = null;
                 }
             }
 
@@ -222,7 +243,8 @@ public sealed class DisputeVerdictMirror
         }
 
         var transactionId = string.IsNullOrEmpty(orderId) ? escrowId : orderId;
-        if (orderPlan == VerdictLegOutcome.Cancelled || deliveryPlan == VerdictLegOutcome.Cancelled)
+        if (orderPlan == VerdictLegOutcome.Cancelled || deliveryPlan == VerdictLegOutcome.Cancelled
+            || (orderPlan == VerdictLegOutcome.Closed && cancelAllowed))
         {
             return await CancelBeforePickupAsync(
                 order, orderId, orderPlan, delivery, deliveryId, deliveryPlan, transactionId, context);
@@ -508,6 +530,16 @@ public sealed class DisputeVerdictMirror
             }
         }
 
+        if (orderPlan == VerdictLegOutcome.Closed)
+        {
+            // Already cancelled (or rejected): make sure its stock is back before the refund, which
+            // also retries a restore an earlier run could not finish. Idempotent per order.
+            var restock = order != null ? await RestoreStockAsync(order, orderId!) : null;
+            return restock != null
+                ? Result(VerdictLegOutcome.Blocked, restock, deliveryOutcome, deliveryReason, orderId, deliveryId, order)
+                : Result(orderPlan, null, deliveryOutcome, deliveryReason, orderId, deliveryId, order);
+        }
+
         if (orderPlan != VerdictLegOutcome.Cancelled)
         {
             return Result(orderPlan, null, deliveryOutcome, deliveryReason, orderId, deliveryId, order);
@@ -547,23 +579,25 @@ public sealed class DisputeVerdictMirror
                     await TransactionAuditWriter.EmitAsync(_txAuditRepo, context, orderId, "order", orderId,
                         "order_cancelled", status, "cancelled", AuditContext.ForSystem(),
                         metadata: "resolution=buyer_wins;cancelReason=escrow_refunded");
-                    await RestoreStockAsync(order, orderId);
-                    if (!string.IsNullOrEmpty(cancelledDeliveryId))
-                    {
-                        await _orderRepo.ReleaseDeliverySlotAsync(orderId, cancelledDeliveryId);
-                    }
+                    await ReleaseDeliverySlotAsync(orderId, cancelledDeliveryId);
 
-                    return (VerdictLegOutcome.Cancelled, null, update.Value);
+                    // The order is cancelled; a stock restore that did not land blocks this run's
+                    // refund, and the next run (order now closed) retries the restore first.
+                    var restock = await RestoreStockAsync(order, orderId);
+                    return restock != null
+                        ? (VerdictLegOutcome.Blocked, restock, update.Value)
+                        : (VerdictLegOutcome.Cancelled, null, update.Value);
                 }
 
+                // The cancel did not land: the order may still be live, so the refund must not run.
                 if (update.Error?.HttpStatus != 409)
                 {
-                    return (VerdictLegOutcome.Failed, update.Error?.Code ?? "unknown", order);
+                    return (VerdictLegOutcome.Blocked, $"cancel:{update.Error?.Code ?? "unknown"}", order);
                 }
 
                 if (++conflicts >= MaxOrderAttempts)
                 {
-                    return (VerdictLegOutcome.Conflict, "conflict", order);
+                    return (VerdictLegOutcome.Blocked, "cancel:conflict", order);
                 }
 
                 var latest = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
@@ -577,12 +611,36 @@ public sealed class DisputeVerdictMirror
         }
         catch (Exception ex)
         {
-            return (VerdictLegOutcome.Failed, $"[{ex.GetType().Name}]", order);
+            // Unknown whether the cancel landed: fail closed, the next run re-reads the order.
+            return (VerdictLegOutcome.Blocked, $"cancel:[{ex.GetType().Name}]", order);
         }
     }
 
-    /// <summary>The cancelled order's quintals go back on its listing (SIM-13), idempotent per order. Best-effort.</summary>
-    private async Task RestoreStockAsync(Dictionary<string, object> order, string orderId)
+    /// <summary>Free the order's delivery slot for the cancelled delivery. Best-effort: the order is closed either way.</summary>
+    private async Task ReleaseDeliverySlotAsync(string orderId, string? deliveryId)
+    {
+        if (string.IsNullOrEmpty(deliveryId))
+        {
+            return;
+        }
+
+        try
+        {
+            await _orderRepo!.ReleaseDeliverySlotAsync(orderId, deliveryId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(
+                $"DISPUTE_VERDICT_SLOT_RELEASE_FAILED orderId={MoneyAlarmLog.LogId(orderId)} deliveryId={MoneyAlarmLog.LogId(deliveryId)}: [{ex.GetType().Name}]");
+        }
+    }
+
+    /// <summary>
+    /// The cancelled order's quintals go back on its listing (SIM-13), idempotent per order.
+    /// Returns null when the stock is back (or there is nothing to give back), or the reason it
+    /// is not, which blocks the refund on this run.
+    /// </summary>
+    private async Task<string?> RestoreStockAsync(Dictionary<string, object> order, string orderId)
     {
         var listingId = Str(order, "listingId");
         var quintals = double.TryParse(Str(order, "quantity"), NumberStyles.Any, CultureInfo.InvariantCulture, out var kg)
@@ -590,18 +648,28 @@ public sealed class DisputeVerdictMirror
             : 0.0;
         if (_cropRepo == null || string.IsNullOrEmpty(listingId) || quintals <= 0)
         {
-            return;
+            return null;
         }
 
+        string reason;
         try
         {
-            await _cropRepo.TryRestoreStockAsync(listingId, orderId, quintals);
+            var result = await _cropRepo.RestoreStockAsync(listingId, orderId, quintals);
+            if (result is StockRestoreResult.Restored or StockRestoreResult.AlreadyRestored or StockRestoreResult.ListingNotFound)
+            {
+                return null;
+            }
+
+            reason = "restock:conflict";
         }
         catch (Exception ex)
         {
-            Console.WriteLine(
-                $"ORDER_STOCK_RESTORE_FAILED orderId={MoneyAlarmLog.LogId(orderId)} listingId={MoneyAlarmLog.LogId(listingId)}: [{ex.GetType().Name}]");
+            reason = $"restock:[{ex.GetType().Name}]";
         }
+
+        Console.WriteLine(
+            $"ORDER_STOCK_RESTORE_FAILED orderId={MoneyAlarmLog.LogId(orderId)} listingId={MoneyAlarmLog.LogId(listingId)} reason={MoneyAlarmLog.LogText(reason)}");
+        return reason;
     }
 
     private static bool IsRefusal(VerdictLegOutcome plan)
@@ -638,7 +706,7 @@ public sealed class DisputeVerdictMirror
 
     private static bool IsFailure(VerdictLegOutcome outcome)
         => outcome is VerdictLegOutcome.Mismatch or VerdictLegOutcome.Missing or VerdictLegOutcome.Conflict
-            or VerdictLegOutcome.Failed or VerdictLegOutcome.Unknown;
+            or VerdictLegOutcome.Failed or VerdictLegOutcome.Unknown or VerdictLegOutcome.Blocked;
 
     private static string? Str(Dictionary<string, object> item, string key)
         => item.TryGetValue(key, out var value) && value != null ? value.ToString() : null;

@@ -469,6 +469,27 @@ public sealed class DisputeSettlementDynamoDbTests
     }
 
     [LocalDynamoDbFact]
+    public async Task CancelPending_LeavesAPickedUpDeliveryAlone()
+    {
+        // The `#status = :pending` guard evaluated by DynamoDB: a delivery that left the farm is
+        // never cancelled by a buyer_wins refund.
+        var pickedUp = await SeedDeliveryAsync("pickedUp");
+        var pending = await SeedDeliveryAsync("pending");
+
+        (await DeliveryRepo.TryCancelPendingAsync(pickedUp)).Should().BeFalse();
+        (await DeliveryRepo.TryCancelPendingAsync(pending)).Should().BeTrue();
+        (await DeliveryRepo.TryCancelPendingAsync(pending)).Should().BeFalse();
+
+        var untouched = await DeliveryAsync(pickedUp);
+        Str(untouched, "status").Should().Be("pickedUp");
+        Str(untouched, "version").Should().Be("2");
+        Str(untouched, "deletedAt").Should().BeNull();
+        var cancelled = await DeliveryAsync(pending);
+        Str(cancelled, "status").Should().Be("cancelled");
+        Str(cancelled, "version").Should().Be("3");
+    }
+
+    [LocalDynamoDbFact]
     public async Task DeliveryVerdictStamp_IsWrittenOnce()
     {
         // The once-guard (attribute_not_exists on disputeResolution) evaluated by DynamoDB:

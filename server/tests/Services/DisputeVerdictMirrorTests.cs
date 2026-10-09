@@ -376,7 +376,7 @@ public class DisputeVerdictMirrorTests
     [Fact]
     public async Task BuyerWins_BeforePickup_CancelsDeliveryThenOrder_AndRestoresStock()
     {
-        var crops = Substitute.For<ICropRepository>();
+        var crops = RestoringCrops();
         var mirror = new DisputeVerdictMirror(_orders, _deliveries, _txAudit, crops);
         _orders.GetByIdAsync(OrderId, true).Returns(ListedOrder("accepted", 3, DeliveryId));
         DeliveryIs("pending");
@@ -393,8 +393,8 @@ public class DisputeVerdictMirrorTests
             _deliveries.TryCancelPendingAsync(DeliveryId);
             _orders.UpdateAsync(OrderId, Arg.Is<Dictionary<string, object>>(d =>
                 d["status"].ToString() == "cancelled" && d["cancelReason"].ToString() == "escrow_refunded"), 3);
-            crops.TryRestoreStockAsync("listing-1", OrderId, 2.5);
             _orders.ReleaseDeliverySlotAsync(OrderId, DeliveryId);
+            crops.RestoreStockAsync("listing-1", OrderId, 2.5);
         });
         await _txAudit.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
             e["entityType"].ToString() == "order" && e["action"].ToString() == "order_cancelled"
@@ -403,10 +403,92 @@ public class DisputeVerdictMirrorTests
             e["entityType"].ToString() == "delivery" && e["toState"].ToString() == "cancelled"));
     }
 
+    private static ICropRepository RestoringCrops(StockRestoreResult result = StockRestoreResult.Restored)
+    {
+        var crops = Substitute.For<ICropRepository>();
+        crops.RestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>()).Returns(result);
+        return crops;
+    }
+
+    [Theory]
+    [InlineData("500")]
+    [InlineData("409")]
+    [InlineData("throw")]
+    public async Task BuyerWins_OrderCancelThatDoesNotLand_BlocksTheRefund(string failure)
+    {
+        // The reviewer's probe: the cancel fails, so the order may still be live; refunding now
+        // would pay the buyer back while the farmer can still act on the order.
+        var crops = RestoringCrops();
+        var mirror = new DisputeVerdictMirror(_orders, _deliveries, _txAudit, crops);
+        _orders.GetByIdAsync(OrderId, true).Returns(ListedOrder("funded", 2));
+        var cancel = _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        if (failure == "throw")
+        {
+            cancel.ThrowsAsync(new TimeoutException("boom"));
+        }
+        else
+        {
+            cancel.Returns(AuthResult<Dictionary<string, object>>.Failure(int.Parse(failure), "SYNC_X", "nope"));
+        }
+
+        var result = await mirror.ApplyAsync(Escrow(withDelivery: false), "buyer_wins", ResolvedAt, cancelBeforePickup: true);
+
+        result.Order.Should().Be(VerdictLegOutcome.Blocked);
+        result.BlocksSettlement.Should().BeTrue();
+        result.IsMismatch.Should().BeFalse();
+        result.FailedLegs.Should().StartWith("order:cancel:");
+        await crops.DidNotReceive().RestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
+    }
+
+    [Fact]
+    public async Task BuyerWins_RestockThatDoesNotLand_BlocksTheRefund_AndTheNextRunRetriesIt()
+    {
+        var crops = RestoringCrops(StockRestoreResult.Failed);
+        var mirror = new DisputeVerdictMirror(_orders, _deliveries, _txAudit, crops);
+        _orders.GetByIdAsync(OrderId, true).Returns(ListedOrder("funded", 2));
+        OrderWritesSucceed();
+
+        var first = await mirror.ApplyAsync(Escrow(withDelivery: false), "buyer_wins", ResolvedAt, cancelBeforePickup: true);
+
+        first.Order.Should().Be(VerdictLegOutcome.Blocked);
+        first.FailedLegs.Should().Be("order:restock:conflict");
+        _orderWrites.Should().Equal("cancelled");
+
+        // Next run: the order is closed now; the restore is retried before the refund.
+        _orders.GetByIdAsync(OrderId, true).Returns(ListedOrder("cancelled", 3));
+        crops.RestoreStockAsync("listing-1", OrderId, 2.5).Returns(StockRestoreResult.Restored);
+
+        var second = await mirror.ApplyAsync(Escrow(withDelivery: false), "buyer_wins", ResolvedAt, cancelBeforePickup: true);
+
+        second.Order.Should().Be(VerdictLegOutcome.Closed);
+        second.BlocksSettlement.Should().BeFalse();
+        await crops.Received(2).RestoreStockAsync("listing-1", OrderId, 2.5);
+        _orderWrites.Should().Equal("cancelled");
+    }
+
+    [Fact]
+    public async Task BuyerWins_TheOrdersActiveDeliveryCounts_NotTheEscrowsEarlierOne()
+    {
+        // The escrow still names a delivery cancelled earlier; the order's active delivery is
+        // already picked up, so the order must not be cancelled.
+        _orders.GetByIdAsync(OrderId, true).Returns(ListedOrder("accepted", 3, "delivery-2"));
+        DeliveryIs("cancelled");
+        _deliveries.GetByIdAsync("delivery-2", true).Returns(
+            new Dictionary<string, object> { { "deliveryId", "delivery-2" }, { "status", "pickedUp" } });
+        var mirror = new DisputeVerdictMirror(_orders, _deliveries, _txAudit, RestoringCrops());
+
+        var result = await mirror.ApplyAsync(Escrow(), "buyer_wins", ResolvedAt, cancelBeforePickup: true);
+
+        result.IsMismatch.Should().BeTrue();
+        result.DeliveryId.Should().Be("delivery-2");
+        result.FailedLegs.Should().Be("order:mismatch:accepted,delivery:mismatch:pickedUp");
+        await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
     [Fact]
     public async Task BuyerWins_FundedOrder_IsCancelled_WithNoDelivery()
     {
-        var crops = Substitute.For<ICropRepository>();
+        var crops = RestoringCrops();
         var mirror = new DisputeVerdictMirror(_orders, _deliveries, _txAudit, crops);
         _orders.GetByIdAsync(OrderId, true).Returns(ListedOrder("funded", 2));
         OrderWritesSucceed();
@@ -415,7 +497,7 @@ public class DisputeVerdictMirrorTests
 
         result.Order.Should().Be(VerdictLegOutcome.Cancelled);
         _orderWrites.Should().Equal("cancelled");
-        await crops.Received(1).TryRestoreStockAsync("listing-1", OrderId, 2.5);
+        await crops.Received(1).RestoreStockAsync("listing-1", OrderId, 2.5);
         await _deliveries.DidNotReceive().TryCancelPendingAsync(Arg.Any<string>());
     }
 

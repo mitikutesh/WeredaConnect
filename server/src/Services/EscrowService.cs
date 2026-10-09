@@ -2089,8 +2089,9 @@ public sealed class EscrowService
     /// failed then and, for a <c>buyer_wins</c> refund before pickup, cancels the order (and its
     /// pending delivery) and restores its stock. Returns why the settlement must not go ahead:
     /// <list type="bullet">
-    /// <item>a read failed before the legs were decided (<c>503 ESCROW_012</c>, fail closed, logged
-    /// as <c>DISPUTE_VERDICT_MIRROR_READ_FAILED</c>; the next run retries);</item>
+    /// <item>a read failed before the legs were decided, or a <c>buyer_wins</c> refund could not cancel
+    /// the order or give its stock back first (<c>503 ESCROW_012</c>, fail closed, logged as
+    /// <c>DISPUTE_VERDICT_MIRROR_READ_FAILED</c>; the next run retries);</item>
     /// <item>a leg cannot follow the verdict (<c>422 ESCROW_INVALID_TRANSITION</c>, alarm line
     /// <c>DISPUTE_VERDICT_ORDER_MISMATCH</c>), unless an admin overrides a <c>buyer_wins</c> refund
     /// with a reason.</item>
@@ -2120,7 +2121,7 @@ public sealed class EscrowService
             return MirrorReadFailed(escrowId, op, $"[{ex.GetType().Name}]");
         }
 
-        if (result.IsUndecided)
+        if (result.BlocksSettlement)
         {
             return MirrorReadFailed(escrowId, op, result.FailedLegs);
         }
@@ -2167,11 +2168,11 @@ public sealed class EscrowService
 
     private static SettlementBlock MirrorReadFailed(string escrowId, string op, string? legs)
     {
-        // Not an alarm token: a transient read failure that the next hourly run retries.
+        // Not an alarm token: a transient read, cancel or restock failure that the next hourly run retries.
         Console.WriteLine(
             $"DISPUTE_VERDICT_MIRROR_READ_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} legs={MoneyAlarmLog.LogText(legs)}");
         return new SettlementBlock(503, "ESCROW_012",
-            "The order or delivery behind this verdict could not be read. Nothing was settled; try again.");
+            "The order behind this verdict could not be read, cancelled or restocked. Nothing was settled; try again.");
     }
 
     /// <summary>

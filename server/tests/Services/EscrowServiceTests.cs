@@ -749,6 +749,111 @@ public class EscrowServiceTests
     }
 
     [Fact]
+    public async Task RefundAsync_Override_RoleAdminOutsideTheGroup_Returns403()
+    {
+        // The users-table admin role passes the refund's own admin check; the override still
+        // needs the admin group.
+        _mockUserRepo.GetUserByIdAsync("admin-7").Returns(MakeAdminUser("admin-7"));
+        var service = MismatchedRefundService(Substitute.For<IOrderRepository>(), Substitute.For<ITransactionAuditRepository>());
+
+        var result = await service.RefundAsync(OverrideRequest("Truck broke down, goods lost on the road."),
+            "admin-7", role: "admin", adminGroupVerified: false);
+
+        Assert.Equal(403, result.Error!.HttpStatus);
+        Assert.Equal("ESCROW_021", result.Error.Code);
+        Assert.Contains("override", result.Error.Message);
+        await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+            e["action"].ToString() == "dispute_order_mismatch_overridden"));
+    }
+
+    [Theory]
+    [InlineData("500")]
+    [InlineData("409")]
+    [InlineData("throw")]
+    [InlineData("restock")]
+    public async Task RefundAsync_BuyerWinsBeforePickup_CancelOrRestockNotLanding_FailsClosed(string failure)
+    {
+        // Cancel-then-refund: the refund never runs ahead of an order cancel (or its stock
+        // restore) that did not land; the next sweep retries.
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1", true).Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-1" }, { "status", "funded" }, { "version", 2 },
+            { "listingId", "listing-1" }, { "quantity", "200" }
+        });
+        var cancel = orderRepo.UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        switch (failure)
+        {
+            case "throw":
+                cancel.ThrowsAsync(new TimeoutException("boom"));
+                break;
+            case "restock":
+                cancel.Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+                {
+                    { "orderId", "order-1" }, { "status", "cancelled" }, { "version", 3 }
+                }));
+                break;
+            default:
+                cancel.Returns(AuthResult<Dictionary<string, object>>.Failure(int.Parse(failure), "SYNC_X", "nope"));
+                break;
+        }
+
+        var crops = Substitute.For<ICropRepository>();
+        crops.RestoreStockAsync("listing-1", "order-1", 2.0)
+            .Returns(failure == "restock" ? StockRestoreResult.Failed : StockRestoreResult.Restored);
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
+            _mockUserRepo, orderRepo, cropRepo: crops);
+        var escrow = MakeResolvedDispute("buyer_wins");
+        escrow["orderId"] = "order-1";
+        escrow.Remove("deliveryId");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrow);
+
+        var result = await service.RefundAsync(DisputeRefundRequest(), "system");
+
+        Assert.Equal(503, result.Error!.HttpStatus);
+        Assert.Equal("ESCROW_012", result.Error.Code);
+        await _mockEscrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+    }
+
+    [Fact]
+    public async Task RefundAsync_BuyerWinsBeforePickup_CancelsTheOrderThenRefunds()
+    {
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1", true).Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-1" }, { "status", "funded" }, { "version", 2 },
+            { "listingId", "listing-1" }, { "quantity", "200" }
+        });
+        orderRepo.UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), 2)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "order-1" }, { "status", "cancelled" }, { "version", 3 }
+            }));
+        var crops = Substitute.For<ICropRepository>();
+        crops.RestoreStockAsync("listing-1", "order-1", 2.0).Returns(StockRestoreResult.Restored);
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
+            _mockUserRepo, orderRepo, cropRepo: crops);
+        var escrow = MakeResolvedDispute("buyer_wins");
+        escrow["orderId"] = "order-1";
+        escrow.Remove("deliveryId");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrow);
+
+        var result = await service.RefundAsync(DisputeRefundRequest(), "system");
+
+        Assert.True(result.IsSuccess);
+        Received.InOrder(() =>
+        {
+            orderRepo.UpdateAsync("order-1", Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "cancelled"), 2);
+            crops.RestoreStockAsync("listing-1", "order-1", 2.0);
+            _mockEscrowRepo.TryAcquireSettlementLockAsync("escrow-001", Arg.Any<string>(), "refund", "dispute_resolved");
+            _mockTelebirrGateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        });
+    }
+
+    [Fact]
     public async Task RefundAsync_SweepWithoutOverride_StillRefusesTheMismatch()
     {
         var service = MismatchedRefundService(Substitute.For<IOrderRepository>(), Substitute.For<ITransactionAuditRepository>());
