@@ -2919,7 +2919,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get orderCheckoutNotSent =>
-      'Kaffaltiin keessan hin ergamne. Irra deebi\'uuf ajaja banaa.';
+      'Kaffaltiin keessan hin ergamne. Yoo eenyummaa keessan akka mirkaneessitan gaafatamtan, erga mirkaneessitanii booda irra deebi\'ee ni ergama; yoo hin taane, irra deebitanii kaffaluuf ajaja banaa.';
 
   @override
   String get orderCheckoutCheckingPayment =>

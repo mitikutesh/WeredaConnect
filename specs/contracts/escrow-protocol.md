@@ -1379,16 +1379,21 @@ Success (`200`):
 - The app reads the order from the server first (`GET /orders/{id}`; on mobile only once its
   queued `payment_submitted` has synced). `funded` or later means paid and no checkout is
   opened. That is the normal mock result: mock payments fund the order during the sync.
-- The checkout is requested only for a `payment_submitted` order: once per screen visit
-  when the buyer has just paid or tapped "Continue payment", and after that only from a
-  button (start a new payment after `openUntil`, retry after an error). Never from a poll,
-  an app resume or a return link, so velocity only counts what the buyer asked for.
-  Before starting a new payment the order is read again.
+- The checkout is requested only for a `payment_submitted` order. At most one automatic
+  request per screen visit (the buyer has just paid or tapped "Continue payment"); it may
+  happen on the first read after a queued payment syncs, which can be a poll, an app
+  resume or a return link, and never a second time. After that only from a button (start
+  a new payment after `openUntil`, retry after an error) or one retry when the network
+  comes back after a request failed offline, so velocity only counts what the buyer asked
+  for. Before starting a new payment the order is read again.
 - "Open Telebirr again" while `openUntil` is ahead opens the URL the app already holds.
   Neither `toPayUrl` nor `openUntil` is stored on the device; after a restart the next
-  request returns the open checkout (`isExisting: true`). Expiry is measured against the
-  response's `Date` header where the platform exposes it, else the device clock, with a
-  monotonic timer.
+  request returns the open checkout (`isExisting: true`). The time left is `openUntil`
+  minus the response's `Date` header, and the page ends at the first of a monotonic
+  deadline and a device-clock deadline. Browsers hide `Date` on cross-origin responses, so
+  web uses the device clock: a new page counts as open for at most the full window, a page
+  returned again for at most 10 minutes (then a new request returns it again while it is
+  open).
 - Android opens Telebirr on its own once; web opens it only from a tap (a real link), as
   browsers block pop-ups after a network wait. The return link
   `weredaconnect://payment/complete` (Android) or coming back to the tab refreshes at once;

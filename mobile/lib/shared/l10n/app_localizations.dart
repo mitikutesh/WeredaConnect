@@ -5302,10 +5302,10 @@ abstract class AppLocalizations {
   /// **'This payment could not be confirmed in time. You can pay again.'**
   String get orderCheckoutPaymentFailed;
 
-  /// Checkout screen: the server refused the payment, so it was not sent
+  /// Checkout screen: the server refused the payment (or the KYC gate held it until the buyer verifies), so it was not sent
   ///
   /// In en, this message translates to:
-  /// **'Your payment was not sent. Open the order to try again.'**
+  /// **'Your payment was not sent. If you were asked to verify your identity, it is sent again once you do; otherwise open the order to pay again.'**
   String get orderCheckoutNotSent;
 
   /// Shown when the buyer comes back from Telebirr and the app checks the payment

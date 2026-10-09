@@ -2552,7 +2552,7 @@
   "orderCheckoutGatewayProblem": "Telebirr kaffaltii jalqabuu hin dandeenye. Yoo duraan kaffaltan, asitti ni mirkanaa'a. Yoo hin taane, irra deebi'aa yaalaa.",
   "orderCheckoutOrderMissing": "Ajajni kun ammallee sarvarii irra hin jiru. Erga walsimee booda irra deebi'aa yaalaa.",
   "orderCheckoutPaymentFailed": "Kaffaltiin kun yeroon mirkanaa'uu hin dandeenye. Irra deebitanii kaffaluu dandeessu.",
-  "orderCheckoutNotSent": "Kaffaltiin keessan hin ergamne. Irra deebi'uuf ajaja banaa.",
+  "orderCheckoutNotSent": "Kaffaltiin keessan hin ergamne. Yoo eenyummaa keessan akka mirkaneessitan gaafatamtan, erga mirkaneessitanii booda irra deebi'ee ni ergama; yoo hin taane, irra deebitanii kaffaluuf ajaja banaa.",
   "orderCheckoutCheckingPayment": "Kaffaltii keessan ilaalaa jirra...",
   "paymentTotalOutOfRange": "Telebirr kaffaltii tokkoon qarshii 100 hanga 500,000 fudhata. Waliigalli ajaja kanaa kanaan ala waan ta'eef, Telebirr'n kaffalamuu hin danda'u.",
   "continuePayment": "Kaffaltii itti fufaa",

@@ -5983,6 +5983,36 @@ public class SyncFunctionTests
     }
 
     [Fact]
+    public async Task PaymentFailed_RetryToPaymentSubmitted_RunsTheLiveTotalGate()
+    {
+        var function = PaymentFunction(99.99m, PaymentParty("buyer-001"), PaymentParty("farmer-001"),
+            fromStatus: "payment_failed");
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+        Assert.Contains("ORDER_VALIDATION", response.Body);
+        Assert.Contains("100 to 500000 ETB", response.Body);
+        Assert.DoesNotContain("\"status\":\"success\"", response.Body);
+    }
+
+    [Fact]
+    public async Task PaymentFailed_RetryToPaymentSubmitted_IsBuyerOnly()
+    {
+        var function = PaymentFunction(2_000m, PaymentParty("buyer-001"), PaymentParty("farmer-001"),
+            fromStatus: "payment_failed");
+        var op = PaymentOp() with { IdempotencyKey = "farmer-001:order:order-pay:update:12345" };
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer",
+                authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+        Assert.Contains("ORDER_UNAUTHORIZED", response.Body);
+        Assert.DoesNotContain("\"status\":\"success\"", response.Body);
+    }
+
+    [Fact]
     public async Task PaymentFailed_RetryToPaymentSubmitted_StartsANewPaymentClock()
     {
         // The retry is a new payment attempt: a checkout from the failed attempt can never

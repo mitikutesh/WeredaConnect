@@ -2810,7 +2810,8 @@ class AppLocalizationsAm extends AppLocalizations {
       'ይህ ክፍያ በጊዜው ሊረጋገጥ አልቻለም። እንደገና መክፈል ይችላሉ።';
 
   @override
-  String get orderCheckoutNotSent => 'ክፍያዎ አልተላከም። እንደገና ለመሞከር ትዕዛዙን ይክፈቱ።';
+  String get orderCheckoutNotSent =>
+      'ክፍያዎ አልተላከም። ማንነትዎን እንዲያረጋግጡ ከተጠየቁ፣ ካረጋገጡ በኋላ እንደገና ይላካል፤ ካልሆነ እንደገና ለመክፈል ትዕዛዙን ይክፈቱ።';
 
   @override
   String get orderCheckoutCheckingPayment => 'ክፍያዎን በማረጋገጥ ላይ...';

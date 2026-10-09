@@ -100,8 +100,10 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
     );
     _connectivitySub = (widget.connectivityRestored ?? _networkBack()).listen(
       (_) {
+        // The bloc reads the order (and retries a request that failed
+        // offline); only the schedule starts over here.
         _bloc.add(const CheckoutConnectivityRestored());
-        _trigger(refreshNow: true);
+        _trigger();
       },
       onError: (Object _) {},
     );
@@ -213,7 +215,13 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
 
   void _onState(BuildContext context, OrderCheckoutState state) {
     if (state.polls) {
-      if (_pollTimer == null) _schedule();
+      // Reading again after a pause (a request, a stop the KYC resubmit
+      // woke up): start the schedule over.
+      if (_pollTimer == null) {
+        _attempt = 0;
+        _polledFor = Duration.zero;
+        _schedule();
+      }
     } else {
       _pollTimer?.cancel();
       _pollTimer = null;

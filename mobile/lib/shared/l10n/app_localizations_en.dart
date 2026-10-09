@@ -2897,7 +2897,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get orderCheckoutNotSent =>
-      'Your payment was not sent. Open the order to try again.';
+      'Your payment was not sent. If you were asked to verify your identity, it is sent again once you do; otherwise open the order to pay again.';
 
   @override
   String get orderCheckoutCheckingPayment => 'Checking your payment...';

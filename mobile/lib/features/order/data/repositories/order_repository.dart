@@ -243,6 +243,7 @@ class OrderRepository extends BaseOrderRepository {
     // `#v = :expectedVersion`, so sending the post-increment value would always
     // conflict and get reverted by server-wins (same off-by-one fixed for trips).
     final baseVersion = order.version;
+    final statusBefore = order.status;
 
     await _writeThenEnqueue(
       order,
@@ -265,22 +266,35 @@ class OrderRepository extends BaseOrderRepository {
           'status': orderStatusToWire(OrderStatus.paymentSubmitted.name),
           'updatedAt': now.toIso8601String(),
           'version': baseVersion,
+          // Client-only (not sent): where a refused payment goes back to.
+          statusBeforePaymentKey: statusBefore.name,
         }),
         operationId: _uuid.v4(),
       ),
     );
   }
 
+  /// The client-only key of a queued payment that records the order's
+  /// status before it ([revertRejectedPaymentSubmission]). The sync executor
+  /// never sends `_` keys.
+  static const statusBeforePaymentKey = '_statusBefore';
+
   /// Undo an optimistic payment submission the server's KYC gate rejected
   /// (`ORDER_KYC_REQUIRED`), so the order does not stay stuck in
   /// `paymentSubmitted` and the buyer can pay again after verifying.
   ///
   /// The server never applied the update, so the order goes back to the
-  /// status it had before [submitPayment] (with the version from then):
+  /// status it had before [submitPayment] (with the version from then): the
+  /// one the refused operation's [sentData] recorded (`payment_failed` for a
+  /// retry, ESC-44), else, for operations queued before that was recorded,
   /// `accepted` once the farmer responded, else `created` (payment can be
   /// submitted straight after placing the order). No-op when the order moved
   /// on in the meantime (e.g. a later pull).
-  Future<void> revertRejectedPaymentSubmission(String orderId) async {
+  Future<void> revertRejectedPaymentSubmission(
+    String orderId, {
+    String? sentData,
+  }) async {
+    final recorded = _statusBeforePayment(sentData);
     await _isar.writeTxn(() async {
       final order =
           await _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
@@ -288,15 +302,32 @@ class OrderRepository extends BaseOrderRepository {
         return;
       }
       order
-        ..status = order.respondedAt != null
-            ? OrderStatus.accepted
-            : OrderStatus.created
+        ..status = recorded ??
+            (order.respondedAt != null
+                ? OrderStatus.accepted
+                : OrderStatus.created)
         ..cbeTransactionId = null
         ..paymentMethod = null
         ..version = order.version > 1 ? order.version - 1 : order.version
         ..updatedAt = DateTime.now().toUtc();
       await _isar.orders.put(order);
     });
+  }
+
+  static OrderStatus? _statusBeforePayment(String? sentData) {
+    if (sentData == null) return null;
+    try {
+      final data = jsonDecode(sentData);
+      final name = data is Map ? data[statusBeforePaymentKey] : null;
+      for (final status in OrderStatus.values) {
+        if (status.name == name && status != OrderStatus.paymentSubmitted) {
+          return status;
+        }
+      }
+    } on FormatException {
+      // Fall back to the older rule.
+    }
+    return null;
   }
 
   /// Cancel an order (buyer or farmer action).

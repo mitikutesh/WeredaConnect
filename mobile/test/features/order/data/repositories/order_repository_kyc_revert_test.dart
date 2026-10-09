@@ -100,4 +100,58 @@ void main() {
     expect((await load()).status, OrderStatus.funded);
     expect((await load()).version, 3);
   });
+
+  group('the status before the payment is recorded (ESC-44)', () {
+    Future<String> queuedData() async =>
+        (await isar.syncOperations.where().findAll()).single.data;
+
+    Future<void> setStatus(OrderStatus status) => isar.writeTxn(() async {
+          final order = await load();
+          order
+            ..status = status
+            ..respondedAt = null;
+          await isar.orders.put(order);
+        });
+
+    test('a refused retry after payment_failed goes back to payment_failed',
+        () async {
+      await setStatus(OrderStatus.paymentFailed);
+
+      await repo.submitPayment('order-1', null, paymentMethod: 'telebirr');
+      await repo.revertRejectedPaymentSubmission(
+        'order-1',
+        sentData: await queuedData(),
+      );
+
+      final order = await load();
+      expect(order.status, OrderStatus.paymentFailed);
+      expect(order.version, 3);
+    });
+
+    test('pending_payment goes back to pending_payment', () async {
+      await setStatus(OrderStatus.pendingPayment);
+
+      await repo.submitPayment('order-1', null, paymentMethod: 'telebirr');
+      await repo.revertRejectedPaymentSubmission(
+        'order-1',
+        sentData: await queuedData(),
+      );
+
+      expect((await load()).status, OrderStatus.pendingPayment);
+    });
+
+    test(
+        'an operation queued before the status was recorded uses the old '
+        'rule', () async {
+      await setStatus(OrderStatus.paymentFailed);
+      await repo.submitPayment('order-1', null, paymentMethod: 'telebirr');
+
+      await repo.revertRejectedPaymentSubmission(
+        'order-1',
+        sentData: '{"status":"payment_submitted","version":3}',
+      );
+
+      expect((await load()).status, OrderStatus.created);
+    });
+  });
 }

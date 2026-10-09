@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
@@ -49,11 +51,13 @@ const orderCheckoutPollCap = Duration(minutes: 10);
 /// polls the order until it is.
 ///
 /// Money safety: a checkout is requested only by [CheckoutStarted.autoOpen]
-/// (once, the first time the order is `payment_submitted` with no page in
-/// hand), by [CheckoutOpenRequested] (a button), or by one
-/// [CheckoutConnectivityRestored] after a request failed offline. A poll
-/// never requests one, so the velocity limit only counts what the buyer
-/// asked for. "Open Telebirr again" reuses the page in hand.
+/// (at most once per visit: the first read that finds the order
+/// `payment_submitted` with no page in hand, which may be a poll, a resume
+/// or a return link once a queued payment has synced; never a second), by
+/// [CheckoutOpenRequested] (a button), or by one
+/// [CheckoutConnectivityRestored] after a request failed offline. No other
+/// read requests one, so the velocity limit only counts what the buyer asked
+/// for. "Open Telebirr again" reuses the page in hand.
 class OrderCheckoutBloc extends Bloc<OrderCheckoutEvent, OrderCheckoutState> {
   final String orderId;
   final BaseEscrowRepository _escrow;
@@ -76,6 +80,13 @@ class OrderCheckoutBloc extends Bloc<OrderCheckoutEvent, OrderCheckoutState> {
 
   _CheckoutPage? _page;
   int _launchToken = 0;
+
+  /// The shown [CheckoutProblem] came from a checkout request (kept until
+  /// the buyer acts), not from a failed order read (cleared by the next
+  /// read that works).
+  bool _problemFromRequest = false;
+
+  StreamSubscription<String>? _resubmitted;
 
   /// Reads that may still show the order from before the payment: the
   /// server's order read is eventually consistent, so right after a payment
@@ -110,6 +121,17 @@ class OrderCheckoutBloc extends Bloc<OrderCheckoutEvent, OrderCheckoutState> {
         _monotonic = monotonic ?? _stopwatchClock(),
         super(const CheckoutChecking()) {
     on<OrderCheckoutEvent>(_onEvent, transformer: _sequential);
+    // A payment refused for KYC and sent again from the background prompt:
+    // read the order again (it may have stopped at "not sent").
+    _resubmitted = _securityEvents.onPaymentResubmitted
+        .where((id) => id == orderId)
+        .listen((_) => add(const CheckoutRefreshed()));
+  }
+
+  @override
+  Future<void> close() async {
+    await _resubmitted?.cancel();
+    return super.close();
   }
 
   static Duration Function() _stopwatchClock() {
@@ -162,9 +184,11 @@ class OrderCheckoutBloc extends Bloc<OrderCheckoutEvent, OrderCheckoutState> {
         _retryOnReconnect = false;
         await _evaluate(emit, openRequested: true);
       case CheckoutConnectivityRestored():
-        if (!_retryOnReconnect) return;
+        // Always read the order again; request a checkout only when one
+        // failed offline.
+        final retry = _retryOnReconnect;
         _retryOnReconnect = false;
-        await _evaluate(emit, openRequested: true);
+        await _evaluate(emit, openRequested: retry);
     }
   }
 
@@ -242,7 +266,7 @@ class OrderCheckoutBloc extends Bloc<OrderCheckoutEvent, OrderCheckoutState> {
       return;
     }
     final page = _page;
-    if (page != null && page.isOpen(_monotonic())) {
+    if (page != null && page.isOpen(_monotonic(), _now())) {
       emit(_awaiting(page));
       return;
     }
@@ -251,10 +275,11 @@ class OrderCheckoutBloc extends Bloc<OrderCheckoutEvent, OrderCheckoutState> {
       await _open(emit);
       return;
     }
-    // Waiting for payment with no page to offer. Keep a problem or a stop
-    // the buyer still has to read; otherwise offer a new payment.
+    // Waiting for payment with no page to offer. Keep a request's problem
+    // or a stop the buyer still has to read; otherwise offer a new payment.
     final current = state;
-    if (current is CheckoutProblem || current is CheckoutStopped) {
+    if ((current is CheckoutProblem && _problemFromRequest) ||
+        current is CheckoutStopped) {
       emit(current);
       return;
     }
@@ -262,6 +287,7 @@ class OrderCheckoutBloc extends Bloc<OrderCheckoutEvent, OrderCheckoutState> {
   }
 
   Future<void> _open(Emitter<OrderCheckoutState> emit) async {
+    _problemFromRequest = false;
     emit(const CheckoutOpening());
     final result = await _escrow.openOrderCheckout(orderId);
     switch (result) {
@@ -283,6 +309,7 @@ class OrderCheckoutBloc extends Bloc<OrderCheckoutEvent, OrderCheckoutState> {
     OrderCheckoutFailed failure,
     Emitter<OrderCheckoutState> emit,
   ) async {
+    _problemFromRequest = true;
     switch (failure.code) {
       case 'ESCROW_024':
         // Already funded.
@@ -338,7 +365,7 @@ class OrderCheckoutBloc extends Bloc<OrderCheckoutEvent, OrderCheckoutState> {
     final current = state;
     if (current is CheckoutAwaitingPayment) {
       final page = _page;
-      if (page != null && page.isOpen(_monotonic())) {
+      if (page != null && page.isOpen(_monotonic(), _now())) {
         emit(_awaiting(page, offline: true));
         return;
       }
@@ -348,6 +375,7 @@ class OrderCheckoutBloc extends Bloc<OrderCheckoutEvent, OrderCheckoutState> {
         current is CheckoutWaitingToSend) {
       return;
     }
+    _problemFromRequest = false;
     emit(const CheckoutProblem(CheckoutIssue.offline));
   }
 
@@ -355,7 +383,7 @@ class OrderCheckoutBloc extends Bloc<OrderCheckoutEvent, OrderCheckoutState> {
     _CheckoutPage page, {
     bool offline = false,
   }) {
-    final left = page.timeLeft(_monotonic());
+    final left = page.timeLeft(_monotonic(), _now());
     return CheckoutAwaitingPayment(
       toPayUrl: page.toPayUrl,
       amount: page.amount,
@@ -378,8 +406,10 @@ class OrderCheckoutBloc extends Bloc<OrderCheckoutEvent, OrderCheckoutState> {
       };
 }
 
-/// A Telebirr page in hand. Its end is kept on a monotonic clock, so a
-/// device clock that is wrong or changes cannot keep a dead page "open".
+/// A Telebirr page in hand. It counts as open until the first of two ends:
+/// one on a monotonic clock (a device clock moved back cannot extend it) and
+/// one on the device's clock (the monotonic clock may stop while Android
+/// sleeps).
 class _CheckoutPage {
   final String toPayUrl;
   final double amount;
@@ -394,8 +424,11 @@ class _CheckoutPage {
   });
 
   /// The time left is `openUntil` minus the server's clock when it answered
-  /// (`Date`). Without that header (web hides it), the device clock is used,
-  /// and an answer it cannot explain falls back to the known window.
+  /// (`Date`). Without that header (web hides it) the device clock stands in,
+  /// bounded so a wrong device clock cannot keep a dead page open: a new page
+  /// gets at most the full window, a page returned again at most
+  /// [OrderCheckoutBloc._unknownWindow] (then the buyer starts a new payment,
+  /// which returns the same one while it is still open).
   factory _CheckoutPage.from(
     OrderCheckoutOpened opened, {
     required Duration receivedAt,
@@ -403,11 +436,11 @@ class _CheckoutPage {
   }) {
     final serverNow = opened.serverDate ?? deviceNow.toUtc();
     var left = opened.openUntil.toUtc().difference(serverNow);
-    if (opened.serverDate == null &&
-        (left.isNegative || left > OrderCheckoutBloc._maxWindow)) {
-      left = opened.isExisting
+    if (opened.serverDate == null) {
+      final cap = opened.isExisting
           ? OrderCheckoutBloc._unknownWindow
           : OrderCheckoutBloc._maxWindow;
+      if (left.isNegative || left > cap) left = cap;
     }
     if (left.isNegative) left = Duration.zero;
     return _CheckoutPage(
@@ -418,10 +451,13 @@ class _CheckoutPage {
     );
   }
 
-  bool isOpen(Duration monotonicNow) => monotonicNow < expiresAt;
+  bool isOpen(Duration monotonicNow, DateTime deviceNow) =>
+      timeLeft(monotonicNow, deviceNow) > Duration.zero;
 
-  Duration timeLeft(Duration monotonicNow) {
-    final left = expiresAt - monotonicNow;
+  Duration timeLeft(Duration monotonicNow, DateTime deviceNow) {
+    final byMonotonic = expiresAt - monotonicNow;
+    final byDevice = payableUntilOnDevice.difference(deviceNow);
+    final left = byMonotonic < byDevice ? byMonotonic : byDevice;
     return left.isNegative ? Duration.zero : left;
   }
 }

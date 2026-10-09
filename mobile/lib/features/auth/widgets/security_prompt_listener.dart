@@ -203,6 +203,8 @@ class _SecurityPromptListenerState extends State<SecurityPromptListener> {
     try {
       await (widget.resubmitPayment ??
           SecurityPromptListener._resubmitViaOrderRepository)(context, event);
+      // An open order checkout reads the order again (ESC-44).
+      _events.paymentResubmitted(event.orderId);
       messenger?.showSnackBar(
         SnackBar(content: Text(l10n.kycPaymentResubmitted)),
       );

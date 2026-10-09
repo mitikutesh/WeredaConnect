@@ -170,12 +170,24 @@ class SecurityEvents {
   );
   final StreamController<void> _stepUpCompleted =
       StreamController<void>.broadcast();
+  final StreamController<String> _paymentResubmitted =
+      StreamController<String>.broadcast();
 
   /// Events the UI should prompt for.
   Stream<SecurityEvent> get events => _events.stream;
 
   /// Fires after the user re-authenticated; pending money ops should retry.
   Stream<void> get onStepUpCompleted => _stepUpCompleted.stream;
+
+  /// Fires with the order id after a payment the KYC gate refused was sent
+  /// again (the buyer verified), so an open checkout reads the order again
+  /// (ESC-44).
+  Stream<String> get onPaymentResubmitted => _paymentResubmitted.stream;
+
+  /// Report that the payment of [orderId] was sent again after KYC.
+  void paymentResubmitted(String orderId) {
+    if (!_paymentResubmitted.isClosed) _paymentResubmitted.add(orderId);
+  }
 
   /// Raise an event for the UI. A [StepUpRequired] inside the cooldown
   /// after a cancelled prompt is dropped. A [SyncOperationRejected] with no

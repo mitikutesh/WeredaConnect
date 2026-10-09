@@ -3636,9 +3636,9 @@
   "@orderCheckoutPaymentFailed": {
     "description": "Checkout screen: the order moved to payment_failed"
   },
-  "orderCheckoutNotSent": "Your payment was not sent. Open the order to try again.",
+  "orderCheckoutNotSent": "Your payment was not sent. If you were asked to verify your identity, it is sent again once you do; otherwise open the order to pay again.",
   "@orderCheckoutNotSent": {
-    "description": "Checkout screen: the server refused the payment, so it was not sent"
+    "description": "Checkout screen: the server refused the payment (or the KYC gate held it until the buyer verifies), so it was not sent"
   },
   "orderCheckoutCheckingPayment": "Checking your payment...",
   "@orderCheckoutCheckingPayment": {

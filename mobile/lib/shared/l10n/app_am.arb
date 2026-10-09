@@ -2559,7 +2559,7 @@
   "orderCheckoutGatewayProblem": "ቴሌብር ክፍያውን መጀመር አልቻለም። አስቀድመው ከከፈሉ፣ እዚህ ይረጋገጣል። ካልሆነ እንደገና ይሞክሩ።",
   "orderCheckoutOrderMissing": "ይህ ትዕዛዝ ገና ሰርቨሩ ላይ የለም። ከተመሳሰለ በኋላ እንደገና ይሞክሩ።",
   "orderCheckoutPaymentFailed": "ይህ ክፍያ በጊዜው ሊረጋገጥ አልቻለም። እንደገና መክፈል ይችላሉ።",
-  "orderCheckoutNotSent": "ክፍያዎ አልተላከም። እንደገና ለመሞከር ትዕዛዙን ይክፈቱ።",
+  "orderCheckoutNotSent": "ክፍያዎ አልተላከም። ማንነትዎን እንዲያረጋግጡ ከተጠየቁ፣ ካረጋገጡ በኋላ እንደገና ይላካል፤ ካልሆነ እንደገና ለመክፈል ትዕዛዙን ይክፈቱ።",
   "orderCheckoutCheckingPayment": "ክፍያዎን በማረጋገጥ ላይ...",
   "paymentTotalOutOfRange": "ቴሌብር በአንድ ክፍያ ከ100 እስከ 500,000 ብር ይቀበላል። የዚህ ትዕዛዝ ጠቅላላ ዋጋ ከዚህ ውጭ ስለሆነ በቴሌብር ሊከፈል አይችልም።",
   "continuePayment": "ክፍያውን ይቀጥሉ",

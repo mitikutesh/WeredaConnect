@@ -18,7 +18,7 @@ class _MockEscrow extends Mock implements BaseEscrowRepository {}
 void main() {
   const orderId = 'order-1';
   final serverNow = DateTime.utc(2026, 10, 9, 10);
-  final deviceNow = DateTime(2026, 10, 9, 13); // EAT, the device's clock
+  late DateTime deviceNow; // the device's clock
 
   late _MockEscrow escrow;
   late Queue<Object?> serverReads;
@@ -92,6 +92,7 @@ void main() {
     serverReads = Queue();
     localReads = Queue();
     monotonic = Duration.zero;
+    deviceNow = DateTime(2026, 10, 9, 13); // EAT
     events = SecurityEvents.forTesting();
   });
 
@@ -715,5 +716,162 @@ void main() {
     // Only the start read the order; both refreshes were dropped.
     expect(serverReads, hasLength(4));
     await b.close();
+  });
+
+  group('review fixes (PR #123)', () {
+    test('the network coming back reads the order even with no retry owed',
+        () async {
+      var reads = 0;
+      final b = OrderCheckoutBloc(
+        orderId: orderId,
+        escrow: escrow,
+        readServerOrder: (_) async {
+          reads++;
+          return reads == 1
+              ? (order(OrderStatus.paymentSubmitted))
+              : order(OrderStatus.funded);
+        },
+        securityEvents: events,
+        now: () => deviceNow,
+        monotonic: () => monotonic,
+      );
+      answers([opened()]);
+
+      b.add(const CheckoutStarted());
+      await expectLater(
+        b.stream,
+        emitsInOrder([isA<CheckoutOpening>(), awaiting()]),
+      );
+      b.add(const CheckoutConnectivityRestored());
+      await expectLater(b.stream, emits(isA<CheckoutPaid>()));
+
+      expect(reads, 2);
+      verify(() => escrow.openOrderCheckout(orderId)).called(1);
+      await b.close();
+    });
+
+    test(
+        'web, no Date header, device clock behind: a page returned again '
+        'is capped at 10 minutes', () async {
+      deviceNow = serverNow.subtract(const Duration(minutes: 60));
+      serverReads.add(order(OrderStatus.paymentSubmitted));
+      // 30 minutes are really left; the device clock would say 90.
+      answers([
+        opened(
+          window: const Duration(minutes: 30),
+          isExisting: true,
+          withServerDate: false,
+        ),
+      ]);
+      final b = bloc();
+
+      b.add(const CheckoutStarted());
+      await expectLater(
+        b.stream,
+        emitsInOrder([
+          isA<CheckoutOpening>(),
+          awaiting(timeLeft: const Duration(minutes: 10)),
+        ]),
+      );
+      await b.close();
+    });
+
+    test(
+        'the page also ends on the device clock (monotonic clock stopped '
+        'while Android slept)', () async {
+      serverReads.addAll([
+        order(OrderStatus.paymentSubmitted),
+        order(OrderStatus.paymentSubmitted),
+      ]);
+      answers([opened()]);
+      final b = bloc();
+
+      b.add(const CheckoutStarted());
+      await expectLater(
+        b.stream,
+        emitsInOrder([isA<CheckoutOpening>(), awaiting()]),
+      );
+      // Two hours and a quarter pass on the wall clock, none on the
+      // monotonic one.
+      deviceNow = deviceNow.add(const Duration(minutes: 135));
+      b.add(const CheckoutRefreshed());
+      await expectLater(b.stream, emits(isA<CheckoutWindowClosed>()));
+      await b.close();
+    });
+
+    test(
+        'an offline read after the page expired does not stick once reads '
+        'work again', () async {
+      serverReads.addAll([
+        order(OrderStatus.paymentSubmitted),
+        const NetworkException('offline'),
+        order(OrderStatus.paymentSubmitted),
+      ]);
+      answers([opened()]);
+      final b = bloc();
+
+      b.add(const CheckoutStarted());
+      await expectLater(
+        b.stream,
+        emitsInOrder([isA<CheckoutOpening>(), awaiting()]),
+      );
+      monotonic = const Duration(minutes: 131);
+      b.add(const CheckoutRefreshed());
+      await expectLater(
+        b.stream,
+        emits(const CheckoutProblem(CheckoutIssue.offline)),
+      );
+      b.add(const CheckoutRefreshed());
+      await expectLater(b.stream, emits(isA<CheckoutWindowClosed>()));
+      verify(() => escrow.openOrderCheckout(orderId)).called(1);
+      await b.close();
+    });
+
+    test('a problem from a request stays until the buyer acts', () async {
+      serverReads.addAll(
+        List.filled(2, order(OrderStatus.paymentSubmitted)),
+      );
+      answers([const OrderCheckoutFailed('ESCROW_013', 502, 'telebirr')]);
+      final b = bloc();
+
+      b.add(const CheckoutStarted());
+      await expectLater(
+        b.stream,
+        emitsInOrder([
+          isA<CheckoutOpening>(),
+          const CheckoutProblem(CheckoutIssue.gateway),
+        ]),
+      );
+      b.add(const CheckoutRefreshed());
+      await pumpEventQueue();
+
+      expect(b.state, const CheckoutProblem(CheckoutIssue.gateway));
+      await b.close();
+    });
+
+    test('a KYC resubmit wakes a checkout stopped at "not sent"', () async {
+      serverReads.addAll([
+        order(OrderStatus.created),
+        null,
+        order(OrderStatus.paymentSubmitted),
+      ]);
+      localReads.addAll([
+        order(OrderStatus.created),
+        order(OrderStatus.paymentSubmitted),
+      ]);
+      answers([opened()]);
+      final b = bloc(mobile: true);
+
+      b.add(const CheckoutStarted());
+      await expectLater(
+        b.stream,
+        emits(const CheckoutStopped(CheckoutIssue.notSent)),
+      );
+      events
+        ..paymentResubmitted('another-order')
+        ..paymentResubmitted(orderId);
+      await expectLater(b.stream, emits(const CheckoutWaitingToSend()));
+      await b.close();
+    });
   });
 }

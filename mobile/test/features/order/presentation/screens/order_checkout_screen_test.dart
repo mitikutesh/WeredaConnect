@@ -30,6 +30,7 @@ void main() {
   late Duration monotonic;
   late List<Uri> launched;
   late StreamController<Uri> links;
+  late StreamController<void> network;
   late SecurityEvents events;
 
   Order order() => Order()
@@ -95,6 +96,7 @@ void main() {
           bloc: bloc(),
           isWeb: isWeb,
           returnLinks: links.stream,
+          connectivityRestored: network.stream,
           launcher: (uri) async {
             launched.add(uri);
             return true;
@@ -113,10 +115,14 @@ void main() {
     monotonic = Duration.zero;
     launched = [];
     links = StreamController<Uri>.broadcast();
+    network = StreamController<void>.broadcast();
     events = SecurityEvents.forTesting();
   });
 
-  tearDown(() => links.close());
+  tearDown(() async {
+    await links.close();
+    await network.close();
+  });
 
   /// Leave the screen so its timers stop before the test ends.
   Future<void> leave(WidgetTester tester) async {
@@ -213,6 +219,20 @@ void main() {
     await tester.pump();
     expect(reads, base + 1);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await leave(tester);
+  });
+
+  testWidgets('the network coming back reads at once, once', (tester) async {
+    opens();
+    await open(tester);
+    final base = reads;
+
+    network.add(null);
+    await tester.pump();
+    await tester.pump();
+
+    expect(reads, base + 1);
+    verify(() => escrow.openOrderCheckout(orderId)).called(1);
     await leave(tester);
   });
 
