@@ -187,10 +187,20 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
   /// The server delivery update enforces `#v = :expectedVersion` against the
   /// version it currently holds, so every mutation MUST send it (pre-increment)
   /// or the CAS conflicts and the transition silently reverts. No local store on
-  /// web means we must read it back before mutating.
+  /// web means we must read it back before mutating. Unlike [getDeliveryById]
+  /// this throws when the read fails: a guessed version would only conflict,
+  /// and a conflict is now reported as a failure.
   Future<int> _currentVersion(String deliveryId) async {
-    final current = await getDeliveryById(deliveryId, userId: '');
-    return current?.version ?? 1;
+    final data =
+        await _api.get<Map<String, dynamic>>('/deliveries/$deliveryId');
+    final envelope = data['delivery'] ?? data['item'];
+    final map = envelope is Map<String, dynamic>
+        ? envelope
+        : (data.containsKey('deliveryId') ? data : null);
+    if (map == null) {
+      throw NotFoundException('Delivery $deliveryId not found.');
+    }
+    return _parseDeliveryMap(map).version;
   }
 
   @override

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
@@ -7,7 +9,9 @@ import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/sync/sync_queue.dart';
 
 /// Isar-backed [MarketplaceSync] (mobile only — imports Isar, so it is
 /// constructed exclusively from `run_mobile.dart`, never on web).
@@ -132,6 +136,113 @@ class IsarMarketplaceSync implements MarketplaceSync {
     _lastOrderPull = DateTime.now();
   }
 
+  /// Undo the local change of an order operation the server refused for
+  /// good (the sync executor's `PermanentRejectionHandler`,
+  /// sync-protocol.md 1.10.0). Server wins:
+  /// - a refused `create` was never stored, so the local order is removed;
+  /// - a refused update is replaced by the server's order
+  ///   (`GET /orders/{id}`), unless another operation for it is still on its
+  ///   way, whose own outcome settles the row; the order is removed when the
+  ///   server says it does not exist or this user is not a party (404, 403);
+  /// - when that read fails (offline, 401, 5xx) the local version goes back
+  ///   to the one the refused operation was based on, so the next
+  ///   [pullOrders], which the rejected operation no longer blocks,
+  ///   overwrites the row.
+  ///
+  /// Every path clears the order pull stamp so that pull is not throttled.
+  /// Other entity types are left alone.
+  Future<void> revertRejected(SyncOperation operation, String message) async {
+    if (operation.entityType != 'order') return;
+    final orderId = operation.entityId;
+    _lastOrderPull = null;
+
+    if (operation.action == 'create') {
+      await _deleteLocalOrder(orderId);
+      return;
+    }
+    if (await _hasOpenUploads(operation.entityType, orderId)) return;
+
+    Order? server;
+    try {
+      final data = await _api.get<Map<String, dynamic>>('/orders/$orderId');
+      // GET /orders/{id} returns {"order": {...}}; accept `item` and a bare
+      // object too, like the web order repository.
+      final envelope = data['order'] ?? data['item'];
+      final map = envelope is Map<String, dynamic>
+          ? envelope
+          : (data.containsKey('orderId') ? data : null);
+      if (map != null) server = _parseOrder(map);
+    } on NotFoundException {
+      await _deleteLocalOrder(orderId);
+      return;
+    } on AuthException catch (e) {
+      if (e.statusCode == 403) {
+        await _deleteLocalOrder(orderId);
+        return;
+      }
+    } on Object {
+      // Offline or a server error: fall back to the next pull below.
+    }
+
+    final restored = server;
+    if (restored == null || restored.orderId != orderId) {
+      await _restoreBaseVersion(operation);
+      return;
+    }
+    await _isar.writeTxn(() async {
+      // A change made while the read was in flight wins over the restore.
+      if (await _hasOpenUploads(operation.entityType, orderId)) return;
+      final existing =
+          await _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
+      // No version guard: the local version is the refused optimistic one.
+      if (existing != null) restored.id = existing.id;
+      await _isar.orders.put(restored);
+    });
+  }
+
+  Future<void> _deleteLocalOrder(String orderId) async {
+    await _isar.writeTxn(() async {
+      await _isar.orders.filter().orderIdEqualTo(orderId).deleteAll();
+    });
+  }
+
+  /// Put the local order back on the version the refused operation was based
+  /// on (the optimistic write bumped it by one), so a pull is not skipped by
+  /// the "never regress" guard. No-op when the row moved on since.
+  Future<void> _restoreBaseVersion(SyncOperation operation) async {
+    int? base;
+    try {
+      final data = jsonDecode(operation.data);
+      if (data is Map) base = (data['version'] as num?)?.toInt();
+    } on FormatException {
+      return;
+    }
+    if (base == null) return;
+    final baseVersion = base;
+    await _isar.writeTxn(() async {
+      final local = await _isar.orders
+          .filter()
+          .orderIdEqualTo(operation.entityId)
+          .findFirst();
+      if (local == null || local.version != baseVersion + 1) return;
+      local.version = baseVersion;
+      await _isar.orders.put(local);
+    });
+  }
+
+  /// Whether an operation for this entity is still on its way to the server
+  /// (pending, syncing, or failed but retryable).
+  Future<bool> _hasOpenUploads(String entityType, String entityId) async {
+    final ops = await _isar.syncOperations
+        .filter()
+        .entityTypeEqualTo(entityType)
+        .entityIdEqualTo(entityId)
+        .not()
+        .statusEqualTo(SyncStatus.synced)
+        .findAll();
+    return ops.any((op) => !SyncQueue.isRejected(op));
+  }
+
   bool _isFresh(DateTime? last) =>
       last != null && DateTime.now().difference(last) < _minRefreshInterval;
 
@@ -183,13 +294,18 @@ class IsarMarketplaceSync implements MarketplaceSync {
 
   /// entityIds of local writes not yet confirmed synced to the server
   /// (pending / syncing / failed). These must survive a marketplace refresh.
+  /// Operations the server rejected for good never get there, so they do not
+  /// protect their row: a pull may overwrite it with the server's view.
   Future<Set<String>> _entityIdsWithPendingUploads() async {
     final ops = await _isar.syncOperations
         .filter()
         .not()
         .statusEqualTo(SyncStatus.synced)
         .findAll();
-    return ops.map((op) => op.entityId).toSet();
+    return ops
+        .where((op) => !SyncQueue.isRejected(op))
+        .map((op) => op.entityId)
+        .toSet();
   }
 
   Future<String?> _currentUserId() async {

@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.10.0
+1.11.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -246,12 +246,32 @@ in `escrow-protocol.md` 1.7.0. Nothing here is deployed yet.
   check (`ORDER_VALIDATION`, unchanged), then the write and the mock auto-fund. LOW keeps today's
   behaviour exactly. The tier is never returned to the client.
 - **Client action on `FRAUD_ACCOUNT_HELD`**: revert the local order status as for
-  `ORDER_KYC_REQUIRED`, show the message, do not retry. The mobile `SyncExecutor` reverts only on
-  `ORDER_KYC_REQUIRED` today, so FRD-06 adds the same hook for this code.
+  `ORDER_KYC_REQUIRED`, show the message, do not retry. Since 1.11.0 the mobile `SyncExecutor`
+  reverts every permanently rejected order operation (ESC-12), this code included; FRD-06 adds
+  its message.
+
+## Refused order changes (1.11.0, ESC-12 part A)
+
+Every `ORDER_*` error the server returns for an order operation, except
+`ORDER_KYC_REQUIRED`, is permanent: the same command gets the same answer. That
+includes the transition refusals above (`ORDER_VALIDATION`, `ORDER_UNAUTHORIZED`), the
+held-escrow refusal of an accept and the live payment range check. The mobile client
+stops retrying, puts the order back to the server's view (a refused create removes the
+local order) and tells the user, in their language, that the change was not allowed;
+web shows the same message from the refused call. A transient order failure must not
+use the `ORDER_` prefix. Details: `sync-protocol.md` 1.10.0. The KYC path above is
+unchanged.
+
+The mobile client also refuses locally, before anything is written or queued: a missing
+order, a farmer response from anyone but the order's farmer or on an order that is not
+`funded`, and a cancel from anyone but the buyer or farmer. Repeating what the order
+already shows (accept on `accepted`, pay on `payment_submitted`) is a no-op.
 
 ---
 
 ## Changelog
+
+- **1.11.0 (2026-10-09)**: Refused order changes (ESC-12 part A): every `ORDER_*` operation error but `ORDER_KYC_REQUIRED` is permanent; the client reverts the local order and explains the refusal in three languages; local guards refuse instead of reporting success; a transient order failure uses no `ORDER_` prefix. No server change.
 
 - **1.10.0 (2026-10-06)**: Order follows its delivery for pickup too (SIM-60): a client `pickup_confirmed` / `in_transit` is honoured only when the order's active delivery is already `pickedUp` or later / `inTransit` or later; an order without an active delivery is refused. The delivery update remains the normal path (it advances the order as a system actor).
 - **1.9.0 (2026-10-06)**: Fraud hold and risk tiers (planned FRD-03, FRD-04): no new order status; an order whose escrow is `held` shows "Under review" to all three roles; the farmer's accept of a funded order whose escrow is held is refused (`ORDER_VALIDATION`); an admin refund of an escrow held before a payout moves the order to `dispute_resolved` (`buyer_wins`), advancing an order left behind its confirmed delivery first; the refund-sweep hold is fenced on the order version; the refund sweep checks risk before cancelling or restocking a stale-funded order; `payment_submitted` gains the CRITICAL (`FRAUD_ACCOUNT_HELD`), MEDIUM and HIGH step-up rows and its gate order is stated; order create by a CRITICAL buyer is refused.

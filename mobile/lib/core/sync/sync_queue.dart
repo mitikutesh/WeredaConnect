@@ -203,9 +203,10 @@ class SyncQueue {
 
   /// Mark an operation as permanently rejected by the server.
   ///
-  /// Used for permanent server rejections (fraud detection, validation errors)
-  /// that will never succeed on retry. Sets [retryCount] above [maxRetries]
-  /// so [retryFailed] skips these operations.
+  /// Used for permanent server rejections (fraud detection, validation errors,
+  /// every `ORDER_*` code but `ORDER_KYC_REQUIRED`) that will never succeed on
+  /// retry. Sets [retryCount] above [maxRetries] so [retryFailed] skips these
+  /// operations.
   Future<void> markAsRejected(String operationId) async {
     final operation = await _findByOperationId(operationId);
     if (operation == null) return;
@@ -215,6 +216,43 @@ class SyncQueue {
       operation.status = SyncStatus.failed;
       await _isar.syncOperations.put(operation);
     });
+  }
+
+  /// Whether [op] was rejected by the server for good ([markAsRejected]), as
+  /// opposed to a transient failure that ran out of retries.
+  static bool isRejected(SyncOperation op) =>
+      op.status == SyncStatus.failed && op.retryCount > maxRetries;
+
+  /// Reject every not-yet-synced operation for one entity.
+  ///
+  /// Used after the server refused that entity's `create`: it never stored the
+  /// entity, so a queued update or delete for it can only get a transient
+  /// "not found" and would be retried forever.
+  ///
+  /// Returns the number of operations rejected.
+  Future<int> rejectOpenOperationsFor(
+    String entityType,
+    String entityId,
+  ) async {
+    final open = await _isar.syncOperations
+        .filter()
+        .entityTypeEqualTo(entityType)
+        .entityIdEqualTo(entityId)
+        .not()
+        .statusEqualTo(SyncStatus.synced)
+        .findAll();
+    final toReject = open.where((op) => !isRejected(op)).toList();
+    if (toReject.isEmpty) return 0;
+
+    await _isar.writeTxn(() async {
+      for (final op in toReject) {
+        op
+          ..status = SyncStatus.failed
+          ..retryCount = maxRetries + 1;
+        await _isar.syncOperations.put(op);
+      }
+    });
+    return toReject.length;
   }
 
   /// Reset permanently failed operations back to pending for retry.
@@ -287,11 +325,15 @@ class SyncQueue {
     return pendingCount + syncingCount;
   }
 
-  /// Get the count of permanently failed operations.
+  /// Get the count of failed operations a retry can still send: those that
+  /// ran out of retries. Operations the server rejected for good are terminal
+  /// (their reason was shown when they were rejected) and not counted, so the
+  /// count matches what [retryFailed] resets.
   Future<int> getFailedCount() async {
     return _isar.syncOperations
         .filter()
         .statusEqualTo(SyncStatus.failed)
+        .retryCountLessThan(maxRetries, include: true)
         .count();
   }
 

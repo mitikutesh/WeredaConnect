@@ -19,8 +19,14 @@ void main() {
       ),
       AppErrorCode.kycRequired,
     );
+    // Any other ORDER_* refusal is permanent and explained (ESC-12).
     expect(
       mapErrorToCode(const SyncRejectedException('ORDER_UNAUTHORIZED: no')),
+      AppErrorCode.orderRefused,
+    );
+    // Codes outside the ORDER_* family keep the generic server message.
+    expect(
+      mapErrorToCode(const SyncRejectedException('CROP_UNAUTHORIZED: no')),
       AppErrorCode.server,
     );
   });

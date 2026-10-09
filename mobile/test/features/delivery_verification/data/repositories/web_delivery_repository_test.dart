@@ -31,6 +31,18 @@ void main() {
   Map<String, dynamic> sentOp() =>
       (sentBody!['operations'] as List).first as Map<String, dynamic>;
 
+  void stubCurrentVersion(int version) {
+    when(() => api.get<Map<String, dynamic>>('/deliveries/del-1')).thenAnswer(
+      (_) async => {
+        'delivery': {
+          'deliveryId': 'del-1',
+          'status': 'pending',
+          'version': version,
+        },
+      },
+    );
+  }
+
   setUp(() {
     api = _MockApiClient();
     repository = WebDeliveryRepository(api: api);
@@ -295,9 +307,7 @@ void main() {
   // the mobile repository.
   group('photo refs in the sync op', () {
     setUp(() {
-      // The version read-back falls back to 1 when the GET fails.
-      when(() => api.get<Map<String, dynamic>>('/deliveries/del-1'))
-          .thenThrow(Exception('offline'));
+      stubCurrentVersion(2);
       answerSync({
         'results': [
           {'status': 'success'},
@@ -358,10 +368,65 @@ void main() {
     });
   });
 
+  // ESC-12: a conflict is a failure on web, so the version must be the real
+  // one. A failed read throws instead of guessing 1, and nothing is sent.
+  group('current version read-back', () {
+    test('mutations send the version the server holds', () async {
+      stubCurrentVersion(4);
+      answerSync({
+        'results': [
+          {'status': 'success'},
+        ],
+      });
+
+      await repository.markInTransit(
+        deliveryId: 'del-1',
+        truckerId: 'trucker-1',
+      );
+
+      expect((sentOp()['data'] as Map)['version'], 4);
+    });
+
+    test('a failed read throws and sends nothing', () async {
+      when(() => api.get<Map<String, dynamic>>('/deliveries/del-1'))
+          .thenThrow(const NetworkException());
+
+      await expectLater(
+        repository.markInTransit(deliveryId: 'del-1', truckerId: 'trucker-1'),
+        throwsA(isA<NetworkException>()),
+      );
+      expect(sentBody, isNull);
+    });
+
+    test('an empty read throws NotFoundException', () async {
+      when(() => api.get<Map<String, dynamic>>('/deliveries/del-1'))
+          .thenAnswer((_) async => <String, dynamic>{});
+
+      await expectLater(
+        repository.cancelDelivery(deliveryId: 'del-1', userId: 'trucker-1'),
+        throwsA(isA<NotFoundException>()),
+      );
+      expect(sentBody, isNull);
+    });
+
+    test('a version race (conflict) throws instead of reporting success',
+        () async {
+      stubCurrentVersion(2);
+      answerSync({
+        'results': [
+          {'status': 'conflict', 'message': 'Version conflict.'},
+        ],
+      });
+
+      await expectLater(
+        repository.markInTransit(deliveryId: 'del-1', truckerId: 'trucker-1'),
+        throwsA(isA<SyncConflictException>()),
+      );
+    });
+  });
+
   test('a deferred pickup throws instead of reporting success', () async {
-    // The version read-back falls back to 1 when the GET fails.
-    when(() => api.get<Map<String, dynamic>>('/deliveries/del-1'))
-        .thenThrow(Exception('offline'));
+    stubCurrentVersion(2);
     answerSync({
       'results': [
         {

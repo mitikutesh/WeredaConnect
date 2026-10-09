@@ -101,6 +101,16 @@ Future<void> runMobile({
     debugPrint('[SYNC] migration failed (non-fatal): $e');
   }
 
+  // Download side of sync: pulls the shared marketplace (all active crops +
+  // open trips) into Isar so a Buyer's browse and "Find matches" have data.
+  // The upload-only SyncWorker never fetches other users' data. Null on web.
+  // Built before the executor, which undoes refused order changes through it.
+  final marketplaceSync = IsarMarketplaceSync(
+    api: ApiClient(),
+    isar: IsarService.instance.db,
+    getCurrentUserId: () => secureStorage.read(key: AuthBloc.currentUserIdKey),
+  );
+
   final syncExecutor = SyncExecutor(
     syncQueue: syncQueue,
     connectivityMonitor: connectivityMonitor,
@@ -118,21 +128,15 @@ Future<void> runMobile({
         syncQueue: syncQueue,
       ).revertRejectedPaymentSubmission(operation.entityId);
     },
+    // Any other permanent order rejection: server wins, the local order goes
+    // back to the server's view (sync-protocol.md 1.10.0).
+    onPermanentRejection: marketplaceSync.revertRejected,
   );
   final syncWorker = SyncWorker(
     executor: syncExecutor,
     syncQueue: syncQueue,
   );
   syncWorker.start();
-
-  // Download side of sync: pulls the shared marketplace (all active crops +
-  // open trips) into Isar so a Buyer's browse and "Find matches" have data.
-  // The upload-only SyncWorker never fetches other users' data. Null on web.
-  final marketplaceSync = IsarMarketplaceSync(
-    api: ApiClient(),
-    isar: IsarService.instance.db,
-    getCurrentUserId: () => secureStorage.read(key: AuthBloc.currentUserIdKey),
-  );
 
   // Configure image cache for 2GB RAM devices
   imageCache.maximumSize = 50;

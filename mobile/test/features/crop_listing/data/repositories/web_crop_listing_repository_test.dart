@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/web_crop_listing_repository.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -139,6 +140,103 @@ void main() {
       expect(captured, hasLength(1));
       final params = captured.single as Map<String, dynamic>;
       expect(params, {'status': 'available', 'limit': '100'});
+    });
+  });
+
+  // ESC-12: the delete used to go out without a version, so the server's
+  // version check always conflicted and nothing was deleted; a conflict now
+  // fails on web, so the delete reads the real version first.
+  group('WebCropListingRepository.deleteListing', () {
+    late _MockApiClient api;
+    late WebCropListingRepository repository;
+    Map<String, dynamic>? sentBody;
+
+    setUp(() {
+      api = _MockApiClient();
+      repository = WebCropListingRepository(api: api);
+      sentBody = null;
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer((invocation) async {
+        sentBody = invocation.namedArguments[#data] as Map<String, dynamic>;
+        return {
+          'results': [
+            {'status': 'success'},
+          ],
+        };
+      });
+    });
+
+    void answerRead(int version) {
+      when(() => api.get<Map<String, dynamic>>('/crops/crop-1')).thenAnswer(
+        (_) async => {
+          'crop': {
+            'cropId': 'crop-1',
+            'farmerId': 'farmer-1',
+            'cropType': 'teff',
+            'status': 'available',
+            'version': version,
+          },
+        },
+      );
+    }
+
+    test('sends the version the server holds', () async {
+      answerRead(3);
+
+      await repository.deleteListing(listingId: 'crop-1', farmerId: 'farmer-1');
+
+      final op =
+          (sentBody!['operations'] as List).first as Map<String, dynamic>;
+      expect(op['action'], 'delete');
+      expect(op['data'], {'farmerId': 'farmer-1', 'version': 3});
+    });
+
+    test('a failed read throws and sends nothing (no guessed version)',
+        () async {
+      when(() => api.get<Map<String, dynamic>>('/crops/crop-1'))
+          .thenThrow(const NetworkException());
+
+      await expectLater(
+        repository.deleteListing(listingId: 'crop-1', farmerId: 'farmer-1'),
+        throwsA(isA<NetworkException>()),
+      );
+      expect(sentBody, isNull);
+    });
+
+    test('an empty read throws NotFoundException', () async {
+      when(() => api.get<Map<String, dynamic>>('/crops/crop-1'))
+          .thenAnswer((_) async => <String, dynamic>{});
+
+      await expectLater(
+        repository.deleteListing(listingId: 'crop-1', farmerId: 'farmer-1'),
+        throwsA(isA<NotFoundException>()),
+      );
+      expect(sentBody, isNull);
+    });
+
+    test('a version race throws SyncConflictException', () async {
+      answerRead(3);
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'results': [
+            {'status': 'conflict', 'message': 'Version conflict on delete.'},
+          ],
+        },
+      );
+
+      await expectLater(
+        repository.deleteListing(listingId: 'crop-1', farmerId: 'farmer-1'),
+        throwsA(isA<SyncConflictException>()),
+      );
     });
   });
 }

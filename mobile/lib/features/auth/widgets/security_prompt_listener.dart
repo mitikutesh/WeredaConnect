@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -28,6 +29,9 @@ typedef KycPaymentResubmitter = Future<void> Function(
 ///   account's owner, the same payment is queued again via
 ///   [SecurityPromptListener.resubmitPayment]; a failed or cancelled
 ///   verification leaves it unsent.
+/// - [SyncOperationRejected]: the server refused a queued order change for
+///   good and the local order was put back; a snackbar says why. It never
+///   waits for, or closes, an open prompt.
 ///
 /// Sits around the authenticated shell. Only one prompt shows at a time and
 /// repeats of the same kind while it is open are dropped. Cancelling the
@@ -84,6 +88,10 @@ class _SecurityPromptListenerState extends State<SecurityPromptListener> {
   }
 
   Future<void> _onEvent(SecurityEvent event) async {
+    if (event is SyncOperationRejected) {
+      _explainRejection(event);
+      return;
+    }
     if (_showing || !mounted) return;
     if (context.read<AuthBloc>().state is! AuthAuthenticated) return;
     _showing = true;
@@ -109,10 +117,28 @@ class _SecurityPromptListenerState extends State<SecurityPromptListener> {
             verificationScreen: widget.verificationScreen,
           );
           if (verified && mounted) await _resubmit(event);
+        case SyncOperationRejected():
+          // Shown by _explainRejection without the one-prompt gate.
+          break;
       }
     } finally {
       _showing = false;
     }
+  }
+
+  void _explainRejection(SyncOperationRejected event) {
+    if (!mounted) return;
+    if (context.read<AuthBloc>().state is! AuthAuthenticated) return;
+    final code = syncRejectionErrorCode(
+      entityType: event.entityType,
+      action: event.action,
+      message: event.message,
+    );
+    if (code == AppErrorCode.unknown) return;
+    final l10n = AppLocalizations.of(context)!;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(localizeErrorCode(code, l10n))),
+    );
   }
 
   /// The password prompt, or above 10,000 ETB (AUTH_041) the Fayda login.

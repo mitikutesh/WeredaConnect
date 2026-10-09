@@ -116,6 +116,14 @@ class AppLocalizationsEn extends AppLocalizations {
       'This was updated elsewhere. Refresh and try again.';
 
   @override
+  String get errorOrderRefused =>
+      'This order action isn\'t allowed now, so nothing was changed.';
+
+  @override
+  String get errorOrderNotPlaced =>
+      'This order could not be placed, so it was removed. Please order again.';
+
+  @override
   String get showingCachedResults =>
       'Showing saved results — couldn\'t refresh.';
 

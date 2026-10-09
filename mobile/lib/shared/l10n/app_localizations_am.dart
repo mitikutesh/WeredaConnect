@@ -114,6 +114,13 @@ class AppLocalizationsAm extends AppLocalizations {
   String get errorConflict => 'ይህ በሌላ ቦታ ተቀይሯል። እባክዎ አድሰው እንደገና ይሞክሩ።';
 
   @override
+  String get errorOrderRefused => 'ይህ የትዕዛዝ እርምጃ አሁን አይፈቀድም፣ ስለዚህ ምንም አልተቀየረም።';
+
+  @override
+  String get errorOrderNotPlaced =>
+      'ይህ ትዕዛዝ ሊገባ አልቻለም፣ ስለዚህ ተወግዷል። እባክዎ እንደገና ይዘዙ።';
+
+  @override
   String get showingCachedResults => 'የተቀመጡ ውጤቶችን በማሳየት ላይ — ማደስ አልተቻለም።';
 
   @override
