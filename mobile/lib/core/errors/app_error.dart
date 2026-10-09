@@ -33,7 +33,43 @@ enum AppErrorCode {
 
   /// The payment needs Fayda KYC or a verified phone (ORDER_KYC_REQUIRED).
   kycRequired,
+
+  /// The server refused an order change for good (any other `ORDER_*`
+  /// rejection), or a local guard refused it; nothing was changed.
+  orderRefused,
+
+  /// The server refused a queued order create, so the local order was
+  /// removed (mobile).
+  orderNotPlaced,
+
+  /// The rating already exists on the server (web create conflict).
+  alreadyRated,
+
+  /// The server refused a queued change (not an order) for good, so it was
+  /// never saved there.
+  changeNotSaved,
   unknown,
+}
+
+/// A local guard refused an order action before anything was written or
+/// queued: the caller is not the right party, or the order is in a status
+/// that does not allow it. Surfaced as [AppErrorCode.orderRefused].
+class OrderActionNotAllowedException implements Exception {
+  const OrderActionNotAllowedException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'OrderActionNotAllowedException: $message';
+}
+
+/// The server already holds this rating (one per order and ratee), so the
+/// create changed nothing. Surfaced as [AppErrorCode.alreadyRated].
+class AlreadyRatedException implements Exception {
+  const AlreadyRatedException();
+
+  @override
+  String toString() => 'AlreadyRatedException';
 }
 
 /// Classify a caught error into a stable [AppErrorCode].
@@ -53,6 +89,12 @@ AppErrorCode mapErrorToCode(Object error) {
       AppErrorCode.stepUpRequired,
     SyncRejectedException(:final message) when isKycRequiredMessage(message) =>
       AppErrorCode.kycRequired,
+    SyncConflictException() => AppErrorCode.conflict,
+    SyncRejectedException(:final message)
+        when isRevertableRejectionMessage(message) =>
+      AppErrorCode.orderRefused,
+    OrderActionNotAllowedException() => AppErrorCode.orderRefused,
+    AlreadyRatedException() => AppErrorCode.alreadyRated,
     TimeoutException() => AppErrorCode.timeout,
     NetworkException() => AppErrorCode.network,
     SecureConnectionException() => AppErrorCode.secureConnection,
@@ -83,12 +125,35 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.stepUpRequired => l10n.stepUpRequiredMessage,
     AppErrorCode.faydaStepUpRequired => l10n.faydaStepUpMessage,
     AppErrorCode.kycRequired => l10n.kycRequiredFaydaMessage,
+    AppErrorCode.orderRefused => l10n.errorOrderRefused,
+    AppErrorCode.orderNotPlaced => l10n.errorOrderNotPlaced,
+    AppErrorCode.alreadyRated => l10n.alreadyRated,
+    AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
     AppErrorCode.server ||
     AppErrorCode.unknown =>
       l10n.errorOccurred,
   };
+}
+
+/// The reason to show for an operation the sync queue rejected for good
+/// (mobile background sync, `SyncOperationRejected`). A refused order create
+/// removed the local order; any other refused order change was undone; any
+/// other refused change was not saved on the server.
+AppErrorCode syncRejectionErrorCode({
+  required String entityType,
+  required String action,
+  required String message,
+}) {
+  if (entityType == 'order') {
+    return action == 'create'
+        ? AppErrorCode.orderNotPlaced
+        : AppErrorCode.orderRefused;
+  }
+  return isRevertableRejectionMessage(message)
+      ? AppErrorCode.orderRefused
+      : AppErrorCode.changeNotSaved;
 }
 
 /// Convenience: classify and localize in one step from a caught error.

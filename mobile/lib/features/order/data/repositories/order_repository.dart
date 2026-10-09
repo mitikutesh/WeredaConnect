@@ -4,8 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 
@@ -13,6 +15,12 @@ import 'package:wereda_connect/features/order/domain/repositories/base_order_rep
 ///
 /// All writes go to local Isar first, then enqueue a sync operation.
 /// Reads are always from Isar (fast, works offline).
+///
+/// The update actions refuse instead of returning quietly: a missing order
+/// throws [NotFoundException], the wrong party or status throws
+/// [OrderActionNotAllowedException], and a failed enqueue puts the local
+/// order back and rethrows. Repeating an action the order already shows
+/// (accept on `accepted`, ...) is a no-op success.
 class OrderRepository extends BaseOrderRepository {
   final Isar _isar;
   final SyncQueue _syncQueue;
@@ -226,10 +234,9 @@ class OrderRepository extends BaseOrderRepository {
     String cbeTransactionId, {
     String paymentMethod = 'cbe_transfer',
   }) async {
-    final order =
-        await _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
-
-    if (order == null) return;
+    final order = await _findOrder(orderId);
+    // Already submitted (and still waiting to sync): nothing to send again.
+    if (order.status == OrderStatus.paymentSubmitted) return;
 
     final now = DateTime.now().toUtc();
     // Send the version the client HAD before this change: the server checks
@@ -237,29 +244,30 @@ class OrderRepository extends BaseOrderRepository {
     // conflict and get reverted by server-wins (same off-by-one fixed for trips).
     final baseVersion = order.version;
 
-    await _isar.writeTxn(() async {
-      order.cbeTransactionId = cbeTransactionId;
-      order.paymentMethod = paymentMethod;
-      order.status = OrderStatus.paymentSubmitted;
-      order.updatedAt = now;
-      order.version = baseVersion + 1;
-      await _isar.orders.put(order);
-    });
-
-    await _syncQueue.enqueue(
-      userId: order.buyerId,
-      entityType: 'order',
-      entityId: orderId,
-      action: 'update',
-      data: jsonEncode({
-        'orderId': orderId,
-        'cbeTransactionId': cbeTransactionId,
-        'paymentMethod': paymentMethod,
-        'status': orderStatusToWire(OrderStatus.paymentSubmitted.name),
-        'updatedAt': now.toIso8601String(),
-        'version': baseVersion,
-      }),
-      operationId: _uuid.v4(),
+    await _writeThenEnqueue(
+      order,
+      (o) {
+        o.cbeTransactionId = cbeTransactionId;
+        o.paymentMethod = paymentMethod;
+        o.status = OrderStatus.paymentSubmitted;
+        o.updatedAt = now;
+        o.version = baseVersion + 1;
+      },
+      () => _syncQueue.enqueue(
+        userId: order.buyerId,
+        entityType: 'order',
+        entityId: orderId,
+        action: 'update',
+        data: jsonEncode({
+          'orderId': orderId,
+          'cbeTransactionId': cbeTransactionId,
+          'paymentMethod': paymentMethod,
+          'status': orderStatusToWire(OrderStatus.paymentSubmitted.name),
+          'updatedAt': now.toIso8601String(),
+          'version': baseVersion,
+        }),
+        operationId: _uuid.v4(),
+      ),
     );
   }
 
@@ -298,74 +306,77 @@ class OrderRepository extends BaseOrderRepository {
     String userId, {
     String? reason,
   }) async {
-    final order =
-        await _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
-
-    if (order == null) return;
-    if (order.buyerId != userId && order.farmerId != userId) return;
+    final order = await _findOrder(orderId);
+    if (order.buyerId != userId && order.farmerId != userId) {
+      throw const OrderActionNotAllowedException(
+        'Only the buyer or the farmer can cancel this order.',
+      );
+    }
+    if (order.status == OrderStatus.cancelled) return;
 
     final now = DateTime.now().toUtc();
     final baseVersion = order.version;
 
-    await _isar.writeTxn(() async {
-      order.status = OrderStatus.cancelled;
-      order.cancelledAt = now;
-      order.cancelReason = reason;
-      order.updatedAt = now;
-      order.version = baseVersion + 1;
-      await _isar.orders.put(order);
-    });
-
-    await _syncQueue.enqueue(
-      userId: userId,
-      entityType: 'order',
-      entityId: orderId,
-      action: 'update',
-      data: jsonEncode({
-        'orderId': orderId,
-        'status': orderStatusToWire(OrderStatus.cancelled.name),
-        'cancelledAt': now.toIso8601String(),
-        if (reason != null) 'cancelReason': reason,
-        'updatedAt': now.toIso8601String(),
-        'version': baseVersion,
-      }),
-      operationId: _uuid.v4(),
+    await _writeThenEnqueue(
+      order,
+      (o) {
+        o.status = OrderStatus.cancelled;
+        o.cancelledAt = now;
+        o.cancelReason = reason;
+        o.updatedAt = now;
+        o.version = baseVersion + 1;
+      },
+      () => _syncQueue.enqueue(
+        userId: userId,
+        entityType: 'order',
+        entityId: orderId,
+        action: 'update',
+        data: jsonEncode({
+          'orderId': orderId,
+          'status': orderStatusToWire(OrderStatus.cancelled.name),
+          'cancelledAt': now.toIso8601String(),
+          if (reason != null) 'cancelReason': reason,
+          'updatedAt': now.toIso8601String(),
+          'version': baseVersion,
+        }),
+        operationId: _uuid.v4(),
+      ),
     );
   }
 
   /// Accept an order (farmer action).
   @override
   Future<void> acceptOrder(String orderId, String farmerId) async {
-    final order =
-        await _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
-
-    if (order == null || order.farmerId != farmerId) return;
-    if (order.status != OrderStatus.funded) return;
+    final order = await _findOrder(orderId);
+    _checkFarmerResponse(order, farmerId);
+    if (order.status == OrderStatus.accepted) return;
+    _checkFunded(order);
 
     final now = DateTime.now().toUtc();
     final baseVersion = order.version;
 
-    await _isar.writeTxn(() async {
-      order.status = OrderStatus.accepted;
-      order.respondedAt = now;
-      order.updatedAt = now;
-      order.version = baseVersion + 1;
-      await _isar.orders.put(order);
-    });
-
-    await _syncQueue.enqueue(
-      userId: farmerId,
-      entityType: 'order',
-      entityId: orderId,
-      action: 'update',
-      data: jsonEncode({
-        'orderId': orderId,
-        'status': orderStatusToWire(OrderStatus.accepted.name),
-        'respondedAt': now.toIso8601String(),
-        'updatedAt': now.toIso8601String(),
-        'version': baseVersion,
-      }),
-      operationId: _uuid.v4(),
+    await _writeThenEnqueue(
+      order,
+      (o) {
+        o.status = OrderStatus.accepted;
+        o.respondedAt = now;
+        o.updatedAt = now;
+        o.version = baseVersion + 1;
+      },
+      () => _syncQueue.enqueue(
+        userId: farmerId,
+        entityType: 'order',
+        entityId: orderId,
+        action: 'update',
+        data: jsonEncode({
+          'orderId': orderId,
+          'status': orderStatusToWire(OrderStatus.accepted.name),
+          'respondedAt': now.toIso8601String(),
+          'updatedAt': now.toIso8601String(),
+          'version': baseVersion,
+        }),
+        operationId: _uuid.v4(),
+      ),
     );
   }
 
@@ -376,38 +387,108 @@ class OrderRepository extends BaseOrderRepository {
     String farmerId, {
     String? reason,
   }) async {
-    final order =
-        await _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
-
-    if (order == null || order.farmerId != farmerId) return;
-    if (order.status != OrderStatus.funded) return;
+    final order = await _findOrder(orderId);
+    _checkFarmerResponse(order, farmerId);
+    if (order.status == OrderStatus.rejected) return;
+    _checkFunded(order);
 
     final now = DateTime.now().toUtc();
     final baseVersion = order.version;
 
+    await _writeThenEnqueue(
+      order,
+      (o) {
+        o.status = OrderStatus.rejected;
+        o.respondedAt = now;
+        o.rejectionReason = reason;
+        o.updatedAt = now;
+        o.version = baseVersion + 1;
+      },
+      () => _syncQueue.enqueue(
+        userId: farmerId,
+        entityType: 'order',
+        entityId: orderId,
+        action: 'update',
+        data: jsonEncode({
+          'orderId': orderId,
+          'status': orderStatusToWire(OrderStatus.rejected.name),
+          'respondedAt': now.toIso8601String(),
+          if (reason != null) 'rejectionReason': reason,
+          'updatedAt': now.toIso8601String(),
+          'version': baseVersion,
+        }),
+        operationId: _uuid.v4(),
+      ),
+    );
+  }
+
+  Future<Order> _findOrder(String orderId) async {
+    final order =
+        await _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
+    if (order == null) throw NotFoundException('Order $orderId not found.');
+    return order;
+  }
+
+  /// Only the order's farmer accepts or rejects it.
+  static void _checkFarmerResponse(Order order, String farmerId) {
+    if (order.farmerId != farmerId) {
+      throw const OrderActionNotAllowedException(
+        'Only the farmer of this order can respond to it.',
+      );
+    }
+  }
+
+  /// The farmer responds to a paid order only.
+  static void _checkFunded(Order order) {
+    if (order.status != OrderStatus.funded) {
+      throw OrderActionNotAllowedException(
+        'The order is ${order.status.name}; only a funded order can be '
+        'accepted or rejected.',
+      );
+    }
+  }
+
+  /// Apply [change] to the local order, then queue its sync operation. When
+  /// queueing fails (queue full, duplicate key) the local order is put back
+  /// as it was and the error is rethrown, so the caller never reports a
+  /// change that will not reach the server.
+  Future<void> _writeThenEnqueue(
+    Order order,
+    void Function(Order order) change,
+    Future<void> Function() enqueue,
+  ) async {
+    final before = (
+      status: order.status,
+      respondedAt: order.respondedAt,
+      rejectionReason: order.rejectionReason,
+      cancelledAt: order.cancelledAt,
+      cancelReason: order.cancelReason,
+      cbeTransactionId: order.cbeTransactionId,
+      paymentMethod: order.paymentMethod,
+      updatedAt: order.updatedAt,
+      version: order.version,
+    );
     await _isar.writeTxn(() async {
-      order.status = OrderStatus.rejected;
-      order.respondedAt = now;
-      order.rejectionReason = reason;
-      order.updatedAt = now;
-      order.version = baseVersion + 1;
+      change(order);
       await _isar.orders.put(order);
     });
-
-    await _syncQueue.enqueue(
-      userId: farmerId,
-      entityType: 'order',
-      entityId: orderId,
-      action: 'update',
-      data: jsonEncode({
-        'orderId': orderId,
-        'status': orderStatusToWire(OrderStatus.rejected.name),
-        'respondedAt': now.toIso8601String(),
-        if (reason != null) 'rejectionReason': reason,
-        'updatedAt': now.toIso8601String(),
-        'version': baseVersion,
-      }),
-      operationId: _uuid.v4(),
-    );
+    try {
+      await enqueue();
+    } on Object {
+      await _isar.writeTxn(() async {
+        order
+          ..status = before.status
+          ..respondedAt = before.respondedAt
+          ..rejectionReason = before.rejectionReason
+          ..cancelledAt = before.cancelledAt
+          ..cancelReason = before.cancelReason
+          ..cbeTransactionId = before.cbeTransactionId
+          ..paymentMethod = before.paymentMethod
+          ..updatedAt = before.updatedAt
+          ..version = before.version;
+        await _isar.orders.put(order);
+      });
+      rethrow;
+    }
   }
 }

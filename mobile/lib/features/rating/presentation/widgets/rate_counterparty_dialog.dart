@@ -11,7 +11,8 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 /// Dialog for a buyer to rate a counterparty (farmer or trucker) after a
 /// completed order. Requires an ancestor [RatingBloc] provider.
 ///
-/// Pops with `true` on a successful submit, `false`/null otherwise.
+/// Pops with `true` on a successful submit or when the rating already exists
+/// (sent from another device), `false`/null otherwise.
 class RateCounterpartyDialog extends StatefulWidget {
   final String orderId;
   final String raterId;
@@ -61,6 +62,11 @@ class _RateCounterpartyDialogState extends State<RateCounterpartyDialog> {
             SnackBar(content: Text(l10n.ratingThankYou)),
           );
         } else if (state is RatingError) {
+          // Rated already (from another device): close so the order screen
+          // reloads and shows it as rated.
+          if (state.code == AppErrorCode.alreadyRated) {
+            Navigator.of(context).pop(true);
+          }
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(localizeErrorCode(state.code, l10n))),
           );

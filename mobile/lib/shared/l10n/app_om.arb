@@ -135,6 +135,9 @@
   },
   "errorSessionExpired": "Yeroon seensa keessanii xumurameera. Maaloo irra deebi'aa seenaa.",
   "errorConflict": "Kun bakka biraatti jijjiirameera. Maaloo haaromsaa irra deebi'aa yaalaa.",
+  "errorOrderRefused": "Tarkaanfiin ajaja kanaa amma hin hayyamamu, kanaaf wanti jijjiirame hin jiru.",
+  "errorOrderNotPlaced": "Ajajni kun galmaa'uu hin dandeenye, kanaaf haqameera. Maaloo irra deebi'aa ajajaa.",
+  "errorChangeNotSaved": "Jijjiiramni kun sarvarii irratti olkaa'amuu hin dandeenye.",
   "showingCachedResults": "Bu'aawwan kuufaman agarsiisaa jira — haaromsuun hin dandaʼamne.",
   "dataWillSyncWhenOnline": "Yeroo online taatan deetaan keessan walsimsifama",
   "@dataWillSyncWhenOnline": {

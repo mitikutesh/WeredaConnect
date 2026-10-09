@@ -18,6 +18,12 @@ typedef KycRejectionHandler = Future<void> Function(
   String message,
 );
 
+/// Called when the server refused an operation for good (web stub, unused).
+typedef PermanentRejectionHandler = Future<void> Function(
+  SyncOperation operation,
+  String message,
+);
+
 /// Status of a sync batch execution.
 enum SyncBatchStatus {
   success,
@@ -70,6 +76,7 @@ class SyncExecutor {
     GetCurrentUserIdCallback? getCurrentUserId,
     dynamic securityEvents,
     KycRejectionHandler? onKycRequired,
+    PermanentRejectionHandler? onPermanentRejection,
   });
 
   Stream<SyncBatchResult> get onSyncResult => const Stream.empty();

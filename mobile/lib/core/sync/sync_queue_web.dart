@@ -36,6 +36,15 @@ class SyncQueue {
   Future<void> purgeOldSynced() async {}
 
   Future<int> retryFailed() async => 0;
+
+  /// No queue on web, so nothing is ever rejected.
+  static bool isRejected(SyncOperation op) => false;
+
+  Future<int> rejectOpenOperationsFor(
+    String entityType,
+    String entityId,
+  ) async =>
+      0;
 }
 
 /// Exception thrown when the sync queue is full.

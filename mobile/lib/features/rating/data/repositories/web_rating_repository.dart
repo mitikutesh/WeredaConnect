@@ -1,5 +1,6 @@
 import 'package:uuid/uuid.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/rating.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
@@ -57,7 +58,13 @@ class WebRatingRepository extends BaseRatingRepository {
         ],
       },
     );
-    ensureSyncSucceeded(response);
+    try {
+      ensureSyncSucceeded(response);
+    } on SyncConflictException {
+      // One rating per order and ratee: the server already has this one
+      // (e.g. sent from the phone), so this create changed nothing.
+      throw const AlreadyRatedException();
+    }
 
     return Rating()
       ..ratingId = ratingId

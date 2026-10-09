@@ -18,6 +18,7 @@ import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
 import 'package:wereda_connect/core/database/schemas/rating.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
@@ -198,5 +199,41 @@ void main() {
 
     final ops = await isar.syncOperations.where().findAll();
     expect(ops.map((o) => o.operationId), ['op-other']);
+  });
+
+  // ESC-12: sync refusals kept for a listener belong to the leaving user.
+  test('logout drops sync refusals kept for the next listener', () async {
+    final events = SecurityEvents.forTesting();
+    final bloc = AuthBloc(
+      authService: service,
+      offlineCache: cache,
+      isar: isar,
+      sessionExpired: const Stream.empty(),
+      securityEvents: events,
+    );
+    addTearDown(bloc.close);
+
+    bloc.add(
+      const AuthLoginRequested(phoneNumber: _phone, password: 'Secret123'),
+    );
+    await waitFor(bloc, (s) => s is AuthAuthenticated);
+    events.emit(
+      const SyncOperationRejected(
+        entityType: 'order',
+        entityId: 'o1',
+        action: 'update',
+        message: 'ORDER_VALIDATION: no',
+        userId: _me,
+      ),
+    );
+
+    bloc.add(const AuthLogoutRequested());
+    await waitFor(bloc, (s) => s is AuthUnauthenticated);
+
+    final received = <SecurityEvent>[];
+    final sub = events.events.listen(received.add);
+    await Future<void>.delayed(Duration.zero);
+    await sub.cancel();
+    expect(received, isEmpty);
   });
 }

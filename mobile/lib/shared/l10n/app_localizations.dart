@@ -304,6 +304,24 @@ abstract class AppLocalizations {
   /// **'This was updated elsewhere. Refresh and try again.'**
   String get errorConflict;
 
+  /// The server refused an order change for good (ORDER_* sync error) or the app refused it locally; on mobile the change was undone
+  ///
+  /// In en, this message translates to:
+  /// **'This order action isn\'t allowed now, so nothing was changed.'**
+  String get errorOrderRefused;
+
+  /// The server refused an order placed offline; the app removed the local order
+  ///
+  /// In en, this message translates to:
+  /// **'This order could not be placed, so it was removed. Please order again.'**
+  String get errorOrderNotPlaced;
+
+  /// The server refused a queued change for good (listing, trip, delivery, rating, message); it stays on this phone but was never saved
+  ///
+  /// In en, this message translates to:
+  /// **'This change could not be saved on the server.'**
+  String get errorChangeNotSaved;
+
   /// Banner when a marketplace refresh failed and cached data is shown
   ///
   /// In en, this message translates to:

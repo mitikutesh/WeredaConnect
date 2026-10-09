@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:collection';
 
-/// Something the user must act on before a money action can go through.
+/// Something background work cannot settle alone: a prompt the user must
+/// answer before a money action can go through, or a refusal the app must
+/// explain.
 sealed class SecurityEvent {
   const SecurityEvent();
 }
@@ -90,13 +93,47 @@ class KycRequired extends SecurityEvent {
       (paymentReference?.isNotEmpty ?? false);
 }
 
+/// The server refused a queued operation for good
+/// (specs/contracts/sync-protocol.md 1.10.0): the sync queue stopped
+/// retrying it (and undid the local change of an order), so the user must be
+/// told why.
+class SyncOperationRejected extends SecurityEvent {
+  /// The sync entity type (`order`, ...).
+  final String entityType;
+  final String entityId;
+
+  /// The refused sync action (`create`, `update`, `delete`).
+  final String action;
+
+  /// The server message (`ORDER_VALIDATION: ...`); English, never shown.
+  final String message;
+
+  /// Whose operation it was (the idempotency key's user), so another user
+  /// signed in on a shared device is not shown it. Null when unknown.
+  final String? userId;
+
+  const SyncOperationRejected({
+    required this.entityType,
+    required this.entityId,
+    required this.action,
+    required this.message,
+    this.userId,
+  });
+}
+
 /// App-wide bus between background workers (sync executor, escrow intent
 /// sync) and the UI.
 ///
 /// Workers raise [SecurityEvent]s they cannot resolve on their own; the
 /// `SecurityPromptListener` above the authenticated shell shows the matching
-/// dialog. After a successful step-up the UI calls [stepUpCompleted] and the
-/// workers retry their pending operations.
+/// dialog or message. After a successful step-up the UI calls
+/// [stepUpCompleted] and the workers retry their pending operations.
+///
+/// A [SyncOperationRejected] raised while nobody listens (the first sync
+/// runs before the signed-in shell mounts the listener) is kept, up to
+/// [maxUndeliveredRejections], and delivered to the first listener, so a
+/// change made offline and refused on the next launch is still explained.
+/// Logout drops them ([clearKeptRejections]).
 ///
 /// When the user cancels the step-up prompt, further [StepUpRequired] events
 /// are dropped for [stepUpCooldown] so every later background sync
@@ -119,8 +156,17 @@ class SecurityEvents {
   final DateTime Function() _now;
   DateTime? _stepUpDeclinedAt;
 
-  final StreamController<SecurityEvent> _events =
-      StreamController<SecurityEvent>.broadcast();
+  /// How many undelivered [SyncOperationRejected] events are kept; the
+  /// oldest is dropped beyond that.
+  static const maxUndeliveredRejections = 10;
+
+  final Queue<SyncOperationRejected> _undeliveredRejections =
+      ListQueue<SyncOperationRejected>();
+
+  late final StreamController<SecurityEvent> _events =
+      StreamController<SecurityEvent>.broadcast(
+    onListen: _deliverKeptRejections,
+  );
   final StreamController<void> _stepUpCompleted =
       StreamController<void>.broadcast();
 
@@ -131,11 +177,30 @@ class SecurityEvents {
   Stream<void> get onStepUpCompleted => _stepUpCompleted.stream;
 
   /// Raise an event for the UI. A [StepUpRequired] inside the cooldown
-  /// after a cancelled prompt is dropped.
+  /// after a cancelled prompt is dropped. A [SyncOperationRejected] with no
+  /// listener is kept for the first one.
   void emit(SecurityEvent event) {
     if (event is StepUpRequired && stepUpSuppressed) return;
-    if (!_events.isClosed) _events.add(event);
+    if (_events.isClosed) return;
+    if (event is SyncOperationRejected && !_events.hasListener) {
+      if (_undeliveredRejections.length >= maxUndeliveredRejections) {
+        _undeliveredRejections.removeFirst();
+      }
+      _undeliveredRejections.add(event);
+      return;
+    }
+    _events.add(event);
   }
+
+  void _deliverKeptRejections() {
+    while (_undeliveredRejections.isNotEmpty) {
+      _events.add(_undeliveredRejections.removeFirst());
+    }
+  }
+
+  /// Drop the kept [SyncOperationRejected] events (logout), so the next
+  /// account signed in on this device is not shown them.
+  void clearKeptRejections() => _undeliveredRejections.clear();
 
   /// True while a cancelled step-up prompt keeps background re-prompts quiet.
   bool get stepUpSuppressed {

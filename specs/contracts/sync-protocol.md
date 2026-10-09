@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.9.0
+1.10.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -165,7 +165,7 @@ When the client receives `status: "conflict"`:
 
 These rules must always hold:
 
-1. **No data loss.** An operation in the client's local queue is never silently dropped. It either succeeds, conflicts (with resolution), or errors (with retry).
+1. **No data loss.** An operation in the client's local queue is never silently dropped. It either succeeds, conflicts (with resolution), errors (with retry), or is rejected for good, in which case the client undoes its local change and tells the user why (1.10.0).
 2. **Idempotent retries.** Sending the same `idempotencyKey` twice from the same caller produces the same result. Another user's key never affects your operations.
 3. **Monotonic versions.** Entity versions only increase. A version number is never reused or decremented.
 4. **Offline queue persistence.** The client's sync queue survives app restarts and device reboots (Isar database).
@@ -198,6 +198,7 @@ These rules must always hold:
 - 409 Conflict → Resolve conflict, mark as `synced` (not retry)
 - 422 Unprocessable Entity → Mark as `failed`, requires data fix
 - Fraud rejections (`FRAUD_*`, including `FRAUD_ACCOUNT_HELD` since 1.9.0, and `SYNC_VALIDATION`) → Mark as permanently rejected
+- Order rejections (every `ORDER_*` code except `ORDER_KYC_REQUIRED`, since 1.10.0) → Mark as permanently rejected and revert the local order (see Permanent order rejections)
 
 **Retry State Management**:
 - `retryCount` field in `SyncOperation` entity tracks attempts (only incremented by server errors, not network failures)
@@ -283,11 +284,53 @@ unsent. Clients fall back to the wording ("farmer", "phone") for servers older t
 The message after `FRAUD_ACCOUNT_HELD:` is `Your account is under review. Some actions are paused.
 Contact support.` The risk tier and score are never part of the response. The shipped mobile
 `SyncExecutor` already treats every `FRAUD_` prefix as permanent, so permanence needs no change;
-the payment revert and the message need a `SyncExecutor` change (FRD-06), because today only
-`ORDER_KYC_REQUIRED` reverts the local order and the batch error message names only
+since 1.10.0 it also reverts a permanently rejected order operation (Permanent order rejections),
+so only the message needs FRD-06: the batch error message names only
 `FRAUD_DUPLICATE_LISTING` and `FRAUD_VELOCITY_EXCEEDED`. The web repositories, which call the API
 directly, handle the code in FRD-06 too. Design:
 `specs/architecture/fraud-detection-architecture.md` 3.0.0, section 17.
+
+---
+
+## Permanent order rejections (1.10.0, ESC-12 part A)
+
+Every `ORDER_*` operation error except `ORDER_KYC_REQUIRED` is permanent: sending
+the same payload again gets the same answer. Today the server sends
+`ORDER_VALIDATION:` and `ORDER_UNAUTHORIZED:`; the planned `ORDER_DEADLINE_PASSED`,
+`ORDER_CANCEL_NOT_ALLOWED`, `ORDER_ACTION_NOT_ALLOWED`, `ORDER_TRIP_NOT_ELIGIBLE` and
+`ORDER_TRANSPORT_ATTEMPTS_EXCEEDED` fall under the same rule. `ORDER_KYC_REQUIRED`
+keeps its own revert and Fayda prompt (1.4.0, 1.5.0).
+
+Mobile client (sync queue):
+
+| Case | Client action |
+|------|---------------|
+| `ORDER_*` error | Mark the operation rejected: it is never sent again and a reconnect does not reset it. A rejected order operation is not counted as failed (it was reverted and explained). |
+| Refused order `create` | The server never stored the order: remove the local order. |
+| Refused order update | Re-read `GET /orders/{id}` and replace the local order with it (server wins), unless another operation for that order is still queued (its own outcome settles the row). A 404 or 403 on that read removes the local order. Any other failed read (offline, 401, 5xx) puts the local version back to the lowest version the order's refused operations sent, so the next pull overwrites the row. |
+| Any other permanent rejection of an order operation (`FRAUD_*`, `SYNC_VALIDATION`, a whole batch refused with HTTP 400 or 422) | Reverted the same way. FRD-06 adds the `FRAUD_ACCOUNT_HELD` wording. |
+| Any refused `create` (every entity type, every permanent code) | Also reject the operations queued behind it for that entity: they could only get a transient "not found" and would be resent forever. |
+| Permanent rejection of any other entity (listing, trip, delivery, rating, message) | Not reverted until part B. Explained (the listing-form wording for `FRAUD_DUPLICATE_LISTING` and `FRAUD_VELOCITY_EXCEEDED`, otherwise "This change could not be saved on the server") and still counted as failed, because its local change never reached the server. Background match events are neither. |
+| Pulls | A rejected operation no longer protects its row: `GET /orders` (and the crop, trip and delivery pulls) may overwrite it. Pending, syncing and retryable failed operations still do. |
+| Reason | A localized message (en, am, om) says the change was not allowed, that a refused order was removed, or that a change was not saved. Refusals from one batch share one message per distinct text. A rejection raised before the signed-in screen listens (the first sync after a launch) is kept, up to 10, and shown once it does; it is shown only to the user whose operation it was, and logout drops kept ones. |
+
+Web client (no queue, calls `/sync` directly): a `conflict` result is a failure, like
+`error` and `deferred`, because nothing was written. Before an update the web client reads
+the entity's current version and fails when that read fails, instead of guessing one. A
+rating `create` answered `conflict` means the rating already exists.
+
+Rules for server authors:
+- An `ORDER_*` operation error must be deterministic. A transient order failure uses no
+  `ORDER_` prefix: the unprefixed `Order not found.` on an update stays retryable.
+- `ORDER_VALIDATION: Unknown fields: ...` is now permanent, so the server must accept a
+  new order field before any client sends it.
+- `REPUTATION_RESTRICTED`, `TRIP_HAS_BOOKINGS`, `TRIP_CAPACITY_EXCEEDED`,
+  `CROP_HAS_ACTIVE_ORDERS` and `APP_UPDATE_REQUIRED` are not supported by clients until
+  ESC-12 part B (trip and crop revert, their own messages). A server must not send them
+  before that ships (spec `three-party-escrow-commitments-reputation.md` K1: client
+  support first).
+
+Clients older than 1.10.0 keep retrying `ORDER_*` errors and need no server change.
 
 ---
 
@@ -295,6 +338,7 @@ directly, handle the code in FRD-06 too. Design:
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.10.0 | 2026-10-09 | Permanent order rejections (ESC-12 part A): every `ORDER_*` operation error except `ORDER_KYC_REQUIRED` is permanent; the mobile client marks it rejected, reverts the local order (create: remove it; update: re-read `GET /orders/{id}`, 404/403 remove it, other failures restore the lowest sent version), shows a localized reason (kept until the UI listens, per user, dropped on logout), rejects the operations queued behind any refused create, and stops rejected operations from blocking pulls; other permanent rejections of order operations are reverted the same way; other entities' permanent rejections are explained and still counted as failed; web treats `conflict` as a failure and reads versions strictly; server rules for `ORDER_*` errors and new order fields; the five non-order codes wait for part B |
 | 1.9.0 | 2026-10-06 | `FRAUD_ACCOUNT_HELD:` operation error (planned FRD-04) on crop, trip and order create and on order `payment_submitted`, permanent under the existing `FRAUD_*` rule; `AUTH_040:` and `AUTH_041:` may also come from the account's risk tier at any amount; `ORDER_VALIDATION:` on the farmer's accept while the order's escrow is `held` (planned FRD-03) |
 | 1.7.0 | 2026-10-01 | Idempotency keys are scoped to the authenticated caller (SIM-48, ESC-11, SEC-03): another user's key can no longer pre-claim yours; documented-format keys are stored unchanged, other keys as `{sub}:{key}`; no client change |
 | 1.6.0 | 2026-09-29 | Payment step-up tiers: `AUTH_040` on every `payment_submitted` up to 10,000 ETB without a fresh password; `AUTH_041` above 10,000 ETB without a fresh Fayda login (the password does not count) |
@@ -307,5 +351,5 @@ directly, handle the code in FRD-06 too. Design:
 
 ---
 
-**Last Updated**: 2026-10-06
-**Version**: 1.9.0
+**Last Updated**: 2026-10-09
+**Version**: 1.10.0

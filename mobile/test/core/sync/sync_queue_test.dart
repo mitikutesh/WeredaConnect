@@ -332,6 +332,97 @@ void main() {
       expect(failedCount, 1);
     });
 
+    // ESC-12: rejected ops are terminal; the failed count is what Retry can
+    // still send.
+    test(
+        'getFailedCount leaves out only rejected order ops (reverted and '
+        'explained) and rejected match events (background)', () async {
+      for (final (id, entityType) in [
+        ('op-exhausted', 'order'),
+        ('op-rejected', 'order'),
+        ('op-crop-rejected', 'crop_listing'),
+        ('op-match-rejected', 'match_event'),
+      ]) {
+        await syncQueue.enqueue(
+          userId: 'user-001',
+          entityType: entityType,
+          entityId: '$entityType-$id',
+          action: 'update',
+          data: '{}',
+          operationId: id,
+        );
+      }
+      for (var i = 0; i < 3; i++) {
+        await syncQueue.markAsFailed('op-exhausted');
+      }
+      await syncQueue.markAsRejected('op-rejected');
+      // A refused listing stays on the phone but never reached the server:
+      // it keeps counting so Home still shows it.
+      await syncQueue.markAsRejected('op-crop-rejected');
+      // Matching analytics the user never made: never a "failed" item.
+      await syncQueue.markAsRejected('op-match-rejected');
+
+      expect(await syncQueue.getFailedCount(), 2);
+      expect(
+        SyncQueue.isRejected((await syncQueue.getOperation('op-rejected'))!),
+        isTrue,
+      );
+      expect(
+        SyncQueue.isRejected((await syncQueue.getOperation('op-exhausted'))!),
+        isFalse,
+      );
+      // Retry resets the exhausted op; the rejected listing stays counted.
+      expect(await syncQueue.retryFailed(), 1);
+      expect(await syncQueue.getFailedCount(), 1);
+    });
+
+    test('rejectOpenOperationsFor rejects only that entity\'s open ops',
+        () async {
+      Future<void> add(String id, String entityType, String entityId) =>
+          syncQueue.enqueue(
+            userId: 'user-001',
+            entityType: entityType,
+            entityId: entityId,
+            // A distinct action keeps the idempotency keys apart.
+            action: 'update-$id',
+            data: '{}',
+            operationId: id,
+          );
+      await add('op-pending', 'order', 'order-1');
+      await add('op-syncing', 'order', 'order-1');
+      await add('op-failed', 'order', 'order-1');
+      await add('op-synced', 'order', 'order-1');
+      await add('op-other-entity', 'order', 'order-2');
+      await add('op-other-type', 'delivery', 'order-1');
+      await syncQueue.markAsSyncing('op-syncing');
+      await syncQueue.markAsFailed('op-failed');
+      await syncQueue.markAsSynced('op-synced');
+
+      expect(await syncQueue.rejectOpenOperationsFor('order', 'order-1'), 3);
+
+      for (final id in ['op-pending', 'op-syncing', 'op-failed']) {
+        expect(
+          SyncQueue.isRejected((await syncQueue.getOperation(id))!),
+          isTrue,
+          reason: id,
+        );
+      }
+      expect(
+        (await syncQueue.getOperation('op-synced'))!.status,
+        SyncStatus.synced,
+      );
+      for (final id in ['op-other-entity', 'op-other-type']) {
+        expect(
+          (await syncQueue.getOperation(id))!.status,
+          SyncStatus.pending,
+          reason: id,
+        );
+      }
+      // Already rejected ops are not counted twice.
+      expect(await syncQueue.rejectOpenOperationsFor('order', 'order-1'), 0);
+      expect(await syncQueue.retryFailed(), 0);
+    });
+
     test('duplicate idempotency key throws DuplicateOperationException',
         () async {
       await syncQueue.enqueue(

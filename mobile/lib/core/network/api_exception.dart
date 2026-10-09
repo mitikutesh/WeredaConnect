@@ -85,6 +85,16 @@ bool isFaydaStepUpRequiredMessage(String? message) =>
 bool isKycRequiredMessage(String? message) =>
     message != null && message.startsWith(orderKycRequiredCode);
 
+/// Whether a /sync per-operation error message is a permanent order
+/// rejection whose local change the client must undo: every `ORDER_*` code
+/// except `ORDER_KYC_REQUIRED`, which keeps its own revert and Fayda prompt
+/// (specs/contracts/sync-protocol.md 1.10.0). Replaying the same payload gets
+/// the same answer, so these are never retried.
+bool isRevertableRejectionMessage(String? message) =>
+    message != null &&
+    message.startsWith('ORDER_') &&
+    !isKycRequiredMessage(message);
+
 /// Request validation error (400)
 final class ValidationException extends ApiException {
   const ValidationException(
@@ -184,8 +194,18 @@ final class SyncDeferredException extends SyncRejectedException {
   const SyncDeferredException(super.message);
 }
 
+/// The server answered a /sync operation with `status == "conflict"`: the
+/// version the client sent is behind (someone changed the entity first), or
+/// a create named an entity that already exists. Nothing was written. The
+/// native sync queue resolves these server-wins; web has no queue, so it is a
+/// failure there.
+final class SyncConflictException extends SyncRejectedException {
+  const SyncConflictException(super.message);
+}
+
 /// Throws [SyncRejectedException] if any operation in a /sync batch response
-/// reports `status == "error"`, or [SyncDeferredException] for `"deferred"`.
+/// reports `status == "error"`, [SyncDeferredException] for `"deferred"`, or
+/// [SyncConflictException] for `"conflict"`.
 ///
 /// No-op when the response shape is unexpected (e.g. an empty body) so it
 /// never masks an otherwise-successful write.
@@ -200,6 +220,9 @@ void ensureSyncSucceeded(Map<String, dynamic> syncResponse) {
     }
     if (result['status'] == 'deferred') {
       throw SyncDeferredException(message ?? 'Sync operation was deferred.');
+    }
+    if (result['status'] == 'conflict') {
+      throw SyncConflictException(message ?? 'Sync operation conflicted.');
     }
   }
 }

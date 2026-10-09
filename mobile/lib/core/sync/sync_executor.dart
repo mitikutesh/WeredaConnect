@@ -47,6 +47,16 @@ typedef KycRejectionHandler = Future<void> Function(
   String message,
 );
 
+/// Called once per entity when the server refused an operation for good and
+/// the local change must be undone: any `ORDER_*` rejection but
+/// `ORDER_KYC_REQUIRED`, and any other permanent rejection of an order
+/// operation (sync-protocol.md 1.10.0). [message] is the server message, or
+/// empty when the whole batch was refused (HTTP 400/422).
+typedef PermanentRejectionHandler = Future<void> Function(
+  SyncOperation operation,
+  String message,
+);
+
 /// Status of a sync batch execution.
 enum SyncBatchStatus {
   /// All operations in the batch succeeded or resolved conflicts.
@@ -217,7 +227,15 @@ class SyncBatchResult {
 ///   [SecurityEvents.stepUpCompleted]
 /// - `error` with `ORDER_KYC_REQUIRED` → reject, undo the local change via
 ///   [KycRejectionHandler], ask the UI to offer Fayda verification
+/// - `error` with any other `ORDER_*` code, `FRAUD_*`, `SYNC_VALIDATION` or
+///   `DELIVERY_ORDER_REQUIRED` → reject (never retried) and explain through a
+///   [SyncOperationRejected] event; a refused order change is first undone
+///   via [PermanentRejectionHandler]
 /// - `error` → mark failed (retry up to 3 times via [SyncQueue])
+///
+/// A refused `create` also rejects the operations queued behind it for that
+/// entity: the server never stored it, so they could only loop on a
+/// transient "not found".
 ///
 /// Error handling per HTTP error:
 /// - Network/timeout → revert to pending without retry count increment
@@ -243,6 +261,7 @@ class SyncExecutor {
   final GetCurrentUserIdCallback? _getCurrentUserId;
   final SecurityEvents _securityEvents;
   final KycRejectionHandler? _onKycRequired;
+  final PermanentRejectionHandler? _onPermanentRejection;
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   StreamSubscription<void>? _stepUpSubscription;
@@ -299,6 +318,7 @@ class SyncExecutor {
     GetCurrentUserIdCallback? getCurrentUserId,
     SecurityEvents? securityEvents,
     KycRejectionHandler? onKycRequired,
+    PermanentRejectionHandler? onPermanentRejection,
   })  : _syncQueue = syncQueue,
         _connectivityMonitor = connectivityMonitor,
         _dio = dio,
@@ -309,7 +329,8 @@ class SyncExecutor {
         _onSyncComplete = onSyncComplete,
         _getCurrentUserId = getCurrentUserId,
         _securityEvents = securityEvents ?? SecurityEvents.instance,
-        _onKycRequired = onKycRequired;
+        _onKycRequired = onKycRequired,
+        _onPermanentRejection = onPermanentRejection;
 
   /// Stream of sync batch results for UI indicators.
   ///
@@ -458,6 +479,10 @@ class SyncExecutor {
           break;
         }
 
+        // Nothing is left to send (every failure was a rejection for good or
+        // ran out of retries): stop instead of backing off for nothing.
+        if (await _syncQueue.getPendingCount() == 0) break;
+
         // Other errors — apply exponential backoff
         if (consecutiveFailures < retryDelays.length) {
           await Future<void>.delayed(retryDelays[consecutiveFailures]);
@@ -579,6 +604,7 @@ class SyncExecutor {
     var stepUpRequired = 0;
     var faydaStepUpRequired = false;
     final operationErrors = <String, String>{};
+    final rejected = <(SyncOperation, String?)>[];
 
     // Build lookup map for O(1) access by operationId
     final opMap = {for (final op in operations) op.operationId: op};
@@ -688,10 +714,12 @@ class SyncExecutor {
           if (message != null) {
             operationErrors[operationId] = message;
           }
-          // Permanent server rejections (fraud, validation) will never
-          // succeed on retry — mark as rejected so retryFailed() skips them.
+          // Permanent server rejections (fraud, validation, ORDER_*) will
+          // never succeed on retry, so mark them rejected (retryFailed()
+          // skips them); they are settled after the batch.
           if (_isPermanentRejection(message)) {
             await _syncQueue.markAsRejected(operationId);
+            rejected.add((operation, message));
           } else {
             await _syncQueue.markAsFailed(operationId);
           }
@@ -708,6 +736,8 @@ class SyncExecutor {
         failed++;
       }
     }
+
+    await _settleRejections(rejected);
 
     if (stepUpRequired > 0) {
       // One prompt for the batch. Fayda wins: after a Fayda login the
@@ -792,6 +822,7 @@ class SyncExecutor {
           for (final op in operations) {
             await _syncQueue.markAsRejected(op.operationId);
           }
+          await _settleRejections([for (final op in operations) (op, null)]);
         } else {
           await _markBatchFailed(operations);
         }
@@ -841,12 +872,75 @@ class SyncExecutor {
   /// on retry, so these operations should not be retried on reconnect.
   /// DELIVERY_ORDER_REQUIRED is deterministic: the queued payload lacks an
   /// orderId and replaying the identical payload can never succeed (delivery
-  /// creates enqueued before the orderId requirement shipped).
+  /// creates enqueued before the orderId requirement shipped). Every
+  /// `ORDER_*` code but `ORDER_KYC_REQUIRED` (matched earlier) is
+  /// deterministic too (sync-protocol.md 1.10.0).
   static bool _isPermanentRejection(String? message) {
     if (message == null) return false;
     return message.startsWith('FRAUD_') ||
         message.startsWith('SYNC_VALIDATION') ||
-        message.startsWith('DELIVERY_ORDER_REQUIRED');
+        message.startsWith('DELIVERY_ORDER_REQUIRED') ||
+        isRevertableRejectionMessage(message);
+  }
+
+  /// Background operations the user never made (matching analytics): a
+  /// refusal is not announced.
+  static const _unannouncedEntityTypes = {'match_event'};
+
+  /// Settle the operations a batch just rejected for good ([message] is null
+  /// when the whole batch was refused):
+  /// - a refused `create` rejects the operations queued behind it for that
+  ///   entity, which could only loop on a transient "not found";
+  /// - a refused order change (or any `ORDER_*` refusal) is undone through
+  ///   [PermanentRejectionHandler];
+  /// - every refusal is announced as a [SyncOperationRejected] event, once
+  ///   per entity. The batch's events go out together after every undo has
+  ///   finished: a screen that reloads reads the reverted rows, and the UI
+  ///   can show a refused batch as one message even when each undo waited
+  ///   on a slow read.
+  Future<void> _settleRejections(
+    List<(SyncOperation, String?)> rejected,
+  ) async {
+    for (final (operation, _) in rejected) {
+      if (operation.action == 'create') {
+        await _syncQueue.rejectOpenOperationsFor(
+          operation.entityType,
+          operation.entityId,
+        );
+      }
+    }
+
+    final settled = <String>{};
+    final announcements = <SyncOperationRejected>[];
+    for (final (operation, message) in rejected) {
+      if (_unannouncedEntityTypes.contains(operation.entityType)) continue;
+      if (!settled.add('${operation.entityType}:${operation.entityId}')) {
+        continue;
+      }
+      final reason = message ?? '';
+      if (operation.entityType == 'order' ||
+          isRevertableRejectionMessage(message)) {
+        try {
+          await _onPermanentRejection?.call(operation, reason);
+        } on Object catch (e) {
+          debugPrint('[SYNC] permanent rejection handler failed: $e');
+        }
+      }
+      // The key starts with its user's id, the same prefix the queue uses
+      // to keep users apart (getPendingOperationsForUser).
+      final key = operation.idempotencyKey;
+      final separator = key.indexOf(':');
+      announcements.add(
+        SyncOperationRejected(
+          entityType: operation.entityType,
+          entityId: operation.entityId,
+          action: operation.action,
+          message: reason,
+          userId: separator > 0 ? key.substring(0, separator) : null,
+        ),
+      );
+    }
+    announcements.forEach(_securityEvents.emit);
   }
 
   /// Mark all operations in a batch as failed (increments retry count).

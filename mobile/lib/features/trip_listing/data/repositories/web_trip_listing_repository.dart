@@ -127,7 +127,7 @@ class WebTripListingRepository extends BaseTripListingRepository {
     // silently leaving the trip open.
     final version = await _currentTripVersion(tripId);
     final now = DateTime.now().toUtc().toIso8601String();
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -149,6 +149,9 @@ class WebTripListingRepository extends BaseTripListingRepository {
         ],
       },
     );
+    // /sync answers HTTP 200 per operation: a refused or raced cancel must not
+    // look like success.
+    ensureSyncSucceeded(response);
   }
 
   @override
@@ -158,7 +161,7 @@ class WebTripListingRepository extends BaseTripListingRepository {
   }) async {
     final version = await _currentTripVersion(tripId);
     final now = DateTime.now().toUtc().toIso8601String();
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -180,6 +183,7 @@ class WebTripListingRepository extends BaseTripListingRepository {
         ],
       },
     );
+    ensureSyncSucceeded(response);
 
     // Fetch the updated trip from server
     final data = await _api.get<Map<String, dynamic>>('/trips/$tripId');
@@ -193,7 +197,7 @@ class WebTripListingRepository extends BaseTripListingRepository {
   }) async {
     final version = await _currentTripVersion(tripId);
     final now = DateTime.now().toUtc().toIso8601String();
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -215,6 +219,7 @@ class WebTripListingRepository extends BaseTripListingRepository {
         ],
       },
     );
+    ensureSyncSucceeded(response);
 
     final data = await _api.get<Map<String, dynamic>>('/trips/$tripId');
     return _parseSingleTrip(data);

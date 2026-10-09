@@ -117,6 +117,18 @@ class AppLocalizationsOm extends AppLocalizations {
       'Kun bakka biraatti jijjiirameera. Maaloo haaromsaa irra deebi\'aa yaalaa.';
 
   @override
+  String get errorOrderRefused =>
+      'Tarkaanfiin ajaja kanaa amma hin hayyamamu, kanaaf wanti jijjiirame hin jiru.';
+
+  @override
+  String get errorOrderNotPlaced =>
+      'Ajajni kun galmaa\'uu hin dandeenye, kanaaf haqameera. Maaloo irra deebi\'aa ajajaa.';
+
+  @override
+  String get errorChangeNotSaved =>
+      'Jijjiiramni kun sarvarii irratti olkaa\'amuu hin dandeenye.';
+
+  @override
   String get showingCachedResults =>
       'Bu\'aawwan kuufaman agarsiisaa jira — haaromsuun hin dandaʼamne.';
 

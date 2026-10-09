@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -28,6 +29,11 @@ typedef KycPaymentResubmitter = Future<void> Function(
 ///   account's owner, the same payment is queued again via
 ///   [SecurityPromptListener.resubmitPayment]; a failed or cancelled
 ///   verification leaves it unsent.
+/// - [SyncOperationRejected]: the server refused a queued change for good
+///   (a refused order change was already put back); a snackbar says why.
+///   It never waits for, or closes, an open prompt. Refusals that arrive
+///   together (one sync batch) share snackbars: one per distinct message.
+///   Another user's refusal (shared device) is not shown.
 ///
 /// Sits around the authenticated shell. Only one prompt shows at a time and
 /// repeats of the same kind while it is open are dropped. Cancelling the
@@ -66,8 +72,14 @@ class SecurityPromptListener extends StatefulWidget {
 }
 
 class _SecurityPromptListenerState extends State<SecurityPromptListener> {
+  /// How long refusals are gathered before they are shown, so a refused
+  /// batch reads as one message instead of a queue of identical snackbars.
+  static const _rejectionBurst = Duration(milliseconds: 300);
+
   StreamSubscription<SecurityEvent>? _sub;
   bool _showing = false;
+  final List<String> _rejectionTexts = [];
+  Timer? _rejectionTimer;
 
   SecurityEvents get _events => widget.events ?? SecurityEvents.instance;
 
@@ -80,10 +92,15 @@ class _SecurityPromptListenerState extends State<SecurityPromptListener> {
   @override
   void dispose() {
     _sub?.cancel();
+    _rejectionTimer?.cancel();
     super.dispose();
   }
 
   Future<void> _onEvent(SecurityEvent event) async {
+    if (event is SyncOperationRejected) {
+      _explainRejection(event);
+      return;
+    }
     if (_showing || !mounted) return;
     if (context.read<AuthBloc>().state is! AuthAuthenticated) return;
     _showing = true;
@@ -109,9 +126,54 @@ class _SecurityPromptListenerState extends State<SecurityPromptListener> {
             verificationScreen: widget.verificationScreen,
           );
           if (verified && mounted) await _resubmit(event);
+        case SyncOperationRejected():
+          // Shown by _explainRejection without the one-prompt gate.
+          break;
       }
     } finally {
       _showing = false;
+    }
+  }
+
+  void _explainRejection(SyncOperationRejected event) {
+    if (!mounted) return;
+    final auth = context.read<AuthBloc>().state;
+    if (auth is! AuthAuthenticated) return;
+    if (event.userId != null && event.userId != auth.userId) return;
+    final text = _rejectionText(event, AppLocalizations.of(context)!);
+    if (!_rejectionTexts.contains(text)) _rejectionTexts.add(text);
+    _rejectionTimer ??= Timer(_rejectionBurst, _showRejections);
+  }
+
+  /// The fraud checks keep the wording the listing form uses; everything
+  /// else goes through [syncRejectionErrorCode].
+  String _rejectionText(SyncOperationRejected event, AppLocalizations l10n) {
+    final message = event.message;
+    if (message.startsWith('FRAUD_DUPLICATE_LISTING')) {
+      return l10n.fraudDuplicateListing;
+    }
+    if (message.startsWith('FRAUD_VELOCITY_EXCEEDED')) {
+      // The server's listing limit resets at the next UTC hour.
+      return l10n.fraudVelocityExceeded(60 - DateTime.now().toUtc().minute);
+    }
+    return localizeErrorCode(
+      syncRejectionErrorCode(
+        entityType: event.entityType,
+        action: event.action,
+        message: message,
+      ),
+      l10n,
+    );
+  }
+
+  void _showRejections() {
+    _rejectionTimer = null;
+    final texts = List.of(_rejectionTexts);
+    _rejectionTexts.clear();
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    for (final text in texts) {
+      messenger?.showSnackBar(SnackBar(content: Text(text)));
     }
   }
 

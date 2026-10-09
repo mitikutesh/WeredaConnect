@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/order/data/repositories/web_order_repository.dart';
 
 class MockApiClient extends Mock implements ApiClient {}
@@ -225,6 +226,57 @@ void main() {
       final all = await repo.getOrdersByFarmer('farmer-1');
 
       expect(all.length, 2);
+    });
+  });
+
+  // ESC-12: web has no queue, so a refused action or a version race must fail
+  // instead of looking done.
+  group('WebOrderRepository refused actions', () {
+    void answerSync(Map<String, dynamic> result) {
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-1'))
+          .thenAnswer((_) async => {'order': orderDto(status: 'funded')});
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'results': [result],
+        },
+      );
+    }
+
+    test('a version race on accept throws SyncConflictException', () async {
+      answerSync({
+        'status': 'conflict',
+        'serverVersion': 2,
+        'message': 'Version conflict.',
+      });
+
+      await expectLater(
+        repo.acceptOrder('ord-1', 'farmer-1'),
+        throwsA(isA<SyncConflictException>()),
+      );
+    });
+
+    test('an ORDER_* refusal throws with the server message', () async {
+      answerSync({
+        'status': 'error',
+        'message': 'ORDER_VALIDATION: This order is under review and cannot '
+            'be accepted. Contact support.',
+      });
+
+      await expectLater(
+        repo.acceptOrder('ord-1', 'farmer-1'),
+        throwsA(
+          isA<SyncRejectedException>().having(
+            (e) => e.message,
+            'message',
+            startsWith('ORDER_VALIDATION'),
+          ),
+        ),
+      );
     });
   });
 }

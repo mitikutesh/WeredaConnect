@@ -601,5 +601,68 @@ void main() {
         returnsNormally,
       );
     });
+
+    // ESC-12: a version race wrote nothing, so web must not report success.
+    test('throws SyncConflictException on a conflict', () {
+      final response = {
+        'results': [
+          {
+            'operationId': 'op-1',
+            'status': 'conflict',
+            'serverVersion': 4,
+            'message': 'Version conflict.',
+          },
+        ],
+      };
+
+      expect(
+        () => ensureSyncSucceeded(response),
+        throwsA(
+          isA<SyncConflictException>()
+              .having((e) => e.message, 'message', 'Version conflict.'),
+        ),
+      );
+      // Callers that catch SyncRejectedException still see it.
+      expect(
+        () => ensureSyncSucceeded(response),
+        throwsA(isA<SyncRejectedException>()),
+      );
+    });
+  });
+
+  group('isRevertableRejectionMessage', () {
+    test('every ORDER_* code but ORDER_KYC_REQUIRED', () {
+      for (final message in [
+        'ORDER_VALIDATION: Invalid status transition.',
+        'ORDER_UNAUTHORIZED: You can only update orders you are a participant '
+            'in.',
+        'ORDER_DEADLINE_PASSED: too late',
+        'ORDER_ACTION_NOT_ALLOWED: no',
+      ]) {
+        expect(isRevertableRejectionMessage(message), isTrue, reason: message);
+      }
+      expect(
+        isRevertableRejectionMessage('ORDER_KYC_REQUIRED: buyer_fayda: x'),
+        isFalse,
+      );
+    });
+
+    test('nothing else, and only on the prefix', () {
+      for (final message in [
+        null,
+        '',
+        'Order not found.',
+        'FRAUD_VELOCITY_EXCEEDED: slow down',
+        'CROP_UNAUTHORIZED: no',
+        'AUTH_040: step-up required',
+        'x ORDER_VALIDATION',
+      ]) {
+        expect(
+          isRevertableRejectionMessage(message),
+          isFalse,
+          reason: '$message',
+        );
+      }
+    });
   });
 }

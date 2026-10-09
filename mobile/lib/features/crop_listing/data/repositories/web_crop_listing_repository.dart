@@ -164,6 +164,10 @@ class WebCropListingRepository extends BaseCropListingRepository {
     required String listingId,
     required String farmerId,
   }) async {
+    // The server deletes only at the version it holds (`#v = :expectedVersion`)
+    // and reads a missing version as 0, so a versionless delete always
+    // conflicted and silently did nothing. Web keeps no local copy: read it.
+    final version = await _currentListingVersion(listingId);
     final now = DateTime.now().toUtc().toIso8601String();
     final response = await _api.post<Map<String, dynamic>>(
       '/sync',
@@ -178,12 +182,29 @@ class WebCropListingRepository extends BaseCropListingRepository {
             'entityId': listingId,
             'timestamp': now,
             'idempotencyKey': 'web_delete_${listingId}_$now',
-            'data': {'farmerId': farmerId},
+            'data': {'farmerId': farmerId, 'version': version},
           },
         ],
       },
     );
     ensureSyncSucceeded(response);
+  }
+
+  /// The listing's current server version. Unlike [getListingById] this
+  /// throws when the read fails, so a delete never goes out with a guessed
+  /// version.
+  Future<int> _currentListingVersion(String listingId) async {
+    final data = await _api.get<Map<String, dynamic>>('/crops/$listingId');
+    final envelope = data['crop'] ?? data['item'];
+    final map = envelope is Map<String, dynamic>
+        ? envelope
+        : (data.containsKey('cropId') || data.containsKey('listingId')
+            ? data
+            : null);
+    if (map == null) {
+      throw NotFoundException('Crop listing $listingId not found.');
+    }
+    return _parseListingMap(map).version;
   }
 
   @override

@@ -135,6 +135,9 @@
   },
   "errorSessionExpired": "ክፍለ ጊዜዎ አብቅቷል። እባክዎ እንደገና ይግቡ።",
   "errorConflict": "ይህ በሌላ ቦታ ተቀይሯል። እባክዎ አድሰው እንደገና ይሞክሩ።",
+  "errorOrderRefused": "ይህ የትዕዛዝ እርምጃ አሁን አይፈቀድም፣ ስለዚህ ምንም አልተቀየረም።",
+  "errorOrderNotPlaced": "ይህ ትዕዛዝ ሊገባ አልቻለም፣ ስለዚህ ተወግዷል። እባክዎ እንደገና ይዘዙ።",
+  "errorChangeNotSaved": "ይህ ለውጥ በአገልጋዩ ላይ ሊቀመጥ አልቻለም።",
   "showingCachedResults": "የተቀመጡ ውጤቶችን በማሳየት ላይ — ማደስ አልተቻለም።",
   "dataWillSyncWhenOnline": "መስመር ላይ ሲሆኑ መረጃዎ ይመሳሰላል",
   "@dataWillSyncWhenOnline": {
