@@ -2850,4 +2850,88 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get kycPhoneNotProven =>
       'ID Faayidaa keessan mirkanaa\'eera, garuu Faayidaan lakkoofsa bilbila herrega kanaa hin qabu, kanaaf bilbilli keessan ammallee hin mirkanoofne. Kaffaltiin hin ergamne.';
+
+  @override
+  String get payWithTelebirr => 'Telebirr\'n kaffalaa';
+
+  @override
+  String telebirrLivePayInstructions(String amount) {
+    return '$amount Telebirr\'n ni kaffaltu. Yeroo xumurtan gara appii kanaatti deebi\'aa. Kaffaltiin ofumaan ni mirkanaa\'a.';
+  }
+
+  @override
+  String get orderCheckoutTitle => 'Kaffaltii Telebirr';
+
+  @override
+  String get orderCheckoutWaitingToSend =>
+      'Kaffaltiin keessan ergamuuf eegaa jira. Yeroo sarvarii bira gahu Telebirr ni banama.';
+
+  @override
+  String orderCheckoutOpenUntil(String time) {
+    return 'Kaffaltii kana Telebirr keessatti hanga $time tti xumuruu dandeessu.';
+  }
+
+  @override
+  String get orderCheckoutWindowClosed =>
+      'Fuulli kaffaltii Telebirr kun cufameera. Kaffaluuf haaraa jalqabaa.';
+
+  @override
+  String get orderCheckoutStartNew => 'Kaffaltii Telebirr haaraa jalqabaa';
+
+  @override
+  String get orderCheckoutCheckAgain => 'Haala kaffaltii ilaalaa';
+
+  @override
+  String get orderCheckoutStillWaiting =>
+      'Hanga ammaatti kaffaltii hin arganne. Yoo kaffaltan, Haala kaffaltii ilaalaa tuqaa.';
+
+  @override
+  String get orderCheckoutTimeRanOut =>
+      'Yeroon ajaja kanaaf kaffaluu darbeera. Ajajni kun akka hin milkoofnetti ni mallattaa\'a, achiis irra deebitanii kaffaluu dandeessu.';
+
+  @override
+  String get orderCheckoutNotWaiting =>
+      'Ajajni kun kana booda kaffaltii hin eeggatu.';
+
+  @override
+  String get orderCheckoutNotPayableOnline =>
+      'Ajajni kun toora interneetiin kaffalamuu hin danda\'u. Deeggarsa qunnamaa.';
+
+  @override
+  String get orderCheckoutConfirmedAutomatically =>
+      'Asitti kaffaltiin ofumaan mirkanaa\'a. Ajaja keessan ilaalaa jirra...';
+
+  @override
+  String get orderCheckoutAlreadyOpen =>
+      'Kaffaltiin Telebirr ajaja kanaa qophaa\'aa jira ykn addaan citeera. Yoo duraan kaffaltan, asitti ni mirkanaa\'a. Yoo hin taane, booda irra deebi\'aa yaalaa (hanga sa\'aatii 2 fudhachuu danda\'a).';
+
+  @override
+  String get orderCheckoutGatewayProblem =>
+      'Telebirr kaffaltii jalqabuu hin dandeenye. Yoo duraan kaffaltan, asitti ni mirkanaa\'a. Yoo hin taane, irra deebi\'aa yaalaa.';
+
+  @override
+  String get orderCheckoutOrderMissing =>
+      'Ajajni kun ammallee sarvarii irra hin jiru. Erga walsimee booda irra deebi\'aa yaalaa.';
+
+  @override
+  String get orderCheckoutPaymentFailed =>
+      'Kaffaltiin kun yeroon mirkanaa\'uu hin dandeenye. Irra deebitanii kaffaluu dandeessu.';
+
+  @override
+  String get orderCheckoutNotSent =>
+      'Kaffaltiin keessan hin ergamne. Irra deebi\'uuf ajaja banaa.';
+
+  @override
+  String get orderCheckoutCheckingPayment =>
+      'Kaffaltii keessan ilaalaa jirra...';
+
+  @override
+  String get paymentTotalOutOfRange =>
+      'Telebirr kaffaltii tokkoon qarshii 100 hanga 500,000 fudhata. Waliigalli ajaja kanaa kanaan ala waan ta\'eef, Telebirr\'n kaffalamuu hin danda\'u.';
+
+  @override
+  String get continuePayment => 'Kaffaltii itti fufaa';
+
+  @override
+  String get payAgain => 'Irra deebi\'aa kaffalaa';
 }

@@ -1,7 +1,9 @@
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/payment_intent.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_config.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/features/escrow_payment/data/models/escrow_models.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
 
@@ -48,6 +50,26 @@ class WebEscrowRepository extends BaseEscrowRepository {
       return _mapApiException(e);
     } on Exception catch (e) {
       return EscrowError('ESCROW_CLIENT', e.toString());
+    }
+  }
+
+  @override
+  Future<OrderCheckoutResult> openOrderCheckout(String orderId) async {
+    try {
+      final response = await _api.postWithServerDate<Map<String, dynamic>>(
+        ApiConfig.escrowOrderCheckout,
+        data: {'orderId': orderId},
+      );
+      final checkout = OrderCheckoutResponse.fromJson(response.data);
+      return OrderCheckoutOpened(
+        toPayUrl: checkout.toPayUrl,
+        openUntil: checkout.openUntil,
+        amount: checkout.amount,
+        isExisting: checkout.isExisting,
+        serverDate: response.serverDate,
+      );
+    } on ApiException catch (e) {
+      return orderCheckoutFailureOf(e);
     }
   }
 

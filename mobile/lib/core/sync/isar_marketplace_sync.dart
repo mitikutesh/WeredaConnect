@@ -136,6 +136,38 @@ class IsarMarketplaceSync implements MarketplaceSync {
     _lastOrderPull = DateTime.now();
   }
 
+  @override
+  Future<Order?> pullOrder(String orderId) async {
+    if (await _hasOpenUploads('order', orderId)) return null;
+    final server = await _getServerOrder(orderId);
+    if (server == null || server.orderId != orderId) return null;
+    await _isar.writeTxn(() async {
+      // A change made while the read was in flight wins over the server copy.
+      if (await _hasOpenUploads('order', orderId)) return;
+      final existing =
+          await _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
+      if (existing != null) {
+        if (server.version < existing.version) return;
+        server.id = existing.id;
+      }
+      await _isar.orders.put(server);
+    });
+    return server;
+  }
+
+  /// `GET /orders/{id}`: the server's order, or null when the response holds
+  /// none. Errors (offline, 404, 403) propagate.
+  Future<Order?> _getServerOrder(String orderId) async {
+    final data = await _api.get<Map<String, dynamic>>('/orders/$orderId');
+    // GET /orders/{id} returns {"order": {...}}; accept `item` and a bare
+    // object too, like the web order repository.
+    final envelope = data['order'] ?? data['item'];
+    final map = envelope is Map<String, dynamic>
+        ? envelope
+        : (data.containsKey('orderId') ? data : null);
+    return map == null ? null : _parseOrder(map);
+  }
+
   /// Undo the local change of an order operation the server refused for
   /// good (the sync executor's `PermanentRejectionHandler`,
   /// sync-protocol.md 1.10.0). Server wins:
@@ -170,14 +202,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
 
     Order? server;
     try {
-      final data = await _api.get<Map<String, dynamic>>('/orders/$orderId');
-      // GET /orders/{id} returns {"order": {...}}; accept `item` and a bare
-      // object too, like the web order repository.
-      final envelope = data['order'] ?? data['item'];
-      final map = envelope is Map<String, dynamic>
-          ? envelope
-          : (data.containsKey('orderId') ? data : null);
-      if (map != null) server = _parseOrder(map);
+      server = await _getServerOrder(orderId);
     } on NotFoundException {
       await _deleteLocalOrder(orderId);
       return;

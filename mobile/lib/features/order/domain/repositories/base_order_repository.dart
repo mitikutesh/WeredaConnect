@@ -39,9 +39,13 @@ abstract class BaseOrderRepository {
     double? commissionRate,
   });
 
+  /// The buyer's `payment_submitted`. [cbeTransactionId] is the demo
+  /// transfer reference; live Telebirr payments send none (ESC-44), they are
+  /// matched by the server's checkout. A retry after `payment_failed` is the
+  /// same single change (order-lifecycle 1.13.0).
   Future<void> submitPayment(
     String orderId,
-    String cbeTransactionId, {
+    String? cbeTransactionId, {
     String paymentMethod = 'cbe_transfer',
   });
 

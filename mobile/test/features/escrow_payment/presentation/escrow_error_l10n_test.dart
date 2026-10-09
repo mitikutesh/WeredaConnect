@@ -58,5 +58,32 @@ void main() {
         l10n.escrowErrorGeneric,
       );
     });
+
+    test(
+        'ESCROW_030 to ESCROW_033 (order checkout, ESC-44) have their own '
+        'messages in all three languages', () async {
+      for (final code in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(code));
+        final messages = {
+          for (final escrowCode in [
+            'ESCROW_030',
+            'ESCROW_031',
+            'ESCROW_032',
+            'ESCROW_033',
+          ])
+            escrowCode: localizeEscrowError(l10n, escrowCode, 'raw'),
+        };
+
+        expect(messages['ESCROW_030'], l10n.orderCheckoutNotWaiting);
+        expect(
+          messages['ESCROW_031'],
+          l10n.orderCheckoutConfirmedAutomatically,
+        );
+        expect(messages['ESCROW_032'], l10n.orderCheckoutAlreadyOpen);
+        expect(messages['ESCROW_033'], l10n.orderCheckoutOrderMissing);
+        expect(messages.values.toSet(), hasLength(4), reason: code);
+        expect(messages.values, isNot(contains(l10n.escrowErrorGeneric)));
+      }
+    });
   });
 }

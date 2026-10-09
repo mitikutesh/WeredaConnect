@@ -2743,4 +2743,85 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get kycPhoneNotProven =>
       'የፋይዳ መታወቂያዎ ተረጋግጧል፣ ነገር ግን ፋይዳ የዚህን መለያ ስልክ ቁጥር አልያዘም፣ ስለዚህ ስልክዎ አሁንም አልተረጋገጠም። ክፍያው አልተላከም።';
+
+  @override
+  String get payWithTelebirr => 'በቴሌብር ይክፈሉ';
+
+  @override
+  String telebirrLivePayInstructions(String amount) {
+    return '$amount በቴሌብር ይከፍላሉ። ሲጨርሱ ወደዚህ መተግበሪያ ይመለሱ። ክፍያው በራስ-ሰር ይረጋገጣል።';
+  }
+
+  @override
+  String get orderCheckoutTitle => 'የቴሌብር ክፍያ';
+
+  @override
+  String get orderCheckoutWaitingToSend =>
+      'ክፍያዎ ለመላክ እየጠበቀ ነው። ወደ ሰርቨሩ ሲደርስ ቴሌብር ይከፈታል።';
+
+  @override
+  String orderCheckoutOpenUntil(String time) {
+    return 'ይህን ክፍያ በቴሌብር እስከ $time ድረስ ማጠናቀቅ ይችላሉ።';
+  }
+
+  @override
+  String get orderCheckoutWindowClosed =>
+      'ይህ የቴሌብር ክፍያ ገጽ ተዘግቷል። ለመክፈል አዲስ ይጀምሩ።';
+
+  @override
+  String get orderCheckoutStartNew => 'አዲስ የቴሌብር ክፍያ ይጀምሩ';
+
+  @override
+  String get orderCheckoutCheckAgain => 'የክፍያ ሁኔታን ያረጋግጡ';
+
+  @override
+  String get orderCheckoutStillWaiting =>
+      'ክፍያውን እስካሁን አልተቀበልንም። ከከፈሉ፣ የክፍያ ሁኔታን ያረጋግጡ የሚለውን ይንኩ።';
+
+  @override
+  String get orderCheckoutTimeRanOut =>
+      'የዚህ ትዕዛዝ የመክፈያ ጊዜ አልፏል። ትዕዛዙ እንዳልተሳካ ምልክት ይደረግበታል፣ ከዚያ እንደገና መክፈል ይችላሉ።';
+
+  @override
+  String get orderCheckoutNotWaiting => 'ይህ ትዕዛዝ ከእንግዲህ ክፍያ እየጠበቀ አይደለም።';
+
+  @override
+  String get orderCheckoutNotPayableOnline =>
+      'ይህ ትዕዛዝ በመስመር ላይ ሊከፈል አይችልም። ድጋፍ ሰጪን ያግኙ።';
+
+  @override
+  String get orderCheckoutConfirmedAutomatically =>
+      'እዚህ ክፍያዎች በራስ-ሰር ይረጋገጣሉ። ትዕዛዝዎን በማረጋገጥ ላይ...';
+
+  @override
+  String get orderCheckoutAlreadyOpen =>
+      'ለዚህ ትዕዛዝ የቴሌብር ክፍያ እየተዘጋጀ ነው ወይም ተቋርጧል። አስቀድመው ከከፈሉ፣ እዚህ ይረጋገጣል። ካልሆነ ቆይተው እንደገና ይሞክሩ (እስከ 2 ሰዓት ሊወስድ ይችላል)።';
+
+  @override
+  String get orderCheckoutGatewayProblem =>
+      'ቴሌብር ክፍያውን መጀመር አልቻለም። አስቀድመው ከከፈሉ፣ እዚህ ይረጋገጣል። ካልሆነ እንደገና ይሞክሩ።';
+
+  @override
+  String get orderCheckoutOrderMissing =>
+      'ይህ ትዕዛዝ ገና ሰርቨሩ ላይ የለም። ከተመሳሰለ በኋላ እንደገና ይሞክሩ።';
+
+  @override
+  String get orderCheckoutPaymentFailed =>
+      'ይህ ክፍያ በጊዜው ሊረጋገጥ አልቻለም። እንደገና መክፈል ይችላሉ።';
+
+  @override
+  String get orderCheckoutNotSent => 'ክፍያዎ አልተላከም። እንደገና ለመሞከር ትዕዛዙን ይክፈቱ።';
+
+  @override
+  String get orderCheckoutCheckingPayment => 'ክፍያዎን በማረጋገጥ ላይ...';
+
+  @override
+  String get paymentTotalOutOfRange =>
+      'ቴሌብር በአንድ ክፍያ ከ100 እስከ 500,000 ብር ይቀበላል። የዚህ ትዕዛዝ ጠቅላላ ዋጋ ከዚህ ውጭ ስለሆነ በቴሌብር ሊከፈል አይችልም።';
+
+  @override
+  String get continuePayment => 'ክፍያውን ይቀጥሉ';
+
+  @override
+  String get payAgain => 'እንደገና ይክፈሉ';
 }

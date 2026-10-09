@@ -476,4 +476,65 @@ void main() {
       expect(find.text('Delivery operation failed'), findsNothing);
     });
   });
+
+  group('OrderDetailScreen buyer payment actions (ESC-44)', () {
+    const payLabels = ['Pay Now', 'Pay again', 'Continue payment'];
+
+    for (final (status, label) in [
+      (OrderStatus.created, 'Pay Now'),
+      (OrderStatus.pendingPayment, 'Pay Now'),
+      (OrderStatus.paymentFailed, 'Pay again'),
+      (OrderStatus.paymentSubmitted, 'Continue payment'),
+    ]) {
+      testWidgets('buyer sees "$label" on a ${status.name} order',
+          (tester) async {
+        stubAuth(UserRole.buyer, _buyerId);
+        await tester.pumpWidget(buildScreen(_makeOrder(status: status)));
+        await tester.pumpAndSettle();
+
+        expect(find.text(label), findsOneWidget);
+        for (final other in payLabels.where((l) => l != label)) {
+          expect(find.text(other), findsNothing);
+        }
+      });
+
+      for (final (role, userId) in [
+        (UserRole.farmer, _farmerId),
+        (UserRole.trucker, _truckerId),
+      ]) {
+        testWidgets(
+            '${role.name} sees no payment action on a ${status.name} '
+            'order', (tester) async {
+          stubAuth(role, userId);
+          await tester.pumpWidget(
+            buildScreen(
+              _makeOrder(
+                status: status,
+                tripId: _tripId,
+                truckerId: _truckerId,
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          for (final label in payLabels) {
+            expect(find.text(label), findsNothing);
+          }
+        });
+      }
+    }
+
+    testWidgets('a funded order offers the buyer no payment action',
+        (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(
+        buildScreen(_makeOrder(status: OrderStatus.funded)),
+      );
+      await tester.pumpAndSettle();
+
+      for (final label in payLabels) {
+        expect(find.text(label), findsNothing);
+      }
+    });
+  });
 }

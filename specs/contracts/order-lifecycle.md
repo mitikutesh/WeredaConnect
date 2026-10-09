@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.12.0
+1.13.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -39,7 +39,7 @@ statuses are camelCase on the wire).
 | 10 | `settled` | Farmer received the money. Order complete. | Paid out. Terminal. | **System only** |
 | — | `cancelled` | Order cancelled (buyer action, or auto-cancel — see below). Escrowed money, if any, refunds to the buyer. | Refunded/none. Terminal. | Buyer / system cron |
 | — | `rejected` | Farmer declined the funded order; escrow refunds to the buyer. | Refunded. Terminal. | Farmer |
-| — | `payment_failed` | Payment could not be verified: the order cron sets it 24 hours after `paymentSubmittedAt` when no payment was confirmed (1.7.0). Buyer may retry (`→ pending_payment`) or cancel. | No confirmed money. | **System only** (enforced since 1.7.0) |
+| — | `payment_failed` | Payment could not be verified: the order cron sets it 24 hours after `paymentSubmittedAt` when no payment was confirmed (1.7.0). Buyer may retry (`→ payment_submitted` directly since 1.13.0, or `→ pending_payment`) or cancel. | No confirmed money. | **System only** (enforced since 1.7.0) |
 | — | `disputed` | Dispute raised within the window; escrow keeps holding the money. Ratings are blocked while disputed. | Frozen in escrow. | **System** from an escrow dispute (`POST /escrow/dispute`, buyer or farmer) or a delivery dispute via sync (1.4.1) |
 | — | `dispute_resolved` | Dispute decided; money released to farmer or refunded to buyer per outcome. | Released per verdict. Terminal. | **System only**: when the admin records the verdict (`POST /admin/disputes/{id}/resolve`), and again before the escrow is settled if that failed (1.12.0) |
 
@@ -56,7 +56,7 @@ statuses are camelCase on the wire).
 ```
 created ──► pending_payment ──► payment_submitted ──► funded ──► accepted ──► pickup_confirmed ──► in_transit ──► delivered ──► disbursing ──► settled
    │   └────────────────────────────► (direct hop: buyers usually pay immediately)                                    │
-   │                                payment_submitted ──► payment_failed ──► pending_payment | cancelled              ├──► disputed ──► dispute_resolved
+   │                                payment_submitted ──► payment_failed ──► payment_submitted | pending_payment | cancelled ├──► disputed ──► dispute_resolved
    └──► cancelled            funded ──► rejected | cancelled
 ```
 
@@ -84,7 +84,7 @@ mismatch — see `trip-transition` gotchas: send the **pre-increment** version).
 | delivery created | The delivery (which now REQUIRES `orderId`) is linked to the order's escrow, activating confirmation-stamping / auto-release / the self-pickup QR gate. | `TryLinkOrderEscrowAsync`; `delivery-verification-api.md` |
 | `payment_submitted` + `TELEBIRR_MOCK=true` | Server auto-advances to `funded` as a system actor (audited as `payment_verified`). Never active in prod / live gateway. | `TryAutoFundMockOrderAsync` |
 | `created`/`pending_payment` older than 24h | Auto-cancelled by cron. | `OrderCronFunction.cs` |
-| `payment_submitted` for 24h (from `paymentSubmittedAt`; `createdAt` for orders from before 1.7.0) with no confirmed payment | Moved to `payment_failed` by the same hourly cron, version-checked so a funding that lands at the same time wins; audited as `order_updated` (`payment_submitted → payment_failed`). The order checkout stops opening new attempts 20 hours after `paymentSubmittedAt` (`escrow-protocol.md` 1.5.0), so none is still open then. A retry goes `payment_failed → pending_payment → payment_submitted`; because the `pending_payment` auto-cancel above counts from `createdAt`, an order older than 24h is cancelled at the next run unless the buyer submits the payment again right away (1.7.0). | `OrderCronFunction.FailStalePaymentsAsync` |
+| `payment_submitted` for 24h (from `paymentSubmittedAt`; `createdAt` for orders from before 1.7.0) with no confirmed payment | Moved to `payment_failed` by the same hourly cron, version-checked so a funding that lands at the same time wins; audited as `order_updated` (`payment_submitted → payment_failed`). The order checkout stops opening new attempts 20 hours after `paymentSubmittedAt` (`escrow-protocol.md` 1.5.0), so none is still open then. A retry goes `payment_failed → payment_submitted` in one change (1.13.0, ESC-47 item 1): the payment gates run as for any payment, `paymentSubmittedAt` is stamped again, and the `pending_payment` auto-cancel above (which counts from `createdAt`) never sees the order. The older `payment_failed → pending_payment → payment_submitted` path is still accepted, but an order older than 24h left at `pending_payment` is cancelled at the next run (1.7.0). | `OrderCronFunction.FailStalePaymentsAsync` |
 | `delivered` + 48h no dispute | Escrow auto-releases to farmer (`disbursing → settled`). | escrow cron, `escrow-protocol.md` |
 | escrowed + 7 days no delivery | Escrow refunds the buyer. For order-funded escrows the sweep is order-aware: it refunds only stale-`funded` or terminal orders (then cancels a stale-funded order, `cancelReason: escrow_refunded`, and restores its listing stock, 1.4.2); progressing orders get the expiry pushed +48h. | `escrow-protocol.md` §Order-Funded Escrow; `EscrowCronFunction.TryRestoreListingStockAsync` |
 | escrow due to settle (auto-release, auto-refund, dispute settlement) while a party is suspended or at risk tier CRITICAL | The escrow moves to `held` instead of paying out; the order status does not change (a stale-funded order is not cancelled and its stock not restored until the admin decides). Planned FRD-03, FRD-04, behind `FRAUD_HOLD_ENABLED` (1.9.0). | `EscrowCronFunction`; `escrow-protocol.md` §Additions in 1.7.0 |
@@ -197,6 +197,22 @@ limit); an entered one is sent trimmed. With the live gateway the payment is mat
 by the server-generated `merch_order_id` of `POST /escrow/order-checkout`
 (`escrow-protocol.md` 1.5.0), never by a reference the buyer types. No wire change.
 
+### Live checkout in the app (1.13.0, ESC-44)
+
+Live builds (`--dart-define=TELEBIRR_LIVE=true`, and every `prod`/`production` build) show
+the Telebirr payment only: no demo notice, no CBE option (bank transfers are ESC-46), no
+reference fields, and a total outside 100 to 500,000 ETB cannot be submitted. The buyer's
+`payment_submitted` carries `paymentMethod: telebirr` and no `cbeTransactionId`. Demo builds
+are unchanged. What happens next never depends on the build: the app reads the order from
+the server, a `funded` (or later) order is paid, and a `payment_submitted` order is paid
+through `POST /escrow/order-checkout` (`escrow-protocol.md` §Additions in 1.5.0, client
+notes). Order detail offers the buyer "Continue payment" on a `payment_submitted` order,
+and "Pay Now" / "Pay again" on `pending_payment` / `payment_failed`. A retry after
+`payment_failed` is one `payment_submitted` change. The live
+`ORDER_VALIDATION: This order total ... is outside what one Telebirr payment can take`
+refusal has its own message in en, am and om (web inline, mobile through the ESC-12
+rejection snackbar).
+
 Once a delivery exists for an accepted order (a trucker's, or the buyer's self-pickup), the
 order detail screen offers every party "Open delivery" instead of a second create, and the
 farmer of a pending delivery "Show QR Code" (the code the trucker or the self-pickup buyer
@@ -272,6 +288,7 @@ already shows (accept on `accepted`, pay on `payment_submitted`) is a no-op.
 
 ## Changelog
 
+- **1.13.0 (2026-10-09)**: Retry and live checkout (ESC-44, takes ESC-47 item 1): `payment_failed → payment_submitted` is allowed in one change (gates run, `paymentSubmittedAt` restamped; `payment_failed → pending_payment` still accepted); the app pays live orders through the order checkout, sends `paymentMethod: telebirr` with no `cbeTransactionId` in live builds, offers Continue payment / Pay Now / Pay again to the buyer, and localizes the live total refusal.
 - **1.12.0 (2026-10-09)**: Dispute verdicts move the order (ESC-03): the admin verdict moves the order to `dispute_resolved` (`delivered → disputed → dispute_resolved` or `disputed → dispute_resolved`, advancing an order left behind its `delivered` or `disputed` delivery first), system actor, version-checked, one transaction-audit row per hop; repeated before the escrow is settled to repair a failed hop; `buyer_wins` refunds a cancelled or rejected order as it is and cancels an order before pickup (stock restored) first; any other order that cannot follow is left as it is, and the verdict is not settled until the admin brings the order to a status it can follow, or overrides a `buyer_wins` (order flagged with `disputeOverride*`); alarmed, audited once. No client change: the clients already show `dispute_resolved`.
 - **1.11.0 (2026-10-09)**: Refused order changes (ESC-12 part A): every `ORDER_*` operation error but `ORDER_KYC_REQUIRED` is permanent; the client reverts the local order and explains the refusal in three languages; local guards refuse instead of reporting success; a transient order failure uses no `ORDER_` prefix. No server change.
 

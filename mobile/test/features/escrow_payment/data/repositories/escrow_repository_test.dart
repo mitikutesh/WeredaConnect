@@ -1035,5 +1035,77 @@ void main() {
         expect(await isar.paymentIntents.count(), 0);
       });
     });
+
+    group('openOrderCheckout (ESC-44)', () {
+      test('returns the page, its window and the server clock', () async {
+        when(
+          () => apiClient.postWithServerDate<Map<String, dynamic>>(
+            '/escrow/order-checkout',
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenAnswer(
+          (_) async => (
+            data: <String, dynamic>{
+              'orderId': 'order-1',
+              'amount': 2448.75,
+              'currency': 'ETB',
+              'toPayUrl': 'https://pay.example/checkout?prepay_id=P1',
+              'openUntil': '2026-10-09T12:10:00.0000000Z',
+              'isExisting': true,
+            },
+            serverDate: DateTime.utc(2026, 10, 9, 10),
+          ),
+        );
+
+        final result = await repository.openOrderCheckout('order-1');
+
+        expect(result, isA<OrderCheckoutOpened>());
+        final opened = result as OrderCheckoutOpened;
+        expect(opened.toPayUrl, contains('prepay_id=P1'));
+        expect(opened.openUntil, DateTime.utc(2026, 10, 9, 12, 10));
+        expect(opened.amount, 2448.75);
+        expect(opened.isExisting, isTrue);
+        expect(opened.serverDate, DateTime.utc(2026, 10, 9, 10));
+        verify(
+          () => apiClient.postWithServerDate<Map<String, dynamic>>(
+            '/escrow/order-checkout',
+            data: {'orderId': 'order-1'},
+          ),
+        ).called(1);
+      });
+
+      test('offline: a failure, never a queued intent', () async {
+        when(
+          () => apiClient.postWithServerDate<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(const NetworkException('no route'));
+
+        final result = await repository.openOrderCheckout('order-1');
+
+        expect(result, isA<OrderCheckoutFailed>());
+        expect((result as OrderCheckoutFailed).code, 'ESCROW_OFFLINE');
+        expect(result.statusCode, isNull);
+        expect(await isar.paymentIntents.count(), 0);
+      });
+
+      test('keeps the server code and the HTTP status', () async {
+        when(
+          () => apiClient.postWithServerDate<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(
+          const ConflictException('payment time ran out', 409, 'ESCROW_030'),
+        );
+
+        final result = await repository.openOrderCheckout('order-1')
+            as OrderCheckoutFailed;
+
+        expect(result.code, 'ESCROW_030');
+        expect(result.statusCode, 409);
+      });
+    });
   });
 }

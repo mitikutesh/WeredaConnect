@@ -6,6 +6,7 @@ import 'package:isar/isar.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
+import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
@@ -39,6 +40,9 @@ class _SpyMarketplaceSync implements MarketplaceSync {
   @override
   Future<void> pullOrders({required String userId, String? role}) async =>
       orders++;
+
+  @override
+  Future<Order?> pullOrder(String orderId) async => null;
 
   @override
   Future<void> pullAll() async => all++;

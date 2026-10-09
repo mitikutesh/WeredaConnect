@@ -105,4 +105,8 @@ class ApiConfig {
 
   /// GET /escrow/history - Get payment history
   static const String escrowHistory = '/escrow/history';
+
+  /// POST /escrow/order-checkout - Buyer opens (or gets back) the live
+  /// Telebirr checkout of a payment_submitted order (ESC-01, ESC-44)
+  static const String escrowOrderCheckout = '/escrow/order-checkout';
 }

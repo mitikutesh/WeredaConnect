@@ -5691,7 +5691,8 @@ public class SyncFunctionTests
         Version = 1
     };
 
-    private SyncFunction PaymentFunction(decimal orderTotal, UserDto buyer, UserDto farmer)
+    private SyncFunction PaymentFunction(
+        decimal orderTotal, UserDto buyer, UserDto farmer, string fromStatus = "created")
     {
         var orderRepo = Substitute.For<IOrderRepository>();
         orderRepo.GetByIdAsync("order-pay").Returns(new Dictionary<string, object>
@@ -5699,7 +5700,7 @@ public class SyncFunctionTests
             { "orderId", "order-pay" },
             { "buyerId", "buyer-001" },
             { "farmerId", "farmer-001" },
-            { "status", "created" },
+            { "status", fromStatus },
             { "orderTotal", orderTotal },
             { "version", "1" }
         });
@@ -5935,6 +5936,91 @@ public class SyncFunctionTests
         var stamped = DateTime.Parse(_updatedOrderData!["paymentSubmittedAt"].ToString()!, null,
             System.Globalization.DateTimeStyles.RoundtripKind);
         Assert.True(stamped >= before && stamped <= DateTime.UtcNow);
+    }
+
+    [Fact]
+    public async Task PaymentFailed_RetryStraightToPaymentSubmitted_IsAccepted()
+    {
+        // ESC-47 (1), done in ESC-44: the app retries a failed payment with one change, so a
+        // stale read between two queued changes can never refuse the second one.
+        var function = PaymentFunction(2_000m, PaymentParty("buyer-001"), PaymentParty("farmer-001"),
+            fromStatus: "payment_failed");
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        Assert.DoesNotContain("Invalid status transition", response.Body);
+    }
+
+    [Fact]
+    public async Task PaymentFailed_RetryToPaymentSubmitted_RunsTheStepUpGate()
+    {
+        var function = PaymentFunction(2_000m, PaymentParty("buyer-001"), PaymentParty("farmer-001"),
+            fromStatus: "payment_failed");
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.AddHours(-1).ToUnixTimeSeconds()), _context);
+
+        Assert.Contains("AUTH_040", response.Body);
+        Assert.DoesNotContain("\"status\":\"success\"", response.Body);
+    }
+
+    [Fact]
+    public async Task PaymentFailed_RetryToPaymentSubmitted_RunsTheKycGate()
+    {
+        var function = PaymentFunction(2_000m, PaymentParty("buyer-001", phoneVerified: false),
+            PaymentParty("farmer-001"), fromStatus: "payment_failed");
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+        Assert.Contains("ORDER_KYC_REQUIRED", response.Body);
+        Assert.DoesNotContain("\"status\":\"success\"", response.Body);
+    }
+
+    [Fact]
+    public async Task PaymentFailed_RetryToPaymentSubmitted_StartsANewPaymentClock()
+    {
+        // The retry is a new payment attempt: a checkout from the failed attempt can never
+        // fund it, because the mapping records the earlier paymentSubmittedAt.
+        var order = SetupExistingOrder(status: "payment_failed");
+        order["paymentSubmittedAt"] = "2026-01-01T00:00:00.0000000Z";
+        SetupOrderUpdateSucceeds();
+        var op = MakeOrderUpdateOp(new Dictionary<string, object>
+        {
+            { "status", "payment_submitted" },
+            { "paymentMethod", "telebirr" },
+            { "version", 1 }
+        });
+        var before = DateTime.UtcNow;
+
+        await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+        Assert.NotNull(_updatedOrderData);
+        var stamped = DateTime.Parse(_updatedOrderData!["paymentSubmittedAt"].ToString()!, null,
+            System.Globalization.DateTimeStyles.RoundtripKind);
+        Assert.True(stamped >= before && stamped <= DateTime.UtcNow);
+    }
+
+    [Fact]
+    public async Task PaymentFailed_PendingPaymentStep_IsStillAccepted()
+    {
+        SetupExistingOrder(status: "payment_failed");
+        SetupOrderUpdateSucceeds();
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "status", "pending_payment" },
+            { "version", 1 }
+        });
+
+        Assert.Contains("\"status\":\"success\"", body);
     }
 
     [Fact]

@@ -3557,5 +3557,103 @@
   "kycPhoneNotProven": "Your Fayda ID is confirmed, but Fayda does not list this account's phone number, so your phone is still not verified. The payment was not sent.",
   "@kycPhoneNotProven": {
     "description": "Fayda screen (payment blocked for an unverified phone): the Fayda ID matched but Fayda did not prove the account's phone"
+  },
+  "payWithTelebirr": "Pay with Telebirr",
+  "@payWithTelebirr": {
+    "description": "Live payment screen: the button that sends the payment and opens Telebirr (ESC-44)"
+  },
+  "telebirrLivePayInstructions": "You will pay {amount} in Telebirr. When you finish, come back to this app. The payment is confirmed automatically.",
+  "@telebirrLivePayInstructions": {
+    "description": "Live payment screen: what happens when the buyer pays (ESC-44)",
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "orderCheckoutTitle": "Telebirr payment",
+  "@orderCheckoutTitle": {
+    "description": "Title of the order's Telebirr checkout screen (ESC-44)"
+  },
+  "orderCheckoutWaitingToSend": "Your payment is waiting to be sent. Telebirr opens once it reaches the server.",
+  "@orderCheckoutWaitingToSend": {
+    "description": "Checkout screen: the payment is still queued on the phone (offline, or waiting for a step-up)"
+  },
+  "orderCheckoutOpenUntil": "You can finish this payment in Telebirr until {time}.",
+  "@orderCheckoutOpenUntil": {
+    "description": "Checkout screen: until when the open Telebirr payment can be finished",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "orderCheckoutWindowClosed": "This Telebirr payment page has closed. Start a new one to pay.",
+  "@orderCheckoutWindowClosed": {
+    "description": "Checkout screen: the Telebirr payment page expired unpaid"
+  },
+  "orderCheckoutStartNew": "Start a new Telebirr payment",
+  "@orderCheckoutStartNew": {
+    "description": "Checkout screen button: open a new Telebirr payment after the old page expired"
+  },
+  "orderCheckoutCheckAgain": "Check payment status",
+  "@orderCheckoutCheckAgain": {
+    "description": "Checkout screen button: read the order's payment status again"
+  },
+  "orderCheckoutStillWaiting": "We have not received the payment yet. If you paid, tap Check payment status.",
+  "@orderCheckoutStillWaiting": {
+    "description": "Checkout screen: automatic checks stopped and no payment arrived yet"
+  },
+  "orderCheckoutTimeRanOut": "The time to pay for this order has run out. The order will be marked as failed, then you can pay again.",
+  "@orderCheckoutTimeRanOut": {
+    "description": "ESCROW_030: the payment time ran out (20 hours after the payment was submitted)"
+  },
+  "orderCheckoutNotWaiting": "This order is no longer waiting for payment.",
+  "@orderCheckoutNotWaiting": {
+    "description": "ESCROW_030: the order is no longer waiting for payment (cancelled or rejected)"
+  },
+  "orderCheckoutNotPayableOnline": "This order can't be paid online. Contact support.",
+  "@orderCheckoutNotPayableOnline": {
+    "description": "ESCROW_030 (422): the order cannot be paid online"
+  },
+  "orderCheckoutConfirmedAutomatically": "Payments are confirmed automatically here. Checking your order...",
+  "@orderCheckoutConfirmedAutomatically": {
+    "description": "ESCROW_031: no Telebirr page here (mock payments); the app waits for the automatic confirmation"
+  },
+  "orderCheckoutAlreadyOpen": "A Telebirr payment for this order is being set up or was interrupted. If you already paid, it will be confirmed here. Otherwise try again later (it can take up to 2 hours).",
+  "@orderCheckoutAlreadyOpen": {
+    "description": "ESCROW_032: a Telebirr payment is being set up, or its answer was lost; blocked until the old page expires"
+  },
+  "orderCheckoutGatewayProblem": "Telebirr could not start the payment. If you already paid, it will be confirmed here. Otherwise try again.",
+  "@orderCheckoutGatewayProblem": {
+    "description": "ESCROW_013: Telebirr refused or did not answer when opening the payment"
+  },
+  "orderCheckoutOrderMissing": "This order is not on the server yet. Try again once it has synced.",
+  "@orderCheckoutOrderMissing": {
+    "description": "ESCROW_033: the order is not on the server"
+  },
+  "orderCheckoutPaymentFailed": "This payment could not be confirmed in time. You can pay again.",
+  "@orderCheckoutPaymentFailed": {
+    "description": "Checkout screen: the order moved to payment_failed"
+  },
+  "orderCheckoutNotSent": "Your payment was not sent. Open the order to try again.",
+  "@orderCheckoutNotSent": {
+    "description": "Checkout screen: the server refused the payment, so it was not sent"
+  },
+  "orderCheckoutCheckingPayment": "Checking your payment...",
+  "@orderCheckoutCheckingPayment": {
+    "description": "Shown when the buyer comes back from Telebirr and the app checks the payment"
+  },
+  "paymentTotalOutOfRange": "Telebirr takes 100 to 500,000 ETB in one payment. This order's total is outside that, so it can't be paid with Telebirr.",
+  "@paymentTotalOutOfRange": {
+    "description": "Live payments: the order total is outside what one Telebirr payment takes (ORDER_VALIDATION / ESCROW_001)"
+  },
+  "continuePayment": "Continue payment",
+  "@continuePayment": {
+    "description": "Order detail button (buyer, payment submitted): open the order's Telebirr checkout"
+  },
+  "payAgain": "Pay again",
+  "@payAgain": {
+    "description": "Order detail button (buyer, payment failed): pay the order again"
   }
 }

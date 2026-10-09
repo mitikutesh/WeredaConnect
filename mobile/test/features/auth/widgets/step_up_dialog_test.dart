@@ -437,6 +437,25 @@ void main() {
         );
       });
 
+      testWidgets(
+          'a live Telebirr payment (no reference, ESC-44) is sent again too',
+          (tester) async {
+        const live = KycRequired(
+          orderId: 'o-1',
+          message: 'ORDER_KYC_REQUIRED: buyer_fayda: Verify your Fayda ID',
+          paymentMethod: 'telebirr',
+        );
+
+        final resubmitted = await run(tester, live, verifies: true);
+
+        expect(resubmitted.single.paymentMethod, 'telebirr');
+        expect(resubmitted.single.paymentReference, isNull);
+        expect(
+          find.text('Identity verified. Your payment will be sent again.'),
+          findsOneWidget,
+        );
+      });
+
       Future<void> verifyWithDefaultResend(
         WidgetTester tester,
         MockOrderBloc orderBloc,

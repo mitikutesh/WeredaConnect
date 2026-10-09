@@ -132,6 +132,44 @@ class InitiateEscrowResponse {
   }
 }
 
+/// POST /escrow/order-checkout success response (ESC-01, ESC-44).
+///
+/// [toPayUrl] is transient: never persisted, never in any other response.
+class OrderCheckoutResponse {
+  final String orderId;
+
+  /// The server's order total, the amount Telebirr charges.
+  final double amount;
+  final String currency;
+  final String toPayUrl;
+
+  /// When the checkout stops being payable (ISO 8601, UTC, server clock).
+  final DateTime openUntil;
+
+  /// True when this is the same open checkout returned again.
+  final bool isExisting;
+
+  const OrderCheckoutResponse({
+    required this.orderId,
+    required this.amount,
+    required this.currency,
+    required this.toPayUrl,
+    required this.openUntil,
+    this.isExisting = false,
+  });
+
+  factory OrderCheckoutResponse.fromJson(Map<String, dynamic> json) {
+    return OrderCheckoutResponse(
+      orderId: json['orderId'] as String,
+      amount: (json['amount'] as num).toDouble(),
+      currency: json['currency'] as String? ?? 'ETB',
+      toPayUrl: json['toPayUrl'] as String,
+      openUntil: DateTime.parse(json['openUntil'] as String).toUtc(),
+      isExisting: json['isExisting'] as bool? ?? false,
+    );
+  }
+}
+
 /// POST /escrow/dispute success response.
 class DisputeEscrowResponse {
   final String escrowId;

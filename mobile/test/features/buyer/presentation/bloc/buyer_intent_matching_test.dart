@@ -6,6 +6,7 @@ import 'package:isar/isar.dart';
 import 'package:wereda_connect/core/database/schemas/buyer_intent.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
+import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/buyer/data/repositories/buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
@@ -42,6 +43,9 @@ class _FakeMarketplaceSync implements MarketplaceSync {
 
   @override
   Future<void> pullOrders({required String userId, String? role}) async {}
+
+  @override
+  Future<Order?> pullOrder(String orderId) async => null;
 
   Future<void> _seed() async {
     await _isar.writeTxn(() async {
@@ -108,6 +112,9 @@ class _FailingMarketplaceSync implements MarketplaceSync {
   @override
   Future<void> pullOrders({required String userId, String? role}) async =>
       throw Exception('offline');
+
+  @override
+  Future<Order?> pullOrder(String orderId) async => throw Exception('offline');
 }
 
 /// Fake [BaseMatchingService] whose match call always throws — stands in for the

@@ -63,7 +63,7 @@ class SecurityPromptListener extends StatefulWidget {
   ) =>
       context.read<OrderBloc>().repository.submitPayment(
             event.orderId,
-            event.paymentReference!,
+            event.paymentReference,
             paymentMethod: event.paymentMethod!,
           );
 

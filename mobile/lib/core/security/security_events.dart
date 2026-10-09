@@ -87,10 +87,10 @@ class KycRequired extends SecurityEvent {
 
   KycReason get reason => KycReason.fromMessage(message);
 
-  /// True when the rejected payment can be submitted again as it was.
-  bool get canResubmit =>
-      (paymentMethod?.isNotEmpty ?? false) &&
-      (paymentReference?.isNotEmpty ?? false);
+  /// True when the rejected payment can be submitted again as it was. A live
+  /// Telebirr payment carries no reference (ESC-44), so only the method is
+  /// needed.
+  bool get canResubmit => paymentMethod?.isNotEmpty ?? false;
 }
 
 /// The server refused a queued operation for good
@@ -155,6 +155,7 @@ class SecurityEvents {
 
   final DateTime Function() _now;
   DateTime? _stepUpDeclinedAt;
+  StepUpRequired? _pendingStepUp;
 
   /// How many undelivered [SyncOperationRejected] events are kept; the
   /// oldest is dropped beyond that.
@@ -180,6 +181,7 @@ class SecurityEvents {
   /// after a cancelled prompt is dropped. A [SyncOperationRejected] with no
   /// listener is kept for the first one.
   void emit(SecurityEvent event) {
+    if (event is StepUpRequired) _pendingStepUp = event;
     if (event is StepUpRequired && stepUpSuppressed) return;
     if (_events.isClosed) return;
     if (event is SyncOperationRejected && !_events.hasListener) {
@@ -198,9 +200,19 @@ class SecurityEvents {
     }
   }
 
-  /// Drop the kept [SyncOperationRejected] events (logout), so the next
-  /// account signed in on this device is not shown them.
-  void clearKeptRejections() => _undeliveredRejections.clear();
+  /// Drop the kept [SyncOperationRejected] events and [pendingStepUp]
+  /// (logout), so the next account signed in on this device is not shown
+  /// them.
+  void clearKeptRejections() {
+    _undeliveredRejections.clear();
+    _pendingStepUp = null;
+  }
+
+  /// The last step-up a queued payment asked for and nobody confirmed yet,
+  /// also while the prompt is quiet after a cancel. The checkout screen
+  /// offers "Confirm it's you" from it (ESC-44). Cleared by
+  /// [stepUpCompleted].
+  StepUpRequired? get pendingStepUp => _pendingStepUp;
 
   /// True while a cancelled step-up prompt keeps background re-prompts quiet.
   bool get stepUpSuppressed {
@@ -214,6 +226,7 @@ class SecurityEvents {
   /// Report a successful step-up re-authentication.
   void stepUpCompleted() {
     _stepUpDeclinedAt = null;
+    _pendingStepUp = null;
     if (!_stepUpCompleted.isClosed) _stepUpCompleted.add(null);
   }
 }

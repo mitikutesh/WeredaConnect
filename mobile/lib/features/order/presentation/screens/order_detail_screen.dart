@@ -20,6 +20,7 @@ import 'package:wereda_connect/features/delivery_verification/presentation/scree
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
+import 'package:wereda_connect/features/order/presentation/screens/order_checkout_screen.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/features/rating/presentation/widgets/rate_counterparty_dialog.dart';
@@ -244,24 +245,41 @@ class _OrderDetailBody extends StatelessWidget {
   }) {
     final widgets = <Widget>[];
 
-    // Buyer + created → Pay Now
-    if (userRole == UserRole.buyer && order.status == OrderStatus.created) {
+    // The order's buyer pays: Pay Now (created, pending_payment), Pay again
+    // (payment_failed), Continue payment (payment_submitted: the live
+    // Telebirr checkout, ESC-44; with mock payments it finds the order
+    // funded). Farmers and truckers never see these.
+    final isOrderBuyer = userRole == UserRole.buyer && order.buyerId == userId;
+    final payLabel = switch (order.status) {
+      OrderStatus.created || OrderStatus.pendingPayment => l10n.payNow,
+      OrderStatus.paymentFailed => l10n.payAgain,
+      OrderStatus.paymentSubmitted => l10n.continuePayment,
+      _ => null,
+    };
+    if (isOrderBuyer && payLabel != null) {
       widgets.add(
         SizedBox(
           width: double.infinity,
           child: FilledButton(
-            onPressed: () {
-              Navigator.push(
+            onPressed: () async {
+              final orderBloc = context.read<OrderBloc>();
+              await Navigator.push(
                 context,
                 MaterialPageRoute<void>(
-                  builder: (_) => PaymentInstructionsScreen(order: order),
+                  builder: (_) => order.status == OrderStatus.paymentSubmitted
+                      ? OrderCheckoutScreen(order: order)
+                      : PaymentInstructionsScreen(order: order),
                 ),
               );
+              // The payment may have moved the order on.
+              if (!orderBloc.isClosed) {
+                orderBloc.add(LoadOrderById(orderId: order.orderId));
+              }
             },
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(48),
             ),
-            child: Text(l10n.payNow),
+            child: Text(payLabel),
           ),
         ),
       );

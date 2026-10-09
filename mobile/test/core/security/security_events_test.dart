@@ -110,4 +110,45 @@ void main() {
 
     expect(received, isEmpty);
   });
+
+  group('ESC-44', () {
+    test('a step-up nobody confirmed is remembered, also while quiet', () {
+      final events = SecurityEvents.forTesting()..stepUpDeclined();
+      expect(events.pendingStepUp, isNull);
+
+      events.emit(const StepUpRequired(withFayda: true));
+
+      expect(events.stepUpSuppressed, isTrue);
+      expect(events.pendingStepUp?.withFayda, isTrue);
+    });
+
+    test('a completed step-up or a logout forgets it', () {
+      final events = SecurityEvents.forTesting()..emit(const StepUpRequired());
+      expect(events.pendingStepUp, isNotNull);
+
+      events.stepUpCompleted();
+      expect(events.pendingStepUp, isNull);
+
+      events
+        ..emit(const StepUpRequired())
+        ..clearKeptRejections();
+      expect(events.pendingStepUp, isNull);
+    });
+
+    test('a live payment (no reference) can be submitted again', () {
+      const live = KycRequired(
+        orderId: 'o-1',
+        message: 'ORDER_KYC_REQUIRED: buyer_fayda: verify',
+        paymentMethod: 'telebirr',
+      );
+      const noMethod = KycRequired(
+        orderId: 'o-1',
+        message: 'ORDER_KYC_REQUIRED: buyer_fayda: verify',
+        paymentReference: 'MOCK-CBE-1',
+      );
+
+      expect(live.canResubmit, isTrue);
+      expect(noMethod.canResubmit, isFalse);
+    });
+  });
 }

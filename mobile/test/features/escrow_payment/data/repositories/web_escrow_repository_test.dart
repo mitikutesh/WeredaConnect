@@ -392,4 +392,101 @@ void main() {
       expect((result as EscrowError).code, faydaStepUpRequiredCode);
     });
   });
+
+  group('WebEscrowRepository.openOrderCheckout (ESC-44)', () {
+    void answer(Object error) {
+      when(
+        () => api.postWithServerDate<Map<String, dynamic>>(
+          '/escrow/order-checkout',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenThrow(error);
+    }
+
+    test('returns the page; web usually has no server clock', () async {
+      when(
+        () => api.postWithServerDate<Map<String, dynamic>>(
+          '/escrow/order-checkout',
+          data: {'orderId': 'order-1'},
+        ),
+      ).thenAnswer(
+        (_) async => (
+          data: <String, dynamic>{
+            'orderId': 'order-1',
+            'amount': 500.0,
+            'currency': 'ETB',
+            'toPayUrl': 'https://pay.example/checkout?prepay_id=P2',
+            'openUntil': '2026-10-09T12:10:00Z',
+            'isExisting': false,
+          },
+          serverDate: null,
+        ),
+      );
+
+      final result =
+          await repo.openOrderCheckout('order-1') as OrderCheckoutOpened;
+
+      expect(result.toPayUrl, endsWith('P2'));
+      expect(result.amount, 500.0);
+      expect(result.isExisting, isFalse);
+      expect(result.serverDate, isNull);
+    });
+
+    test('422 ESCROW_030 keeps its status (cannot be paid online)', () async {
+      answer(const ServerException('cannot be paid online', 422, 'ESCROW_030'));
+
+      final result =
+          await repo.openOrderCheckout('order-1') as OrderCheckoutFailed;
+
+      expect(result.code, 'ESCROW_030');
+      expect(result.statusCode, 422);
+    });
+
+    test('409 ESCROW_031 / ESCROW_032 and 502 ESCROW_013 keep their codes',
+        () async {
+      for (final (status, code) in [
+        (409, 'ESCROW_031'),
+        (409, 'ESCROW_032'),
+        (502, 'ESCROW_013'),
+      ]) {
+        answer(
+          status == 409
+              ? ConflictException('x', status, code)
+              : ServerException('x', status, code),
+        );
+        final result =
+            await repo.openOrderCheckout('order-1') as OrderCheckoutFailed;
+        expect(result.code, code);
+        expect(result.statusCode, status);
+      }
+    });
+
+    test('a held account keeps FRAUD_ACCOUNT_HELD', () async {
+      answer(const AuthException('held', 403, 'FRAUD_ACCOUNT_HELD'));
+
+      final result =
+          await repo.openOrderCheckout('order-1') as OrderCheckoutFailed;
+
+      expect(result.code, 'FRAUD_ACCOUNT_HELD');
+    });
+
+    test('a rate limit without a code is ESCROW_011', () async {
+      answer(const RateLimitException());
+
+      final result =
+          await repo.openOrderCheckout('order-1') as OrderCheckoutFailed;
+
+      expect(result.code, 'ESCROW_011');
+      expect(result.statusCode, 429);
+    });
+
+    test('a timeout is offline', () async {
+      answer(const TimeoutException('slow'));
+
+      final result =
+          await repo.openOrderCheckout('order-1') as OrderCheckoutFailed;
+
+      expect(result.code, 'ESCROW_OFFLINE');
+    });
+  });
 }

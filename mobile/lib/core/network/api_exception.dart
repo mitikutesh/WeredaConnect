@@ -105,6 +105,15 @@ const String deliveryCancelNotAllowedCode = 'DELIVERY_CANCEL_NOT_ALLOWED';
 bool isDeliveryCancelRefusalMessage(String? message) =>
     message != null && message.startsWith(deliveryCancelNotAllowedCode);
 
+/// Whether a /sync per-operation error message is the live gateway's refusal
+/// of a payment whose order total one Telebirr payment cannot take
+/// (`ORDER_VALIDATION: This order total (X ETB) is outside what one Telebirr
+/// payment can take (100 to 500000 ETB).`, order-lifecycle.md 1.7.0).
+bool isPaymentTotalOutOfRangeMessage(String? message) =>
+    message != null &&
+    message.startsWith('ORDER_VALIDATION:') &&
+    message.contains('outside what one Telebirr payment can take');
+
 /// Request validation error (400)
 final class ValidationException extends ApiException {
   const ValidationException(

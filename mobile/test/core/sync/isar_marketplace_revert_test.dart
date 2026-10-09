@@ -409,4 +409,53 @@ void main() {
       );
     });
   });
+
+  group('pullOrder (ESC-44)', () {
+    test('a queued payment: null, and no request', () async {
+      await putOrder(status: OrderStatus.created);
+      await repo.submitPayment('order-1', null, paymentMethod: 'telebirr');
+
+      expect(await sync.pullOrder('order-1'), isNull);
+      verifyNever(() => api.get<Map<String, dynamic>>(any()));
+      expect((await load())!.status, OrderStatus.paymentSubmitted);
+    });
+
+    test('nothing queued: returns the server order and caches it', () async {
+      await putOrder(status: OrderStatus.paymentSubmitted, version: 4);
+      answerOrder(
+        () async => {'order': _serverOrder(version: 5)},
+      );
+
+      final server = await sync.pullOrder('order-1');
+
+      expect(server!.status, OrderStatus.funded);
+      final local = await load();
+      expect(local!.status, OrderStatus.funded);
+      expect(local.version, 5);
+    });
+
+    test('an older server copy (stale read) never replaces the row', () async {
+      await putOrder(status: OrderStatus.paymentSubmitted, version: 4);
+      answerOrder(
+        () async => {'order': _serverOrder(status: 'created')},
+      );
+
+      final server = await sync.pullOrder('order-1');
+
+      expect(server!.status, OrderStatus.created);
+      final local = await load();
+      expect(local!.status, OrderStatus.paymentSubmitted);
+      expect(local.version, 4);
+    });
+
+    test('errors reach the caller', () async {
+      await putOrder();
+      answerOrder(() async => throw const NotFoundException());
+
+      await expectLater(
+        sync.pullOrder('order-1'),
+        throwsA(isA<NotFoundException>()),
+      );
+    });
+  });
 }

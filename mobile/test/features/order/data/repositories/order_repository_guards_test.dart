@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -229,5 +230,42 @@ void main() {
     final op = (await isar.syncOperations.where().findAll()).single;
     expect(op.data, contains('"version":3'));
     expect(op.status, SyncStatus.pending);
+  });
+
+  group('payments (ESC-44)', () {
+    Future<Map<String, dynamic>> onlyQueuedPayload() async {
+      final ops = await isar.syncOperations.where().findAll();
+      expect(ops, hasLength(1));
+      return jsonDecode(ops.single.data) as Map<String, dynamic>;
+    }
+
+    test('a live Telebirr payment sends no reference', () async {
+      await putOrder(OrderStatus.created);
+
+      await repo.submitPayment('order-1', null, paymentMethod: 'telebirr');
+
+      final data = await onlyQueuedPayload();
+      expect(data['status'], 'payment_submitted');
+      expect(data['paymentMethod'], 'telebirr');
+      expect(data.containsKey('cbeTransactionId'), isFalse);
+      final order = await load();
+      expect(order.status, OrderStatus.paymentSubmitted);
+      expect(order.cbeTransactionId, isNull);
+    });
+
+    test('a retry after payment_failed is one payment_submitted change',
+        () async {
+      await putOrder(OrderStatus.paymentFailed);
+
+      await repo.submitPayment('order-1', null, paymentMethod: 'telebirr');
+
+      final data = await onlyQueuedPayload();
+      expect(data['status'], 'payment_submitted');
+      // The version the client had: the server checks it.
+      expect(data['version'], 3);
+      final order = await load();
+      expect(order.status, OrderStatus.paymentSubmitted);
+      expect(order.version, 4);
+    });
   });
 }

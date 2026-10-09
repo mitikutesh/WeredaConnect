@@ -231,7 +231,7 @@ class OrderRepository extends BaseOrderRepository {
   @override
   Future<void> submitPayment(
     String orderId,
-    String cbeTransactionId, {
+    String? cbeTransactionId, {
     String paymentMethod = 'cbe_transfer',
   }) async {
     final order = await _findOrder(orderId);
@@ -260,7 +260,7 @@ class OrderRepository extends BaseOrderRepository {
         action: 'update',
         data: jsonEncode({
           'orderId': orderId,
-          'cbeTransactionId': cbeTransactionId,
+          if (cbeTransactionId != null) 'cbeTransactionId': cbeTransactionId,
           'paymentMethod': paymentMethod,
           'status': orderStatusToWire(OrderStatus.paymentSubmitted.name),
           'updatedAt': now.toIso8601String(),

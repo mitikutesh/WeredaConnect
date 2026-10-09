@@ -14,6 +14,11 @@ abstract class BaseEscrowRepository {
     required double amount,
   });
 
+  /// Open (or get back) the live Telebirr checkout of a `payment_submitted`
+  /// order: `POST /escrow/order-checkout` (ESC-44). Online only; never
+  /// queued, since a checkout replayed later could start a second payment.
+  Future<OrderCheckoutResult> openOrderCheckout(String orderId);
+
   Future<EscrowResult> raiseDispute({
     required String escrowId,
     required String disputedBy,

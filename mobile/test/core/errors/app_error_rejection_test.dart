@@ -181,4 +181,49 @@ void main() {
       );
     }
   });
+
+  group('live Telebirr total refusal (ESC-44)', () {
+    const message = 'ORDER_VALIDATION: This order total (50.00 ETB) is '
+        'outside what one Telebirr payment can take (100 to 500000 ETB).';
+
+    test('web: the inline error has its own code', () {
+      expect(
+        mapErrorToCode(const SyncRejectedException(message)),
+        AppErrorCode.paymentTotalOutOfRange,
+      );
+      expect(
+        mapErrorToCode(const SyncRejectedException('ORDER_VALIDATION: other')),
+        AppErrorCode.orderRefused,
+      );
+    });
+
+    test('mobile: the rejection snackbar has its own code', () {
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'order',
+          action: 'update',
+          message: message,
+        ),
+        AppErrorCode.paymentTotalOutOfRange,
+      );
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'order',
+          action: 'create',
+          message: message,
+        ),
+        AppErrorCode.orderNotPlaced,
+      );
+    });
+
+    test('says why in all three languages', () async {
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        final text =
+            localizeErrorCode(AppErrorCode.paymentTotalOutOfRange, l10n);
+        expect(text, l10n.paymentTotalOutOfRange, reason: locale);
+        expect(text, isNot(l10n.errorOrderRefused), reason: locale);
+      }
+    });
+  });
 }

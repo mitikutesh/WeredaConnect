@@ -100,18 +100,25 @@ class WebOrderRepository extends BaseOrderRepository {
   @override
   Future<Order?> getOrderById(String orderId) async {
     try {
-      final data = await _api.get<Map<String, dynamic>>('/orders/$orderId');
-      // GET /orders/{id} returns {"order": {...}} (GetOrderResponse, camelCase).
-      // Accept the `item` envelope and a bare object too, so a response-shape
-      // change never silently degrades into a spurious "order not found" that
-      // the detail screen surfaces as "An error occurred".
-      final envelope = data['order'] ?? data['item'];
-      if (envelope is Map<String, dynamic>) return _parseOrderMap(envelope);
-      if (data.containsKey('orderId')) return _parseOrderMap(data);
-      return null;
+      return await fetchOrder(orderId);
     } on Exception {
       return null;
     }
+  }
+
+  /// `GET /orders/{id}` with errors propagating (offline, 404, 403), unlike
+  /// [getOrderById]. The order checkout (ESC-44) must tell "offline" from
+  /// "no such order".
+  Future<Order?> fetchOrder(String orderId) async {
+    final data = await _api.get<Map<String, dynamic>>('/orders/$orderId');
+    // GET /orders/{id} returns {"order": {...}} (GetOrderResponse, camelCase).
+    // Accept the `item` envelope and a bare object too, so a response-shape
+    // change never silently degrades into a spurious "order not found" that
+    // the detail screen surfaces as "An error occurred".
+    final envelope = data['order'] ?? data['item'];
+    if (envelope is Map<String, dynamic>) return _parseOrderMap(envelope);
+    if (data.containsKey('orderId')) return _parseOrderMap(data);
+    return null;
   }
 
   @override
@@ -216,10 +223,17 @@ class WebOrderRepository extends BaseOrderRepository {
   @override
   Future<void> submitPayment(
     String orderId,
-    String cbeTransactionId, {
+    String? cbeTransactionId, {
     String paymentMethod = 'cbe_transfer',
   }) async {
-    final version = await _currentOrderVersion(orderId);
+    final order = await getOrderById(orderId);
+    if (order == null) {
+      throw NotFoundException('Order $orderId not found.');
+    }
+    // Already submitted: nothing to send again (mobile does the same). The
+    // checkout screen takes it from here.
+    if (order.status == OrderStatus.paymentSubmitted) return;
+    final version = order.version;
     final now = DateTime.now().toUtc().toIso8601String();
     final response = await _api.post<Map<String, dynamic>>(
       '/sync',
@@ -237,7 +251,8 @@ class WebOrderRepository extends BaseOrderRepository {
             'data': {
               'status': orderStatusToWire(OrderStatus.paymentSubmitted.name),
               'paymentMethod': paymentMethod,
-              'cbeTransactionId': cbeTransactionId,
+              if (cbeTransactionId != null)
+                'cbeTransactionId': cbeTransactionId,
               'version': version,
             },
           },
