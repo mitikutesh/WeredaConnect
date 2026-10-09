@@ -1679,6 +1679,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Koodiin QR qonnaan bulaa hanga ammaatti sarvarii hin geenye. Qonnaan bulaan interneetii irratti koodii QR akka banu gaafadhaa, achiis irra deebi\'aa yaalaa.';
 
   @override
+  String get deliveryErrorCancelNotAllowed =>
+      'Midhaan waan fudhatameef geejjibni kun amma haqamuu hin danda\'u. Rakkoon yoo jiraate deeggarsa qunnamaa.';
+
+  @override
   String get deliveryQrTooLarge => 'QR koodiin baay\'ee guddaadha';
 
   @override

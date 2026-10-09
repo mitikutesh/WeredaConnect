@@ -330,7 +330,7 @@ public class EscrowServiceOrderFundedTests
     {
         _mockEscrowRepo.QueryByOrderIdAsync(OrderId, Arg.Any<int>())
             .Returns(new List<Dictionary<string, object>> { MakeOrderEscrow(deliveryId: "del-000") });
-        _mockDeliveryRepo.GetByIdAsync("del-000").Returns(new Dictionary<string, object>
+        _mockDeliveryRepo.GetByIdAsync("del-000", true).Returns(new Dictionary<string, object>
         {
             { "deliveryId", "del-000" }, { "status", "pending" }
         });
@@ -349,7 +349,7 @@ public class EscrowServiceOrderFundedTests
     {
         _mockEscrowRepo.QueryByOrderIdAsync(OrderId, Arg.Any<int>())
             .Returns(new List<Dictionary<string, object>> { MakeOrderEscrow(deliveryId: "del-000") });
-        _mockDeliveryRepo.GetByIdAsync("del-000").Returns(new Dictionary<string, object>
+        _mockDeliveryRepo.GetByIdAsync("del-000", true).Returns(new Dictionary<string, object>
         {
             { "deliveryId", "del-000" }, { "status", "cancelled" }
         });

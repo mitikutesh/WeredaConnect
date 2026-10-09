@@ -202,6 +202,25 @@ void main() {
     expect(find.text(en.errorChangeNotSaved), findsOneWidget);
   });
 
+  // ESC-08: the local cancel was undone because the goods were picked up.
+  testWidgets('a delivery cancel refused after pickup says why',
+      (tester) async {
+    await tester.pumpWidget(host());
+
+    events.emit(
+      const SyncOperationRejected(
+        entityType: 'delivery',
+        entityId: 'delivery-1',
+        action: 'update',
+        message: 'DELIVERY_CANCEL_NOT_ALLOWED: only before pickup.',
+        userId: 'farmer-1',
+      ),
+    );
+    await settle(tester);
+
+    expect(find.text(en.deliveryErrorCancelNotAllowed), findsOneWidget);
+  });
+
   testWidgets('another user\'s refusal is not shown (shared device)',
       (tester) async {
     // Kept before this user signed in, raised for someone else's op.

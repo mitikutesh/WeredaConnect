@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.8.0
+1.9.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -19,7 +19,7 @@ The Delivery Verification API tracks the physical handoff of crops from farmer t
 - **GPS proximity validation**: 5km radius check against registered locations
 - **Photo evidence**: Optional WebP images (<200KB) for dispute resolution
 - **State machine enforcement**: Server validates all status transitions
-- **Soft deletes**: Cancelled deliveries marked with `deletedAt`, not physically removed
+- **Cancel, never delete**: a cancelled delivery keeps its row with `status: cancelled` (since 1.9.0 without `deletedAt`, so every party's list still returns it); rows soft-deleted before 1.9.0 keep their `deletedAt`
 
 ---
 
@@ -71,7 +71,22 @@ Create guards (v1.3.0, SIM-09), each rejected with nothing written:
 | Order status must be `accepted`, `pickup_confirmed` or `in_transit` (the farmer has consented; `created`, `funded` and every terminal status are refused) | `DELIVERY_VALIDATION: Order is <status>; no delivery can be created until the farmer has accepted it ...` |
 | Trucker flow: the order must name a trucker and the caller must be that trucker | `DELIVERY_PARTICIPANT_MISMATCH: The order has no trucker; only the buyer can create a self-pickup delivery for it.` / `... Only the order's matched trucker can create this delivery.` |
 | Self-pickup: the caller must be the order's buyer and the order must have no trucker or transport | unchanged from v1.1.0 |
-| At most one active delivery per order: the server claims `activeDeliveryId` on the order with a conditional write before writing the delivery; a retry of the same `deliveryId` re-claims, a `cancelled` delivery (update or soft delete) releases the slot | `DELIVERY_VALIDATION: The order already has an active delivery.` |
+| At most one active delivery per order: the server claims `activeDeliveryId` on the order and writes the delivery in one transaction (1.9.0, below); a retry of the same `deliveryId` re-claims, a `cancelled` delivery releases the slot | `DELIVERY_VALIDATION: The order already has an active delivery.` |
+| Trucker flow (1.9.0, ESC-08): the delivery's `tripId` and `listingId` must be the order's (an order with a trucker but no trip is refused too) | `DELIVERY_PARTICIPANT_MISMATCH: tripId does not match the order.` / `... listingId does not match the order.` |
+| Trucker flow (1.9.0): the trip must exist and belong to the caller. Its status is not checked yet (trips do not reach `matched` before ESC-17, and refusing a cancelled trip would strand the order) | `DELIVERY_VALIDATION: Referenced trip not found.` / `DELIVERY_PARTICIPANT_MISMATCH: The trip belongs to another trucker.` |
+
+Delivery slot (1.9.0, ESC-08). The order row carries `activeDeliveryId` and, since 1.9.0,
+`activeDeliveryClaimedAt` (both server-only, never in an order DTO). The claim (condition: the
+slot is free or already this delivery's) and the delivery row (condition: no row with this
+`deliveryId`) are one `TransactWriteItems`, so a create that fails or is interrupted leaves
+neither, and two creates of one `deliveryId` write one row. When another delivery holds the slot
+and that holder is dead (its row is `cancelled`, or it has no row: a claim left by a create from
+before 1.9.0), the create takes the slot over in the same kind of transaction, conditioned on the
+holder and its `activeDeliveryClaimedAt` (or its absence) being exactly what was read; a live
+holder, or one that changed meanwhile, keeps the slot and the create is refused (no retry loop).
+A cancel releases the slot after its own write (`REMOVE activeDeliveryId, activeDeliveryClaimedAt`
+conditioned on this delivery holding it); a release that fails is logged
+(`DELIVERY_SLOT_RELEASE_FAILED`) and healed by the next create's takeover.
 
 Update guards (v1.3.0): `orderId`, `tripId`, `listingId`, `deliveryType`, and the
 buyer/farmer/trucker `Id`, `Name` and `Phone` fields are immutable after create.
@@ -101,9 +116,34 @@ The admin's dispute verdict (`POST /admin/disputes/{id}/resolve`, `escrow-protoc
 reaches the delivery too (v1.8.0, ESC-03): a delivery still `delivered` is marked `disputed`, and a
 `disputed` delivery gets the server-only `disputeResolution` (`farmer_wins` or `buyer_wins`) and
 `disputeResolvedAt`, once. Its status stays `disputed`; clients cannot set these fields. A
-`buyer_wins` refund before pickup cancels a delivery that is still `pending` (the soft delete:
-`status: cancelled`, `deletedAt`, version incremented), as a system actor, before the order is
-cancelled.
+`buyer_wins` refund before pickup cancels a delivery that is still `pending` (`status: cancelled`,
+version incremented; since 1.9.0 no `deletedAt`, audited `delivery_cancelled`), as a system actor,
+before the order is cancelled.
+
+**Cancel (1.9.0, ESC-08).** A party cancels with an update `{"status": "cancelled", "version": n}`
+(nothing else in `data` but the echo keys; other fields are refused with `DELIVERY_VALIDATION`).
+The `delete` action, which app versions before 1.9.0 send (and which may still sit in offline
+queues), is the same cancel under the same rules.
+
+| Delivery status | buyer, farmer or trucker of the delivery | anyone else |
+|---|---|---|
+| `pending` | cancelled | `DELIVERY_UNAUTHORIZED: Only participants can cancel a delivery.` |
+| `pickedUp`, `inTransit`, `delivered`, `disputed` | `DELIVERY_CANCEL_NOT_ALLOWED: A delivery can be cancelled only before pickup (status: <status>). After pickup, open a dispute or contact support.` | `DELIVERY_UNAUTHORIZED` |
+| `cancelled` (or a row soft-deleted before 1.9.0) | `conflict` with the row in `serverData` (another party cancelled first; nothing written) | `DELIVERY_UNAUTHORIZED` |
+
+A self-pickup has no trucker, so its parties are the buyer and the farmer. The cancel writes
+`status: cancelled`, `updatedAt` and the next version, conditioned on the client's version and on
+`status = pending`; a failed condition answers `conflict` with the row. No `deletedAt` is written:
+the cancelled row stays in every party's `GET /deliveries` list and `GET /deliveries/{id}` (an
+outsider still gets `403`). The cancel is audited in transaction-audit as `delivery_cancelled`
+(`pending` to `cancelled`, the caller as actor, metadata `via=update` or `via=delete`) and frees
+the order's delivery slot. The order stays `accepted` and the next delivery re-links the order's
+escrow.
+
+After pickup no party can cancel: the goods are moving. An admin settles a problem through the
+escrow dispute and the verdict (`escrow-protocol.md`, including the override refund for a
+`buyer_wins` whose goods are moving); the delivery then stays `pickedUp` or `inTransit`. A direct
+admin delivery cancel is not available yet (ESC-24).
 
 **Request Body (Confirm Pickup)**:
 ```json
@@ -414,7 +454,7 @@ server refused the whole confirmation (`DELIVERY_INVALID_FIELD`).
 | `disputeResolvedAt` | string (ISO 8601) | No | Server-only | When the verdict was recorded (v1.8.0) |
 | `createdAt` | string (ISO 8601) | Yes | -- | Timestamp when delivery was created |
 | `updatedAt` | string (ISO 8601) | Yes | -- | Timestamp when delivery was last updated |
-| `deletedAt` | string (ISO 8601) | No | -- | Timestamp when delivery was soft-deleted (cancelled) |
+| `deletedAt` | string (ISO 8601) | No | -- | Only on deliveries soft-deleted before 1.9.0 (such rows are hidden from lists and `GET /deliveries/{id}` answers `404`); a cancel no longer writes it |
 | `version` | number | Yes | >=1 | Optimistic concurrency control version |
 
 ### LatLng Embedded Object
@@ -441,17 +481,20 @@ Valid status transitions (enforced server-side):
 
 ```
 pending → pickedUp      (trucker scans farmer's QR code at pickup)
-pending → cancelled       (any participant cancels before pickup)
+pending → cancelled       (any participant cancels before pickup, by update or delete)
 pickedUp → inTransit   (trucker departs from pickup location)
-pickedUp → cancelled    (cancellation after pickup — re-opens matched listings)
+pickedUp → delivered    (buyer confirms the handoff; marking in transit is optional)
 inTransit → delivered   (buyer scans trucker's QR code at dropoff)
 delivered → disputed     (farmer or buyer raises dispute within 48 hours)
 ```
 
+Since 1.9.0 (ESC-08) nothing cancels a delivery after pickup through sync (before, `pickedUp →
+cancelled` was allowed and the trucker's delete skipped the transitions).
+
 Invalid transitions return `422 Unprocessable Entity`:
 - `pending → inTransit` (must pick up first)
-- `pending → delivered` (must pick up and transit first)
-- `delivered → cancelled` (cannot cancel after delivery -- use dispute instead)
+- `pending → delivered` (must pick up first; a self-pickup goes straight to `delivered`)
+- `pickedUp`, `inTransit`, `delivered` or `disputed` `→ cancelled` (`DELIVERY_CANCEL_NOT_ALLOWED`, 1.9.0)
 - `cancelled → *` (terminal state)
 - `disputed → cancelled` (disputes follow separate resolution flow)
 
@@ -637,11 +680,10 @@ When connectivity is available:
    - Required, valid UUID format
    - Must be unique (checked via idempotency key)
 2. **Trip ID**:
-   - Must reference an existing trip with status `matched` or `inTransit`
-   - Trip must belong to the authenticated trucker (for create)
+   - Trucker flow: must be the order's `tripId` and reference an existing trip of the authenticated trucker (1.9.0). The trip status is not checked until trips are booked (ESC-17)
 3. **Listing ID**:
-   - Must reference an existing crop listing
-   - Listing must be in the trip's `matchedListings` array
+   - Must reference an existing, not deleted crop listing
+   - Must be the order's `listingId` (1.9.0; `matchedListings` is not maintained)
 4. **Farmer ID / Trucker ID / Buyer ID**:
    - Must reference existing users
    - Farmer must own the listing, trucker must own the trip
@@ -671,7 +713,7 @@ When connectivity is available:
    - Participant, order, listing, trip and type fields are immutable after create (v1.3.0)
 10. **Order Binding** (v1.3.0):
    - The order must be `accepted`, `pickup_confirmed` or `in_transit`
-   - One active delivery per order (`activeDeliveryId` claimed on the order; released on cancel)
+   - One active delivery per order (`activeDeliveryId` claimed on the order in the same transaction as the delivery row; released on cancel; a dead holder is taken over, 1.9.0)
 
 ### Client-Side Validation
 
@@ -797,7 +839,7 @@ Rural Ethiopian markets follow weekly schedules (different woredas have differen
 - **Confirm pickup**: Only truckers can confirm pickup (they scan farmer's QR)
 - **Confirm delivery**: Only buyers can confirm delivery (they scan trucker's QR)
 - **Raise dispute**: Any participant (farmer, trucker, buyer) can dispute
-- **Cancel**: Any participant can cancel before `pickedUp` status; only trucker can cancel after pickup
+- **Cancel**: Any participant can cancel while `pending` (update or the legacy delete); nobody can after pickup (1.9.0)
 - Server validates the JWT `sub` claim matches the appropriate participant ID for each action
 
 ### QR Token Security
@@ -920,10 +962,11 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.5.1 | 2026-09-28 | QR nonce (SIM-41): only the farmer may set `qrNonce`; a client value on create or from another party is dropped; the on-record fallback applies only without the secret store. |
 | 1.6.1 | 2026-10-06 | Create: `buyerName`/`buyerPhone`, `farmerName`/`farmerPhone` and `truckerName`/`truckerPhone` come from the users table (name falling back to the order row), client values ignored; unreadable profile rejected with `DELIVERY_VALIDATION`; self-pickup stores no trucker contact (SIM-46). |
 | 1.7.0 | 2026-10-06 | Photo evidence aligned with the shipped server (SIM-60): section 4 is JSON `{type}` in and a pre-signed S3 `PUT` (`uploadUrl`, `photoRef`, `issuedAt`, `expiresInSeconds`) out; keys are `uploads/photos/{deliveryId}/{type}-{ms}.webp`; a sync photo ref of any other shape fails the whole op (`DELIVERY_INVALID_FIELD`); size and per-type count are client-side rules; shipped clients keep the local path on the device and send a photo ref only when it is a server key (upload is FRD-12). |
+| 1.9.0 | 2026-10-09 | Delivery rules (ESC-08): cancel by update `{status, version}` or the legacy `delete` (same rules), any party, `pending` only, `DELIVERY_CANCEL_NOT_ALLOWED` after pickup (`pickedUp → cancelled` removed), `DELIVERY_UNAUTHORIZED` for anyone else, `conflict` with the row when already cancelled, other `data` fields refused; the cancel writes no `deletedAt` (the system cancel of a verdict neither), is audited `delivery_cancelled` (`via=update` or `via=delete`) and frees the slot; slot claim and delivery row in one transaction, `activeDeliveryClaimedAt`, a dead holder taken over only from the claim that was read; trucker create must carry the order's `tripId` and `listingId` and a trip of the caller; validation and authorization sections brought in line with the server. |
 | 1.8.0 | 2026-10-09 | Dispute verdict (ESC-03): the admin's verdict marks a still `delivered` delivery `disputed` and stamps the server-only `disputeResolution` and `disputeResolvedAt` on the disputed delivery (status unchanged, one stamp per delivery, version incremented); a `buyer_wins` refund before pickup cancels a `pending` delivery (system soft delete); system writes audited in transaction-audit. |
 
 ---
 
-**Last Updated**: 2026-10-06
-**Version**: 1.7.0
+**Last Updated**: 2026-10-09
+**Version**: 1.9.0
 **Status**: Draft (Phase R4.2)

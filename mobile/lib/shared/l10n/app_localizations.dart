@@ -3148,6 +3148,12 @@ abstract class AppLocalizations {
   /// **'The farmer\'s QR code has not reached the server yet. Ask the farmer to open the QR code while online, then try again.'**
   String get deliveryErrorQrPending;
 
+  /// A delivery cancel refused because the crops were already picked up (only a delivery that is not picked up yet can be cancelled)
+  ///
+  /// In en, this message translates to:
+  /// **'This delivery was already picked up, so it can no longer be cancelled. Contact support if there is a problem.'**
+  String get deliveryErrorCancelNotAllowed;
+
   /// Error when scanned QR code exceeds size limit
   ///
   /// In en, this message translates to:

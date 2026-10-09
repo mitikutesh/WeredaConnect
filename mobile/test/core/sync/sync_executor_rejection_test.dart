@@ -242,6 +242,65 @@ void main() {
     });
   });
 
+  // ESC-08: a cancel after pickup is refused for good, including the legacy
+  // `delete` an older app version left in the queue; the local cancel is
+  // undone and explained. Other DELIVERY_* refusals keep retrying.
+  group('a delivery cancel refused after pickup is permanent and reverted', () {
+    const message = 'DELIVERY_CANCEL_NOT_ALLOWED: A delivery can be cancelled '
+        'only before pickup (status: pickedUp).';
+    for (final (action, data) in [
+      ('update', '{"status":"cancelled","version":1}'),
+      (
+        'delete',
+        '{"deliveryId":"del-1","status":"cancelled",'
+            '"updatedAt":"2026-10-09T08:00:00Z","version":1}',
+      ),
+    ]) {
+      test(action, () async {
+        await enqueue(
+          'op-1',
+          entityType: 'delivery',
+          entityId: 'del-1',
+          action: action,
+          data: data,
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await _waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        expect(reverts, hasLength(1));
+        expect(reverts.single.$1.entityType, 'delivery');
+        expect(reverts.single.$2, message);
+        final event = rejections().single;
+        expect(event.entityType, 'delivery');
+        expect(event.entityId, 'del-1');
+        expect(event.message, message);
+      });
+    }
+
+    test('DELIVERY_UNAUTHORIZED keeps retrying and is not reverted', () async {
+      await enqueue(
+        'op-1',
+        entityType: 'delivery',
+        entityId: 'del-1',
+        data: '{"status":"cancelled","version":1}',
+      );
+      replyWith([
+        error('op-1', 'DELIVERY_UNAUTHORIZED: Only participants can cancel.'),
+      ]);
+
+      await executor.executeBatch();
+
+      final op = await syncQueue.getOperation('op-1');
+      expect(op!.status, SyncStatus.pending);
+      expect(op.retryCount, 1);
+      expect(reverts, isEmpty);
+    });
+  });
+
   test('ORDER_KYC_REQUIRED keeps its own path', () async {
     await enqueue('op-1', data: '{"status":"payment_submitted","version":2}');
     replyWith([error('op-1', 'ORDER_KYC_REQUIRED: buyer_fayda: Verify')]);

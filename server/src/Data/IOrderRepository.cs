@@ -48,11 +48,19 @@ public interface IOrderRepository
     Task<Dictionary<string, object>?> TryMarkFundedAsync(string orderId, Dictionary<string, object> fields);
 
     /// <summary>
-    /// SIM-09: atomically record <paramref name="deliveryId"/> as the order's single active
-    /// delivery. True when the slot was free or already held by this delivery (idempotent
-    /// retry); false when another delivery holds it or the order does not exist.
+    /// SIM-09, ESC-08: claim the order's single active-delivery slot and write the delivery row in
+    /// one transaction, so a slot is never held by a delivery that was not written. The claim
+    /// succeeds when the slot is free or already held by this delivery (idempotent retry); with
+    /// <paramref name="replacing"/> it only takes the slot from that stale holder, and only while
+    /// the holder's claim time is still the one that was read (a live retry of the holder keeps
+    /// it). The row write requires that no row with its <c>deliveryId</c> exists.
     /// </summary>
-    Task<bool> TryClaimDeliverySlotAsync(string orderId, string deliveryId);
+    /// <param name="deliveryItem">The full delivery row, including <c>deliveryId</c>.</param>
+    Task<DeliverySlotWriteResult> TryCreateDeliveryWithSlotAsync(
+        string orderId,
+        string deliveriesTable,
+        Dictionary<string, AttributeValue> deliveryItem,
+        DeliverySlotHolder? replacing = null);
 
     /// <summary>
     /// SIM-09: free the order's delivery slot when <paramref name="deliveryId"/> is cancelled
@@ -77,3 +85,29 @@ public interface IOrderRepository
     /// </summary>
     Task<List<Dictionary<string, object>>> QueryByStatusForCronAsync(string status, string? createdBefore = null);
 }
+
+/// <summary>
+/// Outcome of <see cref="IOrderRepository.TryCreateDeliveryWithSlotAsync"/>. Only
+/// <see cref="Written"/> wrote anything. <see cref="SlotTaken"/> is the zero value so an unset
+/// result never reads as success.
+/// </summary>
+public enum DeliverySlotWriteResult
+{
+    /// <summary>Another delivery holds the slot, or the stale holder being replaced changed.</summary>
+    SlotTaken = 0,
+
+    /// <summary>The slot is held by the delivery and its row was written.</summary>
+    Written,
+
+    /// <summary>A delivery row with this <c>deliveryId</c> already exists.</summary>
+    DeliveryExists,
+
+    /// <summary>The order does not exist.</summary>
+    OrderNotFound,
+}
+
+/// <summary>
+/// ESC-08: the delivery an order's slot names (<c>activeDeliveryId</c>) and when it claimed the
+/// slot (<c>activeDeliveryClaimedAt</c>, null for claims written before ESC-08).
+/// </summary>
+public sealed record DeliverySlotHolder(string DeliveryId, string? ClaimedAt);

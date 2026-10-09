@@ -95,6 +95,16 @@ bool isRevertableRejectionMessage(String? message) =>
     message.startsWith('ORDER_') &&
     !isKycRequiredMessage(message);
 
+/// Sync rejection prefix when a party tries to cancel a delivery after pickup
+/// (ESC-08, sync-protocol.md 1.11.0).
+const String deliveryCancelNotAllowedCode = 'DELIVERY_CANCEL_NOT_ALLOWED';
+
+/// Whether a /sync per-operation error message refuses a delivery cancel
+/// (`DELIVERY_CANCEL_NOT_ALLOWED: ...`). Permanent: the delivery was picked
+/// up, so the client undoes its local cancel instead of retrying.
+bool isDeliveryCancelRefusalMessage(String? message) =>
+    message != null && message.startsWith(deliveryCancelNotAllowedCode);
+
 /// Request validation error (400)
 final class ValidationException extends ApiException {
   const ValidationException(

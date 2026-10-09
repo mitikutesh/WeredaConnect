@@ -44,4 +44,43 @@ void main() {
     final error = states.whereType<DeliveryError>().single;
     expect(error.code, DeliveryErrorCode.qrPending);
   });
+
+  // ESC-08: web sends the cancel straight to /sync, so the server's refusal
+  // after pickup reaches the bloc and must get its own message.
+  test('a cancel refused after pickup emits the cancel-not-allowed error',
+      () async {
+    final repository = _MockRepository();
+    when(
+      () => repository.cancelDelivery(
+        deliveryId: any(named: 'deliveryId'),
+        userId: any(named: 'userId'),
+      ),
+    ).thenThrow(
+      const SyncRejectedException(
+        'DELIVERY_CANCEL_NOT_ALLOWED: A delivery can be cancelled only before '
+        'pickup (status: pickedUp).',
+      ),
+    );
+    final bloc = DeliveryBloc(repository: repository);
+    addTearDown(bloc.close);
+
+    final done = expectLater(
+      bloc.stream,
+      emitsThrough(
+        isA<DeliveryError>().having(
+          (e) => e.code,
+          'code',
+          DeliveryErrorCode.cancelNotAllowed,
+        ),
+      ),
+    );
+    bloc.add(
+      const CancelDelivery(
+        deliveryId: 'del-1',
+        userId: 'farmer-1',
+        tripId: 'trip-1',
+      ),
+    );
+    await done;
+  });
 }

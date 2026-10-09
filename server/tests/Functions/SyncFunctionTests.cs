@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using System.Text.Json;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
@@ -51,8 +52,12 @@ public class SyncFunctionTests
             { "version", "1" }
         });
 
-        // Default: the order's single delivery slot is free (SIM-09).
-        _mockOrderRepo.TryClaimDeliverySlotAsync(Arg.Any<string>(), Arg.Any<string>()).Returns(true);
+        // Default: the order's single delivery slot is free (SIM-09), so a create writes the
+        // slot claim and the delivery row together (ESC-08).
+        _mockOrderRepo.TryCreateDeliveryWithSlotAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, AttributeValue>>(),
+                Arg.Any<DeliverySlotHolder?>())
+            .Returns(DeliverySlotWriteResult.Written);
 
         // Default: no duplicate idempotency keys
         _mockSyncMeta.IdempotencyKeyExistsAsync(Arg.Any<string>()).Returns(false);
@@ -2594,8 +2599,7 @@ public class SyncFunctionTests
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Contains("success", response.Body);
-        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
-            r.TableName == "test-deliveries-table" && !r.Item.ContainsKey("qrNonce")));
+        await ReceivedDeliveryWrite(item => !item.ContainsKey("qrNonce"));
     }
 
     [Fact]
@@ -2654,8 +2658,7 @@ public class SyncFunctionTests
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Contains("\"status\":\"conflict\"", response.Body);
-        await _mockOrderRepo.DidNotReceive().TryClaimDeliverySlotAsync(Arg.Any<string>(), Arg.Any<string>());
-        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+        await DidNotWriteDelivery();
     }
 
     // ===== Delivery confirmation → escrow + transition regression tests =====
@@ -4234,9 +4237,41 @@ public class SyncFunctionTests
         _mockOrderRepo.GetByIdAsync(TestOrderId).Returns(new Dictionary<string, object>
         {
             { "orderId", TestOrderId }, { "buyerId", TestBuyerId }, { "farmerId", TestFarmerId },
+            { "listingId", TestListingId }, { "tripId", TestTripId },
             { "truckerId", truckerId }, { "status", status }, { "version", "1" }
         });
+        SetupOrderTrip();
     }
+
+    /// <summary>ESC-08: the order's trip, owned by <paramref name="truckerId"/>.</summary>
+    private void SetupOrderTrip(string truckerId = TestTruckerId)
+    {
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r =>
+                r.TableName == "test-trips-table" && r.ExpressionAttributeValues[":id"].S == TestTripId))
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    new()
+                    {
+                        { "tripId", new AttributeValue { S = TestTripId } },
+                        { "truckerId", new AttributeValue { S = truckerId } },
+                        { "status", new AttributeValue { S = "open" } }
+                    }
+                }
+            });
+    }
+
+    /// <summary>ESC-08: a create wrote one delivery row (with its slot claim) matching <paramref name="item"/>.</summary>
+    private Task<DeliverySlotWriteResult> ReceivedDeliveryWrite(
+        Expression<Predicate<Dictionary<string, AttributeValue>>> item) =>
+        _mockOrderRepo.Received(1).TryCreateDeliveryWithSlotAsync(
+            Arg.Any<string>(), Arg.Is("test-deliveries-table"), Arg.Is(item), Arg.Any<DeliverySlotHolder?>());
+
+    private Task<DeliverySlotWriteResult> DidNotWriteDelivery() =>
+        _mockOrderRepo.DidNotReceive().TryCreateDeliveryWithSlotAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, AttributeValue>>(),
+            Arg.Any<DeliverySlotHolder?>());
 
     /// <summary>A pending trucker delivery for order-001 with the standard test parties.</summary>
     private static Dictionary<string, AttributeValue> DeliveryItemForOrder(
@@ -4288,7 +4323,7 @@ public class SyncFunctionTests
             MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
 
         Assert.Contains("The order has no trucker", response.Body);
-        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+        await DidNotWriteDelivery();
     }
 
     [Theory]
@@ -4303,7 +4338,7 @@ public class SyncFunctionTests
             MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
 
         Assert.Contains($"Order is {status}; no delivery can be created until the farmer has accepted it", response.Body);
-        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+        await DidNotWriteDelivery();
     }
 
     [Theory]
@@ -4317,8 +4352,9 @@ public class SyncFunctionTests
             MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
 
         Assert.Contains("success", response.Body);
-        await _mockOrderRepo.Received(1).TryClaimDeliverySlotAsync(TestOrderId, "del-001");
-        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Any<PutItemRequest>());
+        await _mockOrderRepo.Received(1).TryCreateDeliveryWithSlotAsync(
+            TestOrderId, "test-deliveries-table",
+            Arg.Is<Dictionary<string, AttributeValue>>(item => item["deliveryId"].S == "del-001"), null);
     }
 
     private static UserDto PartyProfile(
@@ -4368,13 +4404,13 @@ public class SyncFunctionTests
             MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
 
         Assert.Contains("\"status\":\"success\"", response.Body);
-        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
-            r.Item["buyerName"].S == "Mekonnen Haile"
-            && r.Item["buyerPhone"].S == "+251900100003"
-            && r.Item["farmerName"].S == "Abebe Kebede"
-            && r.Item["farmerPhone"].S == "+251900100001"
-            && r.Item["truckerName"].S == "Chaltu Tolosa"
-            && r.Item["truckerPhone"].S == "+251900100002"));
+        await ReceivedDeliveryWrite(item =>
+            item["buyerName"].S == "Mekonnen Haile"
+            && item["buyerPhone"].S == "+251900100003"
+            && item["farmerName"].S == "Abebe Kebede"
+            && item["farmerPhone"].S == "+251900100001"
+            && item["truckerName"].S == "Chaltu Tolosa"
+            && item["truckerPhone"].S == "+251900100002");
     }
 
     // SIM-46: a client that sends no phones at all (the shipped mobile and web
@@ -4392,10 +4428,10 @@ public class SyncFunctionTests
         await _function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
 
-        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
-            r.Item["buyerPhone"].S == "+251900100003"
-            && r.Item["farmerPhone"].S == "+251900100001"
-            && r.Item["truckerPhone"].S == "+251900100002"));
+        await ReceivedDeliveryWrite(item =>
+            item["buyerPhone"].S == "+251900100003"
+            && item["farmerPhone"].S == "+251900100001"
+            && item["truckerPhone"].S == "+251900100002");
     }
 
     // SIM-46: the trucker cannot fix the farmer's profile, so a party with no name on
@@ -4407,8 +4443,10 @@ public class SyncFunctionTests
         {
             { "orderId", TestOrderId }, { "buyerId", TestBuyerId }, { "farmerId", TestFarmerId },
             { "farmerName", "Abebe From Order" }, { "truckerId", TestTruckerId },
+            { "listingId", TestListingId }, { "tripId", TestTripId },
             { "status", "accepted" }, { "version", "1" }
         });
+        SetupOrderTrip();
         SetupDeliveryPartyProfiles(farmerDisplayName: null);
         var op = MakeDeliveryCreateOp();
         op.Data!["farmerName"] = "Spoofed Farmer";
@@ -4416,9 +4454,9 @@ public class SyncFunctionTests
         await _function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
 
-        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
-            r.Item["farmerName"].S == "Abebe From Order"
-            && r.Item["farmerPhone"].S == "+251900100001"));
+        await ReceivedDeliveryWrite(item =>
+            item["farmerName"].S == "Abebe From Order"
+            && item["farmerPhone"].S == "+251900100001");
     }
 
     // SIM-46: with no display name the legal name received from Fayda is used
@@ -4430,8 +4468,10 @@ public class SyncFunctionTests
         {
             { "orderId", TestOrderId }, { "buyerId", TestBuyerId }, { "farmerId", TestFarmerId },
             { "farmerName", "Abebe From Order" }, { "truckerId", TestTruckerId },
+            { "listingId", TestListingId }, { "tripId", TestTripId },
             { "status", "accepted" }, { "version", "1" }
         });
+        SetupOrderTrip();
         SetupDeliveryPartyProfiles(farmerDisplayName: null);
         _mockUserRepo.GetUserByIdAsync(TestFarmerId).Returns(
             PartyProfile(TestFarmerId, "farmer", "+251900100001", "  ", "Abebe Kebede Lemma"));
@@ -4439,8 +4479,8 @@ public class SyncFunctionTests
         await _function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
 
-        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
-            r.Item["farmerName"].S == "Abebe Kebede Lemma"));
+        await ReceivedDeliveryWrite(item =>
+            item["farmerName"].S == "Abebe Kebede Lemma");
     }
 
     // SIM-46: no name anywhere must not fall back to the client value.
@@ -4457,7 +4497,7 @@ public class SyncFunctionTests
 
         Assert.Contains("DELIVERY_VALIDATION", response.Body);
         Assert.Contains("farmer has no name", response.Body);
-        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+        await DidNotWriteDelivery();
     }
 
     // SIM-46: an unreadable party profile fails closed (as SIM-40 does for owners).
@@ -4473,7 +4513,7 @@ public class SyncFunctionTests
 
         Assert.Contains("DELIVERY_VALIDATION", response.Body);
         Assert.Contains("farmer profile could not be read", response.Body);
-        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+        await DidNotWriteDelivery();
     }
 
     // SIM-46: a self-pickup stamps buyer and farmer from their profiles and stores no
@@ -4510,26 +4550,31 @@ public class SyncFunctionTests
             MakeAuthenticatedRequest(MakeSyncRequest(op), TestBuyerId, "buyer"), _context);
 
         Assert.Contains("\"status\":\"success\"", response.Body);
-        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
-            r.Item["buyerName"].S == "Mekonnen Haile"
-            && r.Item["buyerPhone"].S == "+251900100003"
-            && r.Item["farmerName"].S == "Abebe Kebede"
-            && r.Item["farmerPhone"].S == "+251900100001"
-            && !r.Item.ContainsKey("truckerName")
-            && !r.Item.ContainsKey("truckerPhone")));
+        await ReceivedDeliveryWrite(item =>
+            item["buyerName"].S == "Mekonnen Haile"
+            && item["buyerPhone"].S == "+251900100003"
+            && item["farmerName"].S == "Abebe Kebede"
+            && item["farmerPhone"].S == "+251900100001"
+            && !item.ContainsKey("truckerName")
+            && !item.ContainsKey("truckerPhone"));
     }
 
     [Fact]
     public async Task DeliveryCreate_SecondActiveDelivery_ReturnsError()
     {
         SetupTruckOrder();
-        _mockOrderRepo.TryClaimDeliverySlotAsync(TestOrderId, "del-001").Returns(false);
+        _mockOrderRepo.TryCreateDeliveryWithSlotAsync(
+                TestOrderId, Arg.Any<string>(), Arg.Any<Dictionary<string, AttributeValue>>(), Arg.Any<DeliverySlotHolder?>())
+            .Returns(DeliverySlotWriteResult.SlotTaken);
 
         var response = await _function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
 
         Assert.Contains("DELIVERY_VALIDATION: The order already has an active delivery", response.Body);
-        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+        // One refused attempt (nothing written), no takeover: no stale holder was found.
+        await _mockOrderRepo.Received(1).TryCreateDeliveryWithSlotAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, AttributeValue>>(),
+            Arg.Any<DeliverySlotHolder?>());
     }
 
     [Theory]

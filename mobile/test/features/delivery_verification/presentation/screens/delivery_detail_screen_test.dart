@@ -271,17 +271,45 @@ void main() {
       expect(find.text('Confirm Delivery'), findsOneWidget);
     });
 
-    testWidgets('shows Cancel Delivery button for participant with pending',
-        (tester) async {
-      final delivery = _makeDelivery();
+    // ESC-08: every party may cancel before pickup (the same screen on mobile
+    // and web), nobody after.
+    for (final userId in ['farmer-001', 'trucker-001', 'buyer-001']) {
+      testWidgets('shows Cancel Delivery to $userId while pending',
+          (tester) async {
+        await tester.pumpWidget(
+          buildTestWidget(delivery: _makeDelivery(), currentUserId: userId),
+        );
+        await tester.pumpAndSettle();
 
+        expect(find.text('Cancel Delivery'), findsOneWidget);
+        expect(find.byIcon(Icons.cancel_outlined), findsOneWidget);
+      });
+
+      testWidgets('hides Cancel Delivery from $userId once picked up',
+          (tester) async {
+        await tester.pumpWidget(
+          buildTestWidget(
+            delivery: _makeDelivery(status: DeliveryStatus.pickedUp),
+            currentUserId: userId,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Cancel Delivery'), findsNothing);
+      });
+    }
+
+    testWidgets('shows Cancel Delivery to the buyer of a pending self-pickup',
+        (tester) async {
       await tester.pumpWidget(
-        buildTestWidget(delivery: delivery),
+        buildTestWidget(
+          delivery: _makeDelivery(truckerId: '', deliveryType: 'self_pickup'),
+          currentUserId: 'buyer-001',
+        ),
       );
       await tester.pumpAndSettle();
 
       expect(find.text('Cancel Delivery'), findsOneWidget);
-      expect(find.byIcon(Icons.cancel_outlined), findsOneWidget);
     });
 
     testWidgets('shows dispute section when status is disputed',

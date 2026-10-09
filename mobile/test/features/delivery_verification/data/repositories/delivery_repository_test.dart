@@ -522,28 +522,65 @@ void main() {
       expect(fromDb.version, 2);
     });
 
-    test('cancelDelivery enqueues sync operation', () async {
-      final delivery = await repository.createDelivery(
-        tripId: 'trip-001',
-        orderId: 'order-test-001',
-        listingId: 'listing-001',
-        farmerId: 'farmer-001',
-        farmerName: 'Abebe',
-        truckerId: 'trucker-001',
-        truckerName: 'Dawit',
-        buyerId: 'buyer-001',
-        buyerName: 'Sara',
-        qrToken: 'qr-token',
-      );
+    // ESC-08: every party cancels with an update (delete was trucker-only on
+    // the server), and only the delivery op is queued: the order stays
+    // accepted and keeps its stock, so the listing is left alone.
+    for (final userId in ['farmer-001', 'trucker-001', 'buyer-001']) {
+      test('cancelDelivery by $userId enqueues only a delivery update',
+          () async {
+        final delivery = await _insertTestDelivery(isar);
+        await isar.writeTxn(() async {
+          await isar.cropListings.put(
+            CropListing()
+              ..listingId = delivery.listingId
+              ..farmerId = 'farmer-001'
+              ..cropType = 'teff'
+              ..quantity = 10.0
+              ..pricePerKg = 25.0
+              ..location = (LatLng()
+                ..latitude = 9.0
+                ..longitude = 38.7)
+              ..description = 'Teff'
+              ..locationName = 'Bishoftu'
+              ..status = ListingStatus.reserved
+              ..createdAt = DateTime.parse('2026-10-09T08:00:00Z')
+              ..updatedAt = DateTime.parse('2026-10-09T08:00:00Z')
+              ..version = 3,
+          );
+        });
+
+        await repository.cancelDelivery(
+          deliveryId: delivery.deliveryId,
+          userId: userId,
+        );
+
+        final pending = await syncQueue.getPendingOperations();
+        expect(pending, hasLength(1));
+        expect(pending.single.entityType, 'delivery');
+        expect(pending.single.action, 'update');
+        expect(
+          jsonDecode(pending.single.data),
+          {'status': 'cancelled', 'version': 1},
+        );
+        final listing = await isar.cropListings
+            .filter()
+            .listingIdEqualTo(delivery.listingId)
+            .findFirst();
+        expect(listing!.status, ListingStatus.reserved);
+        expect(listing.version, 3);
+      });
+    }
+
+    test('cancelDelivery of a cancelled delivery is a no-op', () async {
+      final delivery =
+          await _insertTestDelivery(isar, status: DeliveryStatus.cancelled);
 
       await repository.cancelDelivery(
         deliveryId: delivery.deliveryId,
-        userId: 'trucker-001',
+        userId: 'farmer-001',
       );
 
-      final pending = await syncQueue.getPendingOperations();
-      expect(pending.length, 2); // create + delete
-      expect(pending.last.action, 'delete');
+      expect(await syncQueue.getPendingOperations(), isEmpty);
     });
 
     test('cancelDelivery by farmer (participant) succeeds', () async {
@@ -1227,23 +1264,40 @@ void main() {
     });
 
     group('cancelDelivery validation', () {
-      test('throws when status is delivered', () async {
-        await _insertTestDelivery(
-          isar,
-          status: DeliveryStatus.delivered,
-        );
+      // ESC-08: after pickup no party can cancel, so nothing is changed or
+      // queued and the screen shows why.
+      for (final status in [
+        DeliveryStatus.pickedUp,
+        DeliveryStatus.inTransit,
+        DeliveryStatus.delivered,
+        DeliveryStatus.disputed,
+      ]) {
+        test('throws cancelNotAllowed when status is ${status.name}', () async {
+          await _insertTestDelivery(isar, status: status);
 
-        expect(
-          () => repository.cancelDelivery(
-            deliveryId: '550e8400-e29b-41d4-a716-446655440000',
-            userId: 'farmer-001',
-          ),
-          throwsA(
-            isA<DeliveryValidationException>()
-                .having((e) => e.field, 'field', 'status'),
-          ),
-        );
-      });
+          await expectLater(
+            () => repository.cancelDelivery(
+              deliveryId: '550e8400-e29b-41d4-a716-446655440000',
+              userId: 'trucker-001',
+            ),
+            throwsA(
+              isA<DeliveryValidationException>()
+                  .having((e) => e.field, 'field', 'status')
+                  .having(
+                    (e) => e.code,
+                    'code',
+                    DeliveryErrorCode.cancelNotAllowed,
+                  ),
+            ),
+          );
+          final fromDb = await isar.deliverys
+              .filter()
+              .deliveryIdEqualTo('550e8400-e29b-41d4-a716-446655440000')
+              .findFirst();
+          expect(fromDb!.status, status);
+          expect(await syncQueue.getPendingOperations(), isEmpty);
+        });
+      }
 
       test('throws when user is not participant', () async {
         await _insertTestDelivery(isar);

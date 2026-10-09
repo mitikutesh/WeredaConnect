@@ -432,11 +432,11 @@ public sealed class DeliveryRepository : IDeliveryRepository
                 { "deliveryId", new AttributeValue { S = deliveryId } },
                 { "tripId", new AttributeValue { S = tripId } }
             },
-            UpdateExpression = "SET #status = :cancelled, #deleted = :now, #updated = :now ADD #v :one",
+            UpdateExpression = "SET #status = :cancelled, #updated = :now ADD #v :one",
             ConditionExpression = "#status = :pending",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
-                { "#status", "status" }, { "#deleted", "deletedAt" }, { "#updated", "updatedAt" }, { "#v", "version" }
+                { "#status", "status" }, { "#updated", "updatedAt" }, { "#v", "version" }
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {

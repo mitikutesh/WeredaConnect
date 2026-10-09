@@ -133,11 +133,12 @@ class DeliveryRepository extends BaseDeliveryRepository {
           );
         }
       case 'cancel':
-        if (delivery.status != DeliveryStatus.pending &&
-            delivery.status != DeliveryStatus.pickedUp) {
+        // ESC-08: only before pickup; after it the server refuses every party.
+        if (delivery.status != DeliveryStatus.pending) {
           throw DeliveryValidationException(
             'status',
-            'Cannot cancel after delivery',
+            'Only a delivery that is not picked up yet can be cancelled',
+            code: DeliveryErrorCode.cancelNotAllowed,
           );
         }
         if (delivery.farmerId != userId &&
@@ -639,7 +640,11 @@ class DeliveryRepository extends BaseDeliveryRepository {
     );
   }
 
-  /// Cancel a delivery. Status → cancelled (soft delete).
+  /// Cancel a delivery (any party, before pickup only). Status → cancelled.
+  ///
+  /// ESC-08: sent as an `update` like web; older app versions sent `delete`,
+  /// which the server still accepts under the same rules. The listing is left
+  /// alone: the order stays accepted and keeps its stock for the next delivery.
   @override
   Future<void> cancelDelivery({
     required String deliveryId,
@@ -650,7 +655,9 @@ class DeliveryRepository extends BaseDeliveryRepository {
         .deliveryIdEqualTo(deliveryId)
         .findFirst();
 
-    if (delivery == null) return;
+    if (delivery == null || delivery.status == DeliveryStatus.cancelled) {
+      return;
+    }
 
     _validateDeliveryOperation(delivery, 'cancel', userId);
 
@@ -665,24 +672,17 @@ class DeliveryRepository extends BaseDeliveryRepository {
       await _isar.deliverys.put(delivery);
     });
 
+    // A cancel may only carry the status and the version (server rule).
     await _syncQueue.enqueue(
       userId: userId,
       entityType: 'delivery',
       entityId: deliveryId,
-      action: 'delete',
+      action: 'update',
       data: jsonEncode({
-        'deliveryId': deliveryId,
         'status': DeliveryStatus.cancelled.name,
-        'updatedAt': now.toIso8601String(),
         'version': baseVersion,
       }),
       operationId: _uuid.v4(),
-    );
-
-    await _updateListingStatus(
-      delivery.listingId,
-      ListingStatus.active,
-      userId,
     );
   }
 

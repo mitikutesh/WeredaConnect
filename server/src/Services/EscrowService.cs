@@ -1254,12 +1254,14 @@ public sealed class EscrowService
 
             // Re-link only when the currently linked delivery is dead; an active
             // linked delivery keeps the escrow (prevents hijacking a live handoff).
+            // Consistent read (ESC-08): the replacement is usually created right after
+            // the cancel, and a stale read would keep the escrow on the dead delivery.
             if (_deliveryRepo == null)
             {
                 return false;
             }
 
-            var linkedDelivery = await _deliveryRepo.GetByIdAsync(linkedDeliveryId);
+            var linkedDelivery = await _deliveryRepo.GetByIdAsync(linkedDeliveryId, consistentRead: true);
             if (linkedDelivery != null
                 && !string.Equals(GetString(linkedDelivery, "status"), "cancelled", StringComparison.Ordinal))
             {

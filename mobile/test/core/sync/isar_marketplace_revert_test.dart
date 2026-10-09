@@ -4,12 +4,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:isar/isar.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/order.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/isar_marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
+import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
 import 'package:wereda_connect/features/order/data/repositories/order_repository.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
@@ -53,7 +55,7 @@ void main() {
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('marketplace_revert_test_');
     isar = await Isar.open(
-      [OrderSchema, SyncOperationSchema],
+      [OrderSchema, DeliverySchema, SyncOperationSchema],
       directory: tempDir.path,
       name: 'marketplace_revert_${DateTime.now().microsecondsSinceEpoch}',
     );
@@ -311,5 +313,98 @@ void main() {
     expect((await load('rejected'))!.status, OrderStatus.funded);
     expect((await load('pending'))!.status, OrderStatus.accepted);
     expect((await load('exhausted'))!.status, OrderStatus.accepted);
+  });
+
+  // ESC-08: the trucker picked up while the farmer cancelled offline; the
+  // server refuses the cancel for good and the device must show the pickup.
+  group('revertRejected for a delivery cancel refused after pickup', () {
+    const deliveryId = '550e8400-e29b-41d4-a716-446655440000';
+    const refusal = 'DELIVERY_CANCEL_NOT_ALLOWED: A delivery can be cancelled '
+        'only before pickup (status: pickedUp).';
+
+    Future<Delivery?> loadDelivery() =>
+        isar.deliverys.filter().deliveryIdEqualTo(deliveryId).findFirst();
+
+    /// The farmer cancels offline (local `cancelled` at version 2, op queued
+    /// with base version 1), then the server refuses it for good.
+    Future<SyncOperation> cancelThenReject() async {
+      await isar.writeTxn(() async {
+        await isar.deliverys.put(
+          Delivery()
+            ..deliveryId = deliveryId
+            ..tripId = 'trip-1'
+            ..listingId = 'listing-1'
+            ..farmerId = 'farmer-1'
+            ..farmerName = 'Farmer'
+            ..truckerId = 'trucker-1'
+            ..truckerName = 'Trucker'
+            ..buyerId = 'buyer-1'
+            ..buyerName = 'Buyer'
+            ..qrToken = 'qr'
+            ..status = DeliveryStatus.pending
+            ..createdAt = DateTime.utc(2026, 10, 9)
+            ..updatedAt = DateTime.utc(2026, 10, 9)
+            ..version = 1,
+        );
+      });
+      await DeliveryRepository(isar: isar, syncQueue: queue)
+          .cancelDelivery(deliveryId: deliveryId, userId: 'farmer-1');
+      final op = (await opsFor(deliveryId)).single;
+      await queue.markAsRejected(op.operationId);
+      return op;
+    }
+
+    test('goes back to the server delivery', () async {
+      final op = await cancelThenReject();
+      when(() => api.get<Map<String, dynamic>>('/deliveries/$deliveryId'))
+          .thenAnswer(
+        (_) async => {
+          'delivery': {
+            'deliveryId': deliveryId,
+            'farmerId': 'farmer-1',
+            'truckerId': 'trucker-1',
+            'buyerId': 'buyer-1',
+            'status': 'pickedUp',
+            'version': 2,
+          },
+        },
+      );
+
+      await sync.revertRejected(op, refusal);
+
+      final delivery = await loadDelivery();
+      expect(delivery!.status, DeliveryStatus.pickedUp);
+      expect(delivery.version, 2);
+    });
+
+    test('a failed read puts the base version back and keeps the row',
+        () async {
+      final op = await cancelThenReject();
+      when(() => api.get<Map<String, dynamic>>('/deliveries/$deliveryId'))
+          .thenThrow(const NetworkException());
+
+      await sync.revertRejected(op, refusal);
+
+      final delivery = await loadDelivery();
+      expect(delivery, isNotNull);
+      expect(delivery!.version, 1);
+    });
+
+    test('another op still on its way settles the row instead', () async {
+      final op = await cancelThenReject();
+      await queue.enqueue(
+        userId: 'farmer-1',
+        entityType: 'delivery',
+        entityId: deliveryId,
+        action: 'update-later',
+        data: '{"qrNonce":"n","version":2}',
+        operationId: 'op-later',
+      );
+
+      await sync.revertRejected(op, refusal);
+
+      expect((await loadDelivery())!.status, DeliveryStatus.cancelled);
+      verifyNever(() => api.get<Map<String, dynamic>>('/deliveries/$deliveryId'));
+    });
   });
 }

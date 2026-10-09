@@ -86,7 +86,7 @@ public class DeliveryRepositoryDisputeTests
     }
 
     [Fact]
-    public async Task CancelPending_IsTheSoftDelete_GuardedOnPending()
+    public async Task CancelPending_IsThePartyCancelWrite_GuardedOnPending()
     {
         // A buyer_wins refund before pickup cancels the delivery that never left the farm.
         var ok = await _repo.TryCancelPendingAsync("delivery-1");
@@ -96,7 +96,7 @@ public class DeliveryRepositoryDisputeTests
         _update!.Key["tripId"].S.Should().Be("trip-1");
         _update.ConditionExpression.Should().Be("#status = :pending");
         _update.ExpressionAttributeValues[":cancelled"].S.Should().Be("cancelled");
-        _update.ExpressionAttributeNames["#deleted"].Should().Be("deletedAt");
+        _update.ExpressionAttributeNames.Values.Should().NotContain("deletedAt");
         _update.UpdateExpression.Should().EndWith("ADD #v :one");
     }
 

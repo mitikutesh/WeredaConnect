@@ -354,12 +354,12 @@ public sealed class DisputeSettlementDynamoDbTests
         Str(order, "version").Should().Be("3");
         var delivery = await DeliveryAsync(deliveryId);
         Str(delivery, "status").Should().Be("cancelled");
-        Str(delivery, "deletedAt").Should().NotBeNull();
+        Str(delivery, "deletedAt").Should().BeNull();
         var listing = (await CropRepo.GetByIdAsync(listingId))!;
         double.Parse(Str(listing, "quantity")!, System.Globalization.CultureInfo.InvariantCulture).Should().Be(13);
         Str(listing, "status").Should().Be("available");
         (await TxRepo.GetByTransactionAsync(orderId)).Select(r => $"{r["entityType"]}:{r["action"]}")
-            .Should().Contain(new[] { "order:order_cancelled", "delivery:delivery_updated" });
+            .Should().Contain(new[] { "order:order_cancelled", "delivery:delivery_cancelled" });
         (await AuditActionsAsync(escrowId)).Should().NotContain("dispute_verdict_mismatch");
     }
 

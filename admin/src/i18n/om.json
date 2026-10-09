@@ -287,6 +287,7 @@
     "action_dispute_resolved": "Waldhabdeen furame",
     "action_order_updated": "Ajajni haaromfame",
     "action_delivery_updated": "Geejjibni haaromfame",
+    "action_delivery_cancelled": "Geejjibni haqame",
     "action_admin_dispute_resolved": "Waldhabdeen furame (bulchaa)"
   },
   "analytics": {

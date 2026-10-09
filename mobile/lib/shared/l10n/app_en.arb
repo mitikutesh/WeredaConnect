@@ -2228,6 +2228,10 @@
   "@deliveryErrorQrPending": {
     "description": "Pickup/delivery confirmation postponed because the farmer's QR nonce has not synced"
   },
+  "deliveryErrorCancelNotAllowed": "This delivery was already picked up, so it can no longer be cancelled. Contact support if there is a problem.",
+  "@deliveryErrorCancelNotAllowed": {
+    "description": "A delivery cancel refused because the crops were already picked up (only a delivery that is not picked up yet can be cancelled)"
+  },
   "deliveryQrTooLarge": "QR code too large",
   "@deliveryQrTooLarge": {
     "description": "Error when scanned QR code exceeds size limit"

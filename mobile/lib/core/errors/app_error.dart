@@ -45,6 +45,10 @@ enum AppErrorCode {
   /// The rating already exists on the server (web create conflict).
   alreadyRated,
 
+  /// The server refused a delivery cancel because the delivery was already
+  /// picked up (`DELIVERY_CANCEL_NOT_ALLOWED`); the local cancel was undone.
+  deliveryCancelNotAllowed,
+
   /// The server refused a queued change (not an order) for good, so it was
   /// never saved there.
   changeNotSaved,
@@ -128,6 +132,7 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.orderRefused => l10n.errorOrderRefused,
     AppErrorCode.orderNotPlaced => l10n.errorOrderNotPlaced,
     AppErrorCode.alreadyRated => l10n.alreadyRated,
+    AppErrorCode.deliveryCancelNotAllowed => l10n.deliveryErrorCancelNotAllowed,
     AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
@@ -139,8 +144,9 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
 
 /// The reason to show for an operation the sync queue rejected for good
 /// (mobile background sync, `SyncOperationRejected`). A refused order create
-/// removed the local order; any other refused order change was undone; any
-/// other refused change was not saved on the server.
+/// removed the local order; any other refused order change was undone; a
+/// delivery cancel refused after pickup was undone (ESC-08); any other refused
+/// change was not saved on the server.
 AppErrorCode syncRejectionErrorCode({
   required String entityType,
   required String action,
@@ -150,6 +156,9 @@ AppErrorCode syncRejectionErrorCode({
     return action == 'create'
         ? AppErrorCode.orderNotPlaced
         : AppErrorCode.orderRefused;
+  }
+  if (isDeliveryCancelRefusalMessage(message)) {
+    return AppErrorCode.deliveryCancelNotAllowed;
   }
   return isRevertableRejectionMessage(message)
       ? AppErrorCode.orderRefused
