@@ -597,9 +597,14 @@ public class EscrowServiceTests
             && e["actor"].ToString() == "system" && e["metadata"].ToString() == "resolution=farmer_wins"));
     }
 
-    [Fact]
-    public async Task ReleaseAsync_ResolvedDispute_OrderThatCannotFollow_IsAuditedAndStillSettles()
+    [Theory]
+    [InlineData("farmer_wins", "release")]
+    [InlineData("buyer_wins", "refund")]
+    public async Task ResolvedDispute_OrderThatCannotFollow_IsNotSettled_AlarmedAndAuditedOncePerDay(
+        string resolution, string op)
     {
+        // A dispute raised before delivery: the order is still in transit. Settling would pay
+        // the farmer before delivery, or refund the buyer and leave the order live.
         var orderRepo = Substitute.For<IOrderRepository>();
         orderRepo.GetByIdAsync("order-1", true).Returns(new Dictionary<string, object>
         {
@@ -607,8 +612,63 @@ public class EscrowServiceTests
         });
         var userRepo = Substitute.For<IUserRepository>();
         userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
+        var alarms = new List<string>();
         var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
-            userRepo, orderRepo);
+            userRepo, orderRepo) { AlarmLog = alarms.Add };
+        var escrow = MakeResolvedDispute(resolution);
+        escrow["orderId"] = "order-1";
+        escrow.Remove("deliveryId");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrow);
+
+        // Two hourly sweeps on the same day.
+        for (var run = 0; run < 2; run++)
+        {
+            var error = op == "release"
+                ? (await service.ReleaseAsync(DisputeReleaseRequest(), "system")).Error
+                : (await service.RefundAsync(DisputeRefundRequest(), "system")).Error;
+            Assert.Equal(422, error!.HttpStatus);
+            Assert.Equal("ESCROW_INVALID_TRANSITION", error.Code);
+            Assert.Contains("order:mismatch:in_transit", error.Message);
+        }
+
+        await _mockEscrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        await orderRepo.DidNotReceive().UpdateAsync(
+            Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        Assert.Equal(2, alarms.Count);
+        Assert.All(alarms, line => Assert.Equal(
+            $"DISPUTE_VERDICT_ORDER_MISMATCH escrowId=escrow-001 op={op} legs=order:mismatch:in-transit", line));
+        // Both runs aim at the same deterministic key (start of the UTC day), so the
+        // conditional put keeps one row per day.
+        var dayKey = DisputeVerdictMirror.DailyAuditTimestamp(DateTime.UtcNow, DisputeVerdictMirror.MismatchAuditAction);
+        await _mockAuditRepo.Received(2).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(e =>
+            e["action"].ToString() == "dispute_verdict_mismatch"
+            && e["timestamp"].ToString() == dayKey
+            && e["auditId"].ToString() == EscrowAuditRepository.DeterministicAuditId("dispute_verdict_mismatch", dayKey)
+            && e["metadata"].ToString()!.StartsWith($"legs=order:mismatch:in_transit;op={op};at=")));
+        await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+            e["action"].ToString()!.StartsWith("dispute_verdict")));
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_ResolvedDispute_OrderWriteFailure_StillSettles_AndIsAudited()
+    {
+        // A transient write failure is not a mismatch: the money follows the verdict and a
+        // later run (or an admin replay of the verdict) repairs the order.
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1", true).Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-1" }, { "status", "disputed" }, { "version", 4 }
+        });
+        orderRepo.UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "conflict"));
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
+        var alarms = new List<string>();
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
+            userRepo, orderRepo) { AlarmLog = alarms.Add };
         var escrow = MakeResolvedDispute("farmer_wins");
         escrow["orderId"] = "order-1";
         escrow.Remove("deliveryId");
@@ -617,11 +677,57 @@ public class EscrowServiceTests
         var result = await service.ReleaseAsync(DisputeReleaseRequest(), "system");
 
         Assert.True(result.IsSuccess);
-        await orderRepo.DidNotReceive().UpdateAsync(
-            Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
-        await _mockAuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+        Assert.DoesNotContain(alarms, line => line.StartsWith("DISPUTE_VERDICT_ORDER_MISMATCH"));
+        await _mockAuditRepo.Received(1).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(e =>
             e["action"].ToString() == "dispute_verdict_propagation_failed"
-            && e["metadata"].ToString() == "legs=order:mismatch:in_transit"));
+            && e["metadata"].ToString()!.StartsWith("legs=order:conflict;op=release;at=")));
+    }
+
+    [Theory]
+    [InlineData("escrow-existing", null, "ESCROW_009")]
+    [InlineData("escrow-order-order-001", "order", "ESCROW_024")]
+    public async Task InitiateAsync_ResolvedButUnsettledEscrowOnTheDelivery_StillBlocks(
+        string escrowId, string? source, string code)
+    {
+        // ESC-03: a dispute_resolved escrow still holds the money until its verdict settles.
+        var existing = new Dictionary<string, object>
+        {
+            { "escrowId", escrowId }, { "status", "dispute_resolved" }, { "orderId", "order-001" }
+        };
+        if (source != null)
+        {
+            existing["source"] = source;
+        }
+
+        _mockEscrowRepo.GetByDeliveryIdAsync(DeliveryId).Returns(existing);
+
+        var result = await _service.InitiateAsync(MakeInitiateRequest(), BuyerId);
+
+        Assert.Equal(409, result.Error!.HttpStatus);
+        Assert.Equal(code, result.Error.Code);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_OrderWithAResolvedButUnsettledEscrow_ReturnsEscrow024()
+    {
+        // The order-level double-charge guard (6f) counts dispute_resolved as active too.
+        _mockEscrowRepo.QueryByOrderIdAsync("order-001", Arg.Any<int>()).Returns(new List<Dictionary<string, object>>
+        {
+            new() { { "escrowId", "escrow-order-order-001" }, { "orderId", "order-001" }, { "status", "dispute_resolved" } }
+        });
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        deliveryRepo.GetByIdAsync(DeliveryId).Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", DeliveryId }, { "buyerId", BuyerId }, { "farmerId", FarmerId },
+            { "status", "pending" }, { "orderId", "order-001" }
+        });
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
+            _mockUserRepo, deliveryRepo: deliveryRepo);
+
+        var result = await service.InitiateAsync(MakeInitiateRequest(), BuyerId);
+
+        Assert.Equal("ESCROW_024", result.Error!.Code);
+        await _mockTelebirrGateway.DidNotReceive().HoldFundsAsync(Arg.Any<HoldFundsRequest>());
     }
 
     [Fact]

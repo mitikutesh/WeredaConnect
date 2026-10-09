@@ -982,10 +982,15 @@ public class AdminFunctionTests
         response.StatusCode.Should().Be(200);
         await _dynamoDb.DidNotReceive().UpdateItemAsync(
             Arg.Is<UpdateItemRequest>(u => u.TableName == OrdersTable), Arg.Any<CancellationToken>());
+        // One mismatch row per escrow and UTC day: a deterministic key and a conditional put,
+        // shared with the settlement's refusals.
+        var dayKey = DisputeVerdictMirror.DailyAuditTimestamp(DateTime.UtcNow, DisputeVerdictMirror.MismatchAuditAction);
         await _dynamoDb.Received(1).PutItemAsync(
             Arg.Is<PutItemRequest>(p => p.TableName == AuditTable
-                                        && p.Item["action"].S == "dispute_verdict_propagation_failed"
-                                        && p.Item["metadata"].S == "legs=order:mismatch:in_transit"),
+                                        && p.Item["action"].S == "dispute_verdict_mismatch"
+                                        && p.Item["timestamp"].S == dayKey
+                                        && p.ConditionExpression == "attribute_not_exists(escrowId)"
+                                        && p.Item["metadata"].S.StartsWith("legs=order:mismatch:in_transit;at=")),
             Arg.Any<CancellationToken>());
     }
 

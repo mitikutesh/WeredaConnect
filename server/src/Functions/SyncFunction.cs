@@ -4801,6 +4801,7 @@ public partial class SyncFunction
                             // 48-hour auto-release would still pay the farmer. ESC-02: an escrow whose
                             // settlement waits in the manual payout queue refuses the freeze, and the
                             // order is then left as it is too (no disputed order over a queued payout).
+                            // ESC-03: the same when a release or refund holds the settlement lock.
                             var mirrorOrder = true;
                             if (followStatus == "disputed")
                             {
@@ -4808,7 +4809,7 @@ public partial class SyncFunction
                                     ? disputeTextObj?.ToString() : null;
                                 mirrorOrder = await TryFreezeEscrowForDisputedDeliveryAsync(
                                     operation.EntityId, authenticatedUserId, disputeText, context)
-                                    != DeliveryDisputeFreeze.RefusedManualPayout;
+                                    is not (DeliveryDisputeFreeze.RefusedManualPayout or DeliveryDisputeFreeze.RefusedSettlementInFlight);
                             }
 
                             if (mirrorOrder
@@ -5713,6 +5714,8 @@ public partial class SyncFunction
             context.Logger.LogInformation(outcome switch
             {
                 DeliveryDisputeFreeze.Frozen => $"Escrow for delivery {MoneyAlarmLog.LogId(deliveryId)} disputed by {MoneyAlarmLog.LogId(disputedBy)}",
+                DeliveryDisputeFreeze.RefusedSettlementInFlight =>
+                    $"Escrow for disputed delivery {MoneyAlarmLog.LogId(deliveryId)} is being settled; escrow and order left as they are",
                 DeliveryDisputeFreeze.RefusedManualPayout =>
                     $"Escrow for disputed delivery {MoneyAlarmLog.LogId(deliveryId)} waits in the manual payout queue; escrow and order left as they are",
                 _ => $"No escrowed money to freeze for disputed delivery {MoneyAlarmLog.LogId(deliveryId)}"

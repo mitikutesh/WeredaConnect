@@ -578,8 +578,9 @@ nothing.
 | `<prefix>-order-escrow-problems` | `ORDER_ESCROW_CREATE_FAILED`, `_LINK_FAILED` or `_REFUND_SCHEDULE_FAILED` in the sync Lambda | create self-heals at delivery linkage; link: tie the delivery to the order escrow by hand; refund schedule: set the escrow expiry by hand so the sweep refunds |
 | `<prefix>-manual-payouts-overdue` | a manual payout leg (ESC-02) has waited more than 24 hours (`MANUAL_PAYOUT_OVERDUE ... ref=<op>:<leg>`) | open Manual Payouts (`/payouts`), check the reason before paying (runbook above) and record the portal transaction id |
 | `<prefix>-admin-queue-overdue` | a stuck order in the admin queue (ESC-06) has waited more than 24 hours; no producer until ESC-06, so it stays OK | decide it in the admin stuck-order queue (release, refund or extend) |
+| `<prefix>-dispute-verdict-order-mismatch` | a dispute verdict was not settled because its order or delivery is in a status the verdict cannot follow (`DISPUTE_VERDICT_ORDER_MISMATCH escrowId=.. op=.. legs=..` in the escrow or escrow-cron log group, ESC-03); usually a dispute raised before delivery; no money moved and the hourly sweep retries | find the escrow by escrowId, bring its order (and delivery) to a status the verdict can follow (for example confirm the delivery), and let the next sweep settle it; the escrow-audit row `dispute_verdict_mismatch` (one per day) carries the legs |
 
-The settlement-failure and the two queue alarms evaluate 5 periods of 15 minutes, so an
+The settlement-failure, the verdict-mismatch and the two queue alarms evaluate 5 periods of 15 minutes, so an
 hourly producer keeps them in ALARM without flapping; they clear by themselves 75 to 90
 minutes after the last line. Order escrow problems uses one 15 minute period.
 

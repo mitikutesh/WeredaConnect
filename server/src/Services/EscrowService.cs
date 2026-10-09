@@ -133,11 +133,12 @@ public sealed class EscrowService
 
     /// <summary>
     /// Escrow statuses that still hold or govern money (mirrors the 6b
-    /// duplicate-initiation check). refunded/completed/cancelled are inert.
+    /// duplicate-initiation check). refunded/completed/cancelled are inert. ESC-03: a
+    /// <c>dispute_resolved</c> escrow still holds the money until its verdict is settled.
     /// </summary>
     private static readonly HashSet<string> ActiveEscrowStatuses = new()
     {
-        "initiated", "escrowed", "released", "disputed"
+        "initiated", "escrowed", "released", "disputed", "dispute_resolved"
     };
 
     /// <summary>
@@ -273,7 +274,7 @@ public sealed class EscrowService
             var existingStatus = existingEscrowForDelivery.TryGetValue("status", out var statusObj)
                 ? statusObj?.ToString() : null;
             // Only block if escrow is in an active state (not refunded/completed/expired)
-            if (existingStatus is "initiated" or "escrowed" or "released" or "disputed")
+            if (existingStatus is "initiated" or "escrowed" or "released" or "disputed" or "dispute_resolved")
             {
                 // SIM-24: when that escrow is the order-funded record (the buyer paid at
                 // order time and delivery linkage stamped this deliveryId on it), the
@@ -1436,10 +1437,12 @@ public sealed class EscrowService
             return ManualPayoutWaiting<ReleaseEscrowResponse>();
         }
 
-        // 4a2. ESC-03: the order and delivery follow the verdict before any money moves.
-        if (currentStatus == "dispute_resolved")
+        // 4a2. ESC-03: the order and delivery follow the verdict before any money moves; a
+        //      verdict they cannot follow is not settled.
+        if (currentStatus == "dispute_resolved"
+            && await MirrorVerdictAsync(escrowItem, authenticatedUserId, "release") is { } mismatch)
         {
-            await MirrorVerdictAsync(escrowItem, authenticatedUserId);
+            return EscrowResult<ReleaseEscrowResponse>.Failure(422, "ESCROW_INVALID_TRANSITION", mismatch);
         }
 
         var farmerPayout = GetDecimal(escrowItem, "farmerPayout");
@@ -2077,39 +2080,71 @@ public sealed class EscrowService
     /// <summary>
     /// ESC-03: before a <c>dispute_resolved</c> escrow is settled, move its order and delivery
     /// to the verdict. The admin verdict already did this; here it repairs a leg that failed
-    /// then, and is a no-op otherwise. Never blocks the settlement: a leg that cannot follow
-    /// is logged as <c>DISPUTE_VERDICT_PROPAGATION_FAILED</c> and audited as
-    /// <c>dispute_verdict_propagation_failed</c> with <c>metadata = legs=...</c>.
+    /// then, and is a no-op otherwise. Returns the refusal message when a leg cannot follow the
+    /// verdict (<see cref="DisputeVerdictMirrorResult.IsMismatch"/>, for example a dispute raised
+    /// before delivery): the settlement is refused, nothing is locked and no money moves, and
+    /// <c>DISPUTE_VERDICT_ORDER_MISMATCH</c> is logged for the money alarm. A leg whose write
+    /// failed does not block the settlement. Either way the escrow audit gets one row per escrow,
+    /// action and UTC day (<c>dispute_verdict_mismatch</c> or
+    /// <c>dispute_verdict_propagation_failed</c>, <c>metadata = legs=...</c>), so the hourly sweep
+    /// does not add a row every hour.
     /// </summary>
-    private async Task MirrorVerdictAsync(Dictionary<string, object> escrow, string actor)
+    private async Task<string?> MirrorVerdictAsync(Dictionary<string, object> escrow, string actor, string op)
     {
         var resolution = GetStringOrNull(escrow, "disputeResolution");
         if (resolution is not ("farmer_wins" or "buyer_wins"))
         {
-            return;
+            return null;
         }
 
         var escrowId = GetString(escrow, "escrowId");
+        DisputeVerdictMirrorResult result;
         try
         {
-            var result = await _verdictMirror.ApplyAsync(
+            result = await _verdictMirror.ApplyAsync(
                 escrow, resolution, GetStringOrNull(escrow, "disputeResolvedAt") ?? DateTime.UtcNow.ToString("o"));
-            if (result.FailedLegs == null)
-            {
-                return;
-            }
-
-            Console.WriteLine(
-                $"DISPUTE_VERDICT_PROPAGATION_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} orderId={MoneyAlarmLog.LogId(result.OrderId)} deliveryId={MoneyAlarmLog.LogId(result.DeliveryId)} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
-            await AppendAuditAsync(escrowId, "dispute_verdict_propagation_failed", "dispute_resolved", "dispute_resolved",
-                actor, metadata: $"legs={result.FailedLegs}");
         }
         catch (Exception ex)
         {
-            // The ledger write failed; the settlement goes on and the next one retries the mirror.
+            // The mirror does not throw; a failure here must not block the settlement either.
+            Console.WriteLine(
+                $"DISPUTE_VERDICT_PROPAGATION_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
+            return null;
+        }
+
+        if (result.FailedLegs == null)
+        {
+            return null;
+        }
+
+        if (result.IsMismatch)
+        {
+            AlarmLog(MoneyAlarmLog.DisputeVerdictOrderMismatch(escrowId, op, result.FailedLegs));
+        }
+        else
+        {
+            Console.WriteLine(
+                $"DISPUTE_VERDICT_PROPAGATION_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} orderId={MoneyAlarmLog.LogId(result.OrderId)} deliveryId={MoneyAlarmLog.LogId(result.DeliveryId)} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
+        }
+
+        var now = DateTime.UtcNow;
+        try
+        {
+            await EnsureAuditAsync(escrowId, DisputeVerdictMirror.DailyAuditTimestamp(now, result.AuditAction),
+                result.AuditAction, "dispute_resolved", "dispute_resolved", actor,
+                metadata: $"legs={result.FailedLegs};op={op};at={now:o}");
+        }
+        catch (Exception ex)
+        {
+            // The ledger write failed; the answer stays the same and the next run writes the row.
             Console.WriteLine(
                 $"DISPUTE_VERDICT_PROPAGATION_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
         }
+
+        return result.IsMismatch
+            ? $"The order or delivery behind this verdict cannot follow it ({result.FailedLegs}). Nothing was settled: "
+              + "bring the order to a status the verdict can follow first."
+            : null;
     }
 
     /// <summary>
@@ -2119,8 +2154,10 @@ public sealed class EscrowService
     /// delivery handler enforced the 48-hour window). The delivery's free-text reason is
     /// kept as the description under the <c>other</c> reason code. Returns
     /// <see cref="DeliveryDisputeFreeze.NothingToFreeze"/> when there is no escrow for the
-    /// delivery or it is not <c>escrowed</c>, and <see cref="DeliveryDisputeFreeze.RefusedManualPayout"/>
-    /// when its settlement already waits in the manual payout queue (ESC-02).
+    /// delivery or it is not <c>escrowed</c>, <see cref="DeliveryDisputeFreeze.RefusedManualPayout"/>
+    /// when its settlement already waits in the manual payout queue (ESC-02), and
+    /// <see cref="DeliveryDisputeFreeze.RefusedSettlementInFlight"/> when a release or refund holds
+    /// the settlement lock (ESC-03): the settlement wins, and the caller leaves the order alone.
     /// </summary>
     public async Task<DeliveryDisputeFreeze> MarkDisputedFromDeliveryAsync(string deliveryId, string disputedBy, string? description)
     {
@@ -2165,9 +2202,50 @@ public sealed class EscrowService
                 : description;
         }
 
-        await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "disputed", "escrowed", fields);
+        if (GetStringOrNull(escrow, "settlementLock") != null)
+        {
+            return await RefuseFreezeSettlementInFlightAsync(escrowId, deliveryId, disputedBy, "escrowed");
+        }
+
+        try
+        {
+            await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "disputed", "escrowed", fields);
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            // Lost a race: a settlement took the lock, or the payout was queued, meanwhile.
+            var latest = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
+            if (latest != null && IsManualPayoutOpen(latest))
+            {
+                await AppendAuditAsync(escrowId, "dispute_refused_manual_payout", "escrowed", "escrowed", disputedBy,
+                    metadata: $"deliveryId={deliveryId};op={GetStringOrNull(latest, ManualPayoutFields.Op)}");
+                return DeliveryDisputeFreeze.RefusedManualPayout;
+            }
+
+            if (latest != null && GetStringOrNull(latest, "settlementLock") != null)
+            {
+                return await RefuseFreezeSettlementInFlightAsync(escrowId, deliveryId, disputedBy, GetString(latest, "status"));
+            }
+
+            throw;
+        }
+
         await AppendAuditAsync(escrowId, "dispute", "escrowed", "disputed", disputedBy);
         return DeliveryDisputeFreeze.Frozen;
+    }
+
+    /// <summary>
+    /// ESC-03: a delivery dispute that lands while a release or refund holds the settlement lock
+    /// is not frozen onto the escrow (the settlement wins). Audited so the admin sees the
+    /// delivery dispute on the escrow's timeline.
+    /// </summary>
+    private async Task<DeliveryDisputeFreeze> RefuseFreezeSettlementInFlightAsync(
+        string escrowId, string deliveryId, string disputedBy, string status)
+    {
+        await AppendAuditAsync(escrowId, "dispute_refused_settlement_in_flight", status, status, disputedBy,
+            metadata: $"deliveryId={deliveryId}");
+        Console.WriteLine($"ESCROW_DISPUTE_REFUSED_SETTLEMENT_IN_FLIGHT escrowId={MoneyAlarmLog.LogId(escrowId)}");
+        return DeliveryDisputeFreeze.RefusedSettlementInFlight;
     }
 
     /// <summary>
@@ -2244,10 +2322,12 @@ public sealed class EscrowService
             return ManualPayoutWaiting<RefundEscrowResponse>();
         }
 
-        // 4a2. ESC-03: the order and delivery follow the verdict before any money moves.
-        if (currentStatus == "dispute_resolved")
+        // 4a2. ESC-03: the order and delivery follow the verdict before any money moves; a
+        //      verdict they cannot follow is not settled.
+        if (currentStatus == "dispute_resolved"
+            && await MirrorVerdictAsync(escrowItem, authenticatedUserId, "refund") is { } mismatch)
         {
-            await MirrorVerdictAsync(escrowItem, authenticatedUserId);
+            return EscrowResult<RefundEscrowResponse>.Failure(422, "ESCROW_INVALID_TRANSITION", mismatch);
         }
 
         var amount = GetDecimal(escrowItem, "amount");
@@ -3643,5 +3723,8 @@ public enum DeliveryDisputeFreeze
     NothingToFreeze,
 
     /// <summary>ESC-02: the settlement waits in the manual payout queue; nothing was frozen and the order must not be mirrored either.</summary>
-    RefusedManualPayout
+    RefusedManualPayout,
+
+    /// <summary>ESC-03: a release or refund holds the settlement lock; nothing was frozen and the order must not be mirrored either.</summary>
+    RefusedSettlementInFlight
 }

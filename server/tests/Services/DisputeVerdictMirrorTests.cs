@@ -248,6 +248,45 @@ public class DisputeVerdictMirrorTests
     }
 
     [Fact]
+    public async Task ConflictOnTheLastHop_AfterTwoSuccessfulHops_IsStillRetried()
+    {
+        // From in_transit the order takes three hops; successful hops must not use up the
+        // conflict retries, so one conflict on the last hop (at v6) is retried and resolves.
+        _orders.GetByIdAsync(OrderId, true).Returns(Order("in_transit", 4), Order("disputed", 7));
+        DeliveryIs("delivered");
+        _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(Order("delivered", 5)));
+        _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 5)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(Order("disputed", 6)));
+        _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 6)
+            .Returns(AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "conflict"));
+        _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 7)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(Order("dispute_resolved", 8)));
+
+        var result = await _mirror.ApplyAsync(Escrow(), "buyer_wins", ResolvedAt);
+
+        result.Order.Should().Be(VerdictLegOutcome.Resolved);
+        result.FailedLegs.Should().BeNull();
+        await _orders.Received(1).UpdateAsync(OrderId,
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "dispute_resolved"), 7);
+    }
+
+    [Fact]
+    public void DailyAuditTimestamp_IsTheStartOfTheUtcDay_OneTickPerAction()
+    {
+        var at = new DateTime(2026, 10, 9, 14, 30, 0, DateTimeKind.Utc);
+
+        DisputeVerdictMirror.DailyAuditTimestamp(at, DisputeVerdictMirror.MismatchAuditAction)
+            .Should().Be("2026-10-09T00:00:00.0000001Z");
+        DisputeVerdictMirror.DailyAuditTimestamp(at.AddHours(9), DisputeVerdictMirror.MismatchAuditAction)
+            .Should().Be("2026-10-09T00:00:00.0000001Z");
+        DisputeVerdictMirror.DailyAuditTimestamp(at, DisputeVerdictMirror.PropagationFailedAuditAction)
+            .Should().Be("2026-10-09T00:00:00.0000002Z");
+        DisputeVerdictMirror.DailyAuditTimestamp(at.AddHours(10), DisputeVerdictMirror.MismatchAuditAction)
+            .Should().Be("2026-10-10T00:00:00.0000001Z");
+    }
+
+    [Fact]
     public async Task ConcurrentWriterFinishedTheJob_IsAlreadyResolved()
     {
         _orders.GetByIdAsync(OrderId, true).Returns(Order("disputed", 5), Order("dispute_resolved", 6));

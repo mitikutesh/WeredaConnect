@@ -21,7 +21,7 @@ public enum VerdictLegOutcome
     /// <summary>The escrow names a row that does not exist.</summary>
     Missing,
 
-    /// <summary>Version conflicts on every attempt.</summary>
+    /// <summary>Version conflicts on every retry.</summary>
     Conflict,
 
     /// <summary>A write failed for another reason.</summary>
@@ -45,9 +45,18 @@ public sealed record DisputeVerdictMirrorResult
     /// </summary>
     public string? FailedLegs { get; init; }
 
-    /// <summary>True when a leg was refused before any write (FRD-03 refuses the refund then).</summary>
+    /// <summary>
+    /// True when a leg cannot follow the verdict: decided before any write, or found on a retry
+    /// after a concurrent change. The settlement of the verdict is refused then (ESC-03), and
+    /// FRD-03 refuses the refund of a held escrow.
+    /// </summary>
     public bool IsMismatch => Order is VerdictLegOutcome.Mismatch or VerdictLegOutcome.Missing
                               || Delivery is VerdictLegOutcome.Mismatch or VerdictLegOutcome.Missing;
+
+    /// <summary>The escrow-audit action that records <see cref="FailedLegs"/>.</summary>
+    public string AuditAction => IsMismatch
+        ? DisputeVerdictMirror.MismatchAuditAction
+        : DisputeVerdictMirror.PropagationFailedAuditAction;
 }
 
 /// <summary>
@@ -61,8 +70,8 @@ public sealed record DisputeVerdictMirrorResult
 /// <c>dispute_resolved</c>. An order left at <c>accepted</c>, <c>pickup_confirmed</c> or
 /// <c>in_transit</c> behind a delivery that is already <c>delivered</c> or <c>disputed</c> is first
 /// advanced to <c>delivered</c>. Each hop is a version-checked system write with one
-/// transaction-audit row; a version conflict re-reads (strongly consistent) and retries, three
-/// attempts in all. Delivery: a <c>delivered</c> delivery is marked <c>disputed</c>, then the
+/// transaction-audit row; a version conflict re-reads (strongly consistent) and retries, and the
+/// third conflict of a run gives up. Delivery: a <c>delivered</c> delivery is marked <c>disputed</c>, then the
 /// verdict is stamped on it (<c>disputeResolution</c>, <c>disputeResolvedAt</c>); the delivery
 /// status stays <c>disputed</c>.
 ///
@@ -72,7 +81,25 @@ public sealed record DisputeVerdictMirrorResult
 /// </summary>
 public sealed class DisputeVerdictMirror
 {
+    /// <summary>Version conflicts per run before the order leg gives up.</summary>
     private const int MaxOrderAttempts = 3;
+
+    /// <summary>The longest path: advance to delivered, then disputed, then dispute_resolved.</summary>
+    private const int MaxOrderHops = 3;
+
+    /// <summary>Escrow-audit action when a leg cannot follow the verdict (settlement is refused).</summary>
+    public const string MismatchAuditAction = "dispute_verdict_mismatch";
+
+    /// <summary>Escrow-audit action when a leg could follow but its write failed (repaired on a later run).</summary>
+    public const string PropagationFailedAuditAction = "dispute_verdict_propagation_failed";
+
+    /// <summary>
+    /// The deterministic escrow-audit timestamp for a failed mirror: the start of the UTC day
+    /// plus one tick per action. Written with AppendIfAbsentAsync, so the hourly sweep leaves at
+    /// most one row per escrow, action and day.
+    /// </summary>
+    public static string DailyAuditTimestamp(DateTime utcNow, string action)
+        => utcNow.ToUniversalTime().Date.AddTicks(action == MismatchAuditAction ? 1 : 2).ToString("o");
 
     /// <summary>Order statuses that may be advanced to <c>delivered</c> when the delivery already is.</summary>
     private static readonly HashSet<string> LogisticsOrderStatuses = new(StringComparer.Ordinal)
@@ -210,7 +237,10 @@ public sealed class DisputeVerdictMirror
     {
         try
         {
-            for (var attempt = 1; ; attempt++)
+            // At most three hops; conflicts are counted on their own, so a conflict on the last
+            // hop still gets its retries.
+            var conflicts = 0;
+            for (var step = 0; step < MaxOrderHops + MaxOrderAttempts; step++)
             {
                 var (plan, reason) = PlanOrder(order, orderId, deliveryStatus);
                 if (plan != VerdictLegOutcome.Resolved)
@@ -248,7 +278,7 @@ public sealed class DisputeVerdictMirror
                     return (VerdictLegOutcome.Failed, update.Error?.Code ?? "unknown");
                 }
 
-                if (attempt >= MaxOrderAttempts)
+                if (++conflicts >= MaxOrderAttempts)
                 {
                     return (VerdictLegOutcome.Conflict, "conflict");
                 }
@@ -261,6 +291,8 @@ public sealed class DisputeVerdictMirror
 
                 order = latest;
             }
+
+            return (VerdictLegOutcome.Conflict, "conflict");
         }
         catch (Exception ex)
         {

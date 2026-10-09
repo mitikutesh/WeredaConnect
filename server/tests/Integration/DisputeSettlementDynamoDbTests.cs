@@ -54,9 +54,14 @@ public sealed class DisputeSettlementDynamoDbTests
     private DeliveryRepository DeliveryRepo => new(Ddb, _db.Deliveries);
     private TransactionAuditRepository TxRepo => new(Ddb, _db.TransactionAudit);
 
+    private readonly List<string> _alarms = new();
+
     private EscrowService Service(ITelebirrGateway? gateway = null) => new(
         EscrowRepo, AuditRepo, new EscrowIdempotencyRepository(Ddb, _db.Idempotency), gateway ?? _gateway,
-        userRepo: null, OrderRepo, DeliveryRepo, orderCheckoutRepo: null, transactionAuditRepo: TxRepo);
+        userRepo: null, OrderRepo, DeliveryRepo, orderCheckoutRepo: null, transactionAuditRepo: TxRepo)
+    {
+        AlarmLog = line => { lock (_alarms) { _alarms.Add(line); } }
+    };
 
     private static string NewId(string prefix) => $"{prefix}-{Guid.NewGuid():N}";
 
@@ -275,8 +280,72 @@ public sealed class DisputeSettlementDynamoDbTests
         Str(await OrderAsync(orderId), "status").Should().Be("in_transit");
         Str(await DeliveryAsync(deliveryId), "status").Should().Be("inTransit");
         var trail = await AuditRepo.GetAuditTrailAsync(escrowId);
-        trail.Should().Contain(a => a["action"].ToString() == "dispute_verdict_propagation_failed"
-                                    && a["metadata"].ToString() == "legs=order:mismatch:in_transit,delivery:mismatch:inTransit");
+        trail.Should().ContainSingle(a => a["action"].ToString() == "dispute_verdict_mismatch"
+                                          && a["metadata"].ToString()!.StartsWith(
+                                              "legs=order:mismatch:in_transit,delivery:mismatch:inTransit;at="));
+    }
+
+    [LocalDynamoDbFact]
+    public async Task PreDeliveryDispute_VerdictIsNotSettled_OrderUntouched_AlarmedOncePerDay()
+    {
+        // The reviewer's case: a dispute raised before delivery (no deliveryConfirmedAt, no
+        // delivery yet), buyer_wins recorded, then the hourly sweep. Refunding would leave the
+        // order live at accepted; the settlement is refused until an admin fixes the order.
+        var orderId = await SeedOrderAsync("accepted", 2);
+        var escrowId = await SeedEscrowAsync("disputed", orderId);
+
+        var verdict = await Admin().FunctionHandler(Verdict(escrowId, "buyer_wins", "refund"), new TestLambdaContext());
+        verdict.StatusCode.Should().Be(200, verdict.Body);
+
+        // Make the row visible to the sweep (StatusExpiresIndex), then run it twice.
+        await Ddb.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _db.Escrows,
+            Key = new Dictionary<string, AttributeValue> { ["escrowId"] = S(escrowId), ["createdAt"] = S(CreatedAt) },
+            UpdateExpression = "SET expiresAt = :e",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":e"] = S("2026-10-08T10:00:00.0000000Z") }
+        });
+        var cron = new EscrowCronFunction(Service(), EscrowRepo, AuditRepo, _gateway, DeliveryRepo, OrderRepo);
+        for (var run = 0; run < 2; run++)
+        {
+            var response = await cron.FunctionHandler(
+                new APIGatewayProxyRequest { Body = "{\"action\":\"auto_release_and_refund\"}" }, new TestLambdaContext());
+            response.StatusCode.Should().Be(200, response.Body);
+        }
+
+        var escrow = await EscrowAsync(escrowId);
+        Str(escrow, "status").Should().Be("dispute_resolved");
+        Str(escrow, "settlementLock").Should().BeNull();
+        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Is<RefundFundsRequest>(r => r.TransactionRef == $"refund:{escrowId}"));
+        var order = await OrderAsync(orderId);
+        Str(order, "status").Should().Be("accepted");
+        Str(order, "version").Should().Be("2");
+        _alarms.Where(l => l.StartsWith($"DISPUTE_VERDICT_ORDER_MISMATCH escrowId={escrowId.Replace('_', '-')} op=refund"))
+            .Should().HaveCount(2);
+        // The verdict and both sweeps wrote to the same daily key: one row.
+        (await AuditActionsAsync(escrowId)).Count(a => a == "dispute_verdict_mismatch").Should().Be(1);
+    }
+
+    [LocalDynamoDbFact]
+    public async Task DeliveryVerdictStamp_IsWrittenOnce()
+    {
+        // The once-guard (attribute_not_exists on disputeResolution) evaluated by DynamoDB:
+        // a second stamp, even with another verdict, changes nothing.
+        var deliveryId = await SeedDeliveryAsync("disputed");
+
+        (await DeliveryRepo.TryRecordDisputeResolutionAsync(deliveryId, "buyer_wins", "2026-10-09T10:00:00Z")).Should().BeTrue();
+        var stamped = await DeliveryAsync(deliveryId);
+        (await DeliveryRepo.TryRecordDisputeResolutionAsync(deliveryId, "farmer_wins", "2026-10-09T11:00:00Z")).Should().BeFalse();
+
+        var after = await DeliveryAsync(deliveryId);
+        Str(after, "disputeResolution").Should().Be("buyer_wins");
+        Str(after, "disputeResolvedAt").Should().Be("2026-10-09T10:00:00Z");
+        Str(after, "version").Should().Be(Str(stamped, "version")).And.Be("3");
+
+        // And never on a delivery that is not disputed.
+        var delivered = await SeedDeliveryAsync("delivered");
+        (await DeliveryRepo.TryRecordDisputeResolutionAsync(delivered, "buyer_wins", "2026-10-09T10:00:00Z")).Should().BeFalse();
+        Str(await DeliveryAsync(delivered), "disputeResolution").Should().BeNull();
     }
 
     [LocalDynamoDbFact]

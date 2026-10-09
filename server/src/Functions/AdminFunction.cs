@@ -546,10 +546,12 @@ public class AdminFunction
 
     /// <summary>
     /// ESC-03: move the order and delivery behind a dispute verdict to it
-    /// (<see cref="DisputeVerdictMirror"/>). Best-effort: a leg that cannot follow is logged as
-    /// <c>DISPUTE_VERDICT_PROPAGATION_FAILED</c> and written to the escrow audit ledger as
-    /// <c>dispute_verdict_propagation_failed</c> with <c>metadata = legs=...</c>; the verdict
-    /// itself stands.
+    /// (<see cref="DisputeVerdictMirror"/>). Best-effort: the verdict itself stands. A leg that
+    /// does not reach the verdict is logged as <c>DISPUTE_VERDICT_PROPAGATION_FAILED</c> and
+    /// written to the escrow audit ledger once per UTC day, as <c>dispute_verdict_mismatch</c>
+    /// when it cannot follow (the settlement then waits until an admin fixes the order) or
+    /// <c>dispute_verdict_propagation_failed</c> when its write failed, with
+    /// <c>metadata = legs=...</c>.
     /// </summary>
     private async Task MirrorVerdictAsync(
         Dictionary<string, AttributeValue> escrowItem, string resolution, string resolvedAt,
@@ -572,16 +574,18 @@ public class AdminFunction
                 $"DISPUTE_VERDICT_PROPAGATION_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} orderId={MoneyAlarmLog.LogId(result.OrderId)} deliveryId={MoneyAlarmLog.LogId(result.DeliveryId)} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
             if (!string.IsNullOrEmpty(_escrowAuditTable) && !string.IsNullOrEmpty(escrowId))
             {
-                await new EscrowAuditRepository(_dynamoDb, _escrowAuditTable).AppendAsync(new Dictionary<string, object>
+                var now = DateTime.UtcNow;
+                var timestamp = DisputeVerdictMirror.DailyAuditTimestamp(now, result.AuditAction);
+                await new EscrowAuditRepository(_dynamoDb, _escrowAuditTable).AppendIfAbsentAsync(new Dictionary<string, object>
                 {
-                    { "auditId", $"audit-{Guid.NewGuid():N}" },
+                    { "auditId", EscrowAuditRepository.DeterministicAuditId(result.AuditAction, timestamp) },
                     { "escrowId", escrowId },
-                    { "action", "dispute_verdict_propagation_failed" },
+                    { "action", result.AuditAction },
                     { "fromState", "dispute_resolved" },
                     { "toState", "dispute_resolved" },
                     { "actor", actor },
-                    { "timestamp", DateTime.UtcNow.ToString("o") },
-                    { "metadata", $"legs={result.FailedLegs}" }
+                    { "timestamp", timestamp },
+                    { "metadata", $"legs={result.FailedLegs};at={now:o}" }
                 });
             }
         }

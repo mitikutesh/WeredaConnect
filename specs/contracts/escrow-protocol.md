@@ -1945,37 +1945,75 @@ escrow, else the order's `activeDeliveryId`.
   `disputed` to `dispute_resolved`. An order left at `accepted`, `pickup_confirmed` or
   `in_transit` behind a delivery that is `delivered` or `disputed` is first advanced to
   `delivered`. Each hop is a version-checked system write; a version conflict re-reads
-  (strongly consistent) and retries, 3 attempts in all.
+  (strongly consistent) and retries, and the third conflict of a run gives up.
 - Delivery (`delivery-verification-api.md` 1.8.0): a `delivered` delivery is marked `disputed`;
   a `disputed` delivery gets `disputeResolution` and `disputeResolvedAt`, conditional on no
   verdict yet. Its status stays `disputed`.
 - Both legs are decided before anything is written. A leg that cannot follow (an order in
   another status, or behind a delivery that is not delivered; a missing order or delivery; a
-  delivery with another verdict) leaves both untouched. The verdict and the money still go
-  ahead: the money follows the escrow's verdict.
-- A leg that does not reach the verdict is logged as `DISPUTE_VERDICT_PROPAGATION_FAILED escrowId=..
-  orderId=.. deliveryId=.. legs=..` (no alarm counts it) and written to the escrow audit ledger as
-  `dispute_verdict_propagation_failed` (from = to = `dispute_resolved`, metadata
-  `legs=order:<reason>,delivery:<reason>`, reasons `mismatch:<status>`, `verdict:<other verdict>`,
-  `missing`, `conflict`, an error code or `[ExceptionType]`).
+  delivery with another verdict) leaves both untouched. The typical case is a dispute raised
+  before delivery: the order is still `accepted`, `pickup_confirmed` or `in_transit`.
+- **Such a verdict is not settled.** The verdict itself is recorded, but `POST /escrow/release`,
+  `POST /escrow/refund` and the dispute sweep refuse it with `422 ESCROW_INVALID_TRANSITION`
+  ("The order or delivery behind this verdict cannot follow it (legs). Nothing was settled ...")
+  before any lock, idempotency record or gateway call: a `buyer_wins` refund would leave the order
+  live, a `farmer_wins` release would pay the farmer before delivery. The escrow stays
+  `dispute_resolved` and the sweep tries again every hour. **The admin must first bring the order
+  (and its delivery) to a status the verdict can follow** (for example, the delivery confirmed so
+  the order reaches `delivered`); the next sweep then settles it. Each refusal logs
+  `DISPUTE_VERDICT_ORDER_MISMATCH escrowId=<id> op=<release|refund> legs=<legs>` (legs defanged,
+  `,` as `.`), counted by the `${prefix}-dispute-verdict-order-mismatch` alarm on the escrow and
+  escrow-cron log groups (15 minute periods, 5 periods, any line alarms).
+- A leg that could follow but whose write failed (`conflict`, an error code or
+  `[ExceptionType]`) does not block the settlement: the money follows the verdict, and a later
+  run or an admin replay of the verdict repairs the order. It is logged as
+  `DISPUTE_VERDICT_PROPAGATION_FAILED escrowId=.. orderId=.. deliveryId=.. legs=..` (no alarm counts it).
+- Escrow audit, from = to = `dispute_resolved`: `dispute_verdict_mismatch` (a leg cannot follow) or
+  `dispute_verdict_propagation_failed` (a write failed), metadata
+  `legs=order:<reason>,delivery:<reason>` (reasons `mismatch:<status>`, `verdict:<other verdict>`,
+  `missing`, `conflict`, an error code or `[ExceptionType]`), then `;op=<op>` on a settlement and
+  `;at=<time>`. One row per escrow, action and UTC day: the timestamp is the start of the UTC day
+  plus one tick (mismatch) or two (propagation), written with a conditional put, so the hourly
+  sweep does not add a row every hour.
 - transaction-audit, actor `system`, metadata `resolution=<verdict>`: order `order_updated`
   (the advance to `delivered`), `dispute`, `dispute_resolved`; delivery `dispute`,
   `dispute_resolved` (from = to = `disputed`). The escrow and escrow-cron Lambdas now write
-  transaction-audit (`TRANSACTION_AUDIT_TABLE`); the admin Lambda, the escrow-cron Lambda and the
-  escrow Lambda may `UpdateItem` orders and deliveries.
+  transaction-audit (`TRANSACTION_AUDIT_TABLE`, `PutItem` only); the admin Lambda, the escrow-cron
+  Lambda and the escrow Lambda may `UpdateItem` orders and deliveries.
 
 ### Disputes and a settlement in flight
 `escrowed` to `disputed` (`POST /escrow/dispute`, and a delivery dispute through sync) now also
 requires that no settlement holds the lock. The settlement wins: `POST /escrow/dispute` answers
 `409 ESCROW_INVALID_TRANSITION` "A settlement is in progress for this escrow; it can no longer be
-disputed." and frees its idempotency key. Before 1.9.0 the dispute could land between the lock and
-the release's status write, which then failed after the money had moved.
+disputed." and frees its idempotency key. A delivery dispute through sync is recorded on the
+delivery, but the escrow is not frozen and the order is not moved to `disputed` (as for a queued
+payout, 1.8.0); the escrow audit gets `dispute_refused_settlement_in_flight` (metadata
+`deliveryId=<id>`) and the sync Lambda logs `ESCROW_DISPUTE_REFUSED_SETTLEMENT_IN_FLIGHT escrowId=<id>`.
+Before 1.9.0 the dispute could land between the lock and the release's status write, which then
+failed after the money had moved.
+
+### Active escrows
+`dispute_resolved` counts as active, like `escrowed` and `disputed`: the money is still held until
+the verdict is settled. A second `/escrow/initiate` on the delivery gets `409 ESCROW_009` (or
+`ESCROW_024` for the order-funded record), the order-level double-charge guard answers
+`ESCROW_024`, and delivery linkage does not mint a second escrow for the order.
 
 ### Deploying 1.9.0
 Every `dispute_resolved` escrow with `farmer_wins` or `buyer_wins` that piled up before 1.9.0 is
 settled by the first hourly sweep after the deploy (100 rows per run, oldest `expiresAt` first).
 With the live gateway each one enters the manual payout queue and, after 24 hours, the
-`MANUAL_PAYOUT_OVERDUE` alarm. Count them per environment before deploying.
+`MANUAL_PAYOUT_OVERDUE` alarm. A verdict whose order cannot follow it is refused instead and raises
+the new mismatch alarm every hour until the admin fixes the order. Count them per environment
+before deploying.
+
+### Not in 1.9.0 (known limits)
+- No admin action resolves a mismatched order yet (cancel a pre-delivery order with its listing
+  stock restored, or advance it); today the admin fixes the order or delivery by hand.
+- `POST /escrow/dispute` still accepts a dispute before the delivery is confirmed (no
+  `deliveryConfirmedAt`, so no window applies). Whether it should be refused is an open policy
+  question.
+- The dispute sweep reads the oldest 100 `dispute_resolved` rows per run with no paging past rows it
+  cannot settle (mismatched or identity-blocked verdicts); ESC-10 owns that.
 
 ---
 
@@ -1983,7 +2021,7 @@ With the live gateway each one enters the manual payout queue and, after 24 hour
 
 | Version | Date | Change |
 |---------|------|--------|
-| 1.9.0 | 2026-10-09 | Dispute verdicts settle (ESC-03): the settlement lock requires the exact status the caller validated, settleable `escrowed` and `dispute_resolved` (`dispute_resolved` added, `disputed` removed); release and refund of a `disputed` escrow refused (`422`, verdict first), and of a `dispute_resolved` escrow only the way its verdict says (`farmer_wins` releases, `buyer_wins` refunds; legacy verdicts either way); `POST /admin/disputes/{id}/resolve` admin group only (`403 ESCROW_015`), `resolution` `farmer_wins` or `buyer_wins` with a matching `action` (`400 ADMIN_014`; `partial_refund` refused until ESC-20), refused while a settlement holds the lock (`409 ADMIN_010`), same-verdict replay answers `200` with the current status; the order and delivery follow the verdict at the verdict and again before settlement (`DisputeVerdictMirror`; order hops to `dispute_resolved`, delivery stamped `disputeResolution`/`disputeResolvedAt`, both legs decided before any write), failures logged `DISPUTE_VERDICT_PROPAGATION_FAILED` and audited `dispute_verdict_propagation_failed`; transaction-audit rows for every hop; `escrowed -> disputed` refused while a settlement holds the lock (`409 ESCROW_INVALID_TRANSITION`); escrow and escrow-cron Lambdas get `TRANSACTION_AUDIT_TABLE`; `ADMIN_010` and `ADMIN_014` localized in admin (en/am/om) |
+| 1.9.0 | 2026-10-09 | Dispute verdicts settle (ESC-03): the settlement lock requires the exact status the caller validated, settleable `escrowed` and `dispute_resolved` (`dispute_resolved` added, `disputed` removed); release and refund of a `disputed` escrow refused (`422`, verdict first), and of a `dispute_resolved` escrow only the way its verdict says (`farmer_wins` releases, `buyer_wins` refunds; legacy verdicts either way); `POST /admin/disputes/{id}/resolve` admin group only (`403 ESCROW_015`), `resolution` `farmer_wins` or `buyer_wins` with a matching `action` (`400 ADMIN_014`; `partial_refund` refused until ESC-20), refused while a settlement holds the lock (`409 ADMIN_010`), same-verdict replay answers `200` with the current status; the order and delivery follow the verdict at the verdict and again before settlement (`DisputeVerdictMirror`; order hops to `dispute_resolved`, delivery stamped `disputeResolution`/`disputeResolvedAt`, both legs decided before any write), a verdict whose order or delivery cannot follow it is not settled (`422`, `DISPUTE_VERDICT_ORDER_MISMATCH` and the `dispute-verdict-order-mismatch` alarm, the admin fixes the order first); failures audited once per escrow, action and UTC day (`dispute_verdict_mismatch`, `dispute_verdict_propagation_failed`); transaction-audit rows for every hop; `escrowed -> disputed` refused while a settlement holds the lock (`409 ESCROW_INVALID_TRANSITION`; a sync delivery dispute is not frozen, audited `dispute_refused_settlement_in_flight`); `dispute_resolved` counts as an active escrow; escrow and escrow-cron Lambdas get `TRANSACTION_AUDIT_TABLE` (`PutItem` only); `ADMIN_010` and `ADMIN_014` localized in admin (en/am/om) |
 | 1.8.1 | 2026-10-09 | Money alarms (ESC-13): `ESCROW_SETTLEMENT_FAILED` logged for every failed release, refund or trucker leg (outcome `failed` or `unknown`; `unknown` also for `MANUAL_QUEUE_FAILED:GATEWAY_REF_MISSING`), for exceptions mid-sweep and on the admin settlement routes; a payout queued for an admin (`202 ESCROW_034`) is not counted; the 1.8.0 overdue report logs `MANUAL_PAYOUT_OVERDUE` through `MoneyAlarmLog` (same line); `ADMIN_QUEUE_OVERDUE` defined for ESC-06 (24 hours); five alarms: settlement failures, escrow-cron errors, order escrow problems (create, link, refund schedule; replaces the create-failed alarm), manual payouts overdue, admin queue overdue (log alarms over 5 periods of 15 minutes, escrow-cron errors over 4 periods of 5 minutes); client-influenced values in the escrow, escrow-cron, sync and webhook log lines have `_` turned into `-` and the escrow Lambda logs the route template, so no client can spell a token; no endpoint or response change |
 | 1.8.0 | 2026-10-09 | Fail-closed live payouts and the manual payout queue (ESC-02): the live gateway's release and refund return `PAYOUT_NOT_SUPPORTED`; the service queues such settlements (and gateway successes without a reference, trucker leg included) on the escrow row with the lock held, returns `202 ESCROW_034`, and stays quiet on later sweeps; a failed queue write is re-read strongly consistent; the lock and any `released`/`refunded` status write refuse a queued row; new sparse `ManualPayoutIndex`; `GET /admin/payouts/manual` and `POST /admin/payouts/{escrowId}/{ref}/complete` (admin group only) with codes `ESCROW_035` to `ESCROW_037` and `409 ESCROW_029` (`alreadyRecorded` on a replay, no second transaction-audit row); cron status queries filter out queued rows and page through filtered-empty pages; `409 ESCROW_038` on a dispute against a queued escrow (delivery disputes through sync are refused and audited, and the order is not mirrored); queue audit rows at deterministic keys, re-ensured on replay, with the cron crash recovery keying its `complete` row on `completedAt` too; `deliveryConfirmedAt` on list items; `409 ADMIN_013` on a dispute verdict against a queued payout; audit actions `manual_payout_queued`, `manual_payout_paid`, `manual_payout_refused`; hourly `MANUAL_PAYOUT_OVERDUE` producer for the ESC-13 alarm; `order_payment_refunded_manual` reserved for ACC; known limits listed; `ESCROW_038` localized in the app (mobile and web, en/am/om), no other client change |
 | 1.7.0 | 2026-10-06 | Fraud hold and risk tiers (planned FRD-03, FRD-04): new status `held` with `holdReason`, `heldAt`, `heldBy`, `heldFromStatus`, `heldFor`; settlement-only entry from `escrowed` or `dispute_resolved`, admin-only exits (an admin refund of a `heldFor: release` escrow moves the order to `dispute_resolved` as `buyer_wins`; the auto-refund hold is fenced on the order's version), `held` counts as active, crons never select it, `FRAUD_HOLD_ENABLED`; `403 FRAUD_ACCOUNT_HELD` on initiate and order-checkout; `AUTH_040`/`AUTH_041` also from the risk tier; clients tolerate unknown status values; state table gains `dispute_resolved`, `held` and the missing 1.3.0 transitions; `dispute_resolved` named in the release and refund transition errors; amount anomaly marked planned (FRD-09) |

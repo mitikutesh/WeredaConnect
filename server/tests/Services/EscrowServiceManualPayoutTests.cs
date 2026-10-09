@@ -1320,6 +1320,39 @@ public class EscrowServiceManualPayoutTests
         (await AuditWritten("dispute_refused_manual_payout", "deliveryId=del-1;op=release")).Should().BeTrue();
     }
 
+    [Fact]
+    public async Task DeliveryDispute_SettlementHoldsTheLock_IsNotFrozen_AndTheRefusalIsAudited()
+    {
+        // ESC-03: a release or refund in flight wins over a delivery dispute.
+        var locked = Escrow();
+        locked["settlementLock"] = "refund";
+        _escrowRepo.GetByDeliveryIdAsync("del-1").Returns(locked);
+
+        var frozen = await _service.MarkDisputedFromDeliveryAsync("del-1", BuyerId, "never arrived");
+
+        frozen.Should().Be(DeliveryDisputeFreeze.RefusedSettlementInFlight);
+        await _escrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        (await AuditWritten("dispute_refused_settlement_in_flight", "deliveryId=del-1")).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task DeliveryDispute_LockTakenBetweenReadAndWrite_IsNotFrozen()
+    {
+        var locked = Escrow();
+        locked["settlementLock"] = "release";
+        _escrowRepo.GetByDeliveryIdAsync("del-1").Returns(Escrow());
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(locked);
+        _escrowRepo.UpdateStatusAsync(EscrowId, CreatedAt, "disputed", "escrowed", Arg.Any<Dictionary<string, object>?>())
+            .ThrowsAsync(new ConditionalCheckFailedException("locked"));
+
+        var frozen = await _service.MarkDisputedFromDeliveryAsync("del-1", BuyerId, "never arrived");
+
+        frozen.Should().Be(DeliveryDisputeFreeze.RefusedSettlementInFlight);
+        (await AuditWritten("dispute_refused_settlement_in_flight", "deliveryId=del-1")).Should().BeTrue();
+        (await AuditWritten("dispute")).Should().BeFalse();
+    }
+
     // ──────────────────────────────────────────────
     // List
     // ──────────────────────────────────────────────

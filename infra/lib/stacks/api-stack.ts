@@ -1039,7 +1039,8 @@ export class ApiStack extends cdk.Stack {
     // Lambda never puts or deletes rows in these tables.
     props.deliveriesTable.grant(escrowFn.function, "dynamodb:UpdateItem");
     props.ordersTable.grant(escrowFn.function, "dynamodb:UpdateItem");
-    props.transactionAuditTable.grantWriteData(escrowFn.function);
+    // Transaction audit is append-only: PutItem, never an update or delete.
+    props.transactionAuditTable.grant(escrowFn.function, "dynamodb:PutItem");
     props.usersTable.grantReadData(escrowFn.function);
     props.cropsTable.grantReadData(escrowFn.function);
     props.rateLimitsTable.grantReadWriteData(escrowFn.function);
@@ -1095,7 +1096,7 @@ export class ApiStack extends cdk.Stack {
     // ESC-03: settling a dispute verdict first moves its delivery to the verdict
     // (UpdateItem only, never a put or delete).
     props.deliveriesTable.grant(escrowCronFn.function, "dynamodb:UpdateItem");
-    props.transactionAuditTable.grantWriteData(escrowCronFn.function);
+    props.transactionAuditTable.grant(escrowCronFn.function, "dynamodb:PutItem");
     // Read the order behind an order-funded escrow before refunding; write to
     // cancel a stale-funded order after its escrow refunds.
     props.ordersTable.grantReadWriteData(escrowCronFn.function);
