@@ -266,6 +266,13 @@ public sealed record ManualPayoutLegDto
     public string? ExternalRef { get; init; }
     public string? PaidBy { get; init; }
     public string? PaidAt { get; init; }
+
+    /// <summary>
+    /// ESC-05: the reference the server sends Telebirr for this leg (<c>release:{escrowId}</c>,
+    /// <c>release:{escrowId}:trucker</c> or <c>refund:{escrowId}</c>). The admin searches the
+    /// portal for it before paying a leg whose outcome is unknown.
+    /// </summary>
+    public string? GatewayRef { get; init; }
 }
 
 /// <summary>
@@ -280,7 +287,7 @@ public sealed record ManualPayoutDto
     /// <summary>release or refund.</summary>
     public required string Op { get; init; }
 
-    /// <summary>PAYOUT_NOT_SUPPORTED or GATEWAY_REF_MISSING.</summary>
+    /// <summary>PAYOUT_NOT_SUPPORTED, GATEWAY_REF_MISSING or (ESC-05) GATEWAY_OUTCOME_UNKNOWN.</summary>
     public required string Reason { get; init; }
     public required string EscrowStatus { get; init; }
 
@@ -292,6 +299,12 @@ public sealed record ManualPayoutDto
     /// arrived after the refund was queued: check before refunding.
     /// </summary>
     public string? DeliveryConfirmedAt { get; init; }
+
+    /// <summary>
+    /// ESC-05: when the settlement lock was taken, which is when the gateway may have been
+    /// called. Null for a lock taken before ESC-05.
+    /// </summary>
+    public string? SettlementLockedAt { get; init; }
     public required string QueuedAt { get; init; }
     public required string Currency { get; init; }
     public required List<ManualPayoutLegDto> Legs { get; init; }

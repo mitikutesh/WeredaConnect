@@ -118,12 +118,33 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
                 return Fail("TELEBIRR_PREORDER", $"preOrder HTTP {(int)resp.StatusCode}");
             }
 
-            var parsed = JsonSerializer.Deserialize(body, AppJsonContext.Default.TelebirrPreOrderResponse);
-            var prepayId = parsed?.BizContent?.PrepayId;
-            if (parsed == null || !string.Equals(parsed.Result, "SUCCESS", StringComparison.OrdinalIgnoreCase)
-                || string.IsNullOrEmpty(prepayId))
+            // ESC-05: an answer we cannot read, or a success without its prepay_id, does not say
+            // whether Telebirr created the payment, so it is TELEBIRR_NETWORK (outcome unknown),
+            // never a definite refusal. Only an explicit non-SUCCESS result is one.
+            TelebirrPreOrderResponse? parsed;
+            try
             {
-                return Fail($"TELEBIRR_{parsed?.Code ?? "ERR"}", parsed?.Msg ?? "preOrder failed");
+                parsed = JsonSerializer.Deserialize(body, AppJsonContext.Default.TelebirrPreOrderResponse);
+            }
+            catch (JsonException)
+            {
+                parsed = null;
+            }
+
+            if (parsed == null || string.IsNullOrEmpty(parsed.Result))
+            {
+                return Fail(TelebirrGatewayErrors.Network, "Unreadable preOrder answer from Telebirr.");
+            }
+
+            if (!string.Equals(parsed.Result, "SUCCESS", StringComparison.OrdinalIgnoreCase))
+            {
+                return Fail($"TELEBIRR_{parsed.Code ?? "ERR"}", parsed.Msg ?? "preOrder failed");
+            }
+
+            var prepayId = parsed.BizContent?.PrepayId;
+            if (string.IsNullOrEmpty(prepayId))
+            {
+                return Fail(TelebirrGatewayErrors.Network, "preOrder answer without a prepay_id.");
             }
 
             var toPayUrl = BuildH5Url(nonce, timestamp, prepayId);
@@ -137,11 +158,11 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
         }
         catch (HttpRequestException ex)
         {
-            return Fail("TELEBIRR_NETWORK", $"Network error contacting Telebirr: {ex.Message}");
+            return Fail(TelebirrGatewayErrors.Network, $"Network error contacting Telebirr: {ex.Message}");
         }
         catch (TaskCanceledException)
         {
-            return Fail("TELEBIRR_TIMEOUT", "Telebirr request timed out.");
+            return Fail(TelebirrGatewayErrors.Timeout, "Telebirr request timed out.");
         }
     }
 

@@ -3639,15 +3639,25 @@ public class EscrowServiceTests
         _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed"));
         _mockTelebirrGateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
             .Returns(new ReleaseFundsResponse { Success = false, ErrorCode = "TELEBIRR_TIMEOUT" });
+        QueueWritesSucceed();
         var lines = new List<string>();
 
-        await CreateServiceCapturingAlarms(lines).ReleaseAsync(SystemRelease(), "system");
+        var result = await CreateServiceCapturingAlarms(lines).ReleaseAsync(SystemRelease(), "system");
 
-        // After a timeout Telebirr may still have paid: the operator must check before retrying by hand.
+        // After a timeout Telebirr may still have paid: the operator must check before paying by
+        // hand, and (ESC-05) the escrow is parked for the admin with its lock, never retried.
         Assert.Equal(
             new[] { "ESCROW_SETTLEMENT_FAILED escrowId=escrow-001 action=release_failed outcome=unknown code=TELEBIRR_TIMEOUT" },
             lines);
+        Assert.Equal(202, result.Error!.HttpStatus);
+        await _mockEscrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
     }
+
+    private void QueueWritesSucceed()
+        => _mockEscrowRepo.TryQueueManualPayoutAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+            .Returns(true);
 
     [Fact]
     public async Task ReleaseAsync_UnverifiedTrucker_LogsTruckerReleaseFailed()
@@ -3683,11 +3693,14 @@ public class EscrowServiceTests
         userRepo.GetUserByIdAsync("trucker-001").Returns(MakeVerifiedUser("trucker-001", "trucker"));
         _mockTelebirrGateway.ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.Amount == 1_000m))
             .Returns(new ReleaseFundsResponse { Success = false, ErrorCode = "TELEBIRR_NETWORK" });
+        QueueWritesSucceed();
         var lines = new List<string>();
 
         var result = await CreateServiceCapturingAlarms(lines, userRepo).ReleaseAsync(SystemRelease(), "system");
 
-        Assert.True(result.IsSuccess);
+        // ESC-05: the trucker may be paid, so the leg waits for the admin instead of completing
+        // with truckerPayoutPending.
+        Assert.Equal(202, result.Error!.HttpStatus);
         Assert.Equal(
             new[] { "ESCROW_SETTLEMENT_FAILED escrowId=escrow-001 action=trucker_release_failed outcome=unknown code=TELEBIRR_NETWORK" },
             lines);

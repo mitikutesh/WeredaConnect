@@ -29,7 +29,9 @@ namespace WeredaConnect.Server.Helpers;
 /// </para>
 /// <para>
 /// <c>outcome=unknown</c> means the gateway may already have moved the money (a timeout,
-/// a lost answer, or an exception mid-settlement); <c>failed</c> is a definite refusal.
+/// a lost answer, or an exception after the settlement lock was taken); <c>failed</c> is a
+/// definite refusal, or a failure before the lock. ESC-05: every unknown outcome ends in the
+/// manual payout queue with the lock held, and a separate alarm counts the unknown lines.
 /// </para>
 /// <para>
 /// The two queue lines are the producer API for the manual payout queue (ESC-02) and the
@@ -72,6 +74,23 @@ public static class MoneyAlarmLog
 
     /// <summary>The gateway may have moved the money; check before any manual settlement.</summary>
     public const string OutcomeUnknown = "unknown";
+
+    /// <summary>
+    /// ESC-05: <see cref="Exception.Data"/> key set on an exception that escaped a release or
+    /// refund after it took the settlement lock (the gateway may have been called).
+    /// </summary>
+    public const string SettlementInFlightKey = "WeredaConnect.SettlementInFlight";
+
+    /// <summary>ESC-05: mark an exception that escapes a settlement after its lock was taken.</summary>
+    public static void MarkSettlementInFlight(Exception ex) => ex.Data[SettlementInFlightKey] = true;
+
+    /// <summary>
+    /// ESC-05: the outcome of an exception caught around a settlement: <c>unknown</c> only when it
+    /// escaped after the settlement lock was taken; before the lock no gateway call can have
+    /// happened, so <c>failed</c>.
+    /// </summary>
+    public static string ExceptionOutcome(Exception ex)
+        => ex.Data.Contains(SettlementInFlightKey) ? OutcomeUnknown : OutcomeFailed;
 
     /// <summary>A queue item older than this is overdue and gets one line per sweep.</summary>
     public static readonly TimeSpan QueueAlarmAfter = TimeSpan.FromHours(24);

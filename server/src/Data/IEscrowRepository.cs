@@ -47,17 +47,42 @@ public interface IEscrowRepository
     /// or <c>dispute_resolved</c>, ESC-03). Returns false if another settlement already holds the
     /// lock or the escrow is no longer in that status; the caller then MUST NOT call Telebirr.
     /// This is the mutual-exclusion guard that prevents a release and a refund (or two
-    /// releases) from both moving funds for the same escrow.
+    /// releases) from both moving funds for the same escrow. ESC-05: the write also stamps
+    /// <c>settlementLockAt</c> and a random <c>settlementLockId</c>; when it fails its condition,
+    /// a strongly consistent re-read that shows this very lock (same op and lock id, written by an
+    /// earlier attempt whose answer was lost) counts as acquired.
     /// </summary>
     /// <param name="op">The operation claiming the lock ("release" or "refund").</param>
     /// <param name="expectedStatus">The status the caller validated the operation against.</param>
     Task<bool> TryAcquireSettlementLockAsync(string escrowId, string createdAt, string op, string expectedStatus);
 
     /// <summary>
-    /// Release a previously-acquired settlement lock so a transient failure can be
-    /// retried. Called after a failed Telebirr call. No-op if the lock is absent.
+    /// Release a previously-acquired settlement lock (with its time and id) after a definite
+    /// gateway refusal, so the next sweep can retry. No-op if the lock is absent, and on a row
+    /// with an open manual payout (the queue owns the lock, ESC-05). Never called once the
+    /// gateway may have moved money.
     /// </summary>
     Task ReleaseSettlementLockAsync(string escrowId, string createdAt);
+
+    /// <summary>
+    /// ESC-05: settleable rows (<paramref name="status"/>) whose settlement lock was taken before
+    /// <paramref name="lockedBefore"/> and that are not queued, from <c>StatusExpiresIndex</c>.
+    /// A lock without <c>settlementLockAt</c> (taken before ESC-05) is aged by <c>updatedAt</c>.
+    /// Pages through filtered-empty pages up to <paramref name="limit"/>.
+    /// </summary>
+    Task<List<Dictionary<string, object>>> QueryStaleSettlementLocksAsync(string status, string lockedBefore, int limit = 50);
+
+    /// <summary>
+    /// ESC-05: park a stale settlement in the manual payout queue with reason
+    /// <c>GATEWAY_OUTCOME_UNKNOWN</c>. Same write as <see cref="TryQueueManualPayoutAsync"/>,
+    /// also conditional on the status the recovery step read (<paramref name="fromStatus"/>) and
+    /// on the same lock: <c>settlementLockId = </c><paramref name="lockId"/>, or no lock id at
+    /// all (a lock from before ESC-05) when <paramref name="lockId"/> is null. Also stamps
+    /// <c>manualPayoutParkId = </c><paramref name="parkId"/>. Returns false when the condition fails.
+    /// </summary>
+    Task<bool> TryQueueStaleSettlementAsync(
+        string escrowId, string createdAt, string op, string fromStatus,
+        IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt, string? lockId, string parkId);
 
     /// <summary>
     /// ESC-02: put a settlement the gateway could not make into the manual payout queue.

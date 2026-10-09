@@ -25,6 +25,8 @@ interface PayoutLeg {
   externalRef?: string;
   paidBy?: string;
   paidAt?: string;
+  /* ESC-05: the reference the server sent Telebirr for this leg (release:<id>, release:<id>:trucker, refund:<id>). */
+  gatewayRef?: string;
 }
 
 interface ManualPayout {
@@ -35,6 +37,8 @@ interface ManualPayout {
   escrowStatus: string;
   fromStatus: string;
   deliveryConfirmedAt?: string;
+  /* ESC-05: when the settlement lock was taken, which is when the gateway may have been called. */
+  settlementLockedAt?: string;
   queuedAt: string;
   currency: string;
   legs: PayoutLeg[];
@@ -49,9 +53,12 @@ type Row = Record<string, unknown> & {
 
 const OVERDUE_HOURS = 24;
 
-/* The gateway said it paid but gave no reference: the money has probably moved, so the
- * admin looks the payment up in the portal and records its id instead of paying again. */
+/* The gateway said it paid but gave no reference (GATEWAY_REF_MISSING), or never said
+ * whether it paid (GATEWAY_OUTCOME_UNKNOWN, ESC-05): the money may have moved, so the admin
+ * looks the payment up in the portal and records its id instead of paying again. */
 const REF_MISSING = "GATEWAY_REF_MISSING";
+const OUTCOME_UNKNOWN = "GATEWAY_OUTCOME_UNKNOWN";
+const CHECK_PORTAL_FIRST = new Set([REF_MISSING, OUTCOME_UNKNOWN]);
 
 function hoursSince(iso: string): number {
   const ms = Date.now() - new Date(iso).getTime();
@@ -173,6 +180,18 @@ export function ManualPayoutsPage() {
           {row.payout.reason === REF_MISSING && row.leg.status === "pending" && (
             <p className="max-w-56 text-xs text-warning">{t("payouts.refMissingHint")}</p>
           )}
+          {row.payout.reason === OUTCOME_UNKNOWN && row.leg.status === "pending" && (
+            <>
+              <p className="max-w-56 text-xs text-warning">
+                {fill(t("payouts.outcomeUnknownHint"), { gatewayRef: row.leg.gatewayRef ?? row.payout.escrowId })}
+              </p>
+              {row.payout.settlementLockedAt && (
+                <p className="text-xs text-text-muted">
+                  {fill(t("payouts.lockAge"), { hours: String(hoursSince(row.payout.settlementLockedAt)) })}
+                </p>
+              )}
+            </>
+          )}
         </div>
       ),
     },
@@ -247,12 +266,12 @@ export function ManualPayoutsPage() {
 
         const value = refs[row.key] ?? "";
         const busy = submitting === row.key;
-        const refMissing = row.payout.reason === REF_MISSING;
+        const checkPortalFirst = CHECK_PORTAL_FIRST.has(row.payout.reason);
         if (confirming === row.key) {
           return (
             <div className="space-y-2">
               <p className="text-sm">
-                {fill(t(refMissing ? "payouts.confirmFound" : "payouts.confirmPaid"), {
+                {fill(t(checkPortalFirst ? "payouts.confirmFound" : "payouts.confirmPaid"), {
                   amount: formatETB(Number(row.leg.amount) || 0, locale),
                   phone: row.leg.payeePhone || row.leg.payeeId,
                 })}
@@ -295,7 +314,7 @@ export function ManualPayoutsPage() {
               disabled={!value.trim() || busy}
               className="rounded bg-primary px-2 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50"
             >
-              {t(refMissing ? "payouts.recordRef" : "payouts.markPaid")}
+              {t(checkPortalFirst ? "payouts.recordRef" : "payouts.markPaid")}
             </button>
           </div>
         );

@@ -367,6 +367,20 @@ describe('ApiStack', () => {
       });
     }
   });
+
+  test('ESC-05: the Lambdas that settle escrows stop well within the 15 minute stale-lock threshold', () => {
+    // The recovery step parks a settlement lock older than 15 minutes as an unknown outcome. That
+    // is only safe while no settlement can still be running after 15 minutes.
+    const functions = template.findResources('AWS::Lambda::Function') as Record<
+      string,
+      { Properties: { FunctionName?: string; Timeout?: number } }
+    >;
+    for (const name of ['wereda-connect-dev-escrow', 'wereda-connect-dev-escrow-cron']) {
+      const fn = Object.values(functions).find((f) => f.Properties.FunctionName === name);
+      expect(fn).toBeDefined();
+      expect([name, (fn!.Properties.Timeout ?? 3) <= 300]).toEqual([name, true]);
+    }
+  });
 });
 
 describe('ApiStack (Telebirr live gateway, gated)', () => {
@@ -746,6 +760,7 @@ describe('MonitoringStack', () => {
   const SYNC_LG = '/aws/lambda/wereda-connect-dev-sync';
   const MONEY_ALARMS = [
     'wereda-connect-dev-escrow-settlement-failures',
+    'wereda-connect-dev-escrow-settlement-unknown-outcomes',
     'wereda-connect-dev-escrow-cron-errors',
     'wereda-connect-dev-order-escrow-problems',
     'wereda-connect-dev-manual-payouts-overdue',
@@ -812,14 +827,19 @@ describe('MonitoringStack', () => {
 
   // Minimal model of CloudWatch Logs term matching for the plain-text patterns this stack
   // uses: a bare or quoted term matches a log event that contains it as a whole token, and
-  // a `?` prefix turns the terms into alternatives instead of all being required. This is
-  // the synthetic check of the filter pattern against sample lines; the deployed pattern is
-  // checked against the real service by scripts/money_alarms_synthetic.sh.
+  // a `?` prefix turns the terms into alternatives instead of all being required. A quoted
+  // term with characters other than letters, digits and `_` (ESC-05's "outcome=unknown")
+  // matches as an exact substring. This is the synthetic check of the filter pattern against
+  // sample lines; the deployed pattern is checked against the real service by
+  // scripts/money_alarms_synthetic.sh.
   function cloudWatchTermsMatch(pattern: string, line: string): boolean {
     const tokens = pattern.match(/\??"[^"]*"|\??\S+/g) ?? [];
     const words = new Set(line.split(/[^A-Za-z0-9_]+/));
     const anyOf = tokens.some((t) => t.startsWith('?'));
-    const hits = tokens.map((t) => words.has(t.replace(/^\?/, '').replace(/^"|"$/g, '')));
+    const hits = tokens.map((t) => {
+      const term = t.replace(/^\?/, '').replace(/^"|"$/g, '');
+      return /^[A-Za-z0-9_]+$/.test(term) ? words.has(term) : line.includes(term);
+    });
     return anyOf ? hits.some(Boolean) : hits.every(Boolean);
   }
 
@@ -848,6 +868,49 @@ describe('MonitoringStack', () => {
     template.hasResourceProperties('AWS::CloudWatch::Alarm', {
       AlarmName: 'wereda-connect-dev-escrow-settlement-failures',
       Metrics: [customMetric('EscrowSettlementFailures', 900)],
+      Threshold: 0,
+      ComparisonOperator: 'GreaterThanThreshold',
+      EvaluationPeriods: 5,
+      DatapointsToAlarm: 1,
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
+  test('ESC-05: unknown outcomes are counted on their own on the escrow and escrow-cron log groups', () => {
+    const template = monitoringTemplate(false);
+    const unknownLines = [
+      SETTLEMENT_LINE,
+      PREFIXED_SETTLEMENT_LINE,
+      'ESCROW_SETTLEMENT_FAILED escrowId=escrow-order-ord-1 action=stale_lock_parked outcome=unknown code=release',
+      'ESCROW_SETTLEMENT_FAILED escrowId=escrow-order-ord-1 action=release_failed outcome=unknown code=GATEWAY_EXCEPTION:TaskCanceledException',
+      'ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_failed outcome=unknown code=auto_release_and_refund:Exception',
+    ];
+    const notUnknown = [
+      SWEEP_QUERY_LINE,
+      'ESCROW_SETTLEMENT_FAILED escrowId=escrow-order-ord-1 action=release_failed outcome=failed code=TELEBIRR_RELEASE_FAILED',
+      'ESCROW_SETTLEMENT_FAILED escrowId=escrow-order-ord-1 action=auto_release_exception outcome=failed code=TimeoutException',
+      // outcome=unknown without the token (a client cannot write the token: it has an underscore).
+      'Auto-release failed for escrow-1: ESCROW_013 - outcome=unknown',
+      'ESCROW_SETTLEMENT_PAID_UNRECORDED escrowId=escrow-order-ord-1 op=refund buyerRef=GW-1',
+      PAYOUT_LINE,
+      ...QUEUED_PAYOUT_LINES,
+    ];
+    for (const lg of [ESCROW_LG, ESCROW_CRON_LG]) {
+      const filter = metricFilter(template, lg, 'EscrowSettlementUnknownOutcomes');
+      expect(filter.Properties.MetricTransformations[0].MetricValue).toBe('1');
+      for (const line of unknownLines) {
+        expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, true]);
+      }
+      for (const line of notUnknown) {
+        expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, false]);
+      }
+      // The general failures filter still counts the unknown lines too.
+      const failures = metricFilter(template, lg, 'EscrowSettlementFailures');
+      expect(cloudWatchTermsMatch(failures.Properties.FilterPattern, unknownLines[2])).toBe(true);
+    }
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-escrow-settlement-unknown-outcomes',
+      Metrics: [customMetric('EscrowSettlementUnknownOutcomes', 900)],
       Threshold: 0,
       ComparisonOperator: 'GreaterThanThreshold',
       EvaluationPeriods: 5,
@@ -1022,17 +1085,29 @@ describe('MonitoringStack', () => {
     const money = [
       'EscrowSettlementFailures', 'OrderEscrowProblems', 'ManualPayoutsOverdue', 'AdminQueueOverdue',
       'OrderPaymentProblems', 'DisputeVerdictOrderMismatch', 'DisputeVerdictSettlementBlocked',
+      'EscrowSettlementUnknownOutcomes',
     ];
     return (Object.values(template.findResources('AWS::Logs::MetricFilter')) as MetricFilterResource[])
       .filter((f) => groups.includes(f.Properties.LogGroupName) && money.includes(f.Properties.MetricTransformations[0].MetricName))
       .map((f) => f.Properties.FilterPattern);
   }
 
-  test('ESC-13: every money filter term contains an underscore (the server defangs client text by turning _ into -)', () => {
+  // Whether every term a pattern requires appears in the line as a plain substring (any one of
+  // them for a pattern of `?` alternatives): stricter than the service's token match.
+  function substringMatch(pattern: string, line: string): boolean {
+    const terms = filterTerms(pattern);
+    return pattern.includes('?') ? terms.some((t) => line.includes(t)) : terms.every((t) => line.includes(t));
+  }
+
+  test('ESC-13: every money filter needs a term with an underscore (the server defangs client text by turning _ into -)', () => {
     const patterns = moneyFilterPatterns(monitoringTemplate(true));
-    expect(patterns.length).toBe(9);
-    for (const term of patterns.flatMap(filterTerms)) {
-      expect([term, term.includes('_')]).toEqual([term, true]);
+    expect(patterns.length).toBe(11);
+    for (const pattern of patterns) {
+      const terms = filterTerms(pattern);
+      // Alternatives: every term must carry one. All required (ESC-05's unknown filter pairs the
+      // token with "outcome=unknown"): one term with an underscore is enough.
+      const safe = pattern.includes('?') ? terms.every((t) => t.includes('_')) : terms.some((t) => t.includes('_'));
+      expect([pattern, safe]).toEqual([pattern, true]);
     }
   });
 
@@ -1063,7 +1138,7 @@ describe('MonitoringStack', () => {
     for (const line of lines) {
       for (const pattern of patterns) {
         expect([line, cloudWatchTermsMatch(pattern, line)]).toEqual([line, false]);
-        expect([line, filterTerms(pattern).some((t) => line.includes(t))]).toEqual([line, false]);
+        expect([line, substringMatch(pattern, line)]).toEqual([line, false]);
       }
     }
   });
@@ -1097,6 +1172,7 @@ describe('MonitoringStack', () => {
       const body = JSON.stringify(monitoringTemplate(live).findResources('AWS::CloudWatch::Dashboard'));
       for (const logicalId of [
         'EscrowSettlementFailures',
+        'EscrowSettlementUnknownOutcomes',
         'EscrowCronErrors',
         'OrderEscrowProblems',
         'ManualPayoutsOverdue',

@@ -225,6 +225,21 @@ export class MonitoringStack extends cdk.Stack {
     countSettlementFailures('EscrowSettlementFailuresFilter', escrowLogGroup);
     countSettlementFailures('EscrowCronSettlementFailuresFilter', escrowCronLogGroup);
 
+    // ESC-05 (FUP-06): the unknown outcomes alone (Telebirr may already have paid), for their own
+    // alarm and runbook. The same lines also count above. Both terms must be on the line; the
+    // server logs outcome=unknown only after a settlement took its lock (or for a stale lock).
+    const countUnknownOutcomes = (id: string, logGroup: logs.ILogGroup) =>
+      new logs.MetricFilter(this, id, {
+        logGroup,
+        filterPattern: logs.FilterPattern.literal('"ESCROW_SETTLEMENT_FAILED" "outcome=unknown"'),
+        metricNamespace,
+        metricName: 'EscrowSettlementUnknownOutcomes',
+        metricValue: '1',
+        defaultValue: 0,
+      });
+    countUnknownOutcomes('EscrowUnknownOutcomesFilter', escrowLogGroup);
+    countUnknownOutcomes('EscrowCronUnknownOutcomesFilter', escrowCronLogGroup);
+
     // ESC-03: a dispute verdict whose order or delivery cannot follow it is not settled.
     // EscrowService logs DISPUTE_VERDICT_ORDER_MISMATCH on every refused attempt: from
     // escrow-cron on the hourly dispute sweep, from the escrow Lambda on an admin release
@@ -828,13 +843,32 @@ export class MonitoringStack extends cdk.Stack {
         'exception (ESCROW_SETTLEMENT_FAILED in the escrow or escrow-cron log group; the ' +
         'line carries escrowId, action, outcome and code; the escrow-audit row has the same ' +
         'action). outcome=unknown means Telebirr may already have paid: check the merchant ' +
-        'portal before any manual release or refund. release_failed and refund_failed (any ' +
-        'code, MANUAL_QUEUE_FAILED:<reason> included): the lock is released and the next hourly ' +
-        'sweep retries until ESC-05 stops blind retries. trucker_release_failed (any code): the ' +
-        'escrow completed with truckerPayoutPending and nothing retries the trucker leg until ' +
-        'ESC-04: check the Telebirr portal and pay the trucker by hand (with outcome=unknown the ' +
-        'trucker may already be paid). A payout waiting in the manual payout queue (202 ' +
-        'ESCROW_034) is not counted here.',
+        'portal before any manual release or refund, and the separate ' +
+        'escrow-settlement-unknown-outcomes alarm fires too (ESC-05). outcome=failed: a definite ' +
+        'refusal or a failure before the settlement lock; nothing moved and the next hourly sweep ' +
+        'retries. trucker_release_failed with outcome=failed: the escrow completed with ' +
+        'truckerPayoutPending and nothing retries the trucker leg until ESC-04: pay the trucker by ' +
+        'hand. A payout waiting in the manual payout queue (202 ESCROW_034) is not counted here.',
+    );
+
+    // ESC-05: an unknown outcome is never retried by the server. The escrow keeps its settlement
+    // lock and waits in the manual payout queue (GATEWAY_OUTCOME_UNKNOWN), at once or through the
+    // hourly recovery step once the lock is 15 minutes old.
+    const escrowUnknownOutcomesAlarm = moneyLogAlarm(
+      'EscrowSettlementUnknownOutcomes',
+      'escrow-settlement-unknown-outcomes',
+      'EscrowSettlementUnknownOutcomes',
+      'Escrow Settlement Unknown Outcomes',
+      'A release, refund or trucker leg may have moved money without the escrow recording it ' +
+        '(ESCROW_SETTLEMENT_FAILED with outcome=unknown in the escrow or escrow-cron log group: a ' +
+        'Telebirr timeout or lost answer, a gateway call that threw, a queue write that failed ' +
+        'after the gateway answered, an exception after the settlement lock, or a stale lock ' +
+        'parked by the recovery step, action=stale_lock_parked). Nothing retries it. Do NOT ' +
+        'release or refund it by hand. The escrow keeps its lock and is in Manual Payouts ' +
+        '(/payouts) with reason GATEWAY_OUTCOME_UNKNOWN, or will be within about 75 minutes. Search ' +
+        'the Telebirr merchant portal for the gateway reference the page shows (release:<escrowId>, ' +
+        'release:<escrowId>:trucker or refund:<escrowId>); record the transaction id if you find ' +
+        'it, pay and record only if it is missing (ESC-05).',
     );
 
     const manualPayoutsOverdueAlarm = moneyLogAlarm(
@@ -848,8 +882,9 @@ export class MonitoringStack extends cdk.Stack {
         'hourly run, with escrowId, ref=<op>:<leg> and ageHours). A farmer, trucker or buyer ' +
         'is still waiting for their money. Open Manual Payouts in the admin app (/payouts, ' +
         'oldest first). PAYOUT_NOT_SUPPORTED: pay the leg in the Telebirr merchant portal and ' +
-        'record its transaction id. GATEWAY_REF_MISSING: find the payment in the portal first ' +
-        'and pay only if it is missing. A leg refused with ESCROW_029 (unverified payee) ' +
+        'record its transaction id. GATEWAY_REF_MISSING and GATEWAY_OUTCOME_UNKNOWN (ESC-05): ' +
+        'find the payment in the portal first and pay only if it is missing. A leg refused ' +
+        'with ESCROW_029 (unverified payee) ' +
         'cannot be recorded and keeps this alarm on until the payee verifies. While the alarm ' +
         'is in ALARM a newly overdue leg is not announced again: read the lines or the page.',
     );
@@ -1024,8 +1059,10 @@ export class MonitoringStack extends cdk.Stack {
         'the money may have moved. Find the failed RequestId in the escrow-cron log group ' +
         '(REPORT line, "Task timed out"), the last escrowId it logged and any escrow still ' +
         'holding its settlement lock; check the escrow-audit rows and the Telebirr merchant ' +
-        'portal before any manual release or refund. The lock stays held until ESC-05 adds ' +
-        'recovery. Lambda retries a failed scheduled run twice, so one crash can show up to ' +
+        'portal before any manual release or refund. The hourly recovery step (ESC-05) parks an ' +
+        'escrow whose lock is older than 15 minutes in Manual Payouts as GATEWAY_OUTCOME_UNKNOWN ' +
+        'and logs stale_lock_parked. Lambda retries a failed scheduled run twice, so one ' +
+        'crash can show up to ' +
         'three errors; they stay one episode, and the alarm clears 20 to 25 minutes after the ' +
         'last one.',
       metric: new cloudwatch.Metric({
@@ -1060,6 +1097,7 @@ export class MonitoringStack extends cdk.Stack {
           orderCronErrorsAlarm,
           // ESC-13 money alarms
           escrowSettlementFailuresAlarm,
+          escrowUnknownOutcomesAlarm,
           escrowCronErrorsAlarm,
           orderEscrowProblemsAlarm,
           manualPayoutsOverdueAlarm,

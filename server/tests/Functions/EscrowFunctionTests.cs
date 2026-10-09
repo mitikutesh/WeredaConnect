@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
@@ -1126,7 +1127,7 @@ public class EscrowFunctionTests
     private string Logs => ((TestLambdaLogger)_context.Logger).Buffer.ToString();
 
     [Fact]
-    public async Task HandleRelease_Exception_LogsSettlementFailedUnknown()
+    public async Task HandleRelease_ExceptionBeforeTheLock_LogsSettlementFailedFailed()
     {
         _mockEscrowRepo.GetByIdAsync(Arg.Any<string>())
             .ThrowsAsync(new Exception("Table not found: arn:aws:dynamodb:secret-info"));
@@ -1142,12 +1143,12 @@ public class EscrowFunctionTests
 
         Assert.Equal(500, response.StatusCode);
         Assert.Contains(
-            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-001 action=release_exception outcome=unknown code=Exception", Logs);
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-001 action=release_exception outcome=failed code=Exception", Logs);
         Assert.DoesNotContain("secret-info", Logs);
     }
 
     [Fact]
-    public async Task HandleRefund_Exception_LogsSettlementFailedUnknown()
+    public async Task HandleRefund_ExceptionBeforeTheLock_LogsSettlementFailedFailed()
     {
         _mockEscrowRepo.GetByIdAsync(Arg.Any<string>())
             .ThrowsAsync(new Exception("Table not found: arn:aws:dynamodb:secret-info"));
@@ -1163,8 +1164,38 @@ public class EscrowFunctionTests
 
         Assert.Equal(500, response.StatusCode);
         Assert.Contains(
-            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-002 action=refund_exception outcome=unknown code=Exception", Logs);
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-002 action=refund_exception outcome=failed code=Exception", Logs);
         Assert.DoesNotContain("secret-info", Logs);
+    }
+
+    [Fact]
+    public async Task HandleRefund_ExceptionAfterTheGatewayPaid_LogsSettlementFailedUnknown()
+    {
+        // ESC-05: the buyer was refunded but the status write never landed (4 attempts): the
+        // exception escaped after the lock, so the outcome is unknown and the lock stays.
+        _mockEscrowRepo.GetByIdAsync("escrow-003").Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-003" }, { "buyerId", BuyerId }, { "farmerId", FarmerId },
+            { "amount", 5000m }, { "status", "escrowed" }, { "createdAt", "2026-02-17T12:00:00.000Z" }, { "version", 1 }
+        });
+        _mockEscrowRepo.UpdateStatusAsync("escrow-003", Arg.Any<string>(), "refunded", Arg.Any<string?>(),
+                Arg.Any<Dictionary<string, object>?>())
+            .ThrowsAsync(new AmazonDynamoDBException("throttled"));
+        var body = JsonSerializer.Serialize(new RefundEscrowRequest
+        {
+            EscrowId = "escrow-003",
+            Trigger = "delivery_timeout",
+            Reason = "No delivery within 7 days.",
+            IdempotencyKey = "system:escrow-003:refund:1708171200000"
+        }, AppJsonContext.Default.RefundEscrowRequest);
+
+        var response = await _function.FunctionHandler(MakePostRequest("/escrow/refund", body, "system"), _context);
+
+        Assert.Equal(500, response.StatusCode);
+        Assert.Contains(
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-003 action=refund_exception outcome=unknown code=AmazonDynamoDBException", Logs);
+        await _mockTelebirrGateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        await _mockEscrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
     }
 
     [Theory]

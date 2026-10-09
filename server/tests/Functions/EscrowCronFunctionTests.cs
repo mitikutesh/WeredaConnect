@@ -344,8 +344,10 @@ public class EscrowCronFunctionTests
         await _mockTelebirrGateway.Received(1).ReleaseFundsAsync(
             Arg.Is<ReleaseFundsRequest>(r => r.TransactionRef == "release:escrow-fresh"));
         Assert.Contains("\"released\":\"1\"", response.Body);
+        // The ESC-05 lock recovery reads the same partition with its own filter (on #lock).
         var releaseSweep = statusQueries
-            .Where(q => q.ExpressionAttributeValues[":status"].S == "escrowed" && !q.KeyConditionExpression.Contains("expiresAt"))
+            .Where(q => q.ExpressionAttributeValues[":status"].S == "escrowed" && !q.KeyConditionExpression.Contains("expiresAt")
+                        && !q.FilterExpression.Contains("#lock"))
             .ToList();
         Assert.Equal(2, releaseSweep.Count); // the first page held only queued rows; paging went on
         Assert.All(statusQueries, q => Assert.Contains("attribute_not_exists(#manualPayout)", q.FilterExpression));
@@ -1205,10 +1207,10 @@ public class EscrowCronFunctionTests
     [Fact]
     public async Task FunctionHandler_CronException_Returns500WithGenericMessage()
     {
-        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+        _mockEscrowRepo.QueryByStatusForCronAsync("initiated", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
             .ThrowsAsync(new Exception("Sensitive DynamoDB ARN info"));
 
-        var request = MakeCronRequest("auto_release_and_refund");
+        var request = MakeCronRequest("reconciliation");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(500, response.StatusCode);
@@ -1336,7 +1338,7 @@ public class EscrowCronFunctionTests
     // ──────────────────────────────────────────────
 
     [Fact]
-    public async Task AutoRelease_UnexpectedException_LogsSettlementFailedUnknown()
+    public async Task AutoRelease_ExceptionBeforeTheLock_LogsSettlementFailedFailed()
     {
         var escrow = MakeEscrowItem("escrow-boom",
             deliveryConfirmedAt: DateTime.UtcNow.AddHours(-50).ToString("o"),
@@ -1350,13 +1352,13 @@ public class EscrowCronFunctionTests
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains(
-            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-boom action=auto_release_exception outcome=unknown code=InvalidOperationException",
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-boom action=auto_release_exception outcome=failed code=InvalidOperationException",
             Logs);
         Assert.DoesNotContain("Sensitive DynamoDB ARN info", Logs);
     }
 
     [Fact]
-    public async Task AutoRefund_UnexpectedException_LogsSettlementFailedUnknown()
+    public async Task AutoRefund_ExceptionBeforeTheLock_LogsSettlementFailedFailed()
     {
         var escrow = MakeEscrowItem("escrow-refund-boom", expiresAt: DateTime.UtcNow.AddDays(-1).ToString("o"));
         _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
@@ -1369,12 +1371,12 @@ public class EscrowCronFunctionTests
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains(
-            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-refund-boom action=auto_refund_exception outcome=unknown code=TimeoutException",
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-refund-boom action=auto_refund_exception outcome=failed code=TimeoutException",
             Logs);
     }
 
     [Fact]
-    public async Task ResolvedDispute_UnexpectedException_LogsSettlementFailedUnknown()
+    public async Task ResolvedDispute_ExceptionBeforeTheLock_LogsSettlementFailedFailed()
     {
         var escrow = ResolvedDispute("escrow-dr-boom", "farmer_wins");
         _mockEscrowRepo.QueryByStatusForCronAsync("dispute_resolved", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
@@ -1385,22 +1387,48 @@ public class EscrowCronFunctionTests
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains(
-            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-dr-boom action=dispute_settlement_exception outcome=unknown code=TimeoutException",
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-dr-boom action=dispute_settlement_exception outcome=failed code=TimeoutException",
             Logs);
     }
 
     [Fact]
     public async Task FunctionHandler_CronException_LogsSweepFailedToken()
     {
-        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+        // ESC-05: the hourly sweeps catch their own query failures now, so the run that dies is
+        // the reconciliation, and it settles nothing: a definite failure.
+        _mockEscrowRepo.QueryByStatusForCronAsync("initiated", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
             .ThrowsAsync(new Exception("Sensitive DynamoDB ARN info"));
 
-        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+        var response = await _function.FunctionHandler(MakeCronRequest("reconciliation"), _context);
 
         Assert.Equal(500, response.StatusCode);
         Assert.Contains(
-            "ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_failed outcome=unknown code=auto_release_and_refund:Exception",
+            "ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_failed outcome=failed code=reconciliation:Exception",
             Logs);
+        Assert.DoesNotContain("Sensitive DynamoDB ARN info", Logs);
+    }
+
+    [Fact]
+    public async Task SweepQueryFailures_LogADefiniteFailure_AndTheRestOfTheRunGoesOn()
+    {
+        // ESC-05 (O5): the release, refund and crash-recovery queries are wrapped like the dispute
+        // query, so one failing query skips only its own sweep.
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .ThrowsAsync(new Exception("Sensitive DynamoDB ARN info"));
+        _mockEscrowRepo.QueryByStatusForCronAsync("released", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .ThrowsAsync(new TimeoutException("boom"));
+        var resolved = ResolvedDispute("escrow-dr-ok", "farmer_wins");
+        _mockEscrowRepo.QueryByStatusForCronAsync("dispute_resolved", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { resolved });
+        _mockEscrowRepo.GetByIdAsync("escrow-dr-ok").Returns(resolved);
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_failed outcome=failed code=release_query:Exception", Logs);
+        Assert.Contains("ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_failed outcome=failed code=refund_query:Exception", Logs);
+        Assert.Contains("ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_failed outcome=failed code=complete_query:TimeoutException", Logs);
+        Assert.Contains("\"disputesSettled\":\"1\"", response.Body);
         Assert.DoesNotContain("Sensitive DynamoDB ARN info", Logs);
     }
 
@@ -1418,6 +1446,135 @@ public class EscrowCronFunctionTests
             "ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_failed outcome=failed code=dispute_query:Exception",
             Logs);
         Assert.DoesNotContain("Sensitive DynamoDB ARN info", Logs);
+    }
+
+    // ──────────────────────────────────────────────
+    // ESC-05: the stale lock recovery step
+    // ──────────────────────────────────────────────
+
+    private static Dictionary<string, object> StaleLock(string escrowId, string op, double minutesAgo)
+    {
+        var item = MakeEscrowItem(escrowId);
+        item[SettlementLockFields.Lock] = op;
+        item[SettlementLockFields.LockAt] = DateTime.UtcNow.AddMinutes(-minutesAgo).ToString("o");
+        item[SettlementLockFields.LockId] = $"id-{escrowId}";
+        return item;
+    }
+
+    [Fact]
+    public async Task Recovery_ParksStaleLocks_BeforeTheSweeps_AndCountsThem()
+    {
+        var stale = StaleLock("escrow-stale-1", "release", 40);
+        _mockEscrowRepo.QueryStaleSettlementLocksAsync("escrowed", Arg.Any<string>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { stale });
+        _mockEscrowRepo.TryQueueStaleSettlementAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>())
+            .Returns(true);
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"staleLocksParked\":\"1\"", response.Body);
+        await _mockEscrowRepo.Received(1).TryQueueStaleSettlementAsync("escrow-stale-1", Arg.Any<string>(), "release",
+            "escrowed", Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), "id-escrow-stale-1", Arg.Any<string>());
+        await _mockTelebirrGateway.DidNotReceiveWithAnyArgs().ReleaseFundsAsync(default!);
+        var calls = _mockEscrowRepo.ReceivedCalls().Select(c => c.GetMethodInfo().Name).ToList();
+        Assert.True(calls.LastIndexOf(nameof(IEscrowRepository.QueryStaleSettlementLocksAsync))
+                    < calls.IndexOf(nameof(IEscrowRepository.QueryByStatusForCronAsync)));
+        foreach (var status in new[] { "escrowed", "dispute_resolved", "disputed" })
+        {
+            var cutoff = DateTime.UtcNow.AddMinutes(-15);
+            await _mockEscrowRepo.Received(1).QueryStaleSettlementLocksAsync(status,
+                Arg.Is<string>(s => Math.Abs((DateTime.Parse(s, null, System.Globalization.DateTimeStyles.RoundtripKind).ToUniversalTime() - cutoff).TotalSeconds) < 60),
+                Arg.Any<int>());
+        }
+    }
+
+    [Fact]
+    public async Task Recovery_QueryFailure_LogsADefiniteFailure_AndTheRunGoesOn()
+    {
+        _mockEscrowRepo.QueryStaleSettlementLocksAsync("escrowed", Arg.Any<string>(), Arg.Any<int>())
+            .ThrowsAsync(new Exception("Sensitive DynamoDB ARN info"));
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains(
+            "ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_failed outcome=failed code=lock_recovery_query:escrowed:Exception", Logs);
+        await _mockEscrowRepo.Received(1).QueryStaleSettlementLocksAsync("dispute_resolved", Arg.Any<string>(), Arg.Any<int>());
+        Assert.DoesNotContain("Sensitive DynamoDB ARN info", Logs);
+    }
+
+    [Fact]
+    public async Task Recovery_ParkThatThrows_LogsAnUnknownRecoveryFailure()
+    {
+        _mockEscrowRepo.QueryStaleSettlementLocksAsync("dispute_resolved", Arg.Any<string>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { StaleLock("escrow-stale-2", "refund", 90) });
+        _mockEscrowRepo.TryQueueStaleSettlementAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>())
+            .ThrowsAsync(new TimeoutException("boom"));
+        _mockEscrowRepo.GetByIdAsync("escrow-stale-2", true).ThrowsAsync(new TimeoutException("boom"));
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains(
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-stale-2 action=stale_lock_recovery_failed outcome=unknown code=TimeoutException", Logs);
+        Assert.Contains("\"staleLocksParked\":\"0\"", response.Body);
+    }
+
+    [Fact]
+    public async Task AutoRefund_LockedRowWithoutTheQueueMarker_IsSkipped_BeforeAnyDeliveryOrOrderWrite()
+    {
+        // A settlement holds this escrow (in flight, or parked while this index copy still lacks
+        // the marker): no delivery stamp, no order cancel, no restock, no refund attempt.
+        var expiredAt = DateTime.UtcNow.AddDays(-1).ToString("o");
+        var escrow = MakeOrderSourcedEscrowItem("escrow-order-ord-11", "ord-11", expiresAt: expiredAt);
+        escrow[SettlementLockFields.Lock] = "refund";
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", expiresAtBefore: Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        var orderRepo = Substitute.For<IOrderRepository>();
+        var cropRepo = Substitute.For<ICropRepository>();
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
+        var function = new EscrowCronFunction(service, _mockEscrowRepo, _mockAuditRepo, _mockTelebirrGateway,
+            deliveryRepo: deliveryRepo, orderRepo: orderRepo, cropRepo: cropRepo);
+
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("ESCROW_SETTLEMENT_IN_FLIGHT_SKIPPED escrowId=escrow-order-ord-11 sweep=auto-refund", Logs);
+        await deliveryRepo.DidNotReceiveWithAnyArgs().GetByIdAsync(default!);
+        await orderRepo.DidNotReceiveWithAnyArgs().GetByIdAsync(default!);
+        await orderRepo.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default!, default);
+        await cropRepo.DidNotReceiveWithAnyArgs().TryRestoreStockAsync(default!, default!, default);
+        await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        await _mockEscrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>());
+        await _mockTelebirrGateway.DidNotReceiveWithAnyArgs().RefundFundsAsync(default!);
+    }
+
+    [Fact]
+    public async Task AutoRelease_ExceptionAfterTheGatewayPaid_LogsSettlementFailedUnknown()
+    {
+        // ESC-05: the released write never lands, so the exception escapes after the lock.
+        var escrow = MakeEscrowItem("escrow-paid-boom",
+            deliveryConfirmedAt: DateTime.UtcNow.AddHours(-50).ToString("o"),
+            disputeWindowEndsAt: DateTime.UtcNow.AddHours(-49).ToString("o"));
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        _mockEscrowRepo.GetByIdAsync("escrow-paid-boom").Returns(escrow);
+        _mockEscrowRepo.UpdateStatusAsync("escrow-paid-boom", Arg.Any<string>(), "released", Arg.Any<string?>(),
+                Arg.Any<Dictionary<string, object>?>())
+            .ThrowsAsync(new Amazon.DynamoDBv2.AmazonDynamoDBException("down"));
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains(
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-paid-boom action=auto_release_exception outcome=unknown code=AmazonDynamoDBException",
+            Logs);
+        await _mockEscrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
     }
 
     [Fact]

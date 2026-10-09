@@ -23,6 +23,12 @@ internal static class ManualPayoutFields
     public const string Reason = "manualPayoutReason";
     public const string FromStatus = "manualPayoutFromStatus";
 
+    /// <summary>
+    /// ESC-05: random id of the recovery write that parked a stale settlement, so a recovery
+    /// whose answer was lost can tell its own write from a concurrent one.
+    /// </summary>
+    public const string ParkId = "manualPayoutParkId";
+
     public const string OpRelease = "release";
     public const string OpRefund = "refund";
 
@@ -39,6 +45,12 @@ internal static class ManualPayoutFields
     /// <summary>Why a settlement was queued instead of completed.</summary>
     public const string ReasonPayoutNotSupported = "PAYOUT_NOT_SUPPORTED";
     public const string ReasonGatewayRefMissing = "GATEWAY_REF_MISSING";
+
+    /// <summary>
+    /// ESC-05: the gateway may have paid (a timeout, a lost or unreadable answer, a call that
+    /// threw, or a settlement lock older than 15 minutes). The admin checks the portal first.
+    /// </summary>
+    public const string ReasonGatewayOutcomeUnknown = "GATEWAY_OUTCOME_UNKNOWN";
 
     /// <summary>
     /// Prefix of the failure code (audit metadata) when the queue write itself failed:
@@ -65,6 +77,26 @@ internal static class ManualPayoutFields
 
     private static string Capitalise(string leg)
         => leg.Length == 0 ? leg : char.ToUpperInvariant(leg[0]) + leg[1..];
+}
+
+/// <summary>
+/// The settlement lock on the escrow row. <c>settlementLock</c> holds the operation
+/// (release or refund); ESC-05 adds <c>settlementLockAt</c>, the ISO time it was taken, and
+/// <c>settlementLockId</c>, a random id that tells one lock from another (two locks can carry
+/// the same time). From the moment the lock is taken the gateway may have been called, so a
+/// lock older than <see cref="StaleAfter"/> is an unknown outcome that the recovery step parks.
+/// </summary>
+internal static class SettlementLockFields
+{
+    public const string Lock = "settlementLock";
+    public const string LockAt = "settlementLockAt";
+    public const string LockId = "settlementLockId";
+
+    /// <summary>
+    /// Far above the longest settlement run (escrow Lambda 30 s, escrow-cron 5 min), so a
+    /// lock this old has no living owner.
+    /// </summary>
+    public static readonly TimeSpan StaleAfter = TimeSpan.FromMinutes(15);
 }
 
 /// <summary>
