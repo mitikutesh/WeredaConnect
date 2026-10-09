@@ -1679,7 +1679,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deliveryErrorDisputeRefused =>
-      'This payment is already being paid out or settled, so the dispute was not recorded. Contact support if there is a problem.';
+      'This dispute can\'t be opened right now. Contact support.';
 
   @override
   String get deliveryQrTooLarge => 'QR code too large';

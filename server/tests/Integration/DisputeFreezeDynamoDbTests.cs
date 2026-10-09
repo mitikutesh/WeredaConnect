@@ -63,8 +63,8 @@ public sealed class DisputeFreezeDynamoDbTests
     private TransactionAuditRepository TxRepo => new(Ddb, _db.TransactionAudit);
 
     /// <summary>The escrow service as the sync Lambda builds it (ESC-07: with the transaction audit).</summary>
-    private EscrowService SyncEscrowService() => new(
-        EscrowRepo, AuditRepo, idempotencyRepo: null, telebirrGateway: null,
+    private EscrowService SyncEscrowService(IEscrowAuditRepository? auditRepo = null) => new(
+        EscrowRepo, auditRepo ?? AuditRepo, idempotencyRepo: null, telebirrGateway: null,
         orderRepo: OrderRepo, deliveryRepo: DeliveryRepo, transactionAuditRepo: TxRepo);
 
     /// <summary>The escrow service as the escrow Lambda builds it, for <c>POST /escrow/dispute</c>.</summary>
@@ -72,13 +72,13 @@ public sealed class DisputeFreezeDynamoDbTests
         EscrowRepo, AuditRepo, new EscrowIdempotencyRepository(Ddb, _db.Idempotency), Substitute.For<ITelebirrGateway>(),
         userRepo: null, OrderRepo, DeliveryRepo, orderCheckoutRepo: null, transactionAuditRepo: TxRepo);
 
-    private SyncFunction Sync(IAmazonDynamoDB? dynamoDb = null)
+    private SyncFunction Sync(IAmazonDynamoDB? dynamoDb = null, IEscrowAuditRepository? auditRepo = null)
     {
         var syncMeta = Substitute.For<ISyncMetadataRepository>();
         syncMeta.IdempotencyKeyExistsAsync(Arg.Any<string>()).Returns(false);
         return new SyncFunction(syncMeta, new CropRepository(Ddb, _db.Crops), dynamoDb ?? Ddb, _db.Trips, _db.Deliveries,
             userRepo: _users, orderRepo: OrderRepo, escrowRepo: EscrowRepo, transactionAuditRepo: TxRepo,
-            orderEscrowService: SyncEscrowService());
+            orderEscrowService: SyncEscrowService(auditRepo));
     }
 
     private static AttributeValue S(string value) => new() { S = value };
@@ -283,6 +283,8 @@ public sealed class DisputeFreezeDynamoDbTests
         Str(escrow, "disputedBy").Should().Be(_buyerId);
         Str(escrow, "disputeReason").Should().Be("other");
         Str(escrow, "disputeDescription").Should().Be("Half the sacks were wet.");
+        // Seeded at version 2: the freeze adds to it (never a version from its read).
+        Str(escrow, "version").Should().Be("3");
         var delivery = await DeliveryAsync(trade.DeliveryId);
         Str(delivery, "status").Should().Be("disputed");
         Str(delivery, "version").Should().Be("2");
@@ -298,10 +300,16 @@ public sealed class DisputeFreezeDynamoDbTests
     {
         var trade = await SeedTradeAsync(escrowExtra: [("manualPayout", "open"), ("manualPayoutOp", "release")]);
 
-        var result = await SendAsync(Sync(), DeliveryDisputeOp(trade.DeliveryId, _buyerId, 1), _buyerId);
+        // Clients before sync-protocol 1.12.0 resend a refused dispute on every reconnect: the
+        // refusal is audited once a day.
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var result = await SendAsync(Sync(), DeliveryDisputeOp(trade.DeliveryId, _buyerId, 1), _buyerId);
 
-        result.GetProperty("status").GetString().Should().Be("error");
-        result.GetProperty("message").GetString().Should().StartWith("DELIVERY_DISPUTE_REFUSED:");
+            result.GetProperty("status").GetString().Should().Be("error");
+            result.GetProperty("message").GetString().Should().StartWith("DELIVERY_DISPUTE_REFUSED:");
+        }
+
         await NothingMovedAsync(trade, "escrowed");
         (await EscrowAuditActionsAsync(trade.EscrowId)).Should().Equal("dispute_refused_manual_payout");
     }
@@ -418,6 +426,72 @@ public sealed class DisputeFreezeDynamoDbTests
         retry.GetProperty("status").GetString().Should().Be("success", retry.ToString());
         Str(await DeliveryAsync(trade.DeliveryId), "status").Should().Be("disputed");
         Str(await OrderAsync(trade.OrderId), "status").Should().Be("disputed");
+        (await EscrowAuditActionsAsync(trade.EscrowId)).Should().Equal("dispute");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task DeliveryDispute_AuditFailsAfterTheFreeze_TheRetryWritesTheRow_AndFinishesTheTrade()
+    {
+        // The freeze landed, then its audit write failed: the client is asked to retry, nothing
+        // else moved. The retry finds the escrow disputed, writes the missing dispute row (one in
+        // all, at the freeze's own key) and moves the delivery and order.
+        var trade = await SeedTradeAsync();
+        var flakyAudit = Substitute.For<IEscrowAuditRepository>();
+        var real = AuditRepo;
+        var ensures = 0;
+        flakyAudit.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>())
+            .Returns(ci => Interlocked.Increment(ref ensures) == 1
+                ? throw new ProvisionedThroughputExceededException("audit throttled")
+                : real.AppendIfAbsentAsync(ci.Arg<Dictionary<string, object>>()));
+        flakyAudit.AppendAsync(Arg.Any<Dictionary<string, object>>())
+            .Returns(ci => real.AppendAsync(ci.Arg<Dictionary<string, object>>()));
+        flakyAudit.GetAuditTrailAsync(Arg.Any<string>()).Returns(ci => real.GetAuditTrailAsync(ci.Arg<string>()));
+        var sync = Sync(auditRepo: flakyAudit);
+
+        var first = await SendAsync(sync, DeliveryDisputeOp(trade.DeliveryId, _buyerId, 1), _buyerId);
+
+        first.GetProperty("message").GetString().Should().StartWith("DELIVERY_DISPUTE_RETRY:");
+        Str(await EscrowAsync(trade.EscrowId), "status").Should().Be("disputed");
+        Str(await DeliveryAsync(trade.DeliveryId), "status").Should().Be("delivered");
+        (await EscrowAuditActionsAsync(trade.EscrowId)).Should().BeEmpty();
+
+        var retry = await SendAsync(sync, DeliveryDisputeOp(trade.DeliveryId, _buyerId, 1), _buyerId);
+
+        retry.GetProperty("status").GetString().Should().Be("success", retry.ToString());
+        Str(await DeliveryAsync(trade.DeliveryId), "status").Should().Be("disputed");
+        Str(await OrderAsync(trade.OrderId), "status").Should().Be("disputed");
+        var trail = await AuditRepo.GetAuditTrailAsync(trade.EscrowId);
+        trail.Select(a => a["action"].ToString()).Should().Equal("dispute");
+        Str(trail.Single(), "timestamp").Should().Be(Str(await EscrowAsync(trade.EscrowId), "disputeCreatedAt"));
+    }
+
+    [LocalDynamoDbFact]
+    public async Task DeliveryDispute_RetryAfterTheDeliveryWrite_FinishesTheOrder_AndLeavesTheDelivery()
+    {
+        // The Lambda stopped after the delivery write and before the order mirror: escrow and
+        // delivery disputed, order still delivered. The client's queued operation (version 1) comes
+        // again: the order follows, the delivery is not written again, the answer is the row.
+        var trade = await SeedTradeAsync(escrowStatus: "disputed", deliveryVersion: 2,
+            escrowExtra: [("disputeCreatedAt", "2026-10-10T07:00:00.0000000Z"), ("disputedBy", _buyerId)]);
+        await Ddb.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _db.Deliveries,
+            Key = new Dictionary<string, AttributeValue> { ["deliveryId"] = S(trade.DeliveryId), ["tripId"] = S("trip-it") },
+            UpdateExpression = "SET #s = :d, disputeReason = :r",
+            ExpressionAttributeNames = new Dictionary<string, string> { ["#s"] = "status" },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":d"] = S("disputed"), [":r"] = S("first reason") }
+        });
+
+        var result = await SendAsync(Sync(), DeliveryDisputeOp(trade.DeliveryId, _buyerId, 1), _buyerId);
+
+        result.GetProperty("status").GetString().Should().Be("conflict", result.ToString());
+        result.GetProperty("serverData").GetProperty("status").GetString().Should().Be("disputed");
+        Str(await OrderAsync(trade.OrderId), "status").Should().Be("disputed");
+        var delivery = await DeliveryAsync(trade.DeliveryId);
+        Str(delivery, "version").Should().Be("2");
+        Str(delivery, "disputeReason").Should().Be("first reason");
+        (await TxRowsAsync(trade.OrderId)).Should().Equal("order:dispute:delivered>disputed:system");
+        // The lost dispute row of the first request is written at its own key.
         (await EscrowAuditActionsAsync(trade.EscrowId)).Should().Equal("dispute");
     }
 

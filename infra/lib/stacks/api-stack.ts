@@ -490,6 +490,9 @@ export class ApiStack extends cdk.Stack {
     props.escrowsTable.grantReadWriteData(syncFn.function);
     // Escrow audit is append-only: write-only grant (order-funded escrow leg).
     props.escrowAuditTable.grantWriteData(syncFn.function);
+    // ESC-07: a refused delivery dispute is audited once per escrow, delivery and reason a day,
+    // so the sync Lambda reads the escrow's trail first (Query only, no Scan or GetItem).
+    props.escrowAuditTable.grant(syncFn.function, "dynamodb:Query");
 
     // ─── Pagination Secret (Secrets Manager prod / SSM dev+staging) ───
     // SECURITY: Generated at deploy time (prod) or by the seed script

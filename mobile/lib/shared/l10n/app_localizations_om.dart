@@ -1684,7 +1684,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliveryErrorDisputeRefused =>
-      'Kaffaltiin kun kaffalamaa ykn xumuramaa waan jiruuf komiin hin galmoofne. Rakkoon yoo jiraate deeggarsa qunnamaa.';
+      'Komiin kun amma banamuu hin danda\'u. Deeggarsa qunnamaa.';
 
   @override
   String get deliveryQrTooLarge => 'QR koodiin baay\'ee guddaadha';

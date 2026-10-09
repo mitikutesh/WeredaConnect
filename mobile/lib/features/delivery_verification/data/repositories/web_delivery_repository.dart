@@ -370,13 +370,30 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       ensureSyncSucceeded(response);
     } on SyncConflictException {
       // ESC-07: the server freezes the payment before it writes the delivery.
-      // When the delivery changed in between (or the other party disputed
-      // first), the server still marks it disputed and answers a conflict.
-      // Then the dispute is done; any other conflict, or a re-read that
-      // failed, is still a failure.
+      // When the delivery changed in between (or it was already disputed), the
+      // server still marks it disputed and answers a conflict with the row.
+      // Then the dispute is done; any other conflict is still a failure. The
+      // row in the answer decides (a read right after may still lag); only an
+      // answer without one falls back to a re-read.
+      final serverStatus = _conflictServerStatus(response);
+      if (serverStatus != null) {
+        if (serverStatus != DeliveryStatus.disputed.name) rethrow;
+        return;
+      }
       final current = await getDeliveryById(deliveryId, userId: userId);
       if (current?.status != DeliveryStatus.disputed) rethrow;
     }
+  }
+
+  /// The delivery status in the first `conflict` result's `serverData`, or
+  /// null when the answer carries none.
+  static String? _conflictServerStatus(Map<String, dynamic> response) {
+    final results = response['results'];
+    if (results is! List || results.isEmpty) return null;
+    final result = results.first;
+    if (result is! Map || result['status'] != 'conflict') return null;
+    final serverData = result['serverData'];
+    return serverData is Map ? serverData['status'] as String? : null;
   }
 
   @override

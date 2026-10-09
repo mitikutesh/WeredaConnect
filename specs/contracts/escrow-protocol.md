@@ -2467,15 +2467,24 @@ and decides on the base row, never on an index copy:
    `dispute_refused_manual_payout`, ESC-02). A settlement lock held: refused (audit
    `dispute_refused_settlement_in_flight`, ESC-03).
 4. `escrowed`: frozen with the write `#status = escrowed AND attribute_not_exists(manualPayout) AND
-   attribute_not_exists(settlementLock)` (reason `other`, the delivery's text as the description,
-   audit `dispute`). When that condition fails, the row is read again and decided by steps 3 to 5;
-   still `escrowed` with nothing in the way is an unknown outcome (retry).
-5. `disputed`: already frozen (no write, no audit row); the delivery and order may follow. This
-   repairs a trade whose `POST /escrow/dispute` mirror failed, and finishes a delivery dispute whose
-   delivery write failed after its freeze.
+   attribute_not_exists(settlementLock)` (reason `other`, the delivery's text as the description;
+   the version is added to with `ADD`, never written from the read). The `dispute` audit row goes to
+   a deterministic key, the escrow's `disputeCreatedAt`, written only if absent. When the condition
+   fails, the row is read again and decided by steps 3 to 5; still `escrowed` with nothing in the way
+   is an unknown outcome (retry).
+5. `disputed`: already frozen (no status write); the `dispute` row is written at its deterministic
+   key if it is missing (the freeze's own audit write may have failed), and the delivery and order
+   may follow. This repairs a trade whose `POST /escrow/dispute` mirror failed, and finishes a
+   delivery dispute whose audit or delivery write failed after its freeze.
 6. Any other status (`initiated`, `released`, `completed`, `refunded`, `dispute_resolved`,
    `cancelled`, `held`, unknown): refused (audit `dispute_refused_not_held`, metadata
    `deliveryId=<id>`). An unlinked refunded order escrow lands here, not in "no escrow".
+
+Every refusal row is written once per escrow, delivery and reason each UTC day: its `auditId` is
+`audit-<action>-<deliveryId>-<yyyyMMdd>` and it is skipped when the escrow's trail already has it
+(the row keeps the time of the day's first refusal). Clients before sync-protocol 1.12.0 resend a
+refused dispute on every reconnect. The sync Lambda reads the trail for this (`dynamodb:Query` on
+escrow-audit).
 
 | Outcome | Sync answer | Written |
 |---------|-------------|---------|
@@ -2488,10 +2497,20 @@ and decides on the base row, never on an index copy:
 After a successful delivery write the order follows through the mirror. When the delivery write
 fails its version condition after a successful freeze (a concurrent update landed after the
 version check), the money is frozen, so the mirror marks the delivery (status-conditioned) and the
-order, and the client gets a `conflict` with the row as it is now. When the delivery write fails
-any other way after the freeze (a throttle), the request errors with the escrow `disputed` and
-the delivery and order still `delivered`; the client's retry finds the escrow already disputed
-and finishes both, with one `dispute` row on the escrow in all.
+order, and the client gets a `conflict` with the row as it is now. When the freeze's audit write or
+the delivery write fails any other way (a throttle), the request errors with the escrow `disputed`
+and the delivery and order still `delivered`; the client's retry finds the escrow already disputed
+and finishes the audit row, the delivery and the order, with one `dispute` row on the escrow in all.
+A dispute for a delivery that is already `disputed` (by the strongly consistent read too: the
+retry of a request that stopped between the delivery write and the order mirror, or the other
+party's dispute) is not written again: a participant's request runs the freeze (normally
+`AlreadyDisputed`) and the order mirror, then answers `conflict` with the delivery row. Anything
+else but `delivered` at the client's version is a `conflict` that freezes nothing.
+
+`POST /escrow/dispute` follows the same rule: its `dispute` row is at the deterministic key of the
+`disputeCreatedAt` it writes, and a party's request that finds the escrow already `disputed` (no
+manual payout, no lock) writes a missing `dispute` row and runs the mirror before it answers
+`422 ESCROW_INVALID_TRANSITION`.
 
 ### Follow-ups
 
@@ -2505,7 +2524,7 @@ and finishes both, with one `dispute` row on the escrow in all.
 
 | Version | Date | Change |
 |---------|------|--------|
-| 1.12.0 | 2026-10-10 | Disputes always freeze money (ESC-07): the client order dispute is gone (`order-lifecycle.md` 1.14.0); a delivery dispute through sync freezes the escrow before the delivery or order is written (order escrow by its deterministic id, else the `DeliveryIndex`, decided on a consistent base row; manual payout, lock, any status but `escrowed`/`disputed`, another delivery: refused with `DELIVERY_DISPUTE_REFUSED` and nothing written; undecided: `DELIVERY_DISPUTE_RETRY`; no escrow for a funded order: refused and alarmed `DISPUTE_NO_ESCROW`); one dispute mirror for both paths (consistent reads, a lagging order advanced first, one transaction-audit row per hop, the delivery version added to); `POST /escrow/dispute` answers every lost race (`ESCROW_020`, `ESCROW_038`, `ESCROW_INVALID_TRANSITION`) and frees its key, never a `500`; new audit actions `dispute_refused_not_held`, `dispute_refused_other_delivery` |
+| 1.12.0 | 2026-10-10 | Disputes always freeze money (ESC-07): the client order dispute is gone (`order-lifecycle.md` 1.14.0); a delivery dispute through sync freezes the escrow before the delivery or order is written (order escrow by its deterministic id, else the `DeliveryIndex`, decided on a consistent base row; manual payout, lock, any status but `escrowed`/`disputed`, another delivery: refused with `DELIVERY_DISPUTE_REFUSED` and nothing written; undecided: `DELIVERY_DISPUTE_RETRY`; no escrow for a funded order: refused and alarmed `DISPUTE_NO_ESCROW`); one dispute mirror for both paths (consistent reads, a lagging order advanced first, one transaction-audit row per hop, the delivery version added to); `POST /escrow/dispute` answers every lost race (`ESCROW_020`, `ESCROW_038`, `ESCROW_INVALID_TRANSITION`) and frees its key, never a `500`; new audit actions `dispute_refused_not_held`, `dispute_refused_other_delivery`; dispute rows at a deterministic key (repaired by a retry), refusal rows once a day per escrow, delivery and reason; the disputed write adds to the version |
 | 1.11.0 | 2026-10-10 | Trucker leg retry (ESC-04): an escrow is `completed` only once every leg is paid (the repository refuses `completed` while `truckerPayoutPending` or `manualPayout` is set); a release with a pending trucker leg stays `released` and answers `status: released`; a gate-blocked trucker is audited `trucker_release_blocked_kyc` with its reason (no money alarm) and the reason is stored once per value (compare-and-set); new row attributes `truckerPayoutPendingSince`, `truckerPayoutBlockReason`, `truckerPayoutLockId`, `truckerPayoutLockAt`, `truckerPaidAt`; hourly trucker retry last in the run (after the crash recovery) under its own lock, only with time left (90 s) and up to 25 gateway calls, with the stable reference `release:<id>:trucker`: paid completes in one fenced write (deterministic `trucker_release` and `complete` rows), not supported, no reference or unknown queues the leg on the released row, a definite refusal releases the lock for the next run, a stale trucker lock is parked as `GATEWAY_OUTCOME_UNKNOWN`; truckerId backfilled from the order only when the delivery names the same trucker (`trucker_mismatch` otherwise), also when an admin records the leg; Manual Payouts closes a trucker leg on a released escrow straight to `completed` without touching the release; pre-1.11.0 trucker legs (no pending time) are parked in the queue as `GATEWAY_OUTCOME_UNKNOWN`, never retried: released ones by the hourly retry, completed ones by `park_legacy_trucker_legs`, which the server deploy invokes (with retries) until a marker says two clean runs found nothing; the block reason's audit row sits at `truckerPayoutBlockReasonAt` and is re-ensured; new token `TRUCKER_PAYOUT_OVERDUE` and alarm `trucker-payouts-overdue`; `sweep_truncated`, `trucker_retry_exception`, `legacy_trucker_parked` and `legacy_trucker_park_failed` lines; the crash recovery and the cron status queries skip pending trucker legs; no client change |
 | 1.10.1 | 2026-10-09 | App side of the order checkout (ESC-44): when the mobile and web apps request it, how they reuse an open checkout, poll the order and tell the `ESCROW_030` causes apart, and localized `ESCROW_030` to `ESCROW_033`; no server or wire change |
 | 1.10.0 | 2026-10-09 | No double pay, no stuck lock (ESC-05): a gateway timeout, lost or unreadable answer (`TELEBIRR_NETWORK`, also for the live preOrder's unreadable 200 or missing `prepay_id`) or a call that threw (`GATEWAY_EXCEPTION:<type>`) keeps the settlement lock and parks the escrow in the manual payout queue with the new reason `GATEWAY_OUTCOME_UNKNOWN` (`202 ESCROW_034`, unknown-outcome message), never a blind retry; a `GATEWAY_REF_MISSING` queue write is retried and never releases the lock (FUP-03); only a definite refusal releases the lock (lock first, then the audit row); an unknown trucker leg is queued with the farmer leg paid, and never falls back to `truckerPayoutPending`; payout destinations and the refund phone are read before the lock and the idempotency record after the gateway answered; the `refunded` write retries like the `released` write, and a condition failure after a lost commit counts as written; the lock carries `settlementLockAt` and `settlementLockId` (a lost answer on the lock write is recognised by the id), and releasing it is a no-op on a queued row; hourly recovery step parks a lock older than 15 minutes on `escrowed`, `dispute_resolved` or (legacy) `disputed` rows, fenced on the lock and status, silent when it loses a race (`manualPayoutParkId`), audited `stale_lock_parked`, never calling the gateway; auto-refund skips a locked row before any delivery or order write; the release, refund and crash-recovery queries fail on their own (`sweep_failed outcome=failed`); `outcome=unknown` only after the lock (exceptions before it are `failed`); new alarm `escrow-settlement-unknown-outcomes` (FUP-06); manual payout list items gain `settlementLockedAt` and legs `gatewayRef`, plus `disputeResolution` with a warning when the parked operation goes against the verdict; a settled status found by a consistent re-read after any failed condition counts as written; exceptions after the settled status write log `outcome=failed`; a park write that throws on a still-unparked lock alarms `stale_lock_recovery_failed`; auto-refund re-reads the base row strongly consistent before any side effect; admin page strings in en/am/om; no client change |

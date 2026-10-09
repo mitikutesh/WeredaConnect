@@ -5135,7 +5135,7 @@ public class SyncFunctionTests
                 f["disputedBy"].ToString() == "buyer-001" && f["disputeDescription"].ToString() == "wet bags"));
         await _mockOrderRepo.Received(1).UpdateAsync("order-001",
             Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 1);
-        await rig.AuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(d => (string)d["action"] == "dispute"));
+        await rig.AuditRepo.Received(1).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(d => (string)d["action"] == "dispute"));
         // The order hop is audited as a system move, the delivery hop as the buyer's.
         await rig.TxRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
             (string)e["entityType"] == "order" && (string)e["action"] == "dispute"
@@ -5179,7 +5179,7 @@ public class SyncFunctionTests
         await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r => r.TableName == "test-deliveries-table"));
         await _mockOrderRepo.Received(1).UpdateAsync("order-001",
             Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 1);
-        await rig.AuditRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(d => (string)d["action"] == "dispute"));
+        await rig.AuditRepo.DidNotReceive().AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(d => (string)d["action"] == "dispute"));
     }
 
     [Fact]
@@ -5224,7 +5224,7 @@ public class SyncFunctionTests
         await rig.AuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(d =>
             (string)d["action"] == "dispute_refused_settlement_in_flight" && (string)d["escrowId"] == OrderEscrowId
             && (string)d["metadata"] == "deliveryId=del-001"));
-        await rig.AuditRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(d => (string)d["action"] == "dispute"));
+        await rig.AuditRepo.DidNotReceive().AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(d => (string)d["action"] == "dispute"));
     }
 
     [Theory]
@@ -5348,9 +5348,107 @@ public class SyncFunctionTests
         Assert.Contains("success", retry.Body);
         await rig.EscrowRepo.Received(1).UpdateStatusAsync(
             OrderEscrowId, Arg.Any<string>(), "disputed", "escrowed", Arg.Any<Dictionary<string, object>?>());
-        await rig.AuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(d => (string)d["action"] == "dispute"));
+        await rig.AuditRepo.Received(1).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(d => (string)d["action"] == "dispute"));
         await _mockOrderRepo.Received(1).UpdateAsync("order-001",
             Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 1);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_LegacyDeliveryWithoutOrderOrEscrow_IsWrittenAsBefore()
+    {
+        // A delivery from before orderId was required, with no escrow anywhere: nothing to freeze,
+        // so the dispute is written as it always was (and no order is touched).
+        var rig = DisputeFunction(null);
+        var legacy = DeliveryItemForOrder(status: "delivered", confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o"));
+        legacy.Remove("orderId");
+        SetupDeliveryQuery(legacy);
+
+        var response = await SendDeliveryDisputeAsync(rig.Function);
+
+        Assert.Contains("success", response.Body);
+        await rig.EscrowRepo.Received(1).GetByDeliveryIdAsync("del-001");
+        await DidNotWriteTheEscrow(rig.EscrowRepo);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r => r.TableName == "test-deliveries-table"));
+        await DidNotWriteTheOrder();
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_AgainOnADisputedDelivery_FinishesTheOrder_AndWritesNoDelivery()
+    {
+        // The Lambda stopped after the delivery write and before the order mirror: the client's
+        // retry finds the delivery disputed. The order follows now; the delivery is left as it is.
+        var rig = DisputeFunction(OrderEscrowRow(status: "disputed"));
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "disputed", version: 2,
+            confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o")));
+
+        var response = await SendDeliveryDisputeAsync(rig.Function, version: 1);
+
+        Assert.Contains("conflict", response.Body);
+        Assert.Contains("already disputed", response.Body);
+        await DidNotWriteTheDelivery();
+        await DidNotWriteTheEscrow(rig.EscrowRepo);
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 1);
+        await rig.TxRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(e => (string)e["entityType"] == "delivery"));
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_AgainByAnOutsider_IsUnauthorized()
+    {
+        var rig = DisputeFunction(OrderEscrowRow(status: "disputed"));
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "disputed", version: 2,
+            confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o")));
+
+        var response = await SendDeliveryDisputeAsync(rig.Function, userId: "stranger-9", role: "buyer");
+
+        Assert.Contains("DELIVERY_UNAUTHORIZED", response.Body);
+        await rig.EscrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+        await DidNotWriteTheOrder();
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_ConsistentReadAlreadyDisputed_WritesNoSecondDispute()
+    {
+        // The eventually consistent read still says delivered (replication window) but the strongly
+        // consistent one says disputed: no second delivery write (it would overwrite disputeReason
+        // and audit a second dispute). The order is still brought along.
+        var rig = DisputeFunction(OrderEscrowRow(status: "disputed"));
+        var confirmedAt = DateTime.UtcNow.AddHours(-2).ToString("o");
+        var stale = DeliveryItemForOrder(status: "delivered", version: 1, confirmedAt: confirmedAt);
+        var fresh = DeliveryItemForOrder(status: "disputed", version: 2, confirmedAt: confirmedAt);
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-deliveries-table" && r.ConsistentRead != true))
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { stale } });
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-deliveries-table" && r.ConsistentRead == true))
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { fresh } });
+
+        var response = await SendDeliveryDisputeAsync(rig.Function, version: 1);
+
+        Assert.Contains("conflict", response.Body);
+        await DidNotWriteTheDelivery();
+        await rig.TxRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(e => (string)e["entityType"] == "delivery"));
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 1);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_ConsistentReadNoLongerDelivered_IsAConflict_AndFreezesNothing()
+    {
+        var rig = DisputeFunction(OrderEscrowRow());
+        var confirmedAt = DateTime.UtcNow.AddHours(-2).ToString("o");
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-deliveries-table" && r.ConsistentRead == true))
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    DeliveryItemForOrder(status: "cancelled", version: 1, confirmedAt: confirmedAt)
+                }
+            });
+
+        var response = await SendDeliveryDisputeAsync(rig.Function, version: 1);
+
+        Assert.Contains("conflict", response.Body);
+        await DidNotWriteTheEscrow(rig.EscrowRepo);
+        await DidNotWriteTheDelivery();
     }
 
     [Theory]

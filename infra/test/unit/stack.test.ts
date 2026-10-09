@@ -290,6 +290,28 @@ describe('ApiStack', () => {
     expect(policies).toContain('parameter/wereda-connect-dev/fayda/signing-secret');
   });
 
+  test('sync Lambda can read the escrow audit trail to dedupe dispute refusals (ESC-07)', () => {
+    // A refused delivery dispute is audited once per escrow, delivery and reason a day; the
+    // trail is read first. Least privilege: Query on top of the write grant, never Scan. The sync
+    // role is large, so CDK moves part of it into an overflow managed policy: read both.
+    const statements = [
+      ...Object.entries(template.findResources('AWS::IAM::Policy')),
+      ...Object.entries(template.findResources('AWS::IAM::ManagedPolicy')),
+    ]
+      .filter(([id]) => id.startsWith('SyncFunctionServiceRole'))
+      .flatMap(
+        ([, policy]) =>
+          policy.Properties.PolicyDocument.Statement as Array<{ Action: string | string[]; Resource: unknown }>,
+      );
+    expect(statements.length).toBeGreaterThan(0);
+    const actions = statements
+      .filter((s) => JSON.stringify(s.Resource).includes('EscrowAuditTable'))
+      .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+    expect(actions).toContain('dynamodb:Query');
+    expect(actions).toContain('dynamodb:PutItem');
+    expect(actions).not.toContain('dynamodb:Scan');
+  });
+
   test('escrow Lambda can update the order and delivery a dispute mirrors onto (SIM-47)', () => {
     // POST /escrow/dispute marks the order and delivery disputed. With read-only grants
     // the UpdateItem was denied and both stayed delivered (ratings still allowed).

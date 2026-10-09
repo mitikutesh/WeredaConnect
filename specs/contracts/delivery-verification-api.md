@@ -128,7 +128,10 @@ freezes nothing), the server freezes the order's escrow **before** it writes the
 | the freeze could not be decided (an exception) | `DELIVERY_DISPUTE_RETRY: ...` (transient; nothing written) |
 
 If the delivery write then fails its version condition, the money is frozen, so the delivery and
-order are still marked `disputed` and the answer is `conflict` with the row as it is now. If it
+order are still marked `disputed` and the answer is `conflict` with the row as it is now. A
+dispute for a delivery that is already `disputed` (also when only the strongly consistent read
+shows it) is never written again: a participant's request finishes the freeze and the order and
+answers `conflict` with the row; an outsider gets `DELIVERY_UNAUTHORIZED`. If it
 fails any other way (a throttle), the request errors with only the escrow disputed; the retry
 finds the escrow already disputed and finishes the delivery and order. The delivery hop is
 audited in transaction-audit as `dispute` (the caller as actor), the order hops as a system actor.

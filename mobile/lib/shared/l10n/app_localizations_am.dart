@@ -1625,7 +1625,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deliveryErrorDisputeRefused =>
-      'ይህ ክፍያ እየተከፈለ ወይም እየተጠናቀቀ ስለሆነ ክርክሩ አልተመዘገበም። ችግር ካለ ድጋፍ ሰጪን ያግኙ።';
+      'ይህ ክርክር አሁን ሊከፈት አይችልም። ድጋፍ ሰጪን ያግኙ።';
 
   @override
   String get deliveryQrTooLarge => 'QR ኮድ በጣም ትልቅ ነው';

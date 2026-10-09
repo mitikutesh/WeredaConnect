@@ -578,6 +578,53 @@ void main() {
       });
     });
 
+    test('the conflict row decides: disputed is done without a re-read',
+        () async {
+      // The re-read would lag (still delivered); the server's row does not.
+      stubReads(['delivered', 'delivered']);
+      answerSync({
+        'results': [
+          {
+            'status': 'conflict',
+            'message': 'The delivery is already disputed.',
+            'serverData': {'deliveryId': 'del-1', 'status': 'disputed'},
+          },
+        ],
+      });
+
+      await repository.raiseDispute(
+        deliveryId: 'del-1',
+        userId: 'buyer-1',
+        reason: 'wet bags',
+      );
+
+      // One read for the version, none after the conflict.
+      verify(() => api.get<Map<String, dynamic>>('/deliveries/del-1'))
+          .called(1);
+    });
+
+    test('the conflict row decides: anything else throws', () async {
+      stubReads(['delivered', 'disputed']);
+      answerSync({
+        'results': [
+          {
+            'status': 'conflict',
+            'message': 'Version conflict.',
+            'serverData': {'deliveryId': 'del-1', 'status': 'cancelled'},
+          },
+        ],
+      });
+
+      await expectLater(
+        repository.raiseDispute(
+          deliveryId: 'del-1',
+          userId: 'buyer-1',
+          reason: 'wet bags',
+        ),
+        throwsA(isA<SyncConflictException>()),
+      );
+    });
+
     test('a conflict that left the delivery delivered still throws', () async {
       stubReads(['delivered', 'delivered']);
       answerSync({

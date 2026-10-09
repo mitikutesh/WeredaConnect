@@ -4114,6 +4114,15 @@ public partial class SyncFunction
                         var selfPickupDirectDeliver = isSelfPickupDelivery
                             && currentStatus == "pending" && newStatus == "delivered";
 
+                        // ESC-07: a dispute sent again for a delivery that is already disputed (the
+                        // retry of a request that stopped after the delivery write, or the other
+                        // party's dispute) finishes the freeze and the order mirror and answers with
+                        // the row; the delivery is not written again.
+                        if (newStatus == "disputed" && currentStatus == "disputed")
+                        {
+                            return await RepeatDeliveryDisputeAsync(operation, existing, authenticatedUserId, context);
+                        }
+
                         // Validate status transition
                         if (!selfPickupDirectDeliver
                             && (!DeliveryTransitions.TryGetValue(currentStatus, out var allowed)
@@ -5914,8 +5923,9 @@ public partial class SyncFunction
     /// answer with instead of writing (a stale version, a refused or undecided freeze), or the
     /// freeze to mirror after the write. In order:
     /// <list type="bullet">
-    /// <item>the client version against a strongly consistent read: a stale one is a
-    /// <c>conflict</c> and nothing is frozen;</item>
+    /// <item>a strongly consistent read: a delivery already <c>disputed</c> goes to
+    /// <see cref="RepeatDeliveryDisputeAsync"/>; anything else but <c>delivered</c> at the client's
+    /// version is a <c>conflict</c> and nothing is frozen;</item>
     /// <item>the freeze (<see cref="EscrowService.FreezeForDeliveryDisputeAsync"/>): frozen or
     /// already disputed goes ahead; a manual payout, a settlement in flight, an escrow that holds
     /// no money, one linked to another delivery, and a delivery with an order but no escrow are
@@ -5937,8 +5947,17 @@ public partial class SyncFunction
             return (DeliveryDisputeError(operation, "Delivery not found."), null);
         }
 
+        // The row the checks above read may lag: one already disputed is finished, not written again
+        // (that would overwrite disputeReason and audit a second dispute), and anything but
+        // delivered at the client's version is a conflict.
+        var currentStatus = current.TryGetValue("status", out var cs) ? cs.S : null;
+        if (currentStatus == "disputed")
+        {
+            return (await RepeatDeliveryDisputeAsync(operation, current, disputedBy, context), null);
+        }
+
         var currentVersion = current.TryGetValue("version", out var cv) && int.TryParse(cv.N, out var cvn) ? cvn : 0;
-        if (currentVersion != clientVersion)
+        if (currentStatus != "delivered" || currentVersion != clientVersion)
         {
             return (new SyncOperationResult
             {
@@ -6004,6 +6023,62 @@ public partial class SyncFunction
         }
 
         return (DeliveryDisputeError(operation, $"{DeliveryDisputeRefusedCode}: {refusal} Contact support."), null);
+    }
+
+    /// <summary>
+    /// ESC-07: a dispute for a delivery that is already <c>disputed</c>. A participant's request
+    /// finishes what an earlier dispute may have left undone (a Lambda that stopped after the
+    /// delivery write never mirrored the order; a delivery disputed before ESC-07 never froze its
+    /// escrow): the freeze, then the order mirror when the escrow is frozen. Nothing is written to
+    /// the delivery; the answer is <c>conflict</c> with the row, which the client takes as is.
+    /// </summary>
+    private async Task<SyncOperationResult> RepeatDeliveryDisputeAsync(
+        SyncOperationRequest operation, Dictionary<string, AttributeValue> delivery, string? userId,
+        ILambdaContext context)
+    {
+        string? Field(string name) => delivery.TryGetValue(name, out var attr) && !string.IsNullOrEmpty(attr.S) ? attr.S : null;
+        if (string.IsNullOrEmpty(userId)
+            || (userId != Field("buyerId") && userId != Field("farmerId") && userId != Field("truckerId")))
+        {
+            return DeliveryDisputeError(operation, "DELIVERY_UNAUTHORIZED: Only participants can dispute a delivery.");
+        }
+
+        var deliveryId = operation.EntityId;
+        var orderId = Field("orderId");
+        if (_orderEscrowService != null)
+        {
+            DeliveryDisputeFreezeResult freeze;
+            try
+            {
+                freeze = await _orderEscrowService.FreezeForDeliveryDisputeAsync(
+                    deliveryId, orderId, userId, Field("disputeReason"));
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogWarning(
+                    $"Freeze for disputed delivery {MoneyAlarmLog.LogId(deliveryId)} undecided on a repeat: [{ex.GetType().Name}] {MoneyAlarmLog.LogText(ex.Message)}");
+                return DeliveryDisputeError(operation,
+                    $"{DeliveryDisputeRetryCode}: The dispute could not be recorded right now. It will be sent again.");
+            }
+
+            context.Logger.LogInformation(
+                $"Repeated dispute on delivery {MoneyAlarmLog.LogId(deliveryId)}: escrow {MoneyAlarmLog.LogId(freeze.EscrowId)} {freeze.Outcome}");
+            if (freeze.MayMirror)
+            {
+                await TryMirrorDeliveryDisputeAsync(freeze, orderId, deliveryId, userId, null, markDelivery: false, context);
+            }
+        }
+
+        var row = await GetDeliveryItemAsync(deliveryId, consistentRead: true) ?? delivery;
+        var version = row.TryGetValue("version", out var v) && int.TryParse(v.N, out var vn) ? vn : 0;
+        return new SyncOperationResult
+        {
+            OperationId = operation.OperationId,
+            Status = "conflict",
+            ServerVersion = version,
+            ServerData = ScrubSyncSecrets(CropRepository.FromItem(row)),
+            Message = "The delivery is already disputed."
+        };
     }
 
     private static SyncOperationResult DeliveryDisputeError(SyncOperationRequest operation, string message) => new()

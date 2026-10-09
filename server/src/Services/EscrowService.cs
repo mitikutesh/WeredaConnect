@@ -1911,6 +1911,13 @@ public sealed class EscrowService
         var currentStatus = GetString(escrowItem, "status");
         if (currentStatus != "escrowed")
         {
+            // ESC-07: a retry after a dispute whose audit row or mirror did not land (the
+            // request failed after the freeze) finishes them; both are idempotent.
+            if (currentStatus == "disputed")
+            {
+                await RepairFrozenDisputeAsync(escrowItem);
+            }
+
             return EscrowResult<DisputeEscrowResponse>.Failure(
                 422, "ESCROW_INVALID_TRANSITION",
                 $"Cannot dispute escrow in '{currentStatus}' state. Must be 'escrowed'.");
@@ -1985,7 +1992,7 @@ public sealed class EscrowService
         var now = DateTime.UtcNow;
         var disputeId = $"dispute-{Guid.NewGuid():N}";
         var createdAt = GetString(escrowItem, "createdAt");
-        var currentVersion = GetInt(escrowItem, "version");
+        var disputeCreatedAt = now.ToString("o");
 
         // Calculate dispute window end
         var disputeWindowEndsAt = (deliveryConfirmedAt != null
@@ -2008,9 +2015,8 @@ public sealed class EscrowService
             { "disputeId", disputeId },
             { "disputedBy", request.DisputedBy },
             { "disputeReason", request.Reason },
-            { "disputeCreatedAt", now.ToString("o") },
-            { "disputeWindowEndsAt", disputeWindowEndsAt },
-            { "version", currentVersion + 1 }
+            { "disputeCreatedAt", disputeCreatedAt },
+            { "disputeWindowEndsAt", disputeWindowEndsAt }
         };
 
         if (!string.IsNullOrEmpty(request.Description))
@@ -2037,8 +2043,9 @@ public sealed class EscrowService
             return DisputeRaceRefusal(latest);
         }
 
-        // 10. Audit log
-        await AppendAuditAsync(request.EscrowId, "dispute", "escrowed", "disputed", authenticatedUserId);
+        // 10. Audit log. ESC-07: at a deterministic key (disputeCreatedAt), so a retry that finds
+        // the escrow already disputed can write a row this call lost, and never a second one.
+        await EnsureAuditAsync(request.EscrowId, disputeCreatedAt, "dispute", "escrowed", "disputed", authenticatedUserId);
 
         // SIM-12: a dispute freezes the whole trade, not just the money. Mirror it onto
         // the order (delivered -> disputed, which blocks ratings) and the delivery.
@@ -2499,8 +2506,8 @@ public sealed class EscrowService
             && !string.Equals(linkedDeliveryId, deliveryId, StringComparison.Ordinal))
         {
             var status = GetString(escrow, "status");
-            await AppendAuditAsync(escrowId, "dispute_refused_other_delivery", status, status, disputedBy,
-                metadata: $"deliveryId={deliveryId}");
+            await AppendDisputeRefusalAuditAsync(escrowId, "dispute_refused_other_delivery", status, disputedBy,
+                deliveryId, $"deliveryId={deliveryId}");
             Console.WriteLine($"ESCROW_DISPUTE_REFUSED_OTHER_DELIVERY escrowId={MoneyAlarmLog.LogId(escrowId)}");
             return new DeliveryDisputeFreezeResult(DeliveryDisputeFreeze.RefusedOtherDelivery, escrowId, status);
         }
@@ -2512,6 +2519,7 @@ public sealed class EscrowService
         }
 
         var now = DateTime.UtcNow;
+        var disputeCreatedAt = now.ToString("o");
         var confirmedAt = GetStringOrNull(escrow, "deliveryConfirmedAt");
         var disputeWindowEndsAt = confirmedAt != null
             && DateTime.TryParse(confirmedAt, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var ct)
@@ -2523,9 +2531,8 @@ public sealed class EscrowService
             { "disputeId", $"dispute-{Guid.NewGuid():N}" },
             { "disputedBy", disputedBy },
             { "disputeReason", "other" },
-            { "disputeCreatedAt", now.ToString("o") },
-            { "disputeWindowEndsAt", disputeWindowEndsAt },
-            { "version", GetInt(escrow, "version") + 1 }
+            { "disputeCreatedAt", disputeCreatedAt },
+            { "disputeWindowEndsAt", disputeWindowEndsAt }
         };
         if (!string.IsNullOrWhiteSpace(description))
         {
@@ -2553,7 +2560,9 @@ public sealed class EscrowService
             throw;
         }
 
-        await AppendAuditAsync(escrowId, "dispute", "escrowed", "disputed", disputedBy);
+        // At a deterministic key: when this write fails after the freeze, the client's retry finds
+        // the escrow AlreadyDisputed and writes the row then, never a second one.
+        await EnsureAuditAsync(escrowId, disputeCreatedAt, "dispute", "escrowed", "disputed", disputedBy);
         return new DeliveryDisputeFreezeResult(DeliveryDisputeFreeze.Frozen, escrowId, "disputed");
     }
 
@@ -2593,8 +2602,8 @@ public sealed class EscrowService
         // is audited so the admin sees the delivery dispute on the escrow's timeline.
         if (IsManualPayoutOpen(escrow))
         {
-            await AppendAuditAsync(escrowId, "dispute_refused_manual_payout", status, status, disputedBy,
-                metadata: $"deliveryId={deliveryId};op={GetStringOrNull(escrow, ManualPayoutFields.Op)}");
+            await AppendDisputeRefusalAuditAsync(escrowId, "dispute_refused_manual_payout", status, disputedBy,
+                deliveryId, $"deliveryId={deliveryId};op={GetStringOrNull(escrow, ManualPayoutFields.Op)}");
             Console.WriteLine($"ESCROW_MANUAL_PAYOUT_DISPUTE_REFUSED escrowId={MoneyAlarmLog.LogId(escrowId)}");
             return new DeliveryDisputeFreezeResult(DeliveryDisputeFreeze.RefusedManualPayout, escrowId, status);
         }
@@ -2610,10 +2619,12 @@ public sealed class EscrowService
             case "escrowed":
                 return null;
             case "disputed":
+                // The freeze that made it disputed may have lost its audit row (ESC-07).
+                await EnsureDisputeAuditAsync(escrow);
                 return new DeliveryDisputeFreezeResult(DeliveryDisputeFreeze.AlreadyDisputed, escrowId, status);
             default:
-                await AppendAuditAsync(escrowId, "dispute_refused_not_held", status, status, disputedBy,
-                    metadata: $"deliveryId={deliveryId}");
+                await AppendDisputeRefusalAuditAsync(escrowId, "dispute_refused_not_held", status, disputedBy,
+                    deliveryId, $"deliveryId={deliveryId}");
                 Console.WriteLine(
                     $"ESCROW_DISPUTE_REFUSED_NOT_HELD escrowId={MoneyAlarmLog.LogId(escrowId)} status={MoneyAlarmLog.LogId(status)}");
                 return new DeliveryDisputeFreezeResult(DeliveryDisputeFreeze.RefusedNotHeld, escrowId, status);
@@ -2628,9 +2639,76 @@ public sealed class EscrowService
     private async Task RefuseFreezeSettlementInFlightAsync(
         string escrowId, string deliveryId, string disputedBy, string status)
     {
-        await AppendAuditAsync(escrowId, "dispute_refused_settlement_in_flight", status, status, disputedBy,
-            metadata: $"deliveryId={deliveryId}");
+        await AppendDisputeRefusalAuditAsync(escrowId, "dispute_refused_settlement_in_flight", status, disputedBy,
+            deliveryId, $"deliveryId={deliveryId}");
         Console.WriteLine($"ESCROW_DISPUTE_REFUSED_SETTLEMENT_IN_FLIGHT escrowId={MoneyAlarmLog.LogId(escrowId)}");
+    }
+
+    /// <summary>
+    /// ESC-07: the escrow's <c>dispute</c> audit row at its deterministic key (the escrow's
+    /// <c>disputeCreatedAt</c>), written only if absent. Repairs a freeze whose own audit write
+    /// failed after the status write; a row without <c>disputeCreatedAt</c> has nothing to key on.
+    /// </summary>
+    private async Task EnsureDisputeAuditAsync(Dictionary<string, object> escrow)
+    {
+        var disputeCreatedAt = GetStringOrNull(escrow, "disputeCreatedAt");
+        if (string.IsNullOrEmpty(disputeCreatedAt))
+        {
+            return;
+        }
+
+        await EnsureAuditAsync(GetString(escrow, "escrowId"), disputeCreatedAt, "dispute", "escrowed", "disputed",
+            GetStringOrNull(escrow, "disputedBy") ?? SystemActor);
+    }
+
+    /// <summary>
+    /// ESC-07: a party's <c>POST /escrow/dispute</c> found the escrow already <c>disputed</c>. When
+    /// no manual payout or settlement owns it, finish what an earlier dispute request may have left
+    /// undone after its freeze: the audit row and the delivery and order mirror (both idempotent).
+    /// </summary>
+    private async Task RepairFrozenDisputeAsync(Dictionary<string, object> escrow)
+    {
+        if (IsManualPayoutOpen(escrow) || GetStringOrNull(escrow, "settlementLock") != null)
+        {
+            return;
+        }
+
+        await EnsureDisputeAuditAsync(escrow);
+        await MirrorDisputeAsync(
+            GetString(escrow, "escrowId"), GetStringOrNull(escrow, "orderId"), GetStringOrNull(escrow, "deliveryId"),
+            GetStringOrNull(escrow, "disputedBy") ?? SystemActor, GetStringOrNull(escrow, "disputeReason"),
+            markDelivery: true);
+    }
+
+    /// <summary>
+    /// ESC-07: audit a refused delivery dispute once per escrow, delivery and reason each UTC day.
+    /// Clients before sync-protocol 1.12.0 resend a refused dispute on every reconnect, so the row
+    /// carries a deterministic <c>auditId</c> (action, delivery, day) and is written only when the
+    /// escrow's trail has none yet; it keeps the time of the day's first refusal. A failed read
+    /// writes the row anyway (a duplicate is better than a lost refusal).
+    /// </summary>
+    private async Task AppendDisputeRefusalAuditAsync(
+        string escrowId, string action, string status, string actor, string deliveryId, string metadata)
+    {
+        var now = DateTime.UtcNow;
+        var auditId = $"audit-{action}-{new string(deliveryId.Where(char.IsAsciiLetterOrDigit).ToArray())}-"
+                      + now.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+        try
+        {
+            var trail = await _auditRepo.GetAuditTrailAsync(escrowId);
+            if (trail != null && trail.Any(a => GetStringOrNull(a, "auditId") == auditId))
+            {
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(
+                $"DISPUTE_REFUSAL_AUDIT_READ_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
+        }
+
+        await _auditRepo.AppendAsync(BuildAuditEntry(
+            auditId, now.ToString("o"), escrowId, action, status, status, actor, null, metadata));
     }
 
     /// <summary>
