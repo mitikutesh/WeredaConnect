@@ -2175,8 +2175,8 @@ before the delivery stamp and the order cancel and restock, and logs
 `ESCROW_SETTLEMENT_IN_FLIGHT_SKIPPED escrowId=.. sweep=auto-refund`. Because the index copy can
 lag, it then reads the base row strongly consistent and skips (`ESCROW_AUTO_REFUND_SKIPPED
 escrowId=.. reason=missing|status|queued|locked|confirmed`) unless the row is still `escrowed`,
-unlocked, unqueued and unconfirmed: an admin release that just took the lock never sees the order
-cancelled under it. The auto-release,
+unlocked, unqueued and unconfirmed. This narrows the race with an admin release that takes the lock
+to the few milliseconds between that read and the order cancel; it does not close it. The auto-release,
 auto-refund and crash-recovery queries are wrapped like the dispute query: a failure logs
 `sweep_failed outcome=failed code=release_query|refund_query|complete_query:<type>` and only that
 sweep skips the run.

@@ -910,7 +910,8 @@ public class EscrowServiceSettlementRecoveryTests
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
                 Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>())
             .ThrowsAsync(new AmazonDynamoDBException("throttled"));
-        var relocked = Locked("refund", 1);
+        // Same op, newer lock: only the lock id tells it from the stale one the run read.
+        var relocked = Locked("release", 1);
         relocked[SettlementLockFields.LockId] = "a-newer-lock";
         _escrowRepo.GetByIdAsync(EscrowId, true).Returns(relocked);
 
