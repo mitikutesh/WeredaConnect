@@ -17,6 +17,12 @@ import { TEST_USERS } from "../helpers/auth";
  * We rely on Flutter's semantics tree (flt-semantics-host) for interaction.
  */
 
+/**
+ * Fixed X-Device-Id for the valid-login test (server format: 8-64 of
+ * [A-Za-z0-9-]). See that test for why it is pinned.
+ */
+const E2E_DEVICE_ID = "e2e-playwright-webapp-login";
+
 /** Wait for Flutter to fully render. */
 async function waitForFlutter(page: Page) {
   await page.waitForSelector("flutter-view", { timeout: 30_000 });
@@ -236,6 +242,21 @@ test.describe("Webapp Login - Routes & Links", () => {
 
 test.describe("Webapp Login - Authentication Flow", () => {
   test("login with valid credentials redirects to home", async ({ page }) => {
+    // A fresh browser profile mints a new X-Device-Id per run, and the server
+    // adds each new id to the shared farmer's KnownDevices (capped at 10, so
+    // human testers' devices get evicted) and sends a new-device SMS. Pin one
+    // e2e id on the login request so only the first run ever registers it.
+    let pinnedLogins = 0;
+    await page.route("**/auth/login", (route) => {
+      if (route.request().method() !== "POST") {
+        return route.continue();
+      }
+      pinnedLogins++;
+      return route.continue({
+        headers: { ...route.request().headers(), "x-device-id": E2E_DEVICE_ID },
+      });
+    });
+
     await page.goto("/login");
     await waitForFlutter(page);
 
@@ -253,6 +274,7 @@ test.describe("Webapp Login - Authentication Flow", () => {
       timeout: 20_000,
     });
     expect(new URL(page.url()).pathname).toBe("/");
+    expect(pinnedLogins, "login request did not carry the pinned device id").toBe(1);
   });
 
   test("shows error on invalid credentials (API interaction)", async ({
