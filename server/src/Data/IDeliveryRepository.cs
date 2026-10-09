@@ -93,4 +93,12 @@ public interface IDeliveryRepository
     /// already carries a verdict.
     /// </summary>
     Task<bool> TryRecordDisputeResolutionAsync(string deliveryId, string resolution, string resolvedAt);
+
+    /// <summary>
+    /// ESC-03: cancel a delivery that was never picked up (<c>pending</c> to <c>cancelled</c>, the
+    /// soft delete the sync handler writes), as a system actor, when a <c>buyer_wins</c> verdict
+    /// refunds the order before pickup. Conditional on <c>status = pending</c>. Returns false when
+    /// the delivery is missing or no longer pending.
+    /// </summary>
+    Task<bool> TryCancelPendingAsync(string deliveryId);
 }

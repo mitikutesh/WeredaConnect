@@ -100,7 +100,10 @@ moves a `delivered` order to `disputed` and freezes the escrow behind the delive
 The admin's dispute verdict (`POST /admin/disputes/{id}/resolve`, `escrow-protocol.md` 1.9.0)
 reaches the delivery too (v1.8.0, ESC-03): a delivery still `delivered` is marked `disputed`, and a
 `disputed` delivery gets the server-only `disputeResolution` (`farmer_wins` or `buyer_wins`) and
-`disputeResolvedAt`, once. Its status stays `disputed`; clients cannot set these fields.
+`disputeResolvedAt`, once. Its status stays `disputed`; clients cannot set these fields. A
+`buyer_wins` refund before pickup cancels a delivery that is still `pending` (the soft delete:
+`status: cancelled`, `deletedAt`, version incremented), as a system actor, before the order is
+cancelled.
 
 **Request Body (Confirm Pickup)**:
 ```json
@@ -917,7 +920,7 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.5.1 | 2026-09-28 | QR nonce (SIM-41): only the farmer may set `qrNonce`; a client value on create or from another party is dropped; the on-record fallback applies only without the secret store. |
 | 1.6.1 | 2026-10-06 | Create: `buyerName`/`buyerPhone`, `farmerName`/`farmerPhone` and `truckerName`/`truckerPhone` come from the users table (name falling back to the order row), client values ignored; unreadable profile rejected with `DELIVERY_VALIDATION`; self-pickup stores no trucker contact (SIM-46). |
 | 1.7.0 | 2026-10-06 | Photo evidence aligned with the shipped server (SIM-60): section 4 is JSON `{type}` in and a pre-signed S3 `PUT` (`uploadUrl`, `photoRef`, `issuedAt`, `expiresInSeconds`) out; keys are `uploads/photos/{deliveryId}/{type}-{ms}.webp`; a sync photo ref of any other shape fails the whole op (`DELIVERY_INVALID_FIELD`); size and per-type count are client-side rules; shipped clients keep the local path on the device and send a photo ref only when it is a server key (upload is FRD-12). |
-| 1.8.0 | 2026-10-09 | Dispute verdict (ESC-03): the admin's verdict marks a still `delivered` delivery `disputed` and stamps the server-only `disputeResolution` and `disputeResolvedAt` on the disputed delivery (status unchanged, one stamp per delivery, version incremented); system writes audited in transaction-audit. |
+| 1.8.0 | 2026-10-09 | Dispute verdict (ESC-03): the admin's verdict marks a still `delivered` delivery `disputed` and stamps the server-only `disputeResolution` and `disputeResolvedAt` on the disputed delivery (status unchanged, one stamp per delivery, version incremented); a `buyer_wins` refund before pickup cancels a `pending` delivery (system soft delete); system writes audited in transaction-audit. |
 
 ---
 

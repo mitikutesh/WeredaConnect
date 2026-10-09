@@ -1321,19 +1321,20 @@ public class EscrowServiceManualPayoutTests
     }
 
     [Fact]
-    public async Task DeliveryDispute_SettlementHoldsTheLock_IsNotFrozen_AndTheRefusalIsAudited()
+    public async Task DeliveryDispute_StaleLockOnTheIndexCopy_DoesNotRefuseAValidDispute()
     {
-        // ESC-03: a release or refund in flight wins over a delivery dispute.
-        var locked = Escrow();
-        locked["settlementLock"] = "refund";
-        _escrowRepo.GetByDeliveryIdAsync("del-1").Returns(locked);
+        // ESC-03: the DeliveryIndex copy can be stale. Only the write's lock condition decides,
+        // so a lock left on the copy (released on the table since) never refuses the dispute.
+        var staleCopy = Escrow();
+        staleCopy["settlementLock"] = "refund";
+        _escrowRepo.GetByDeliveryIdAsync("del-1").Returns(staleCopy);
 
         var frozen = await _service.MarkDisputedFromDeliveryAsync("del-1", BuyerId, "never arrived");
 
-        frozen.Should().Be(DeliveryDisputeFreeze.RefusedSettlementInFlight);
-        await _escrowRepo.DidNotReceive().UpdateStatusAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
-        (await AuditWritten("dispute_refused_settlement_in_flight", "deliveryId=del-1")).Should().BeTrue();
+        frozen.Should().Be(DeliveryDisputeFreeze.Frozen);
+        await _escrowRepo.Received(1).UpdateStatusAsync(
+            EscrowId, CreatedAt, "disputed", "escrowed", Arg.Any<Dictionary<string, object>?>());
+        (await AuditWritten("dispute_refused_settlement_in_flight")).Should().BeFalse();
     }
 
     [Fact]

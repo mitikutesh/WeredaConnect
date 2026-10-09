@@ -125,14 +125,15 @@ public class EscrowCronFunction
         var userRepo = usersTable != null ? new UserRepository(dynamoDb, usersTable) : null;
 
         // ESC-03: settling a dispute verdict first moves its order and delivery to the verdict
-        // (repairing a leg the admin verdict could not write), audited in transaction-audit.
+        // (repairing a leg the admin verdict could not write; a buyer_wins refund before pickup
+        // cancels the order and restores its stock), audited in transaction-audit.
         var txAuditTable = Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE");
         var txAuditRepo = !string.IsNullOrEmpty(txAuditTable)
             ? new TransactionAuditRepository(dynamoDb, txAuditTable)
             : null;
 
         _escrowService = new EscrowService(_escrowRepo, _auditRepo, idempotencyRepo, _telebirrGateway, userRepo,
-            _orderRepo, _deliveryRepo, transactionAuditRepo: txAuditRepo);
+            _orderRepo, _deliveryRepo, transactionAuditRepo: txAuditRepo, cropRepo: _cropRepo);
     }
 
     /// <summary>

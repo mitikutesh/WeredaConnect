@@ -1,3 +1,4 @@
+using Amazon.DynamoDBv2.Model;
 using FluentAssertions;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
@@ -155,17 +156,23 @@ public class DisputeVerdictMirrorTests
     }
 
     [Theory]
-    [InlineData("in_transit", "inTransit")]
-    [InlineData("accepted", "pending")]
-    [InlineData("funded", "delivered")]
-    [InlineData("cancelled", "delivered")]
-    [InlineData("settled", "delivered")]
-    public async Task OrderThatCannotFollow_IsAMismatch_AndNothingIsWritten(string orderStatus, string deliveryStatus)
+    // buyer_wins with the goods already moving.
+    [InlineData("buyer_wins", "in_transit", "inTransit")]
+    [InlineData("buyer_wins", "pickup_confirmed", "pickedUp")]
+    [InlineData("buyer_wins", "accepted", "pickedUp")]
+    [InlineData("buyer_wins", "settled", "delivered")]
+    // farmer_wins before delivery, or on a closed order.
+    [InlineData("farmer_wins", "accepted", "pending")]
+    [InlineData("farmer_wins", "funded", "pending")]
+    [InlineData("farmer_wins", "cancelled", "cancelled")]
+    [InlineData("farmer_wins", "in_transit", "inTransit")]
+    public async Task OrderThatCannotFollow_IsAMismatch_AndNothingIsWritten(
+        string resolution, string orderStatus, string deliveryStatus)
     {
         OrderIs(orderStatus, 2);
         DeliveryIs(deliveryStatus);
 
-        var result = await _mirror.ApplyAsync(Escrow(), "buyer_wins", ResolvedAt);
+        var result = await _mirror.ApplyAsync(Escrow(), resolution, ResolvedAt, cancelBeforePickup: true);
 
         result.Order.Should().Be(VerdictLegOutcome.Mismatch);
         result.IsMismatch.Should().BeTrue();
@@ -272,18 +279,18 @@ public class DisputeVerdictMirrorTests
     }
 
     [Fact]
-    public void DailyAuditTimestamp_IsTheStartOfTheUtcDay_OneTickPerAction()
+    public void VerdictAuditTimestamp_IsTheVerdictTimePlusOneTickPerAction()
     {
-        var at = new DateTime(2026, 10, 9, 14, 30, 0, DateTimeKind.Utc);
-
-        DisputeVerdictMirror.DailyAuditTimestamp(at, DisputeVerdictMirror.MismatchAuditAction)
-            .Should().Be("2026-10-09T00:00:00.0000001Z");
-        DisputeVerdictMirror.DailyAuditTimestamp(at.AddHours(9), DisputeVerdictMirror.MismatchAuditAction)
-            .Should().Be("2026-10-09T00:00:00.0000001Z");
-        DisputeVerdictMirror.DailyAuditTimestamp(at, DisputeVerdictMirror.PropagationFailedAuditAction)
-            .Should().Be("2026-10-09T00:00:00.0000002Z");
-        DisputeVerdictMirror.DailyAuditTimestamp(at.AddHours(10), DisputeVerdictMirror.MismatchAuditAction)
-            .Should().Be("2026-10-10T00:00:00.0000001Z");
+        // Right after the verdict's own row, and the same key on every run.
+        DisputeVerdictMirror.VerdictAuditTimestamp("2026-10-09T14:30:00.0000000Z", DisputeVerdictMirror.MismatchAuditAction)
+            .Should().Be("2026-10-09T14:30:00.0000001Z");
+        DisputeVerdictMirror.VerdictAuditTimestamp("2026-10-09T14:30:00.0000000Z", DisputeVerdictMirror.PropagationFailedAuditAction)
+            .Should().Be("2026-10-09T14:30:00.0000002Z");
+        DisputeVerdictMirror.VerdictAuditTimestamp("2026-10-09T14:30:00Z", DisputeVerdictMirror.MismatchAuditAction)
+            .Should().Be("2026-10-09T14:30:00.0000001Z");
+        // Unreadable: the start of the current UTC day.
+        DisputeVerdictMirror.VerdictAuditTimestamp("not-a-time", DisputeVerdictMirror.MismatchAuditAction)
+            .Should().Be(DateTime.UtcNow.Date.AddTicks(1).ToString("o"));
     }
 
     [Fact]
@@ -314,6 +321,148 @@ public class DisputeVerdictMirrorTests
         result.FailedLegs.Should().Be("order:conflict");
         await _orders.Received(3).UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
         result.Delivery.Should().Be(VerdictLegOutcome.Resolved, "the legs are written independently once decided");
+    }
+
+    [Theory]
+    [InlineData("order")]
+    [InlineData("delivery")]
+    public async Task ReadFailure_IsUndecided_NothingWritten_NeverAMismatch(string failingRead)
+    {
+        // MAJOR 2: a throttled read must never look like "nothing to block" to the settlement.
+        OrderIs("disputed", 5);
+        DeliveryIs("disputed");
+        if (failingRead == "order")
+        {
+            _orders.GetByIdAsync(OrderId, true).ThrowsAsync(new ProvisionedThroughputExceededException("throttled"));
+        }
+        else
+        {
+            _deliveries.GetByIdAsync(DeliveryId, true).ThrowsAsync(new ProvisionedThroughputExceededException("throttled"));
+        }
+
+        var result = await _mirror.ApplyAsync(Escrow(), "farmer_wins", ResolvedAt);
+
+        result.IsUndecided.Should().BeTrue();
+        result.IsMismatch.Should().BeFalse();
+        result.Order.Should().Be(VerdictLegOutcome.Unknown);
+        result.FailedLegs.Should().Be("order:read:[ProvisionedThroughputExceededException],delivery:read:[ProvisionedThroughputExceededException]");
+        await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await _deliveries.DidNotReceive().TryRecordDisputeResolutionAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Theory]
+    [InlineData("cancelled")]
+    [InlineData("rejected")]
+    public async Task BuyerWins_OnAClosedOrder_HasNothingToMove(string status)
+    {
+        OrderIs(status, 4);
+
+        var result = await _mirror.ApplyAsync(Escrow(withDelivery: false), "buyer_wins", ResolvedAt, cancelBeforePickup: true);
+
+        result.Order.Should().Be(VerdictLegOutcome.Closed);
+        result.IsMismatch.Should().BeFalse();
+        result.FailedLegs.Should().BeNull();
+        await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    private Dictionary<string, object> ListedOrder(string status, int version, string? activeDeliveryId = null)
+    {
+        var order = Order(status, version, activeDeliveryId);
+        order["listingId"] = "listing-1";
+        order["quantity"] = "250";
+        return order;
+    }
+
+    [Fact]
+    public async Task BuyerWins_BeforePickup_CancelsDeliveryThenOrder_AndRestoresStock()
+    {
+        var crops = Substitute.For<ICropRepository>();
+        var mirror = new DisputeVerdictMirror(_orders, _deliveries, _txAudit, crops);
+        _orders.GetByIdAsync(OrderId, true).Returns(ListedOrder("accepted", 3, DeliveryId));
+        DeliveryIs("pending");
+        _deliveries.TryCancelPendingAsync(DeliveryId).Returns(true);
+        OrderWritesSucceed();
+
+        var result = await mirror.ApplyAsync(Escrow(), "buyer_wins", ResolvedAt, cancelBeforePickup: true);
+
+        result.Order.Should().Be(VerdictLegOutcome.Cancelled);
+        result.Delivery.Should().Be(VerdictLegOutcome.Cancelled);
+        result.FailedLegs.Should().BeNull();
+        Received.InOrder(() =>
+        {
+            _deliveries.TryCancelPendingAsync(DeliveryId);
+            _orders.UpdateAsync(OrderId, Arg.Is<Dictionary<string, object>>(d =>
+                d["status"].ToString() == "cancelled" && d["cancelReason"].ToString() == "escrow_refunded"), 3);
+            crops.TryRestoreStockAsync("listing-1", OrderId, 2.5);
+            _orders.ReleaseDeliverySlotAsync(OrderId, DeliveryId);
+        });
+        await _txAudit.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+            e["entityType"].ToString() == "order" && e["action"].ToString() == "order_cancelled"
+            && e["fromState"].ToString() == "accepted" && e["toState"].ToString() == "cancelled"));
+        await _txAudit.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+            e["entityType"].ToString() == "delivery" && e["toState"].ToString() == "cancelled"));
+    }
+
+    [Fact]
+    public async Task BuyerWins_FundedOrder_IsCancelled_WithNoDelivery()
+    {
+        var crops = Substitute.For<ICropRepository>();
+        var mirror = new DisputeVerdictMirror(_orders, _deliveries, _txAudit, crops);
+        _orders.GetByIdAsync(OrderId, true).Returns(ListedOrder("funded", 2));
+        OrderWritesSucceed();
+
+        var result = await mirror.ApplyAsync(Escrow(withDelivery: false), "buyer_wins", ResolvedAt, cancelBeforePickup: true);
+
+        result.Order.Should().Be(VerdictLegOutcome.Cancelled);
+        _orderWrites.Should().Equal("cancelled");
+        await crops.Received(1).TryRestoreStockAsync("listing-1", OrderId, 2.5);
+        await _deliveries.DidNotReceive().TryCancelPendingAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task BuyerWins_BeforePickup_IsDeferred_WhenTheCallerDoesNotCancel()
+    {
+        // The admin verdict leaves the cancel to the refund settlement.
+        OrderIs("accepted", 3, DeliveryId);
+        DeliveryIs("pending");
+
+        var result = await _mirror.ApplyAsync(Escrow(), "buyer_wins", ResolvedAt);
+
+        result.Order.Should().Be(VerdictLegOutcome.Deferred);
+        result.Delivery.Should().Be(VerdictLegOutcome.Deferred);
+        result.FailedLegs.Should().BeNull();
+        result.IsMismatch.Should().BeFalse();
+        await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await _deliveries.DidNotReceive().TryCancelPendingAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task BuyerWins_PickupRacesTheCancel_LeavesTheOrder_AndIsAMismatch()
+    {
+        OrderIs("accepted", 3, DeliveryId);
+        _deliveries.GetByIdAsync(DeliveryId, true).Returns(
+            new Dictionary<string, object> { { "deliveryId", DeliveryId }, { "status", "pending" } },
+            new Dictionary<string, object> { { "deliveryId", DeliveryId }, { "status", "pickedUp" } });
+        _deliveries.TryCancelPendingAsync(DeliveryId).Returns(false);
+
+        var result = await _mirror.ApplyAsync(Escrow(), "buyer_wins", ResolvedAt, cancelBeforePickup: true);
+
+        result.IsMismatch.Should().BeTrue();
+        result.FailedLegs.Should().Be("delivery:mismatch:pickedUp");
+        await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task AnUnreadableDelivery_IsNeverTakenForNoDelivery()
+    {
+        // The order names a delivery but no delivery repository is wired: cancelling would be blind.
+        var mirror = new DisputeVerdictMirror(_orders, null, _txAudit, Substitute.For<ICropRepository>());
+        OrderIs("accepted", 3, DeliveryId);
+
+        var result = await mirror.ApplyAsync(Escrow(withDelivery: false), "buyer_wins", ResolvedAt, cancelBeforePickup: true);
+
+        result.IsMismatch.Should().BeTrue();
+        await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
     }
 
     [Fact]

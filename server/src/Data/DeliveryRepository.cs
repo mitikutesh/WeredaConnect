@@ -413,6 +413,51 @@ public sealed class DeliveryRepository : IDeliveryRepository
         }
     }
 
+    /// <inheritdoc />
+    public async Task<bool> TryCancelPendingAsync(string deliveryId)
+    {
+        var existing = await GetItemAsync(deliveryId, consistentRead: true);
+        if (existing == null)
+        {
+            return false;
+        }
+
+        var tripId = existing.TryGetValue("tripId", out var tripAttr) ? tripAttr.S ?? "" : "";
+        var now = DateTime.UtcNow.ToString("o");
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "deliveryId", new AttributeValue { S = deliveryId } },
+                { "tripId", new AttributeValue { S = tripId } }
+            },
+            UpdateExpression = "SET #status = :cancelled, #deleted = :now, #updated = :now ADD #v :one",
+            ConditionExpression = "#status = :pending",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" }, { "#deleted", "deletedAt" }, { "#updated", "updatedAt" }, { "#v", "version" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":cancelled", new AttributeValue { S = "cancelled" } },
+                { ":pending", new AttributeValue { S = "pending" } },
+                { ":now", new AttributeValue { S = now } },
+                { ":one", new AttributeValue { N = "1" } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// Query for an item by deliveryId (partition key). Since sort key is createdAt,
     /// we query with limit 1 to get the single matching item.

@@ -86,6 +86,30 @@ public class DeliveryRepositoryDisputeTests
     }
 
     [Fact]
+    public async Task CancelPending_IsTheSoftDelete_GuardedOnPending()
+    {
+        // A buyer_wins refund before pickup cancels the delivery that never left the farm.
+        var ok = await _repo.TryCancelPendingAsync("delivery-1");
+
+        ok.Should().BeTrue();
+        _query!.ConsistentRead.Should().BeTrue();
+        _update!.Key["tripId"].S.Should().Be("trip-1");
+        _update.ConditionExpression.Should().Be("#status = :pending");
+        _update.ExpressionAttributeValues[":cancelled"].S.Should().Be("cancelled");
+        _update.ExpressionAttributeNames["#deleted"].Should().Be("deletedAt");
+        _update.UpdateExpression.Should().EndWith("ADD #v :one");
+    }
+
+    [Fact]
+    public async Task CancelPending_NotPendingAnyMore_ReturnsFalse()
+    {
+        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("picked up"));
+
+        (await _repo.TryCancelPendingAsync("delivery-1")).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task GetById_Consistent_SetsConsistentRead()
     {
         await _repo.GetByIdAsync("delivery-1", consistentRead: true);

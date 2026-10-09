@@ -548,10 +548,12 @@ public class AdminFunction
     /// ESC-03: move the order and delivery behind a dispute verdict to it
     /// (<see cref="DisputeVerdictMirror"/>). Best-effort: the verdict itself stands. A leg that
     /// does not reach the verdict is logged as <c>DISPUTE_VERDICT_PROPAGATION_FAILED</c> and
-    /// written to the escrow audit ledger once per UTC day, as <c>dispute_verdict_mismatch</c>
-    /// when it cannot follow (the settlement then waits until an admin fixes the order) or
-    /// <c>dispute_verdict_propagation_failed</c> when its write failed, with
-    /// <c>metadata = legs=...</c>.
+    /// written to the escrow audit ledger once per escrow and action (at the verdict time plus
+    /// one or two ticks, shared with the settlement), as <c>dispute_verdict_mismatch</c> when it
+    /// cannot follow (the settlement then waits until an admin fixes the order) or
+    /// <c>dispute_verdict_propagation_failed</c> when a read or write failed, with
+    /// <c>metadata = legs=...</c>. A <c>buyer_wins</c> order before pickup is left to the refund
+    /// settlement, which cancels it.
     /// </summary>
     private async Task MirrorVerdictAsync(
         Dictionary<string, AttributeValue> escrowItem, string resolution, string resolvedAt,
@@ -575,7 +577,7 @@ public class AdminFunction
             if (!string.IsNullOrEmpty(_escrowAuditTable) && !string.IsNullOrEmpty(escrowId))
             {
                 var now = DateTime.UtcNow;
-                var timestamp = DisputeVerdictMirror.DailyAuditTimestamp(now, result.AuditAction);
+                var timestamp = DisputeVerdictMirror.VerdictAuditTimestamp(resolvedAt, result.AuditAction);
                 await new EscrowAuditRepository(_dynamoDb, _escrowAuditTable).AppendIfAbsentAsync(new Dictionary<string, object>
                 {
                     { "auditId", EscrowAuditRepository.DeterministicAuditId(result.AuditAction, timestamp) },

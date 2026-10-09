@@ -982,16 +982,19 @@ public class AdminFunctionTests
         response.StatusCode.Should().Be(200);
         await _dynamoDb.DidNotReceive().UpdateItemAsync(
             Arg.Is<UpdateItemRequest>(u => u.TableName == OrdersTable), Arg.Any<CancellationToken>());
-        // One mismatch row per escrow and UTC day: a deterministic key and a conditional put,
-        // shared with the settlement's refusals.
-        var dayKey = DisputeVerdictMirror.DailyAuditTimestamp(DateTime.UtcNow, DisputeVerdictMirror.MismatchAuditAction);
-        await _dynamoDb.Received(1).PutItemAsync(
-            Arg.Is<PutItemRequest>(p => p.TableName == AuditTable
-                                        && p.Item["action"].S == "dispute_verdict_mismatch"
-                                        && p.Item["timestamp"].S == dayKey
-                                        && p.ConditionExpression == "attribute_not_exists(escrowId)"
-                                        && p.Item["metadata"].S.StartsWith("legs=order:mismatch:in_transit;at=")),
-            Arg.Any<CancellationToken>());
+        // One mismatch row per escrow: a deterministic key (the verdict time plus one tick, so it
+        // sorts right after the verdict's own row) and a conditional put, shared with the settlement.
+        var auditPuts = _dynamoDb.ReceivedCalls()
+            .Where(c => c.GetMethodInfo().Name == nameof(IAmazonDynamoDB.PutItemAsync))
+            .Select(c => (PutItemRequest)c.GetArguments()[0]!)
+            .Where(p => p.TableName == AuditTable)
+            .ToList();
+        var verdictRow = auditPuts.Single(p => p.Item["action"].S == "admin_dispute_resolved");
+        var mismatchRow = auditPuts.Single(p => p.Item["action"].S == "dispute_verdict_mismatch");
+        mismatchRow.Item["timestamp"].S.Should().Be(
+            DisputeVerdictMirror.VerdictAuditTimestamp(verdictRow.Item["timestamp"].S, DisputeVerdictMirror.MismatchAuditAction));
+        mismatchRow.ConditionExpression.Should().Be("attribute_not_exists(escrowId)");
+        mismatchRow.Item["metadata"].S.Should().StartWith("legs=order:mismatch:in_transit;at=");
     }
 
     // ──────────────────────────────────────────────

@@ -25,6 +25,7 @@ public sealed class EscrowService
 
     // ESC-03: moves the order and delivery to a dispute verdict before it is settled.
     private readonly DisputeVerdictMirror _verdictMirror;
+    private readonly ITransactionAuditRepository? _transactionAuditRepo;
 
     // Money-moving entry points (initiate/release/dispute/refund) require the
     // Telebirr + idempotency wiring. The order-funded escrow paths
@@ -166,7 +167,8 @@ public sealed class EscrowService
         IOrderRepository? orderRepo = null,
         IDeliveryRepository? deliveryRepo = null,
         IOrderCheckoutRepository? orderCheckoutRepo = null,
-        ITransactionAuditRepository? transactionAuditRepo = null)
+        ITransactionAuditRepository? transactionAuditRepo = null,
+        ICropRepository? cropRepo = null)
     {
         _escrowRepo = escrowRepo ?? throw new ArgumentNullException(nameof(escrowRepo));
         _auditRepo = auditRepo ?? throw new ArgumentNullException(nameof(auditRepo));
@@ -176,7 +178,8 @@ public sealed class EscrowService
         _orderRepo = orderRepo;
         _deliveryRepo = deliveryRepo;
         _orderCheckoutRepo = orderCheckoutRepo;
-        _verdictMirror = new DisputeVerdictMirror(orderRepo, deliveryRepo, transactionAuditRepo);
+        _transactionAuditRepo = transactionAuditRepo;
+        _verdictMirror = new DisputeVerdictMirror(orderRepo, deliveryRepo, transactionAuditRepo, cropRepo);
     }
 
     // ──────────────────────────────────────────────
@@ -1440,9 +1443,9 @@ public sealed class EscrowService
         // 4a2. ESC-03: the order and delivery follow the verdict before any money moves; a
         //      verdict they cannot follow is not settled.
         if (currentStatus == "dispute_resolved"
-            && await MirrorVerdictAsync(escrowItem, authenticatedUserId, "release") is { } mismatch)
+            && await MirrorVerdictAsync(escrowItem, authenticatedUserId, "release") is { } block)
         {
-            return EscrowResult<ReleaseEscrowResponse>.Failure(422, "ESCROW_INVALID_TRANSITION", mismatch);
+            return EscrowResult<ReleaseEscrowResponse>.Failure(block.HttpStatus, block.Code, block.Message);
         }
 
         var farmerPayout = GetDecimal(escrowItem, "farmerPayout");
@@ -2077,19 +2080,26 @@ public sealed class EscrowService
         return null;
     }
 
+    /// <summary>Why a settlement of a dispute verdict does not go ahead on this run (ESC-03).</summary>
+    private sealed record SettlementBlock(int HttpStatus, string Code, string Message);
+
     /// <summary>
     /// ESC-03: before a <c>dispute_resolved</c> escrow is settled, move its order and delivery
-    /// to the verdict. The admin verdict already did this; here it repairs a leg that failed
-    /// then, and is a no-op otherwise. Returns the refusal message when a leg cannot follow the
-    /// verdict (<see cref="DisputeVerdictMirrorResult.IsMismatch"/>, for example a dispute raised
-    /// before delivery): the settlement is refused, nothing is locked and no money moves, and
-    /// <c>DISPUTE_VERDICT_ORDER_MISMATCH</c> is logged for the money alarm. A leg whose write
-    /// failed does not block the settlement. Either way the escrow audit gets one row per escrow,
-    /// action and UTC day (<c>dispute_verdict_mismatch</c> or
-    /// <c>dispute_verdict_propagation_failed</c>, <c>metadata = legs=...</c>), so the hourly sweep
-    /// does not add a row every hour.
+    /// to the verdict. The admin verdict already did most of it; here it repairs a leg that
+    /// failed then and, for a <c>buyer_wins</c> refund before pickup, cancels the order (and its
+    /// pending delivery) and restores its stock. Returns why the settlement must not go ahead:
+    /// <list type="bullet">
+    /// <item>a read failed before the legs were decided (<c>503 ESCROW_012</c>, fail closed, logged
+    /// as <c>DISPUTE_VERDICT_MIRROR_READ_FAILED</c>; the next run retries);</item>
+    /// <item>a leg cannot follow the verdict (<c>422 ESCROW_INVALID_TRANSITION</c>, alarm line
+    /// <c>DISPUTE_VERDICT_ORDER_MISMATCH</c>), unless an admin overrides a <c>buyer_wins</c> refund
+    /// with a reason.</item>
+    /// </list>
+    /// A leg whose write failed does not block the settlement. Failed legs are audited once per
+    /// escrow and action, at the verdict time plus one or two ticks.
     /// </summary>
-    private async Task<string?> MirrorVerdictAsync(Dictionary<string, object> escrow, string actor, string op)
+    private async Task<SettlementBlock?> MirrorVerdictAsync(
+        Dictionary<string, object> escrow, string actor, string op, string? overrideReason = null)
     {
         var resolution = GetStringOrNull(escrow, "disputeResolution");
         if (resolution is not ("farmer_wins" or "buyer_wins"))
@@ -2098,23 +2108,31 @@ public sealed class EscrowService
         }
 
         var escrowId = GetString(escrow, "escrowId");
+        var resolvedAt = GetStringOrNull(escrow, "disputeResolvedAt") ?? GetString(escrow, "createdAt");
         DisputeVerdictMirrorResult result;
         try
         {
-            result = await _verdictMirror.ApplyAsync(
-                escrow, resolution, GetStringOrNull(escrow, "disputeResolvedAt") ?? DateTime.UtcNow.ToString("o"));
+            result = await _verdictMirror.ApplyAsync(escrow, resolution, resolvedAt, cancelBeforePickup: op == "refund");
         }
         catch (Exception ex)
         {
-            // The mirror does not throw; a failure here must not block the settlement either.
-            Console.WriteLine(
-                $"DISPUTE_VERDICT_PROPAGATION_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
-            return null;
+            // The mirror does not throw; if it ever does, nothing is known, so fail closed.
+            return MirrorReadFailed(escrowId, op, $"[{ex.GetType().Name}]");
+        }
+
+        if (result.IsUndecided)
+        {
+            return MirrorReadFailed(escrowId, op, result.FailedLegs);
         }
 
         if (result.FailedLegs == null)
         {
             return null;
+        }
+
+        if (result.IsMismatch && overrideReason != null && op == "refund" && resolution == "buyer_wins")
+        {
+            return await RecordMismatchOverrideAsync(escrowId, result, actor, overrideReason);
         }
 
         if (result.IsMismatch)
@@ -2127,12 +2145,11 @@ public sealed class EscrowService
                 $"DISPUTE_VERDICT_PROPAGATION_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} orderId={MoneyAlarmLog.LogId(result.OrderId)} deliveryId={MoneyAlarmLog.LogId(result.DeliveryId)} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
         }
 
-        var now = DateTime.UtcNow;
         try
         {
-            await EnsureAuditAsync(escrowId, DisputeVerdictMirror.DailyAuditTimestamp(now, result.AuditAction),
+            await EnsureAuditAsync(escrowId, DisputeVerdictMirror.VerdictAuditTimestamp(resolvedAt, result.AuditAction),
                 result.AuditAction, "dispute_resolved", "dispute_resolved", actor,
-                metadata: $"legs={result.FailedLegs};op={op};at={now:o}");
+                metadata: $"legs={result.FailedLegs};op={op};at={DateTime.UtcNow:o}");
         }
         catch (Exception ex)
         {
@@ -2142,9 +2159,65 @@ public sealed class EscrowService
         }
 
         return result.IsMismatch
-            ? $"The order or delivery behind this verdict cannot follow it ({result.FailedLegs}). Nothing was settled: "
-              + "bring the order to a status the verdict can follow first."
+            ? new SettlementBlock(422, "ESCROW_INVALID_TRANSITION",
+                $"The order or delivery behind this verdict cannot follow it ({result.FailedLegs}). Nothing was settled: "
+                + "bring the order to a status the verdict can follow first.")
             : null;
+    }
+
+    private static SettlementBlock MirrorReadFailed(string escrowId, string op, string? legs)
+    {
+        // Not an alarm token: a transient read failure that the next hourly run retries.
+        Console.WriteLine(
+            $"DISPUTE_VERDICT_MIRROR_READ_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} legs={MoneyAlarmLog.LogText(legs)}");
+        return new SettlementBlock(503, "ESCROW_012",
+            "The order or delivery behind this verdict could not be read. Nothing was settled; try again.");
+    }
+
+    /// <summary>
+    /// ESC-03: an admin in the admin group refunds a <c>buyer_wins</c> verdict although its order
+    /// cannot follow it (the goods are already moving). The escrow audit records the admin, the
+    /// failed legs and the reason before any money moves (no row, no refund); the transaction
+    /// audit and a flag on the order (its status is left alone) are best-effort.
+    /// </summary>
+    private async Task<SettlementBlock?> RecordMismatchOverrideAsync(
+        string escrowId, DisputeVerdictMirrorResult result, string actor, string reason)
+    {
+        var metadata = $"legs={result.FailedLegs};reason={reason}";
+        try
+        {
+            await AppendAuditAsync(escrowId, "dispute_order_mismatch_overridden", "dispute_resolved", "dispute_resolved",
+                actor, metadata: metadata);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(
+                $"DISPUTE_VERDICT_OVERRIDE_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
+            return new SettlementBlock(503, "ESCROW_012",
+                "The override could not be recorded. Nothing was settled; try again.");
+        }
+
+        Console.WriteLine(
+            $"DISPUTE_VERDICT_MISMATCH_OVERRIDDEN escrowId={MoneyAlarmLog.LogId(escrowId)} admin={MoneyAlarmLog.LogId(actor)} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
+        var transactionId = string.IsNullOrEmpty(result.OrderId) ? escrowId : result.OrderId;
+        await TransactionAuditWriter.EmitAsync(_transactionAuditRepo, null, transactionId, "escrow", escrowId,
+            "dispute_mismatch_override", "dispute_resolved", "dispute_resolved",
+            _auditContext ?? new AuditContext { Actor = actor, ActorRole = "admin" }, metadata: metadata);
+
+        if (!string.IsNullOrEmpty(result.OrderId)
+            && !await _verdictMirror.FlagOrderAsync(result.OrderId, new Dictionary<string, object>
+            {
+                { "disputeOverrideAt", DateTime.UtcNow.ToString("o") },
+                { "disputeOverrideBy", actor },
+                { "disputeOverrideReason", reason },
+                { "disputeOverrideEscrowId", escrowId }
+            }))
+        {
+            Console.WriteLine(
+                $"DISPUTE_VERDICT_OVERRIDE_FLAG_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} orderId={MoneyAlarmLog.LogId(result.OrderId)}");
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -2202,11 +2275,8 @@ public sealed class EscrowService
                 : description;
         }
 
-        if (GetStringOrNull(escrow, "settlementLock") != null)
-        {
-            return await RefuseFreezeSettlementInFlightAsync(escrowId, deliveryId, disputedBy, "escrowed");
-        }
-
+        // The settlement lock is checked by the write itself (ESC-03), never on this
+        // DeliveryIndex copy, which can be stale.
         try
         {
             await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "disputed", "escrowed", fields);
@@ -2282,6 +2352,25 @@ public sealed class EscrowService
                 "trigger");
         }
 
+        // 1d. ESC-03: refunding a verdict over an order mismatch is an admin-group decision with a reason.
+        string? overrideReason = null;
+        if (request.OverrideOrderMismatch)
+        {
+            if (!adminGroupVerified)
+            {
+                return EscrowResult<RefundEscrowResponse>.Failure(
+                    403, "ESCROW_021", "Only an admin in the admin group can override an order mismatch.");
+            }
+
+            overrideReason = request.Reason?.Trim() ?? "";
+            if (overrideReason.Length is < 10 or > 500)
+            {
+                return EscrowResult<RefundEscrowResponse>.Failure(
+                    400, "ESCROW_VALIDATION",
+                    "reason must be 10 to 500 characters when overriding an order mismatch.", "reason");
+            }
+        }
+
         // 2. Check idempotency
         var existing = await _idempotencyRepo.GetAsync(request.IdempotencyKey);
         if (existing != null)
@@ -2325,9 +2414,9 @@ public sealed class EscrowService
         // 4a2. ESC-03: the order and delivery follow the verdict before any money moves; a
         //      verdict they cannot follow is not settled.
         if (currentStatus == "dispute_resolved"
-            && await MirrorVerdictAsync(escrowItem, authenticatedUserId, "refund") is { } mismatch)
+            && await MirrorVerdictAsync(escrowItem, authenticatedUserId, "refund", overrideReason) is { } block)
         {
-            return EscrowResult<RefundEscrowResponse>.Failure(422, "ESCROW_INVALID_TRANSITION", mismatch);
+            return EscrowResult<RefundEscrowResponse>.Failure(block.HttpStatus, block.Code, block.Message);
         }
 
         var amount = GetDecimal(escrowItem, "amount");

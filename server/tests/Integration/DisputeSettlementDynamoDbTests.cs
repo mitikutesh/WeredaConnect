@@ -53,12 +53,14 @@ public sealed class DisputeSettlementDynamoDbTests
     private OrderRepository OrderRepo => new(Ddb, _db.Orders);
     private DeliveryRepository DeliveryRepo => new(Ddb, _db.Deliveries);
     private TransactionAuditRepository TxRepo => new(Ddb, _db.TransactionAudit);
+    private CropRepository CropRepo => new(Ddb, _db.Crops);
 
     private readonly List<string> _alarms = new();
 
-    private EscrowService Service(ITelebirrGateway? gateway = null) => new(
+    private EscrowService Service(ITelebirrGateway? gateway = null, IOrderRepository? orderRepo = null) => new(
         EscrowRepo, AuditRepo, new EscrowIdempotencyRepository(Ddb, _db.Idempotency), gateway ?? _gateway,
-        userRepo: null, OrderRepo, DeliveryRepo, orderCheckoutRepo: null, transactionAuditRepo: TxRepo)
+        userRepo: null, orderRepo ?? OrderRepo, DeliveryRepo, orderCheckoutRepo: null, transactionAuditRepo: TxRepo,
+        cropRepo: CropRepo)
     {
         AlarmLog = line => { lock (_alarms) { _alarms.Add(line); } }
     };
@@ -105,7 +107,8 @@ public sealed class DisputeSettlementDynamoDbTests
         return escrowId;
     }
 
-    private async Task<string> SeedOrderAsync(string status, int version, string? activeDeliveryId = null)
+    private async Task<string> SeedOrderAsync(
+        string status, int version, string? activeDeliveryId = null, string? listingId = null)
     {
         var orderId = NewId("order-it");
         var item = new Dictionary<string, AttributeValue>
@@ -114,6 +117,11 @@ public sealed class DisputeSettlementDynamoDbTests
             ["buyerId"] = S(BuyerId), ["farmerId"] = S(FarmerId), ["version"] = N(version.ToString())
         };
         if (activeDeliveryId != null) item["activeDeliveryId"] = S(activeDeliveryId);
+        if (listingId != null)
+        {
+            item["listingId"] = S(listingId);
+            item["quantity"] = N("300"); // kg, 3 quintals
+        }
         await Ddb.PutItemAsync(new PutItemRequest { TableName = _db.Orders, Item = item });
         return orderId;
     }
@@ -129,6 +137,40 @@ public sealed class DisputeSettlementDynamoDbTests
         if (orderId != null) item["orderId"] = S(orderId);
         await Ddb.PutItemAsync(new PutItemRequest { TableName = _db.Deliveries, Item = item });
         return deliveryId;
+    }
+
+    private async Task<string> SeedListingAsync(double quintals)
+    {
+        var cropId = NewId("crop-it");
+        await Ddb.PutItemAsync(new PutItemRequest
+        {
+            TableName = _db.Crops,
+            Item = new Dictionary<string, AttributeValue>
+            {
+                ["cropId"] = S(cropId), ["createdAt"] = S(CreatedAt), ["status"] = S("reserved"),
+                ["quantity"] = N(quintals.ToString(System.Globalization.CultureInfo.InvariantCulture)), ["version"] = N("4")
+            }
+        });
+        return cropId;
+    }
+
+    private async Task MakeSweepableAsync(string escrowId) => await Ddb.UpdateItemAsync(new UpdateItemRequest
+    {
+        TableName = _db.Escrows,
+        Key = new Dictionary<string, AttributeValue> { ["escrowId"] = S(escrowId), ["createdAt"] = S(CreatedAt) },
+        UpdateExpression = "SET expiresAt = :e",
+        ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":e"] = S("2026-10-08T10:00:00.0000000Z") }
+    });
+
+    private async Task SweepAsync(int runs = 1)
+    {
+        var cron = new EscrowCronFunction(Service(), EscrowRepo, AuditRepo, _gateway, DeliveryRepo, OrderRepo, CropRepo);
+        for (var run = 0; run < runs; run++)
+        {
+            var response = await cron.FunctionHandler(
+                new APIGatewayProxyRequest { Body = "{\"action\":\"auto_release_and_refund\"}" }, new TestLambdaContext());
+            response.StatusCode.Should().Be(200, response.Body);
+        }
     }
 
     private async Task<Dictionary<string, object>> EscrowAsync(string id) => (await EscrowRepo.GetByIdAsync(id, true))!;
@@ -286,44 +328,144 @@ public sealed class DisputeSettlementDynamoDbTests
     }
 
     [LocalDynamoDbFact]
-    public async Task PreDeliveryDispute_VerdictIsNotSettled_OrderUntouched_AlarmedOncePerDay()
+    public async Task PreDeliveryDispute_BuyerWins_CancelsDeliveryAndOrder_RestoresStock_AndRefunds()
     {
-        // The reviewer's case: a dispute raised before delivery (no deliveryConfirmedAt, no
-        // delivery yet), buyer_wins recorded, then the hourly sweep. Refunding would leave the
-        // order live at accepted; the settlement is refused until an admin fixes the order.
-        var orderId = await SeedOrderAsync("accepted", 2);
-        var escrowId = await SeedEscrowAsync("disputed", orderId);
+        // The reviewer's case: a dispute raised before pickup (order accepted v2, delivery still
+        // pending), buyer_wins recorded, then the hourly sweep. Nothing left the farm, so the
+        // sweep cancels the delivery and the order, gives the stock back, and refunds.
+        var listingId = await SeedListingAsync(10);
+        var deliveryId = await SeedDeliveryAsync("pending");
+        var orderId = await SeedOrderAsync("accepted", 2, deliveryId, listingId);
+        var escrowId = await SeedEscrowAsync("disputed", orderId, deliveryId);
 
         var verdict = await Admin().FunctionHandler(Verdict(escrowId, "buyer_wins", "refund"), new TestLambdaContext());
         verdict.StatusCode.Should().Be(200, verdict.Body);
+        // The verdict leaves the cancel to the refund settlement: nothing moved yet.
+        Str(await OrderAsync(orderId), "status").Should().Be("accepted");
 
-        // Make the row visible to the sweep (StatusExpiresIndex), then run it twice.
-        await Ddb.UpdateItemAsync(new UpdateItemRequest
-        {
-            TableName = _db.Escrows,
-            Key = new Dictionary<string, AttributeValue> { ["escrowId"] = S(escrowId), ["createdAt"] = S(CreatedAt) },
-            UpdateExpression = "SET expiresAt = :e",
-            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":e"] = S("2026-10-08T10:00:00.0000000Z") }
-        });
-        var cron = new EscrowCronFunction(Service(), EscrowRepo, AuditRepo, _gateway, DeliveryRepo, OrderRepo);
-        for (var run = 0; run < 2; run++)
-        {
-            var response = await cron.FunctionHandler(
-                new APIGatewayProxyRequest { Body = "{\"action\":\"auto_release_and_refund\"}" }, new TestLambdaContext());
-            response.StatusCode.Should().Be(200, response.Body);
-        }
+        await MakeSweepableAsync(escrowId);
+        await SweepAsync(runs: 2);
 
-        var escrow = await EscrowAsync(escrowId);
-        Str(escrow, "status").Should().Be("dispute_resolved");
-        Str(escrow, "settlementLock").Should().BeNull();
-        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Is<RefundFundsRequest>(r => r.TransactionRef == $"refund:{escrowId}"));
+        Str(await EscrowAsync(escrowId), "status").Should().Be("refunded");
+        await _gateway.Received(1).RefundFundsAsync(Arg.Is<RefundFundsRequest>(r => r.TransactionRef == $"refund:{escrowId}"));
         var order = await OrderAsync(orderId);
-        Str(order, "status").Should().Be("accepted");
-        Str(order, "version").Should().Be("2");
-        _alarms.Where(l => l.StartsWith($"DISPUTE_VERDICT_ORDER_MISMATCH escrowId={escrowId.Replace('_', '-')} op=refund"))
-            .Should().HaveCount(2);
-        // The verdict and both sweeps wrote to the same daily key: one row.
-        (await AuditActionsAsync(escrowId)).Count(a => a == "dispute_verdict_mismatch").Should().Be(1);
+        Str(order, "status").Should().Be("cancelled");
+        Str(order, "cancelReason").Should().Be("escrow_refunded");
+        Str(order, "version").Should().Be("3");
+        var delivery = await DeliveryAsync(deliveryId);
+        Str(delivery, "status").Should().Be("cancelled");
+        Str(delivery, "deletedAt").Should().NotBeNull();
+        var listing = (await CropRepo.GetByIdAsync(listingId))!;
+        double.Parse(Str(listing, "quantity")!, System.Globalization.CultureInfo.InvariantCulture).Should().Be(13);
+        Str(listing, "status").Should().Be("available");
+        (await TxRepo.GetByTransactionAsync(orderId)).Select(r => $"{r["entityType"]}:{r["action"]}")
+            .Should().Contain(new[] { "order:order_cancelled", "delivery:delivery_updated" });
+        (await AuditActionsAsync(escrowId)).Should().NotContain("dispute_verdict_mismatch");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task BuyerWins_OnACancelledOrder_IsRefunded_AndTheOrderStaysAsItIs()
+    {
+        var orderId = await SeedOrderAsync("cancelled", 5);
+        var escrowId = await SeedEscrowAsync("dispute_resolved", orderId, resolution: "buyer_wins", swept: true);
+
+        await SweepAsync();
+
+        Str(await EscrowAsync(escrowId), "status").Should().Be("refunded");
+        var order = await OrderAsync(orderId);
+        Str(order, "status").Should().Be("cancelled");
+        Str(order, "version").Should().Be("5");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task GoodsMoving_BuyerWins_RefusedAndAlarmedOnce_UntilAnAdminOverrides()
+    {
+        var deliveryId = await SeedDeliveryAsync("inTransit");
+        var orderId = await SeedOrderAsync("in_transit", 4, deliveryId);
+        var escrowId = await SeedEscrowAsync("disputed", orderId, deliveryId);
+        (await Admin().FunctionHandler(Verdict(escrowId, "buyer_wins", "refund"), new TestLambdaContext()))
+            .StatusCode.Should().Be(200);
+        await MakeSweepableAsync(escrowId);
+
+        await SweepAsync(runs: 2);
+
+        Str(await EscrowAsync(escrowId), "status").Should().Be("dispute_resolved");
+        Str(await EscrowAsync(escrowId), "settlementLock").Should().BeNull();
+        _alarms.Where(l => l.StartsWith($"DISPUTE_VERDICT_ORDER_MISMATCH escrowId={escrowId} op=refund")).Should().HaveCount(2);
+        // One mismatch row (verdict and both sweeps share the key), sorted right after the verdict row.
+        var trail = await AuditRepo.GetAuditTrailAsync(escrowId);
+        trail.Select(a => a["action"].ToString()).Should().Equal("admin_dispute_resolved", "dispute_verdict_mismatch");
+        trail[1]["timestamp"].ToString().Should().Be(
+            DisputeVerdictMirror.VerdictAuditTimestamp(trail[0]["timestamp"].ToString(), DisputeVerdictMirror.MismatchAuditAction));
+
+        var service = Service();
+        RefundEscrowRequest Refund(bool overrideIt, string? reason, int n) => new()
+        {
+            EscrowId = escrowId, Trigger = "dispute_resolved", Reason = reason, OverrideOrderMismatch = overrideIt,
+            IdempotencyKey = $"admin-it:{escrowId}:refund:{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + n}"
+        };
+        (await service.RefundAsync(Refund(false, null, 1), "admin-it", "admin", adminGroupVerified: true)).Error!.HttpStatus.Should().Be(422);
+        (await service.RefundAsync(Refund(true, "Truck lost the goods on the road.", 2), "admin-it", "admin", adminGroupVerified: false))
+            .Error!.HttpStatus.Should().Be(403);
+        (await service.RefundAsync(Refund(true, "short", 3), "admin-it", "admin", adminGroupVerified: true))
+            .Error!.HttpStatus.Should().Be(400);
+        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Is<RefundFundsRequest>(r => r.TransactionRef == $"refund:{escrowId}"));
+
+        var overridden = await service.RefundAsync(Refund(true, "Truck lost the goods on the road.", 4), "admin-it", "admin",
+            adminGroupVerified: true);
+
+        overridden.IsSuccess.Should().BeTrue(overridden.Error?.Message);
+        Str(await EscrowAsync(escrowId), "status").Should().Be("refunded");
+        await _gateway.Received(1).RefundFundsAsync(Arg.Is<RefundFundsRequest>(r => r.TransactionRef == $"refund:{escrowId}"));
+        (await AuditRepo.GetAuditTrailAsync(escrowId)).Should().Contain(a =>
+            a["action"].ToString() == "dispute_order_mismatch_overridden" && a["actor"].ToString() == "admin-it"
+            && a["metadata"].ToString()!.EndsWith(";reason=Truck lost the goods on the road."));
+        (await TxRepo.GetByTransactionAsync(orderId)).Should().Contain(r =>
+            r["action"].ToString() == "dispute_mismatch_override" && r["actor"].ToString() == "admin-it");
+        var order = await OrderAsync(orderId);
+        Str(order, "status").Should().Be("in_transit");
+        Str(order, "disputeOverrideBy").Should().Be("admin-it");
+        Str(order, "disputeOverrideEscrowId").Should().Be(escrowId);
+    }
+
+    [LocalDynamoDbFact]
+    public async Task FarmerWins_BeforeDelivery_IsRefused_BySweepAndAdmin_WithNoOverride()
+    {
+        var orderId = await SeedOrderAsync("accepted", 2);
+        var escrowId = await SeedEscrowAsync("dispute_resolved", orderId, resolution: "farmer_wins", swept: true);
+
+        await SweepAsync();
+        var admin = await Service().ReleaseAsync(new ReleaseEscrowRequest
+        {
+            EscrowId = escrowId, Trigger = "dispute_resolved", DeliveryId = "",
+            IdempotencyKey = $"admin-it:{escrowId}:release:{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}"
+        }, "admin-it", "admin", adminGroupVerified: true);
+
+        admin.Error!.HttpStatus.Should().Be(422);
+        Str(await EscrowAsync(escrowId), "status").Should().Be("dispute_resolved");
+        await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.TransactionRef == $"release:{escrowId}"));
+        Str(await OrderAsync(orderId), "status").Should().Be("accepted");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task OrderReadFailure_FailsClosed_NoLockNoGateway()
+    {
+        // MAJOR 2: point the order repository at a table that does not exist, so its read throws.
+        var orderId = await SeedOrderAsync("disputed", 3);
+        var escrowId = await SeedEscrowAsync("dispute_resolved", orderId, resolution: "farmer_wins");
+        var broken = Service(orderRepo: new OrderRepository(Ddb, $"missing-{Guid.NewGuid():N}"));
+
+        var result = await broken.ReleaseAsync(new ReleaseEscrowRequest
+        {
+            EscrowId = escrowId, Trigger = "dispute_resolved", DeliveryId = "",
+            IdempotencyKey = $"admin-it:{escrowId}:release:{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}"
+        }, "admin-it", "admin", adminGroupVerified: true);
+
+        result.Error!.HttpStatus.Should().Be(503);
+        result.Error.Code.Should().Be("ESCROW_012");
+        Str(await EscrowAsync(escrowId), "settlementLock").Should().BeNull();
+        await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.TransactionRef == $"release:{escrowId}"));
+        _alarms.Should().NotContain(l => l.Contains(escrowId));
     }
 
     [LocalDynamoDbFact]

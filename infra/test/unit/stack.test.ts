@@ -342,6 +342,12 @@ describe('ApiStack', () => {
       expect(actions).not.toContain('dynamodb:BatchWriteItem');
     }
 
+    // A buyer_wins refund before pickup restores the listing stock from the escrow Lambda too.
+    const escrowCrops = actionsOn('EscrowFunctionServiceRole', 'CropsTable');
+    expect(escrowCrops).toContain('dynamodb:UpdateItem');
+    expect(escrowCrops).not.toContain('dynamodb:PutItem');
+    expect(escrowCrops).not.toContain('dynamodb:DeleteItem');
+
     const cronDeliveries = actionsOn('EscrowCronFunctionServiceRole', 'DeliveriesTable');
     expect(cronDeliveries).toContain('dynamodb:UpdateItem');
     expect(cronDeliveries).not.toContain('dynamodb:PutItem');

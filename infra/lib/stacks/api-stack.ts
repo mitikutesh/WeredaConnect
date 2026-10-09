@@ -1043,6 +1043,9 @@ export class ApiStack extends cdk.Stack {
     props.transactionAuditTable.grant(escrowFn.function, "dynamodb:PutItem");
     props.usersTable.grantReadData(escrowFn.function);
     props.cropsTable.grantReadData(escrowFn.function);
+    // ESC-03: a buyer_wins refund before pickup gives the cancelled order's stock back
+    // (conditional UpdateItem on the listing, idempotent per order).
+    props.cropsTable.grant(escrowFn.function, "dynamodb:UpdateItem");
     props.rateLimitsTable.grantReadWriteData(escrowFn.function);
     props.fraudSignalsTable.grantReadWriteData(escrowFn.function);
     commissionRateParam.grantRead(escrowFn.function);
