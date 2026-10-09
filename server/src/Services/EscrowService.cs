@@ -101,15 +101,34 @@ public sealed class EscrowService
     /// </summary>
     private static readonly HashSet<string> UncertainGatewayErrors = new()
     {
-        "TELEBIRR_TIMEOUT", "TELEBIRR_NETWORK", "TELEBIRR_PREORDER"
+        TelebirrGatewayErrors.Timeout, TelebirrGatewayErrors.Network, "TELEBIRR_PREORDER"
     };
 
     /// <summary>
-    /// ESC-13: the gateway reported a payout without a reference and the manual payout queue
-    /// write failed. The money may have moved, so the alarm line says <c>outcome=unknown</c>.
+    /// ESC-05: failure code of a gateway call that threw (<c>GATEWAY_EXCEPTION:&lt;type&gt;</c>).
+    /// The request may have reached Telebirr, so the outcome is unknown.
     /// </summary>
-    private const string QueueFailedRefMissingCode =
-        ManualPayoutFields.QueueFailedCodePrefix + ManualPayoutFields.ReasonGatewayRefMissing;
+    private const string GatewayExceptionCodePrefix = "GATEWAY_EXCEPTION:";
+
+    /// <summary>
+    /// The one queue failure after which nothing can have moved: the gateway said it has no
+    /// payout API. Every other <c>MANUAL_QUEUE_FAILED:&lt;reason&gt;</c> is an unknown outcome
+    /// (ESC-13, ESC-05).
+    /// </summary>
+    private const string QueueFailedNotSupportedCode =
+        ManualPayoutFields.QueueFailedCodePrefix + ManualPayoutFields.ReasonPayoutNotSupported;
+
+    /// <summary>
+    /// Attempts for a write that must land after the gateway may have moved money (the settled
+    /// status, the manual payout queue), 150 ms times the attempt number apart.
+    /// </summary>
+    private const int MaxSettlementWriteAttempts = 4;
+
+    /// <summary>
+    /// ESC-05: statuses whose stale settlement lock the recovery step parks. <c>disputed</c> only
+    /// carries a lock taken before ESC-03 (1.9.0), when release and refund still locked it.
+    /// </summary>
+    internal static readonly string[] StaleLockStatuses = { "escrowed", "dispute_resolved", "disputed" };
 
     /// <summary>
     /// System actor ID used by cron jobs and automated operations.
@@ -1376,6 +1395,35 @@ public sealed class EscrowService
         ReleaseEscrowRequest request, string authenticatedUserId, string? role = null,
         AuditContext? auditContext = null, bool adminGroupVerified = false)
     {
+        var progress = new SettlementProgress();
+        try
+        {
+            return await ReleaseCoreAsync(request, authenticatedUserId, role, auditContext, adminGroupVerified, progress);
+        }
+        catch (Exception ex) when (progress.Locked && !progress.Recorded)
+        {
+            MoneyAlarmLog.MarkSettlementInFlight(ex);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// ESC-05: whether a release or refund took the settlement lock, so an exception that escapes
+    /// afterwards is logged as an unknown outcome and one before it as a plain failure. Once the
+    /// settled status is written (<see cref="Recorded"/>) the money is accounted for, so a later
+    /// bookkeeping failure (an audit row, the completed write) is a plain failure again.
+    /// </summary>
+    private sealed class SettlementProgress
+    {
+        public bool Locked { get; set; }
+
+        public bool Recorded { get; set; }
+    }
+
+    private async Task<EscrowResult<ReleaseEscrowResponse>> ReleaseCoreAsync(
+        ReleaseEscrowRequest request, string authenticatedUserId, string? role,
+        AuditContext? auditContext, bool adminGroupVerified, SettlementProgress progress)
+    {
         _auditContext = auditContext;
 
         // 1. Authorization: only system or admin can release funds → ESCROW_015
@@ -1472,6 +1520,16 @@ public sealed class EscrowService
         }
         var farmerPhone = payout.Value!;
 
+        // 4c. ESC-05: the trucker's destination is read before the lock too, so no read can fail
+        //     between the two gateway calls. An unverified trucker is not called and the leg stays
+        //     pending (truckerPayoutPending, ESC-04), as before.
+        var truckerPayout = GetDecimalOrNull(escrowItem, "truckerPayout");
+        var truckerPayoutAmount = truckerPayout ?? 0m;
+        var hasTruckerLeg = truckerPayoutAmount > 0;
+        var truckerPayoutDest = hasTruckerLeg
+            ? await ResolvePayoutAsync(GetStringOrNull(escrowItem, "truckerId") ?? "", truckerPayoutAmount, "trucker")
+            : null;
+
         // 5. Acquire the settlement lock BEFORE the irreversible Telebirr call. This is the
         //    atomic mutual-exclusion guard: at most ONE settlement (release OR refund, across
         //    any idempotency keys) may move funds for this escrow. A caller that loses the race
@@ -1499,31 +1557,41 @@ public sealed class EscrowService
                 "A settlement is already in progress or completed for this escrow.");
         }
 
-        // Record idempotency for the cached-duplicate return on a same-key replay
-        // (best-effort; the settlement lock — not this write — is the concurrency guard).
-        await _idempotencyRepo.StoreAsync(request.IdempotencyKey, request.EscrowId, "processing");
+        // ESC-05: from here on the gateway may have been called. The lock is released only after a
+        // definite refusal, and an exception that escapes is an unknown outcome.
+        progress.Locked = true;
 
-        // 6. Call Telebirr ReleaseFunds with the farmer payout amount (only the lock winner reaches here).
-        var releaseResponse = await _telebirrGateway.ReleaseFundsAsync(new ReleaseFundsRequest
+        // 6. Call Telebirr ReleaseFunds with the farmer payout amount (only the lock winner reaches
+        //    here). Nothing that can fail runs between the lock and this call (ESC-05).
+        var releaseResponse = await CallReleaseAsync(new ReleaseFundsRequest
         {
-            TransactionRef = $"release:{request.EscrowId}",
+            TransactionRef = ReleaseTransactionRef(request.EscrowId),
             HoldRef = holdRef,
             FarmerPhone = farmerPhone,
             Amount = farmerPayout,
             PlatformCommission = commission
         });
 
-        var truckerPayout = GetDecimalOrNull(escrowItem, "truckerPayout");
-        var truckerPayoutAmount = truckerPayout ?? 0m;
-        var hasTruckerLeg = truckerPayoutAmount > 0;
-        const int maxReleaseWriteAttempts = 4;
+        // Record idempotency for the cached-duplicate return on a same-key replay (best-effort;
+        // the settlement lock, not this write, is the concurrency guard). After the call (ESC-05).
+        await StoreIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId);
 
         // 6a. ESC-02: a gateway that cannot pay out, or reports a payout without a reference,
-        //     sends the whole settlement to the manual payout queue. Nothing has moved, the
-        //     escrow keeps its status, and the settlement lock stays held on purpose so no
-        //     other release or refund can run until an admin has paid every leg.
+        //     sends the whole settlement to the manual payout queue, and so (ESC-05) does an
+        //     answer that does not say whether the money moved. The escrow keeps its status, and
+        //     the settlement lock stays held on purpose so no other release or refund can run
+        //     until an admin has paid every leg.
         var farmerManualReason = ManualPayoutReason(
             releaseResponse.Success, releaseResponse.ErrorCode, releaseResponse.TelebirrRef);
+        var farmerOutcomeUnknown = farmerManualReason == null
+            && IsOutcomeUnknownAnswer(releaseResponse.Success, releaseResponse.ErrorCode);
+        if (farmerOutcomeUnknown)
+        {
+            await AppendFailureAuditBestEffortAsync(request.EscrowId, "release_failed", currentStatus,
+                authenticatedUserId, releaseResponse.ErrorCode);
+            farmerManualReason = ManualPayoutFields.ReasonGatewayOutcomeUnknown;
+        }
+
         if (farmerManualReason != null)
         {
             var legs = new List<ManualPayoutLegSeed>
@@ -1535,18 +1603,32 @@ public sealed class EscrowService
                 legs.Add(new(ManualPayoutFields.LegTrucker, ManualPayoutFields.LegPending, null, null, null));
             }
 
-            if (await TryQueueManualPayoutAsync(request.EscrowId, createdAt, ManualPayoutFields.OpRelease,
-                    farmerManualReason, currentStatus, legs, authenticatedUserId))
+            // Only PAYOUT_NOT_SUPPORTED proves nothing moved. Any other reason may have paid the
+            // farmer, so its queue write is retried and the lock is never released (ESC-05).
+            var nothingMoved = farmerManualReason == ManualPayoutFields.ReasonPayoutNotSupported;
+            if (await QueueManualPayoutAsync(request.EscrowId, createdAt, ManualPayoutFields.OpRelease,
+                    farmerManualReason, currentStatus, legs, authenticatedUserId,
+                    nothingMoved ? 1 : MaxSettlementWriteAttempts))
             {
-                await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "manual_payout");
-                return ManualPayoutWaiting<ReleaseEscrowResponse>();
+                await UpdateIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId, "manual_payout");
+                return farmerOutcomeUnknown
+                    ? OutcomeUnknownWaiting<ReleaseEscrowResponse>()
+                    : ManualPayoutWaiting<ReleaseEscrowResponse>();
             }
 
-            // The queue write failed and nothing moved: today's retryable failure path.
-            await AppendAuditAsync(request.EscrowId, "release_failed", currentStatus, currentStatus,
-                authenticatedUserId, metadata: ManualPayoutFields.QueueFailedCodePrefix + farmerManualReason);
+            if (!nothingMoved)
+            {
+                return await OutcomeUnknownNotQueuedAsync<ReleaseEscrowResponse>(
+                    request.EscrowId, "release_failed", currentStatus, authenticatedUserId, farmerManualReason, null);
+            }
+
+            // The queue write failed and nothing moved: today's retryable failure path. The lock
+            // goes first, so a failed audit write cannot strand it (ESC-05).
             await _escrowRepo.ReleaseSettlementLockAsync(request.EscrowId, createdAt);
+            progress.Locked = false;
             await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
+            await AppendAuditAsync(request.EscrowId, "release_failed", currentStatus, currentStatus,
+                authenticatedUserId, metadata: QueueFailedNotSupportedCode);
             return EscrowResult<ReleaseEscrowResponse>.Failure(
                 502, "ESCROW_013",
                 "The payout could not be queued for manual settlement. It is retried by the next sweep.");
@@ -1554,28 +1636,28 @@ public sealed class EscrowService
 
         if (!releaseResponse.Success)
         {
+            // A definite refusal: nothing moved. Release the lock + idempotency record so the next
+            // sweep retries, then audit (the lock first, so a failed audit write cannot strand it).
+            await _escrowRepo.ReleaseSettlementLockAsync(request.EscrowId, createdAt);
+            progress.Locked = false;
+            await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
             await AppendAuditAsync(request.EscrowId, "release_failed", currentStatus, currentStatus,
                 authenticatedUserId, metadata: releaseResponse.ErrorCode);
-            // Release the lock + idempotency record so a transient Telebirr failure is retryable.
-            await _escrowRepo.ReleaseSettlementLockAsync(request.EscrowId, createdAt);
-            await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
             return EscrowResult<ReleaseEscrowResponse>.Failure(
                 502, "ESCROW_013",
                 releaseResponse.ErrorMessage ?? "Telebirr gateway error during fund release.");
         }
 
         // 5b. 3-way split: If trucker payout exists, release transport cost to trucker.
-        //     Stable per-escrow ref so Telebirr dedupes the trucker leg on retry.
         string? truckerReleaseRef = null;
         var truckerReleasePending = false;
+        string? truckerFailureCode = null;
         if (hasTruckerLeg)
         {
-            var truckerIdValue = GetStringOrNull(escrowItem, "truckerId") ?? "";
-            var truckerPayoutDest = await ResolvePayoutAsync(truckerIdValue, truckerPayoutAmount, "trucker");
-            var truckerRelease = truckerPayoutDest.IsSuccess
-                ? await _telebirrGateway.ReleaseFundsAsync(new ReleaseFundsRequest
+            var truckerRelease = truckerPayoutDest!.IsSuccess
+                ? await CallReleaseAsync(new ReleaseFundsRequest
                 {
-                    TransactionRef = $"release:{request.EscrowId}:trucker",
+                    TransactionRef = TruckerReleaseTransactionRef(request.EscrowId),
                     HoldRef = holdRef,
                     FarmerPhone = truckerPayoutDest.Value!,
                     Amount = truckerPayoutAmount,
@@ -1590,20 +1672,29 @@ public sealed class EscrowService
             var truckerManualReason = truckerPayoutDest.IsSuccess
                 ? ManualPayoutReason(truckerRelease.Success, truckerRelease.ErrorCode, truckerRelease.TelebirrRef)
                 : null;
+            var truckerOutcomeUnknown = truckerPayoutDest.IsSuccess && truckerManualReason == null
+                && IsOutcomeUnknownAnswer(truckerRelease.Success, truckerRelease.ErrorCode);
+            if (truckerOutcomeUnknown)
+            {
+                await AppendFailureAuditBestEffortAsync(request.EscrowId, "trucker_release_failed", currentStatus,
+                    SystemActor, truckerRelease.ErrorCode);
+                truckerManualReason = ManualPayoutFields.ReasonGatewayOutcomeUnknown;
+            }
+
             if (truckerRelease.Success && truckerManualReason == null)
             {
                 truckerReleaseRef = truckerRelease.TelebirrRef;
-                await AppendAuditAsync(request.EscrowId, "trucker_release", currentStatus, currentStatus,
-                    "system", truckerRelease.TelebirrRef);
             }
             else
             {
                 // ESC-02: the farmer is paid but the gateway could not pay the trucker (or gave
-                // no reference). Queue the trucker leg with the farmer leg already closed by the
-                // gateway. Money has moved, so the queue write is retried like the released
-                // write below; if it still fails, fall back to today's truckerPayoutPending
-                // completion instead of stranding the escrow under a held lock. An unverified
-                // trucker (no gateway call) keeps the truckerPayoutPending behaviour (ESC-04).
+                // no reference, or, ESC-05, did not say). Queue the trucker leg with the farmer leg
+                // already closed by the gateway, retrying the write like the released write below.
+                // If it still fails: a PAYOUT_NOT_SUPPORTED trucker leg falls back to today's
+                // truckerPayoutPending completion (nothing moved for the trucker); any other reason
+                // keeps the lock and never completes, so an unknown leg is never retried blind
+                // (ESC-04 retries truckerPayoutPending). An unverified trucker (no gateway call)
+                // keeps the truckerPayoutPending behaviour (ESC-04).
                 if (truckerManualReason != null)
                 {
                     var legs = new List<ManualPayoutLegSeed>
@@ -1612,33 +1703,29 @@ public sealed class EscrowService
                             ManualPayoutFields.PaidByGateway, DateTime.UtcNow.ToString("o")),
                         new(ManualPayoutFields.LegTrucker, ManualPayoutFields.LegPending, null, null, null)
                     };
-                    for (var attempt = 1; attempt <= maxReleaseWriteAttempts; attempt++)
+                    if (await QueueManualPayoutAsync(request.EscrowId, createdAt, ManualPayoutFields.OpRelease,
+                            truckerManualReason, currentStatus, legs, authenticatedUserId, MaxSettlementWriteAttempts))
                     {
-                        if (await TryQueueManualPayoutAsync(request.EscrowId, createdAt, ManualPayoutFields.OpRelease,
-                                truckerManualReason, currentStatus, legs, authenticatedUserId))
-                        {
-                            await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "manual_payout");
-                            return ManualPayoutWaiting<ReleaseEscrowResponse>();
-                        }
-
-                        if (attempt < maxReleaseWriteAttempts)
-                        {
-                            await Task.Delay(TimeSpan.FromMilliseconds(150 * attempt));
-                        }
+                        await UpdateIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId, "manual_payout");
+                        return truckerOutcomeUnknown
+                            ? OutcomeUnknownWaiting<ReleaseEscrowResponse>()
+                            : ManualPayoutWaiting<ReleaseEscrowResponse>();
                     }
 
-                    truckerRelease = new ReleaseFundsResponse
+                    if (truckerManualReason != ManualPayoutFields.ReasonPayoutNotSupported)
                     {
-                        Success = false,
-                        ErrorCode = ManualPayoutFields.QueueFailedCodePrefix + truckerManualReason
-                    };
+                        return await OutcomeUnknownNotQueuedAsync<ReleaseEscrowResponse>(
+                            request.EscrowId, "trucker_release_failed", currentStatus, SystemActor, truckerManualReason,
+                            $"op=release farmerRef={MoneyAlarmLog.LogId(releaseResponse.TelebirrRef)}");
+                    }
+
+                    truckerRelease = new ReleaseFundsResponse { Success = false, ErrorCode = QueueFailedNotSupportedCode };
                 }
 
-                // Do NOT silently swallow: audit the failure and mark the payout as owed so
-                // reconciliation/admin can retry. The farmer leg still succeeds (funds already moved).
+                // Do NOT silently swallow: audit the failure (after the status write) and mark the
+                // payout as owed so reconciliation/admin can retry. The farmer leg still succeeds.
                 truckerReleasePending = true;
-                await AppendAuditAsync(request.EscrowId, "trucker_release_failed", currentStatus, currentStatus,
-                    "system", metadata: truckerRelease.ErrorCode);
+                truckerFailureCode = truckerRelease.ErrorCode;
             }
         }
 
@@ -1661,30 +1748,28 @@ public sealed class EscrowService
             releaseFields["truckerPayoutPending"] = true;
         }
 
-        // We hold the settlement lock, so the status is still `currentStatus`; this CAS
-        // therefore succeeds. Funds have ALREADY moved (Telebirr disbursed above), so the
-        // escrow MUST advance to 'released' — a transient failure here would strand it in
-        // 'escrowed'/'disputed' with the settlement lock held and no recovery path (a retry
-        // would 409 on the lock). Retry transient failures; a CAS failure (state already
-        // moved) is NOT retried and is allowed to surface. Re-disbursement is not a risk:
-        // the stable Telebirr ref (release:{escrowId}) dedupes, and this write does not call
-        // Telebirr.
-        for (var attempt = 1; ; attempt++)
+        // We hold the settlement lock, so the status is still `currentStatus`. Funds have ALREADY
+        // moved, so the escrow MUST advance to 'released': transient failures are retried, and if
+        // the write never lands the lock stays held and the recovery step parks the escrow for an
+        // admin (ESC-05). This write never calls Telebirr.
+        await WriteSettledStatusAsync(request.EscrowId, createdAt, "released", currentStatus, releaseFields,
+            $"op=release farmerRef={MoneyAlarmLog.LogId(releaseResponse.TelebirrRef)} truckerRef={MoneyAlarmLog.LogId(truckerReleaseRef)}");
+        // The payout is on record: what follows is bookkeeping, and the crash-recovery sweep
+        // completes a released escrow whose later writes fail.
+        progress.Recorded = true;
+
+        // ESC-05: the trucker leg's audit row after the status write, so a failed audit write
+        // cannot leave a paid escrow unrecorded.
+        if (truckerReleaseRef != null)
         {
-            try
-            {
-                await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "released", currentStatus,
-                    releaseFields);
-                break;
-            }
-            catch (ConditionalCheckFailedException)
-            {
-                throw;
-            }
-            catch (Exception) when (attempt < maxReleaseWriteAttempts)
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(150 * attempt));
-            }
+            await AppendAuditAsync(request.EscrowId, "trucker_release", currentStatus, currentStatus,
+                SystemActor, truckerReleaseRef);
+        }
+
+        if (truckerReleasePending)
+        {
+            await AppendAuditAsync(request.EscrowId, "trucker_release_failed", currentStatus, currentStatus,
+                SystemActor, metadata: truckerFailureCode);
         }
 
         // 7. Audit log
@@ -1702,7 +1787,7 @@ public sealed class EscrowService
         // 9. Audit log
         await AppendAuditAsync(request.EscrowId, "complete", "released", "completed", "system");
 
-        await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "completed");
+        await UpdateIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId, "completed");
 
         // 10. Return ReleaseEscrowResponse
         return EscrowResult<ReleaseEscrowResponse>.Success(new ReleaseEscrowResponse
@@ -2348,6 +2433,22 @@ public sealed class EscrowService
         RefundEscrowRequest request, string authenticatedUserId, string? role = null,
         AuditContext? auditContext = null, bool adminGroupVerified = false)
     {
+        var progress = new SettlementProgress();
+        try
+        {
+            return await RefundCoreAsync(request, authenticatedUserId, role, auditContext, adminGroupVerified, progress);
+        }
+        catch (Exception ex) when (progress.Locked && !progress.Recorded)
+        {
+            MoneyAlarmLog.MarkSettlementInFlight(ex);
+            throw;
+        }
+    }
+
+    private async Task<EscrowResult<RefundEscrowResponse>> RefundCoreAsync(
+        RefundEscrowRequest request, string authenticatedUserId, string? role,
+        AuditContext? auditContext, bool adminGroupVerified, SettlementProgress progress)
+    {
         _auditContext = auditContext;
 
         // 1. Authorization: only system or admin can refund → ESCROW_021
@@ -2445,6 +2546,10 @@ public sealed class EscrowService
         var createdAt = GetString(escrowItem, "createdAt");
         var currentVersion = GetInt(escrowItem, "version");
 
+        // ESC-05: the refund phone is read before the lock, so nothing can fail between the lock
+        // and the gateway call.
+        var buyerPhone = await ResolveRefundPhoneAsync(GetString(escrowItem, "buyerId"));
+
         // Acquire the settlement lock BEFORE the irreversible Telebirr call. Mutual exclusion
         // across release/refund and across idempotency keys: a refund that loses the race to a
         // release (or another refund) NEVER calls Telebirr, so funds cannot be double-moved.
@@ -2470,39 +2575,63 @@ public sealed class EscrowService
                 "A settlement is already in progress or completed for this escrow.");
         }
 
-        // Record idempotency for the cached-duplicate return (best-effort; the lock is the guard).
-        await _idempotencyRepo.StoreAsync(request.IdempotencyKey, request.EscrowId, "processing");
+        // ESC-05: see ReleaseAsync. The gateway may be called from here on.
+        progress.Locked = true;
 
         // 5. Call Telebirr RefundFunds with the full amount (only the lock winner reaches here).
-        var refundResponse = await _telebirrGateway.RefundFundsAsync(new RefundFundsRequest
+        var refundResponse = await CallRefundAsync(new RefundFundsRequest
         {
-            TransactionRef = $"refund:{request.EscrowId}",
+            TransactionRef = RefundTransactionRef(request.EscrowId),
             HoldRef = holdRef,
-            BuyerPhone = await ResolveRefundPhoneAsync(GetString(escrowItem, "buyerId")),
+            BuyerPhone = buyerPhone,
             Amount = amount
         });
 
-        // 5a. ESC-02: the gateway cannot refund (or gave no reference): queue the buyer leg for
-        //     an admin, keep the lock, leave the status alone. See ReleaseAsync 6a.
+        // Record idempotency for the cached-duplicate return (best-effort; the lock is the guard).
+        await StoreIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId);
+
+        // 5a. ESC-02: the gateway cannot refund (or gave no reference, or, ESC-05, did not say
+        //     whether it refunded): queue the buyer leg for an admin, keep the lock, leave the
+        //     status alone. See ReleaseAsync 6a.
         var refundManualReason = ManualPayoutReason(
             refundResponse.Success, refundResponse.ErrorCode, refundResponse.TelebirrRef);
+        var refundOutcomeUnknown = refundManualReason == null
+            && IsOutcomeUnknownAnswer(refundResponse.Success, refundResponse.ErrorCode);
+        if (refundOutcomeUnknown)
+        {
+            await AppendFailureAuditBestEffortAsync(request.EscrowId, "refund_failed", currentStatus,
+                authenticatedUserId, refundResponse.ErrorCode);
+            refundManualReason = ManualPayoutFields.ReasonGatewayOutcomeUnknown;
+        }
+
         if (refundManualReason != null)
         {
             var legs = new List<ManualPayoutLegSeed>
             {
                 new(ManualPayoutFields.LegBuyer, ManualPayoutFields.LegPending, null, null, null)
             };
-            if (await TryQueueManualPayoutAsync(request.EscrowId, createdAt, ManualPayoutFields.OpRefund,
-                    refundManualReason, currentStatus, legs, authenticatedUserId))
+            var nothingMoved = refundManualReason == ManualPayoutFields.ReasonPayoutNotSupported;
+            if (await QueueManualPayoutAsync(request.EscrowId, createdAt, ManualPayoutFields.OpRefund,
+                    refundManualReason, currentStatus, legs, authenticatedUserId,
+                    nothingMoved ? 1 : MaxSettlementWriteAttempts))
             {
-                await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "manual_payout");
-                return ManualPayoutWaiting<RefundEscrowResponse>();
+                await UpdateIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId, "manual_payout");
+                return refundOutcomeUnknown
+                    ? OutcomeUnknownWaiting<RefundEscrowResponse>()
+                    : ManualPayoutWaiting<RefundEscrowResponse>();
             }
 
-            await AppendAuditAsync(request.EscrowId, "refund_failed", currentStatus, currentStatus,
-                authenticatedUserId, metadata: ManualPayoutFields.QueueFailedCodePrefix + refundManualReason);
+            if (!nothingMoved)
+            {
+                return await OutcomeUnknownNotQueuedAsync<RefundEscrowResponse>(
+                    request.EscrowId, "refund_failed", currentStatus, authenticatedUserId, refundManualReason, null);
+            }
+
             await _escrowRepo.ReleaseSettlementLockAsync(request.EscrowId, createdAt);
+            progress.Locked = false;
             await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
+            await AppendAuditAsync(request.EscrowId, "refund_failed", currentStatus, currentStatus,
+                authenticatedUserId, metadata: QueueFailedNotSupportedCode);
             return EscrowResult<RefundEscrowResponse>.Failure(
                 502, "ESCROW_013",
                 "The refund could not be queued for manual settlement. It is retried by the next sweep.");
@@ -2510,11 +2639,13 @@ public sealed class EscrowService
 
         if (!refundResponse.Success)
         {
+            // A definite refusal: release the lock + idempotency record so the next sweep
+            // retries, then audit (the lock first, so a failed audit write cannot strand it).
+            await _escrowRepo.ReleaseSettlementLockAsync(request.EscrowId, createdAt);
+            progress.Locked = false;
+            await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
             await AppendAuditAsync(request.EscrowId, "refund_failed", currentStatus, currentStatus,
                 authenticatedUserId, metadata: refundResponse.ErrorCode);
-            // Release the lock + idempotency record so a transient failure is retryable.
-            await _escrowRepo.ReleaseSettlementLockAsync(request.EscrowId, createdAt);
-            await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
             return EscrowResult<RefundEscrowResponse>.Failure(
                 502, "ESCROW_013",
                 refundResponse.ErrorMessage ?? "Telebirr gateway error during refund.");
@@ -2523,21 +2654,24 @@ public sealed class EscrowService
         var now = DateTime.UtcNow.ToString("o");
 
         // 6. Transition to "refunded". We hold the settlement lock so status is still
-        //    `currentStatus`; a genuine CAS failure here is an anomaly and surfaces (500)
-        //    rather than being masked — no funds were double-moved (lock guaranteed exclusivity).
-        await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "refunded", currentStatus,
+        //    `currentStatus`. The buyer has been paid, so transient failures are retried like the
+        //    release write (ESC-05); if the write never lands the lock stays held and the
+        //    recovery step parks the escrow for an admin.
+        await WriteSettledStatusAsync(request.EscrowId, createdAt, "refunded", currentStatus,
             new Dictionary<string, object>
             {
                 { "telebirrRefundRef", refundResponse.TelebirrRef ?? "" },
                 { "refundedAt", now },
                 { "version", currentVersion + 1 }
-            });
+            },
+            $"op=refund buyerRef={MoneyAlarmLog.LogId(refundResponse.TelebirrRef)}");
+        progress.Recorded = true;
 
         // 6. Audit log
         await AppendAuditAsync(request.EscrowId, "refund", currentStatus, "refunded",
             authenticatedUserId, refundResponse.TelebirrRef);
 
-        await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "completed");
+        await UpdateIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId, "completed");
 
         // 7. Return RefundEscrowResponse
         return EscrowResult<RefundEscrowResponse>.Success(new RefundEscrowResponse
@@ -2549,6 +2683,368 @@ public sealed class EscrowService
             RefundedAt = now,
             Message = "Funds refunded to buyer's Telebirr account."
         });
+    }
+
+    // ──────────────────────────────────────────────
+    // Gateway outcomes and the settlement lock (ESC-05)
+    // ──────────────────────────────────────────────
+
+    /// <summary>The stable Telebirr references of the three payout legs.</summary>
+    private static string ReleaseTransactionRef(string escrowId) => $"release:{escrowId}";
+
+    private static string TruckerReleaseTransactionRef(string escrowId) => $"release:{escrowId}:trucker";
+
+    private static string RefundTransactionRef(string escrowId) => $"refund:{escrowId}";
+
+    /// <summary>The reference a manual payout leg was (or would have been) sent to the gateway under.</summary>
+    private static string GatewayTransactionRef(string escrowId, string leg) => leg switch
+    {
+        ManualPayoutFields.LegFarmer => ReleaseTransactionRef(escrowId),
+        ManualPayoutFields.LegTrucker => TruckerReleaseTransactionRef(escrowId),
+        _ => RefundTransactionRef(escrowId)
+    };
+
+    /// <summary>
+    /// A failure code after which Telebirr may have moved the money: a timeout, a lost or
+    /// unreadable answer, a gateway call that threw, or a manual payout queue write that failed
+    /// for any reason but <c>PAYOUT_NOT_SUPPORTED</c> (ESC-13, ESC-05).
+    /// </summary>
+    internal static bool IsOutcomeUnknownCode(string? code)
+        => code != null
+           && (UncertainGatewayErrors.Contains(code)
+               || code.StartsWith(GatewayExceptionCodePrefix, StringComparison.Ordinal)
+               || (code.StartsWith(ManualPayoutFields.QueueFailedCodePrefix, StringComparison.Ordinal)
+                   && code != QueueFailedNotSupportedCode));
+
+    private static bool IsOutcomeUnknownAnswer(bool success, string? errorCode)
+        => !success && IsOutcomeUnknownCode(errorCode);
+
+    /// <summary>
+    /// The gateway release call. A call that throws may have reached Telebirr, and no answer at
+    /// all is a lost answer: both are unknown outcomes, never a definite refusal.
+    /// </summary>
+    private async Task<ReleaseFundsResponse> CallReleaseAsync(ReleaseFundsRequest request)
+    {
+        try
+        {
+            var response = await _telebirrGateway.ReleaseFundsAsync(request);
+            return response is null
+                ? new ReleaseFundsResponse { Success = false, ErrorCode = TelebirrGatewayErrors.Network, ErrorMessage = NoGatewayAnswer }
+                : response;
+        }
+        catch (Exception ex)
+        {
+            return new ReleaseFundsResponse
+            {
+                Success = false,
+                ErrorCode = GatewayExceptionCodePrefix + ex.GetType().Name,
+                ErrorMessage = GatewayCallFailed
+            };
+        }
+    }
+
+    /// <summary>The gateway refund call, with the outcome rules of <see cref="CallReleaseAsync"/>.</summary>
+    private async Task<RefundFundsResponse> CallRefundAsync(RefundFundsRequest request)
+    {
+        try
+        {
+            var response = await _telebirrGateway.RefundFundsAsync(request);
+            return response is null
+                ? new RefundFundsResponse { Success = false, ErrorCode = TelebirrGatewayErrors.Network, ErrorMessage = NoGatewayAnswer }
+                : response;
+        }
+        catch (Exception ex)
+        {
+            return new RefundFundsResponse
+            {
+                Success = false,
+                ErrorCode = GatewayExceptionCodePrefix + ex.GetType().Name,
+                ErrorMessage = GatewayCallFailed
+            };
+        }
+    }
+
+    private const string NoGatewayAnswer = "Telebirr gave no answer; the payout may have been made.";
+    private const string GatewayCallFailed = "The Telebirr call failed; the payout may have been made.";
+
+    /// <summary>
+    /// The status write after the gateway paid (<c>released</c> or <c>refunded</c>). The money has
+    /// moved, so a transient failure is retried (4 attempts, 150 ms times the attempt apart). A
+    /// failed condition is not retried: an earlier attempt (ours, or one the SDK retried after a
+    /// lost answer) may have landed although the client saw an error, so a strongly consistent
+    /// re-read that shows the new status counts as written (ESC-05). If the write never lands, the
+    /// references go to the log and the exception escapes with the lock held; the recovery step
+    /// parks the escrow.
+    /// </summary>
+    private async Task WriteSettledStatusAsync(
+        string escrowId, string createdAt, string newStatus, string expectedStatus,
+        Dictionary<string, object> fields, string paidRefs)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, newStatus, expectedStatus, fields);
+                return;
+            }
+            catch (ConditionalCheckFailedException)
+            {
+                // The SDK retries a write whose answer was lost, so even a first attempt can fail
+                // its condition on our own commit: a strongly consistent re-read decides.
+                if (await HasSettledStatusAsync(escrowId, newStatus))
+                {
+                    return;
+                }
+
+                LogPaidUnrecorded(escrowId, paidRefs);
+                throw;
+            }
+            catch (Exception) when (attempt < MaxSettlementWriteAttempts)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(150 * attempt));
+            }
+            catch (Exception)
+            {
+                LogPaidUnrecorded(escrowId, paidRefs);
+                throw;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether the row already carries the settled status (a <c>released</c> row may already have
+    /// been completed by the crash-recovery sweep). A failed read counts as no.
+    /// </summary>
+    private async Task<bool> HasSettledStatusAsync(string escrowId, string newStatus)
+    {
+        try
+        {
+            var latest = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
+            var status = latest != null ? GetString(latest, "status") : "";
+            return status == newStatus || (newStatus == "released" && status == "completed");
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The gateway paid but the escrow could not record it. Not an alarm token (the exception
+    /// that follows is logged as an unknown outcome); it gives the operator the references.
+    /// </summary>
+    private static void LogPaidUnrecorded(string escrowId, string paidRefs)
+        => Console.WriteLine($"ESCROW_SETTLEMENT_PAID_UNRECORDED escrowId={MoneyAlarmLog.LogId(escrowId)} {paidRefs}");
+
+    /// <summary>
+    /// Queue a settlement, retrying the write up to <paramref name="attempts"/> times (150 ms times
+    /// the attempt apart). See <see cref="TryQueueManualPayoutAsync"/>.
+    /// </summary>
+    private async Task<bool> QueueManualPayoutAsync(
+        string escrowId, string createdAt, string op, string reason, string fromStatus,
+        List<ManualPayoutLegSeed> legs, string actor, int attempts)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            if (await TryQueueManualPayoutAsync(escrowId, createdAt, op, reason, fromStatus, legs, actor))
+            {
+                return true;
+            }
+
+            if (attempt >= attempts)
+            {
+                return false;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(150 * attempt));
+        }
+    }
+
+    /// <summary>
+    /// The gateway may have moved money and the manual payout queue write kept failing. The lock
+    /// and the idempotency record stay, nothing retries the gateway, and the recovery step parks
+    /// the escrow once its lock is 15 minutes old (ESC-05, FUP-03).
+    /// </summary>
+    private async Task<EscrowResult<T>> OutcomeUnknownNotQueuedAsync<T>(
+        string escrowId, string auditAction, string status, string actor, string reason, string? paidRefs)
+    {
+        await AppendFailureAuditBestEffortAsync(escrowId, auditAction, status, actor,
+            ManualPayoutFields.QueueFailedCodePrefix + reason);
+        if (paidRefs != null)
+        {
+            LogPaidUnrecorded(escrowId, paidRefs);
+        }
+
+        return EscrowResult<T>.Failure(
+            502, "ESCROW_013",
+            "The gateway may already have paid, and the payout could not be queued for an admin. "
+            + "It is not retried: the escrow stays locked and the recovery sweep queues it.");
+    }
+
+    /// <summary>
+    /// A failure audit row on a path where the money may have moved (ESC-05). Its alarm line is
+    /// logged before the write; a failed write must not stop the queue write that follows.
+    /// </summary>
+    private async Task AppendFailureAuditBestEffortAsync(
+        string escrowId, string action, string status, string actor, string? code)
+    {
+        try
+        {
+            await AppendAuditAsync(escrowId, action, status, status, actor, metadata: code);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(
+                $"ESCROW_SETTLEMENT_AUDIT_DEFERRED escrowId={MoneyAlarmLog.LogId(escrowId)} action={action} error={ex.GetType().Name}");
+        }
+    }
+
+    /// <summary>
+    /// The idempotency record of a settlement that holds the lock. Best-effort: it only serves the
+    /// cached answer of a same-key replay, and a failed write must not turn a settled or queued
+    /// escrow into an unknown outcome.
+    /// </summary>
+    private async Task StoreIdempotencyBestEffortAsync(string idempotencyKey, string escrowId)
+    {
+        try
+        {
+            await _idempotencyRepo.StoreAsync(idempotencyKey, escrowId, "processing");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(
+                $"ESCROW_IDEMPOTENCY_WRITE_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} status=processing error={ex.GetType().Name}");
+        }
+    }
+
+    private async Task UpdateIdempotencyBestEffortAsync(string idempotencyKey, string escrowId, string status)
+    {
+        try
+        {
+            await _idempotencyRepo.UpdateAsync(idempotencyKey, status);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(
+                $"ESCROW_IDEMPOTENCY_WRITE_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} status={status} error={ex.GetType().Name}");
+        }
+    }
+
+    /// <summary>What the recovery step did with a row (ESC-05).</summary>
+    public enum StaleSettlementOutcome
+    {
+        /// <summary>Not stale, not settleable, already queued, or no lock: left alone.</summary>
+        Skipped,
+
+        /// <summary>Parked in the manual payout queue as <c>GATEWAY_OUTCOME_UNKNOWN</c>.</summary>
+        Parked,
+
+        /// <summary>The row changed before the write (another recovery parked it, or a new lock): left alone, silently.</summary>
+        Lost,
+
+        /// <summary>The park write threw and the row still holds the same stale lock: alarmed, the next run tries again.</summary>
+        Failed
+    }
+
+    /// <summary>
+    /// ESC-05 recovery step, for one row from <see cref="IEscrowRepository.QueryStaleSettlementLocksAsync"/>:
+    /// a settlement lock older than 15 minutes on a settleable row that is not queued has no living
+    /// owner, and the gateway may have been called under it. Park it in the manual payout queue
+    /// (reason <c>GATEWAY_OUTCOME_UNKNOWN</c>, one pending leg per payee of the locked operation),
+    /// conditional on the same lock and status. Never calls the gateway and never releases a lock.
+    /// A lock from before ESC-05 has no lock time and is aged by <c>updatedAt</c>.
+    /// </summary>
+    public async Task<StaleSettlementOutcome> ParkStaleSettlementAsync(Dictionary<string, object> escrow, DateTime now)
+    {
+        var escrowId = GetString(escrow, "escrowId");
+        var createdAt = GetString(escrow, "createdAt");
+        var status = GetString(escrow, "status");
+        var op = GetStringOrNull(escrow, SettlementLockFields.Lock);
+        var lockAt = GetStringOrNull(escrow, SettlementLockFields.LockAt);
+        var lockId = GetStringOrNull(escrow, SettlementLockFields.LockId);
+        var lockedSince = lockAt ?? GetStringOrNull(escrow, "updatedAt");
+        if (op is not (ManualPayoutFields.OpRelease or ManualPayoutFields.OpRefund)
+            || IsManualPayoutOpen(escrow)
+            || !StaleLockStatuses.Contains(status)
+            || !DateTime.TryParse(lockedSince, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var locked)
+            || now.ToUniversalTime() - locked.ToUniversalTime() < SettlementLockFields.StaleAfter)
+        {
+            return StaleSettlementOutcome.Skipped;
+        }
+
+        var legs = new List<ManualPayoutLegSeed>();
+        if (op == ManualPayoutFields.OpRelease)
+        {
+            legs.Add(new(ManualPayoutFields.LegFarmer, ManualPayoutFields.LegPending, null, null, null));
+            if ((GetDecimalOrNull(escrow, "truckerPayout") ?? 0m) > 0)
+            {
+                legs.Add(new(ManualPayoutFields.LegTrucker, ManualPayoutFields.LegPending, null, null, null));
+            }
+        }
+        else
+        {
+            legs.Add(new(ManualPayoutFields.LegBuyer, ManualPayoutFields.LegPending, null, null, null));
+        }
+
+        var queuedAt = DateTime.UtcNow.ToString("o");
+        var parkId = Guid.NewGuid().ToString("N");
+        bool queued;
+        Exception? writeError = null;
+        try
+        {
+            queued = await _escrowRepo.TryQueueStaleSettlementAsync(
+                escrowId, createdAt, op, status, legs, queuedAt, lockId, parkId);
+        }
+        catch (Exception ex)
+        {
+            writeError = ex;
+            queued = false;
+        }
+
+        if (!queued)
+        {
+            // Ours only if the row carries this very write (its park id) on the same lock: a write
+            // whose answer was lost. Anything else (another recovery parked it first, a new lock)
+            // is left alone without a log line, audit row or alarm.
+            var latest = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
+            if (latest == null
+                || !IsManualPayoutOpen(latest)
+                || GetStringOrNull(latest, ManualPayoutFields.Op) != op
+                || GetStringOrNull(latest, SettlementLockFields.LockId) != lockId
+                || GetStringOrNull(latest, ManualPayoutFields.ParkId) != parkId)
+            {
+                // A write that threw on a row still holding the same stale lock, unqueued: the
+                // unknown outcome is still unparked, so it alarms and the next run tries again.
+                if (writeError != null && latest != null && !IsManualPayoutOpen(latest)
+                    && GetStringOrNull(latest, SettlementLockFields.Lock) == op
+                    && GetStringOrNull(latest, SettlementLockFields.LockId) == lockId)
+                {
+                    AlarmLog(MoneyAlarmLog.SettlementFailed(
+                        escrowId, "stale_lock_recovery_failed", MoneyAlarmLog.OutcomeUnknown, writeError.GetType().Name));
+                    return StaleSettlementOutcome.Failed;
+                }
+
+                return StaleSettlementOutcome.Lost;
+            }
+        }
+
+        // The alarm line first, so a failed audit write still alarms.
+        var ageMinutes = (int)(now.ToUniversalTime() - locked.ToUniversalTime()).TotalMinutes;
+        AlarmLog(MoneyAlarmLog.SettlementFailed(escrowId, "stale_lock_parked", MoneyAlarmLog.OutcomeUnknown, op));
+        var legNames = string.Join(",", legs.Select(l => l.Leg));
+        Console.WriteLine(
+            $"ESCROW_MANUAL_PAYOUT_QUEUED escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} legs={legNames} reason={ManualPayoutFields.ReasonGatewayOutcomeUnknown}");
+
+        // Deterministic keys: the park row one tick before the queued row, so it never shares
+        // the queued row's timestamp (the audit table's sort key).
+        // A legacy lock can contradict the verdict of a dispute_resolved row (a release locked
+        // before a buyer_wins verdict); the row and the admin page say so.
+        await EnsureAuditAsync(escrowId, AddTicks(queuedAt, -1), "stale_lock_parked", status, status, SystemActor,
+            metadata: $"op={op};lockedAt={lockedSince};ageMinutes={ageMinutes};legacyLock={(lockId == null ? "true" : "false")}"
+                      + $";disputeResolution={GetStringOrNull(escrow, "disputeResolution") ?? "-"}");
+        await EnsureAuditAsync(escrowId, queuedAt, "manual_payout_queued", status, status, SystemActor,
+            metadata: $"op={op};legs={legNames};reason={ManualPayoutFields.ReasonGatewayOutcomeUnknown}");
+        return StaleSettlementOutcome.Parked;
     }
 
     // ──────────────────────────────────────────────
@@ -2960,7 +3456,8 @@ public sealed class EscrowService
                 Status = status,
                 ExternalRef = GetStringOrNull(item, ManualPayoutFields.RefAttr(leg)),
                 PaidBy = GetStringOrNull(item, ManualPayoutFields.PaidByAttr(leg)),
-                PaidAt = GetStringOrNull(item, ManualPayoutFields.PaidAtAttr(leg))
+                PaidAt = GetStringOrNull(item, ManualPayoutFields.PaidAtAttr(leg)),
+                GatewayRef = GatewayTransactionRef(GetString(item, "escrowId"), leg)
             });
         }
 
@@ -2974,6 +3471,8 @@ public sealed class EscrowService
             EscrowStatus = GetString(item, "status"),
             FromStatus = GetString(item, ManualPayoutFields.FromStatus),
             DeliveryConfirmedAt = GetStringOrNull(item, "deliveryConfirmedAt"),
+            SettlementLockedAt = GetStringOrNull(item, SettlementLockFields.LockAt),
+            DisputeResolution = GetStringOrNull(item, "disputeResolution"),
             QueuedAt = GetString(item, ManualPayoutFields.QueuedAt),
             Currency = GetStringOrNull(item, "currency") ?? "ETB",
             Legs = legs,
@@ -3140,12 +3639,23 @@ public sealed class EscrowService
         "This payment is already being paid out by an admin, so it can no longer be disputed. Contact support.");
 
     /// <summary>
-    /// 202 ESCROW_034: the settlement is waiting in the manual payout queue; this call moved
-    /// nothing. Returned to the cron and the admin settlement routes only.
+    /// 202 ESCROW_034: the settlement is waiting in the manual payout queue and this call made no
+    /// payout. Whether an earlier gateway call did depends on the queue reason (ESC-05:
+    /// <c>GATEWAY_OUTCOME_UNKNOWN</c> may have paid). Returned to the cron and the admin
+    /// settlement routes only.
     /// </summary>
     private static EscrowResult<T> ManualPayoutWaiting<T>() => EscrowResult<T>.Failure(
         202, "ESCROW_034",
         "This payout is waiting in the manual payout queue. An admin pays it in the Telebirr portal and records the reference.");
+
+    /// <summary>
+    /// 202 ESCROW_034 (ESC-05): the gateway did not say whether it paid, so the settlement was
+    /// parked in the manual payout queue as <c>GATEWAY_OUTCOME_UNKNOWN</c>. The money may have moved.
+    /// </summary>
+    private static EscrowResult<T> OutcomeUnknownWaiting<T>() => EscrowResult<T>.Failure(
+        202, "ESCROW_034",
+        "The gateway did not confirm this payout, so it may already have been made. It waits in the manual "
+        + "payout queue: an admin checks the Telebirr portal before paying anything.");
 
     /// <summary>4 to 64 characters: a letter or digit first, then letters, digits, '.', '_', ':', '/' or '-'.</summary>
     internal static bool IsValidExternalRef(string reference)
@@ -3534,13 +4044,13 @@ public sealed class EscrowService
         string actor, string? telebirrRef = null, string? metadata = null)
     {
         // ESC-13: a failed settlement leg is logged before the audit write, so the money
-        // alarm fires even when the audit write itself fails. The gateway code decides the
-        // outcome: after a timeout or a lost answer Telebirr may still have paid, and so may
-        // it after a success without a reference whose manual payout queue write failed.
+        // alarm fires even when the audit write itself fails. The code decides the outcome
+        // (IsOutcomeUnknownCode): after a timeout, a lost or unreadable answer or a gateway call
+        // that threw, Telebirr may still have paid, and so it may after any manual payout queue
+        // write that failed except one for PAYOUT_NOT_SUPPORTED.
         if (MoneyAlarmLog.IsSettlementFailureAuditAction(action))
         {
-            var outcome = metadata != null
-                && (UncertainGatewayErrors.Contains(metadata) || metadata == QueueFailedRefMissingCode)
+            var outcome = IsOutcomeUnknownCode(metadata)
                 ? MoneyAlarmLog.OutcomeUnknown
                 : MoneyAlarmLog.OutcomeFailed;
             AlarmLog(MoneyAlarmLog.SettlementFailed(escrowId, action, outcome, metadata));

@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.9.0
+1.10.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -362,8 +362,8 @@ Triggers release of escrowed funds to the farmer. This is an **internal trigger*
 | `404` | `ESCROW_016` | Escrow not found |
 | `503` | `ESCROW_012` | The order or delivery behind a verdict could not be read; nothing moved, retry (1.9.0) |
 | `422` | `ESCROW_INVALID_TRANSITION` | Escrow is not `escrowed` or `dispute_resolved`, or its verdict is `buyer_wins` (1.9.0; before 1.9.0 `disputed` was accepted too); from 1.7.0 the admin may also settle `held` (planned FRD-03) |
-| `202` | `ESCROW_034` | The release is waiting in the manual payout queue; nothing moved by this call (1.8.0) |
-| `502` | `ESCROW_013` | Telebirr gateway error |
+| `202` | `ESCROW_034` | The release is waiting in the manual payout queue and this call made no payout (1.8.0); with reason `GATEWAY_OUTCOME_UNKNOWN` an earlier gateway call may have paid (1.10.0) |
+| `502` | `ESCROW_013` | Telebirr gateway error (a definite refusal, retried by the next sweep); from 1.10.0 also an unknown outcome whose queue write failed: not retried, the lock stays |
 | `503` | `ESCROW_014` | Telebirr service unavailable |
 
 ---
@@ -498,8 +498,8 @@ Refunds escrowed funds to the buyer. Triggered by admin (a `buyer_wins` dispute 
 | `404` | `ESCROW_016` | Escrow not found |
 | `503` | `ESCROW_012` | The order or delivery behind a verdict could not be read; nothing moved, retry (1.9.0) |
 | `422` | `ESCROW_INVALID_TRANSITION` | Escrow is not `escrowed` or `dispute_resolved`, its verdict is `farmer_wins`, or its order cannot follow the verdict and no override was given (1.9.0; before 1.9.0 `disputed` was accepted too); from 1.7.0 the admin may also settle `held` (planned FRD-03), except a `heldFor: refund` order escrow whose order is progressing |
-| `202` | `ESCROW_034` | The refund is waiting in the manual payout queue; nothing moved by this call (1.8.0) |
-| `502` | `ESCROW_013` | Telebirr gateway error |
+| `202` | `ESCROW_034` | The refund is waiting in the manual payout queue and this call made no payout (1.8.0); with reason `GATEWAY_OUTCOME_UNKNOWN` an earlier gateway call may have paid (1.10.0) |
+| `502` | `ESCROW_013` | Telebirr gateway error (a definite refusal, retried by the next sweep); from 1.10.0 also an unknown outcome whose queue write failed: not retried, the lock stays |
 | `503` | `ESCROW_014` | Telebirr service unavailable |
 
 ---
@@ -1050,8 +1050,8 @@ The mobile Payment entity (defined in `data-models.md`) caches escrow state loca
 |----------|---------|
 | **Telebirr hold times out** | Idempotency record set to `processing`. Next retry queries Telebirr for status. If held, mark as `escrowed`. If not, allow re-initiation. |
 | **Telebirr hold succeeds but DB write fails** | Idempotency record exists with `processing` status. Retry detects this, queries Telebirr, and reconciles. |
-| **Telebirr release fails** | Retry with exponential backoff (5s, 15s, 45s). After 3 failures, create alert for admin. Funds remain escrowed. |
-| **Telebirr refund fails** | Same retry strategy. Admin notified. Buyer sees "refund pending" status. |
+| **Telebirr release fails** | A definite refusal releases the settlement lock and the next hourly sweep retries; a timeout or any answer that does not say whether money moved keeps the lock and parks the escrow for an admin, never a blind retry (Additions in 1.10.0). Funds remain escrowed. |
+| **Telebirr refund fails** | Same rules as release (1.10.0). Buyer sees "refund pending" status. |
 | **Double-charge prevention** | Idempotency key checked BEFORE calling Telebirr. Duplicate requests return cached result. |
 | **Network drops during initiation** | Client retries with same idempotency key. Server returns cached result if already processed. |
 
@@ -1069,7 +1069,8 @@ A scheduled Lambda (every 6 hours) runs reconciliation:
 |---------|----------|--------|
 | Escrow expiry | 7 days from creation | Auto-refund if delivery not completed |
 | Dispute window | 48 hours from delivery confirmation | Auto-release if no dispute raised |
-| Telebirr API timeout | 30 seconds per call | Retry with backoff, max 3 attempts |
+| Telebirr API timeout | 30 seconds per call | Not retried: an unknown outcome, parked for an admin (1.10.0) |
+| Stale settlement lock | 15 minutes | The hourly recovery step parks the escrow for an admin (1.10.0) |
 | Initiated → escrowed timeout | 30 minutes | Reconciliation marks as failed |
 
 ---
@@ -1557,22 +1558,24 @@ is unchanged.
 ### What the service does with such an answer
 Two gateway answers send a settlement to the **manual payout queue**: `PAYOUT_NOT_SUPPORTED`,
 and `Success = true` with an empty `TelebirrRef` (reason `GATEWAY_REF_MISSING`, fail closed
-instead of completing with `""`). Every other failure keeps the retryable failure path.
+instead of completing with `""`). Every other failure keeps the retryable failure path (1.10.0:
+except an unknown outcome, which is queued as `GATEWAY_OUTCOME_UNKNOWN`).
 
 - The escrow keeps its status (`escrowed`, `disputed` or `dispute_resolved`); clients see no
   new state. The only client change is the `ESCROW_038` message below.
 - The settlement lock is **kept on purpose**: nothing else may release or refund the escrow
-  until an admin has paid every leg. Any stale-lock recovery (ESC-05) must skip a row whose
+  until an admin has paid every leg. The stale-lock recovery step (1.10.0) skips a row whose
   `manualPayout` is `open`.
 - The call returns `202 ESCROW_034` in the standard error envelope ("waiting in the manual
-  payout queue; nothing moved"). Later release or refund calls on that escrow return the same
+  payout queue"; this call made no payout, and for these two reasons nothing moved: 1.10.0 adds
+  `GATEWAY_OUTCOME_UNKNOWN`, where an earlier gateway call may have paid). Later release or refund calls on that escrow return the same
   `202` at once, with no gateway call, no lock attempt and no audit row, so the hourly sweeps
   stay quiet. The cron counts them as `manualPayoutsWaiting` in its run summary and logs
   `ESCROW_MANUAL_PAYOUT_WAITING escrowId=...` at Information.
 - If the queue write fails or throws, the service re-reads the row strongly consistent. A
   queue entry for the same operation means the write committed (for example a timeout after
-  the commit) and counts as queued. Otherwise nothing has moved and today's retryable failure
-  applies (`502 ESCROW_013`, lock released, audit `release_failed` or `refund_failed` with
+  the commit) and counts as queued. Otherwise, for `PAYOUT_NOT_SUPPORTED`, nothing has moved and today's retryable failure
+  applies (1.10.0: for `GATEWAY_REF_MISSING` the write is retried up to 4 times and the lock is never released) (`502 ESCROW_013`, lock released, audit `release_failed` or `refund_failed` with
   metadata `MANUAL_QUEUE_FAILED:<reason>`).
 - Guards on the row: acquiring the settlement lock requires `attribute_not_exists(manualPayout)`,
   and any status write to `released` or `refunded` other than the queue close requires it too,
@@ -1606,7 +1609,7 @@ instead of completing with `""`). Every other failure keeps the retryable failur
 | `manualPayout` | `open` while waiting; removed on close. Partition key of the sparse `ManualPayoutIndex` |
 | `manualPayoutQueuedAt` | ISO time; sort key of the index (oldest first). Kept after close |
 | `manualPayoutOp` | `release` or `refund`; equals the held `settlementLock` |
-| `manualPayoutReason` | `PAYOUT_NOT_SUPPORTED` or `GATEWAY_REF_MISSING` |
+| `manualPayoutReason` | `PAYOUT_NOT_SUPPORTED`, `GATEWAY_REF_MISSING` or (1.10.0) `GATEWAY_OUTCOME_UNKNOWN`: the gateway may have paid (a timeout, a lost or unreadable answer, a call that threw, or a stale lock); the admin checks the portal before paying |
 | `manualPayoutFromStatus` | escrow status when queued |
 | `manualFarmerStatus`, `manualTruckerStatus`, `manualBuyerStatus` | `pending` or `paid`; only the legs of the operation exist |
 | `manual{Leg}Ref`, `manual{Leg}PaidBy`, `manual{Leg}PaidAt` | portal or gateway reference, admin id (or `gateway`), time |
@@ -1838,18 +1841,21 @@ the gateway call): check the merchant portal before any manual release or refund
 
 | Where | action | outcome | code |
 |---|---|---|---|
-| `EscrowService`, with the `release_failed`, `refund_failed` and `trucker_release_failed` audit rows | the audit action | `unknown` when the code is `TELEBIRR_TIMEOUT`, `TELEBIRR_NETWORK`, `TELEBIRR_PREORDER` or `MANUAL_QUEUE_FAILED:GATEWAY_REF_MISSING` (the gateway reported a payout without a reference), else `failed` | the gateway error code; `MANUAL_QUEUE_FAILED:<reason>` when the manual payout queue write failed (1.8.0); `-` when the trucker leg was skipped for an unverified trucker |
-| escrow-cron, exception while settling one escrow | `auto_release_exception`, `auto_refund_exception`, `dispute_settlement_exception` | `unknown` | exception type name |
+| `EscrowService`, with the `release_failed`, `refund_failed` and `trucker_release_failed` audit rows | the audit action | `unknown` when the code is `TELEBIRR_TIMEOUT`, `TELEBIRR_NETWORK`, `TELEBIRR_PREORDER`, `GATEWAY_EXCEPTION:<type>` (1.10.0) or `MANUAL_QUEUE_FAILED:<reason>` for any reason but `PAYOUT_NOT_SUPPORTED` (1.10.0; before: only `GATEWAY_REF_MISSING`), else `failed` | the gateway error code; `MANUAL_QUEUE_FAILED:<reason>` when the manual payout queue write failed (1.8.0); `-` when the trucker leg was skipped for an unverified trucker |
+| escrow-cron, exception while settling one escrow | `auto_release_exception`, `auto_refund_exception`, `dispute_settlement_exception` | `unknown` when the exception escaped after the settlement lock, `failed` before it (1.10.0) | exception type name |
 | escrow-cron, the `dispute_resolved` query failed (run skipped) | `sweep_failed` | `failed` | `dispute_query:<exception type>` |
 | escrow-cron, the `ManualPayoutIndex` query of the overdue report failed (1.8.0) | `sweep_failed` | `failed` | `manual_payout_query:<exception type>` |
-| escrow-cron, the whole run died | `sweep_failed` | `unknown` | `<action>:<exception type>` |
-| `POST /escrow/release`, `POST /escrow/refund`, unhandled exception | `release_exception`, `refund_exception` | `unknown` | exception type name |
+| escrow-cron, the whole run died | `sweep_failed` | `unknown` after a settlement lock, else `failed` (1.10.0) | `<action>:<exception type>` |
+| `POST /escrow/release`, `POST /escrow/refund`, unhandled exception | `release_exception`, `refund_exception` | `unknown` after the settlement lock, `failed` before it (1.10.0) | exception type name |
+| escrow-cron, the release, refund or crash-recovery query failed (1.10.0) | `sweep_failed` | `failed` | `release_query`, `refund_query` or `complete_query:<exception type>` |
+| escrow-cron recovery step (1.10.0) | `stale_lock_parked`, `stale_lock_recovery_failed`; `sweep_failed` for its query | `unknown`; `failed` for the query | the locked op; exception type; `lock_recovery_query:<status>:<type>` |
 
-Who retries: after `release_failed` or `refund_failed` (any code, `MANUAL_QUEUE_FAILED:<reason>`
-included) the lock is released and the next hourly sweep retries. After `trucker_release_failed`
-(any code) the escrow completes with `truckerPayoutPending` and nothing retries the trucker leg
-until ESC-04: check the Telebirr portal and pay the trucker by hand (with `outcome=unknown` the
-trucker may already be paid).
+Who retries (1.10.0): after a line with `outcome=failed` the lock is released and the next hourly
+sweep retries (`release_failed`, `refund_failed`), or the escrow completes with
+`truckerPayoutPending` and nothing retries the trucker leg until ESC-04 (`trucker_release_failed`):
+pay the trucker by hand. After a line with `outcome=unknown` nothing retries: the escrow keeps its
+lock and waits in Manual Payouts as `GATEWAY_OUTCOME_UNKNOWN` (or `GATEWAY_REF_MISSING`), at once or
+through the recovery step; check the portal before paying (Additions in 1.10.0).
 
 Not counted on purpose: `release_blocked_kyc` (a known wait for the farmer to verify), a
 lock-held `ESCROW_INVALID_TRANSITION` answer (no gateway call was made), a failed `complete`
@@ -1879,7 +1885,8 @@ manual payout alarm.
 | Alarm | Counts | Fires |
 |---|---|---|
 | `${prefix}-escrow-settlement-failures` | `ESCROW_SETTLEMENT_FAILED` in the escrow and escrow-cron log groups | any line in a 15 minute period, evaluated over 5 periods (75 minutes, so an hourly producer never leaves a gap); stays in ALARM while the hourly sweep keeps failing and clears by itself 75 to 90 minutes after the last line |
-| `${prefix}-escrow-cron-errors` | AWS/Lambda `Errors` of `${prefix}-escrow-cron` | one error in a 5 minute period, evaluated over 4 periods (a crash and its two async retries stay one episode; clears 20 to 25 minutes after the last error): escrow-cron was killed (5 minute timeout, out of memory) or crashed. A run killed mid-settlement logs no token, so this alarm is the only signal; treat the escrows it was processing as unknown outcomes. The settlement lock stays held until ESC-05 adds recovery |
+| `${prefix}-escrow-cron-errors` | AWS/Lambda `Errors` of `${prefix}-escrow-cron` | one error in a 5 minute period, evaluated over 4 periods (a crash and its two async retries stay one episode; clears 20 to 25 minutes after the last error): escrow-cron was killed (5 minute timeout, out of memory) or crashed. A run killed mid-settlement logs no token, so this alarm is the only signal; treat the escrows it was processing as unknown outcomes. The 1.10.0 recovery step parks an escrow whose lock is older than 15 minutes |
+| `${prefix}-escrow-settlement-unknown-outcomes` (1.10.0) | `ESCROW_SETTLEMENT_FAILED` lines with `outcome=unknown` in the escrow and escrow-cron log groups | same as settlement failures; the escrow is or will be in Manual Payouts as `GATEWAY_OUTCOME_UNKNOWN`: never release or refund it by hand |
 | `${prefix}-order-escrow-problems` | `ORDER_ESCROW_CREATE_FAILED`, `ORDER_ESCROW_LINK_FAILED`, `ORDER_ESCROW_REFUND_SCHEDULE_FAILED` in the sync log group (replaces `${prefix}-order-escrow-create-failed`) | any line in 15 minutes |
 | `${prefix}-manual-payouts-overdue` | `MANUAL_PAYOUT_OVERDUE` in the escrow-cron log group | any line in 15 minutes, same hold and clear as settlement failures; a leg that stays blocked keeps it in ALARM (1.8.0 known limits). The admin acts on the Manual Payouts page (`/payouts`) |
 | `${prefix}-admin-queue-overdue` | `ADMIN_QUEUE_OVERDUE` in the escrow-cron log group | same |
@@ -2044,10 +2051,187 @@ before deploying.
 
 ---
 
+## Additions in 1.10.0 (no double pay, no stuck lock, ESC-05)
+
+Before 1.10.0 a release or refund whose gateway call timed out, lost its answer or threw released
+the settlement lock (or left it held forever), and the next hourly sweep called the gateway
+again: a blind retry that pays twice unless Telebirr dedupes the reference. A crash after the
+lock left the lock held for good; every later sweep answered 409 and nobody was told. The refund
+status write had no retry at all.
+
+### The rule
+Every outcome that may have moved money ends in the manual payout queue (1.8.0) with the
+settlement lock held: at once when the queue write lands, otherwise through the recovery step
+below within about 75 minutes. No path releases the lock after the gateway may have paid, and
+no sweep calls the gateway for a locked or queued escrow. Only a definite refusal releases the
+lock, and only then does the next sweep retry.
+
+### Gateway answers
+
+| Answer | What the service does |
+|---|---|
+| Success with a reference | settles (unchanged) |
+| `PAYOUT_NOT_SUPPORTED` | queues (1.8.0); a failed queue write still releases the lock, nothing moved |
+| Success without a reference | queues `GATEWAY_REF_MISSING` (1.8.0); the queue write is retried up to 4 times and the lock is never released (FUP-03) |
+| `TELEBIRR_TIMEOUT`, `TELEBIRR_NETWORK`, `TELEBIRR_PREORDER`, no answer at all (`TELEBIRR_NETWORK`), or the call threw (`GATEWAY_EXCEPTION:<exception type>`) | audit `release_failed`, `refund_failed` or `trucker_release_failed` with that code (alarm line `outcome=unknown`; the audit write is best-effort, the queue write follows anyway), then queue with reason `GATEWAY_OUTCOME_UNKNOWN`, lock kept, `202 ESCROW_034` |
+| Any other failure code | a definite refusal: the lock is released first, then the idempotency record, then the audit row (`outcome=failed`); `502 ESCROW_013`; the next sweep retries |
+
+Rule for every gateway (`TelebirrGatewayErrors`): a failure that may have moved money (no answer,
+a lost, unreadable or incomplete answer) returns `TELEBIRR_TIMEOUT` or `TELEBIRR_NETWORK`, or
+throws. The live gateway's preOrder now does so for an unreadable 200 answer or a success without
+`prepay_id` (before: `TELEBIRR_ERR` or `TELEBIRR_0`, read as a definite refusal by the checkout).
+
+Release legs: an unknown farmer outcome queues the farmer leg (and a trucker leg when
+`truckerPayout > 0`) as `pending`; the trucker is not called. An unknown trucker outcome after
+the farmer was paid queues the farmer leg `paid` (`paidBy = gateway`, its reference) and the
+trucker leg `pending`. If that queue write keeps failing, a `PAYOUT_NOT_SUPPORTED` trucker leg
+still falls back to `truckerPayoutPending` (1.8.0, nothing moved for the trucker); any other
+reason keeps the lock and never completes, so `truckerPayoutPending` only ever means a definite
+refusal or an unverified trucker (safe for ESC-04 to retry). Refund: the buyer leg.
+
+When an unknown outcome cannot be queued after 4 attempts, the call answers `502 ESCROW_013`
+("the gateway may already have paid ... not retried"), the lock and the idempotency record stay,
+the audit row carries `MANUAL_QUEUE_FAILED:<reason>` (`outcome=unknown`), and the recovery step
+queues it later.
+
+The `202 ESCROW_034` of an unknown outcome says "The gateway did not confirm this payout, so it
+may already have been made ...". `ESCROW_034` means the settlement waits in the queue and this
+call made no payout; whether an earlier gateway call did depends on the reason.
+
+### Nothing that can fail between the lock and the call
+The farmer's and the trucker's payout destinations and the buyer's refund phone are read before
+the lock, and the idempotency record is written after the gateway answered (best-effort, like the
+other idempotency writes after the lock). An exception before the lock is a plain failure; one
+that escapes after it is an unknown outcome (see Alarms).
+
+### Status writes
+The `released` and the `refunded` write share one helper: up to 4 attempts, 150 ms times the
+attempt apart. A failed condition is not retried: an earlier attempt, or the SDK's own retry after
+a lost answer (so even on the service's first attempt), may have landed although the client saw an
+error, so a strongly consistent re-read that shows the new status (or `completed` for a release)
+counts as written. If the write never lands, the service
+logs `ESCROW_SETTLEMENT_PAID_UNRECORDED escrowId=.. op=.. <leg>Ref=..` (the references for the
+operator, no alarm of its own), keeps the lock and lets the exception escape. The trucker leg's
+audit row is written after the `released` write, so a failed audit write cannot leave a paid
+escrow unrecorded. Once the settled status is written the payout is on record: an exception after
+it (a leg audit row, the `release` or `refund` row, the `completed` write or its audit row) logs
+`outcome=failed`, never `unknown`, and no queue row follows; the crash-recovery sweep completes a
+`released` escrow.
+
+### The settlement lock
+`TryAcquireSettlementLockAsync` now also writes `settlementLockAt` (ISO time) and `settlementLockId`
+(a random id) with `settlementLock`. When the write fails its condition, a strongly consistent
+re-read that shows the same op and this lock id counts as acquired: the SDK retried a write whose
+answer was lost. `ReleaseSettlementLockAsync` removes all three, and refuses (as a no-op) a row
+with an open manual payout: the queue owns its lock even when the caller missed that its queue
+write committed. The lock attributes stay on settled rows, as before.
+
+| Attribute | Value |
+|---|---|
+| `settlementLockAt` | ISO time the lock was taken; from then on the gateway may have been called. Missing on a lock taken before 1.10.0 |
+| `settlementLockId` | random id of this lock (two locks can carry the same time) |
+| `manualPayoutReason` | gains `GATEWAY_OUTCOME_UNKNOWN` |
+| `manualPayoutParkId` | random id of the recovery write that parked the row (recovery only) |
+
+### Recovery step (escrow-cron, hourly)
+First in `auto_release_and_refund`, right after the overdue report and before the sweeps:
+
+- Reads `StatusExpiresIndex` for `escrowed`, `dispute_resolved` and `disputed` (a lock on a
+  `disputed` row was taken before 1.9.0) with the filter `attribute_exists(settlementLock) AND
+  attribute_not_exists(manualPayout) AND (settlementLockAt <= now - 15 min OR (no settlementLockAt
+  AND updatedAt <= now - 15 min))`, paging through filtered-empty pages, at most 50 rows per status
+  per run. No new index: it reads the whole status partitions hourly; ESC-20's ledger index
+  replaces this.
+- 15 minutes is far above the longest settlement run (escrow Lambda 30 s, escrow-cron 5 min; an
+  infra test keeps both at or under 5 minutes), so such a lock has no living owner. Any of them may
+  have called the gateway, so each is parked, never unlocked: one pending leg per payee of the
+  locked operation, reason `GATEWAY_OUTCOME_UNKNOWN`, conditional on the same lock
+  (`settlementLockId`, or no lock id at all for a pre-1.10.0 lock), the same status, the lock still
+  held and no queue entry.
+- On a parked row: the alarm line `ESCROW_SETTLEMENT_FAILED escrowId=.. action=stale_lock_parked
+  outcome=unknown code=<op>`, `ESCROW_MANUAL_PAYOUT_QUEUED`, escrow-audit `stale_lock_parked`
+  (metadata `op=..;lockedAt=..;ageMinutes=..;legacyLock=..`, one tick before the queued row so the
+  two never share the table's sort key) and `manual_payout_queued` (actor `system`).
+- A condition that fails is checked with a strongly consistent re-read: the row is ours only if it
+  carries this run's `manualPayoutParkId` on the same lock (a write whose answer was lost).
+  Anything else (another run parked it first, a new lock) is left alone without a log line, audit
+  row or alarm.
+- Never calls the gateway and never releases a lock. A failed query logs `sweep_failed
+  outcome=failed code=lock_recovery_query:<status>:<type>`. A park write that throws, on a row the
+  re-read shows still unqueued under the same lock, logs `stale_lock_recovery_failed
+  outcome=unknown code=<exception type>` (so does a re-read that throws), and the next run tries
+  again. The run summary carries `staleLocksParked`.
+- `stale_lock_parked` metadata also carries `disputeResolution`. A lock taken before ESC-03 can go
+  against the verdict of a `dispute_resolved` row (a `release` lock under `buyer_wins`); it is
+  parked like any other, and the admin page warns (see Admin).
+- **Legacy `disputed` rows**: a queue close from `disputed` settles with no verdict and no order or
+  delivery mirror (the 1.8.0 close keeps `disputed` in its set). Only pre-1.9.0 locks can land
+  there. A verdict on such a row answers `409 ADMIN_013`; the admin brings the order and the
+  delivery to the right status by hand.
+
+The auto-refund sweep skips any `escrowed` row that carries a settlement lock (an in-flight
+settlement, or one the recovery step just parked while the index copy lacks the queue marker),
+before the delivery stamp and the order cancel and restock, and logs
+`ESCROW_SETTLEMENT_IN_FLIGHT_SKIPPED escrowId=.. sweep=auto-refund`. Because the index copy can
+lag, it then reads the base row strongly consistent and skips (`ESCROW_AUTO_REFUND_SKIPPED
+escrowId=.. reason=missing|status|queued|locked|confirmed`) unless the row is still `escrowed`,
+unlocked, unqueued and unconfirmed. This narrows the race with an admin release that takes the lock
+to the few milliseconds between that read and the order cancel; it does not close it. The auto-release,
+auto-refund and crash-recovery queries are wrapped like the dispute query: a failure logs
+`sweep_failed outcome=failed code=release_query|refund_query|complete_query:<type>` and only that
+sweep skips the run.
+
+There is no automated status check: the live gateway has no payout status API
+(`GetTransactionStatusAsync` answers `unknown` without a call; B2B payouts are not integrated)
+and the mock's status is not truthful. Unknown outcomes go to the admin. A status check belongs
+with the B2B integration or the ESC-20 ledger (`sent` rows).
+
+### Alarms
+`outcome=unknown` is now logged only when money may have moved: the uncertain codes above,
+`GATEWAY_EXCEPTION:*`, `MANUAL_QUEUE_FAILED:<reason>` for any reason but `PAYOUT_NOT_SUPPORTED`,
+`stale_lock_parked`, `stale_lock_recovery_failed`, and an exception that escaped a release or
+refund after it took the lock and before its settled status was written (`release_exception`, `refund_exception`, `auto_release_exception`,
+`auto_refund_exception`, `dispute_settlement_exception`, `sweep_failed` for a whole run). An
+exception before the lock, and a definite refusal, log `outcome=failed`.
+
+New alarm `${prefix}-escrow-settlement-unknown-outcomes` (FUP-06): metric
+`EscrowSettlementUnknownOutcomes` from two filters (escrow and escrow-cron log groups, pattern
+`"ESCROW_SETTLEMENT_FAILED" "outcome=unknown"`), 15 minute periods, 5 periods, any line alarms. The
+general `${prefix}-escrow-settlement-failures` alarm still counts every line. Runbook: do not release
+or refund by hand; open Manual Payouts, search the portal for the leg's gateway reference, record it
+if found, pay and record only if it is still missing.
+
+### Admin
+`GET /admin/payouts/manual`: each leg gains `gatewayRef` (`release:<escrowId>`,
+`release:<escrowId>:trucker` or `refund:<escrowId>`), each item `settlementLockedAt` (null for a
+pre-1.10.0 lock) and `disputeResolution` (null without a verdict). When a `release` waits under a
+`buyer_wins` verdict, or a `refund` under `farmer_wins`, the page warns not to pay it and to check
+the escrow history first. The Manual Payouts page treats `GATEWAY_OUTCOME_UNKNOWN` like
+`GATEWAY_REF_MISSING` (check the portal first, "Record reference", confirm the payment is in the
+portal), shows the gateway reference to search for, says to search again later before paying
+(a payment can show up late), and shows how long ago the gateway was called. Strings in en, am and om.
+Clients (mobile and web) see no change: the escrow keeps its status.
+
+### Not in 1.10.0 (known limits)
+- A Lambda killed between the lock and the gateway call (no I/O there any more) is parked like
+  any other stale lock: the admin finds nothing in the portal and pays. No double pay.
+- The admin can still pay twice by hand: two admins on one leg, or a payment made without checking
+  the portal (1.8.0, no claim step).
+- Audit rows after a settled status (`release`, `complete`, `refund`) can still be lost in a crash;
+  the escrow row keeps the references.
+- A locked row still sits in the auto-release window until the next recovery run (at most an hour).
+- `held` (FRD-03) is not a recovery status; when FRD-03 lets an admin settle a held escrow it joins
+  the list.
+- ESC-20 (ledger) replaces the whole-escrow lock, this recovery step and the reason with per-leg
+  rows (`sent`, status check, `manual`).
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.10.0 | 2026-10-09 | No double pay, no stuck lock (ESC-05): a gateway timeout, lost or unreadable answer (`TELEBIRR_NETWORK`, also for the live preOrder's unreadable 200 or missing `prepay_id`) or a call that threw (`GATEWAY_EXCEPTION:<type>`) keeps the settlement lock and parks the escrow in the manual payout queue with the new reason `GATEWAY_OUTCOME_UNKNOWN` (`202 ESCROW_034`, unknown-outcome message), never a blind retry; a `GATEWAY_REF_MISSING` queue write is retried and never releases the lock (FUP-03); only a definite refusal releases the lock (lock first, then the audit row); an unknown trucker leg is queued with the farmer leg paid, and never falls back to `truckerPayoutPending`; payout destinations and the refund phone are read before the lock and the idempotency record after the gateway answered; the `refunded` write retries like the `released` write, and a condition failure after a lost commit counts as written; the lock carries `settlementLockAt` and `settlementLockId` (a lost answer on the lock write is recognised by the id), and releasing it is a no-op on a queued row; hourly recovery step parks a lock older than 15 minutes on `escrowed`, `dispute_resolved` or (legacy) `disputed` rows, fenced on the lock and status, silent when it loses a race (`manualPayoutParkId`), audited `stale_lock_parked`, never calling the gateway; auto-refund skips a locked row before any delivery or order write; the release, refund and crash-recovery queries fail on their own (`sweep_failed outcome=failed`); `outcome=unknown` only after the lock (exceptions before it are `failed`); new alarm `escrow-settlement-unknown-outcomes` (FUP-06); manual payout list items gain `settlementLockedAt` and legs `gatewayRef`, plus `disputeResolution` with a warning when the parked operation goes against the verdict; a settled status found by a consistent re-read after any failed condition counts as written; exceptions after the settled status write log `outcome=failed`; a park write that throws on a still-unparked lock alarms `stale_lock_recovery_failed`; auto-refund re-reads the base row strongly consistent before any side effect; admin page strings in en/am/om; no client change |
 | 1.9.0 | 2026-10-09 | Dispute verdicts settle (ESC-03): the settlement lock requires the exact status the caller validated, settleable `escrowed` and `dispute_resolved` (`dispute_resolved` added, `disputed` removed); release and refund of a `disputed` escrow refused (`422`, verdict first), and of a `dispute_resolved` escrow only the way its verdict says (`farmer_wins` releases, `buyer_wins` refunds; legacy verdicts either way); `POST /admin/disputes/{id}/resolve` admin group only (`403 ESCROW_015`), `resolution` `farmer_wins` or `buyer_wins` with a matching `action` (`400 ADMIN_014`; `partial_refund` refused until ESC-20), refused while a settlement holds the lock (`409 ADMIN_010`), same-verdict replay answers `200` with the current status; the order and delivery follow the verdict at the verdict and again before settlement (`DisputeVerdictMirror`; order hops to `dispute_resolved`, delivery stamped `disputeResolution`/`disputeResolvedAt`, both legs decided before any write), `buyer_wins` refunds a cancelled or rejected order as it is and cancels an order before pickup (pending delivery cancelled, stock restored) before refunding; a verdict whose order cannot follow it is not settled (`422`, `DISPUTE_VERDICT_ORDER_MISMATCH` and the `dispute-verdict-order-mismatch` alarm), with an admin-group override (`overrideOrderMismatch` and a reason) for a `buyer_wins` whose goods are moving, never for `farmer_wins`; a failed order or delivery read, or a `buyer_wins` cancel or restock that did not land, fails closed (`503 ESCROW_012`, `DISPUTE_VERDICT_SETTLEMENT_BLOCKED` and the `dispute-verdict-settlement-blocked` alarm when blocked in three of four hourly periods, one `dispute_settlement_blocked` audit row); failures audited once per escrow and action at the verdict time plus one or two ticks (`dispute_verdict_mismatch`, `dispute_verdict_propagation_failed`); transaction-audit rows for every hop; `escrowed -> disputed` refused while a settlement holds the lock (`409 ESCROW_INVALID_TRANSITION`; a sync delivery dispute is not frozen, audited `dispute_refused_settlement_in_flight`); `dispute_resolved` counts as an active escrow; escrow and escrow-cron Lambdas get `TRANSACTION_AUDIT_TABLE` (`PutItem` only); `ADMIN_010` and `ADMIN_014` localized in admin (en/am/om) |
 | 1.8.1 | 2026-10-09 | Money alarms (ESC-13): `ESCROW_SETTLEMENT_FAILED` logged for every failed release, refund or trucker leg (outcome `failed` or `unknown`; `unknown` also for `MANUAL_QUEUE_FAILED:GATEWAY_REF_MISSING`), for exceptions mid-sweep and on the admin settlement routes; a payout queued for an admin (`202 ESCROW_034`) is not counted; the 1.8.0 overdue report logs `MANUAL_PAYOUT_OVERDUE` through `MoneyAlarmLog` (same line); `ADMIN_QUEUE_OVERDUE` defined for ESC-06 (24 hours); five alarms: settlement failures, escrow-cron errors, order escrow problems (create, link, refund schedule; replaces the create-failed alarm), manual payouts overdue, admin queue overdue (log alarms over 5 periods of 15 minutes, escrow-cron errors over 4 periods of 5 minutes); client-influenced values in the escrow, escrow-cron, sync and webhook log lines have `_` turned into `-` and the escrow Lambda logs the route template, so no client can spell a token; no endpoint or response change |
 | 1.8.0 | 2026-10-09 | Fail-closed live payouts and the manual payout queue (ESC-02): the live gateway's release and refund return `PAYOUT_NOT_SUPPORTED`; the service queues such settlements (and gateway successes without a reference, trucker leg included) on the escrow row with the lock held, returns `202 ESCROW_034`, and stays quiet on later sweeps; a failed queue write is re-read strongly consistent; the lock and any `released`/`refunded` status write refuse a queued row; new sparse `ManualPayoutIndex`; `GET /admin/payouts/manual` and `POST /admin/payouts/{escrowId}/{ref}/complete` (admin group only) with codes `ESCROW_035` to `ESCROW_037` and `409 ESCROW_029` (`alreadyRecorded` on a replay, no second transaction-audit row); cron status queries filter out queued rows and page through filtered-empty pages; `409 ESCROW_038` on a dispute against a queued escrow (delivery disputes through sync are refused and audited, and the order is not mirrored); queue audit rows at deterministic keys, re-ensured on replay, with the cron crash recovery keying its `complete` row on `completedAt` too; `deliveryConfirmedAt` on list items; `409 ADMIN_013` on a dispute verdict against a queued payout; audit actions `manual_payout_queued`, `manual_payout_paid`, `manual_payout_refused`; hourly `MANUAL_PAYOUT_OVERDUE` producer for the ESC-13 alarm; `order_payment_refunded_manual` reserved for ACC; known limits listed; `ESCROW_038` localized in the app (mobile and web, en/am/om), no other client change |
@@ -2069,5 +2253,5 @@ before deploying.
 ---
 
 **Last Updated**: 2026-10-09
-**Version**: 1.8.1
+**Version**: 1.10.0
 **Status**: Draft (Phase R4)

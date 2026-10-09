@@ -304,6 +304,82 @@ describe("ManualPayoutsPage", () => {
     ).toBeTruthy();
   });
 
+  it("tells the admin to search the portal (and again later) for a payout whose outcome is unknown", async () => {
+    // ESC-05: a timeout, a lost answer or a stale lock parks the leg as GATEWAY_OUTCOME_UNKNOWN.
+    const unknown = {
+      ...refundOverdue(),
+      escrowId: "escrow-order-ord-4",
+      orderId: "ord-4",
+      reason: "GATEWAY_OUTCOME_UNKNOWN",
+      escrowStatus: "escrowed",
+      settlementLockedAt: hoursAgo(3),
+      queuedAt: hoursAgo(2),
+      legs: [{ ...refundOverdue().legs[0], payeeName: "Tigist Alemu", gatewayRef: "refund:escrow-order-ord-4" }],
+    };
+    mocks.payouts.data = pages({ payouts: [unknown, releaseWithTwoLegs()], total: 2 });
+    const user = userEvent.setup();
+    renderPage();
+
+    const row = rowFor("Tigist Alemu");
+    expect(within(row).getByText("Gateway outcome unknown")).toBeTruthy();
+    expect(
+      within(row).getByText(
+        "Telebirr may already have paid this leg. Search the portal for refund:escrow-order-ord-4. If it is not there, wait and search again before paying: a payment can show up late. Record its ID if you find it; pay only if it is still missing.",
+      ),
+    ).toBeTruthy();
+    expect(within(row).getByText("Gateway called 3 h ago")).toBeTruthy();
+    expect(within(row).queryByRole("button", { name: "Mark as paid" })).toBeNull();
+
+    await user.type(within(row).getByLabelText("Telebirr transaction ID"), "TB2026100900004");
+    await user.click(within(row).getByRole("button", { name: "Record reference" }));
+    expect(
+      within(row).getByText("The portal shows 20,000.00 Birr paid to +251911000003 under this ID?"),
+    ).toBeTruthy();
+
+    // A plain PAYOUT_NOT_SUPPORTED row shows neither the hint nor the gateway age.
+    const farmerRow = rowFor("Abebe Kebede");
+    expect(within(farmerRow).queryByText(/Gateway called/)).toBeNull();
+    expect(within(farmerRow).queryByText(/may already have paid/)).toBeNull();
+  });
+
+  it("leaves out the gateway age for a lock taken before ESC-05", () => {
+    const legacy = {
+      ...refundOverdue(),
+      reason: "GATEWAY_OUTCOME_UNKNOWN",
+      legs: [{ ...refundOverdue().legs[0], gatewayRef: "refund:escrow-order-ord-2" }],
+    };
+    mocks.payouts.data = pages({ payouts: [legacy], total: 1 });
+    renderPage();
+
+    const row = rowFor("Sara Bekele");
+    expect(within(row).getByText(/Search the portal for refund:escrow-order-ord-2/)).toBeTruthy();
+    expect(within(row).queryByText(/Gateway called/)).toBeNull();
+  });
+
+  it("warns when a parked payout goes against the escrow's dispute verdict", () => {
+    // ESC-05: a release locked before a buyer_wins verdict, parked by the recovery step.
+    const against = {
+      ...releaseWithTwoLegs({ escrowStatus: "dispute_resolved", fromStatus: "dispute_resolved" }),
+      reason: "GATEWAY_OUTCOME_UNKNOWN",
+      disputeResolution: "buyer_wins",
+    };
+    const along = {
+      ...refundOverdue(),
+      escrowId: "escrow-order-ord-5",
+      escrowStatus: "dispute_resolved",
+      fromStatus: "dispute_resolved",
+      disputeResolution: "buyer_wins",
+      legs: [{ ...refundOverdue().legs[0], payeeName: "Meron Tadesse" }],
+    };
+    mocks.payouts.data = pages({ payouts: [against, along], total: 2 });
+    renderPage();
+
+    const warning =
+      "The dispute verdict is Buyer Wins, but this payout goes the other way (its lock was taken before the verdict). Do not pay it: check the escrow history first.";
+    expect(within(rowFor("Abebe Kebede")).getByText(warning)).toBeTruthy();
+    expect(within(rowFor("Meron Tadesse")).queryByText(warning)).toBeNull();
+  });
+
   it("shows a load failure instead of an empty queue", () => {
     mocks.payouts.isError = true;
     mocks.payouts.data = undefined;

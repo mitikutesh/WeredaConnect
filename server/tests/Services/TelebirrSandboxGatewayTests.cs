@@ -150,6 +150,38 @@ public class TelebirrSandboxGatewayTests
         resp.ToPayUrl.Should().BeNull();
     }
 
+    [Theory]
+    [InlineData("<html>gateway error</html>")]
+    [InlineData("")]
+    [InlineData("null")]
+    [InlineData("{}")]
+    [InlineData("{\"result\":\"SUCCESS\",\"code\":\"0\",\"biz_content\":{}}")]
+    public async Task HoldFunds_unreadable_or_incomplete_answer_is_a_network_error(string body)
+    {
+        // ESC-05: an answer that does not say whether Telebirr created the payment is an unknown
+        // outcome (TELEBIRR_NETWORK), never a definite refusal the caller may retry.
+        var handler = new FakeHandler(req => Task.FromResult(
+            req.RequestUri!.AbsolutePath.EndsWith("/apply/fabric-token")
+                ? Json(new TelebirrTokenResponse { Token = "T", ExpiresIn = 7200 }, AppJsonContext.Default.TelebirrTokenResponse)
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") }));
+        var gateway = new TelebirrSandboxGateway(
+            new HttpClient(handler),
+            new TelebirrSignatureService(TestPrivateKeyPem, null, TelebirrSignaturePadding.Pkcs1),
+            TestConfig());
+
+        var resp = await gateway.HoldFundsAsync(new HoldFundsRequest
+        {
+            TransactionRef = "b:d:initiate:1",
+            BuyerPhone = "+2519",
+            Amount = 100m,
+            Description = "x",
+        });
+
+        resp.Success.Should().BeFalse();
+        resp.ErrorCode.Should().Be(TelebirrGatewayErrors.Network);
+        resp.ToPayUrl.Should().BeNull();
+    }
+
     [Fact]
     public async Task Release_and_refund_fail_closed_with_payout_not_supported()
     {

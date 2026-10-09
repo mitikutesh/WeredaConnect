@@ -70,6 +70,9 @@ public class EscrowCronFunction
     private const int ManualPayoutReportPageSize = 50;
     private const int ManualPayoutReportMaxPages = 20;
 
+    /// <summary>ESC-05: stale settlement locks parked per status per run.</summary>
+    private const int StaleLockBatchSize = 50;
+
     private const int ReconciliationStaleMinutes = 30;
 
     /// <summary>
@@ -207,9 +210,10 @@ public class EscrowCronFunction
         catch (Exception ex)
         {
             context.Logger.LogError($"EscrowCronFunction error for action '{safeAction}': [{ex.GetType().Name}]");
-            // ESC-13: a sweep that died mid-run is an unknown outcome for whatever it was settling.
+            // ESC-13: a sweep that died mid-run. ESC-05: the outcome is unknown only when the
+            // exception escaped a settlement after its lock (the sweeps catch those per escrow).
             context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
-                null, "sweep_failed", MoneyAlarmLog.OutcomeUnknown, $"{safeAction}:{ex.GetType().Name}"));
+                null, "sweep_failed", MoneyAlarmLog.ExceptionOutcome(ex), $"{safeAction}:{ex.GetType().Name}"));
             return LambdaResponse.Error(500, "ESCROW_CRON_ERROR",
                 $"Cron job '{safeAction}' failed unexpectedly.");
         }
@@ -228,6 +232,8 @@ public class EscrowCronFunction
         _manualPayoutsWaiting = 0;
         // First and self-contained, so a failing sweep below can never skip the overdue alarm lines.
         var overdueCount = await ReportOverdueManualPayoutsAsync(context);
+        // ESC-05: before the sweeps, so a parked escrow is already out of their way this run.
+        var parkedCount = await ParkStaleSettlementLocksAsync(context);
         var releaseCount = await AutoReleaseAsync(context);
         var refundCount = await AutoRefundAsync(context);
         var (settledReleases, settledRefunds) = await SettleResolvedDisputesAsync(context);
@@ -242,13 +248,15 @@ public class EscrowCronFunction
             { "completed", completedCount.ToString() },
             { "manualPayoutsWaiting", _manualPayoutsWaiting.ToString() },
             { "manualPayoutsOverdue", overdueCount.ToString() },
+            { "staleLocksParked", parkedCount.ToString() },
             { "completedAt", DateTime.UtcNow.ToString("o") }
         };
 
         context.Logger.LogInformation(
             $"Auto-release/refund complete: {releaseCount} released, {refundCount} refunded, "
             + $"{settledReleases + settledRefunds} resolved disputes settled, {completedCount} crash-recovered to completed, "
-            + $"{_manualPayoutsWaiting} waiting for a manual payout, {overdueCount} manual payout legs overdue.");
+            + $"{_manualPayoutsWaiting} waiting for a manual payout, {overdueCount} manual payout legs overdue, "
+            + $"{parkedCount} stale settlement locks parked.");
 
         return new APIGatewayProxyResponse
         {
@@ -359,10 +367,10 @@ public class EscrowCronFunction
             {
                 context.Logger.LogError(
                     $"Dispute settlement: unexpected error processing an escrow: [{ex.GetType().Name}]. Continuing batch.");
-                // ESC-13: the exception may have hit after the gateway call, so the outcome is unknown.
+                // ESC-13: unknown when the exception escaped after the settlement lock (ESC-05).
                 context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
                     GetStringOrNull(escrow, "escrowId"), "dispute_settlement_exception",
-                    MoneyAlarmLog.OutcomeUnknown, ex.GetType().Name));
+                    MoneyAlarmLog.ExceptionOutcome(ex), ex.GetType().Name));
             }
         }
 
@@ -375,7 +383,7 @@ public class EscrowCronFunction
     private async Task<int> AutoReleaseAsync(ILambdaContext context)
     {
         var now = DateTime.UtcNow;
-        var escrows = await _escrowRepo.QueryByStatusForCronAsync("escrowed");
+        var escrows = await QuerySweepAsync(context, "release_query", () => _escrowRepo.QueryByStatusForCronAsync("escrowed"));
 
         var releaseCount = 0;
         foreach (var escrow in escrows)
@@ -441,10 +449,10 @@ public class EscrowCronFunction
             {
                 context.Logger.LogError(
                     $"Auto-release: unexpected error processing an escrow: [{ex.GetType().Name}]. Continuing batch.");
-                // ESC-13: the exception may have hit after the gateway call, so the outcome is unknown.
+                // ESC-13: unknown when the exception escaped after the settlement lock (ESC-05).
                 context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
                     GetStringOrNull(escrow, "escrowId"), "auto_release_exception",
-                    MoneyAlarmLog.OutcomeUnknown, ex.GetType().Name));
+                    MoneyAlarmLog.ExceptionOutcome(ex), ex.GetType().Name));
             }
         }
 
@@ -460,7 +468,8 @@ public class EscrowCronFunction
         var nowIso = now.ToString("o");
 
         // Query escrowed items with expiresAt <= now
-        var escrows = await _escrowRepo.QueryByStatusForCronAsync("escrowed", expiresAtBefore: nowIso);
+        var escrows = await QuerySweepAsync(context, "refund_query",
+            () => _escrowRepo.QueryByStatusForCronAsync("escrowed", expiresAtBefore: nowIso));
 
         var refundCount = 0;
         foreach (var escrow in escrows)
@@ -481,6 +490,29 @@ public class EscrowCronFunction
                 if (EscrowService.IsManualPayoutOpen(escrow))
                 {
                     NoteManualPayoutWaiting(context, GetString(escrow, "escrowId"), "auto-refund");
+                    continue;
+                }
+
+                // ESC-05: a settlement holds this escrow: one in flight, or one the recovery step
+                // just parked while this index copy still lacks the queue marker. Stamping the
+                // delivery, cancelling the order or giving its stock back now would act on money
+                // another settlement owns, and the refund would only 409 on the lock afterwards.
+                if (GetStringOrNull(escrow, SettlementLockFields.Lock) != null)
+                {
+                    context.Logger.LogInformation(
+                        $"ESCROW_SETTLEMENT_IN_FLIGHT_SKIPPED escrowId={MoneyAlarmLog.LogId(GetString(escrow, "escrowId"))} sweep=auto-refund");
+                    continue;
+                }
+
+                // ESC-05: the index copy can lag the base row (an admin release that just took the
+                // lock, a queue write, a status move, a delivery confirmation). One strongly
+                // consistent read decides before any side effect below.
+                var skipReason = AutoRefundSkipReason(
+                    await _escrowRepo.GetByIdAsync(GetString(escrow, "escrowId"), consistentRead: true));
+                if (skipReason != null)
+                {
+                    context.Logger.LogInformation(
+                        $"ESCROW_AUTO_REFUND_SKIPPED escrowId={MoneyAlarmLog.LogId(GetString(escrow, "escrowId"))} reason={skipReason}");
                     continue;
                 }
 
@@ -600,14 +632,105 @@ public class EscrowCronFunction
             {
                 context.Logger.LogError(
                     $"Auto-refund: unexpected error processing an escrow: [{ex.GetType().Name}]. Continuing batch.");
-                // ESC-13: the exception may have hit after the gateway call, so the outcome is unknown.
+                // ESC-13: unknown when the exception escaped after the settlement lock (ESC-05).
                 context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
                     GetStringOrNull(escrow, "escrowId"), "auto_refund_exception",
-                    MoneyAlarmLog.OutcomeUnknown, ex.GetType().Name));
+                    MoneyAlarmLog.ExceptionOutcome(ex), ex.GetType().Name));
             }
         }
 
         return refundCount;
+    }
+
+    /// <summary>
+    /// ESC-05 (O5): a sweep's status query. A failure skips that sweep for this run with a definite
+    /// failure line (no gateway call happened), like the dispute query, so the sweeps after it
+    /// still run.
+    /// </summary>
+    private static async Task<List<Dictionary<string, object>>> QuerySweepAsync(
+        ILambdaContext context, string code, Func<Task<List<Dictionary<string, object>>>> query)
+    {
+        try
+        {
+            return await query() ?? new List<Dictionary<string, object>>();
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError($"Sweep query {code} failed [{ex.GetType().Name}]; skipping this sweep for this run.");
+            context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                null, "sweep_failed", MoneyAlarmLog.OutcomeFailed, $"{code}:{ex.GetType().Name}"));
+            return new List<Dictionary<string, object>>();
+        }
+    }
+
+    /// <summary>
+    /// ESC-05 recovery step: a settlement lock older than 15 minutes on an escrowed,
+    /// dispute_resolved or (pre-1.9.0) disputed escrow that is not queued has no living owner,
+    /// and the gateway may have been called under it. Each one is parked in the manual payout
+    /// queue as <c>GATEWAY_OUTCOME_UNKNOWN</c> (<see cref="EscrowService.ParkStaleSettlementAsync"/>).
+    /// Never calls the gateway and never releases a lock. A failed query logs a definite failure
+    /// line; a failed park logs an unknown one (the lock stays and the next run tries again).
+    /// </summary>
+    private async Task<int> ParkStaleSettlementLocksAsync(ILambdaContext context)
+    {
+        var now = DateTime.UtcNow;
+        var lockedBefore = (now - SettlementLockFields.StaleAfter).ToString("o");
+        var parked = 0;
+        foreach (var status in EscrowService.StaleLockStatuses)
+        {
+            var rows = await QuerySweepAsync(context, $"lock_recovery_query:{status}",
+                () => _escrowRepo.QueryStaleSettlementLocksAsync(status, lockedBefore, StaleLockBatchSize));
+            foreach (var row in rows)
+            {
+                try
+                {
+                    if (await _escrowService.ParkStaleSettlementAsync(row, now) == EscrowService.StaleSettlementOutcome.Parked)
+                    {
+                        parked++;
+                        context.Logger.LogInformation(
+                            $"ESCROW_STALE_LOCK_PARKED escrowId={MoneyAlarmLog.LogId(GetStringOrNull(row, "escrowId"))} status={status}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                        GetStringOrNull(row, "escrowId"), "stale_lock_recovery_failed",
+                        MoneyAlarmLog.OutcomeUnknown, ex.GetType().Name));
+                }
+            }
+        }
+
+        return parked;
+    }
+
+    /// <summary>
+    /// ESC-05: why the auto-refund sweep must leave this escrow alone, read from the base row (not
+    /// the index copy), or null when it may go on: gone, no longer escrowed, an open manual payout,
+    /// a settlement lock, or a delivery confirmed meanwhile (the release sweep pays it).
+    /// </summary>
+    private static string? AutoRefundSkipReason(Dictionary<string, object>? current)
+    {
+        if (current == null)
+        {
+            return "missing";
+        }
+
+        if (GetString(current, "status") != "escrowed")
+        {
+            return "status";
+        }
+
+        if (EscrowService.IsManualPayoutOpen(current))
+        {
+            return "queued";
+        }
+
+        if (GetStringOrNull(current, SettlementLockFields.Lock) != null)
+        {
+            return "locked";
+        }
+
+        return string.IsNullOrEmpty(GetStringOrNull(current, "deliveryConfirmedAt")) ? null : "confirmed";
     }
 
     /// <summary>ESC-02: 202 ESCROW_034 means the settlement sits in the manual payout queue.</summary>
@@ -784,8 +907,8 @@ public class EscrowCronFunction
     private async Task<int> CompleteReleasedAsync(ILambdaContext context)
     {
         var now = DateTime.UtcNow.ToString("o");
-        var escrows = await _escrowRepo.QueryByStatusForCronAsync("released")
-                      ?? new List<Dictionary<string, object>>();
+        var escrows = await QuerySweepAsync(context, "complete_query",
+            () => _escrowRepo.QueryByStatusForCronAsync("released"));
 
         var completedCount = 0;
         foreach (var escrow in escrows)

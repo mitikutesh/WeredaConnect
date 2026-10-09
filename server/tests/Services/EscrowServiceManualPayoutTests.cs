@@ -607,9 +607,10 @@ public class EscrowServiceManualPayoutTests
     [Fact]
     public async Task Refund_OtherGatewayFailure_KeepsRetryablePath()
     {
+        // A definite refusal (ESC-05: a timeout is not one, see the unknown-outcome tests).
         _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
         _gateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>())
-            .Returns(new RefundFundsResponse { Success = false, ErrorCode = "TELEBIRR_TIMEOUT" });
+            .Returns(new RefundFundsResponse { Success = false, ErrorCode = "TELEBIRR_REFUND_FAILED" });
 
         var result = await _service.RefundAsync(RefundRequest(), "system");
 
@@ -763,7 +764,12 @@ public class EscrowServiceManualPayoutTests
 
         var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
 
-        result.IsSuccess.Should().BeTrue();
+        // ESC-05: the gateway said it paid the trucker, so the escrow never completes with
+        // truckerPayoutPending (which ESC-04 retries): the lock stays and the recovery step parks it.
+        result.Error!.HttpStatus.Should().Be(502);
+        result.Error.Code.Should().Be("ESCROW_013");
+        await AssertNothingSettled();
+        await _escrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
         _alarmLines.Should().Equal(
             "ESCROW_SETTLEMENT_FAILED escrowId=escrow-order-ord-1 action=trucker_release_failed outcome=unknown code=MANUAL_QUEUE_FAILED:GATEWAY_REF_MISSING");
     }

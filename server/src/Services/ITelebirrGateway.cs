@@ -52,6 +52,13 @@ public interface ITelebirrGateway
 /// <summary>
 /// Gateway error codes the escrow service reacts to by name.
 /// </summary>
+/// <remarks>
+/// ESC-05 rule for every gateway: a failure that may have moved money (no answer, a lost,
+/// unreadable or incomplete answer) returns <see cref="Timeout"/> or <see cref="Network"/>, or
+/// throws. The escrow service then keeps the settlement lock and parks the settlement for an
+/// admin; it never calls the gateway again for it. Any other failure code means Telebirr
+/// definitely did not move the money, and the next sweep retries.
+/// </remarks>
 public static class TelebirrGatewayErrors
 {
     /// <summary>
@@ -59,4 +66,10 @@ public static class TelebirrGatewayErrors
     /// made and goes to the manual payout queue (ESC-02).
     /// </summary>
     public const string PayoutNotSupported = "PAYOUT_NOT_SUPPORTED";
+
+    /// <summary>The request timed out: Telebirr may have acted on it.</summary>
+    public const string Timeout = "TELEBIRR_TIMEOUT";
+
+    /// <summary>No answer, or an answer that could not be read: Telebirr may have acted on it.</summary>
+    public const string Network = "TELEBIRR_NETWORK";
 }

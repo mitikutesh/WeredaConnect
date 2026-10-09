@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Money alarms synthetic test (ESC-13; the dispute verdict mismatch alarm since ESC-03).
+# Money alarms synthetic test (ESC-13; the dispute verdict mismatch alarm since ESC-03; the
+# unknown-outcome alarm since ESC-05).
 #
 # Proves that the CloudWatch metric filters and alarms behind the escrow money paths
 # fire on the exact log lines the server emits, without moving any money. Pairs with
@@ -12,6 +13,7 @@
 #     with the Lambda runtime's tab-separated prefix
 #   - checks that the lines of a normal queued payout (ESC-02) and lines carrying hostile
 #     client text, as the server writes them, match no money filter
+#   - checks that the unknown-outcome filter (ESC-05) skips an outcome=failed line
 #   - asserts the shape of the escrow-cron Errors alarm
 #   - prints the current state of every money alarm
 #
@@ -85,6 +87,7 @@ LG_CRON="/aws/lambda/${PREFIX}-escrow-cron"
 LG_SYNC="/aws/lambda/${PREFIX}-sync"
 
 A_SETTLE="${PREFIX}-escrow-settlement-failures"
+A_UNKNOWN="${PREFIX}-escrow-settlement-unknown-outcomes"
 A_CRON="${PREFIX}-escrow-cron-errors"
 A_ORDER="${PREFIX}-order-escrow-problems"
 A_PAYOUT="${PREFIX}-manual-payouts-overdue"
@@ -92,11 +95,12 @@ A_QUEUE="${PREFIX}-admin-queue-overdue"
 A_MISMATCH="${PREFIX}-dispute-verdict-order-mismatch"
 # Persistence alarm (three of four hourly datapoints): checked, never fired by this script.
 A_BLOCKED="${PREFIX}-dispute-verdict-settlement-blocked"
-ALL_ALARMS=("$A_SETTLE" "$A_CRON" "$A_ORDER" "$A_PAYOUT" "$A_QUEUE" "$A_MISMATCH" "$A_BLOCKED")
+ALL_ALARMS=("$A_SETTLE" "$A_UNKNOWN" "$A_CRON" "$A_ORDER" "$A_PAYOUT" "$A_QUEUE" "$A_MISMATCH" "$A_BLOCKED")
 
 # Sample lines: the exact formats of MoneyAlarmLog and the sync Lambda, with a synthetic id.
 SID="synthetic-esc13"
 L_SETTLE="ESCROW_SETTLEMENT_FAILED escrowId=${SID} action=release_failed outcome=failed code=SYNTHETIC"
+L_UNKNOWN="ESCROW_SETTLEMENT_FAILED escrowId=${SID} action=stale_lock_parked outcome=unknown code=release"
 L_LINK="ORDER_ESCROW_LINK_FAILED orderId=${SID} deliveryId=${SID} reason=[Synthetic]"
 L_PAYOUT="MANUAL_PAYOUT_OVERDUE escrowId=${SID} ref=release:farmer ageHours=25"
 L_QUEUE="ADMIN_QUEUE_OVERDUE orderId=${SID} reason=synthetic ageHours=25"
@@ -127,6 +131,8 @@ NEGATIVE_LINES=(
 CHECKS=(
   "${LG_ESCROW}|EscrowSettlementFailures|${L_SETTLE}"
   "${LG_CRON}|EscrowSettlementFailures|${L_SETTLE}"
+  "${LG_ESCROW}|EscrowSettlementUnknownOutcomes|${L_UNKNOWN}"
+  "${LG_CRON}|EscrowSettlementUnknownOutcomes|${L_UNKNOWN}"
   "${LG_SYNC}|OrderEscrowProblems|${L_LINK}"
   "${LG_CRON}|ManualPayoutsOverdue|${L_PAYOUT}"
   "${LG_CRON}|AdminQueueOverdue|${L_QUEUE}"
@@ -166,6 +172,24 @@ for entry in "${CHECKS[@]}"; do
     pass "${metric} on ${lg}: queued payouts and hostile client text are not counted"
   else
     fail "${metric} on ${lg}: pattern ${pattern} counts a queued-payout or hostile client line (matches: ${queued:-none})"
+  fi
+done
+echo
+
+echo "Unknown-outcome filter (ESC-05) skips an outcome=failed settlement line:"
+for lg in "$LG_ESCROW" "$LG_CRON"; do
+  pattern="$(aws_text logs describe-metric-filters --log-group-name "$lg" \
+    --query "metricFilters[?metricTransformations[0].metricName=='EscrowSettlementUnknownOutcomes'].filterPattern | [0]" 2>/dev/null)"
+  if [ -z "$pattern" ] || [ "$pattern" = "None" ]; then
+    fail "EscrowSettlementUnknownOutcomes on ${lg}: no metric filter deployed"
+    continue
+  fi
+  failed_hits="$(aws_text logs test-metric-filter --filter-pattern "$pattern" \
+    --log-event-messages "$L_SETTLE" "${RT_PREFIX}${L_SETTLE}" --query 'length(matches)' 2>/dev/null)"
+  if [ "$failed_hits" = "0" ]; then
+    pass "EscrowSettlementUnknownOutcomes on ${lg}: an outcome=failed line is not counted"
+  else
+    fail "EscrowSettlementUnknownOutcomes on ${lg}: pattern ${pattern} counts an outcome=failed line (matches: ${failed_hits:-none})"
   fi
 done
 echo
@@ -247,8 +271,8 @@ put_lines() {
     fail "could not write the synthetic lines to ${lg}"
   fi
 }
-put_lines "$LG_ESCROW" "$L_SETTLE" "$L_MISMATCH"
-put_lines "$LG_CRON" "$L_SETTLE" "$L_PAYOUT" "$L_QUEUE" "$L_MISMATCH"
+put_lines "$LG_ESCROW" "$L_SETTLE" "$L_UNKNOWN" "$L_MISMATCH"
+put_lines "$LG_CRON" "$L_SETTLE" "$L_UNKNOWN" "$L_PAYOUT" "$L_QUEUE" "$L_MISMATCH"
 put_lines "$LG_SYNC" "$L_LINK"
 
 # A JSON string cannot deserialize into APIGatewayProxyRequest, so the runtime fails the
@@ -308,7 +332,7 @@ for lg in "$LG_ESCROW" "$LG_CRON" "$LG_SYNC"; do
 done
 echo
 echo "Expected to clear by themselves with no new lines or errors:"
-echo "  ${A_SETTLE}, ${A_PAYOUT}, ${A_QUEUE}, ${A_MISMATCH}: about 75 to 90 minutes after the lines were written"
+echo "  ${A_SETTLE}, ${A_UNKNOWN}, ${A_PAYOUT}, ${A_QUEUE}, ${A_MISMATCH}: about 75 to 90 minutes after the lines were written"
 echo "  ${A_ORDER}: 15 to 30 minutes"
 echo "  ${A_CRON}: 20 to 25 minutes"
 

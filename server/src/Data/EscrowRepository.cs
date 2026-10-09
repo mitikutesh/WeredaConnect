@@ -172,6 +172,7 @@ public sealed class EscrowRepository : IEscrowRepository
         }
 
         var now = DateTime.UtcNow.ToString("o");
+        var lockId = Guid.NewGuid().ToString("N");
         var request = new UpdateItemRequest
         {
             TableName = _tableName,
@@ -180,7 +181,9 @@ public sealed class EscrowRepository : IEscrowRepository
                 { "escrowId", new AttributeValue { S = escrowId } },
                 { "createdAt", new AttributeValue { S = createdAt } }
             },
-            UpdateExpression = "SET settlementLock = :op, #updated = :now",
+            // ESC-05: the lock time starts the recovery clock (SettlementLockFields.StaleAfter);
+            // the lock id tells this lock from any other.
+            UpdateExpression = "SET settlementLock = :op, #lockAt = :now, #lockId = :lockId, #updated = :now",
             // Acquire only if no settlement is already in progress AND the escrow is
             // still in the status the caller validated. This is the atomic guard that runs
             // BEFORE any Telebirr call, so only the winner ever moves funds.
@@ -194,12 +197,15 @@ public sealed class EscrowRepository : IEscrowRepository
             {
                 { "#status", "status" },
                 { "#updated", "updatedAt" },
+                { "#lockAt", SettlementLockFields.LockAt },
+                { "#lockId", SettlementLockFields.LockId },
                 { "#manualPayout", ManualPayoutFields.Marker }
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
                 { ":op", new AttributeValue { S = op } },
                 { ":now", new AttributeValue { S = now } },
+                { ":lockId", new AttributeValue { S = lockId } },
                 { ":expected", new AttributeValue { S = expectedStatus } }
             }
         };
@@ -211,7 +217,13 @@ public sealed class EscrowRepository : IEscrowRepository
         }
         catch (ConditionalCheckFailedException)
         {
-            return false;
+            // ESC-05: the SDK retries a write whose answer was lost, and the retry fails its
+            // condition on our own lock. Only the random lock id we wrote tells our lock from
+            // another one taken at the same instant.
+            var latest = await GetItemAsync(escrowId, consistentRead: true);
+            return latest != null
+                && latest.TryGetValue(SettlementLockFields.Lock, out var heldOp) && heldOp.S == op
+                && latest.TryGetValue(SettlementLockFields.LockId, out var heldId) && heldId.S == lockId;
         }
     }
 
@@ -227,10 +239,16 @@ public sealed class EscrowRepository : IEscrowRepository
                 { "escrowId", new AttributeValue { S = escrowId } },
                 { "createdAt", new AttributeValue { S = createdAt } }
             },
-            UpdateExpression = "REMOVE settlementLock SET #updated = :now",
+            UpdateExpression = "REMOVE settlementLock, #lockAt, #lockId SET #updated = :now",
+            // ESC-05: a queued payout keeps its lock, even when the caller missed that its
+            // queue write committed.
+            ConditionExpression = "attribute_exists(escrowId) AND attribute_not_exists(#manualPayout)",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
-                { "#updated", "updatedAt" }
+                { "#updated", "updatedAt" },
+                { "#lockAt", SettlementLockFields.LockAt },
+                { "#lockId", SettlementLockFields.LockId },
+                { "#manualPayout", ManualPayoutFields.Marker }
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
@@ -238,11 +256,69 @@ public sealed class EscrowRepository : IEscrowRepository
             }
         };
 
-        await _dynamoDb.UpdateItemAsync(request);
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            // Queued (the queue owns the lock now) or gone: nothing to release.
+        }
     }
 
     /// <inheritdoc />
     public async Task<bool> TryQueueManualPayoutAsync(
+        string escrowId, string createdAt, string op, string reason, string fromStatus,
+        IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt)
+    {
+        var request = BuildQueueRequest(escrowId, createdAt, op, reason, fromStatus, legs, queuedAt);
+        // Only the settlement that holds the lock may queue, and only once. The lock
+        // stays in place on purpose: a queued escrow must not be settled by anyone else.
+        request.ConditionExpression = "#lock = :op AND attribute_not_exists(#marker)";
+        return await TryConditionalUpdateAsync(request);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryQueueStaleSettlementAsync(
+        string escrowId, string createdAt, string op, string fromStatus,
+        IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt, string? lockId, string parkId)
+    {
+        var request = BuildQueueRequest(
+            escrowId, createdAt, op, ManualPayoutFields.ReasonGatewayOutcomeUnknown, fromStatus, legs, queuedAt);
+        request.UpdateExpression = request.UpdateExpression.Replace("SET ", "SET #parkId = :parkId, ");
+        request.ExpressionAttributeNames["#parkId"] = ManualPayoutFields.ParkId;
+        request.ExpressionAttributeValues[":parkId"] = new AttributeValue { S = parkId };
+        // The same lock the recovery step read, and still the status it read: a lock released and
+        // taken again in between (a new lock id) is someone else's settlement.
+        request.ExpressionAttributeNames["#lockId"] = SettlementLockFields.LockId;
+        request.ExpressionAttributeNames["#status"] = "status";
+        var lockCondition = "attribute_not_exists(#lockId)";
+        if (lockId != null)
+        {
+            request.ExpressionAttributeValues[":lockId"] = new AttributeValue { S = lockId };
+            lockCondition = "#lockId = :lockId";
+        }
+
+        request.ConditionExpression =
+            $"#lock = :op AND attribute_not_exists(#marker) AND #status = :fromStatus AND {lockCondition}";
+        return await TryConditionalUpdateAsync(request);
+    }
+
+    private async Task<bool> TryConditionalUpdateAsync(UpdateItemRequest request)
+    {
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>The queue write without its condition (ESC-02, shared with the ESC-05 recovery step).</summary>
+    private UpdateItemRequest BuildQueueRequest(
         string escrowId, string createdAt, string op, string reason, string fromStatus,
         IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt)
     {
@@ -303,27 +379,14 @@ public sealed class EscrowRepository : IEscrowRepository
             i++;
         }
 
-        var request = new UpdateItemRequest
+        return new UpdateItemRequest
         {
             TableName = _tableName,
             Key = EscrowKey(escrowId, createdAt),
             UpdateExpression = "SET " + string.Join(", ", sets) + " ADD #version :one",
-            // Only the settlement that holds the lock may queue, and only once. The lock
-            // stays in place on purpose: a queued escrow must not be settled by anyone else.
-            ConditionExpression = "#lock = :op AND attribute_not_exists(#marker)",
             ExpressionAttributeNames = names,
             ExpressionAttributeValues = values
         };
-
-        try
-        {
-            await _dynamoDb.UpdateItemAsync(request);
-            return true;
-        }
-        catch (ConditionalCheckFailedException)
-        {
-            return false;
-        }
     }
 
     /// <inheritdoc />
@@ -759,6 +822,54 @@ public sealed class EscrowRepository : IEscrowRepository
         } while (lastKey != null && allItems.Count < limit);
 
         return allItems.Take(limit).ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<List<Dictionary<string, object>>> QueryStaleSettlementLocksAsync(
+        string status, string lockedBefore, int limit = 50)
+    {
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = "StatusExpiresIndex",
+            KeyConditionExpression = "#status = :status",
+            // A lock taken before the cutoff, or (a lock from before ESC-05, without a lock
+            // time) a row last written before it. Queued rows keep their lock on purpose.
+            FilterExpression =
+                "attribute_exists(#lock) AND attribute_not_exists(#manualPayout) "
+                + "AND (#lockAt <= :before OR (attribute_not_exists(#lockAt) AND #updated <= :before))",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" },
+                { "#lock", SettlementLockFields.Lock },
+                { "#lockAt", SettlementLockFields.LockAt },
+                { "#updated", "updatedAt" },
+                { "#manualPayout", ManualPayoutFields.Marker }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":status", new AttributeValue { S = status } },
+                { ":before", new AttributeValue { S = lockedBefore } }
+            }
+        };
+
+        // The filter drops almost every row of the partition, so pages often come back empty
+        // with a LastEvaluatedKey: keep paging to the limit or the end of the partition.
+        var items = new List<Dictionary<string, object>>();
+        Dictionary<string, AttributeValue>? lastKey = null;
+        do
+        {
+            if (lastKey != null)
+            {
+                request.ExclusiveStartKey = lastKey;
+            }
+
+            var response = await _dynamoDb.QueryAsync(request);
+            items.AddRange(response.Items.Select(CropRepository.FromItem));
+            lastKey = response.LastEvaluatedKey?.Count > 0 ? response.LastEvaluatedKey : null;
+        } while (lastKey != null && items.Count < limit);
+
+        return items.Take(limit).ToList();
     }
 
     /// <summary>
