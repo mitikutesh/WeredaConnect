@@ -44,6 +44,10 @@ enum AppErrorCode {
 
   /// The rating already exists on the server (web create conflict).
   alreadyRated,
+
+  /// The server refused a queued change (not an order) for good, so it was
+  /// never saved there.
+  changeNotSaved,
   unknown,
 }
 
@@ -124,6 +128,7 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.orderRefused => l10n.errorOrderRefused,
     AppErrorCode.orderNotPlaced => l10n.errorOrderNotPlaced,
     AppErrorCode.alreadyRated => l10n.alreadyRated,
+    AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
     AppErrorCode.server ||
@@ -132,10 +137,10 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
   };
 }
 
-/// The reason to show for an operation the sync queue rejected for good and
-/// reverted (mobile background sync, `SyncOperationRejected`). A refused
-/// order create removed the local order; any other refused order change was
-/// undone. Unknown for anything else, which callers do not announce.
+/// The reason to show for an operation the sync queue rejected for good
+/// (mobile background sync, `SyncOperationRejected`). A refused order create
+/// removed the local order; any other refused order change was undone; any
+/// other refused change was not saved on the server.
 AppErrorCode syncRejectionErrorCode({
   required String entityType,
   required String action,
@@ -148,7 +153,7 @@ AppErrorCode syncRejectionErrorCode({
   }
   return isRevertableRejectionMessage(message)
       ? AppErrorCode.orderRefused
-      : AppErrorCode.unknown;
+      : AppErrorCode.changeNotSaved;
 }
 
 /// Convenience: classify and localize in one step from a caught error.

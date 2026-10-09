@@ -325,15 +325,23 @@ class SyncQueue {
     return pendingCount + syncingCount;
   }
 
-  /// Get the count of failed operations a retry can still send: those that
-  /// ran out of retries. Operations the server rejected for good are terminal
-  /// (their reason was shown when they were rejected) and not counted, so the
-  /// count matches what [retryFailed] resets.
+  /// Get the count of failed operations: those that ran out of retries and
+  /// those the server rejected for good, except rejected order operations.
+  /// A rejected order change was undone (the order went back to the server's
+  /// view) and explained, so nothing is left for the user to act on. Any
+  /// other rejected change still sits in local data that never reached the
+  /// server, so it keeps counting.
   Future<int> getFailedCount() async {
     return _isar.syncOperations
         .filter()
         .statusEqualTo(SyncStatus.failed)
-        .retryCountLessThan(maxRetries, include: true)
+        .group(
+          (q) => q
+              .retryCountLessThan(maxRetries, include: true)
+              .or()
+              .not()
+              .entityTypeEqualTo('order'),
+        )
         .count();
   }
 

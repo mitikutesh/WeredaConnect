@@ -166,7 +166,9 @@ void main() {
     expect(find.text("Confirm it's you"), findsOneWidget);
   });
 
-  testWidgets('a rejection with nothing to explain shows nothing',
+  final en = lookupAppLocalizations(const Locale('en'));
+
+  testWidgets('a refused duplicate listing keeps the listing-form wording',
       (tester) async {
     await tester.pumpWidget(host());
 
@@ -176,10 +178,70 @@ void main() {
         entityId: 'crop-1',
         action: 'create',
         message: 'FRAUD_DUPLICATE_LISTING: duplicate',
+        userId: 'farmer-1',
       ),
     );
     await settle(tester);
 
+    expect(find.text(en.fraudDuplicateListing), findsOneWidget);
+  });
+
+  testWidgets('any other refused change says it was not saved', (tester) async {
+    await tester.pumpWidget(host());
+
+    events.emit(
+      const SyncOperationRejected(
+        entityType: 'delivery',
+        entityId: 'delivery-1',
+        action: 'create',
+        message: 'DELIVERY_ORDER_REQUIRED: missing orderId',
+      ),
+    );
+    await settle(tester);
+
+    expect(find.text(en.errorChangeNotSaved), findsOneWidget);
+  });
+
+  testWidgets('another user\'s refusal is not shown (shared device)',
+      (tester) async {
+    // Kept before this user signed in, raised for someone else's op.
+    events.emit(
+      const SyncOperationRejected(
+        entityType: 'order',
+        entityId: 'order-9',
+        action: 'update',
+        message: 'ORDER_VALIDATION: no',
+        userId: 'farmer-2',
+      ),
+    );
+    await tester.pumpWidget(host());
+    await settle(tester);
+
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets('a refused batch reads as one message, not a queue of them',
+      (tester) async {
+    await tester.pumpWidget(host());
+
+    for (var i = 0; i < 20; i++) {
+      events.emit(
+        SyncOperationRejected(
+          entityType: 'order',
+          entityId: 'order-$i',
+          action: 'update',
+          message: '',
+          userId: 'farmer-1',
+        ),
+      );
+    }
+    await settle(tester);
+
+    expect(find.text(en.errorOrderRefused), findsOneWidget);
+    // Nothing else is waiting behind it.
+    ScaffoldMessenger.of(tester.element(find.text('app')))
+        .removeCurrentSnackBar();
+    await settle(tester);
     expect(find.byType(SnackBar), findsNothing);
   });
 }

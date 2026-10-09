@@ -334,12 +334,18 @@ void main() {
 
     // ESC-12: rejected ops are terminal; the failed count is what Retry can
     // still send.
-    test('getFailedCount leaves out operations the server rejected', () async {
-      for (final id in ['op-exhausted', 'op-rejected']) {
+    test(
+        'getFailedCount leaves out only rejected order ops (reverted and '
+        'explained)', () async {
+      for (final (id, entityType) in [
+        ('op-exhausted', 'order'),
+        ('op-rejected', 'order'),
+        ('op-crop-rejected', 'crop_listing'),
+      ]) {
         await syncQueue.enqueue(
           userId: 'user-001',
-          entityType: 'order',
-          entityId: 'order-$id',
+          entityType: entityType,
+          entityId: '$entityType-$id',
           action: 'update',
           data: '{}',
           operationId: id,
@@ -349,8 +355,11 @@ void main() {
         await syncQueue.markAsFailed('op-exhausted');
       }
       await syncQueue.markAsRejected('op-rejected');
+      // A refused listing stays on the phone but never reached the server:
+      // it keeps counting so Home still shows it.
+      await syncQueue.markAsRejected('op-crop-rejected');
 
-      expect(await syncQueue.getFailedCount(), 1);
+      expect(await syncQueue.getFailedCount(), 2);
       expect(
         SyncQueue.isRejected((await syncQueue.getOperation('op-rejected'))!),
         isTrue,
@@ -359,9 +368,9 @@ void main() {
         SyncQueue.isRejected((await syncQueue.getOperation('op-exhausted'))!),
         isFalse,
       );
-      // Retry resets exactly what the count showed.
+      // Retry resets the exhausted op; the rejected listing stays counted.
       expect(await syncQueue.retryFailed(), 1);
-      expect(await syncQueue.getFailedCount(), 0);
+      expect(await syncQueue.getFailedCount(), 1);
     });
 
     test('rejectOpenOperationsFor rejects only that entity\'s open ops',

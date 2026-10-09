@@ -182,6 +182,53 @@ void main() {
       }
     });
 
+    // Reviewer repro: pay then cancel offline, both refused, GET 503. Each
+    // optimistic write bumped the version (3 -> 4 -> 5), so restoring only
+    // one op's base (4) left the row ahead of the server and the pull guard
+    // skipped it forever.
+    group('two refused changes and a failed read', () {
+      Future<(SyncOperation, SyncOperation)> payThenCancelRefused() async {
+        await putOrder(status: OrderStatus.created);
+        await repo.submitPayment('order-1', 'REF-1');
+        // Idempotency keys have millisecond resolution.
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+        await repo.cancelOrder('order-1', 'buyer-1');
+        expect((await load())!.version, 5);
+        final ops = await opsFor('order-1');
+        ops.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+        for (final op in ops) {
+          await queue.markAsRejected(op.operationId);
+        }
+        answerOrder(() async => throw const ServerException('busy', 503));
+        answerOrderList([_serverOrder(status: 'created')]);
+        return (ops.first, ops.last);
+      }
+
+      Future<void> expectPullOverwrites() async {
+        expect((await load())!.version, 3);
+        await sync.pullOrders(userId: 'buyer-1', role: 'buyer');
+        final order = (await load())!;
+        expect(order.status, OrderStatus.created);
+        expect(order.version, 3);
+      }
+
+      test('reverted with the first op (same batch)', () async {
+        final (pay, _) = await payThenCancelRefused();
+
+        await sync.revertRejected(pay, 'ORDER_VALIDATION: no');
+
+        await expectPullOverwrites();
+      });
+
+      test('reverted with the later op (another batch)', () async {
+        final (_, cancel) = await payThenCancelRefused();
+
+        await sync.revertRejected(cancel, 'ORDER_VALIDATION: no');
+
+        await expectPullOverwrites();
+      });
+    });
+
     test('a refused create removes the local order without a read', () async {
       await putOrder(status: OrderStatus.created, version: 1);
       final op = await queue.enqueue(

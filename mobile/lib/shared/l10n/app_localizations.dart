@@ -316,6 +316,12 @@ abstract class AppLocalizations {
   /// **'This order could not be placed, so it was removed. Please order again.'**
   String get errorOrderNotPlaced;
 
+  /// The server refused a queued change for good (listing, trip, delivery, rating, message); it stays on this phone but was never saved
+  ///
+  /// In en, this message translates to:
+  /// **'This change could not be saved on the server.'**
+  String get errorChangeNotSaved;
+
   /// Banner when a marketplace refresh failed and cached data is shown
   ///
   /// In en, this message translates to:

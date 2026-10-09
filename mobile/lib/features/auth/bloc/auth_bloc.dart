@@ -19,6 +19,7 @@ import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/payment_intent.dart';
 import 'package:wereda_connect/core/models/rating.dart';
 import 'package:wereda_connect/core/models/sync_operation.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 
@@ -46,6 +47,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final OfflineAuthCache _offlineCache;
   final Isar? _isar;
   final Future<String?> Function()? _pushTokenProvider;
+  final SecurityEvents _securityEvents;
   StreamSubscription<void>? _sessionExpiredSub;
   String? _currentPhoneNumber;
   bool _cancelled = false;
@@ -82,16 +84,19 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   /// [pushTokenProvider] returns this device's current FCM token (mobile
   /// only) so logout can ask the server to stop pushing to it.
   /// [sessionExpired] fires when the server rejects the refresh token.
+  /// [securityEvents] defaults to the app-wide bus (tests inject one).
   AuthBloc({
     AuthService? authService,
     OfflineAuthCache? offlineCache,
     Isar? isar,
     Future<String?> Function()? pushTokenProvider,
     Stream<void>? sessionExpired,
+    SecurityEvents? securityEvents,
   })  : _authService = authService ?? AuthService(),
         _offlineCache = offlineCache ?? OfflineAuthCache(),
         _isar = isar,
         _pushTokenProvider = pushTokenProvider,
+        _securityEvents = securityEvents ?? SecurityEvents.instance,
         super(const AuthInitial()) {
     // Register event handlers
     on<AuthCheckRequested>(_onAuthCheckRequested);
@@ -651,6 +656,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         await _cancelUserPendingIntents(_isar, userId);
         await _clearUserBusinessData(_isar, userId);
       }
+      // Sync refusals kept for a listener belong to the leaving user.
+      _securityEvents.clearKeptRejections();
 
       // Clear offline credentials by default (event.clearCache). Hardcoding
       // false left the password hash + tokens on the device after an

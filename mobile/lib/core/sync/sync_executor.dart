@@ -228,9 +228,9 @@ class SyncBatchResult {
 /// - `error` with `ORDER_KYC_REQUIRED` → reject, undo the local change via
 ///   [KycRejectionHandler], ask the UI to offer Fayda verification
 /// - `error` with any other `ORDER_*` code, `FRAUD_*`, `SYNC_VALIDATION` or
-///   `DELIVERY_ORDER_REQUIRED` → reject (never retried); a refused order
-///   change is undone via [PermanentRejectionHandler] and explained through a
-///   [SyncOperationRejected] event
+///   `DELIVERY_ORDER_REQUIRED` → reject (never retried) and explain through a
+///   [SyncOperationRejected] event; a refused order change is first undone
+///   via [PermanentRejectionHandler]
 /// - `error` → mark failed (retry up to 3 times via [SyncQueue])
 ///
 /// A refused `create` also rejects the operations queued behind it for that
@@ -883,14 +883,19 @@ class SyncExecutor {
         isRevertableRejectionMessage(message);
   }
 
+  /// Background operations the user never made (matching analytics): a
+  /// refusal is not announced.
+  static const _unannouncedEntityTypes = {'match_event'};
+
   /// Settle the operations a batch just rejected for good ([message] is null
   /// when the whole batch was refused):
   /// - a refused `create` rejects the operations queued behind it for that
   ///   entity, which could only loop on a transient "not found";
   /// - a refused order change (or any `ORDER_*` refusal) is undone through
-  ///   [PermanentRejectionHandler] and then announced as a
-  ///   [SyncOperationRejected] event, once per entity, after the undo so a
-  ///   screen that reloads reads the reverted row.
+  ///   [PermanentRejectionHandler];
+  /// - every refusal is announced as a [SyncOperationRejected] event, once
+  ///   per entity, after the undo so a screen that reloads reads the
+  ///   reverted row.
   Future<void> _settleRejections(
     List<(SyncOperation, String?)> rejected,
   ) async {
@@ -905,25 +910,30 @@ class SyncExecutor {
 
     final settled = <String>{};
     for (final (operation, message) in rejected) {
-      if (operation.entityType != 'order' &&
-          !isRevertableRejectionMessage(message)) {
-        continue;
-      }
+      if (_unannouncedEntityTypes.contains(operation.entityType)) continue;
       if (!settled.add('${operation.entityType}:${operation.entityId}')) {
         continue;
       }
       final reason = message ?? '';
-      try {
-        await _onPermanentRejection?.call(operation, reason);
-      } on Object catch (e) {
-        debugPrint('[SYNC] permanent rejection handler failed: $e');
+      if (operation.entityType == 'order' ||
+          isRevertableRejectionMessage(message)) {
+        try {
+          await _onPermanentRejection?.call(operation, reason);
+        } on Object catch (e) {
+          debugPrint('[SYNC] permanent rejection handler failed: $e');
+        }
       }
+      // The key starts with its user's id, the same prefix the queue uses
+      // to keep users apart (getPendingOperationsForUser).
+      final key = operation.idempotencyKey;
+      final separator = key.indexOf(':');
       _securityEvents.emit(
         SyncOperationRejected(
           entityType: operation.entityType,
           entityId: operation.entityId,
           action: operation.action,
           message: reason,
+          userId: separator > 0 ? key.substring(0, separator) : null,
         ),
       );
     }

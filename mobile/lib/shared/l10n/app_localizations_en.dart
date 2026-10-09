@@ -124,6 +124,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'This order could not be placed, so it was removed. Please order again.';
 
   @override
+  String get errorChangeNotSaved =>
+      'This change could not be saved on the server.';
+
+  @override
   String get showingCachedResults =>
       'Showing saved results — couldn\'t refresh.';
 

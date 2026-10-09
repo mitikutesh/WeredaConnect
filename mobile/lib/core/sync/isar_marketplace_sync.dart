@@ -145,9 +145,9 @@ class IsarMarketplaceSync implements MarketplaceSync {
   ///   way, whose own outcome settles the row; the order is removed when the
   ///   server says it does not exist or this user is not a party (404, 403);
   /// - when that read fails (offline, 401, 5xx) the local version goes back
-  ///   to the one the refused operation was based on, so the next
-  ///   [pullOrders], which the rejected operation no longer blocks,
-  ///   overwrites the row.
+  ///   to the lowest one its refused operations were based on, so the next
+  ///   [pullOrders], which rejected operations no longer block, overwrites
+  ///   the row.
   ///
   /// Every path clears the order pull stamp so that pull is not throttled.
   /// Other entity types are left alone.
@@ -206,28 +206,47 @@ class IsarMarketplaceSync implements MarketplaceSync {
     });
   }
 
-  /// Put the local order back on the version the refused operation was based
-  /// on (the optimistic write bumped it by one), so a pull is not skipped by
-  /// the "never regress" guard. No-op when the row moved on since.
+  /// Put the local order back on the lowest version any of its refused
+  /// operations was based on, so a pull is not skipped by the "never
+  /// regress" guard. Each optimistic write bumped the version by one, so two
+  /// refused changes (pay, then cancel) leave the row two ahead of the
+  /// server, and their rejections may come in different batches. No-op when
+  /// a newer change is queued for the order.
   Future<void> _restoreBaseVersion(SyncOperation operation) async {
+    final ops = await _isar.syncOperations
+        .filter()
+        .entityTypeEqualTo(operation.entityType)
+        .entityIdEqualTo(operation.entityId)
+        .findAll();
     int? base;
-    try {
-      final data = jsonDecode(operation.data);
-      if (data is Map) base = (data['version'] as num?)?.toInt();
-    } on FormatException {
-      return;
+    for (final op in ops.where(SyncQueue.isRejected)) {
+      final version = _sentVersion(op);
+      if (version != null && (base == null || version < base)) base = version;
     }
     if (base == null) return;
     final baseVersion = base;
     await _isar.writeTxn(() async {
+      if (await _hasOpenUploads(operation.entityType, operation.entityId)) {
+        return;
+      }
       final local = await _isar.orders
           .filter()
           .orderIdEqualTo(operation.entityId)
           .findFirst();
-      if (local == null || local.version != baseVersion + 1) return;
+      if (local == null || local.version <= baseVersion) return;
       local.version = baseVersion;
       await _isar.orders.put(local);
     });
+  }
+
+  /// The pre-change version an update operation sent, if any.
+  static int? _sentVersion(SyncOperation op) {
+    try {
+      final data = jsonDecode(op.data);
+      return data is Map ? (data['version'] as num?)?.toInt() : null;
+    } on FormatException {
+      return null;
+    }
   }
 
   /// Whether an operation for this entity is still on its way to the server

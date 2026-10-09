@@ -121,6 +121,9 @@ class AppLocalizationsAm extends AppLocalizations {
       'ይህ ትዕዛዝ ሊገባ አልቻለም፣ ስለዚህ ተወግዷል። እባክዎ እንደገና ይዘዙ።';
 
   @override
+  String get errorChangeNotSaved => 'ይህ ለውጥ በአገልጋዩ ላይ ሊቀመጥ አልቻለም።';
+
+  @override
   String get showingCachedResults => 'የተቀመጡ ውጤቶችን በማሳየት ላይ — ማደስ አልተቻለም።';
 
   @override

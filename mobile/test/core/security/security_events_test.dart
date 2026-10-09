@@ -73,6 +73,19 @@ void main() {
     expect(second, isEmpty);
   });
 
+  test('logout drops kept rejections (clearKeptRejections)', () async {
+    final events = SecurityEvents.forTesting()
+      ..emit(_rejected('o-1'))
+      ..clearKeptRejections();
+
+    final received = <SecurityEvent>[];
+    final sub = events.events.listen(received.add);
+    await Future<void>.delayed(Duration.zero);
+    await sub.cancel();
+
+    expect(received, isEmpty);
+  });
+
   test('with a listener, a rejection is delivered straight away', () async {
     final events = SecurityEvents.forTesting();
     final received = <SecurityEvent>[];

@@ -109,15 +109,23 @@ void main() {
       }
     });
 
-    test('other entities are announced only for ORDER_* refusals', () {
-      expect(
-        syncRejectionErrorCode(
-          entityType: 'crop_listing',
-          action: 'create',
-          message: 'FRAUD_DUPLICATE_LISTING: dup',
-        ),
-        AppErrorCode.unknown,
-      );
+    test('any other refused change was not saved', () {
+      for (final (entityType, message) in [
+        ('crop_listing', 'FRAUD_VELOCITY_EXCEEDED: slow down'),
+        ('trip', ''),
+        ('delivery', 'DELIVERY_ORDER_REQUIRED: missing orderId'),
+        ('rating', 'SYNC_VALIDATION: bad'),
+      ]) {
+        expect(
+          syncRejectionErrorCode(
+            entityType: entityType,
+            action: 'create',
+            message: message,
+          ),
+          AppErrorCode.changeNotSaved,
+          reason: entityType,
+        );
+      }
     });
   });
 
@@ -129,6 +137,7 @@ void main() {
         AppErrorCode.orderRefused,
         AppErrorCode.orderNotPlaced,
         AppErrorCode.alreadyRated,
+        AppErrorCode.changeNotSaved,
       ]) {
         final text = localizeErrorCode(code, l10n);
         expect(text, isNotEmpty, reason: '$locale $code');
@@ -145,6 +154,10 @@ void main() {
       expect(
         localizeErrorCode(AppErrorCode.alreadyRated, l10n),
         l10n.alreadyRated,
+      );
+      expect(
+        localizeErrorCode(AppErrorCode.changeNotSaved, l10n),
+        l10n.errorChangeNotSaved,
       );
     }
   });

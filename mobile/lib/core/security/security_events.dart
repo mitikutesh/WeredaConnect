@@ -95,7 +95,8 @@ class KycRequired extends SecurityEvent {
 
 /// The server refused a queued operation for good
 /// (specs/contracts/sync-protocol.md 1.10.0): the sync queue stopped
-/// retrying it and undid the local change, so the user must be told why.
+/// retrying it (and undid the local change of an order), so the user must be
+/// told why.
 class SyncOperationRejected extends SecurityEvent {
   /// The sync entity type (`order`, ...).
   final String entityType;
@@ -107,11 +108,16 @@ class SyncOperationRejected extends SecurityEvent {
   /// The server message (`ORDER_VALIDATION: ...`); English, never shown.
   final String message;
 
+  /// Whose operation it was (the idempotency key's user), so another user
+  /// signed in on a shared device is not shown it. Null when unknown.
+  final String? userId;
+
   const SyncOperationRejected({
     required this.entityType,
     required this.entityId,
     required this.action,
     required this.message,
+    this.userId,
   });
 }
 
@@ -127,6 +133,7 @@ class SyncOperationRejected extends SecurityEvent {
 /// runs before the signed-in shell mounts the listener) is kept, up to
 /// [maxUndeliveredRejections], and delivered to the first listener, so a
 /// change made offline and refused on the next launch is still explained.
+/// Logout drops them ([clearKeptRejections]).
 ///
 /// When the user cancels the step-up prompt, further [StepUpRequired] events
 /// are dropped for [stepUpCooldown] so every later background sync
@@ -190,6 +197,10 @@ class SecurityEvents {
       _events.add(_undeliveredRejections.removeFirst());
     }
   }
+
+  /// Drop the kept [SyncOperationRejected] events (logout), so the next
+  /// account signed in on this device is not shown them.
+  void clearKeptRejections() => _undeliveredRejections.clear();
 
   /// True while a cancelled step-up prompt keeps background re-prompts quiet.
   bool get stepUpSuppressed {

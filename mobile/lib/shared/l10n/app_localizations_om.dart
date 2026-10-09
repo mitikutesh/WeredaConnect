@@ -125,6 +125,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Ajajni kun galmaa\'uu hin dandeenye, kanaaf haqameera. Maaloo irra deebi\'aa ajajaa.';
 
   @override
+  String get errorChangeNotSaved =>
+      'Jijjiiramni kun sarvarii irratti olkaa\'amuu hin dandeenye.';
+
+  @override
   String get showingCachedResults =>
       'Bu\'aawwan kuufaman agarsiisaa jira — haaromsuun hin dandaʼamne.';
 

@@ -297,8 +297,8 @@ void main() {
   });
 
   test(
-      'any refused create rejects its queued ops: a FRAUD_ crop create '
-      '(not reverted, not announced)', () async {
+      'any refused create rejects its queued ops: a FRAUD_ crop create is '
+      'announced (with its owner) and still counted, not reverted', () async {
     await enqueue(
       'op-crop',
       entityType: 'crop_listing',
@@ -317,11 +317,35 @@ void main() {
     ]);
 
     await executor.executeBatch();
+    await _waitFor(() => rejections().isNotEmpty);
 
     expect(await isRejected('op-crop'), isTrue);
     expect(await isRejected('op-crop-delete'), isTrue);
     expect(reverts, isEmpty);
+    final event = rejections().single;
+    expect(event.entityType, 'crop_listing');
+    expect(event.action, 'create');
+    expect(event.message, 'FRAUD_DUPLICATE_LISTING: duplicate');
+    expect(event.userId, 'farmer-1');
+    // The listing stays on the phone but never reached the server: Home
+    // keeps showing it as failed.
+    expect(await syncQueue.getFailedCount(), 2);
+  });
+
+  test('a refused background match event is not announced', () async {
+    await enqueue(
+      'op-match',
+      entityType: 'match_event',
+      entityId: 'match-1',
+      action: 'create',
+    );
+    replyWith([error('op-match', 'SYNC_VALIDATION: bad payload')]);
+
+    await executor.executeBatch();
     await Future<void>.delayed(Duration.zero);
+
+    expect(await isRejected('op-match'), isTrue);
+    expect(reverts, isEmpty);
     expect(rejections(), isEmpty);
   });
 
@@ -366,13 +390,17 @@ void main() {
     await executor.executeBatch();
     await _waitFor(() => rejections().isNotEmpty);
 
+    await _waitFor(() => rejections().length >= 2);
+
     for (final id in ['op-order', 'op-trip', 'op-trip-later']) {
       expect(await isRejected(id), isTrue, reason: id);
     }
     expect(reverts, hasLength(1));
     expect(reverts.single.$1.operationId, 'op-order');
     expect(reverts.single.$2, isEmpty);
-    expect(rejections().single.entityId, 'order-1');
+    expect(rejections().map((e) => e.entityId), ['order-1', 'trip-1']);
+    // The order was reverted, so only the two trip ops still count.
+    expect(await syncQueue.getFailedCount(), 2);
   });
 
   test('two refused ops for one order are reverted and announced once',
