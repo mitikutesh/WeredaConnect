@@ -326,21 +326,25 @@ class SyncQueue {
   }
 
   /// Get the count of failed operations: those that ran out of retries and
-  /// those the server rejected for good, except rejected order operations.
-  /// A rejected order change was undone (the order went back to the server's
-  /// view) and explained, so nothing is left for the user to act on. Any
-  /// other rejected change still sits in local data that never reached the
-  /// server, so it keeps counting.
+  /// those the server rejected for good, except rejected order operations
+  /// and match events. A rejected order change was undone (the order went
+  /// back to the server's view) and explained, and a match event is
+  /// background analytics the user never made, so nothing is left for the
+  /// user to act on. Any other rejected change still sits in local data that
+  /// never reached the server, so it keeps counting.
   Future<int> getFailedCount() async {
     return _isar.syncOperations
         .filter()
         .statusEqualTo(SyncStatus.failed)
         .group(
-          (q) => q
-              .retryCountLessThan(maxRetries, include: true)
-              .or()
-              .not()
-              .entityTypeEqualTo('order'),
+          (q) => q.retryCountLessThan(maxRetries, include: true).or().group(
+                (r) => r
+                    .not()
+                    .entityTypeEqualTo('order')
+                    .and()
+                    .not()
+                    .entityTypeEqualTo('match_event'),
+              ),
         )
         .count();
   }

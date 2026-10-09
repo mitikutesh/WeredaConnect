@@ -347,6 +347,46 @@ void main() {
     expect(await isRejected('op-match'), isTrue);
     expect(reverts, isEmpty);
     expect(rejections(), isEmpty);
+    // Not a "Sync failed" item either: Retry could never send it.
+    expect(await syncQueue.getFailedCount(), 0);
+  });
+
+  test(
+      'a batch is announced together after every revert, even when each '
+      'revert waits on a slow read', () async {
+    const readDelay = Duration(milliseconds: 400);
+    final seenByHandlers = <int>[];
+    executor.dispose();
+    executor = buildExecutor(
+      securityEvents: events,
+      onPermanentRejection: (op, message) async {
+        seenByHandlers.add(rejections().length);
+        await Future<void>.delayed(readDelay); // a 3G GET /orders/{id}
+      },
+    );
+    final arrivals = <DateTime>[];
+    final timing = events.events.listen((_) => arrivals.add(DateTime.now()));
+    addTearDown(timing.cancel);
+    for (final id in ['op-1', 'op-2', 'op-3']) {
+      await enqueue(id, entityId: 'order-$id');
+    }
+    replyWith([
+      for (final id in ['op-1', 'op-2', 'op-3'])
+        error(id, 'ORDER_VALIDATION: no'),
+    ]);
+
+    await executor.executeBatch();
+    await _waitFor(() => arrivals.length >= 3);
+
+    // No handler ran after an announcement went out.
+    expect(seenByHandlers, [0, 0, 0]);
+    expect(rejections(), hasLength(3));
+    // The three arrive well inside the listener's 300ms burst window, so
+    // they read as one message.
+    expect(
+      arrivals.last.difference(arrivals.first),
+      lessThan(const Duration(milliseconds: 100)),
+    );
   });
 
   test('a FRAUD_ rejection of an order op is reverted and announced', () async {

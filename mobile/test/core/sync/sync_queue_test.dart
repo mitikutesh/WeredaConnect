@@ -336,11 +336,12 @@ void main() {
     // still send.
     test(
         'getFailedCount leaves out only rejected order ops (reverted and '
-        'explained)', () async {
+        'explained) and rejected match events (background)', () async {
       for (final (id, entityType) in [
         ('op-exhausted', 'order'),
         ('op-rejected', 'order'),
         ('op-crop-rejected', 'crop_listing'),
+        ('op-match-rejected', 'match_event'),
       ]) {
         await syncQueue.enqueue(
           userId: 'user-001',
@@ -358,6 +359,8 @@ void main() {
       // A refused listing stays on the phone but never reached the server:
       // it keeps counting so Home still shows it.
       await syncQueue.markAsRejected('op-crop-rejected');
+      // Matching analytics the user never made: never a "failed" item.
+      await syncQueue.markAsRejected('op-match-rejected');
 
       expect(await syncQueue.getFailedCount(), 2);
       expect(

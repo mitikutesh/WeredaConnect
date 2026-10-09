@@ -894,8 +894,10 @@ class SyncExecutor {
   /// - a refused order change (or any `ORDER_*` refusal) is undone through
   ///   [PermanentRejectionHandler];
   /// - every refusal is announced as a [SyncOperationRejected] event, once
-  ///   per entity, after the undo so a screen that reloads reads the
-  ///   reverted row.
+  ///   per entity. The batch's events go out together after every undo has
+  ///   finished: a screen that reloads reads the reverted rows, and the UI
+  ///   can show a refused batch as one message even when each undo waited
+  ///   on a slow read.
   Future<void> _settleRejections(
     List<(SyncOperation, String?)> rejected,
   ) async {
@@ -909,6 +911,7 @@ class SyncExecutor {
     }
 
     final settled = <String>{};
+    final announcements = <SyncOperationRejected>[];
     for (final (operation, message) in rejected) {
       if (_unannouncedEntityTypes.contains(operation.entityType)) continue;
       if (!settled.add('${operation.entityType}:${operation.entityId}')) {
@@ -927,7 +930,7 @@ class SyncExecutor {
       // to keep users apart (getPendingOperationsForUser).
       final key = operation.idempotencyKey;
       final separator = key.indexOf(':');
-      _securityEvents.emit(
+      announcements.add(
         SyncOperationRejected(
           entityType: operation.entityType,
           entityId: operation.entityId,
@@ -937,6 +940,7 @@ class SyncExecutor {
         ),
       );
     }
+    announcements.forEach(_securityEvents.emit);
   }
 
   /// Mark all operations in a batch as failed (increments retry count).
