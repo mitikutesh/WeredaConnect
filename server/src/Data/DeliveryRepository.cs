@@ -297,6 +297,13 @@ public sealed class DeliveryRepository : IDeliveryRepository
     }
 
     /// <inheritdoc />
+    public async Task<Dictionary<string, object>?> GetByIdAsync(string deliveryId, bool consistentRead)
+    {
+        var item = await GetItemAsync(deliveryId, consistentRead);
+        return item != null ? CropRepository.FromItem(item) : null;
+    }
+
+    /// <inheritdoc />
     public async Task<bool> TryMarkDisputedAsync(string deliveryId, string disputedBy, string? reason)
     {
         var existing = await GetItemAsync(deliveryId);
@@ -358,11 +365,59 @@ public sealed class DeliveryRepository : IDeliveryRepository
         }
     }
 
+    /// <inheritdoc />
+    public async Task<bool> TryRecordDisputeResolutionAsync(string deliveryId, string resolution, string resolvedAt)
+    {
+        var existing = await GetItemAsync(deliveryId, consistentRead: true);
+        if (existing == null)
+        {
+            return false;
+        }
+
+        var tripId = existing.TryGetValue("tripId", out var tripAttr) ? tripAttr.S ?? "" : "";
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "deliveryId", new AttributeValue { S = deliveryId } },
+                { "tripId", new AttributeValue { S = tripId } }
+            },
+            UpdateExpression = "SET #resolution = :resolution, #resolvedAt = :resolvedAt, #updated = :updated ADD #v :one",
+            // No version condition: the status and the missing verdict are the guard, so a
+            // version bumped by the disputed write just before cannot fail this stamp.
+            ConditionExpression = "#status = :disputed AND attribute_not_exists(#resolution)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" }, { "#resolution", "disputeResolution" },
+                { "#resolvedAt", "disputeResolvedAt" }, { "#updated", "updatedAt" }, { "#v", "version" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":disputed", new AttributeValue { S = "disputed" } },
+                { ":resolution", new AttributeValue { S = resolution } },
+                { ":resolvedAt", new AttributeValue { S = resolvedAt } },
+                { ":updated", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
+                { ":one", new AttributeValue { N = "1" } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// Query for an item by deliveryId (partition key). Since sort key is createdAt,
     /// we query with limit 1 to get the single matching item.
     /// </summary>
-    private async Task<Dictionary<string, AttributeValue>?> GetItemAsync(string deliveryId)
+    private async Task<Dictionary<string, AttributeValue>?> GetItemAsync(string deliveryId, bool consistentRead = false)
     {
         var request = new QueryRequest
         {
@@ -372,7 +427,8 @@ public sealed class DeliveryRepository : IDeliveryRepository
             {
                 { ":id", new AttributeValue { S = deliveryId } }
             },
-            Limit = 1
+            Limit = 1,
+            ConsistentRead = consistentRead
         };
 
         var response = await _dynamoDb.QueryAsync(request);

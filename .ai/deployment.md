@@ -384,7 +384,7 @@ POST /escrow/refund
 | GET | `/admin/analytics/revenue` | Revenue analytics |
 | GET | `/admin/analytics/transactions` | Transaction analytics |
 | GET | `/admin/payouts/manual` | Manual payout queue (ESC-02): settlements the live gateway could not make |
-| POST | `/admin/disputes/{id}/resolve` | Resolve dispute (farmer_wins, buyer_wins, partial_refund) |
+| POST | `/admin/disputes/{id}/resolve` | Record a dispute verdict: `farmer_wins` (action `release`) or `buyer_wins` (action `refund`), admin group only; the hourly sweep settles it (ESC-03) |
 | POST | `/admin/fraud-signals/{id}/action` | Flag/investigate fraud |
 | POST | `/admin/users/{id}/action` | Disable/enable user |
 | POST | `/admin/payouts/{escrowId}/{ref}/complete` | Record an admin-paid manual payout leg (`{externalRef}`, admin group only) |

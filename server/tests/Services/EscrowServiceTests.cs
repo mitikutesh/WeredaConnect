@@ -44,7 +44,7 @@ public class EscrowServiceTests
 
         // Default: settlement lock is acquired (the release/refund happy path).
         _mockEscrowRepo
-            .TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
             .Returns(true);
 
         // Default users: valid, phone-verified, Fayda-verified buyer + farmer so the standard
@@ -442,30 +442,221 @@ public class EscrowServiceTests
         Assert.Equal(1, releasedWrites);
     }
 
-    [Fact]
-    public async Task ReleaseAsync_FromDisputed_ReturnsCompleted()
+    private static Dictionary<string, object> MakeResolvedDispute(string resolution)
     {
-        var escrowItem = MakeEscrowItem(status: "disputed");
-        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+        var item = MakeEscrowItem(status: "dispute_resolved");
+        item["disputeId"] = "dispute-1";
+        item["disputedBy"] = BuyerId;
+        item["disputeResolution"] = resolution;
+        item["disputeResolvedAt"] = "2026-02-19T10:00:00.0000000Z";
+        return item;
+    }
 
+    private EscrowService CreateResolverService()
+    {
         var mockUserRepo = Substitute.For<IUserRepository>();
         mockUserRepo.GetUserByIdAsync("resolver").Returns(MakeAdminUser("resolver"));
         mockUserRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
         mockUserRepo.GetUserByIdAsync(BuyerId).Returns(MakeVerifiedUser(BuyerId, "buyer"));
-        var service = CreateServiceWithUserRepo(mockUserRepo);
+        return CreateServiceWithUserRepo(mockUserRepo);
+    }
 
-        var request = new ReleaseEscrowRequest
-        {
-            EscrowId = "escrow-001",
-            Trigger = "dispute_resolved",
-            DeliveryId = DeliveryId,
-            IdempotencyKey = $"system:escrow-001:release:1708171200000"
-        };
+    private static ReleaseEscrowRequest DisputeReleaseRequest() => new()
+    {
+        EscrowId = "escrow-001",
+        Trigger = "dispute_resolved",
+        DeliveryId = DeliveryId,
+        IdempotencyKey = $"system:escrow-001:release:1708171200000"
+    };
 
-        var result = await service.ReleaseAsync(request, "resolver", role: "admin");
+    private static RefundEscrowRequest DisputeRefundRequest() => new()
+    {
+        EscrowId = "escrow-001",
+        Trigger = "dispute_resolved",
+        Reason = "Buyer wins.",
+        IdempotencyKey = $"admin:escrow-001:refund:1708257600000"
+    };
+
+    [Fact]
+    public async Task ReleaseAsync_FromResolvedDispute_FarmerWins_ReturnsCompleted()
+    {
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeResolvedDispute("farmer_wins"));
+
+        var result = await CreateResolverService().ReleaseAsync(DisputeReleaseRequest(), "resolver", role: "admin");
 
         Assert.True(result.IsSuccess);
         Assert.Equal("completed", result.Value!.Status);
+        // ESC-03: the lock is a CAS on the status the service validated.
+        await _mockEscrowRepo.Received(1).TryAcquireSettlementLockAsync(
+            "escrow-001", Arg.Any<string>(), "release", "dispute_resolved");
+        await _mockEscrowRepo.Received(1).UpdateStatusAsync(
+            "escrow-001", Arg.Any<string>(), "released", "dispute_resolved", Arg.Any<Dictionary<string, object>?>());
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_FromDisputed_IsRefusedUntilAVerdictIsRecorded()
+    {
+        // ESC-03 (D4): a dispute settles only through a recorded verdict.
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "disputed"));
+
+        var result = await CreateResolverService().ReleaseAsync(DisputeReleaseRequest(), "resolver", role: "admin");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(422, result.Error!.HttpStatus);
+        Assert.Equal("ESCROW_INVALID_TRANSITION", result.Error.Code);
+        Assert.Contains("Record the verdict first", result.Error.Message);
+        await _mockEscrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_BuyerWinsVerdict_IsRefused_NoLockNoGateway()
+    {
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeResolvedDispute("buyer_wins"));
+
+        var result = await CreateResolverService().ReleaseAsync(DisputeReleaseRequest(), "resolver", role: "admin");
+
+        Assert.Equal(422, result.Error!.HttpStatus);
+        Assert.Equal("ESCROW_INVALID_TRANSITION", result.Error.Code);
+        Assert.Contains("can only be refunded", result.Error.Message);
+        await _mockEscrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _mockIdempotencyRepo.DidNotReceive().StoreAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+    }
+
+    [Fact]
+    public async Task RefundAsync_FarmerWinsVerdict_IsRefused_NoLockNoGateway()
+    {
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeResolvedDispute("farmer_wins"));
+
+        var result = await CreateResolverService().RefundAsync(DisputeRefundRequest(), "resolver", role: "admin");
+
+        Assert.Equal(422, result.Error!.HttpStatus);
+        Assert.Contains("can only be released", result.Error.Message);
+        await _mockEscrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+    }
+
+    [Theory]
+    [InlineData("release")]
+    [InlineData("refund")]
+    public async Task LegacyVerdictWithoutDirection_MayBeSettledEitherWay(string op)
+    {
+        // A partial_refund recorded before ESC-03 has no automatic leg; the admin settles it.
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeResolvedDispute("partial_refund"));
+        var service = CreateResolverService();
+
+        var ok = op == "release"
+            ? (await service.ReleaseAsync(DisputeReleaseRequest(), "resolver", role: "admin")).IsSuccess
+            : (await service.RefundAsync(DisputeRefundRequest(), "resolver", role: "admin")).IsSuccess;
+
+        Assert.True(ok);
+        await _mockEscrowRepo.Received(1).TryAcquireSettlementLockAsync(
+            "escrow-001", Arg.Any<string>(), op, "dispute_resolved");
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_ResolvedDispute_MirrorsTheOrderBeforeTheLock()
+    {
+        // ESC-03 (D5): the settlement repairs the order leg the verdict could not write.
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1", true).Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-1" }, { "status", "disputed" }, { "version", 4 }
+        });
+        orderRepo.UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), 4)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "order-1" }, { "status", "dispute_resolved" }, { "version", 5 }
+            }));
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
+        var txAudit = Substitute.For<ITransactionAuditRepository>();
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
+            userRepo, orderRepo, transactionAuditRepo: txAudit);
+        var escrow = MakeResolvedDispute("farmer_wins");
+        escrow["orderId"] = "order-1";
+        escrow.Remove("deliveryId");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrow);
+
+        var result = await service.ReleaseAsync(DisputeReleaseRequest(), "system");
+
+        Assert.True(result.IsSuccess);
+        Received.InOrder(() =>
+        {
+            orderRepo.UpdateAsync("order-1",
+                Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "dispute_resolved"), 4);
+            _mockEscrowRepo.TryAcquireSettlementLockAsync("escrow-001", Arg.Any<string>(), "release", "dispute_resolved");
+        });
+        await txAudit.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+            e["action"].ToString() == "dispute_resolved" && e["entityType"].ToString() == "order"
+            && e["actor"].ToString() == "system" && e["metadata"].ToString() == "resolution=farmer_wins"));
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_ResolvedDispute_OrderThatCannotFollow_IsAuditedAndStillSettles()
+    {
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1", true).Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-1" }, { "status", "in_transit" }, { "version", 4 }
+        });
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
+            userRepo, orderRepo);
+        var escrow = MakeResolvedDispute("farmer_wins");
+        escrow["orderId"] = "order-1";
+        escrow.Remove("deliveryId");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrow);
+
+        var result = await service.ReleaseAsync(DisputeReleaseRequest(), "system");
+
+        Assert.True(result.IsSuccess);
+        await orderRepo.DidNotReceive().UpdateAsync(
+            Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await _mockAuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+            e["action"].ToString() == "dispute_verdict_propagation_failed"
+            && e["metadata"].ToString() == "legs=order:mismatch:in_transit"));
+    }
+
+    [Fact]
+    public async Task RefundAsync_ResolvedDispute_MirrorsTheOrderBeforeTheLock()
+    {
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1", true).Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-1" }, { "status", "delivered" }, { "version", 2 }
+        });
+        orderRepo.UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(call => AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "order-1" },
+                { "status", ((Dictionary<string, object>)call[1])["status"] },
+                { "version", (int)call[2] + 1 }
+            }));
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
+            _mockUserRepo, orderRepo);
+        var escrow = MakeResolvedDispute("buyer_wins");
+        escrow["orderId"] = "order-1";
+        escrow.Remove("deliveryId");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrow);
+
+        var result = await service.RefundAsync(DisputeRefundRequest(), "system");
+
+        Assert.True(result.IsSuccess);
+        Received.InOrder(() =>
+        {
+            orderRepo.UpdateAsync("order-1",
+                Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 2);
+            orderRepo.UpdateAsync("order-1",
+                Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "dispute_resolved"), 3);
+            _mockEscrowRepo.TryAcquireSettlementLockAsync("escrow-001", Arg.Any<string>(), "refund", "dispute_resolved");
+        });
     }
 
     [Fact]
@@ -1138,29 +1329,30 @@ public class EscrowServiceTests
     }
 
     [Fact]
-    public async Task RefundAsync_FromDisputed_ReturnsRefunded()
+    public async Task RefundAsync_FromResolvedDispute_BuyerWins_ReturnsRefunded()
     {
-        var escrowItem = MakeEscrowItem(status: "disputed");
-        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeResolvedDispute("buyer_wins"));
 
-        var mockUserRepo = Substitute.For<IUserRepository>();
-        mockUserRepo.GetUserByIdAsync("resolver").Returns(MakeAdminUser("resolver"));
-        mockUserRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
-        mockUserRepo.GetUserByIdAsync(BuyerId).Returns(MakeVerifiedUser(BuyerId, "buyer"));
-        var service = CreateServiceWithUserRepo(mockUserRepo);
-
-        var request = new RefundEscrowRequest
-        {
-            EscrowId = "escrow-001",
-            Trigger = "dispute_resolved",
-            Reason = "Buyer wins.",
-            IdempotencyKey = $"admin:escrow-001:refund:1708257600000"
-        };
-
-        var result = await service.RefundAsync(request, "resolver", role: "admin");
+        var result = await CreateResolverService().RefundAsync(DisputeRefundRequest(), "resolver", role: "admin");
 
         Assert.True(result.IsSuccess);
         Assert.Equal("refunded", result.Value!.Status);
+        await _mockEscrowRepo.Received(1).TryAcquireSettlementLockAsync(
+            "escrow-001", Arg.Any<string>(), "refund", "dispute_resolved");
+        await _mockEscrowRepo.Received(1).UpdateStatusAsync(
+            "escrow-001", Arg.Any<string>(), "refunded", "dispute_resolved", Arg.Any<Dictionary<string, object>?>());
+    }
+
+    [Fact]
+    public async Task RefundAsync_FromDisputed_IsRefusedUntilAVerdictIsRecorded()
+    {
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "disputed"));
+
+        var result = await CreateResolverService().RefundAsync(DisputeRefundRequest(), "resolver", role: "admin");
+
+        Assert.Equal(422, result.Error!.HttpStatus);
+        Assert.Equal("ESCROW_INVALID_TRANSITION", result.Error.Code);
+        await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
     }
 
     [Fact]
@@ -2719,7 +2911,7 @@ public class EscrowServiceTests
         // (no double-payout) and must return a conflict, not a masked success.
         _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed"));
         _mockEscrowRepo
-            .TryAcquireSettlementLockAsync("escrow-001", Arg.Any<string>(), "release")
+            .TryAcquireSettlementLockAsync("escrow-001", Arg.Any<string>(), "release", Arg.Any<string>())
             .Returns(false);
 
         var userRepo = Substitute.For<IUserRepository>();
@@ -2748,7 +2940,7 @@ public class EscrowServiceTests
         // call Telebirr, so funds cannot be released AND refunded from the same hold.
         _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed"));
         _mockEscrowRepo
-            .TryAcquireSettlementLockAsync("escrow-001", Arg.Any<string>(), "refund")
+            .TryAcquireSettlementLockAsync("escrow-001", Arg.Any<string>(), "refund", Arg.Any<string>())
             .Returns(false);
 
         var userRepo = Substitute.For<IUserRepository>();
@@ -2775,7 +2967,7 @@ public class EscrowServiceTests
         _mockEscrowRepo.GetByIdAsync("escrow-001")
             .Returns(MakeEscrowItem(status: "escrowed"), MakeEscrowItem(status: "completed"));
         _mockEscrowRepo
-            .TryAcquireSettlementLockAsync("escrow-001", Arg.Any<string>(), "release")
+            .TryAcquireSettlementLockAsync("escrow-001", Arg.Any<string>(), "release", Arg.Any<string>())
             .Returns(false);
 
         var userRepo = Substitute.For<IUserRepository>();
@@ -3010,7 +3202,7 @@ public class EscrowServiceTests
         Assert.False(result.IsSuccess);
         Assert.Equal("ESCROW_029", result.Error!.Code);
         await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
-        await _mockEscrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _mockEscrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
         await _mockAuditRepo.Received().AppendAsync(Arg.Is<Dictionary<string, object>>(
             e => e["action"].ToString() == "release_blocked_kyc"));
     }

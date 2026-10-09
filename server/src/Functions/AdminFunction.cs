@@ -352,6 +352,13 @@ public class AdminFunction
         APIGatewayProxyRequest request,
         ILambdaContext context)
     {
+        // ESC-03: the sweep settles a verdict within the hour, so recording one is a money
+        // action and takes the admin group, like the manual payout queue.
+        if (!AdminAuthHelper.IsInAdminGroup(request))
+        {
+            return LambdaResponse.Error(403, "ESCROW_015", "Only an admin in the admin group can resolve a dispute.");
+        }
+
         ResolveDisputeRequest? body;
         try
         {
@@ -367,6 +374,29 @@ public class AdminFunction
         if (body == null)
         {
             return LambdaResponse.Error(400, "ADMIN_005", "Request body is required.");
+        }
+
+        // ESC-03: the verdict decides which way the money goes, so only the two verdicts with
+        // a settlement are accepted, and the action must say the same thing.
+        var verdictAction = body.Resolution switch
+        {
+            "farmer_wins" => "release",
+            "buyer_wins" => "refund",
+            _ => null
+        };
+        if (verdictAction == null)
+        {
+            return LambdaResponse.Error(400, "ADMIN_014",
+                body.Resolution == "partial_refund"
+                    ? "partial_refund is not supported until per-leg settlement. Choose farmer_wins or buyer_wins."
+                    : "resolution must be farmer_wins or buyer_wins.",
+                "resolution");
+        }
+
+        if (!string.Equals(body.Action, verdictAction, StringComparison.Ordinal))
+        {
+            return LambdaResponse.Error(400, "ADMIN_014",
+                $"action must be '{verdictAction}' for {body.Resolution}.", "action");
         }
 
         var item = await QuerySingleItemAsync(_escrowsTable, "escrowId", escrowId);
@@ -392,8 +422,9 @@ public class AdminFunction
             // Only resolve an escrow that is actually disputed — prevents force-
             // transitioning held/released/refunded/already-resolved escrows. ESC-02: a
             // settlement already waiting in the manual payout queue cannot be contradicted
-            // by a verdict; the admin settles or clears the queue first.
-            ConditionExpression = "#status = :disputed AND attribute_not_exists(#manualPayout)",
+            // by a verdict; the admin settles or clears the queue first. ESC-03: nor can a
+            // settlement in flight, whose own status write would then fail after paying.
+            ConditionExpression = "#status = :disputed AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#lock)",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
                 { "#status", "status" },
@@ -401,7 +432,8 @@ public class AdminFunction
                 { "#resolution", "disputeResolution" },
                 { "#resolvedBy", "disputeResolvedBy" },
                 { "#resolvedAt", "disputeResolvedAt" },
-                { "#manualPayout", ManualPayoutFields.Marker }
+                { "#manualPayout", ManualPayoutFields.Marker },
+                { "#lock", "settlementLock" }
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
@@ -420,7 +452,27 @@ public class AdminFunction
         }
         catch (ConditionalCheckFailedException)
         {
-            var latest = await QuerySingleItemAsync(_escrowsTable, "escrowId", escrowId);
+            // Strongly consistent, so a double click sees the verdict the first click wrote.
+            var latest = await QuerySingleItemAsync(_escrowsTable, "escrowId", escrowId, consistentRead: true);
+            var latestStatus = latest != null && latest.TryGetValue("status", out var ls) ? ls.S : null;
+            var recorded = latest != null && latest.TryGetValue("disputeResolution", out var lr) ? lr.S : null;
+
+            // ESC-03: the same verdict again is a replay. Nothing new is recorded; the order and
+            // delivery are re-mirrored, which repairs a leg the first attempt could not write.
+            if (latest != null && latestStatus != "disputed" && recorded == body.Resolution)
+            {
+                var recordedAt = latest.TryGetValue("disputeResolvedAt", out var lra) && lra.S != null ? lra.S : now;
+                await MirrorVerdictAsync(latest, body.Resolution, recordedAt, adminUserId, context);
+                return LambdaResponse.Ok(new ResolveDisputeResponse
+                {
+                    EscrowId = escrowId,
+                    Status = latestStatus ?? "dispute_resolved",
+                    Resolution = body.Resolution,
+                    ResolvedAt = recordedAt,
+                    Message = "Verdict already recorded."
+                }, AppJsonContext.Default.ResolveDisputeResponse);
+            }
+
             if (latest != null && latest.TryGetValue(ManualPayoutFields.Marker, out var marker)
                 && marker.S == ManualPayoutFields.MarkerOpen)
             {
@@ -428,8 +480,16 @@ public class AdminFunction
                     "A payout for this escrow is waiting in the manual payout queue. Settle it there first.");
             }
 
+            if (latest != null && latestStatus == "disputed" && latest.ContainsKey("settlementLock"))
+            {
+                return LambdaResponse.Error(409, "ADMIN_010",
+                    "A settlement is in progress for this escrow.");
+            }
+
             return LambdaResponse.Error(409, "ADMIN_010",
-                "Escrow is not in a disputed state.");
+                recorded != null
+                    ? "A different verdict is already recorded for this escrow."
+                    : "Escrow is not in a disputed state.");
         }
 
         // Every escrow state change gets an escrow-audit entry (escrow-protocol.md
@@ -466,21 +526,70 @@ public class AdminFunction
             userId: adminUserId, correlationId: AuditLogger.GetCorrelationId(request),
             entityType: "escrow", entityId: escrowId, outcome: "success");
 
+        // ESC-03: the order and delivery follow the verdict now; the settlement repairs a leg
+        // that fails here.
+        await MirrorVerdictAsync(item, body.Resolution, now, adminUserId, context);
+
         var response = new ResolveDisputeResponse
         {
             EscrowId = escrowId,
             Status = "dispute_resolved",
             Resolution = body.Resolution,
             ResolvedAt = now,
-            Message = body.Resolution switch
-            {
-                "farmer_wins" => "Verdict recorded. The settlement sweep releases the funds to the farmer within the hour.",
-                "buyer_wins" => "Verdict recorded. The settlement sweep refunds the buyer within the hour.",
-                _ => "Verdict recorded. This outcome has no automatic settlement: release or refund the escrow manually."
-            }
+            Message = body.Resolution == "farmer_wins"
+                ? "Verdict recorded. The settlement sweep releases the funds to the farmer within the hour."
+                : "Verdict recorded. The settlement sweep refunds the buyer within the hour."
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.ResolveDisputeResponse);
+    }
+
+    /// <summary>
+    /// ESC-03: move the order and delivery behind a dispute verdict to it
+    /// (<see cref="DisputeVerdictMirror"/>). Best-effort: a leg that cannot follow is logged as
+    /// <c>DISPUTE_VERDICT_PROPAGATION_FAILED</c> and written to the escrow audit ledger as
+    /// <c>dispute_verdict_propagation_failed</c> with <c>metadata = legs=...</c>; the verdict
+    /// itself stands.
+    /// </summary>
+    private async Task MirrorVerdictAsync(
+        Dictionary<string, AttributeValue> escrowItem, string resolution, string resolvedAt,
+        string actor, ILambdaContext context)
+    {
+        var escrowId = escrowItem.TryGetValue("escrowId", out var eid) ? eid.S : null;
+        try
+        {
+            var mirror = new DisputeVerdictMirror(
+                string.IsNullOrEmpty(_ordersTable) ? null : new OrderRepository(_dynamoDb, _ordersTable),
+                string.IsNullOrEmpty(_deliveriesTable) ? null : new DeliveryRepository(_dynamoDb, _deliveriesTable),
+                TxAuditRepo());
+            var result = await mirror.ApplyAsync(DynamoDbHelper.FromItem(escrowItem), resolution, resolvedAt, context);
+            if (result.FailedLegs == null)
+            {
+                return;
+            }
+
+            context.Logger.LogWarning(
+                $"DISPUTE_VERDICT_PROPAGATION_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} orderId={MoneyAlarmLog.LogId(result.OrderId)} deliveryId={MoneyAlarmLog.LogId(result.DeliveryId)} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
+            if (!string.IsNullOrEmpty(_escrowAuditTable) && !string.IsNullOrEmpty(escrowId))
+            {
+                await new EscrowAuditRepository(_dynamoDb, _escrowAuditTable).AppendAsync(new Dictionary<string, object>
+                {
+                    { "auditId", $"audit-{Guid.NewGuid():N}" },
+                    { "escrowId", escrowId },
+                    { "action", "dispute_verdict_propagation_failed" },
+                    { "fromState", "dispute_resolved" },
+                    { "toState", "dispute_resolved" },
+                    { "actor", actor },
+                    { "timestamp", DateTime.UtcNow.ToString("o") },
+                    { "metadata", $"legs={result.FailedLegs}" }
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"DISPUTE_VERDICT_PROPAGATION_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
+        }
     }
 
     // ──────────────────────────────────────────────
@@ -1841,7 +1950,8 @@ public class AdminFunction
     private async Task<Dictionary<string, AttributeValue>?> QuerySingleItemAsync(
         string tableName,
         string keyName,
-        string keyValue)
+        string keyValue,
+        bool consistentRead = false)
     {
         var request = new QueryRequest
         {
@@ -1851,7 +1961,8 @@ public class AdminFunction
             {
                 { ":id", new AttributeValue { S = keyValue } }
             },
-            Limit = 1
+            Limit = 1,
+            ConsistentRead = consistentRead
         };
 
         var response = await _dynamoDb.QueryAsync(request);

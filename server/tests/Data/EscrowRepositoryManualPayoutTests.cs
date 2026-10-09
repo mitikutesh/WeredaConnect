@@ -229,14 +229,25 @@ public class EscrowRepositoryManualPayoutTests
     [Theory]
     [InlineData("released")]
     [InlineData("refunded")]
-    [InlineData("disputed")]
-    public async Task UpdateStatus_ToASettledOrDisputedStatus_RequiresNoOpenManualPayout(string newStatus)
+    public async Task UpdateStatus_ToASettledStatus_RequiresNoOpenManualPayout(string newStatus)
     {
         await _repo.UpdateStatusAsync(EscrowId, CreatedAt, newStatus, "escrowed",
             new Dictionary<string, object> { { "telebirrReleaseRef", "GW-1" } });
 
         _update!.ConditionExpression.Should().Be("#status = :expectedStatus AND attribute_not_exists(#manualPayout)");
         Name(_update, "#manualPayout").Should().Be("manualPayout");
+    }
+
+    [Fact]
+    public async Task UpdateStatus_ToDisputed_RequiresNoOpenManualPayoutAndNoSettlementLock()
+    {
+        // ESC-03: a dispute never lands on an escrow whose settlement is in flight.
+        await _repo.UpdateStatusAsync(EscrowId, CreatedAt, "disputed", "escrowed");
+
+        _update!.ConditionExpression.Should().Be(
+            "#status = :expectedStatus AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#lock)");
+        Name(_update, "#manualPayout").Should().Be("manualPayout");
+        Name(_update, "#lock").Should().Be("settlementLock");
     }
 
     [Theory]
@@ -261,12 +272,44 @@ public class EscrowRepositoryManualPayoutTests
     [Fact]
     public async Task AcquireLock_RefusesAnEscrowWithAnOpenManualPayout()
     {
-        var ok = await _repo.TryAcquireSettlementLockAsync(EscrowId, CreatedAt, "refund");
+        var ok = await _repo.TryAcquireSettlementLockAsync(EscrowId, CreatedAt, "refund", "escrowed");
 
         ok.Should().BeTrue();
         _update!.ConditionExpression.Should().Contain("attribute_not_exists(settlementLock)")
             .And.Contain("attribute_not_exists(#manualPayout)");
         Name(_update, "#manualPayout").Should().Be("manualPayout");
+    }
+
+    [Theory]
+    [InlineData("escrowed")]
+    [InlineData("dispute_resolved")]
+    public async Task AcquireLock_RequiresTheExactStatusTheCallerValidated(string status)
+    {
+        // ESC-03: the lock is a CAS on one status, never a set, so a stale read cannot lock a
+        // row that moved on. The real expression runs against DynamoDB in the integration tests.
+        var ok = await _repo.TryAcquireSettlementLockAsync(EscrowId, CreatedAt, "release", status);
+
+        ok.Should().BeTrue();
+        _update!.ConditionExpression.Should().Be(
+            "attribute_not_exists(settlementLock) AND attribute_not_exists(#manualPayout) AND #status = :expected");
+        Name(_update, "#status").Should().Be("status");
+        _update.ExpressionAttributeValues[":expected"].S.Should().Be(status);
+        _update.ExpressionAttributeValues[":op"].S.Should().Be("release");
+    }
+
+    [Theory]
+    [InlineData("disputed")]
+    [InlineData("initiated")]
+    [InlineData("released")]
+    [InlineData("completed")]
+    [InlineData("refunded")]
+    [InlineData("held")]
+    public async Task AcquireLock_NonSettleableStatus_IsRefusedWithoutAWrite(string status)
+    {
+        var ok = await _repo.TryAcquireSettlementLockAsync(EscrowId, CreatedAt, "refund", status);
+
+        ok.Should().BeFalse();
+        _update.Should().BeNull();
     }
 
     [Fact]

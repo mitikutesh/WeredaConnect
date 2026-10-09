@@ -387,7 +387,9 @@
     "ESCROW_035": "No open manual payout for that leg.",
     "ESCROW_036": "This reference conflicts with one already recorded for this escrow. Reload and check.",
     "ESCROW_037": "Enter the Telebirr transaction ID: 4 to 64 letters, digits or . _ : / -",
-    "ADMIN_013": "A payout for this escrow is waiting in the manual payout queue. Settle it there first."
+    "ADMIN_013": "A payout for this escrow is waiting in the manual payout queue. Settle it there first.",
+    "ADMIN_010": "This dispute can no longer be resolved: it is not open, or a settlement is in progress. Reload the page.",
+    "ADMIN_014": "Choose Farmer Wins or Buyer Wins."
   },
   "language": {
     "english": "English",

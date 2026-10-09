@@ -314,6 +314,52 @@ describe('ApiStack', () => {
       expect(actions).not.toContain('dynamodb:BatchWriteItem');
     }
   });
+
+  test('a dispute verdict can move its order and delivery (ESC-03)', () => {
+    // The admin verdict, and the escrow and escrow-cron settlement of it, move the order
+    // and delivery to the verdict and audit each hop in transaction-audit.
+    const policies = template.findResources('AWS::IAM::Policy');
+    const actionsOn = (rolePrefix: string, tableId: string) => {
+      const ids = Object.keys(policies).filter((key) => key.startsWith(rolePrefix));
+      expect(ids.length).toBeGreaterThan(0);
+      return ids
+        .flatMap(
+          (id) =>
+            policies[id].Properties.PolicyDocument.Statement as Array<{
+              Action: string | string[];
+              Resource: unknown;
+            }>,
+        )
+        .filter((s) => JSON.stringify(s.Resource).includes(tableId))
+        .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+    };
+
+    for (const tableId of ['OrdersTable', 'DeliveriesTable']) {
+      const actions = actionsOn('AdminFunctionServiceRole', tableId);
+      expect(actions).toContain('dynamodb:UpdateItem');
+      expect(actions).not.toContain('dynamodb:PutItem');
+      expect(actions).not.toContain('dynamodb:DeleteItem');
+      expect(actions).not.toContain('dynamodb:BatchWriteItem');
+    }
+
+    const cronDeliveries = actionsOn('EscrowCronFunctionServiceRole', 'DeliveriesTable');
+    expect(cronDeliveries).toContain('dynamodb:UpdateItem');
+    expect(cronDeliveries).not.toContain('dynamodb:PutItem');
+    expect(cronDeliveries).not.toContain('dynamodb:DeleteItem');
+
+    for (const rolePrefix of ['EscrowFunctionServiceRole', 'EscrowCronFunctionServiceRole']) {
+      expect(actionsOn(rolePrefix, 'TransactionAuditTable')).toContain('dynamodb:PutItem');
+    }
+
+    for (const functionName of ['wereda-connect-dev-escrow', 'wereda-connect-dev-escrow-cron']) {
+      template.hasResourceProperties('AWS::Lambda::Function', {
+        FunctionName: functionName,
+        Environment: {
+          Variables: Match.objectLike({ TRANSACTION_AUDIT_TABLE: Match.anyValue() }),
+        },
+      });
+    }
+  });
 });
 
 describe('ApiStack (Telebirr live gateway, gated)', () => {

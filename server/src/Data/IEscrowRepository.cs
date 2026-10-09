@@ -30,6 +30,7 @@ public interface IEscrowRepository
     /// Throws ConditionalCheckFailedException if the current status doesn't match expectedCurrentStatus.
     /// A move to <c>released</c>, <c>refunded</c> or <c>disputed</c> also requires that the escrow
     /// has no open manual payout (ESC-02); a queued escrow settles only through TryCloseManualPayoutAsync.
+    /// A move to <c>disputed</c> also requires that no settlement holds the lock (ESC-03).
     /// </summary>
     /// <param name="escrowId">The escrow partition key.</param>
     /// <param name="createdAt">The escrow sort key.</param>
@@ -41,14 +42,16 @@ public interface IEscrowRepository
     /// <summary>
     /// Atomically claim settlement (release or refund) for an escrow BEFORE any
     /// irreversible Telebirr call. Sets a <c>settlementLock</c> attribute conditional
-    /// on no lock already existing AND the escrow being in a settleable state
-    /// (escrowed/disputed) with no open manual payout (ESC-02). Returns false if another settlement already holds the
-    /// lock or the escrow is no longer settleable — in which case the caller MUST NOT
-    /// call Telebirr. This is the mutual-exclusion guard that prevents a release and a
-    /// refund (or two releases) from both moving funds for the same escrow.
+    /// on no lock already existing, no open manual payout (ESC-02), and the escrow still
+    /// being in <paramref name="expectedStatus"/>, which must be settleable (<c>escrowed</c>
+    /// or <c>dispute_resolved</c>, ESC-03). Returns false if another settlement already holds the
+    /// lock or the escrow is no longer in that status; the caller then MUST NOT call Telebirr.
+    /// This is the mutual-exclusion guard that prevents a release and a refund (or two
+    /// releases) from both moving funds for the same escrow.
     /// </summary>
     /// <param name="op">The operation claiming the lock ("release" or "refund").</param>
-    Task<bool> TryAcquireSettlementLockAsync(string escrowId, string createdAt, string op);
+    /// <param name="expectedStatus">The status the caller validated the operation against.</param>
+    Task<bool> TryAcquireSettlementLockAsync(string escrowId, string createdAt, string op, string expectedStatus);
 
     /// <summary>
     /// Release a previously-acquired settlement lock so a transient failure can be

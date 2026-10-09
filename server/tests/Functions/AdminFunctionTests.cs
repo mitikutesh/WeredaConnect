@@ -759,39 +759,49 @@ public class AdminFunctionTests
 
     // ===== Dispute resolution records the verdict; the cron settles the money =====
 
+    private static Dictionary<string, AttributeValue> DisputedEscrow(params (string Key, string Value)[] extra)
+    {
+        var item = new Dictionary<string, AttributeValue>
+        {
+            { "escrowId", S("escrow-9") },
+            { "createdAt", S("2026-09-20T10:00:00Z") },
+            { "status", S("disputed") },
+            { "orderId", S("order-9") },
+            { "disputedBy", S("buyer-9") }
+        };
+        foreach (var (key, value) in extra)
+        {
+            item[key] = S(value);
+        }
+
+        return item;
+    }
+
+    private static APIGatewayProxyRequest ResolveRequest(object body)
+        => AdminGroupRequest("POST", "/admin/disputes/escrow-9/resolve", JsonSerializer.Serialize(body));
+
+    private void EscrowReads(params Dictionary<string, AttributeValue>[] items)
+    {
+        var responses = items.Select(i => new QueryResponse { Items = [i] }).ToArray();
+        _dynamoDb.QueryAsync(Arg.Any<QueryRequest>()).Returns(responses[0], responses.Skip(1).ToArray());
+    }
+
     [Fact]
     public async Task ResolveDispute_FarmerWins_RecordsVerdictForTheSweep()
     {
-        _dynamoDb.QueryAsync(Arg.Any<QueryRequest>()).Returns(new QueryResponse
-        {
-            Items =
-            [
-                new Dictionary<string, AttributeValue>
-                {
-                    { "escrowId", new AttributeValue { S = "escrow-9" } },
-                    { "createdAt", new AttributeValue { S = "2026-09-20T10:00:00Z" } },
-                    { "status", new AttributeValue { S = "disputed" } },
-                    { "orderId", new AttributeValue { S = "order-9" } }
-                }
-            ]
-        });
-        var authorizer = new APIGatewayCustomAuthorizerContext { { "sub", "admin-1" }, { "role", "admin" } };
-        var request = new APIGatewayProxyRequest
-        {
-            HttpMethod = "POST",
-            Path = "/admin/disputes/escrow-9/resolve",
-            Body = JsonSerializer.Serialize(new { resolution = "farmer_wins", action = "release", notes = "goods fine" }),
-            RequestContext = new APIGatewayProxyRequest.ProxyRequestContext { Authorizer = authorizer },
-        };
+        EscrowReads(DisputedEscrow());
 
-        var response = await _function.FunctionHandler(request, _context);
+        var response = await _function.FunctionHandler(
+            ResolveRequest(new { resolution = "farmer_wins", action = "release", notes = "goods fine" }), _context);
 
         response.StatusCode.Should().Be(200);
         response.Body.Should().Contain("dispute_resolved");
         response.Body.Should().Contain("settlement sweep releases");
+        // ESC-03: no verdict while a settlement holds the lock.
         await _dynamoDb.Received(1).UpdateItemAsync(
             Arg.Is<UpdateItemRequest>(u => u.ExpressionAttributeValues[":resolution"].S == "farmer_wins"
-                                           && u.ConditionExpression.Contains("attribute_not_exists(#manualPayout)")),
+                                           && u.ConditionExpression == "#status = :disputed AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#lock)"
+                                           && u.ExpressionAttributeNames["#lock"] == "settlementLock"),
             Arg.Any<CancellationToken>());
     }
 
@@ -799,36 +809,184 @@ public class AdminFunctionTests
     public async Task ResolveDispute_ManualPayoutOpen_Returns409Admin013()
     {
         // ESC-02: a verdict cannot contradict a settlement already waiting in the queue.
-        _dynamoDb.QueryAsync(Arg.Any<QueryRequest>()).Returns(new QueryResponse
-        {
-            Items =
-            [
-                new Dictionary<string, AttributeValue>
-                {
-                    { "escrowId", new AttributeValue { S = "escrow-9" } },
-                    { "createdAt", new AttributeValue { S = "2026-09-20T10:00:00Z" } },
-                    { "status", new AttributeValue { S = "disputed" } },
-                    { "manualPayout", new AttributeValue { S = "open" } },
-                    { "manualPayoutOp", new AttributeValue { S = "release" } }
-                }
-            ]
-        });
+        var queued = DisputedEscrow(("manualPayout", "open"), ("manualPayoutOp", "release"));
+        EscrowReads(queued, queued);
         _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new ConditionalCheckFailedException("queued"));
+
+        var response = await _function.FunctionHandler(
+            ResolveRequest(new { resolution = "buyer_wins", action = "refund" }), _context);
+
+        response.StatusCode.Should().Be(409);
+        response.Body.Should().Contain("ADMIN_013");
+        await _dynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("partial_refund", "refund")]
+    [InlineData("", "release")]
+    [InlineData("FARMER_WINS", "release")]
+    [InlineData("seller_wins", "release")]
+    public async Task ResolveDispute_ResolutionWithoutASettlement_Returns400Admin014_NothingRead(
+        string resolution, string action)
+    {
+        var response = await _function.FunctionHandler(ResolveRequest(new { resolution, action }), _context);
+
+        response.StatusCode.Should().Be(400);
+        response.Body.Should().Contain("ADMIN_014");
+        await _dynamoDb.DidNotReceive().QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>());
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("farmer_wins", "refund")]
+    [InlineData("buyer_wins", "release")]
+    [InlineData("buyer_wins", "")]
+    public async Task ResolveDispute_ActionContradictsTheVerdict_Returns400Admin014(string resolution, string action)
+    {
+        var response = await _function.FunctionHandler(ResolveRequest(new { resolution, action }), _context);
+
+        response.StatusCode.Should().Be(400);
+        response.Body.Should().Contain("ADMIN_014").And.Contain("action");
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveDispute_AdminOutsideTheAdminGroup_Returns403()
+    {
+        // ESC-03: a verdict moves money within the hour, so a role claim is not enough.
         var authorizer = new APIGatewayCustomAuthorizerContext { { "sub", "admin-1" }, { "role", "admin" } };
         var request = new APIGatewayProxyRequest
         {
             HttpMethod = "POST",
             Path = "/admin/disputes/escrow-9/resolve",
-            Body = JsonSerializer.Serialize(new { resolution = "buyer_wins", action = "refund" }),
+            Body = JsonSerializer.Serialize(new { resolution = "farmer_wins", action = "release" }),
             RequestContext = new APIGatewayProxyRequest.ProxyRequestContext { Authorizer = authorizer },
         };
 
         var response = await _function.FunctionHandler(request, _context);
 
+        response.StatusCode.Should().Be(403);
+        response.Body.Should().Contain("ESCROW_015");
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveDispute_SettlementInFlight_Returns409Admin010()
+    {
+        EscrowReads(DisputedEscrow(), DisputedEscrow(("settlementLock", "release")));
+        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("locked"));
+
+        var response = await _function.FunctionHandler(
+            ResolveRequest(new { resolution = "buyer_wins", action = "refund" }), _context);
+
         response.StatusCode.Should().Be(409);
-        response.Body.Should().Contain("ADMIN_013");
+        response.Body.Should().Contain("ADMIN_010").And.Contain("settlement is in progress");
         await _dynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveDispute_SameVerdictAgain_ReplaysWithTheActualStatus()
+    {
+        // A double click: the first click recorded the verdict and the sweep already settled it.
+        var settled = DisputedEscrow(("status", "completed"), ("disputeResolution", "farmer_wins"),
+            ("disputeResolvedAt", "2026-09-21T08:00:00.0000000Z"));
+        EscrowReads(DisputedEscrow(), settled);
+        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("moved"));
+
+        var response = await _function.FunctionHandler(
+            ResolveRequest(new { resolution = "farmer_wins", action = "release" }), _context);
+
+        response.StatusCode.Should().Be(200);
+        response.Body.Should().Contain("\"status\":\"completed\"")
+            .And.Contain("2026-09-21T08:00:00.0000000Z")
+            .And.Contain("Verdict already recorded.");
+        // The re-read is strongly consistent, and a replay records nothing new.
+        await _dynamoDb.Received(1).QueryAsync(Arg.Is<QueryRequest>(q => q.ConsistentRead == true), Arg.Any<CancellationToken>());
+        await _dynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveDispute_OtherVerdictAlreadyRecorded_Returns409Admin010()
+    {
+        EscrowReads(DisputedEscrow(), DisputedEscrow(("status", "dispute_resolved"), ("disputeResolution", "buyer_wins")));
+        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("moved"));
+
+        var response = await _function.FunctionHandler(
+            ResolveRequest(new { resolution = "farmer_wins", action = "release" }), _context);
+
+        response.StatusCode.Should().Be(409);
+        response.Body.Should().Contain("ADMIN_010").And.Contain("different verdict");
+    }
+
+    private AdminFunction WithMirrorTables()
+        => new(_dynamoDb, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable);
+
+    private void TableReads(string table, Dictionary<string, AttributeValue> item)
+        => _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(q => q.TableName == table), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [item] });
+
+    [Fact]
+    public async Task ResolveDispute_MovesTheOrderToTheVerdict()
+    {
+        TableReads(EscrowsTable, DisputedEscrow());
+        TableReads(OrdersTable, new Dictionary<string, AttributeValue>
+        {
+            { "orderId", S("order-9") }, { "createdAt", S("2026-09-19T10:00:00Z") },
+            { "status", S("disputed") }, { "version", Num("6") }
+        });
+        _dynamoDb.UpdateItemAsync(Arg.Is<UpdateItemRequest>(u => u.TableName == OrdersTable), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse
+            {
+                Attributes = new Dictionary<string, AttributeValue>
+                {
+                    { "orderId", S("order-9") }, { "status", S("dispute_resolved") }, { "version", Num("7") }
+                }
+            });
+
+        var response = await WithMirrorTables().FunctionHandler(
+            ResolveRequest(new { resolution = "buyer_wins", action = "refund" }), _context);
+
+        response.StatusCode.Should().Be(200);
+        await _dynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(u => u.TableName == OrdersTable
+                                           && u.ConditionExpression == "#v = :expectedVersion"
+                                           && u.ExpressionAttributeValues[":expectedVersion"].N == "6"
+                                           && u.ExpressionAttributeValues.Values.Any(v => v.S == "dispute_resolved")),
+            Arg.Any<CancellationToken>());
+        await _dynamoDb.Received(1).PutItemAsync(
+            Arg.Is<PutItemRequest>(p => p.TableName == TxAuditTable && p.Item["entityType"].S == "order"
+                                        && p.Item["action"].S == "dispute_resolved" && p.Item["actor"].S == "system"),
+            Arg.Any<CancellationToken>());
+        await _dynamoDb.DidNotReceive().PutItemAsync(
+            Arg.Is<PutItemRequest>(p => p.Item.ContainsKey("action") && p.Item["action"].S == "dispute_verdict_propagation_failed"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveDispute_OrderThatCannotFollow_KeepsTheVerdict_AndIsAudited()
+    {
+        TableReads(EscrowsTable, DisputedEscrow());
+        TableReads(OrdersTable, new Dictionary<string, AttributeValue>
+        {
+            { "orderId", S("order-9") }, { "createdAt", S("2026-09-19T10:00:00Z") },
+            { "status", S("in_transit") }, { "version", Num("3") }
+        });
+
+        var response = await WithMirrorTables().FunctionHandler(
+            ResolveRequest(new { resolution = "buyer_wins", action = "refund" }), _context);
+
+        response.StatusCode.Should().Be(200);
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(u => u.TableName == OrdersTable), Arg.Any<CancellationToken>());
+        await _dynamoDb.Received(1).PutItemAsync(
+            Arg.Is<PutItemRequest>(p => p.TableName == AuditTable
+                                        && p.Item["action"].S == "dispute_verdict_propagation_failed"
+                                        && p.Item["metadata"].S == "legs=order:mismatch:in_transit"),
+            Arg.Any<CancellationToken>());
     }
 
     // ──────────────────────────────────────────────

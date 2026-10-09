@@ -1013,6 +1013,9 @@ export class ApiStack extends cdk.Stack {
         CROPS_TABLE: props.cropsTable.tableName,
         RATE_LIMITS_TABLE: props.rateLimitsTable.tableName,
         FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
+        // ESC-03: an admin settlement of a dispute verdict audits the order and
+        // delivery hops it repairs.
+        TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
         COMMISSION_RATE_PARAM: commissionRateParam.parameterName,
         DISPUTE_WINDOW_PARAM: disputeWindowParam.parameterName,
         ESCROW_TIMEOUT_PARAM: escrowTimeoutParam.parameterName,
@@ -1031,10 +1034,12 @@ export class ApiStack extends cdk.Stack {
     props.escrowIdempotencyTable.grantReadWriteData(escrowFn.function);
     props.deliveriesTable.grantReadData(escrowFn.function);
     props.ordersTable.grantReadData(escrowFn.function);
-    // A dispute mirrors onto the delivery and order (SIM-12/SIM-47). UpdateItem only:
-    // the escrow Lambda never puts or deletes rows in these tables.
+    // A dispute mirrors onto the delivery and order (SIM-12/SIM-47), and so does a
+    // dispute verdict before it is settled (ESC-03). UpdateItem only: the escrow
+    // Lambda never puts or deletes rows in these tables.
     props.deliveriesTable.grant(escrowFn.function, "dynamodb:UpdateItem");
     props.ordersTable.grant(escrowFn.function, "dynamodb:UpdateItem");
+    props.transactionAuditTable.grantWriteData(escrowFn.function);
     props.usersTable.grantReadData(escrowFn.function);
     props.cropsTable.grantReadData(escrowFn.function);
     props.rateLimitsTable.grantReadWriteData(escrowFn.function);
@@ -1067,6 +1072,8 @@ export class ApiStack extends cdk.Stack {
         // Payouts go to the party's registered phone and only to verified
         // identities; the sweep reads profiles for that.
         USERS_TABLE: props.usersTable.tableName,
+        // ESC-03: the dispute sweep audits the order and delivery hops it repairs.
+        TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
         COMMISSION_RATE_PARAM: commissionRateParam.parameterName,
         DISPUTE_WINDOW_PARAM: disputeWindowParam.parameterName,
         ESCROW_TIMEOUT_PARAM: escrowTimeoutParam.parameterName,
@@ -1085,6 +1092,10 @@ export class ApiStack extends cdk.Stack {
     props.escrowAuditTable.grantWriteData(escrowCronFn.function);
     props.escrowIdempotencyTable.grantReadWriteData(escrowCronFn.function);
     props.deliveriesTable.grantReadData(escrowCronFn.function);
+    // ESC-03: settling a dispute verdict first moves its delivery to the verdict
+    // (UpdateItem only, never a put or delete).
+    props.deliveriesTable.grant(escrowCronFn.function, "dynamodb:UpdateItem");
+    props.transactionAuditTable.grantWriteData(escrowCronFn.function);
     // Read the order behind an order-funded escrow before refunding; write to
     // cancel a stale-funded order after its escrow refunds.
     props.ordersTable.grantReadWriteData(escrowCronFn.function);
@@ -1899,6 +1910,10 @@ export class ApiStack extends cdk.Stack {
 
     // Write access on tables the admin mutates
     props.escrowsTable.grantWriteData(adminFn.function);
+    // ESC-03: a dispute verdict moves the order and delivery to it. UpdateItem only:
+    // the admin Lambda never puts or deletes rows in these tables.
+    props.ordersTable.grant(adminFn.function, "dynamodb:UpdateItem");
+    props.deliveriesTable.grant(adminFn.function, "dynamodb:UpdateItem");
     props.escrowAuditTable.grantWriteData(adminFn.function);
     props.fraudSignalsTable.grantReadWriteData(adminFn.function);
     props.usersTable.grantWriteData(adminFn.function);

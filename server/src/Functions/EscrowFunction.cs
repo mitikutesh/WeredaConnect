@@ -72,9 +72,16 @@ public class EscrowFunction
         // ESC-01: live order checkouts share the idempotency table (slot + merch_order_id rows).
         var orderCheckoutRepo = new OrderCheckoutRepository(dynamoDb, idempotencyTable);
 
+        // ESC-03: an admin settlement of a dispute verdict first moves its order and delivery to
+        // the verdict, audited in transaction-audit.
+        var txAuditTable = Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE");
+        var txAuditRepo = !string.IsNullOrEmpty(txAuditTable)
+            ? new TransactionAuditRepository(dynamoDb, txAuditTable)
+            : null;
+
         _escrowService = new EscrowService(
             escrowRepo, auditRepo, idempotencyRepo, telebirrGateway, userRepo, orderRepo, deliveryRepo,
-            orderCheckoutRepo);
+            orderCheckoutRepo, txAuditRepo);
         _userRepo = userRepo;
 
         // Fraud detection (F-14)

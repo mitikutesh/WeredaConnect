@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.7.0
+1.8.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -96,6 +96,11 @@ A `disputed` transition (raised by a participant within the 48-hour window) also
 moves a `delivered` order to `disputed` and freezes the escrow behind the delivery
 (v1.4.1, SIM-12). In the other direction, an escrow dispute raised through
 `POST /escrow/dispute` marks the delivery `disputed`.
+
+The admin's dispute verdict (`POST /admin/disputes/{id}/resolve`, `escrow-protocol.md` 1.9.0)
+reaches the delivery too (v1.8.0, ESC-03): a delivery still `delivered` is marked `disputed`, and a
+`disputed` delivery gets the server-only `disputeResolution` (`farmer_wins` or `buyer_wins`) and
+`disputeResolvedAt`, once. Its status stays `disputed`; clients cannot set these fields.
 
 **Request Body (Confirm Pickup)**:
 ```json
@@ -402,6 +407,8 @@ server refused the whole confirmation (`DELIVERY_INVALID_FIELD`).
 | `pickedUpAt` | string (ISO 8601) | No | -- | Timestamp when trucker picked up crops |
 | `confirmedAt` | string (ISO 8601) | No | -- | Timestamp when buyer confirmed receipt |
 | `disputeReason` | string | No | 0-500 chars | Reason for dispute (if status is disputed) |
+| `disputeResolution` | string | No | Server-only: `farmer_wins` or `buyer_wins` | The admin's dispute verdict, stamped on a `disputed` delivery (v1.8.0) |
+| `disputeResolvedAt` | string (ISO 8601) | No | Server-only | When the verdict was recorded (v1.8.0) |
 | `createdAt` | string (ISO 8601) | Yes | -- | Timestamp when delivery was created |
 | `updatedAt` | string (ISO 8601) | Yes | -- | Timestamp when delivery was last updated |
 | `deletedAt` | string (ISO 8601) | No | -- | Timestamp when delivery was soft-deleted (cancelled) |
@@ -910,6 +917,7 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.5.1 | 2026-09-28 | QR nonce (SIM-41): only the farmer may set `qrNonce`; a client value on create or from another party is dropped; the on-record fallback applies only without the secret store. |
 | 1.6.1 | 2026-10-06 | Create: `buyerName`/`buyerPhone`, `farmerName`/`farmerPhone` and `truckerName`/`truckerPhone` come from the users table (name falling back to the order row), client values ignored; unreadable profile rejected with `DELIVERY_VALIDATION`; self-pickup stores no trucker contact (SIM-46). |
 | 1.7.0 | 2026-10-06 | Photo evidence aligned with the shipped server (SIM-60): section 4 is JSON `{type}` in and a pre-signed S3 `PUT` (`uploadUrl`, `photoRef`, `issuedAt`, `expiresInSeconds`) out; keys are `uploads/photos/{deliveryId}/{type}-{ms}.webp`; a sync photo ref of any other shape fails the whole op (`DELIVERY_INVALID_FIELD`); size and per-type count are client-side rules; shipped clients keep the local path on the device and send a photo ref only when it is a server key (upload is FRD-12). |
+| 1.8.0 | 2026-10-09 | Dispute verdict (ESC-03): the admin's verdict marks a still `delivered` delivery `disputed` and stamps the server-only `disputeResolution` and `disputeResolvedAt` on the disputed delivery (status unchanged, one stamp per delivery, version incremented); system writes audited in transaction-audit. |
 
 ---
 

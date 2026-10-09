@@ -30,7 +30,7 @@ public class EscrowCronFunctionTests
 
         // Settlement lock acquired by default so the cron's release/refund path proceeds.
         _mockEscrowRepo
-            .TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
             .Returns(true);
 
         _mockTelebirrGateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
@@ -175,7 +175,7 @@ public class EscrowCronFunctionTests
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("\"manualPayoutsWaiting\":\"1\"", response.Body);
         await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
-        await _mockEscrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _mockEscrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
         await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
     }
 
