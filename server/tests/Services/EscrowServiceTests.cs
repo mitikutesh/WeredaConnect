@@ -1833,7 +1833,7 @@ public class EscrowServiceTests
     public async Task DisputeAsync_RetryAfterTheFreeze_RepairsTheAuditRowAndTheMirror()
     {
         // The first request froze the escrow and then failed (its audit write or mirror never
-        // landed). The party's retry is still refused (the escrow is disputed) but finishes both.
+        // landed). The party's retry is refused as a second dispute (409 ESCROW_020) but finishes both.
         var escrowItem = MakeEscrowItem(status: "disputed");
         escrowItem["orderId"] = "order-1";
         escrowItem["disputeCreatedAt"] = "2026-10-09T08:00:00.0000000Z";
@@ -1851,7 +1851,8 @@ public class EscrowServiceTests
             .DisputeAsync(MakeDisputeRequest(), BuyerId);
 
         Assert.False(result.IsSuccess);
-        Assert.Equal("ESCROW_INVALID_TRANSITION", result.Error!.Code);
+        Assert.Equal(409, result.Error!.HttpStatus);
+        Assert.Equal("ESCROW_020", result.Error.Code);
         await _mockAuditRepo.Received(1).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(e =>
             (string)e["auditId"] == EscrowAuditRepository.DeterministicAuditId("dispute", "2026-10-09T08:00:00.0000000Z")));
         await deliveryRepo.Received(1).TryMarkDisputedAsync(DeliveryId, BuyerId, "damaged_goods");
@@ -1860,7 +1861,7 @@ public class EscrowServiceTests
     }
 
     [Fact]
-    public async Task DisputeAsync_RepairThatThrows_StillAnswers422()
+    public async Task DisputeAsync_RepairThatThrows_StillAnswers409Escrow020()
     {
         // The repair is best-effort: a failing audit write never turns the refusal into a 500.
         var escrowItem = MakeEscrowItem(status: "disputed");
@@ -1872,8 +1873,8 @@ public class EscrowServiceTests
         var result = await _service.DisputeAsync(MakeDisputeRequest(), BuyerId);
 
         Assert.False(result.IsSuccess);
-        Assert.Equal(422, result.Error!.HttpStatus);
-        Assert.Equal("ESCROW_INVALID_TRANSITION", result.Error.Code);
+        Assert.Equal(409, result.Error!.HttpStatus);
+        Assert.Equal("ESCROW_020", result.Error.Code);
     }
 
     [Fact]
@@ -1887,7 +1888,7 @@ public class EscrowServiceTests
 
         var result = await CreateServiceWithDeliveryRepo(deliveryRepo).DisputeAsync(MakeDisputeRequest(), BuyerId);
 
-        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_020", result.Error!.Code);
         await _mockAuditRepo.DidNotReceive().AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>());
         await deliveryRepo.DidNotReceive().TryMarkDisputedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
     }

@@ -1915,24 +1915,28 @@ public sealed class EscrowService
 
         // 5. Validate escrow is "escrowed" → ESCROW_INVALID_TRANSITION
         var currentStatus = GetString(escrowItem, "status");
-        if (currentStatus != "escrowed")
+        if (currentStatus == "disputed")
         {
-            // ESC-07: a retry after a dispute whose audit row or mirror did not land (the
-            // request failed after the freeze) finishes them; both are idempotent.
-            if (currentStatus == "disputed")
+            // ESC-07: a retry after a dispute whose audit row or mirror did not land (the request
+            // failed after the freeze) finishes them; both are idempotent. A second dispute is
+            // 409 ESCROW_020 on every path, as when it loses the write race.
+            try
             {
-                try
-                {
-                    await RepairFrozenDisputeAsync(escrowItem);
-                }
-                catch (Exception ex)
-                {
-                    // The refusal stands; the next retry or a delivery dispute repairs it.
-                    Console.WriteLine(
-                        $"DISPUTE_REPAIR_FAILED escrowId={MoneyAlarmLog.LogId(request.EscrowId)} reason=[{ex.GetType().Name}]");
-                }
+                await RepairFrozenDisputeAsync(escrowItem);
+            }
+            catch (Exception ex)
+            {
+                // The refusal stands; the next retry or a delivery dispute repairs it.
+                Console.WriteLine(
+                    $"DISPUTE_REPAIR_FAILED escrowId={MoneyAlarmLog.LogId(request.EscrowId)} reason=[{ex.GetType().Name}]");
             }
 
+            return EscrowResult<DisputeEscrowResponse>.Failure(
+                409, "ESCROW_020", "A dispute already exists for this escrow.");
+        }
+
+        if (currentStatus != "escrowed")
+        {
             return EscrowResult<DisputeEscrowResponse>.Failure(
                 422, "ESCROW_INVALID_TRANSITION",
                 $"Cannot dispute escrow in '{currentStatus}' state. Must be 'escrowed'.");

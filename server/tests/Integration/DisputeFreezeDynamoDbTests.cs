@@ -533,13 +533,14 @@ public sealed class DisputeFreezeDynamoDbTests
     }
 
     [LocalDynamoDbFact]
-    public async Task LegacyDisputedEscrow_EscrowEndpointRetry_Answers422_WithNoSecondDisputeRow()
+    public async Task LegacyDisputedEscrow_EscrowEndpointRetry_Answers409Escrow020_WithNoSecondDisputeRow()
     {
         var trade = await SeedLegacyDisputedTradeAsync();
 
         var result = await EndpointEscrowService().DisputeAsync(EscrowDisputeRequest(trade.EscrowId, _farmerId), _farmerId);
 
-        result.Error!.HttpStatus.Should().Be(422);
+        result.Error!.HttpStatus.Should().Be(409);
+        result.Error.Code.Should().Be("ESCROW_020");
         (await EscrowAuditActionsAsync(trade.EscrowId)).Count(a => a == "dispute").Should().Be(1);
         // The order still follows the frozen escrow.
         Str(await OrderAsync(trade.OrderId), "status").Should().Be("disputed");
@@ -621,8 +622,14 @@ public sealed class DisputeFreezeDynamoDbTests
 
         var endpoint = await endpointDispute;
         var sync = (await syncDispute).GetProperty("status").GetString();
-        // Whichever froze first, the other one never froze a second time.
+        // Whichever froze first, the other one never froze a second time. The endpoint losing,
+        // whether it read the escrow before or after the freeze, answers a second dispute: ESCROW_020.
         (endpoint.IsSuccess || endpoint.Error!.Code == "ESCROW_020").Should().BeTrue(endpoint.Error?.Message);
+        if (!endpoint.IsSuccess)
+        {
+            endpoint.Error!.HttpStatus.Should().Be(409);
+        }
+
         sync.Should().BeOneOf("success", "conflict");
         (await EscrowAuditActionsAsync(trade.EscrowId)).Count(a => a == "dispute").Should().Be(1);
         Str(await EscrowAsync(trade.EscrowId), "status").Should().Be("disputed");
