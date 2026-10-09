@@ -138,6 +138,14 @@ public sealed class EscrowRepository : IEscrowRepository
             request.ExpressionAttributeNames["#manualPayout"] = ManualPayoutFields.Marker;
         }
 
+        // ESC-03: a dispute never lands on an escrow whose settlement is in flight, which would
+        // leave a disputed row behind a held lock that no verdict can resolve.
+        if (newStatus == "disputed")
+        {
+            conditions.Add("attribute_not_exists(#lock)");
+            request.ExpressionAttributeNames["#lock"] = "settlementLock";
+        }
+
         if (conditions.Count > 0)
         {
             request.ConditionExpression = string.Join(" AND ", conditions);
@@ -146,9 +154,23 @@ public sealed class EscrowRepository : IEscrowRepository
         await _dynamoDb.UpdateItemAsync(request);
     }
 
-    /// <inheritdoc />
-    public async Task<bool> TryAcquireSettlementLockAsync(string escrowId, string createdAt, string op)
+    /// <summary>
+    /// Statuses a settlement may lock from (ESC-03). <c>dispute_resolved</c> settles the admin
+    /// verdict; <c>disputed</c> is not here because a dispute settles only through a verdict.
+    /// </summary>
+    private static readonly HashSet<string> SettleableStatuses = new(StringComparer.Ordinal)
     {
+        "escrowed", "dispute_resolved"
+    };
+
+    /// <inheritdoc />
+    public async Task<bool> TryAcquireSettlementLockAsync(string escrowId, string createdAt, string op, string expectedStatus)
+    {
+        if (!SettleableStatuses.Contains(expectedStatus))
+        {
+            return false;
+        }
+
         var now = DateTime.UtcNow.ToString("o");
         var request = new UpdateItemRequest
         {
@@ -160,12 +182,14 @@ public sealed class EscrowRepository : IEscrowRepository
             },
             UpdateExpression = "SET settlementLock = :op, #updated = :now",
             // Acquire only if no settlement is already in progress AND the escrow is
-            // still in a settleable state. This is the atomic guard that runs BEFORE
-            // any Telebirr call, so only the winner ever moves funds.
+            // still in the status the caller validated. This is the atomic guard that runs
+            // BEFORE any Telebirr call, so only the winner ever moves funds.
             // ESC-02: never on an escrow waiting in the manual payout queue.
+            // ESC-03: the exact status, not a set, so a stale read can never lock a row that
+            // moved on (for example to a verdict the operation contradicts).
             ConditionExpression =
                 "attribute_not_exists(settlementLock) AND attribute_not_exists(#manualPayout) "
-                + "AND (#status = :escrowed OR #status = :disputed)",
+                + "AND #status = :expected",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
                 { "#status", "status" },
@@ -176,8 +200,7 @@ public sealed class EscrowRepository : IEscrowRepository
             {
                 { ":op", new AttributeValue { S = op } },
                 { ":now", new AttributeValue { S = now } },
-                { ":escrowed", new AttributeValue { S = "escrowed" } },
-                { ":disputed", new AttributeValue { S = "disputed" } }
+                { ":expected", new AttributeValue { S = expectedStatus } }
             }
         };
 

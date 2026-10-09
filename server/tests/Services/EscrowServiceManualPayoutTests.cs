@@ -39,7 +39,7 @@ public class EscrowServiceManualPayoutTests
 
     public EscrowServiceManualPayoutTests()
     {
-        _escrowRepo.TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+        _escrowRepo.TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
             .Returns(true);
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
@@ -500,7 +500,7 @@ public class EscrowServiceManualPayoutTests
         var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
 
         AssertWaiting(result);
-        await _escrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _escrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
         await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
         await _auditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
         await _idempotencyRepo.DidNotReceive().StoreAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
@@ -510,7 +510,7 @@ public class EscrowServiceManualPayoutTests
     public async Task Release_LockLostToQueuedSettlement_Returns202_NoGateway()
     {
         _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(), Escrow(queuedOp: ManualPayoutFields.OpRefund));
-        _escrowRepo.TryAcquireSettlementLockAsync(EscrowId, CreatedAt, "release").Returns(false);
+        _escrowRepo.TryAcquireSettlementLockAsync(EscrowId, CreatedAt, "release", "escrowed").Returns(false);
 
         var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
 
@@ -599,7 +599,7 @@ public class EscrowServiceManualPayoutTests
         var result = await _service.RefundAsync(RefundRequest(), "system");
 
         AssertWaiting(result);
-        await _escrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _escrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
         await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
         await _auditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
     }
@@ -1287,6 +1287,27 @@ public class EscrowServiceManualPayoutTests
     }
 
     [Fact]
+    public async Task Dispute_SettlementInFlight_Returns409_AndFreesTheKey()
+    {
+        // ESC-03: the disputed write requires no settlement lock, so a release in flight wins
+        // and the escrow is never left disputed behind a held lock.
+        var locked = Escrow();
+        locked["settlementLock"] = "release";
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(locked);
+        _escrowRepo.UpdateStatusAsync(EscrowId, CreatedAt, "disputed", "escrowed", Arg.Any<Dictionary<string, object>?>())
+            .ThrowsAsync(new ConditionalCheckFailedException("locked"));
+
+        var result = await _service.DisputeAsync(DisputeRequest(), BuyerId);
+
+        result.Error!.HttpStatus.Should().Be(409);
+        result.Error.Code.Should().Be("ESCROW_INVALID_TRANSITION");
+        result.Error.Message.Should().Contain("settlement is in progress");
+        await _idempotencyRepo.Received(1).DeleteAsync(DisputeRequest().IdempotencyKey);
+        (await AuditWritten("dispute")).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task DeliveryDispute_QueuedEscrow_IsNotFrozen_AndTheRefusalIsAudited()
     {
         _escrowRepo.GetByDeliveryIdAsync("del-1").Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease));
@@ -1297,6 +1318,40 @@ public class EscrowServiceManualPayoutTests
         await _escrowRepo.DidNotReceive().UpdateStatusAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
         (await AuditWritten("dispute_refused_manual_payout", "deliveryId=del-1;op=release")).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task DeliveryDispute_StaleLockOnTheIndexCopy_DoesNotRefuseAValidDispute()
+    {
+        // ESC-03: the DeliveryIndex copy can be stale. Only the write's lock condition decides,
+        // so a lock left on the copy (released on the table since) never refuses the dispute.
+        var staleCopy = Escrow();
+        staleCopy["settlementLock"] = "refund";
+        _escrowRepo.GetByDeliveryIdAsync("del-1").Returns(staleCopy);
+
+        var frozen = await _service.MarkDisputedFromDeliveryAsync("del-1", BuyerId, "never arrived");
+
+        frozen.Should().Be(DeliveryDisputeFreeze.Frozen);
+        await _escrowRepo.Received(1).UpdateStatusAsync(
+            EscrowId, CreatedAt, "disputed", "escrowed", Arg.Any<Dictionary<string, object>?>());
+        (await AuditWritten("dispute_refused_settlement_in_flight")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DeliveryDispute_LockTakenBetweenReadAndWrite_IsNotFrozen()
+    {
+        var locked = Escrow();
+        locked["settlementLock"] = "release";
+        _escrowRepo.GetByDeliveryIdAsync("del-1").Returns(Escrow());
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(locked);
+        _escrowRepo.UpdateStatusAsync(EscrowId, CreatedAt, "disputed", "escrowed", Arg.Any<Dictionary<string, object>?>())
+            .ThrowsAsync(new ConditionalCheckFailedException("locked"));
+
+        var frozen = await _service.MarkDisputedFromDeliveryAsync("del-1", BuyerId, "never arrived");
+
+        frozen.Should().Be(DeliveryDisputeFreeze.RefusedSettlementInFlight);
+        (await AuditWritten("dispute_refused_settlement_in_flight", "deliveryId=del-1")).Should().BeTrue();
+        (await AuditWritten("dispute")).Should().BeFalse();
     }
 
     // ──────────────────────────────────────────────
@@ -1387,8 +1442,9 @@ public class EscrowServiceManualPayoutTests
             });
         var service = new EscrowService(_escrowRepo, _auditRepo, _idempotencyRepo, liveGateway, _userRepo);
 
-        // Release with and without a trucker leg, and a refund, each from every settleable status.
-        foreach (var status in new[] { "escrowed", "disputed", "dispute_resolved" })
+        // Release with and without a trucker leg, and a refund, each from every settleable status
+        // (a disputed escrow settles only through a recorded verdict since ESC-03).
+        foreach (var status in new[] { "escrowed", "dispute_resolved" })
         {
             _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(status: status));
             AssertWaiting(await service.ReleaseAsync(ReleaseRequest($"system:{EscrowId}:r:{status.Length}1"), "system"));
@@ -1400,7 +1456,7 @@ public class EscrowServiceManualPayoutTests
 
         await AssertNothingSettled();
         await _escrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
-        await _escrowRepo.Received(9).TryQueueManualPayoutAsync(
+        await _escrowRepo.Received(6).TryQueueManualPayoutAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
 

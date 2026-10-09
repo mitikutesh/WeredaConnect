@@ -384,7 +384,7 @@ POST /escrow/refund
 | GET | `/admin/analytics/revenue` | Revenue analytics |
 | GET | `/admin/analytics/transactions` | Transaction analytics |
 | GET | `/admin/payouts/manual` | Manual payout queue (ESC-02): settlements the live gateway could not make |
-| POST | `/admin/disputes/{id}/resolve` | Resolve dispute (farmer_wins, buyer_wins, partial_refund) |
+| POST | `/admin/disputes/{id}/resolve` | Record a dispute verdict: `farmer_wins` (action `release`) or `buyer_wins` (action `refund`), admin group only; the hourly sweep settles it (ESC-03) |
 | POST | `/admin/fraud-signals/{id}/action` | Flag/investigate fraud |
 | POST | `/admin/users/{id}/action` | Disable/enable user |
 | POST | `/admin/payouts/{escrowId}/{ref}/complete` | Record an admin-paid manual payout leg (`{externalRef}`, admin group only) |
@@ -578,8 +578,10 @@ nothing.
 | `<prefix>-order-escrow-problems` | `ORDER_ESCROW_CREATE_FAILED`, `_LINK_FAILED` or `_REFUND_SCHEDULE_FAILED` in the sync Lambda | create self-heals at delivery linkage; link: tie the delivery to the order escrow by hand; refund schedule: set the escrow expiry by hand so the sweep refunds |
 | `<prefix>-manual-payouts-overdue` | a manual payout leg (ESC-02) has waited more than 24 hours (`MANUAL_PAYOUT_OVERDUE ... ref=<op>:<leg>`) | open Manual Payouts (`/payouts`), check the reason before paying (runbook above) and record the portal transaction id |
 | `<prefix>-admin-queue-overdue` | a stuck order in the admin queue (ESC-06) has waited more than 24 hours; no producer until ESC-06, so it stays OK | decide it in the admin stuck-order queue (release, refund or extend) |
+| `<prefix>-dispute-verdict-settlement-blocked` | a dispute verdict's settlement failed closed in three of the last four hourly periods (1 hour periods, 3 of 4 datapoints, so sweep jitter that leaves one hour empty does not hide it) (`DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=.. op=.. legs=..` in the escrow-cron log group, ESC-03): `read:<error>` (the order or delivery cannot be read), `cancel:<reason>` or `restock:<reason>` (a `buyer_wins` order could not be cancelled or its stock given back before the refund); no money moved | find the escrow (escrow-audit row `dispute_settlement_blocked` has the legs), fix the cause (Lambda permissions, throttling, the order or listing row), and let the next sweep settle it; it clears once a sweep is no longer blocked |
+| `<prefix>-dispute-verdict-order-mismatch` | a dispute verdict was not settled because its order or delivery is in a status the verdict cannot follow (`DISPUTE_VERDICT_ORDER_MISMATCH escrowId=.. op=.. legs=..` in the escrow or escrow-cron log group, ESC-03); usually a dispute raised while the goods were moving, or a `farmer_wins` before delivery; no money moved and the hourly sweep retries | find the escrow by escrowId (the escrow-audit row `dispute_verdict_mismatch` carries the legs). `farmer_wins`: it settles by itself once the delivery is confirmed and the order reaches `delivered`. `buyer_wins` with the goods moving: confirm the delivery, or refund by hand with `POST /escrow/refund` (admin group) and `{"escrowId": ..., "trigger": "dispute_resolved", "reason": "<10-500 chars>", "overrideOrderMismatch": true, "idempotencyKey": ...}`; the override is audited with your id and reason and the order is flagged (`disputeOverrideBy`) |
 
-The settlement-failure and the two queue alarms evaluate 5 periods of 15 minutes, so an
+The settlement-failure, the verdict-mismatch and the two queue alarms evaluate 5 periods of 15 minutes, so an
 hourly producer keeps them in ALARM without flapping; they clear by themselves 75 to 90
 minutes after the last line. Order escrow problems uses one 15 minute period.
 

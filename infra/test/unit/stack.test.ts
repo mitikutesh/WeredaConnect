@@ -314,6 +314,59 @@ describe('ApiStack', () => {
       expect(actions).not.toContain('dynamodb:BatchWriteItem');
     }
   });
+
+  test('a dispute verdict can move its order and delivery (ESC-03)', () => {
+    // The admin verdict, and the escrow and escrow-cron settlement of it, move the order
+    // and delivery to the verdict and audit each hop in transaction-audit.
+    const policies = template.findResources('AWS::IAM::Policy');
+    const actionsOn = (rolePrefix: string, tableId: string) => {
+      const ids = Object.keys(policies).filter((key) => key.startsWith(rolePrefix));
+      expect(ids.length).toBeGreaterThan(0);
+      return ids
+        .flatMap(
+          (id) =>
+            policies[id].Properties.PolicyDocument.Statement as Array<{
+              Action: string | string[];
+              Resource: unknown;
+            }>,
+        )
+        .filter((s) => JSON.stringify(s.Resource).includes(tableId))
+        .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+    };
+
+    for (const tableId of ['OrdersTable', 'DeliveriesTable']) {
+      const actions = actionsOn('AdminFunctionServiceRole', tableId);
+      expect(actions).toContain('dynamodb:UpdateItem');
+      expect(actions).not.toContain('dynamodb:PutItem');
+      expect(actions).not.toContain('dynamodb:DeleteItem');
+      expect(actions).not.toContain('dynamodb:BatchWriteItem');
+    }
+
+    // A buyer_wins refund before pickup restores the listing stock from the escrow Lambda too.
+    const escrowCrops = actionsOn('EscrowFunctionServiceRole', 'CropsTable');
+    expect(escrowCrops).toContain('dynamodb:UpdateItem');
+    expect(escrowCrops).not.toContain('dynamodb:PutItem');
+    expect(escrowCrops).not.toContain('dynamodb:DeleteItem');
+
+    const cronDeliveries = actionsOn('EscrowCronFunctionServiceRole', 'DeliveriesTable');
+    expect(cronDeliveries).toContain('dynamodb:UpdateItem');
+    expect(cronDeliveries).not.toContain('dynamodb:PutItem');
+    expect(cronDeliveries).not.toContain('dynamodb:DeleteItem');
+
+    for (const rolePrefix of ['EscrowFunctionServiceRole', 'EscrowCronFunctionServiceRole']) {
+      // Append-only: PutItem and nothing else.
+      expect(actionsOn(rolePrefix, 'TransactionAuditTable')).toEqual(['dynamodb:PutItem']);
+    }
+
+    for (const functionName of ['wereda-connect-dev-escrow', 'wereda-connect-dev-escrow-cron']) {
+      template.hasResourceProperties('AWS::Lambda::Function', {
+        FunctionName: functionName,
+        Environment: {
+          Variables: Match.objectLike({ TRANSACTION_AUDIT_TABLE: Match.anyValue() }),
+        },
+      });
+    }
+  });
 });
 
 describe('ApiStack (Telebirr live gateway, gated)', () => {
@@ -697,6 +750,8 @@ describe('MonitoringStack', () => {
     'wereda-connect-dev-order-escrow-problems',
     'wereda-connect-dev-manual-payouts-overdue',
     'wereda-connect-dev-admin-queue-overdue',
+    'wereda-connect-dev-dispute-verdict-order-mismatch',
+    'wereda-connect-dev-dispute-verdict-settlement-blocked',
   ];
 
   // The exact lines the server writes (server/src/Helpers/MoneyAlarmLog.cs and
@@ -714,6 +769,18 @@ describe('MonitoringStack', () => {
   // ESC-02's producer: one line per pending leg, ref=<op>:<leg>.
   const PAYOUT_LINE = 'MANUAL_PAYOUT_OVERDUE escrowId=escrow-order-ord-1 ref=release:farmer ageHours=26';
   const QUEUE_LINE = 'ADMIN_QUEUE_OVERDUE orderId=ord-1 reason=undelivered ageHours=30';
+  // ESC-03's refusal to settle a verdict its order cannot follow.
+  const MISMATCH_LINE =
+    'DISPUTE_VERDICT_ORDER_MISMATCH escrowId=escrow-order-ord-1 op=refund legs=order:mismatch:accepted';
+  // ESC-03 lines that are not a refused settlement: a failed write the next run repairs, and
+  // a delivery dispute that lost to a settlement in flight.
+  // ESC-03's fail-closed settlement (read, cancel or restock did not land).
+  const BLOCKED_LINE =
+    'DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=escrow-order-ord-1 op=refund legs=order:cancel:conflict';
+  const VERDICT_OTHER_LINES = [
+    'DISPUTE_VERDICT_PROPAGATION_FAILED escrowId=escrow-order-ord-1 orderId=ord-1 deliveryId=del-1 legs=order:conflict',
+    'ESCROW_DISPUTE_REFUSED_SETTLEMENT_IN_FLIGHT escrowId=escrow-order-ord-1',
+  ];
   // ESC-02 lines of a normal queued payout (202 ESCROW_034): no money alarm may count them.
   const QUEUED_PAYOUT_LINES = [
     'ESCROW_MANUAL_PAYOUT_QUEUED escrowId=escrow-order-ord-1 op=release legs=farmer,trucker reason=PAYOUT_NOT_SUPPORTED',
@@ -853,6 +920,74 @@ describe('MonitoringStack', () => {
     }
   });
 
+  test('ESC-03: refused dispute verdicts are counted on the escrow and escrow-cron log groups', () => {
+    const template = monitoringTemplate(false);
+    for (const lg of [ESCROW_LG, ESCROW_CRON_LG]) {
+      const filter = metricFilter(template, lg, 'DisputeVerdictOrderMismatch');
+      expect(filter.Properties.MetricTransformations[0].MetricValue).toBe('1');
+      expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, MISMATCH_LINE)).toBe(true);
+      expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, `2026-10-09T10:00:00.000Z\t4f1c7a2e-req\tinfo\t${MISMATCH_LINE}`)).toBe(true);
+      // Negative set: other verdict lines and every other money token.
+      for (const line of [...VERDICT_OTHER_LINES, SETTLEMENT_LINE, PAYOUT_LINE, QUEUE_LINE, CREATE_LINE, ...QUEUED_PAYOUT_LINES]) {
+        expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, false]);
+      }
+    }
+    // And no other money filter counts the mismatch line.
+    for (const [lg, metric] of [
+      [ESCROW_LG, 'EscrowSettlementFailures'],
+      [ESCROW_CRON_LG, 'EscrowSettlementFailures'],
+      [ESCROW_CRON_LG, 'ManualPayoutsOverdue'],
+      [ESCROW_CRON_LG, 'AdminQueueOverdue'],
+      [SYNC_LG, 'OrderEscrowProblems'],
+    ]) {
+      expect(cloudWatchTermsMatch(metricFilter(template, lg, metric).Properties.FilterPattern, MISMATCH_LINE)).toBe(false);
+    }
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-dispute-verdict-order-mismatch',
+      Metrics: [customMetric('DisputeVerdictOrderMismatch', 900)],
+      Threshold: 0,
+      ComparisonOperator: 'GreaterThanThreshold',
+      EvaluationPeriods: 5,
+      DatapointsToAlarm: 1,
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
+  test('ESC-03: a settlement blocked in three of four hourly periods alarms (escrow-cron only)', () => {
+    const template = monitoringTemplate(false);
+    const filter = metricFilter(template, ESCROW_CRON_LG, 'DisputeVerdictSettlementBlocked');
+    expect(filter.Properties.MetricTransformations[0].MetricValue).toBe('1');
+    expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, BLOCKED_LINE)).toBe(true);
+    expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, `2026-10-09T10:00:00.000Z\t4f1c7a2e-req\tinfo\t${BLOCKED_LINE}`)).toBe(true);
+    // Negative set: the mismatch line, the other verdict lines and every other money token.
+    for (const line of [MISMATCH_LINE, ...VERDICT_OTHER_LINES, SETTLEMENT_LINE, PAYOUT_LINE, QUEUE_LINE, CREATE_LINE, ...QUEUED_PAYOUT_LINES]) {
+      expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, false]);
+    }
+    // No other money filter counts the blocked line.
+    for (const [lg, metric] of [
+      [ESCROW_LG, 'EscrowSettlementFailures'],
+      [ESCROW_CRON_LG, 'EscrowSettlementFailures'],
+      [ESCROW_LG, 'DisputeVerdictOrderMismatch'],
+      [ESCROW_CRON_LG, 'DisputeVerdictOrderMismatch'],
+      [ESCROW_CRON_LG, 'ManualPayoutsOverdue'],
+      [SYNC_LG, 'OrderEscrowProblems'],
+    ]) {
+      expect(cloudWatchTermsMatch(metricFilter(template, lg, metric).Properties.FilterPattern, BLOCKED_LINE)).toBe(false);
+    }
+    // Not on the escrow Lambda: an admin's own call answers 503 already.
+    expect(() => metricFilter(template, ESCROW_LG, 'DisputeVerdictSettlementBlocked')).toThrow();
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-dispute-verdict-settlement-blocked',
+      Metrics: [customMetric('DisputeVerdictSettlementBlocked', 3600)],
+      Threshold: 0,
+      ComparisonOperator: 'GreaterThanThreshold',
+      // 3 of 4: hourly-sweep jitter can leave one clock-hour empty without breaking the alarm.
+      EvaluationPeriods: 4,
+      DatapointsToAlarm: 3,
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
   test('ESC-13: filter patterns do not count unrelated escrow log lines', () => {
     const template = monitoringTemplate(false);
     const settlement = metricFilter(template, ESCROW_CRON_LG, 'EscrowSettlementFailures').Properties.FilterPattern;
@@ -884,7 +1019,10 @@ describe('MonitoringStack', () => {
   // The money filters of the four log groups that carry them (webhook only with the live gateway).
   function moneyFilterPatterns(template: Template): string[] {
     const groups = [ESCROW_LG, ESCROW_CRON_LG, SYNC_LG, '/aws/lambda/wereda-connect-dev-telebirr-webhook'];
-    const money = ['EscrowSettlementFailures', 'OrderEscrowProblems', 'ManualPayoutsOverdue', 'AdminQueueOverdue', 'OrderPaymentProblems'];
+    const money = [
+      'EscrowSettlementFailures', 'OrderEscrowProblems', 'ManualPayoutsOverdue', 'AdminQueueOverdue',
+      'OrderPaymentProblems', 'DisputeVerdictOrderMismatch', 'DisputeVerdictSettlementBlocked',
+    ];
     return (Object.values(template.findResources('AWS::Logs::MetricFilter')) as MetricFilterResource[])
       .filter((f) => groups.includes(f.Properties.LogGroupName) && money.includes(f.Properties.MetricTransformations[0].MetricName))
       .map((f) => f.Properties.FilterPattern);
@@ -892,7 +1030,7 @@ describe('MonitoringStack', () => {
 
   test('ESC-13: every money filter term contains an underscore (the server defangs client text by turning _ into -)', () => {
     const patterns = moneyFilterPatterns(monitoringTemplate(true));
-    expect(patterns.length).toBe(6);
+    expect(patterns.length).toBe(9);
     for (const term of patterns.flatMap(filterTerms)) {
       expect([term, term.includes('_')]).toEqual([term, true]);
     }
@@ -917,6 +1055,7 @@ describe('MonitoringStack', () => {
       `Duplicate idempotency key: ${defanged} for operation ${defanged}`,
       `Error processing operation ${defanged}: [FormatException] The input string '${defanged}' was not in a correct format.`,
       `ESCROW_MANUAL_PAYOUT_WAITING escrowId=escrow-order-${defanged} sweep=auto-release`,
+      `DISPUTE_VERDICT_PROPAGATION_FAILED escrowId=escrow-order-${defanged} orderId=${defanged} deliveryId=${defanged} legs=order:mismatch:${defanged}`,
       `Auto-release failed for escrow-order-${defanged}: ESCROW_013 - ${defanged}`,
       `Order funded by a Telebirr payment: orderId=${defanged} merchOrderId=m-1 paymentOrderId=p-1.`,
       `ORDER_PAYMENT_BOOKKEEPING_FAILED orderId=${defanged} merchOrderId=m-1 paymentOrderId=p-1 step=inbox outcome=funded reason=TimeoutException`,
@@ -962,6 +1101,8 @@ describe('MonitoringStack', () => {
         'OrderEscrowProblems',
         'ManualPayoutsOverdue',
         'AdminQueueOverdue',
+        'DisputeVerdictOrderMismatch',
+        'DisputeVerdictSettlementBlocked',
       ]) {
         expect(body).toMatch(new RegExp(`"Fn::GetAtt":\\["${logicalId}[0-9A-F]+","Arn"\\]`));
       }

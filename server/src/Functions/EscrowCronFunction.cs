@@ -124,7 +124,16 @@ public class EscrowCronFunction
         var usersTable = Environment.GetEnvironmentVariable("USERS_TABLE");
         var userRepo = usersTable != null ? new UserRepository(dynamoDb, usersTable) : null;
 
-        _escrowService = new EscrowService(_escrowRepo, _auditRepo, idempotencyRepo, _telebirrGateway, userRepo);
+        // ESC-03: settling a dispute verdict first moves its order and delivery to the verdict
+        // (repairing a leg the admin verdict could not write; a buyer_wins refund before pickup
+        // cancels the order and restores its stock), audited in transaction-audit.
+        var txAuditTable = Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE");
+        var txAuditRepo = !string.IsNullOrEmpty(txAuditTable)
+            ? new TransactionAuditRepository(dynamoDb, txAuditTable)
+            : null;
+
+        _escrowService = new EscrowService(_escrowRepo, _auditRepo, idempotencyRepo, _telebirrGateway, userRepo,
+            _orderRepo, _deliveryRepo, transactionAuditRepo: txAuditRepo, cropRepo: _cropRepo);
     }
 
     /// <summary>
@@ -252,9 +261,11 @@ public class EscrowCronFunction
     /// <summary>
     /// An admin verdict (POST /admin/disputes/{id}/resolve) records disputeResolution
     /// on the escrow and leaves it in dispute_resolved; this sweep moves the money:
-    /// farmer_wins releases, buyer_wins refunds. partial_refund has no gateway leg yet
-    /// and is left for a manual admin release/refund. Money moves only here and on
-    /// the admin settlement routes, never in the admin Lambda itself.
+    /// farmer_wins releases, buyer_wins refunds (ESC-03: the lock now accepts
+    /// dispute_resolved, and the service moves the order and delivery to the verdict
+    /// first). The verdict endpoint refuses anything else since ESC-03; a legacy row with
+    /// another value (partial_refund) is left for a manual admin release/refund. Money
+    /// moves only here and on the admin settlement routes, never in the admin Lambda itself.
     /// </summary>
     private async Task<(int released, int refunded)> SettleResolvedDisputesAsync(ILambdaContext context)
     {

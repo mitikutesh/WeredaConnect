@@ -72,9 +72,33 @@ public interface IDeliveryRepository
     Task<Dictionary<string, object>?> GetByIdAsync(string deliveryId);
 
     /// <summary>
+    /// Get a delivery by ID with a strongly consistent read when
+    /// <paramref name="consistentRead"/> is true (ESC-03: the dispute verdict mirror decides
+    /// on the delivery right after its own write).
+    /// </summary>
+    Task<Dictionary<string, object>?> GetByIdAsync(string deliveryId, bool consistentRead);
+
+    /// <summary>
     /// SIM-12: move a <c>delivered</c> delivery to <c>disputed</c> (conditional write; the
     /// escrow dispute mirrors onto the handoff). Returns false when the delivery does not
     /// exist or is not <c>delivered</c>, so a repeat is a no-op.
     /// </summary>
     Task<bool> TryMarkDisputedAsync(string deliveryId, string disputedBy, string? reason);
+
+    /// <summary>
+    /// ESC-03: record the admin's dispute verdict on a <c>disputed</c> delivery
+    /// (<c>disputeResolution</c>, <c>disputeResolvedAt</c>; the status stays <c>disputed</c>).
+    /// Conditional on the delivery being <c>disputed</c> with no verdict yet, so only one
+    /// writer stamps it. Returns false when the delivery is missing, not disputed, or
+    /// already carries a verdict.
+    /// </summary>
+    Task<bool> TryRecordDisputeResolutionAsync(string deliveryId, string resolution, string resolvedAt);
+
+    /// <summary>
+    /// ESC-03: cancel a delivery that was never picked up (<c>pending</c> to <c>cancelled</c>, the
+    /// soft delete the sync handler writes), as a system actor, when a <c>buyer_wins</c> verdict
+    /// refunds the order before pickup. Conditional on <c>status = pending</c>. Returns false when
+    /// the delivery is missing or no longer pending.
+    /// </summary>
+    Task<bool> TryCancelPendingAsync(string deliveryId);
 }

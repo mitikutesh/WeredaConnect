@@ -283,10 +283,14 @@ public sealed class CropRepository : ICropRepository
     /// (sold, deleted) are left alone. Returns true only when this call added stock.
     /// </summary>
     public async Task<bool> TryRestoreStockAsync(string cropId, string orderId, double quintals)
+        => await RestoreStockAsync(cropId, orderId, quintals) == StockRestoreResult.Restored;
+
+    /// <inheritdoc />
+    public async Task<StockRestoreResult> RestoreStockAsync(string cropId, string orderId, double quintals)
     {
         if (quintals <= 0)
         {
-            return false;
+            return StockRestoreResult.Failed;
         }
 
         for (var attempt = 0; attempt < 3; attempt++)
@@ -294,14 +298,14 @@ public sealed class CropRepository : ICropRepository
             var existing = await GetItemAsync(cropId);
             if (existing == null)
             {
-                return false;
+                return StockRestoreResult.ListingNotFound;
             }
 
             if (existing.TryGetValue("stockRestoredFor", out var restored)
                 && restored.SS != null
                 && restored.SS.Contains(orderId))
             {
-                return false;
+                return StockRestoreResult.AlreadyRestored;
             }
 
             var current = existing.TryGetValue("quantity", out var q)
@@ -353,7 +357,7 @@ public sealed class CropRepository : ICropRepository
             try
             {
                 await _dynamoDb.UpdateItemAsync(request);
-                return true;
+                return StockRestoreResult.Restored;
             }
             catch (ConditionalCheckFailedException)
             {
@@ -362,7 +366,7 @@ public sealed class CropRepository : ICropRepository
             }
         }
 
-        return false;
+        return StockRestoreResult.Failed;
     }
 
     /// <inheritdoc />

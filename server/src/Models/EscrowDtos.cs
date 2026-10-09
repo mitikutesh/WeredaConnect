@@ -198,11 +198,18 @@ public sealed record RefundEscrowRequest
     public required string Trigger { get; init; }
 
     /// <summary>
-    /// Explanation for audit trail (0-500 chars).
+    /// Explanation for audit trail (0-500 chars; 10-500 with <see cref="OverrideOrderMismatch"/>).
     /// </summary>
     public string? Reason { get; init; }
 
     public required string IdempotencyKey { get; init; }
+
+    /// <summary>
+    /// ESC-03, admin group only: refund a <c>buyer_wins</c> verdict although its order cannot
+    /// follow it (the goods are already moving). Needs a <see cref="Reason"/>; audited with the
+    /// admin and the reason, and the order is flagged. The sweep never sets it.
+    /// </summary>
+    public bool OverrideOrderMismatch { get; init; }
 }
 
 /// <summary>

@@ -225,6 +225,35 @@ export class MonitoringStack extends cdk.Stack {
     countSettlementFailures('EscrowSettlementFailuresFilter', escrowLogGroup);
     countSettlementFailures('EscrowCronSettlementFailuresFilter', escrowCronLogGroup);
 
+    // ESC-03: a dispute verdict whose order or delivery cannot follow it is not settled.
+    // EscrowService logs DISPUTE_VERDICT_ORDER_MISMATCH on every refused attempt: from
+    // escrow-cron on the hourly dispute sweep, from the escrow Lambda on an admin release
+    // or refund. Two filters publish one metric.
+    const countVerdictMismatches = (id: string, logGroup: logs.ILogGroup) =>
+      new logs.MetricFilter(this, id, {
+        logGroup,
+        filterPattern: logs.FilterPattern.literal('"DISPUTE_VERDICT_ORDER_MISMATCH"'),
+        metricNamespace,
+        metricName: 'DisputeVerdictOrderMismatch',
+        metricValue: '1',
+        defaultValue: 0,
+      });
+    countVerdictMismatches('EscrowVerdictMismatchFilter', escrowLogGroup);
+    countVerdictMismatches('EscrowCronVerdictMismatchFilter', escrowCronLogGroup);
+
+    // ESC-03: a dispute verdict whose settlement fails closed (the order or delivery could not
+    // be read, or a buyer_wins order could not be cancelled or restocked first). The hourly
+    // sweep retries; only a cause that persists matters, so the alarm (below) needs the line in
+    // three of four hourly periods. escrow-cron only: an admin's own call already answers 503.
+    new logs.MetricFilter(this, 'EscrowCronSettlementBlockedFilter', {
+      logGroup: escrowCronLogGroup,
+      filterPattern: logs.FilterPattern.literal('"DISPUTE_VERDICT_SETTLEMENT_BLOCKED"'),
+      metricNamespace,
+      metricName: 'DisputeVerdictSettlementBlocked',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+
     // ESC-13: queue age. The hourly escrow-cron run logs one line per pending manual
     // payout leg older than 24 hours (ESC-02, ReportOverdueManualPayoutsAsync) and, once
     // ESC-06 builds the admin stuck-order queue, one per overdue entry. Until ESC-06 the
@@ -825,6 +854,51 @@ export class MonitoringStack extends cdk.Stack {
         'is in ALARM a newly overdue leg is not announced again: read the lines or the page.',
     );
 
+    const disputeVerdictMismatchAlarm = moneyLogAlarm(
+      'DisputeVerdictOrderMismatch',
+      'dispute-verdict-order-mismatch',
+      'DisputeVerdictOrderMismatch',
+      'Dispute Verdict Order Mismatch',
+      'A dispute verdict was not settled because its order or delivery is in a status the ' +
+        'verdict cannot follow (DISPUTE_VERDICT_ORDER_MISMATCH in the escrow or escrow-cron log ' +
+        'group, with escrowId, op and legs; escrow-audit row dispute_verdict_mismatch, once a ' +
+        'day). Usually a dispute raised before delivery: the order is still accepted, ' +
+        'pickup_confirmed or in_transit. No money moved; the escrow stays dispute_resolved and ' +
+        'the hourly sweep tries again. Bring the order (and its delivery) to a status the ' +
+        'verdict can follow, or settle the case by hand, then the next sweep settles it (ESC-03).',
+    );
+
+    // Persistence alarm: one blocked run is a transient retry, a block in three of four hourly
+    // periods is a stuck refund or payout. Three of four, not three of three: EscrowCronHourly is
+    // rate(1 hour), so jitter near the top of the hour can leave one clock-hour with no line and
+    // a 3-of-3 streak would never complete. Missing hours (the escrow left the queue) do not breach.
+    const disputeSettlementBlockedAlarm = new cloudwatch.Alarm(this, 'DisputeVerdictSettlementBlocked', {
+      alarmName: `${prefix}-dispute-verdict-settlement-blocked`,
+      alarmDescription:
+        'A dispute verdict could not be settled in three of the last four hourly periods because its ' +
+        'settlement failed closed (DISPUTE_VERDICT_SETTLEMENT_BLOCKED in the escrow-cron log group, ' +
+        'with escrowId, op and legs; escrow-audit row dispute_settlement_blocked, once). legs ' +
+        'read:<error>: the order or delivery cannot be read (permissions, throttling, a missing ' +
+        'table). cancel:<reason> or restock:<reason>: a buyer_wins order could not be cancelled, ' +
+        'or its listing stock given back, before the refund. No money moved; the buyer or farmer ' +
+        'is still waiting. Fix the cause (IAM, the order or listing row), then the next sweep ' +
+        'settles it (ESC-03).',
+      metric: new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: 'DisputeVerdictSettlementBlocked',
+        statistic: 'Sum',
+        period: cdk.Duration.hours(1),
+        label: 'Dispute Verdict Settlement Blocked',
+      }),
+      threshold: 0,
+      evaluationPeriods: 4,
+      datapointsToAlarm: 3,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    disputeSettlementBlockedAlarm.addAlarmAction(snsAction);
+    disputeSettlementBlockedAlarm.addOkAction(snsAction);
+
     const adminQueueOverdueAlarm = moneyLogAlarm(
       'AdminQueueOverdue',
       'admin-queue-overdue',
@@ -990,6 +1064,8 @@ export class MonitoringStack extends cdk.Stack {
           orderEscrowProblemsAlarm,
           manualPayoutsOverdueAlarm,
           adminQueueOverdueAlarm,
+          disputeVerdictMismatchAlarm,
+          disputeSettlementBlockedAlarm,
           ...(orderPaymentProblemsAlarm ? [orderPaymentProblemsAlarm] : []),
         ],
         width: 24,

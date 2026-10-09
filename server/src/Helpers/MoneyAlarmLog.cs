@@ -15,7 +15,18 @@ namespace WeredaConnect.Server.Helpers;
 /// ESCROW_SETTLEMENT_FAILED escrowId=&lt;id&gt; action=&lt;action&gt; outcome=&lt;failed|unknown&gt; code=&lt;code&gt;
 /// MANUAL_PAYOUT_OVERDUE escrowId=&lt;id&gt; ref=&lt;ref&gt; ageHours=&lt;n&gt;
 /// ADMIN_QUEUE_OVERDUE orderId=&lt;id&gt; reason=&lt;code&gt; ageHours=&lt;n&gt;
+/// DISPUTE_VERDICT_ORDER_MISMATCH escrowId=&lt;id&gt; op=&lt;release|refund&gt; legs=&lt;legs&gt;
+/// DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=&lt;id&gt; op=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// </code>
+/// <para>
+/// The mismatch line (ESC-03) is logged by the escrow service each time it refuses to settle a
+/// dispute verdict whose order or delivery cannot follow it: from escrow-cron on the hourly
+/// dispute sweep and from the escrow Lambda on an admin release or refund. <c>legs</c> is the
+/// mirror's failed-legs text, defanged, with <c>,</c> turned into <c>.</c>. The blocked line (ESC-03)
+/// is logged each time a settlement fails closed because the order or delivery could not be read,
+/// or a <c>buyer_wins</c> order could not be cancelled or restocked first; its alarm counts only
+/// escrow-cron and fires when the sweep is blocked in three of four hourly periods.
+/// </para>
 /// <para>
 /// <c>outcome=unknown</c> means the gateway may already have moved the money (a timeout,
 /// a lost answer, or an exception mid-settlement); <c>failed</c> is a definite refusal.
@@ -53,6 +64,8 @@ public static class MoneyAlarmLog
     public const string SettlementFailedToken = "ESCROW_SETTLEMENT_FAILED";
     public const string ManualPayoutOverdueToken = "MANUAL_PAYOUT_OVERDUE";
     public const string AdminQueueOverdueToken = "ADMIN_QUEUE_OVERDUE";
+    public const string DisputeVerdictOrderMismatchToken = "DISPUTE_VERDICT_ORDER_MISMATCH";
+    public const string DisputeVerdictSettlementBlockedToken = "DISPUTE_VERDICT_SETTLEMENT_BLOCKED";
 
     /// <summary>The gateway definitely refused the settlement; no money moved.</summary>
     public const string OutcomeFailed = "failed";
@@ -88,6 +101,14 @@ public static class MoneyAlarmLog
 
     public static string AdminQueueOverdue(string? orderId, string? reason, int ageHours)
         => $"{AdminQueueOverdueToken} orderId={LogId(orderId)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}";
+
+    /// <summary>ESC-03: a dispute verdict was not settled because its order or delivery cannot follow it.</summary>
+    public static string DisputeVerdictOrderMismatch(string? escrowId, string? op, string? legs)
+        => $"{DisputeVerdictOrderMismatchToken} escrowId={LogId(escrowId)} op={Safe(op)} legs={LogId(legs?.Replace(',', '.'))}";
+
+    /// <summary>ESC-03: a dispute verdict's settlement failed closed (unreadable order, or a cancel or restock that did not land).</summary>
+    public static string DisputeVerdictSettlementBlocked(string? escrowId, string? op, string? legs)
+        => $"{DisputeVerdictSettlementBlockedToken} escrowId={LogId(escrowId)} op={Safe(op)} legs={LogId(legs?.Replace(',', '.'))}";
 
     /// <summary>
     /// A client-chosen or client-influenced id (entity id, path parameter, header, an escrow id

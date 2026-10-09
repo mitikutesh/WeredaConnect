@@ -68,7 +68,7 @@ public class EscrowFlowIntegrationTests
 
         // Default: settlement lock is acquired (the release/refund happy path).
         _mockEscrowRepo
-            .TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
             .Returns(true);
 
         var mockUserRepo = Substitute.For<IUserRepository>();
@@ -373,7 +373,8 @@ public class EscrowFlowIntegrationTests
         var disputeId = GetStr(disputeResponse.Body, "disputeId");
         Assert.StartsWith("dispute-", disputeId);
 
-        // Step 3 — Admin resolves in buyer's favor: refund full amount
+        // Step 3: a refund before the verdict is refused (ESC-03): a dispute settles only
+        // through a recorded verdict.
         var disputedItem = new Dictionary<string, object>(escrowedItem)
         {
             ["status"] = "disputed",
@@ -393,6 +394,19 @@ public class EscrowFlowIntegrationTests
             Reason = "Admin ruled in buyer's favour: damaged goods confirmed.",
             IdempotencyKey = $"admin:{escrowId}:refund:1708257600000"
         }, AppJsonContext.Default.RefundEscrowRequest);
+
+        var earlyRefund = await _function.FunctionHandler(
+            MakePostRequest("/escrow/refund", refundBody, "resolver", role: "admin"), _context);
+        Assert.Equal(422, earlyRefund.StatusCode);
+
+        // Step 4: the admin recorded buyer_wins (POST /admin/disputes/{id}/resolve): refund full amount
+        var resolvedItem = new Dictionary<string, object>(disputedItem)
+        {
+            ["status"] = "dispute_resolved",
+            ["disputeResolution"] = "buyer_wins",
+            ["disputeResolvedAt"] = DateTime.UtcNow.AddHours(-1).ToString("o"),
+        };
+        _mockEscrowRepo.GetByIdAsync(escrowId).Returns(resolvedItem);
 
         var refundResponse = await _function.FunctionHandler(
             MakePostRequest("/escrow/refund", refundBody, "resolver", role: "admin"), _context);
@@ -453,17 +467,19 @@ public class EscrowFlowIntegrationTests
         Assert.Equal(FarmerId, GetStr(disputeResponse.Body, "disputedBy"));
         Assert.Equal("wrong_quantity", GetStr(disputeResponse.Body, "reason"));
 
-        // Step 3 — Admin resolves in farmer's favour: release funds
-        var disputedItem = new Dictionary<string, object>(escrowedItem)
+        // Step 3: the admin recorded farmer_wins (POST /admin/disputes/{id}/resolve): release funds
+        var resolvedItem = new Dictionary<string, object>(escrowedItem)
         {
-            ["status"] = "disputed",
+            ["status"] = "dispute_resolved",
             ["disputeId"] = "dispute-farmer-test-001",
             ["disputedBy"] = FarmerId,
             ["disputeReason"] = "wrong_quantity",
             ["disputeCreatedAt"] = DateTime.UtcNow.AddHours(-1).ToString("o"),
+            ["disputeResolution"] = "farmer_wins",
+            ["disputeResolvedAt"] = DateTime.UtcNow.ToString("o"),
             ["version"] = 3
         };
-        _mockEscrowRepo.GetByIdAsync(escrowId).Returns(disputedItem);
+        _mockEscrowRepo.GetByIdAsync(escrowId).Returns(resolvedItem);
 
         var releaseBody = JsonSerializer.Serialize(new ReleaseEscrowRequest
         {

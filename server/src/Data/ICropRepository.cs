@@ -44,6 +44,13 @@ public interface ICropRepository
     Task<bool> TryRestoreStockAsync(string cropId, string orderId, double quintals);
 
     /// <summary>
+    /// ESC-03: <see cref="TryRestoreStockAsync"/> with the outcome spelled out, so a caller that
+    /// must not go on without the stock back (the cancel-then-refund of a dispute verdict) can
+    /// tell "already restored" from "the write kept conflicting".
+    /// </summary>
+    Task<StockRestoreResult> RestoreStockAsync(string cropId, string orderId, double quintals);
+
+    /// <summary>
     /// ESC-01: take a funded order's stock off the listing (clamped at 0; the listing
     /// becomes <c>reserved</c> at 0). Idempotent per <paramref name="orderId"/> through the
     /// listing's <c>stockDecrementedFor</c> set and race-safe (version CAS with retry), so
@@ -91,6 +98,25 @@ public enum StockDecrementResult
 
     /// <summary>The stock was already taken for this order; nothing changed.</summary>
     AlreadyApplied,
+
+    /// <summary>The listing does not exist.</summary>
+    ListingNotFound,
+}
+
+/// <summary>
+/// Outcome of <see cref="ICropRepository.RestoreStockAsync"/>. <see cref="Failed"/> is the zero
+/// value so an unset result never reads as success.
+/// </summary>
+public enum StockRestoreResult
+{
+    /// <summary>The quantity was not positive, or the write kept conflicting.</summary>
+    Failed = 0,
+
+    /// <summary>This call gave the stock back.</summary>
+    Restored,
+
+    /// <summary>The stock was already given back for this order; nothing changed.</summary>
+    AlreadyRestored,
 
     /// <summary>The listing does not exist.</summary>
     ListingNotFound,

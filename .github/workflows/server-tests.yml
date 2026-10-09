@@ -49,7 +49,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: unit-test-results
-          path: server/TestResults/*.trx
+          path: server/tests/TestResults/*.trx
 
   integration-tests:
     name: Integration Tests (LocalStack)
@@ -102,14 +102,28 @@ jobs:
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
           AWS_DEFAULT_REGION: us-east-1
+          # The real-DynamoDB tests skip without an endpoint; here they must run, so a
+          # missing endpoint fails them instead of skipping them.
+          REQUIRE_LOCALSTACK: "true"
         run: dotnet test --no-build --configuration Release --filter "Category=Integration" --logger "trx;LogFileName=integration-test-results.trx"
+
+      - name: Fail when no integration test ran
+        working-directory: ./server
+        run: |
+          TRX=tests/TestResults/integration-test-results.trx
+          EXECUTED=$(grep -o 'executed="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9][0-9]*' || echo 0)
+          echo "Integration tests executed: ${EXECUTED}"
+          if [ "${EXECUTED}" -eq 0 ]; then
+            echo "::error::The LocalStack job ran no integration tests."
+            exit 1
+          fi
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: integration-test-results
-          path: server/TestResults/*.trx
+          path: server/tests/TestResults/*.trx
 
   aot-validation:
     name: AOT Compatibility Check

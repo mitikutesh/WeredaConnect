@@ -41,7 +41,7 @@ public class EscrowFunctionTests
 
         // Default: idempotency store succeeds (no duplicate)
         _mockEscrowRepo
-            .TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
             .Returns(true);
         _mockIdempotencyRepo.StoreAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(true);
