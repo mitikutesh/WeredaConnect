@@ -76,12 +76,14 @@ Create guards (v1.3.0, SIM-09), each rejected with nothing written:
 | Trucker flow (1.9.0): the trip must exist and belong to the caller. Its status is not checked yet (trips do not reach `matched` before ESC-17, and refusing a cancelled trip would strand the order) | `DELIVERY_VALIDATION: Referenced trip not found.` / `DELIVERY_PARTICIPANT_MISMATCH: The trip belongs to another trucker.` |
 
 Delivery slot (1.9.0, ESC-08). The order row carries `activeDeliveryId` and, since 1.9.0,
-`activeDeliveryClaimedAt` (both server-only, never in an order DTO). The claim (condition: the
+`activeDeliveryClaimedAt` (both server-only: no client may set them and no order DTO maps them,
+but a sync order result's `serverData` echoes the raw order row, so clients must ignore them). The claim (condition: the
 slot is free or already this delivery's) and the delivery row (condition: no row with this
 `deliveryId`) are one `TransactWriteItems`, so a create that fails or is interrupted leaves
 neither, and two creates of one `deliveryId` write one row. When another delivery holds the slot
-and that holder is dead (its row is `cancelled`, or it has no row: a claim left by a create from
-before 1.9.0), the create takes the slot over in the same kind of transaction, conditioned on the
+and that holder is dead (its row is `cancelled`, or it has no row and its claim has no
+`activeDeliveryClaimedAt`: a claim left by a create from before 1.9.0; a timed claim is always
+written with its row, so a timed claim without a row is never taken over), the create takes the slot over in the same kind of transaction, conditioned on the
 holder and its `activeDeliveryClaimedAt` (or its absence) being exactly what was read; a live
 holder, or one that changed meanwhile, keeps the slot and the create is refused (no retry loop).
 A cancel releases the slot after its own write (`REMOVE activeDeliveryId, activeDeliveryClaimedAt`
@@ -133,7 +135,9 @@ queues), is the same cancel under the same rules.
 
 A self-pickup has no trucker, so its parties are the buyer and the farmer. The cancel writes
 `status: cancelled`, `updatedAt` and the next version, conditioned on the client's version and on
-`status = pending`; a failed condition answers `conflict` with the row. No `deletedAt` is written:
+`status = pending`. When that condition fails the server re-reads the row (strongly consistent) and
+judges it again: picked up meanwhile answers `DELIVERY_CANCEL_NOT_ALLOWED`, cancelled meanwhile the
+`conflict` above, anything else `conflict` with the fresh row. No `deletedAt` is written:
 the cancelled row stays in every party's `GET /deliveries` list and `GET /deliveries/{id}` (an
 outsider still gets `403`). The cancel is audited in transaction-audit as `delivery_cancelled`
 (`pending` to `cancelled`, the caller as actor, metadata `via=update` or `via=delete`) and frees
@@ -362,7 +366,7 @@ GET /deliveries/del-101
 **Error Codes**:
 - `401 Unauthorized` -- Authentication required
 - `403 Forbidden` -- User is not a participant in this delivery
-- `404 Not Found` -- Delivery not found or cancelled
+- `404 Not Found` -- Delivery not found, or soft-deleted before 1.9.0 (a delivery cancelled since 1.9.0 is returned with `status: cancelled`)
 - `500 Internal Server Error` -- Server-side failure
 
 ---
@@ -417,7 +421,7 @@ server refused the whole confirmation (`DELIVERY_INVALID_FIELD`).
 - `400 DELIVERY_VALIDATION` -- missing delivery id, missing or invalid `type`
 - `401 DELIVERY_UNAUTHORIZED` -- authentication required
 - `403 DELIVERY_UNAUTHORIZED` -- user is not a participant in this delivery
-- `404 DELIVERY_NOT_FOUND` -- delivery not found or cancelled
+- `404 DELIVERY_NOT_FOUND` -- delivery not found or cancelled (by `status` or a legacy `deletedAt`, 1.9.0)
 - `500 DELIVERY_SERVER_ERROR` -- upload bucket not configured or S3 failure
 
 ---
@@ -962,7 +966,7 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.5.1 | 2026-09-28 | QR nonce (SIM-41): only the farmer may set `qrNonce`; a client value on create or from another party is dropped; the on-record fallback applies only without the secret store. |
 | 1.6.1 | 2026-10-06 | Create: `buyerName`/`buyerPhone`, `farmerName`/`farmerPhone` and `truckerName`/`truckerPhone` come from the users table (name falling back to the order row), client values ignored; unreadable profile rejected with `DELIVERY_VALIDATION`; self-pickup stores no trucker contact (SIM-46). |
 | 1.7.0 | 2026-10-06 | Photo evidence aligned with the shipped server (SIM-60): section 4 is JSON `{type}` in and a pre-signed S3 `PUT` (`uploadUrl`, `photoRef`, `issuedAt`, `expiresInSeconds`) out; keys are `uploads/photos/{deliveryId}/{type}-{ms}.webp`; a sync photo ref of any other shape fails the whole op (`DELIVERY_INVALID_FIELD`); size and per-type count are client-side rules; shipped clients keep the local path on the device and send a photo ref only when it is a server key (upload is FRD-12). |
-| 1.9.0 | 2026-10-09 | Delivery rules (ESC-08): cancel by update `{status, version}` or the legacy `delete` (same rules), any party, `pending` only, `DELIVERY_CANCEL_NOT_ALLOWED` after pickup (`pickedUp → cancelled` removed), `DELIVERY_UNAUTHORIZED` for anyone else, `conflict` with the row when already cancelled, other `data` fields refused; the cancel writes no `deletedAt` (the system cancel of a verdict neither), is audited `delivery_cancelled` (`via=update` or `via=delete`) and frees the slot; slot claim and delivery row in one transaction, `activeDeliveryClaimedAt`, a dead holder taken over only from the claim that was read; trucker create must carry the order's `tripId` and `listingId` and a trip of the caller; validation and authorization sections brought in line with the server. |
+| 1.9.0 | 2026-10-09 | Delivery rules (ESC-08): cancel by update `{status, version}` or the legacy `delete` (same rules), any party, `pending` only, `DELIVERY_CANCEL_NOT_ALLOWED` after pickup (`pickedUp → cancelled` removed), `DELIVERY_UNAUTHORIZED` for anyone else, `conflict` with the row when already cancelled, other `data` fields refused, a failed write condition judged again on a fresh read; the cancel writes no `deletedAt` (the system cancel of a verdict neither), is audited `delivery_cancelled` (`via=update` or `via=delete`) and frees the slot; photo upload refuses a cancelled delivery by status too; slot claim and delivery row in one transaction, `activeDeliveryClaimedAt`, a dead holder (cancelled, or an untimed legacy claim without a row) taken over only from the claim that was read; trucker create must carry the order's `tripId` and `listingId` and a trip of the caller; validation and authorization sections brought in line with the server. |
 | 1.8.0 | 2026-10-09 | Dispute verdict (ESC-03): the admin's verdict marks a still `delivered` delivery `disputed` and stamps the server-only `disputeResolution` and `disputeResolvedAt` on the disputed delivery (status unchanged, one stamp per delivery, version incremented); a `buyer_wins` refund before pickup cancels a `pending` delivery (system soft delete); system writes audited in transaction-audit. |
 
 ---

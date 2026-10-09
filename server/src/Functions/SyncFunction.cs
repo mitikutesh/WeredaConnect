@@ -4981,34 +4981,11 @@ public partial class SyncFunction
             }
         }
 
-        var currentStatus = (existing.TryGetValue("status", out var statusAttr) ? statusAttr.S : null) ?? "pending";
-        var storedVersion = existing.TryGetValue("version", out var versionAttr)
-            && int.TryParse(versionAttr.N, out var parsedVersion) ? parsedVersion : 0;
-        var alreadyCancelled = currentStatus == "cancelled"
-            || (existing.TryGetValue("deletedAt", out var deletedAtAttr) && !string.IsNullOrEmpty(deletedAtAttr.S));
-        if (alreadyCancelled)
+        var currentStatus = StatusOf(existing);
+        var refusal = Refusal(existing);
+        if (refusal != null)
         {
-            // Another party cancelled first: the goal state already holds, so answer with the
-            // server's row (the client settles it, server wins) instead of an error it would retry.
-            return new SyncOperationResult
-            {
-                OperationId = operation.OperationId,
-                Status = "conflict",
-                ServerVersion = storedVersion,
-                ServerData = ScrubSyncSecrets(CropRepository.FromItem(existing)),
-                Message = "DELIVERY_ALREADY_CANCELLED: The delivery is already cancelled."
-            };
-        }
-
-        if (!DeliveryTransitions.TryGetValue(currentStatus, out var allowed) || !allowed.Contains("cancelled"))
-        {
-            return new SyncOperationResult
-            {
-                OperationId = operation.OperationId,
-                Status = "error",
-                Message = $"DELIVERY_CANCEL_NOT_ALLOWED: A delivery can be cancelled only before pickup (status: {currentStatus}). "
-                    + "After pickup, open a dispute or contact support."
-            };
+            return refusal;
         }
 
         // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
@@ -5050,13 +5027,17 @@ public partial class SyncFunction
         }
         catch (ConditionalCheckFailedException)
         {
-            return new SyncOperationResult
+            // Something landed since the read (a pickup, another party's cancel, any change):
+            // judge the fresh row, so a pickup answers the refusal instead of a conflict whose
+            // stale row the client would take as the server's view.
+            var fresh = await GetDeliveryItemAsync(operation.EntityId, consistentRead: true) ?? existing;
+            return Refusal(fresh) ?? new SyncOperationResult
             {
                 OperationId = operation.OperationId,
                 Status = "conflict",
-                ServerVersion = storedVersion,
-                ServerData = ScrubSyncSecrets(CropRepository.FromItem(existing)),
-                Message = $"Version conflict: server has version {storedVersion}, client expected {clientVersion}."
+                ServerVersion = VersionOf(fresh),
+                ServerData = ScrubSyncSecrets(CropRepository.FromItem(fresh)),
+                Message = $"Version conflict: server has version {VersionOf(fresh)}, client expected {clientVersion}."
             };
         }
 
@@ -5089,6 +5070,46 @@ public partial class SyncFunction
             ServerVersion = newVersion,
             ServerData = ScrubSyncSecrets(CropRepository.FromItem(response.Attributes))
         };
+
+        static string StatusOf(Dictionary<string, AttributeValue> row)
+            => (row.TryGetValue("status", out var statusAttr) ? statusAttr.S : null) ?? "pending";
+
+        static int VersionOf(Dictionary<string, AttributeValue> row)
+            => row.TryGetValue("version", out var versionAttr) && int.TryParse(versionAttr.N, out var version)
+                ? version : 0;
+
+        // Why the row cannot be cancelled, or null when it is still pending.
+        SyncOperationResult? Refusal(Dictionary<string, AttributeValue> row)
+        {
+            var status = StatusOf(row);
+            if (status == "cancelled"
+                || (row.TryGetValue("deletedAt", out var deletedAtAttr) && !string.IsNullOrEmpty(deletedAtAttr.S)))
+            {
+                // Another party cancelled first: the goal state already holds, so answer with the
+                // server's row (the client settles it, server wins) instead of an error it would retry.
+                return new SyncOperationResult
+                {
+                    OperationId = operation.OperationId,
+                    Status = "conflict",
+                    ServerVersion = VersionOf(row),
+                    ServerData = ScrubSyncSecrets(CropRepository.FromItem(row)),
+                    Message = "DELIVERY_ALREADY_CANCELLED: The delivery is already cancelled."
+                };
+            }
+
+            if (!DeliveryTransitions.TryGetValue(status, out var allowed) || !allowed.Contains("cancelled"))
+            {
+                return new SyncOperationResult
+                {
+                    OperationId = operation.OperationId,
+                    Status = "error",
+                    Message = $"DELIVERY_CANCEL_NOT_ALLOWED: A delivery can be cancelled only before pickup (status: {status}). "
+                        + "After pickup, open a dispute or contact support."
+                };
+            }
+
+            return null;
+        }
     }
 
     /// <summary>
@@ -5166,9 +5187,10 @@ public partial class SyncFunction
 
     /// <summary>
     /// ESC-08: the order's slot holder when it can no longer become a handoff: its delivery is
-    /// cancelled (a slot release after the cancel did not land), or it has no row at all (a claim
-    /// left by a create from before ESC-08, which wrote the claim and the row separately). Since
-    /// ESC-08 a claim is always written with its row, so a live holder always has one.
+    /// cancelled (a slot release after the cancel did not land), or it has no row and its claim
+    /// carries no time (a claim left by a create from before ESC-08, which wrote the claim and the
+    /// row separately). Since ESC-08 a claim is always timed and written with its row, so a timed
+    /// claim without a row is never taken over.
     /// </summary>
     private async Task<DeliverySlotHolder?> FindStaleDeliverySlotAsync(string orderId)
     {
@@ -5180,16 +5202,13 @@ public partial class SyncFunction
             return null;
         }
 
-        var holder = await GetDeliveryItemAsync(holderId, consistentRead: true);
-        if (holder != null
-            && !(holder.TryGetValue("status", out var holderStatus) && holderStatus.S == "cancelled"))
-        {
-            return null;
-        }
-
         var claimedAt = order!.TryGetValue("activeDeliveryClaimedAt", out var claimedObj)
             ? claimedObj?.ToString() : null;
-        return new DeliverySlotHolder(holderId, claimedAt);
+        var holder = await GetDeliveryItemAsync(holderId, consistentRead: true);
+        var dead = holder == null
+            ? claimedAt == null
+            : holder.TryGetValue("status", out var holderStatus) && holderStatus.S == "cancelled";
+        return dead ? new DeliverySlotHolder(holderId, claimedAt) : null;
     }
 
     /// <summary>

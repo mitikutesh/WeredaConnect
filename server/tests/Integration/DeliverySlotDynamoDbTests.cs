@@ -338,6 +338,26 @@ public sealed class DeliverySlotDynamoDbTests
         Str(await DeliveryAsync(dead), "status").Should().Be("cancelled");
     }
 
+    [LocalDynamoDbFact]
+    public async Task TimedClaimWithoutRow_IsNotTakenOver_UntimedOneIs()
+    {
+        // Since ESC-08 a timed claim is written with its row, so only an untimed (pre-ESC-08)
+        // claim without a row counts as dead.
+        await SeedListingAndTripAsync();
+        var timedOrder = await SeedOrderAsync(Guid.NewGuid().ToString(), CreatedAt);
+        var untimedHolder = Guid.NewGuid().ToString();
+        var untimedOrder = await SeedOrderAsync(untimedHolder);
+        var sync = Sync();
+
+        var refused = await SendAsync(sync, CreateOp(Guid.NewGuid().ToString(), timedOrder), _truckerId);
+        var newId = Guid.NewGuid().ToString();
+        var taken = await SendAsync(sync, CreateOp(newId, untimedOrder), _truckerId);
+
+        refused.GetProperty("message").GetString().Should().Be("DELIVERY_VALIDATION: The order already has an active delivery.");
+        taken.GetProperty("status").GetString().Should().Be("success");
+        Str(await OrderAsync(untimedOrder), "activeDeliveryId").Should().Be(newId);
+    }
+
     // ──────────────────────────────────────────────
     // Cancel: before pickup only, slot freed, visible to every party
     // ──────────────────────────────────────────────

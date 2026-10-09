@@ -233,6 +233,40 @@ public class SyncFunctionDeliveryRulesTests
         _auditRows.Should().BeEmpty();
     }
 
+    // The write's condition failed because something landed after the read: the answer comes
+    // from a strongly consistent re-read, never from the stale row.
+    [Theory]
+    [InlineData("pickedUp", "error", "DELIVERY_CANCEL_NOT_ALLOWED: A delivery can be cancelled only before pickup (status: pickedUp).")]
+    [InlineData("cancelled", "conflict", "DELIVERY_ALREADY_CANCELLED: The delivery is already cancelled.")]
+    [InlineData("pending", "conflict", "Version conflict: server has version 3, client expected 1.")]
+    public async Task Cancel_ConditionFails_IsJudgedOnAFreshRead(string freshStatus, string status, string message)
+    {
+        SetupDelivery(Delivery("pending", version: 1));
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable
+                && r.ConsistentRead
+                && r.ExpressionAttributeValues.ContainsKey(":id")
+                && r.ExpressionAttributeValues[":id"].S == DeliveryId))
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>> { Delivery(freshStatus, version: 3) }
+            });
+        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>())
+            .ThrowsAsync(new ConditionalCheckFailedException("moved"));
+
+        var result = await CancelAsync("update", FarmerId, version: 1);
+
+        result.GetProperty("status").GetString().Should().Be(status);
+        result.GetProperty("message").GetString().Should().StartWith(message);
+        if (status == "conflict")
+        {
+            result.GetProperty("serverVersion").GetInt32().Should().Be(3);
+            result.GetProperty("serverData").GetProperty("status").GetString().Should().Be(freshStatus);
+        }
+
+        await _orders.DidNotReceive().ReleaseDeliverySlotAsync(Arg.Any<string>(), Arg.Any<string>());
+        _auditRows.Should().BeEmpty();
+    }
+
     [Fact]
     public async Task Cancel_SlotReleaseFails_StillSucceedsAndLogs()
     {
@@ -442,6 +476,23 @@ public class SyncFunctionDeliveryRulesTests
         await _orders.Received(1).TryCreateDeliveryWithSlotAsync(OrderId, DeliveriesTable,
             Arg.Any<Dictionary<string, AttributeValue>>(),
             Arg.Is<DeliverySlotHolder?>(h => h != null && h.DeliveryId == DeadDeliveryId && h.ClaimedAt == null));
+    }
+
+    [Fact]
+    public async Task Create_SlotHeldByATimedClaimWithoutRow_IsRefused()
+    {
+        // Since ESC-08 a timed claim is always written with its row, so a missing row is never
+        // read as a dead holder (only an untimed claim from before ESC-08 is).
+        SetupCreate();
+        SetupSlotHolder(DeadDeliveryId, "2026-10-09T08:00:00.0000000Z");
+        SetupSlotWrites(replace: DeliverySlotWriteResult.Written);
+
+        var result = await SendAsync(CreateOp(), TruckerId);
+
+        result.GetProperty("message").GetString().Should().Be(
+            "DELIVERY_VALIDATION: The order already has an active delivery.");
+        await _orders.Received(1).TryCreateDeliveryWithSlotAsync(Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<Dictionary<string, AttributeValue>>(), Arg.Any<DeliverySlotHolder?>());
     }
 
     [Theory]

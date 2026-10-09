@@ -333,7 +333,9 @@ public class DeliveryFunction
                 return LambdaResponse.Error(404, "DELIVERY_NOT_FOUND", "Delivery not found.");
             }
 
-            if (delivery.TryGetValue("deletedAt", out var deletedAt) && deletedAt != null)
+            // ESC-08: a party's cancel writes no deletedAt, so the status decides as well.
+            if ((delivery.TryGetValue("deletedAt", out var deletedAt) && deletedAt != null)
+                || (delivery.TryGetValue("status", out var status) && status?.ToString() == "cancelled"))
             {
                 return LambdaResponse.Error(404, "DELIVERY_NOT_FOUND", "Delivery has been cancelled.");
             }

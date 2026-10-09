@@ -1365,11 +1365,18 @@ public class DeliveryFunctionTests
         Assert.Contains("DELIVERY_NOT_FOUND", response.Body);
     }
 
-    [Fact]
-    public async Task HandleUploadPhoto_CancelledDelivery_Returns404()
+    // ESC-08: a party's cancel writes no deletedAt; a legacy soft-deleted row still has it.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task HandleUploadPhoto_CancelledDelivery_Returns404(bool legacySoftDelete)
     {
         var delivery = CreateDeliveryItem("del-001", "cancelled");
-        delivery["deletedAt"] = "2026-02-17T00:00:00Z";
+        if (legacySoftDelete)
+        {
+            delivery["deletedAt"] = "2026-02-17T00:00:00Z";
+        }
+
         _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
 
         var request = MakePhotoUploadRequest("farmer-123", "del-001", "{\"type\":\"pickup\"}");

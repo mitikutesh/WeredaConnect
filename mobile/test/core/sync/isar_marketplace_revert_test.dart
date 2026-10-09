@@ -404,7 +404,9 @@ void main() {
       await sync.revertRejected(op, refusal);
 
       expect((await loadDelivery())!.status, DeliveryStatus.cancelled);
-      verifyNever(() => api.get<Map<String, dynamic>>('/deliveries/$deliveryId'));
+      verifyNever(
+        () => api.get<Map<String, dynamic>>('/deliveries/$deliveryId'),
+      );
     });
   });
 }
