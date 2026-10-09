@@ -1,5 +1,10 @@
-import { test, expect, type Page } from "@playwright/test";
-import { TEST_USERS } from "../helpers/auth";
+import {
+  test,
+  expect,
+  type APIRequestContext,
+  type Page,
+} from "@playwright/test";
+import { API_URL, TEST_USERS } from "../helpers/auth";
 
 /**
  * Flutter Web App - Login Tests
@@ -22,6 +27,43 @@ import { TEST_USERS } from "../helpers/auth";
  * [A-Za-z0-9-]). See that test for why it is pinned.
  */
 const E2E_DEVICE_ID = "e2e-playwright-webapp-login";
+
+/** Non-safelisted headers the web client sends on POST /auth/login. */
+const LOGIN_CORS_HEADERS = ["content-type", "x-device-id", "x-device-name"];
+
+/**
+ * Send the CORS preflight the browser would send for the login request and
+ * assert it is allowed. API Gateway answers a preflight that asks for a header
+ * outside allowHeaders with a bare 204 and no CORS headers. Returns the
+ * allowed header names (lower case). Does not reach the login Lambda.
+ */
+async function expectLoginPreflight(
+  request: APIRequestContext,
+  origin: string,
+): Promise<string[]> {
+  const res = await request.fetch(`${API_URL}/auth/login`, {
+    method: "OPTIONS",
+    headers: {
+      Origin: origin,
+      "Access-Control-Request-Method": "POST",
+      "Access-Control-Request-Headers": LOGIN_CORS_HEADERS.join(","),
+    },
+  });
+  const headers = res.headers();
+  expect(
+    headers["access-control-allow-origin"],
+    `preflight (${res.status()}) does not allow origin ${origin}`,
+  ).toBe(origin);
+  expect(headers["access-control-allow-methods"] ?? "").toContain("POST");
+
+  const allowed = (headers["access-control-allow-headers"] ?? "")
+    .split(",")
+    .map((h) => h.trim().toLowerCase());
+  for (const name of LOGIN_CORS_HEADERS) {
+    expect(allowed, `CORS preflight does not allow "${name}"`).toContain(name);
+  }
+  return allowed;
+}
 
 /** Wait for Flutter to fully render. */
 async function waitForFlutter(page: Page) {
@@ -241,17 +283,27 @@ test.describe("Webapp Login - Routes & Links", () => {
 });
 
 test.describe("Webapp Login - Authentication Flow", () => {
-  test("login with valid credentials redirects to home", async ({ page }) => {
+  test("login with valid credentials redirects to home", async ({
+    page,
+    request,
+  }) => {
     // A fresh browser profile mints a new X-Device-Id per run, and the server
     // adds each new id to the shared farmer's KnownDevices (capped at 10, so
-    // human testers' devices get evicted) and sends a new-device SMS. Pin one
-    // e2e id on the login request so only the first run ever registers it.
+    // human testers' devices get evicted) and would send a new-device SMS if
+    // NEW_DEVICE_SMS_ENABLED were set. Pin one e2e id on the login request so
+    // only the first run ever registers it.
     let pinnedLogins = 0;
+    const sentHeaders = new Set<string>();
     await page.route("**/auth/login", (route) => {
       if (route.request().method() !== "POST") {
         return route.continue();
       }
       pinnedLogins++;
+      for (const name of Object.keys(route.request().headers())) {
+        if (name === "content-type" || name.startsWith("x-")) {
+          sentHeaders.add(name);
+        }
+      }
       return route.continue({
         headers: { ...route.request().headers(), "x-device-id": E2E_DEVICE_ID },
       });
@@ -259,6 +311,14 @@ test.describe("Webapp Login - Authentication Flow", () => {
 
     await page.goto("/login");
     await waitForFlutter(page);
+
+    // A routed request skips the browser's CORS preflight, so a header
+    // missing from the API's allowHeaders would no longer break this login
+    // (the PR #63 web sign-up bug). Check the preflight directly instead.
+    const allowedHeaders = await expectLoginPreflight(
+      request,
+      new URL(page.url()).origin,
+    );
 
     await enableSemantics(page);
     await submitLogin(
@@ -275,6 +335,12 @@ test.describe("Webapp Login - Authentication Flow", () => {
     });
     expect(new URL(page.url()).pathname).toBe("/");
     expect(pinnedLogins, "login request did not carry the pinned device id").toBe(1);
+
+    // Every header the client actually set must pass the preflight too, so a
+    // new client header is caught even before it is added to the list above.
+    for (const name of sentHeaders) {
+      expect(allowedHeaders, `CORS preflight does not allow "${name}"`).toContain(name);
+    }
   });
 
   test("shows error on invalid credentials (API interaction)", async ({
