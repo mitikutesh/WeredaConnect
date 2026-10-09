@@ -677,7 +677,17 @@ public class EscrowServiceTests
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
         await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
         await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
-        Assert.Empty(alarms); // a transient read failure is not the mismatch alarm
+        // Not the mismatch alarm: the blocked line, which alarms only when it persists.
+        // (legs is defanged and cut at 64 characters like every MoneyAlarmLog field)
+        Assert.StartsWith(
+            $"DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=escrow-001 op={op} legs=order:read:ProvisionedThroughputExceededException.delivery:read:",
+            Assert.Single(alarms));
+        // One audit row for the admin timeline, at the verdict time plus three ticks.
+        await _mockAuditRepo.Received(1).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(e =>
+            e["action"].ToString() == "dispute_settlement_blocked"
+            && e["timestamp"].ToString() == "2026-02-19T10:00:00.0000003Z"
+            && e["metadata"].ToString()!.StartsWith(
+                $"legs=order:read:[ProvisionedThroughputExceededException],delivery:read:[ProvisionedThroughputExceededException];op={op};at=")));
     }
 
     private EscrowService MismatchedRefundService(IOrderRepository orderRepo, ITransactionAuditRepository txAudit)
@@ -802,8 +812,9 @@ public class EscrowServiceTests
         var crops = Substitute.For<ICropRepository>();
         crops.RestoreStockAsync("listing-1", "order-1", 2.0)
             .Returns(failure == "restock" ? StockRestoreResult.Failed : StockRestoreResult.Restored);
+        var alarms = new List<string>();
         var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
-            _mockUserRepo, orderRepo, cropRepo: crops);
+            _mockUserRepo, orderRepo, cropRepo: crops) { AlarmLog = alarms.Add };
         var escrow = MakeResolvedDispute("buyer_wins");
         escrow["orderId"] = "order-1";
         escrow.Remove("deliveryId");
@@ -816,6 +827,12 @@ public class EscrowServiceTests
         await _mockEscrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
         await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        var line = Assert.Single(alarms);
+        Assert.StartsWith("DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=escrow-001 op=refund legs=order:", line);
+        Assert.Contains(failure == "restock" ? "restock:conflict" : "cancel:", line);
+        await _mockAuditRepo.Received(1).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(e =>
+            e["action"].ToString() == "dispute_settlement_blocked"
+            && e["timestamp"].ToString() == "2026-02-19T10:00:00.0000003Z"));
     }
 
     [Fact]

@@ -90,7 +90,9 @@ A_ORDER="${PREFIX}-order-escrow-problems"
 A_PAYOUT="${PREFIX}-manual-payouts-overdue"
 A_QUEUE="${PREFIX}-admin-queue-overdue"
 A_MISMATCH="${PREFIX}-dispute-verdict-order-mismatch"
-ALL_ALARMS=("$A_SETTLE" "$A_CRON" "$A_ORDER" "$A_PAYOUT" "$A_QUEUE" "$A_MISMATCH")
+# Persistence alarm (three hourly datapoints in a row): checked, never fired by this script.
+A_BLOCKED="${PREFIX}-dispute-verdict-settlement-blocked"
+ALL_ALARMS=("$A_SETTLE" "$A_CRON" "$A_ORDER" "$A_PAYOUT" "$A_QUEUE" "$A_MISMATCH" "$A_BLOCKED")
 
 # Sample lines: the exact formats of MoneyAlarmLog and the sync Lambda, with a synthetic id.
 SID="synthetic-esc13"
@@ -99,6 +101,7 @@ L_LINK="ORDER_ESCROW_LINK_FAILED orderId=${SID} deliveryId=${SID} reason=[Synthe
 L_PAYOUT="MANUAL_PAYOUT_OVERDUE escrowId=${SID} ref=release:farmer ageHours=25"
 L_QUEUE="ADMIN_QUEUE_OVERDUE orderId=${SID} reason=synthetic ageHours=25"
 L_MISMATCH="DISPUTE_VERDICT_ORDER_MISMATCH escrowId=${SID} op=refund legs=order:mismatch:accepted"
+L_BLOCKED="DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=${SID} op=refund legs=order:cancel:conflict"
 
 # How the Lambda runtime writes a line to CloudWatch: time, request id and level, tab separated.
 RT_PREFIX=$'2026-10-09T10:00:00.000Z\tsynthetic-esc13-request\twarn\t'
@@ -107,7 +110,7 @@ RT_PREFIX=$'2026-10-09T10:00:00.000Z\tsynthetic-esc13-request\twarn\t'
 # ESCROW_034), and lines that carry client text exactly as the server writes them, with a
 # hostile value that spells a token (the server turns "_" into "-" in client values, and the
 # escrow Lambda logs the route template, not the path).
-HOSTILE="ESCROW-SETTLEMENT-FAILED-ORDER-ESCROW-LINK-FAILED-MANUAL-PAYOUT-OVERDUE-DISPUTE-VERDICT-ORDER-MISMATCH"
+HOSTILE="ESCROW-SETTLEMENT-FAILED-ORDER-ESCROW-LINK-FAILED-MANUAL-PAYOUT-OVERDUE-DISPUTE-VERDICT-ORDER-MISMATCH-DISPUTE-VERDICT-SETTLEMENT-BLOCKED"
 NEGATIVE_LINES=(
   "ESCROW_MANUAL_PAYOUT_QUEUED escrowId=${SID} op=release legs=farmer,trucker reason=PAYOUT_NOT_SUPPORTED"
   "ESCROW_MANUAL_PAYOUT_WAITING escrowId=${SID} sweep=auto-release"
@@ -129,6 +132,7 @@ CHECKS=(
   "${LG_CRON}|AdminQueueOverdue|${L_QUEUE}"
   "${LG_ESCROW}|DisputeVerdictOrderMismatch|${L_MISMATCH}"
   "${LG_CRON}|DisputeVerdictOrderMismatch|${L_MISMATCH}"
+  "${LG_CRON}|DisputeVerdictSettlementBlocked|${L_BLOCKED}"
 )
 
 FAILED=0
@@ -210,6 +214,10 @@ NOW_MS="$(( $(date +%s) * 1000 ))"
 PENDING=()
 SKIPPED=()
 for a in "${ALL_ALARMS[@]}"; do
+  if [ "$a" = "$A_BLOCKED" ]; then
+    echo "  SKIP  ${a} needs three hourly datapoints in a row: its filter is checked above, it is not fired here"
+    continue
+  fi
   state="$(aws_text cloudwatch describe-alarms --alarm-names "$a" --query 'MetricAlarms[0].StateValue' 2>/dev/null)"
   if [ "$state" = "ALARM" ]; then
     echo "  SKIP  ${a} is already in ALARM: not proven by this run, investigate it first"

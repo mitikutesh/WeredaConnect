@@ -288,6 +288,8 @@ public class DisputeVerdictMirrorTests
             .Should().Be("2026-10-09T14:30:00.0000002Z");
         DisputeVerdictMirror.VerdictAuditTimestamp("2026-10-09T14:30:00Z", DisputeVerdictMirror.MismatchAuditAction)
             .Should().Be("2026-10-09T14:30:00.0000001Z");
+        DisputeVerdictMirror.VerdictAuditTimestamp("2026-10-09T14:30:00.0000000Z", DisputeVerdictMirror.SettlementBlockedAuditAction)
+            .Should().Be("2026-10-09T14:30:00.0000003Z");
         // Unreadable: the start of the current UTC day.
         DisputeVerdictMirror.VerdictAuditTimestamp("not-a-time", DisputeVerdictMirror.MismatchAuditAction)
             .Should().Be(DateTime.UtcNow.Date.AddTicks(1).ToString("o"));

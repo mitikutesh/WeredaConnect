@@ -2090,8 +2090,9 @@ public sealed class EscrowService
     /// pending delivery) and restores its stock. Returns why the settlement must not go ahead:
     /// <list type="bullet">
     /// <item>a read failed before the legs were decided, or a <c>buyer_wins</c> refund could not cancel
-    /// the order or give its stock back first (<c>503 ESCROW_012</c>, fail closed, logged as
-    /// <c>DISPUTE_VERDICT_MIRROR_READ_FAILED</c>; the next run retries);</item>
+    /// the order or give its stock back first (<c>503 ESCROW_012</c>, fail closed; the next run
+    /// retries). Logged as <c>DISPUTE_VERDICT_SETTLEMENT_BLOCKED</c> for the money alarm (escrow-cron,
+    /// three hourly runs in a row) and audited once as <c>dispute_settlement_blocked</c>;</item>
     /// <item>a leg cannot follow the verdict (<c>422 ESCROW_INVALID_TRANSITION</c>, alarm line
     /// <c>DISPUTE_VERDICT_ORDER_MISMATCH</c>), unless an admin overrides a <c>buyer_wins</c> refund
     /// with a reason.</item>
@@ -2118,12 +2119,12 @@ public sealed class EscrowService
         catch (Exception ex)
         {
             // The mirror does not throw; if it ever does, nothing is known, so fail closed.
-            return MirrorReadFailed(escrowId, op, $"[{ex.GetType().Name}]");
+            return await SettlementBlockedAsync(escrowId, resolvedAt, actor, op, $"[{ex.GetType().Name}]");
         }
 
         if (result.BlocksSettlement)
         {
-            return MirrorReadFailed(escrowId, op, result.FailedLegs);
+            return await SettlementBlockedAsync(escrowId, resolvedAt, actor, op, result.FailedLegs);
         }
 
         if (result.FailedLegs == null)
@@ -2166,11 +2167,28 @@ public sealed class EscrowService
             : null;
     }
 
-    private static SettlementBlock MirrorReadFailed(string escrowId, string op, string? legs)
+    /// <summary>
+    /// The settlement fails closed (read, cancel or restock did not land). The hourly sweep retries;
+    /// a cause that persists is alarmed (three hourly blocked runs in a row on escrow-cron) and the
+    /// admin timeline shows one <c>dispute_settlement_blocked</c> row with the reason.
+    /// </summary>
+    private async Task<SettlementBlock> SettlementBlockedAsync(
+        string escrowId, string resolvedAt, string actor, string op, string? legs)
     {
-        // Not an alarm token: a transient read, cancel or restock failure that the next hourly run retries.
-        Console.WriteLine(
-            $"DISPUTE_VERDICT_MIRROR_READ_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} legs={MoneyAlarmLog.LogText(legs)}");
+        AlarmLog(MoneyAlarmLog.DisputeVerdictSettlementBlocked(escrowId, op, legs));
+        try
+        {
+            await EnsureAuditAsync(escrowId,
+                DisputeVerdictMirror.VerdictAuditTimestamp(resolvedAt, DisputeVerdictMirror.SettlementBlockedAuditAction),
+                DisputeVerdictMirror.SettlementBlockedAuditAction, "dispute_resolved", "dispute_resolved", actor,
+                metadata: $"legs={legs};op={op};at={DateTime.UtcNow:o}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(
+                $"DISPUTE_VERDICT_PROPAGATION_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
+        }
+
         return new SettlementBlock(503, "ESCROW_012",
             "The order behind this verdict could not be read, cancelled or restocked. Nothing was settled; try again.");
     }

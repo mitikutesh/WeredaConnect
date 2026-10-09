@@ -141,9 +141,13 @@ public sealed class DisputeVerdictMirror
     /// <summary>Escrow-audit action when a leg could follow but its write failed (repaired on a later run).</summary>
     public const string PropagationFailedAuditAction = "dispute_verdict_propagation_failed";
 
+    /// <summary>Escrow-audit action when the settlement failed closed (<see cref="DisputeVerdictMirrorResult.BlocksSettlement"/>).</summary>
+    public const string SettlementBlockedAuditAction = "dispute_settlement_blocked";
+
     /// <summary>
     /// The deterministic escrow-audit timestamp for a failed mirror: the verdict's
-    /// <c>disputeResolvedAt</c> plus one tick (mismatch) or two (propagation). Written with
+    /// <c>disputeResolvedAt</c> plus one tick (mismatch), two (propagation) or three (settlement
+    /// blocked). Written with
     /// AppendIfAbsentAsync, so there is one row per escrow and action however often the hourly
     /// sweep retries, and it sorts right after the verdict's own row. Falls back to the start of
     /// the current UTC day when the time cannot be read.
@@ -153,7 +157,13 @@ public sealed class DisputeVerdictMirror
         var at = DateTime.TryParse(disputeResolvedAt, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)
             ? parsed.ToUniversalTime()
             : DateTime.UtcNow.Date;
-        return at.AddTicks(action == MismatchAuditAction ? 1 : 2).ToString("o");
+        var slot = action switch
+        {
+            MismatchAuditAction => 1,
+            SettlementBlockedAuditAction => 3,
+            _ => 2
+        };
+        return at.AddTicks(slot).ToString("o");
     }
 
     /// <summary>Order statuses that may be advanced to <c>delivered</c> when the delivery already is.</summary>

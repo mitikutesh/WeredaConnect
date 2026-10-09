@@ -455,17 +455,31 @@ public sealed class DisputeSettlementDynamoDbTests
         var escrowId = await SeedEscrowAsync("dispute_resolved", orderId, resolution: "farmer_wins");
         var broken = Service(orderRepo: new OrderRepository(Ddb, $"missing-{Guid.NewGuid():N}"));
 
-        var result = await broken.ReleaseAsync(new ReleaseEscrowRequest
+        // Two attempts (two hourly sweeps, say): both fail closed.
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            EscrowId = escrowId, Trigger = "dispute_resolved", DeliveryId = "",
-            IdempotencyKey = $"admin-it:{escrowId}:release:{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}"
-        }, "admin-it", "admin", adminGroupVerified: true);
+            var result = await broken.ReleaseAsync(new ReleaseEscrowRequest
+            {
+                EscrowId = escrowId, Trigger = "dispute_resolved", DeliveryId = "",
+                IdempotencyKey = $"admin-it:{escrowId}:release:{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + attempt}"
+            }, "admin-it", "admin", adminGroupVerified: true);
 
-        result.Error!.HttpStatus.Should().Be(503);
-        result.Error.Code.Should().Be("ESCROW_012");
+            result.Error!.HttpStatus.Should().Be(503);
+            result.Error.Code.Should().Be("ESCROW_012");
+        }
+
         Str(await EscrowAsync(escrowId), "settlementLock").Should().BeNull();
         await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.TransactionRef == $"release:{escrowId}"));
-        _alarms.Should().NotContain(l => l.Contains(escrowId));
+        // Each attempt logs the blocked line (the persistence alarm counts them); never the mismatch line.
+        _alarms.Where(l => l.StartsWith($"DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId={escrowId} op=release legs=order:read:"))
+            .Should().HaveCount(2);
+        _alarms.Should().NotContain(l => l.StartsWith("DISPUTE_VERDICT_ORDER_MISMATCH") && l.Contains(escrowId));
+        // One timeline row with the reason, right after the verdict time.
+        var blocked = (await AuditRepo.GetAuditTrailAsync(escrowId))
+            .Where(a => a["action"].ToString() == "dispute_settlement_blocked").ToList();
+        blocked.Should().ContainSingle();
+        blocked[0]["timestamp"].ToString().Should().Be("2026-10-05T10:00:00.0000003Z");
+        blocked[0]["metadata"].ToString().Should().StartWith("legs=order:read:[ResourceNotFoundException]");
     }
 
     [LocalDynamoDbFact]

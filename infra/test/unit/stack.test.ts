@@ -751,6 +751,7 @@ describe('MonitoringStack', () => {
     'wereda-connect-dev-manual-payouts-overdue',
     'wereda-connect-dev-admin-queue-overdue',
     'wereda-connect-dev-dispute-verdict-order-mismatch',
+    'wereda-connect-dev-dispute-verdict-settlement-blocked',
   ];
 
   // The exact lines the server writes (server/src/Helpers/MoneyAlarmLog.cs and
@@ -773,6 +774,9 @@ describe('MonitoringStack', () => {
     'DISPUTE_VERDICT_ORDER_MISMATCH escrowId=escrow-order-ord-1 op=refund legs=order:mismatch:accepted';
   // ESC-03 lines that are not a refused settlement: a failed write the next run repairs, and
   // a delivery dispute that lost to a settlement in flight.
+  // ESC-03's fail-closed settlement (read, cancel or restock did not land).
+  const BLOCKED_LINE =
+    'DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=escrow-order-ord-1 op=refund legs=order:cancel:conflict';
   const VERDICT_OTHER_LINES = [
     'DISPUTE_VERDICT_PROPAGATION_FAILED escrowId=escrow-order-ord-1 orderId=ord-1 deliveryId=del-1 legs=order:conflict',
     'ESCROW_DISPUTE_REFUSED_SETTLEMENT_IN_FLIGHT escrowId=escrow-order-ord-1',
@@ -949,6 +953,40 @@ describe('MonitoringStack', () => {
     });
   });
 
+  test('ESC-03: a settlement blocked for three hourly sweeps in a row alarms (escrow-cron only)', () => {
+    const template = monitoringTemplate(false);
+    const filter = metricFilter(template, ESCROW_CRON_LG, 'DisputeVerdictSettlementBlocked');
+    expect(filter.Properties.MetricTransformations[0].MetricValue).toBe('1');
+    expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, BLOCKED_LINE)).toBe(true);
+    expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, `2026-10-09T10:00:00.000Z\t4f1c7a2e-req\tinfo\t${BLOCKED_LINE}`)).toBe(true);
+    // Negative set: the mismatch line, the other verdict lines and every other money token.
+    for (const line of [MISMATCH_LINE, ...VERDICT_OTHER_LINES, SETTLEMENT_LINE, PAYOUT_LINE, QUEUE_LINE, CREATE_LINE, ...QUEUED_PAYOUT_LINES]) {
+      expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, false]);
+    }
+    // No other money filter counts the blocked line.
+    for (const [lg, metric] of [
+      [ESCROW_LG, 'EscrowSettlementFailures'],
+      [ESCROW_CRON_LG, 'EscrowSettlementFailures'],
+      [ESCROW_LG, 'DisputeVerdictOrderMismatch'],
+      [ESCROW_CRON_LG, 'DisputeVerdictOrderMismatch'],
+      [ESCROW_CRON_LG, 'ManualPayoutsOverdue'],
+      [SYNC_LG, 'OrderEscrowProblems'],
+    ]) {
+      expect(cloudWatchTermsMatch(metricFilter(template, lg, metric).Properties.FilterPattern, BLOCKED_LINE)).toBe(false);
+    }
+    // Not on the escrow Lambda: an admin's own call answers 503 already.
+    expect(() => metricFilter(template, ESCROW_LG, 'DisputeVerdictSettlementBlocked')).toThrow();
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-dispute-verdict-settlement-blocked',
+      Metrics: [customMetric('DisputeVerdictSettlementBlocked', 3600)],
+      Threshold: 0,
+      ComparisonOperator: 'GreaterThanThreshold',
+      EvaluationPeriods: 3,
+      DatapointsToAlarm: 3,
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
   test('ESC-13: filter patterns do not count unrelated escrow log lines', () => {
     const template = monitoringTemplate(false);
     const settlement = metricFilter(template, ESCROW_CRON_LG, 'EscrowSettlementFailures').Properties.FilterPattern;
@@ -982,7 +1020,7 @@ describe('MonitoringStack', () => {
     const groups = [ESCROW_LG, ESCROW_CRON_LG, SYNC_LG, '/aws/lambda/wereda-connect-dev-telebirr-webhook'];
     const money = [
       'EscrowSettlementFailures', 'OrderEscrowProblems', 'ManualPayoutsOverdue', 'AdminQueueOverdue',
-      'OrderPaymentProblems', 'DisputeVerdictOrderMismatch',
+      'OrderPaymentProblems', 'DisputeVerdictOrderMismatch', 'DisputeVerdictSettlementBlocked',
     ];
     return (Object.values(template.findResources('AWS::Logs::MetricFilter')) as MetricFilterResource[])
       .filter((f) => groups.includes(f.Properties.LogGroupName) && money.includes(f.Properties.MetricTransformations[0].MetricName))
@@ -991,7 +1029,7 @@ describe('MonitoringStack', () => {
 
   test('ESC-13: every money filter term contains an underscore (the server defangs client text by turning _ into -)', () => {
     const patterns = moneyFilterPatterns(monitoringTemplate(true));
-    expect(patterns.length).toBe(8);
+    expect(patterns.length).toBe(9);
     for (const term of patterns.flatMap(filterTerms)) {
       expect([term, term.includes('_')]).toEqual([term, true]);
     }
@@ -1063,6 +1101,7 @@ describe('MonitoringStack', () => {
         'ManualPayoutsOverdue',
         'AdminQueueOverdue',
         'DisputeVerdictOrderMismatch',
+        'DisputeVerdictSettlementBlocked',
       ]) {
         expect(body).toMatch(new RegExp(`"Fn::GetAtt":\\["${logicalId}[0-9A-F]+","Arn"\\]`));
       }
