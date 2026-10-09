@@ -305,6 +305,12 @@ public sealed record ManualPayoutDto
     /// called. Null for a lock taken before ESC-05.
     /// </summary>
     public string? SettlementLockedAt { get; init; }
+
+    /// <summary>
+    /// ESC-05: the dispute verdict on the escrow, if any. A lock taken before ESC-03 can contradict
+    /// it (a <c>release</c> queued on a <c>buyer_wins</c> verdict); the admin page warns then.
+    /// </summary>
+    public string? DisputeResolution { get; init; }
     public required string QueuedAt { get; init; }
     public required string Currency { get; init; }
     public required List<ManualPayoutLegDto> Legs { get; init; }

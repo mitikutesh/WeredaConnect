@@ -356,6 +356,30 @@ describe("ManualPayoutsPage", () => {
     expect(within(row).queryByText(/Gateway called/)).toBeNull();
   });
 
+  it("warns when a parked payout goes against the escrow's dispute verdict", () => {
+    // ESC-05: a release locked before a buyer_wins verdict, parked by the recovery step.
+    const against = {
+      ...releaseWithTwoLegs({ escrowStatus: "dispute_resolved", fromStatus: "dispute_resolved" }),
+      reason: "GATEWAY_OUTCOME_UNKNOWN",
+      disputeResolution: "buyer_wins",
+    };
+    const along = {
+      ...refundOverdue(),
+      escrowId: "escrow-order-ord-5",
+      escrowStatus: "dispute_resolved",
+      fromStatus: "dispute_resolved",
+      disputeResolution: "buyer_wins",
+      legs: [{ ...refundOverdue().legs[0], payeeName: "Meron Tadesse" }],
+    };
+    mocks.payouts.data = pages({ payouts: [against, along], total: 2 });
+    renderPage();
+
+    const warning =
+      "The dispute verdict is Buyer Wins, but this payout goes the other way (its lock was taken before the verdict). Do not pay it: check the escrow history first.";
+    expect(within(rowFor("Abebe Kebede")).getByText(warning)).toBeTruthy();
+    expect(within(rowFor("Meron Tadesse")).queryByText(warning)).toBeNull();
+  });
+
   it("shows a load failure instead of an empty queue", () => {
     mocks.payouts.isError = true;
     mocks.payouts.data = undefined;

@@ -1398,7 +1398,7 @@ public sealed class EscrowService
         {
             return await ReleaseCoreAsync(request, authenticatedUserId, role, auditContext, adminGroupVerified, progress);
         }
-        catch (Exception ex) when (progress.Locked)
+        catch (Exception ex) when (progress.Locked && !progress.Recorded)
         {
             MoneyAlarmLog.MarkSettlementInFlight(ex);
             throw;
@@ -1407,11 +1407,15 @@ public sealed class EscrowService
 
     /// <summary>
     /// ESC-05: whether a release or refund took the settlement lock, so an exception that escapes
-    /// afterwards is logged as an unknown outcome and one before it as a plain failure.
+    /// afterwards is logged as an unknown outcome and one before it as a plain failure. Once the
+    /// settled status is written (<see cref="Recorded"/>) the money is accounted for, so a later
+    /// bookkeeping failure (an audit row, the completed write) is a plain failure again.
     /// </summary>
     private sealed class SettlementProgress
     {
         public bool Locked { get; set; }
+
+        public bool Recorded { get; set; }
     }
 
     private async Task<EscrowResult<ReleaseEscrowResponse>> ReleaseCoreAsync(
@@ -1748,6 +1752,9 @@ public sealed class EscrowService
         // admin (ESC-05). This write never calls Telebirr.
         await WriteSettledStatusAsync(request.EscrowId, createdAt, "released", currentStatus, releaseFields,
             $"op=release farmerRef={MoneyAlarmLog.LogId(releaseResponse.TelebirrRef)} truckerRef={MoneyAlarmLog.LogId(truckerReleaseRef)}");
+        // The payout is on record: what follows is bookkeeping, and the crash-recovery sweep
+        // completes a released escrow whose later writes fail.
+        progress.Recorded = true;
 
         // ESC-05: the trucker leg's audit row after the status write, so a failed audit write
         // cannot leave a paid escrow unrecorded.
@@ -2429,7 +2436,7 @@ public sealed class EscrowService
         {
             return await RefundCoreAsync(request, authenticatedUserId, role, auditContext, adminGroupVerified, progress);
         }
-        catch (Exception ex) when (progress.Locked)
+        catch (Exception ex) when (progress.Locked && !progress.Recorded)
         {
             MoneyAlarmLog.MarkSettlementInFlight(ex);
             throw;
@@ -2656,6 +2663,7 @@ public sealed class EscrowService
                 { "version", currentVersion + 1 }
             },
             $"op=refund buyerRef={MoneyAlarmLog.LogId(refundResponse.TelebirrRef)}");
+        progress.Recorded = true;
 
         // 6. Audit log
         await AppendAuditAsync(request.EscrowId, "refund", currentStatus, "refunded",
@@ -2760,10 +2768,11 @@ public sealed class EscrowService
     /// <summary>
     /// The status write after the gateway paid (<c>released</c> or <c>refunded</c>). The money has
     /// moved, so a transient failure is retried (4 attempts, 150 ms times the attempt apart). A
-    /// failed condition is not retried, except after an attempt that threw: that attempt may have
-    /// landed although the client saw an error, so a strongly consistent re-read that shows the
-    /// new status counts as written (ESC-05). If the write never lands, the references go to the
-    /// log and the exception escapes with the lock held; the recovery step parks the escrow.
+    /// failed condition is not retried: an earlier attempt (ours, or one the SDK retried after a
+    /// lost answer) may have landed although the client saw an error, so a strongly consistent
+    /// re-read that shows the new status counts as written (ESC-05). If the write never lands, the
+    /// references go to the log and the exception escapes with the lock held; the recovery step
+    /// parks the escrow.
     /// </summary>
     private async Task WriteSettledStatusAsync(
         string escrowId, string createdAt, string newStatus, string expectedStatus,
@@ -2778,7 +2787,9 @@ public sealed class EscrowService
             }
             catch (ConditionalCheckFailedException)
             {
-                if (attempt > 1 && await HasSettledStatusAsync(escrowId, newStatus))
+                // The SDK retries a write whose answer was lost, so even a first attempt can fail
+                // its condition on our own commit: a strongly consistent re-read decides.
+                if (await HasSettledStatusAsync(escrowId, newStatus))
                 {
                     return;
                 }
@@ -2927,7 +2938,10 @@ public sealed class EscrowService
         Parked,
 
         /// <summary>The row changed before the write (another recovery parked it, or a new lock): left alone, silently.</summary>
-        Lost
+        Lost,
+
+        /// <summary>The park write threw and the row still holds the same stale lock: alarmed, the next run tries again.</summary>
+        Failed
     }
 
     /// <summary>
@@ -2973,6 +2987,7 @@ public sealed class EscrowService
         var queuedAt = DateTime.UtcNow.ToString("o");
         var parkId = Guid.NewGuid().ToString("N");
         bool queued;
+        Exception? writeError = null;
         try
         {
             queued = await _escrowRepo.TryQueueStaleSettlementAsync(
@@ -2980,7 +2995,7 @@ public sealed class EscrowService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"ESCROW_STALE_LOCK_PARK_WRITE_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
+            writeError = ex;
             queued = false;
         }
 
@@ -2996,6 +3011,17 @@ public sealed class EscrowService
                 || GetStringOrNull(latest, SettlementLockFields.LockId) != lockId
                 || GetStringOrNull(latest, ManualPayoutFields.ParkId) != parkId)
             {
+                // A write that threw on a row still holding the same stale lock, unqueued: the
+                // unknown outcome is still unparked, so it alarms and the next run tries again.
+                if (writeError != null && latest != null && !IsManualPayoutOpen(latest)
+                    && GetStringOrNull(latest, SettlementLockFields.Lock) == op
+                    && GetStringOrNull(latest, SettlementLockFields.LockId) == lockId)
+                {
+                    AlarmLog(MoneyAlarmLog.SettlementFailed(
+                        escrowId, "stale_lock_recovery_failed", MoneyAlarmLog.OutcomeUnknown, writeError.GetType().Name));
+                    return StaleSettlementOutcome.Failed;
+                }
+
                 return StaleSettlementOutcome.Lost;
             }
         }
@@ -3009,8 +3035,11 @@ public sealed class EscrowService
 
         // Deterministic keys: the park row one tick before the queued row, so it never shares
         // the queued row's timestamp (the audit table's sort key).
+        // A legacy lock can contradict the verdict of a dispute_resolved row (a release locked
+        // before a buyer_wins verdict); the row and the admin page say so.
         await EnsureAuditAsync(escrowId, AddTicks(queuedAt, -1), "stale_lock_parked", status, status, SystemActor,
-            metadata: $"op={op};lockedAt={lockedSince};ageMinutes={ageMinutes};legacyLock={(lockId == null ? "true" : "false")}");
+            metadata: $"op={op};lockedAt={lockedSince};ageMinutes={ageMinutes};legacyLock={(lockId == null ? "true" : "false")}"
+                      + $";disputeResolution={GetStringOrNull(escrow, "disputeResolution") ?? "-"}");
         await EnsureAuditAsync(escrowId, queuedAt, "manual_payout_queued", status, status, SystemActor,
             metadata: $"op={op};legs={legNames};reason={ManualPayoutFields.ReasonGatewayOutcomeUnknown}");
         return StaleSettlementOutcome.Parked;
@@ -3441,6 +3470,7 @@ public sealed class EscrowService
             FromStatus = GetString(item, ManualPayoutFields.FromStatus),
             DeliveryConfirmedAt = GetStringOrNull(item, "deliveryConfirmedAt"),
             SettlementLockedAt = GetStringOrNull(item, SettlementLockFields.LockAt),
+            DisputeResolution = GetStringOrNull(item, "disputeResolution"),
             QueuedAt = GetString(item, ManualPayoutFields.QueuedAt),
             Currency = GetStringOrNull(item, "currency") ?? "ETB",
             Legs = legs,

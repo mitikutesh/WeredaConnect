@@ -39,6 +39,8 @@ interface ManualPayout {
   deliveryConfirmedAt?: string;
   /* ESC-05: when the settlement lock was taken, which is when the gateway may have been called. */
   settlementLockedAt?: string;
+  /* ESC-05: the dispute verdict, if any. A lock from before the verdict can go the other way. */
+  disputeResolution?: string;
   queuedAt: string;
   currency: string;
   legs: PayoutLeg[];
@@ -59,6 +61,14 @@ const OVERDUE_HOURS = 24;
 const REF_MISSING = "GATEWAY_REF_MISSING";
 const OUTCOME_UNKNOWN = "GATEWAY_OUTCOME_UNKNOWN";
 const CHECK_PORTAL_FIRST = new Set([REF_MISSING, OUTCOME_UNKNOWN]);
+
+/* ESC-05: a payout that goes against the escrow's dispute verdict (a lock taken before it). */
+function contradictsVerdict(payout: ManualPayout): boolean {
+  return (
+    (payout.op === "release" && payout.disputeResolution === "buyer_wins") ||
+    (payout.op === "refund" && payout.disputeResolution === "farmer_wins")
+  );
+}
 
 function hoursSince(iso: string): number {
   const ms = Date.now() - new Date(iso).getTime();
@@ -231,6 +241,13 @@ export function ManualPayoutsPage() {
             row.payout.deliveryConfirmedAt &&
             row.payout.deliveryConfirmedAt > row.payout.queuedAt && (
             <p className="max-w-56 text-xs text-warning">{t("payouts.deliveredWarning")}</p>
+          )}
+          {contradictsVerdict(row.payout) && (
+            <p role="alert" className="max-w-56 text-xs text-danger">
+              {fill(t("payouts.verdictConflict"), {
+                verdict: t(row.payout.disputeResolution === "buyer_wins" ? "disputes.buyerWins" : "disputes.farmerWins"),
+              })}
+            </p>
           )}
         </div>
       ),

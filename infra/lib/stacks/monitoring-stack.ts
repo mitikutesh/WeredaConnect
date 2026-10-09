@@ -862,7 +862,8 @@ export class MonitoringStack extends cdk.Stack {
       'A release, refund or trucker leg may have moved money without the escrow recording it ' +
         '(ESCROW_SETTLEMENT_FAILED with outcome=unknown in the escrow or escrow-cron log group: a ' +
         'Telebirr timeout or lost answer, a gateway call that threw, a queue write that failed ' +
-        'after the gateway answered, an exception after the settlement lock, or a stale lock ' +
+        'after the gateway answered, an exception between the settlement lock and the settled ' +
+        'status write, or a stale lock ' +
         'parked by the recovery step, action=stale_lock_parked). Nothing retries it. Do NOT ' +
         'release or refund it by hand. The escrow keeps its lock and is in Manual Payouts ' +
         '(/payouts) with reason GATEWAY_OUTCOME_UNKNOWN, or will be within about 75 minutes. Search ' +

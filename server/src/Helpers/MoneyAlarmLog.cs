@@ -86,8 +86,9 @@ public static class MoneyAlarmLog
 
     /// <summary>
     /// ESC-05: the outcome of an exception caught around a settlement: <c>unknown</c> only when it
-    /// escaped after the settlement lock was taken; before the lock no gateway call can have
-    /// happened, so <c>failed</c>.
+    /// escaped after the settlement lock was taken and before the settled status was written;
+    /// before the lock no gateway call can have happened, and after the status write the payout is
+    /// on record, so <c>failed</c>.
     /// </summary>
     public static string ExceptionOutcome(Exception ex)
         => ex.Data.Contains(SettlementInFlightKey) ? OutcomeUnknown : OutcomeFailed;

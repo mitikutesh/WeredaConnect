@@ -591,18 +591,87 @@ public class EscrowServiceSettlementRecoveryTests
     }
 
     [Fact]
-    public async Task Refund_StatusWrite_ConditionFailsOnTheFirstAttempt_SurfacesWithTheLockKept()
+    public async Task Refund_StatusWrite_ConditionFailsOnTheFirstAttempt_OnItsOwnLostCommit_CountsAsWritten()
+    {
+        // The SDK retried the write internally after a lost answer, so the condition fails on
+        // our own commit even on the service's first attempt (review finding).
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(status: "refunded"));
+        _escrowRepo.UpdateStatusAsync(EscrowId, CreatedAt, "refunded", "escrowed", Arg.Any<Dictionary<string, object>?>())
+            .ThrowsAsync(new ConditionalCheckFailedException("already refunded"));
+
+        var result = await _service.RefundAsync(RefundRequest(), EscrowService.SystemActor);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Status.Should().Be("refunded");
+        await _escrowRepo.Received(1).UpdateStatusAsync(
+            EscrowId, CreatedAt, "refunded", "escrowed", Arg.Any<Dictionary<string, object>?>());
+        AuditEntries().Should().Contain(e => (string)e["action"] == "refund");
+    }
+
+    [Fact]
+    public async Task Refund_StatusWrite_ConditionFailsOnTheFirstAttempt_RowNotRefunded_SurfacesWithTheLockKept()
     {
         _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow());
         _escrowRepo.UpdateStatusAsync(EscrowId, CreatedAt, "refunded", "escrowed", Arg.Any<Dictionary<string, object>?>())
             .ThrowsAsync(new ConditionalCheckFailedException("anomaly"));
 
         var act = () => _service.RefundAsync(RefundRequest(), EscrowService.SystemActor);
 
         var thrown = await act.Should().ThrowAsync<ConditionalCheckFailedException>();
-        await _escrowRepo.DidNotReceive().GetByIdAsync(EscrowId, true);
+        await _escrowRepo.Received(1).GetByIdAsync(EscrowId, true);
         await _escrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
         MoneyAlarmLog.ExceptionOutcome(thrown.Which).Should().Be(MoneyAlarmLog.OutcomeUnknown);
+    }
+
+    // ──────────────────────────────────────────────
+    // After the settled status write: bookkeeping failures are plain failures
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task Release_CompletedWriteFailsAfterTheReleasedWrite_IsAPlainFailure()
+    {
+        // The payout is on record (released); the crash-recovery sweep completes it. Admins must
+        // not wait for a queue row that never comes, so this is not an unknown outcome.
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        _escrowRepo.UpdateStatusAsync(EscrowId, CreatedAt, "completed", "released", Arg.Any<Dictionary<string, object>?>())
+            .ThrowsAsync(new AmazonDynamoDBException("down"));
+
+        var act = () => _service.ReleaseAsync(ReleaseRequest(), EscrowService.SystemActor);
+
+        var thrown = await act.Should().ThrowAsync<AmazonDynamoDBException>();
+        MoneyAlarmLog.ExceptionOutcome(thrown.Which).Should().Be(MoneyAlarmLog.OutcomeFailed);
+        await _escrowRepo.Received(1).UpdateStatusAsync(
+            EscrowId, CreatedAt, "released", "escrowed", Arg.Any<Dictionary<string, object>?>());
+    }
+
+    [Fact]
+    public async Task Refund_AuditFailsAfterTheRefundedWrite_IsAPlainFailure()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        _auditRepo.AppendAsync(Arg.Is<Dictionary<string, object>>(e => (string)e["action"] == "refund"))
+            .ThrowsAsync(new AmazonDynamoDBException("down"));
+
+        var act = () => _service.RefundAsync(RefundRequest(), EscrowService.SystemActor);
+
+        var thrown = await act.Should().ThrowAsync<AmazonDynamoDBException>();
+        MoneyAlarmLog.ExceptionOutcome(thrown.Which).Should().Be(MoneyAlarmLog.OutcomeFailed);
+        await _escrowRepo.Received(1).UpdateStatusAsync(
+            EscrowId, CreatedAt, "refunded", "escrowed", Arg.Any<Dictionary<string, object>?>());
+    }
+
+    [Fact]
+    public async Task Release_TruckerAuditFailsAfterTheReleasedWrite_IsAPlainFailure()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(withTrucker: true));
+        _auditRepo.AppendAsync(Arg.Is<Dictionary<string, object>>(e => (string)e["action"] == "trucker_release"))
+            .ThrowsAsync(new AmazonDynamoDBException("down"));
+
+        var act = () => _service.ReleaseAsync(ReleaseRequest(), EscrowService.SystemActor);
+
+        var thrown = await act.Should().ThrowAsync<AmazonDynamoDBException>();
+        MoneyAlarmLog.ExceptionOutcome(thrown.Which).Should().Be(MoneyAlarmLog.OutcomeFailed);
     }
 
     [Fact]
@@ -815,5 +884,111 @@ public class EscrowServiceSettlementRecoveryTests
         (await _service.ParkStaleSettlementAsync(Locked("release", 30), Now))
             .Should().Be(EscrowService.StaleSettlementOutcome.Lost);
         _alarmLines.Should().BeEmpty();
+    }
+    [Fact]
+    public async Task Park_WriteThrows_RowStillHoldsTheSameLock_AlarmsTheRecoveryFailure()
+    {
+        // The park did not land and the stale lock is still unparked: never silent.
+        _escrowRepo.TryQueueStaleSettlementAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>())
+            .ThrowsAsync(new AmazonDynamoDBException("throttled"));
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Locked("release", 30));
+
+        var outcome = await _service.ParkStaleSettlementAsync(Locked("release", 30), Now);
+
+        outcome.Should().Be(EscrowService.StaleSettlementOutcome.Failed);
+        _alarmLines.Should().Equal(
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-order-ord-5 action=stale_lock_recovery_failed outcome=unknown code=AmazonDynamoDBException");
+        AuditEntries().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Park_WriteThrows_ButAnotherLockIsThereNow_IsSilent()
+    {
+        _escrowRepo.TryQueueStaleSettlementAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>())
+            .ThrowsAsync(new AmazonDynamoDBException("throttled"));
+        var relocked = Locked("refund", 1);
+        relocked[SettlementLockFields.LockId] = "a-newer-lock";
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(relocked);
+
+        (await _service.ParkStaleSettlementAsync(Locked("release", 30), Now))
+            .Should().Be(EscrowService.StaleSettlementOutcome.Lost);
+        _alarmLines.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Park_ALegacyLockAgainstTheVerdict_RecordsTheVerdict()
+    {
+        // A release locked before ESC-03, then a buyer_wins verdict: parked, but the row says so.
+        StaleQueueWrites(true);
+        var row = Locked("release", 600, status: "dispute_resolved", legacy: true);
+        row["disputeResolution"] = "buyer_wins";
+
+        (await _service.ParkStaleSettlementAsync(row, Now)).Should().Be(EscrowService.StaleSettlementOutcome.Parked);
+
+        ((string)AuditEntries().Single(r => (string)r["action"] == "stale_lock_parked")["metadata"])
+            .Should().Contain("op=release").And.Contain("disputeResolution=buyer_wins");
+    }
+
+    // ──────────────────────────────────────────────
+    // GET /admin/payouts/manual: the ESC-05 fields
+    // ──────────────────────────────────────────────
+
+    private static Dictionary<string, object> QueuedRow(string op, bool withTrucker = false, bool legacyLock = false)
+    {
+        var row = Escrow(withTrucker, status: op == "refund" ? "dispute_resolved" : "escrowed");
+        row[SettlementLockFields.Lock] = op;
+        if (!legacyLock)
+        {
+            row[SettlementLockFields.LockAt] = "2026-10-09T10:00:00.0000000Z";
+            row[SettlementLockFields.LockId] = "lock-id-5";
+        }
+
+        row[ManualPayoutFields.Marker] = ManualPayoutFields.MarkerOpen;
+        row[ManualPayoutFields.QueuedAt] = "2026-10-09T10:20:00.0000000Z";
+        row[ManualPayoutFields.Op] = op;
+        row[ManualPayoutFields.Reason] = ManualPayoutFields.ReasonGatewayOutcomeUnknown;
+        row[ManualPayoutFields.FromStatus] = row["status"];
+        if (op == "release")
+        {
+            row[ManualPayoutFields.StatusAttr("farmer")] = "pending";
+            if (withTrucker)
+            {
+                row[ManualPayoutFields.StatusAttr("trucker")] = "pending";
+            }
+        }
+        else
+        {
+            row[ManualPayoutFields.StatusAttr("buyer")] = "pending";
+            row["disputeResolution"] = "farmer_wins";
+        }
+
+        return row;
+    }
+
+    [Fact]
+    public async Task List_EveryLegCarriesTheGatewayReferenceItWasSentUnder_AndTheLockTime()
+    {
+        _escrowRepo.QueryOpenManualPayoutsAsync(Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { QueuedRow("release", withTrucker: true), QueuedRow("refund", legacyLock: true) },
+                (Dictionary<string, AttributeValue>?)null));
+
+        var result = await _service.ListManualPayoutsAsync(20, null);
+
+        result.IsSuccess.Should().BeTrue();
+        var release = result.Value!.Payouts[0];
+        release.Legs.Select(l => (l.Ref, l.GatewayRef)).Should().Equal(
+            ("farmer", $"release:{EscrowId}"), ("trucker", $"release:{EscrowId}:trucker"));
+        release.SettlementLockedAt.Should().Be("2026-10-09T10:00:00.0000000Z");
+        release.DisputeResolution.Should().BeNull();
+        release.Reason.Should().Be("GATEWAY_OUTCOME_UNKNOWN");
+
+        var refund = result.Value.Payouts[1];
+        refund.Legs.Should().ContainSingle().Which.GatewayRef.Should().Be($"refund:{EscrowId}");
+        refund.SettlementLockedAt.Should().BeNull("a lock from before ESC-05 has no lock time");
+        refund.DisputeResolution.Should().Be("farmer_wins");
     }
 }

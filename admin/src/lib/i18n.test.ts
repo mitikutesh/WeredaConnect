@@ -11,6 +11,8 @@ const locales: Locale[] = ["en", "am", "om"];
 const payoutKeys = Object.keys(en.payouts).map((k) => `payouts.${k}`);
 const otherKeys = [
   "nav.manualPayouts",
+  "disputes.farmerWins",
+  "disputes.buyerWins",
   "errors.ESCROW_015",
   "errors.ESCROW_029",
   "errors.ESCROW_034",
@@ -37,6 +39,7 @@ describe("manual payout strings exist in every locale", () => {
       expect(t("payouts.confirmFound", locale)).toContain("{phone}");
       expect(t("payouts.outcomeUnknownHint", locale)).toContain("{gatewayRef}");
       expect(t("payouts.lockAge", locale)).toContain("{hours}");
+      expect(t("payouts.verdictConflict", locale)).toContain("{verdict}");
     }
   });
 });

@@ -417,7 +417,9 @@ mock mode (`TELEBIRR_MOCK=true`, dev) too.
      find it; pay and record only if it is still missing. In mock mode (dev) no
      money exists: record any reference to close it. A `disputed` escrow in the
      queue (only a lock taken before ESC-03 can put one there) settles without a
-     verdict: fix its order and delivery by hand.
+     verdict: fix its order and delivery by hand. A row that warns "goes against the
+     dispute verdict" (a lock taken before the verdict): do not pay it; check the
+     escrow history and settle the case by hand.
    - A refund row that says the delivery was confirmed after the refund was
      queued: the goods arrived. Check with the buyer and the farmer before
      refunding. Queued escrows cannot be disputed (`ESCROW_038`); a delivery
@@ -600,7 +602,7 @@ nothing.
 
 | Alarm | Meaning | First action |
 |---|---|---|
-| `<prefix>-escrow-settlement-failures` | a release, refund or trucker leg failed, or a sweep hit an exception (`ESCROW_SETTLEMENT_FAILED` in the escrow or escrow-cron log group); a payout queued for an admin (`202 ESCROW_034`) is not counted | find the line by escrowId. `outcome=failed` (a definite refusal, or a failure before the settlement lock): `release_failed` and `refund_failed`: the next sweep retries; `trucker_release_failed`: the escrow completed with `truckerPayoutPending` and nothing retries until ESC-04, so pay the trucker by hand. `outcome=unknown`: see the next row |
+| `<prefix>-escrow-settlement-failures` | a release, refund or trucker leg failed, or a sweep hit an exception (`ESCROW_SETTLEMENT_FAILED` in the escrow or escrow-cron log group); a payout queued for an admin (`202 ESCROW_034`) is not counted | find the line by escrowId. `outcome=failed` (a definite refusal, a failure before the settlement lock, or a bookkeeping failure after the payout was recorded: the escrow row is `released` or `refunded`, and the crash recovery completes a `released` one): `release_failed` and `refund_failed`: the next sweep retries; `trucker_release_failed`: the escrow completed with `truckerPayoutPending` and nothing retries until ESC-04, so pay the trucker by hand. `outcome=unknown`: see the next row |
 | `<prefix>-escrow-settlement-unknown-outcomes` | (ESC-05) a line above with `outcome=unknown`: a Telebirr timeout or lost answer, a gateway call that threw, a queue write that failed after the gateway answered, an exception after the settlement lock, or a stale lock parked by the recovery step (`action=stale_lock_parked`); the money may have moved and nothing retries it | never release or refund it by hand. Open Manual Payouts (`/payouts`): the escrow is there as `GATEWAY_OUTCOME_UNKNOWN` (or `GATEWAY_REF_MISSING`), or will be within about 75 minutes. Search the portal for the row's gateway reference, record it if found, pay only if it is still missing (runbook above). `ESCROW_SETTLEMENT_PAID_UNRECORDED` lines in the same log group carry the gateway references of a payout that was made but not recorded |
 | `<prefix>-escrow-cron-errors` | escrow-cron was killed (5 minute timeout, out of memory) or crashed; a run killed mid-settlement logs no token; 4 periods of 5 minutes, clears 20 to 25 minutes after the last error | find the failed RequestId (REPORT line, "Task timed out") and the last escrowId it logged. An escrow left holding its settlement lock is parked in Manual Payouts by the next hourly run once the lock is 15 minutes old (ESC-05, `stale_lock_parked` line and the unknown-outcomes alarm); treat it as an unknown outcome |
 | `<prefix>-order-escrow-problems` | `ORDER_ESCROW_CREATE_FAILED`, `_LINK_FAILED` or `_REFUND_SCHEDULE_FAILED` in the sync Lambda | create self-heals at delivery linkage; link: tie the delivery to the order escrow by hand; refund schedule: set the escrow expiry by hand so the sweep refunds |

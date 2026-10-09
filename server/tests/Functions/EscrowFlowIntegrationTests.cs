@@ -1009,6 +1009,7 @@ public class EscrowFlowIntegrationTests
             .Returns(new List<Dictionary<string, object>> { escrow });
 
         _mockEscrowRepo.GetByIdAsync(escrowId).Returns(escrow);
+        _mockEscrowRepo.GetByIdAsync(escrowId, true).Returns(escrow);
 
         var response = await _cronFunction.FunctionHandler(
             MakeCronRequest("auto_release_and_refund"), _context);

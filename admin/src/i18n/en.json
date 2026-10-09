@@ -148,7 +148,8 @@
     "confirmFound": "The portal shows {amount} paid to {phone} under this ID?",
     "loadFailed": "The payout queue could not be loaded. Reload before paying anything.",
     "loadMore": "Load more",
-    "deliveredWarning": "Delivery was confirmed after this refund was queued. Check with the buyer and the farmer before refunding."
+    "deliveredWarning": "Delivery was confirmed after this refund was queued. Check with the buyer and the farmer before refunding.",
+    "verdictConflict": "The dispute verdict is {verdict}, but this payout goes the other way (its lock was taken before the verdict). Do not pay it: check the escrow history first."
   },
   "fraud": {
     "title": "Fraud Review",

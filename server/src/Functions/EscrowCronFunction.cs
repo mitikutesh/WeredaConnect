@@ -504,6 +504,18 @@ public class EscrowCronFunction
                     continue;
                 }
 
+                // ESC-05: the index copy can lag the base row (an admin release that just took the
+                // lock, a queue write, a status move, a delivery confirmation). One strongly
+                // consistent read decides before any side effect below.
+                var skipReason = AutoRefundSkipReason(
+                    await _escrowRepo.GetByIdAsync(GetString(escrow, "escrowId"), consistentRead: true));
+                if (skipReason != null)
+                {
+                    context.Logger.LogInformation(
+                        $"ESCROW_AUTO_REFUND_SKIPPED escrowId={MoneyAlarmLog.LogId(GetString(escrow, "escrowId"))} reason={skipReason}");
+                    continue;
+                }
+
                 // Safety net: never refund a buyer whose delivery was actually
                 // confirmed. If deliveryConfirmedAt was never stamped (e.g. the
                 // inline stamp during confirmation failed transiently), verify the
@@ -689,6 +701,36 @@ public class EscrowCronFunction
         }
 
         return parked;
+    }
+
+    /// <summary>
+    /// ESC-05: why the auto-refund sweep must leave this escrow alone, read from the base row (not
+    /// the index copy), or null when it may go on: gone, no longer escrowed, an open manual payout,
+    /// a settlement lock, or a delivery confirmed meanwhile (the release sweep pays it).
+    /// </summary>
+    private static string? AutoRefundSkipReason(Dictionary<string, object>? current)
+    {
+        if (current == null)
+        {
+            return "missing";
+        }
+
+        if (GetString(current, "status") != "escrowed")
+        {
+            return "status";
+        }
+
+        if (EscrowService.IsManualPayoutOpen(current))
+        {
+            return "queued";
+        }
+
+        if (GetStringOrNull(current, SettlementLockFields.Lock) != null)
+        {
+            return "locked";
+        }
+
+        return string.IsNullOrEmpty(GetStringOrNull(current, "deliveryConfirmedAt")) ? null : "confirmed";
     }
 
     /// <summary>ESC-02: 202 ESCROW_034 means the settlement sits in the manual payout queue.</summary>
