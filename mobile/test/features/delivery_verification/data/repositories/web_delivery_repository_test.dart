@@ -425,6 +425,92 @@ void main() {
     });
   });
 
+  // ESC-08: any party cancels with an update before pickup; the server's
+  // refusals surface, and a cancel that lost to another party's is done.
+  group('cancelDelivery', () {
+    void stubReads(List<String> statuses) {
+      var read = 0;
+      when(() => api.get<Map<String, dynamic>>('/deliveries/del-1')).thenAnswer(
+        (_) async => {
+          'delivery': {
+            'deliveryId': 'del-1',
+            'status': statuses[read < statuses.length ? read++ : read - 1],
+            'version': 2,
+          },
+        },
+      );
+    }
+
+    test('sends an update with only the status and the current version',
+        () async {
+      stubCurrentVersion(2);
+      answerSync({
+        'results': [
+          {'status': 'success'},
+        ],
+      });
+
+      await repository.cancelDelivery(deliveryId: 'del-1', userId: 'buyer-1');
+
+      expect(sentOp()['action'], 'update');
+      expect(sentOp()['data'], {'status': 'cancelled', 'version': 2});
+    });
+
+    test('a refusal after pickup throws the server reason', () async {
+      stubCurrentVersion(2);
+      answerSync({
+        'results': [
+          {
+            'status': 'error',
+            'message': 'DELIVERY_CANCEL_NOT_ALLOWED: A delivery can be '
+                'cancelled only before pickup (status: pickedUp).',
+          },
+        ],
+      });
+
+      await expectLater(
+        repository.cancelDelivery(deliveryId: 'del-1', userId: 'farmer-1'),
+        throwsA(
+          isA<SyncRejectedException>().having(
+            (e) => isDeliveryCancelRefusalMessage(e.message),
+            'cancel refusal',
+            isTrue,
+          ),
+        ),
+      );
+    });
+
+    test('a conflict because another party cancelled first is done', () async {
+      stubReads(['pending', 'cancelled']);
+      answerSync({
+        'results': [
+          {
+            'status': 'conflict',
+            'message': 'DELIVERY_ALREADY_CANCELLED: The delivery is already '
+                'cancelled.',
+          },
+        ],
+      });
+
+      await repository.cancelDelivery(deliveryId: 'del-1', userId: 'farmer-1');
+    });
+
+    test('a conflict because the delivery was picked up still throws',
+        () async {
+      stubReads(['pending', 'pickedUp']);
+      answerSync({
+        'results': [
+          {'status': 'conflict', 'message': 'Version conflict.'},
+        ],
+      });
+
+      await expectLater(
+        repository.cancelDelivery(deliveryId: 'del-1', userId: 'farmer-1'),
+        throwsA(isA<SyncConflictException>()),
+      );
+    });
+  });
+
   test('a deferred pickup throws instead of reporting success', () async {
     stubCurrentVersion(2);
     answerSync({

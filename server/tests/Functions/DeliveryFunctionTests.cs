@@ -677,8 +677,33 @@ public class DeliveryFunctionTests
         Assert.Contains("not found", response.Body, StringComparison.OrdinalIgnoreCase);
     }
 
+    // ESC-08: a party's cancel writes no deletedAt, so every party still reads the cancelled row.
+    [Theory]
+    [InlineData("farmer-123", 200)]
+    [InlineData("trucker-789", 200)]
+    [InlineData("buyer-456", 200)]
+    [InlineData("outsider-001", 403)]
+    public async Task HandleGetDeliveryById_ClientCancelledDelivery_ReturnedToEveryPartyOnly(string userId, int expected)
+    {
+        _mockDeliveryRepo.GetByIdAsync("del-001").Returns(CreateDeliveryItem("del-001", "cancelled"));
+
+        var pathParams = new Dictionary<string, string> { { "id", "del-001" } };
+        var request = MakeAuthenticatedRequest(userId, "/deliveries/del-001", pathParams: pathParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(expected, response.StatusCode);
+        if (expected == 200)
+        {
+            Assert.Contains("\"status\":\"cancelled\"", response.Body);
+        }
+        else
+        {
+            Assert.DoesNotContain("Abebe Kebede", response.Body);
+        }
+    }
+
     [Fact]
-    public async Task HandleGetDeliveryById_CancelledDelivery_Returns404()
+    public async Task HandleGetDeliveryById_LegacySoftDeletedDelivery_Returns404()
     {
         var cancelledDelivery = CreateDeliveryItem("del-001", "cancelled");
         cancelledDelivery["deletedAt"] = "2026-02-17T00:00:00Z";
@@ -1340,11 +1365,18 @@ public class DeliveryFunctionTests
         Assert.Contains("DELIVERY_NOT_FOUND", response.Body);
     }
 
-    [Fact]
-    public async Task HandleUploadPhoto_CancelledDelivery_Returns404()
+    // ESC-08: a party's cancel writes no deletedAt; a legacy soft-deleted row still has it.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task HandleUploadPhoto_CancelledDelivery_Returns404(bool legacySoftDelete)
     {
         var delivery = CreateDeliveryItem("del-001", "cancelled");
-        delivery["deletedAt"] = "2026-02-17T00:00:00Z";
+        if (legacySoftDelete)
+        {
+            delivery["deletedAt"] = "2026-02-17T00:00:00Z";
+        }
+
         _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
 
         var request = MakePhotoUploadRequest("farmer-123", "del-001", "{\"type\":\"pickup\"}");

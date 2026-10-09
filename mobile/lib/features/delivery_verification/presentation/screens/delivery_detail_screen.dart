@@ -491,10 +491,9 @@ class DeliveryDetailScreen extends StatelessWidget {
       widgets.add(const SizedBox(height: 12));
     }
 
-    // Cancel button (pending/pickedUp + participant)
-    if (isParticipant &&
-        (delivery.status == DeliveryStatus.pending ||
-            delivery.status == DeliveryStatus.pickedUp)) {
+    // Cancel button (pending + participant). After pickup no party can cancel
+    // (ESC-08); a problem then goes through a dispute.
+    if (isParticipant && delivery.status == DeliveryStatus.pending) {
       widgets.add(
         BlocBuilder<DeliveryBloc, DeliveryState>(
           builder: (context, state) {

@@ -150,8 +150,14 @@ class IsarMarketplaceSync implements MarketplaceSync {
   ///   the row.
   ///
   /// Every path clears the order pull stamp so that pull is not throttled.
-  /// Other entity types are left alone.
+  /// A delivery cancel refused after pickup is undone the same way from
+  /// `GET /deliveries/{id}` (ESC-08, never removing the delivery). Other
+  /// entity types are left alone.
   Future<void> revertRejected(SyncOperation operation, String message) async {
+    if (operation.entityType == 'delivery') {
+      await _revertRejectedDelivery(operation);
+      return;
+    }
     if (operation.entityType != 'order') return;
     final orderId = operation.entityId;
     _lastOrderPull = null;
@@ -200,18 +206,57 @@ class IsarMarketplaceSync implements MarketplaceSync {
     });
   }
 
+  /// ESC-08: the server refused a delivery cancel because the delivery was
+  /// picked up meanwhile. Server wins, as for an order update: the local row
+  /// is replaced by `GET /deliveries/{id}` unless another upload for it is on
+  /// its way; when that read fails the version goes back for the next
+  /// [pullDeliveries].
+  Future<void> _revertRejectedDelivery(SyncOperation operation) async {
+    final deliveryId = operation.entityId;
+    _lastDeliveryPull = null;
+    if (await _hasOpenUploads(operation.entityType, deliveryId)) return;
+
+    Delivery? server;
+    try {
+      final data =
+          await _api.get<Map<String, dynamic>>('/deliveries/$deliveryId');
+      // GET /deliveries/{id} returns {"delivery": {...}}.
+      final envelope = data['delivery'];
+      if (envelope is Map<String, dynamic>) server = _parseDelivery(envelope);
+    } on Object {
+      // Offline, a server error or no longer readable: the next pull decides.
+    }
+
+    final restored = server;
+    if (restored == null || restored.deliveryId != deliveryId) {
+      await _restoreBaseVersion(operation);
+      return;
+    }
+    await _isar.writeTxn(() async {
+      // A change made while the read was in flight wins over the restore.
+      if (await _hasOpenUploads(operation.entityType, deliveryId)) return;
+      final existing = await _isar.deliverys
+          .filter()
+          .deliveryIdEqualTo(deliveryId)
+          .findFirst();
+      // No version guard: the local version is the refused optimistic one.
+      if (existing != null) restored.id = existing.id;
+      await _isar.deliverys.put(restored);
+    });
+  }
+
   Future<void> _deleteLocalOrder(String orderId) async {
     await _isar.writeTxn(() async {
       await _isar.orders.filter().orderIdEqualTo(orderId).deleteAll();
     });
   }
 
-  /// Put the local order back on the lowest version any of its refused
-  /// operations was based on, so a pull is not skipped by the "never
+  /// Put the local order (or delivery) back on the lowest version any of its
+  /// refused operations was based on, so a pull is not skipped by the "never
   /// regress" guard. Each optimistic write bumped the version by one, so two
   /// refused changes (pay, then cancel) leave the row two ahead of the
   /// server, and their rejections may come in different batches. No-op when
-  /// a newer change is queued for the order.
+  /// a newer change is queued for it.
   Future<void> _restoreBaseVersion(SyncOperation operation) async {
     final ops = await _isar.syncOperations
         .filter()
@@ -227,6 +272,16 @@ class IsarMarketplaceSync implements MarketplaceSync {
     final baseVersion = base;
     await _isar.writeTxn(() async {
       if (await _hasOpenUploads(operation.entityType, operation.entityId)) {
+        return;
+      }
+      if (operation.entityType == 'delivery') {
+        final local = await _isar.deliverys
+            .filter()
+            .deliveryIdEqualTo(operation.entityId)
+            .findFirst();
+        if (local == null || local.version <= baseVersion) return;
+        local.version = baseVersion;
+        await _isar.deliverys.put(local);
         return;
       }
       final local = await _isar.orders

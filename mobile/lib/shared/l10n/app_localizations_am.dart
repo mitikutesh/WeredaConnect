@@ -1620,6 +1620,10 @@ class AppLocalizationsAm extends AppLocalizations {
       'የገበሬው QR ኮድ ገና ወደ አገልጋዩ አልደረሰም። ገበሬው በኢንተርኔት ላይ ሆኖ QR ኮዱን እንዲከፍት ይጠይቁ፣ ከዚያ እንደገና ይሞክሩ።';
 
   @override
+  String get deliveryErrorCancelNotAllowed =>
+      'ሰብሉ ስለተነሳ ይህ ማድረስ ከእንግዲህ ሊሰረዝ አይችልም። ችግር ካለ ድጋፍ ሰጪን ያግኙ።';
+
+  @override
   String get deliveryQrTooLarge => 'QR ኮድ በጣም ትልቅ ነው';
 
   @override

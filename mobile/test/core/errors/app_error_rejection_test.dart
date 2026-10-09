@@ -109,6 +109,21 @@ void main() {
       }
     });
 
+    // ESC-08: the local cancel was undone, so say why, not "not saved".
+    test('a delivery cancel refused after pickup has its own reason', () {
+      for (final action in ['update', 'delete']) {
+        expect(
+          syncRejectionErrorCode(
+            entityType: 'delivery',
+            action: action,
+            message: 'DELIVERY_CANCEL_NOT_ALLOWED: only before pickup.',
+          ),
+          AppErrorCode.deliveryCancelNotAllowed,
+          reason: action,
+        );
+      }
+    });
+
     test('any other refused change was not saved', () {
       for (final (entityType, message) in [
         ('crop_listing', 'FRAUD_VELOCITY_EXCEEDED: slow down'),
@@ -138,6 +153,7 @@ void main() {
         AppErrorCode.orderNotPlaced,
         AppErrorCode.alreadyRated,
         AppErrorCode.changeNotSaved,
+        AppErrorCode.deliveryCancelNotAllowed,
       ]) {
         final text = localizeErrorCode(code, l10n);
         expect(text, isNotEmpty, reason: '$locale $code');
@@ -158,6 +174,10 @@ void main() {
       expect(
         localizeErrorCode(AppErrorCode.changeNotSaved, l10n),
         l10n.errorChangeNotSaved,
+      );
+      expect(
+        localizeErrorCode(AppErrorCode.deliveryCancelNotAllowed, l10n),
+        l10n.deliveryErrorCancelNotAllowed,
       );
     }
   });

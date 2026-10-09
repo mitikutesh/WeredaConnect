@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.10.0
+1.11.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -199,6 +199,7 @@ These rules must always hold:
 - 422 Unprocessable Entity → Mark as `failed`, requires data fix
 - Fraud rejections (`FRAUD_*`, including `FRAUD_ACCOUNT_HELD` since 1.9.0, and `SYNC_VALIDATION`) → Mark as permanently rejected
 - Order rejections (every `ORDER_*` code except `ORDER_KYC_REQUIRED`, since 1.10.0) → Mark as permanently rejected and revert the local order (see Permanent order rejections)
+- `DELIVERY_CANCEL_NOT_ALLOWED` (since 1.11.0) → Mark as permanently rejected and revert the local delivery (see Delivery cancel)
 
 **Retry State Management**:
 - `retryCount` field in `SyncOperation` entity tracks attempts (only incremented by server errors, not network failures)
@@ -334,10 +335,33 @@ Clients older than 1.10.0 keep retrying `ORDER_*` errors and need no server chan
 
 ---
 
+## Delivery cancel (1.11.0, ESC-08)
+
+A party cancels a delivery with `action: "update"` and
+`data: {"status": "cancelled", "version": n}`. The server still accepts `action: "delete"`,
+which app versions before 1.11.0 send and may still hold in their offline queues, as the same
+cancel under the same rules; clients do not rewrite queued operations. Rules and errors:
+`delivery-verification-api.md` 1.9.0 (Cancel).
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `success` | Synced. | Done. |
+| `DELIVERY_CANCEL_NOT_ALLOWED:` (picked up meanwhile) | Permanent: mark the operation rejected (never resent, not reset by a reconnect) and revert the local delivery: re-read `GET /deliveries/{id}` and replace the local row (server wins) unless another operation for it is still queued; when that read fails, put the local version back to the lowest version the refused operations sent so the next delivery pull overwrites the row. A delivery is never removed. Explained in en, am and om ("This delivery was already picked up, so it can no longer be cancelled..."). It still counts as failed, like other rejected delivery operations. | Shows the same message. |
+| `conflict` with the row (another party cancelled first, or the version moved) | Server wins, as for any conflict. | A re-read showing `cancelled` means the cancel is done; anything else is a failure. |
+| `DELIVERY_UNAUTHORIZED:` and every other `DELIVERY_*` code | Unchanged: retried. | Failure. |
+
+The client shows Cancel only while a delivery is `pending` and refuses a local cancel of any
+later status, so the refusal only comes back after a race (a pickup synced from another device).
+Clients older than 1.11.0 keep retrying `DELIVERY_CANCEL_NOT_ALLOWED`, as they retried the
+`DELIVERY_UNAUTHORIZED` their farmer and buyer `delete` got before.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.11.0 | 2026-10-09 | Delivery cancel (ESC-08): sent as `update {status, version}` by every party; `delete` still accepted under the same rules (old queued operations are not rewritten); `DELIVERY_CANCEL_NOT_ALLOWED` is permanent, the mobile client reverts the delivery (read-back, else the lowest sent version) and explains it in en, am and om; a cancel of a cancelled delivery answers `conflict` with the row (web: done when a re-read shows `cancelled`) |
 | 1.10.0 | 2026-10-09 | Permanent order rejections (ESC-12 part A): every `ORDER_*` operation error except `ORDER_KYC_REQUIRED` is permanent; the mobile client marks it rejected, reverts the local order (create: remove it; update: re-read `GET /orders/{id}`, 404/403 remove it, other failures restore the lowest sent version), shows a localized reason (kept until the UI listens, per user, dropped on logout), rejects the operations queued behind any refused create, and stops rejected operations from blocking pulls; other permanent rejections of order operations are reverted the same way; other entities' permanent rejections are explained and still counted as failed; web treats `conflict` as a failure and reads versions strictly; server rules for `ORDER_*` errors and new order fields; the five non-order codes wait for part B |
 | 1.9.0 | 2026-10-06 | `FRAUD_ACCOUNT_HELD:` operation error (planned FRD-04) on crop, trip and order create and on order `payment_submitted`, permanent under the existing `FRAUD_*` rule; `AUTH_040:` and `AUTH_041:` may also come from the account's risk tier at any amount; `ORDER_VALIDATION:` on the farmer's accept while the order's escrow is `held` (planned FRD-03) |
 | 1.7.0 | 2026-10-01 | Idempotency keys are scoped to the authenticated caller (SIM-48, ESC-11, SEC-03): another user's key can no longer pre-claim yours; documented-format keys are stored unchanged, other keys as `{sub}:{key}`; no client change |
@@ -352,4 +376,4 @@ Clients older than 1.10.0 keep retrying `ORDER_*` errors and need no server chan
 ---
 
 **Last Updated**: 2026-10-09
-**Version**: 1.10.0
+**Version**: 1.11.0

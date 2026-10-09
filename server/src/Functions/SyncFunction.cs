@@ -303,10 +303,12 @@ public partial class SyncFunction
 
     private static readonly Dictionary<string, HashSet<string>> DeliveryTransitions = new()
     {
+        // ESC-08: cancel (an update or the delete action) only before pickup. After pickup the
+        // goods are moving and no party can cancel; an admin settles it through a dispute verdict.
         { "pending", new HashSet<string> { "pickedUp", "cancelled" } },
         // "delivered" allowed directly from pickedUp: the buyer confirms handoff
         // right after pickup in the capture flow; marking in-transit is optional.
-        { "pickedUp", new HashSet<string> { "inTransit", "delivered", "cancelled" } },
+        { "pickedUp", new HashSet<string> { "inTransit", "delivered" } },
         { "inTransit", new HashSet<string> { "delivered" } },
         { "delivered", new HashSet<string> { "disputed" } },
     };
@@ -3703,6 +3705,59 @@ public partial class SyncFunction
                                 Message = "DELIVERY_PARTICIPANT_MISMATCH: Only the order's matched trucker can create this delivery."
                             };
                         }
+
+                        // ESC-08: the delivery moves this order's goods on this order's trip, so
+                        // both ids must be the order's, and the trip must be the caller's. The
+                        // trip status is not checked: that rule belongs to ESC-17 (bookings).
+                        var dTripId = operation.Data.TryGetValue("tripId", out var dT)
+                            ? dT?.ToString() : null;
+                        var coTripId = createOrder.TryGetValue("tripId", out var coTr)
+                            ? coTr?.ToString() : null;
+                        if (string.IsNullOrWhiteSpace(coTripId) || coTripId != dTripId)
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_PARTICIPANT_MISMATCH: tripId does not match the order."
+                            };
+                        }
+
+                        var dListingId = operation.Data.TryGetValue("listingId", out var dL)
+                            ? dL?.ToString() : null;
+                        var coListingId = createOrder.TryGetValue("listingId", out var coL)
+                            ? coL?.ToString() : null;
+                        if (string.IsNullOrWhiteSpace(coListingId) || coListingId != dListingId)
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_PARTICIPANT_MISMATCH: listingId does not match the order."
+                            };
+                        }
+
+                        var createTrip = await GetTripItemAsync(coTripId);
+                        if (createTrip == null)
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_VALIDATION: Referenced trip not found."
+                            };
+                        }
+
+                        var tripTruckerId = createTrip.TryGetValue("truckerId", out var ctT) ? ctT.S : null;
+                        if (tripTruckerId != authenticatedUserId)
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_PARTICIPANT_MISMATCH: The trip belongs to another trucker."
+                            };
+                        }
                     }
 
                     // SIM-46: each party sees the others' name and phone on the delivery, so
@@ -3883,36 +3938,38 @@ public partial class SyncFunction
                     var deliveryExists = await DynamoDbHelper.PartitionExistsAsync(
                         _dynamoDb, _deliveriesTable, "deliveryId", operation.EntityId);
 
-                    // SIM-09: at most one active delivery per order. The claim is an atomic
-                    // conditional write on the order row (deliveries have no order index); a
-                    // retry of the same deliveryId re-claims its own slot, and a cancelled
-                    // delivery releases it.
-                    if (!deliveryExists
-                        && !await _orderRepo.TryClaimDeliverySlotAsync(createOrderId!, operation.EntityId))
+                    // SIM-09, ESC-08: at most one active delivery per order. The slot claim on
+                    // the order row (deliveries have no order index) and the delivery row are
+                    // one transaction, so an interrupted create never leaves the order naming
+                    // a delivery that does not exist. A retry of the same deliveryId re-claims
+                    // its own slot, and a cancelled delivery releases it.
+                    var slotWrite = deliveryExists
+                        ? DeliverySlotWriteResult.DeliveryExists
+                        : await CreateDeliveryWithSlotAsync(createOrderId!, item, context);
+                    switch (slotWrite)
                     {
-                        return new SyncOperationResult
-                        {
-                            OperationId = operation.OperationId,
-                            Status = "error",
-                            Message = "DELIVERY_VALIDATION: The order already has an active delivery."
-                        };
+                        case DeliverySlotWriteResult.SlotTaken:
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_VALIDATION: The order already has an active delivery."
+                            };
+                        case DeliverySlotWriteResult.OrderNotFound:
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_VALIDATION: Referenced order not found."
+                            };
                     }
-
-                    var request = new PutItemRequest
-                    {
-                        TableName = _deliveriesTable,
-                        Item = item,
-                        ConditionExpression = "attribute_not_exists(deliveryId)"
-                    };
 
                     try
                     {
-                        if (deliveryExists)
+                        if (slotWrite == DeliverySlotWriteResult.DeliveryExists)
                         {
                             throw new ConditionalCheckFailedException("Delivery already exists.");
                         }
-
-                        await _dynamoDb.PutItemAsync(request);
 
                         var deliveryTxId = item.TryGetValue("orderId", out var dCreateOid)
                             && !string.IsNullOrEmpty(dCreateOid.S)
@@ -3936,8 +3993,9 @@ public partial class SyncFunction
                     }
                     catch (ConditionalCheckFailedException)
                     {
-                        // Echo the existing delivery only to one of its parties.
-                        var existing = await GetDeliveryItemAsync(operation.EntityId);
+                        // Echo the existing delivery only to one of its parties. Consistent: a
+                        // concurrent create of this id may have committed a moment ago (ESC-08).
+                        var existing = await GetDeliveryItemAsync(operation.EntityId, consistentRead: true);
                         var serverVersion = 1;
                         if (existing != null && existing.TryGetValue("version", out var v))
                         {
@@ -3990,6 +4048,13 @@ public partial class SyncFunction
                             Status = "error",
                             Message = "Delivery not found."
                         };
+                    }
+
+                    // ESC-08: a cancel has its own rules (any party, before pickup only).
+                    if (operation.Data.TryGetValue("status", out var cancelStatusObj)
+                        && cancelStatusObj?.ToString() == "cancelled")
+                    {
+                        return await CancelDeliveryAsync(operation, existing, authenticatedUserId, "update", context);
                     }
 
                     // Block updates to cancelled/deleted deliveries
@@ -4135,19 +4200,6 @@ public partial class SyncFunction
                                         OperationId = operation.OperationId,
                                         Status = "error",
                                         Message = disputeStepUp
-                                    };
-                                }
-                                break;
-                            case "cancelled":
-                                if (authenticatedUserId != existingFarmerId
-                                    && authenticatedUserId != existingTruckerId
-                                    && authenticatedUserId != existingBuyerId)
-                                {
-                                    return new SyncOperationResult
-                                    {
-                                        OperationId = operation.OperationId,
-                                        Status = "error",
-                                        Message = "DELIVERY_UNAUTHORIZED: Only participants can cancel a delivery."
                                     };
                                 }
                                 break;
@@ -4779,17 +4831,6 @@ public partial class SyncFunction
                                 DeliveryActionFor(toStatus), fromStatus, toStatus);
                         }
 
-                        // SIM-09: a cancelled delivery frees the order's single delivery slot
-                        // so a replacement can be created.
-                        if (operation.Data != null
-                            && operation.Data.TryGetValue("status", out var cancelStatusObj)
-                            && cancelStatusObj?.ToString() == "cancelled"
-                            && existing.TryGetValue("orderId", out var cancelOid)
-                            && !string.IsNullOrEmpty(cancelOid.S))
-                        {
-                            await _orderRepo.ReleaseDeliverySlotAsync(cancelOid.S, operation.EntityId);
-                        }
-
                         // SIM-11: the order follows its delivery (pickedUp -> pickup_confirmed,
                         // inTransit -> in_transit, delivered -> delivered; a self-pickup jumps
                         // from accepted straight to delivered). Best-effort, system actor.
@@ -4870,9 +4911,6 @@ public partial class SyncFunction
 
             case "delete":
                 {
-                    // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
-                    TryGetClientVersion(operation, out var clientVersion);
-
                     var existing = await GetDeliveryItemAsync(operation.EntityId);
                     if (existing == null)
                     {
@@ -4884,108 +4922,10 @@ public partial class SyncFunction
                         };
                     }
 
-                    // Validate authenticated user is the trucker
-                    if (!existing.TryGetValue("truckerId", out var existingTruckerId)
-                        || existingTruckerId.S != authenticatedUserId)
-                    {
-                        return new SyncOperationResult
-                        {
-                            OperationId = operation.OperationId,
-                            Status = "error",
-                            Message = "DELIVERY_UNAUTHORIZED: You can only delete your own deliveries."
-                        };
-                    }
-
-                    // Block deletion of cancelled/deleted deliveries
-                    if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
-                        && !string.IsNullOrEmpty(deletedAtAttr.S))
-                    {
-                        return new SyncOperationResult
-                        {
-                            OperationId = operation.OperationId,
-                            Status = "error",
-                            Message = "DELIVERY_ALREADY_CANCELLED: Delivery is already deleted."
-                        };
-                    }
-                    if (existing.TryGetValue("status", out var existingStatusAttr)
-                        && existingStatusAttr.S == "cancelled")
-                    {
-                        return new SyncOperationResult
-                        {
-                            OperationId = operation.OperationId,
-                            Status = "error",
-                            Message = "DELIVERY_ALREADY_CANCELLED: Delivery is already cancelled."
-                        };
-                    }
-
-                    var createdAt = existing["createdAt"].S;
-                    var now = DateTime.UtcNow.ToString("o");
-                    var newVersion = clientVersion + 1;
-
-                    // Soft delete: set deletedAt and status=cancelled
-                    var existingTripIdForDeleteKey = existing.TryGetValue("tripId", out var deleteTripId)
-                        ? deleteTripId.S : "";
-                    var deleteRequest = new UpdateItemRequest
-                    {
-                        TableName = _deliveriesTable,
-                        Key = new Dictionary<string, AttributeValue>
-                    {
-                        { "deliveryId", new AttributeValue { S = operation.EntityId } },
-                        { "tripId", new AttributeValue { S = existingTripIdForDeleteKey } }
-                    },
-                        UpdateExpression = "SET #deleted = :deleted, #status = :status, #updated = :updated, #v = :newVersion",
-                        ConditionExpression = "#v = :expectedVersion",
-                        ExpressionAttributeNames = new Dictionary<string, string>
-                    {
-                        { "#deleted", "deletedAt" },
-                        { "#status", "status" },
-                        { "#updated", "updatedAt" },
-                        { "#v", "version" }
-                    },
-                        ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-                    {
-                        { ":deleted", new AttributeValue { S = now } },
-                        { ":status", new AttributeValue { S = "cancelled" } },
-                        { ":updated", new AttributeValue { S = now } },
-                        { ":newVersion", new AttributeValue { N = newVersion.ToString() } },
-                        { ":expectedVersion", new AttributeValue { N = clientVersion.ToString() } }
-                    },
-                        ReturnValues = ReturnValue.ALL_NEW
-                    };
-
-                    try
-                    {
-                        await _dynamoDb.UpdateItemAsync(deleteRequest);
-
-                        // SIM-09: soft delete is a cancellation; free the order's delivery slot.
-                        if (existing.TryGetValue("orderId", out var deleteOid) && !string.IsNullOrEmpty(deleteOid.S))
-                        {
-                            await _orderRepo.ReleaseDeliverySlotAsync(deleteOid.S, operation.EntityId);
-                        }
-
-                        return new SyncOperationResult
-                        {
-                            OperationId = operation.OperationId,
-                            Status = "success",
-                            ServerVersion = newVersion
-                        };
-                    }
-                    catch (ConditionalCheckFailedException)
-                    {
-                        var serverData = ScrubSyncSecrets(CropRepository.FromItem(existing));
-                        var serverVer = existing.TryGetValue("version", out var sv)
-                            ? int.TryParse(sv.N, out var svn) ? svn : 0
-                            : 0;
-
-                        return new SyncOperationResult
-                        {
-                            OperationId = operation.OperationId,
-                            Status = "conflict",
-                            ServerVersion = serverVer,
-                            ServerData = serverData,
-                            Message = "Version conflict on delete."
-                        };
-                    }
+                    // ESC-08: delete is the cancel that app versions before ESC-08 send (and
+                    // still sit in offline queues); it follows the same rules as an update to
+                    // cancelled.
+                    return await CancelDeliveryAsync(operation, existing, authenticatedUserId, "delete", context);
                 }
 
             default:
@@ -4995,6 +4935,180 @@ public partial class SyncFunction
                     Status = "error",
                     Message = $"Invalid action: '{operation.Action}'."
                 };
+        }
+    }
+
+    /// <summary>
+    /// ESC-08: cancel a delivery, through an update to <c>cancelled</c> or the delete action.
+    /// Any of its parties may cancel while it is <c>pending</c>; after pickup nobody can (an admin
+    /// settles it through a dispute verdict). The row keeps no <c>deletedAt</c> so every party's
+    /// delivery list still returns it, the cancel is audited, and the order's slot is freed.
+    /// </summary>
+    /// <param name="via">
+    /// <c>update</c> or <c>delete</c>, recorded in the audit metadata. An update may carry nothing
+    /// but the status and the version (the echo keys are already stripped); a delete's data is
+    /// ignored apart from the version.
+    /// </param>
+    private async Task<SyncOperationResult> CancelDeliveryAsync(
+        SyncOperationRequest operation,
+        Dictionary<string, AttributeValue> existing,
+        string? authenticatedUserId,
+        string via,
+        ILambdaContext context)
+    {
+        // Parties first, so nobody else learns anything about the delivery.
+        if (!IsParty(existing, authenticatedUserId, "buyerId", "farmerId", "truckerId"))
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "DELIVERY_UNAUTHORIZED: Only participants can cancel a delivery."
+            };
+        }
+
+        if (via == "update")
+        {
+            var extraFields = operation.Data!.Keys.Where(k => k is not ("status" or "version")).ToList();
+            if (extraFields.Count > 0)
+            {
+                return new SyncOperationResult
+                {
+                    OperationId = operation.OperationId,
+                    Status = "error",
+                    Message = $"DELIVERY_VALIDATION: A cancel may only send status and version, not: {string.Join(", ", extraFields)}"
+                };
+            }
+        }
+
+        var currentStatus = StatusOf(existing);
+        var refusal = Refusal(existing);
+        if (refusal != null)
+        {
+            return refusal;
+        }
+
+        // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
+        TryGetClientVersion(operation, out var clientVersion);
+        var now = DateTime.UtcNow.ToString("o");
+        var newVersion = clientVersion + 1;
+
+        var request = new UpdateItemRequest
+        {
+            TableName = _deliveriesTable,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "deliveryId", new AttributeValue { S = operation.EntityId } },
+                { "tripId", new AttributeValue { S = existing.TryGetValue("tripId", out var tripAttr) ? tripAttr.S : "" } }
+            },
+            UpdateExpression = "SET #status = :cancelled, #updated = :updated, #v = :newVersion",
+            ConditionExpression = "#v = :expectedVersion AND #status = :pending",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" },
+                { "#updated", "updatedAt" },
+                { "#v", "version" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":cancelled", new AttributeValue { S = "cancelled" } },
+                { ":pending", new AttributeValue { S = "pending" } },
+                { ":updated", new AttributeValue { S = now } },
+                { ":newVersion", new AttributeValue { N = newVersion.ToString() } },
+                { ":expectedVersion", new AttributeValue { N = clientVersion.ToString() } }
+            },
+            ReturnValues = ReturnValue.ALL_NEW
+        };
+
+        UpdateItemResponse response;
+        try
+        {
+            response = await _dynamoDb.UpdateItemAsync(request);
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            // Something landed since the read (a pickup, another party's cancel, any change):
+            // judge the fresh row, so a pickup answers the refusal instead of a conflict whose
+            // stale row the client would take as the server's view.
+            var fresh = await GetDeliveryItemAsync(operation.EntityId, consistentRead: true) ?? existing;
+            return Refusal(fresh) ?? new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "conflict",
+                ServerVersion = VersionOf(fresh),
+                ServerData = ScrubSyncSecrets(CropRepository.FromItem(fresh)),
+                Message = $"Version conflict: server has version {VersionOf(fresh)}, client expected {clientVersion}."
+            };
+        }
+
+        var orderId = existing.TryGetValue("orderId", out var orderAttr) && !string.IsNullOrEmpty(orderAttr.S)
+            ? orderAttr.S : null;
+        await EmitTxAuditAsync(context, orderId ?? operation.EntityId, "delivery", operation.EntityId,
+            "delivery_cancelled", currentStatus, "cancelled", metadata: $"via={via}");
+
+        // SIM-09: a cancelled delivery frees the order's single delivery slot so a replacement
+        // can be created. The cancel has landed either way; a release that fails here is taken
+        // over by the next delivery create (the holder is cancelled).
+        if (orderId != null)
+        {
+            try
+            {
+                await _orderRepo.ReleaseDeliverySlotAsync(orderId, operation.EntityId);
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogError(
+                    $"DELIVERY_SLOT_RELEASE_FAILED orderId={MoneyAlarmLog.LogId(orderId)} "
+                    + $"deliveryId={MoneyAlarmLog.LogId(operation.EntityId)}: [{ex.GetType().Name}]");
+            }
+        }
+
+        return new SyncOperationResult
+        {
+            OperationId = operation.OperationId,
+            Status = "success",
+            ServerVersion = newVersion,
+            ServerData = ScrubSyncSecrets(CropRepository.FromItem(response.Attributes))
+        };
+
+        static string StatusOf(Dictionary<string, AttributeValue> row)
+            => (row.TryGetValue("status", out var statusAttr) ? statusAttr.S : null) ?? "pending";
+
+        static int VersionOf(Dictionary<string, AttributeValue> row)
+            => row.TryGetValue("version", out var versionAttr) && int.TryParse(versionAttr.N, out var version)
+                ? version : 0;
+
+        // Why the row cannot be cancelled, or null when it is still pending.
+        SyncOperationResult? Refusal(Dictionary<string, AttributeValue> row)
+        {
+            var status = StatusOf(row);
+            if (status == "cancelled"
+                || (row.TryGetValue("deletedAt", out var deletedAtAttr) && !string.IsNullOrEmpty(deletedAtAttr.S)))
+            {
+                // Another party cancelled first: the goal state already holds, so answer with the
+                // server's row (the client settles it, server wins) instead of an error it would retry.
+                return new SyncOperationResult
+                {
+                    OperationId = operation.OperationId,
+                    Status = "conflict",
+                    ServerVersion = VersionOf(row),
+                    ServerData = ScrubSyncSecrets(CropRepository.FromItem(row)),
+                    Message = "DELIVERY_ALREADY_CANCELLED: The delivery is already cancelled."
+                };
+            }
+
+            if (!DeliveryTransitions.TryGetValue(status, out var allowed) || !allowed.Contains("cancelled"))
+            {
+                return new SyncOperationResult
+                {
+                    OperationId = operation.OperationId,
+                    Status = "error",
+                    Message = $"DELIVERY_CANCEL_NOT_ALLOWED: A delivery can be cancelled only before pickup (status: {status}). "
+                        + "After pickup, open a dispute or contact support."
+                };
+            }
+
+            return null;
         }
     }
 
@@ -5038,6 +5152,63 @@ public partial class SyncFunction
 
         var response = await _dynamoDb.QueryAsync(request);
         return response.Items.Count > 0 ? response.Items[0] : null;
+    }
+
+    /// <summary>
+    /// ESC-08: write a new delivery together with its order's slot claim. When another delivery
+    /// holds the slot and that holder is dead, take the slot over from exactly the claim that was
+    /// read; a live holder, or a holder that changed since it was read, keeps it (no retry loop).
+    /// </summary>
+    private async Task<DeliverySlotWriteResult> CreateDeliveryWithSlotAsync(
+        string orderId, Dictionary<string, AttributeValue> item, ILambdaContext context)
+    {
+        var write = await _orderRepo.TryCreateDeliveryWithSlotAsync(orderId, _deliveriesTable, item);
+        if (write != DeliverySlotWriteResult.SlotTaken)
+        {
+            return write;
+        }
+
+        var stale = await FindStaleDeliverySlotAsync(orderId);
+        if (stale == null)
+        {
+            return write;
+        }
+
+        write = await _orderRepo.TryCreateDeliveryWithSlotAsync(orderId, _deliveriesTable, item, stale);
+        if (write == DeliverySlotWriteResult.Written)
+        {
+            context.Logger.LogWarning(
+                $"DELIVERY_SLOT_RECLAIMED orderId={MoneyAlarmLog.LogId(orderId)} "
+                + $"from={MoneyAlarmLog.LogId(stale.DeliveryId)} to={MoneyAlarmLog.LogId(item["deliveryId"].S)}");
+        }
+
+        return write;
+    }
+
+    /// <summary>
+    /// ESC-08: the order's slot holder when it can no longer become a handoff: its delivery is
+    /// cancelled (a slot release after the cancel did not land), or it has no row and its claim
+    /// carries no time (a claim left by a create from before ESC-08, which wrote the claim and the
+    /// row separately). Since ESC-08 a claim is always timed and written with its row, so a timed
+    /// claim without a row is never taken over.
+    /// </summary>
+    private async Task<DeliverySlotHolder?> FindStaleDeliverySlotAsync(string orderId)
+    {
+        var order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+        var holderId = order != null && order.TryGetValue("activeDeliveryId", out var holderObj)
+            ? holderObj?.ToString() : null;
+        if (string.IsNullOrEmpty(holderId))
+        {
+            return null;
+        }
+
+        var claimedAt = order!.TryGetValue("activeDeliveryClaimedAt", out var claimedObj)
+            ? claimedObj?.ToString() : null;
+        var holder = await GetDeliveryItemAsync(holderId, consistentRead: true);
+        var dead = holder == null
+            ? claimedAt == null
+            : holder.TryGetValue("status", out var holderStatus) && holderStatus.S == "cancelled";
+        return dead ? new DeliverySlotHolder(holderId, claimedAt) : null;
     }
 
     /// <summary>

@@ -513,7 +513,7 @@ public sealed class DisputeVerdictMirror
                 if (await _deliveryRepo!.TryCancelPendingAsync(deliveryId!))
                 {
                     await TransactionAuditWriter.EmitAsync(_txAuditRepo, context, transactionId, "delivery", deliveryId!,
-                        "delivery_updated", "pending", "cancelled", AuditContext.ForSystem(),
+                        "delivery_cancelled", "pending", "cancelled", AuditContext.ForSystem(),
                         metadata: "resolution=buyer_wins;reason=escrow_refunded");
                 }
                 else

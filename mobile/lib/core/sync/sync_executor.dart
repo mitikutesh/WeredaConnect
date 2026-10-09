@@ -49,9 +49,10 @@ typedef KycRejectionHandler = Future<void> Function(
 
 /// Called once per entity when the server refused an operation for good and
 /// the local change must be undone: any `ORDER_*` rejection but
-/// `ORDER_KYC_REQUIRED`, and any other permanent rejection of an order
-/// operation (sync-protocol.md 1.10.0). [message] is the server message, or
-/// empty when the whole batch was refused (HTTP 400/422).
+/// `ORDER_KYC_REQUIRED`, any other permanent rejection of an order
+/// operation (sync-protocol.md 1.10.0), and a delivery cancel refused after
+/// pickup (1.11.0). [message] is the server message, or empty when the whole
+/// batch was refused (HTTP 400/422).
 typedef PermanentRejectionHandler = Future<void> Function(
   SyncOperation operation,
   String message,
@@ -227,10 +228,11 @@ class SyncBatchResult {
 ///   [SecurityEvents.stepUpCompleted]
 /// - `error` with `ORDER_KYC_REQUIRED` → reject, undo the local change via
 ///   [KycRejectionHandler], ask the UI to offer Fayda verification
-/// - `error` with any other `ORDER_*` code, `FRAUD_*`, `SYNC_VALIDATION` or
-///   `DELIVERY_ORDER_REQUIRED` → reject (never retried) and explain through a
-///   [SyncOperationRejected] event; a refused order change is first undone
-///   via [PermanentRejectionHandler]
+/// - `error` with any other `ORDER_*` code, `FRAUD_*`, `SYNC_VALIDATION`,
+///   `DELIVERY_ORDER_REQUIRED` or `DELIVERY_CANCEL_NOT_ALLOWED` → reject
+///   (never retried) and explain through a [SyncOperationRejected] event; a
+///   refused order change or delivery cancel is first undone via
+///   [PermanentRejectionHandler]
 /// - `error` → mark failed (retry up to 3 times via [SyncQueue])
 ///
 /// A refused `create` also rejects the operations queued behind it for that
@@ -874,13 +876,15 @@ class SyncExecutor {
   /// orderId and replaying the identical payload can never succeed (delivery
   /// creates enqueued before the orderId requirement shipped). Every
   /// `ORDER_*` code but `ORDER_KYC_REQUIRED` (matched earlier) is
-  /// deterministic too (sync-protocol.md 1.10.0).
+  /// deterministic too (sync-protocol.md 1.10.0), and so is a delivery cancel
+  /// refused after pickup (1.11.0).
   static bool _isPermanentRejection(String? message) {
     if (message == null) return false;
     return message.startsWith('FRAUD_') ||
         message.startsWith('SYNC_VALIDATION') ||
         message.startsWith('DELIVERY_ORDER_REQUIRED') ||
-        isRevertableRejectionMessage(message);
+        isRevertableRejectionMessage(message) ||
+        isDeliveryCancelRefusalMessage(message);
   }
 
   /// Background operations the user never made (matching analytics): a
@@ -891,7 +895,8 @@ class SyncExecutor {
   /// when the whole batch was refused):
   /// - a refused `create` rejects the operations queued behind it for that
   ///   entity, which could only loop on a transient "not found";
-  /// - a refused order change (or any `ORDER_*` refusal) is undone through
+  /// - a refused order change (or any `ORDER_*` refusal), and a delivery
+  ///   cancel refused after pickup, are undone through
   ///   [PermanentRejectionHandler];
   /// - every refusal is announced as a [SyncOperationRejected] event, once
   ///   per entity. The batch's events go out together after every undo has
@@ -919,7 +924,8 @@ class SyncExecutor {
       }
       final reason = message ?? '';
       if (operation.entityType == 'order' ||
-          isRevertableRejectionMessage(message)) {
+          isRevertableRejectionMessage(message) ||
+          isDeliveryCancelRefusalMessage(message)) {
         try {
           await _onPermanentRejection?.call(operation, reason);
         } on Object catch (e) {

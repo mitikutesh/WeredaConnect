@@ -348,44 +348,110 @@ public sealed class OrderRepository : IOrderRepository
     }
 
     /// <inheritdoc />
-    public async Task<bool> TryClaimDeliverySlotAsync(string orderId, string deliveryId)
+    public async Task<DeliverySlotWriteResult> TryCreateDeliveryWithSlotAsync(
+        string orderId,
+        string deliveriesTable,
+        Dictionary<string, AttributeValue> deliveryItem,
+        DeliverySlotHolder? replacing = null)
     {
         var existing = await GetItemAsync(orderId);
         if (existing == null)
         {
-            return false;
+            return DeliverySlotWriteResult.OrderNotFound;
+        }
+
+        var values = new Dictionary<string, AttributeValue>
+        {
+            { ":did", new AttributeValue { S = deliveryItem["deliveryId"].S } },
+            { ":now", new AttributeValue { S = DateTime.UtcNow.ToString("o") } }
+        };
+
+        string slotCondition;
+        if (replacing == null)
+        {
+            slotCondition = "attribute_not_exists(#slot) OR #slot = :did";
+        }
+        else
+        {
+            values[":stale"] = new AttributeValue { S = replacing.DeliveryId };
+            if (replacing.ClaimedAt == null)
+            {
+                slotCondition = "#slot = :stale AND attribute_not_exists(#claimedAt)";
+            }
+            else
+            {
+                values[":seen"] = new AttributeValue { S = replacing.ClaimedAt };
+                slotCondition = "#slot = :stale AND #claimedAt = :seen";
+            }
         }
 
         // Deliveries have no order index, so the order row carries the single-active-
-        // delivery invariant as a conditional write. The version is deliberately not
-        // bumped: the claim is not a client-visible edit of the order.
-        var request = new UpdateItemRequest
+        // delivery invariant as a conditional write, in the same transaction as the row it
+        // names. The version is deliberately not bumped: the claim is not a client-visible
+        // edit of the order.
+        var request = new TransactWriteItemsRequest
         {
-            TableName = _tableName,
-            Key = new Dictionary<string, AttributeValue>
+            TransactItems = new List<TransactWriteItem>
             {
-                { "orderId", new AttributeValue { S = orderId } },
-                { "createdAt", new AttributeValue { S = existing["createdAt"].S } }
-            },
-            UpdateExpression = "SET #slot = :did",
-            ConditionExpression = "attribute_not_exists(#slot) OR #slot = :did",
-            ExpressionAttributeNames = new Dictionary<string, string> { { "#slot", "activeDeliveryId" } },
-            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-            {
-                { ":did", new AttributeValue { S = deliveryId } }
+                new()
+                {
+                    Update = new Update
+                    {
+                        TableName = _tableName,
+                        Key = new Dictionary<string, AttributeValue>
+                        {
+                            { "orderId", new AttributeValue { S = orderId } },
+                            { "createdAt", new AttributeValue { S = existing["createdAt"].S } }
+                        },
+                        UpdateExpression = "SET #slot = :did, #claimedAt = :now",
+                        ConditionExpression = $"attribute_exists(orderId) AND ({slotCondition})",
+                        ExpressionAttributeNames = new Dictionary<string, string>
+                        {
+                            { "#slot", "activeDeliveryId" },
+                            { "#claimedAt", "activeDeliveryClaimedAt" }
+                        },
+                        ExpressionAttributeValues = values
+                    }
+                },
+                new()
+                {
+                    Put = new Put
+                    {
+                        TableName = deliveriesTable,
+                        Item = deliveryItem,
+                        ConditionExpression = "attribute_not_exists(deliveryId)"
+                    }
+                }
             }
         };
 
         try
         {
-            await _dynamoDb.UpdateItemAsync(request);
-            return true;
+            await _dynamoDb.TransactWriteItemsAsync(request);
+            return DeliverySlotWriteResult.Written;
         }
-        catch (ConditionalCheckFailedException)
+        catch (TransactionCanceledException ex)
         {
-            return false;
+            // Reasons are per item, in request order. An existing row wins over a taken
+            // slot: the caller answers it like any create of an existing delivery.
+            if (IsConditionFailure(ex.CancellationReasons, 1))
+            {
+                return DeliverySlotWriteResult.DeliveryExists;
+            }
+
+            if (IsConditionFailure(ex.CancellationReasons, 0))
+            {
+                return DeliverySlotWriteResult.SlotTaken;
+            }
+
+            // A conflicting transaction or throttling: nothing was written, so the caller's
+            // failure is safe to retry.
+            throw;
         }
     }
+
+    private static bool IsConditionFailure(List<CancellationReason>? reasons, int index) =>
+        reasons != null && reasons.Count > index && reasons[index]?.Code == "ConditionalCheckFailed";
 
     /// <inheritdoc />
     public async Task ReleaseDeliverySlotAsync(string orderId, string deliveryId)
@@ -404,9 +470,13 @@ public sealed class OrderRepository : IOrderRepository
                 { "orderId", new AttributeValue { S = orderId } },
                 { "createdAt", new AttributeValue { S = existing["createdAt"].S } }
             },
-            UpdateExpression = "REMOVE #slot",
+            UpdateExpression = "REMOVE #slot, #claimedAt",
             ConditionExpression = "#slot = :did",
-            ExpressionAttributeNames = new Dictionary<string, string> { { "#slot", "activeDeliveryId" } },
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#slot", "activeDeliveryId" },
+                { "#claimedAt", "activeDeliveryClaimedAt" }
+            },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
                 { ":did", new AttributeValue { S = deliveryId } }

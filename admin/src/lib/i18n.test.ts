@@ -38,3 +38,14 @@ describe("manual payout strings exist in every locale", () => {
     }
   });
 });
+
+/* ESC-08: a party's cancel (and the system cancel of a dispute verdict) is audited as
+ * delivery_cancelled; without a label the transaction timeline shows the raw key. */
+describe("delivery cancel audit label exists in every locale", () => {
+  for (const locale of locales) {
+    it(`${locale} labels action_delivery_cancelled`, () => {
+      const key = "transactions.action_delivery_cancelled";
+      expect(t(key, locale)).not.toBe(key);
+    });
+  }
+});

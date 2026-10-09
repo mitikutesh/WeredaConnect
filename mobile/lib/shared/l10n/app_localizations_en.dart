@@ -1674,6 +1674,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'The farmer\'s QR code has not reached the server yet. Ask the farmer to open the QR code while online, then try again.';
 
   @override
+  String get deliveryErrorCancelNotAllowed =>
+      'This delivery was already picked up, so it can no longer be cancelled. Contact support if there is a problem.';
+
+  @override
   String get deliveryQrTooLarge => 'QR code too large';
 
   @override

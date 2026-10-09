@@ -68,6 +68,7 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
     public string TransactionAudit => $"transaction-audit-{_suffix}";
     public string Users => $"users-{_suffix}";
     public string Crops => $"crops-{_suffix}";
+    public string Trips => $"trips-{_suffix}";
 
     public async Task InitializeAsync()
     {
@@ -96,10 +97,14 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
         await CreateAsync(EscrowAudit, ("escrowId", "timestamp"));
         await CreateAsync(Idempotency, ("idempotencyKey", null));
         await CreateAsync(Orders, ("orderId", "createdAt"));
-        await CreateAsync(Deliveries, ("deliveryId", "tripId"));
+        await CreateAsync(Deliveries, ("deliveryId", "tripId"),
+            ("ParticipantIndex", "participantId", "createdAt"),
+            ("FarmerIdCreatedAtIndex", "farmerId", "createdAt"),
+            ("TruckerIdCreatedAtIndex", "truckerId", "createdAt"));
         await CreateAsync(TransactionAudit, ("transactionId", "timestamp"), ("EntityIndex", "entityId", "timestamp"));
         await CreateAsync(Users, ("userId", null));
         await CreateAsync(Crops, ("cropId", "createdAt"));
+        await CreateAsync(Trips, ("tripId", "createdAt"));
     }
 
     public async Task DisposeAsync()

@@ -2065,6 +2065,7 @@
   },
   "deliveryErrorNotFound": "ማድረስ አልተገኘም",
   "deliveryErrorQrPending": "የገበሬው QR ኮድ ገና ወደ አገልጋዩ አልደረሰም። ገበሬው በኢንተርኔት ላይ ሆኖ QR ኮዱን እንዲከፍት ይጠይቁ፣ ከዚያ እንደገና ይሞክሩ።",
+  "deliveryErrorCancelNotAllowed": "ሰብሉ ስለተነሳ ይህ ማድረስ ከእንግዲህ ሊሰረዝ አይችልም። ችግር ካለ ድጋፍ ሰጪን ያግኙ።",
   "@deliveryErrorNotFound": {
     "description": "Error when delivery cannot be found"
   },

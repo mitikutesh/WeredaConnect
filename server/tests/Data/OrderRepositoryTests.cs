@@ -225,4 +225,118 @@ public class OrderRepositoryTests
         await _mockDynamoDb.Received(1).QueryAsync(
             Arg.Is<QueryRequest>(r => r.ConsistentRead == true), Arg.Any<CancellationToken>());
     }
+
+    // --- ESC-08: the delivery slot claim and the delivery row are one transaction ---
+
+    private static Dictionary<string, AttributeValue> DeliveryRow() => new()
+    {
+        { "deliveryId", new AttributeValue { S = "del-1" } },
+        { "tripId", new AttributeValue { S = "trip-1" } },
+        { "status", new AttributeValue { S = "pending" } }
+    };
+
+    private void StubTransactionCancelled(params string[] codes)
+        => _mockDynamoDb.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>())
+            .Returns<TransactWriteItemsResponse>(_ => throw new TransactionCanceledException("cancelled")
+            {
+                CancellationReasons = codes.Select(c => new CancellationReason { Code = c }).ToList()
+            });
+
+    [Fact]
+    public async Task TryCreateDeliveryWithSlot_ClaimsAndWritesInOneTransaction()
+    {
+        StubStoredOrder("accepted");
+
+        var result = await _repository.TryCreateDeliveryWithSlotAsync("order-1", "test-deliveries", DeliveryRow());
+
+        Assert.Equal(DeliverySlotWriteResult.Written, result);
+        await _mockDynamoDb.Received(1).TransactWriteItemsAsync(
+            Arg.Is<TransactWriteItemsRequest>(r =>
+                r.TransactItems.Count == 2
+                && r.TransactItems[0].Update.TableName == TableName
+                && r.TransactItems[0].Update.Key["createdAt"].S == "2026-09-30T08:00:00.0000000Z"
+                && r.TransactItems[0].Update.UpdateExpression == "SET #slot = :did, #claimedAt = :now"
+                && r.TransactItems[0].Update.ConditionExpression
+                    == "attribute_exists(orderId) AND (attribute_not_exists(#slot) OR #slot = :did)"
+                && r.TransactItems[0].Update.ExpressionAttributeNames["#slot"] == "activeDeliveryId"
+                && r.TransactItems[0].Update.ExpressionAttributeNames["#claimedAt"] == "activeDeliveryClaimedAt"
+                && r.TransactItems[0].Update.ExpressionAttributeValues[":did"].S == "del-1"
+                && r.TransactItems[1].Put.TableName == "test-deliveries"
+                && r.TransactItems[1].Put.Item["deliveryId"].S == "del-1"
+                && r.TransactItems[1].Put.ConditionExpression == "attribute_not_exists(deliveryId)"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("2026-10-09T08:00:00.0000000Z", "#slot = :stale AND #claimedAt = :seen")]
+    [InlineData(null, "#slot = :stale AND attribute_not_exists(#claimedAt)")]
+    public async Task TryCreateDeliveryWithSlot_Replacing_OnlyTakesTheSlotFromTheClaimThatWasRead(
+        string? claimedAt, string slotCondition)
+    {
+        StubStoredOrder("accepted");
+
+        await _repository.TryCreateDeliveryWithSlotAsync(
+            "order-1", "test-deliveries", DeliveryRow(), new DeliverySlotHolder("del-dead", claimedAt));
+
+        await _mockDynamoDb.Received(1).TransactWriteItemsAsync(
+            Arg.Is<TransactWriteItemsRequest>(r =>
+                r.TransactItems[0].Update.ConditionExpression == $"attribute_exists(orderId) AND ({slotCondition})"
+                && r.TransactItems[0].Update.ExpressionAttributeValues[":stale"].S == "del-dead"
+                && (claimedAt == null
+                    ? !r.TransactItems[0].Update.ExpressionAttributeValues.ContainsKey(":seen")
+                    : r.TransactItems[0].Update.ExpressionAttributeValues[":seen"].S == claimedAt)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(DeliverySlotWriteResult.SlotTaken, "ConditionalCheckFailed", "None")]
+    [InlineData(DeliverySlotWriteResult.DeliveryExists, "None", "ConditionalCheckFailed")]
+    [InlineData(DeliverySlotWriteResult.DeliveryExists, "ConditionalCheckFailed", "ConditionalCheckFailed")]
+    public async Task TryCreateDeliveryWithSlot_CancelledTransaction_ReportsWhichConditionFailed(
+        DeliverySlotWriteResult expected, string slotCode, string rowCode)
+    {
+        StubStoredOrder("accepted");
+        StubTransactionCancelled(slotCode, rowCode);
+
+        var result = await _repository.TryCreateDeliveryWithSlotAsync("order-1", "test-deliveries", DeliveryRow());
+
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public async Task TryCreateDeliveryWithSlot_ConflictingTransaction_Throws()
+    {
+        // Nothing was written, so the caller's failure is a plain retryable error.
+        StubStoredOrder("accepted");
+        StubTransactionCancelled("TransactionConflict", "None");
+
+        await Assert.ThrowsAsync<TransactionCanceledException>(() =>
+            _repository.TryCreateDeliveryWithSlotAsync("order-1", "test-deliveries", DeliveryRow()));
+    }
+
+    [Fact]
+    public async Task TryCreateDeliveryWithSlot_MissingOrder_WritesNothing()
+    {
+        var result = await _repository.TryCreateDeliveryWithSlotAsync("order-1", "test-deliveries", DeliveryRow());
+
+        Assert.Equal(DeliverySlotWriteResult.OrderNotFound, result);
+        await _mockDynamoDb.DidNotReceive().TransactWriteItemsAsync(
+            Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ReleaseDeliverySlot_RemovesTheClaimAndItsTime_OnlyForTheHolder()
+    {
+        StubStoredOrder("accepted");
+
+        await _repository.ReleaseDeliverySlotAsync("order-1", "del-1");
+
+        await _mockDynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r =>
+                r.UpdateExpression == "REMOVE #slot, #claimedAt"
+                && r.ConditionExpression == "#slot = :did"
+                && r.ExpressionAttributeNames["#claimedAt"] == "activeDeliveryClaimedAt"
+                && r.ExpressionAttributeValues[":did"].S == "del-1"),
+            Arg.Any<CancellationToken>());
+    }
 }

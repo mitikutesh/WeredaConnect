@@ -393,7 +393,16 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
         ],
       },
     );
-    ensureSyncSucceeded(response);
+    try {
+      ensureSyncSucceeded(response);
+    } on SyncConflictException {
+      // ESC-08: another party may have cancelled first (the server answers a
+      // cancel of a cancelled delivery with a conflict). Then the cancel is
+      // done; any other conflict (picked up meanwhile), or a re-read that
+      // failed, is still a failure.
+      final current = await getDeliveryById(deliveryId, userId: userId);
+      if (current?.status != DeliveryStatus.cancelled) rethrow;
+    }
   }
 
   @override
