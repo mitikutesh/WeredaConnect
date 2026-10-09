@@ -27,6 +27,7 @@ public class EscrowCronTruckerRetryTests
     private readonly IEscrowAuditRepository _auditRepo = Substitute.For<IEscrowAuditRepository>();
     private readonly ITelebirrGateway _gateway = Substitute.For<ITelebirrGateway>();
     private readonly IUserRepository _userRepo = Substitute.For<IUserRepository>();
+    private readonly IEscrowIdempotencyRepository _idempotencyRepo = Substitute.For<IEscrowIdempotencyRepository>();
     private readonly List<string> _alarmLines = new();
     private readonly EscrowCronFunction _function;
     private readonly TestLambdaContext _context = new() { RemainingTime = TimeSpan.FromMinutes(4) };
@@ -47,7 +48,7 @@ public class EscrowCronTruckerRetryTests
         _escrowRepo.TryRecordTruckerPayoutAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
                 Arg.Any<string>(), Arg.Any<string>())
             .Returns(true);
-        _escrowRepo.TrySetTruckerBlockReasonAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>()).Returns(true);
+        _escrowRepo.TrySetTruckerBlockReasonAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>()).Returns(true);
         _gateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
             .Returns(new ReleaseFundsResponse { Success = true, TelebirrRef = "GW-TRUCKER" });
         _userRepo.GetUserByIdAsync(TruckerId).Returns(new UserDto
@@ -68,7 +69,7 @@ public class EscrowCronTruckerRetryTests
         {
             AlarmLog = _alarmLines.Add
         };
-        _function = new EscrowCronFunction(service, _escrowRepo, _auditRepo, _gateway);
+        _function = new EscrowCronFunction(service, _escrowRepo, _auditRepo, _gateway, idempotencyRepo: _idempotencyRepo);
     }
 
     private string Logs => ((TestLambdaLogger)_context.Logger).Buffer.ToString();
@@ -178,6 +179,23 @@ public class EscrowCronTruckerRetryTests
     }
 
     [Fact]
+    public async Task ALegPendingSinceBeforeEsc04_IsParkedForTheAdmin_NeverPaid()
+    {
+        var row = AddPending("escrow-legacy-released", hoursAgo: 72);
+        row.Remove(TruckerPayoutFields.PendingSince);
+        _escrowRepo.TryParkLegacyTruckerLegAsync("escrow-legacy-released", CreatedAt, "released",
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(true);
+
+        var response = await RunAsync();
+
+        response.Body.Should().Contain("\"truckerLegsQueued\":\"1\"");
+        await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        await _escrowRepo.DidNotReceive().TryAcquireTruckerPayoutLockAsync(Arg.Any<string>(), Arg.Any<string>());
+        Logs.Should().NotContain("TRUCKER_PAYOUT_OVERDUE");
+    }
+
+    [Fact]
     public async Task ALegThatWentPendingInThisRun_WaitsForTheNextOne()
     {
         var row = AddPending("escrow-t5", hoursAgo: 0);
@@ -276,7 +294,7 @@ public class EscrowCronTruckerRetryTests
         };
         _escrowRepo.QueryLegacyTruckerLegsAsync(Arg.Any<int>()).Returns(new List<Dictionary<string, object>> { legacy });
         _escrowRepo.GetByIdAsync("escrow-legacy-1", true).Returns(legacy);
-        _escrowRepo.TryReopenLegacyTruckerLegAsync("escrow-legacy-1", CreatedAt, Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(),
+        _escrowRepo.TryParkLegacyTruckerLegAsync("escrow-legacy-1", CreatedAt, "completed", Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(),
                 Arg.Any<string>(), Arg.Any<string>())
             .Returns(true);
 
@@ -285,6 +303,76 @@ public class EscrowCronTruckerRetryTests
         response.StatusCode.Should().Be(200);
         response.Body.Should().Contain("\"found\":\"1\"").And.Contain("\"parked\":\"1\"").And.Contain("\"failed\":\"0\"");
         await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        // A run that found rows never advances the marker.
+        await _idempotencyRepo.DidNotReceive().StoreAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+        await _idempotencyRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+    }
+
+    // Item 5: the legacy read stops once two clean runs at least 15 minutes apart found nothing.
+
+    private static Dictionary<string, object> Marker(string status, double minutesAgo) => new()
+    {
+        ["idempotencyKey"] = EscrowCronFunction.LegacyTruckerMarkerKey,
+        ["status"] = status,
+        ["createdAt"] = DateTime.UtcNow.AddMinutes(-minutesAgo).ToString("o")
+    };
+
+    [Fact]
+    public async Task LegacyAction_ADoneMarker_SkipsTheRead()
+    {
+        _idempotencyRepo.GetAsync(EscrowCronFunction.LegacyTruckerMarkerKey).Returns(Marker("done", 60 * 24));
+
+        var response = await _function.FunctionHandler(Cron("park_legacy_trucker_legs"), _context);
+
+        response.StatusCode.Should().Be(200);
+        response.Body.Should().Contain("\"skipped\":\"true\"").And.Contain("\"marker\":\"done\"");
+        await _escrowRepo.DidNotReceive().QueryLegacyTruckerLegsAsync(Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task LegacyAction_AFirstCleanRun_WritesTheCleanMarker()
+    {
+        _idempotencyRepo.GetAsync(EscrowCronFunction.LegacyTruckerMarkerKey).Returns((Dictionary<string, object>?)null);
+
+        var response = await _function.FunctionHandler(Cron("park_legacy_trucker_legs"), _context);
+
+        response.Body.Should().Contain("\"found\":\"0\"").And.Contain("\"marker\":\"clean\"");
+        await _idempotencyRepo.Received(1).StoreAsync(EscrowCronFunction.LegacyTruckerMarkerKey, "-", "clean", null);
+        await _idempotencyRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+    }
+
+    [Theory]
+    [InlineData(20, true)]
+    [InlineData(5, false)]
+    public async Task LegacyAction_ASecondCleanRun_IsDoneOnlyAfterTheSettleTime(double minutesAgo, bool done)
+    {
+        _idempotencyRepo.GetAsync(EscrowCronFunction.LegacyTruckerMarkerKey).Returns(Marker("clean", minutesAgo));
+
+        var response = await _function.FunctionHandler(Cron("park_legacy_trucker_legs"), _context);
+
+        response.StatusCode.Should().Be(200);
+        await _escrowRepo.Received(1).QueryLegacyTruckerLegsAsync(Arg.Any<int>());
+        if (done)
+        {
+            await _idempotencyRepo.Received(1).UpdateAsync(EscrowCronFunction.LegacyTruckerMarkerKey, "done", null);
+            response.Body.Should().Contain("\"marker\":\"done\"");
+        }
+        else
+        {
+            await _idempotencyRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+            response.Body.Should().Contain("\"marker\":\"clean\"");
+        }
+    }
+
+    [Fact]
+    public async Task LegacyAction_AMarkerReadFailure_StillRunsTheRead()
+    {
+        _idempotencyRepo.GetAsync(EscrowCronFunction.LegacyTruckerMarkerKey).ThrowsAsync(new TimeoutException("read"));
+
+        var response = await _function.FunctionHandler(Cron("park_legacy_trucker_legs"), _context);
+
+        response.StatusCode.Should().Be(200);
+        await _escrowRepo.Received(1).QueryLegacyTruckerLegsAsync(Arg.Any<int>());
     }
 
     [Fact]
@@ -300,8 +388,8 @@ public class EscrowCronTruckerRetryTests
         };
         _escrowRepo.QueryLegacyTruckerLegsAsync(Arg.Any<int>()).Returns(new List<Dictionary<string, object>> { legacy });
         _escrowRepo.GetByIdAsync("escrow-legacy-2", true).Returns(legacy);
-        _escrowRepo.TryReopenLegacyTruckerLegAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(),
-                Arg.Any<string>(), Arg.Any<string>())
+        _escrowRepo.TryParkLegacyTruckerLegAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string>())
             .ThrowsAsync(new TimeoutException("write"));
 
         var response = await _function.FunctionHandler(Cron("park_legacy_trucker_legs"), _context);

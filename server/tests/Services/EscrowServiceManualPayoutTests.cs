@@ -497,7 +497,8 @@ public class EscrowServiceManualPayoutTests
             Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
         await _escrowRepo.Received(1).UpdateStatusAsync(EscrowId, CreatedAt, "released", "escrowed",
             Arg.Is<Dictionary<string, object>>(f => (bool)f["truckerPayoutPending"]
-                && (string)f["truckerPayoutBlockReason"] == "phone_unverified"));
+                && (string)f["truckerPayoutBlockReason"] == "phone_unverified"
+                && (string)f["truckerPayoutBlockReasonAt"] == (string)f["truckerPayoutPendingSince"]));
         await _escrowRepo.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), "completed",
             Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
         (await AuditWritten("trucker_release_blocked_kyc", "code=ESCROW_029;reason=phone_unverified")).Should().BeTrue();

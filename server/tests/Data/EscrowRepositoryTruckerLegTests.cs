@@ -72,12 +72,58 @@ public class EscrowRepositoryTruckerLegTests
     }
 
     [Fact]
+    public async Task PendingTruckerLegQuery_KeepsPagingThroughFilteredEmptyPages()
+    {
+        // M31: DynamoDB applies the filter after the page limit, so pages of settled released rows
+        // come back empty with a LastEvaluatedKey; the pending row behind them must still be read.
+        var index = Enumerable.Range(0, 120)
+            .Select(n => new Dictionary<string, AttributeValue>
+            {
+                ["escrowId"] = new() { S = $"escrow-plain-{n:D3}" },
+                ["status"] = new() { S = "released" }
+            })
+            .Append(new Dictionary<string, AttributeValue>
+            {
+                ["escrowId"] = new() { S = "escrow-pending" },
+                ["status"] = new() { S = "released" },
+                ["truckerPayoutPending"] = new() { BOOL = true }
+            })
+            .ToList();
+        var seen = new List<QueryRequest>();
+        _dynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var request = call.Arg<QueryRequest>();
+                seen.Add(request);
+                var start = request.ExclusiveStartKey is { Count: > 0 } key
+                    ? index.FindIndex(i => i["escrowId"].S == key["escrowId"].S) + 1
+                    : 0;
+                var evaluated = index.Skip(start).Take(50).ToList();
+                return new QueryResponse
+                {
+                    Items = evaluated.Where(i => i.ContainsKey("truckerPayoutPending")).ToList(),
+                    LastEvaluatedKey = start + evaluated.Count < index.Count
+                        ? new Dictionary<string, AttributeValue> { ["escrowId"] = evaluated[^1]["escrowId"] }
+                        : new Dictionary<string, AttributeValue>()
+                };
+            });
+
+        var rows = await _repo.QueryPendingTruckerLegsAsync(10);
+
+        rows.Select(r => (string)r["escrowId"]).Should().Equal("escrow-pending");
+        seen.Should().HaveCount(3);
+    }
+
+    [Fact]
     public async Task BlockReason_IsACompareAndSet_OnAnUnlockedUnqueuedPendingReleasedRow()
     {
-        var ok = await _repo.TrySetTruckerBlockReasonAsync(EscrowId, CreatedAt, "phone_unverified");
+        var ok = await _repo.TrySetTruckerBlockReasonAsync(EscrowId, CreatedAt, "phone_unverified", "2026-10-04T10:00:00.0000000Z");
 
         ok.Should().BeTrue();
-        _update!.ConditionExpression.Should().Be(
+        _update!.UpdateExpression.Should().Be("SET #reason = :reason, #reasonAt = :reasonAt, #updated = :reasonAt");
+        _update.ExpressionAttributeNames["#reasonAt"].Should().Be("truckerPayoutBlockReasonAt");
+        _update.ExpressionAttributeValues[":reasonAt"].S.Should().Be("2026-10-04T10:00:00.0000000Z");
+        _update.ConditionExpression.Should().Be(
             "(attribute_not_exists(#reason) OR #reason <> :reason) AND #status = :released AND #pending = :true "
             + "AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#lockId)");
         _update.ExpressionAttributeNames["#reason"].Should().Be("truckerPayoutBlockReason");
@@ -104,7 +150,7 @@ public class EscrowRepositoryTruckerLegTests
         lockId.Should().NotBeNullOrEmpty();
         _update!.ConditionExpression.Should().Be(
             "#status = :released AND #pending = :true AND attribute_not_exists(#lockId) AND attribute_not_exists(#manualPayout)");
-        _update.UpdateExpression.Should().Be("SET #lockId = :lockId, #lockAt = :now, #updated = :now REMOVE #reason");
+        _update.UpdateExpression.Should().Be("SET #lockId = :lockId, #lockAt = :now, #updated = :now REMOVE #reason, #reasonAt");
         _update.ExpressionAttributeValues[":lockId"].S.Should().Be(lockId);
         AssertNoUnusedNames(_update);
     }
@@ -167,7 +213,7 @@ public class EscrowRepositoryTruckerLegTests
             "#status = :released AND #lockId = :lockId AND attribute_not_exists(#manualPayout)");
         _update.UpdateExpression.Should().Be(
             "SET #status = :completed, #ref = :ref, #paidAt = :paidAt, #completedAt = :completedAt, "
-            + "#updated = :completedAt REMOVE #pending, #reason, #lockId, #lockAt ADD #version :one");
+            + "#updated = :completedAt REMOVE #pending, #reason, #reasonAt, #lockId, #lockAt ADD #version :one");
         _update.ExpressionAttributeNames["#ref"].Should().Be("truckerTelebirrRef");
         _update.ExpressionAttributeNames["#paidAt"].Should().Be("truckerPaidAt");
         _update.ExpressionAttributeValues[":ref"].S.Should().Be("GW-TRUCKER-9");
@@ -201,13 +247,19 @@ public class EscrowRepositoryTruckerLegTests
         AssertNoUnusedNames(_update);
     }
 
-    [Fact]
-    public async Task ReopenLegacy_MovesCompletedBackToReleased_AndQueuesTheLeg_InOneWrite()
+    [Theory]
+    [InlineData("completed")]
+    [InlineData("released")]
+    public async Task ParkLegacy_MovesTheRowToReleased_AndQueuesTheLeg_InOneWrite_OnlyWithoutAPendingTime(string current)
     {
-        await _repo.TryReopenLegacyTruckerLegAsync(EscrowId, CreatedAt, Legs, "2026-10-04T10:00:00.0000000Z",
+        await _repo.TryParkLegacyTruckerLegAsync(EscrowId, CreatedAt, current, Legs, "2026-10-04T10:00:00.0000000Z",
             "2026-09-20T10:00:00.0000000Z");
 
-        _update!.ConditionExpression.Should().Be("#status = :completed AND #pending = :true AND attribute_not_exists(#marker)");
+        _update!.ConditionExpression.Should().Be(
+            "#status = :current AND #pending = :true AND attribute_not_exists(#pendingSince) "
+            + "AND attribute_not_exists(#tLockId) AND attribute_not_exists(#marker)");
+        _update.ExpressionAttributeValues[":current"].S.Should().Be(current);
+        _update.ExpressionAttributeNames["#tLockId"].Should().Be("truckerPayoutLockId");
         _update.UpdateExpression.Should().StartWith("SET #status = :fromStatus, #pendingSince = :pendingSince, ")
             .And.Contain("REMOVE #completedAt");
         _update.ExpressionAttributeValues[":reason"].S.Should().Be("GATEWAY_OUTCOME_UNKNOWN");

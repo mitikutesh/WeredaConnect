@@ -110,11 +110,18 @@ internal static class TruckerPayoutFields
 {
     public const string Pending = "truckerPayoutPending";
 
-    /// <summary>ISO time the leg went pending; the overdue alarm counts from it (fallback <c>releasedAt</c>).</summary>
+    /// <summary>
+    /// ISO time the leg went pending; the overdue alarm counts from it (fallback <c>releasedAt</c>).
+    /// Written since ESC-04 with every pending flag, so a pending leg without it is legacy (before
+    /// ESC-04, when the old runbook said to pay it by hand) and is parked, never retried.
+    /// </summary>
     public const string PendingSince = "truckerPayoutPendingSince";
 
     /// <summary>Why the payout gate blocks the trucker, one of the Block* values; audited once per value.</summary>
     public const string BlockReason = "truckerPayoutBlockReason";
+
+    /// <summary>ISO time the block reason was set: the deterministic key of its audit row, re-ensured each run.</summary>
+    public const string BlockReasonAt = "truckerPayoutBlockReasonAt";
 
     /// <summary>Random id and ISO time of the retry's lock; from the lock on the gateway may have been called.</summary>
     public const string LockId = "truckerPayoutLockId";

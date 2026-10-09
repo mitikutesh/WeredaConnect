@@ -3679,7 +3679,8 @@ public class EscrowServiceTests
         Assert.True(result.IsSuccess);
         Assert.Equal("released", result.Value!.Status);
         Assert.Empty(lines);
-        await _mockAuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+        // At a deterministic key (the time stored with the reason), so a later run re-ensures it.
+        await _mockAuditRepo.Received(1).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(e =>
             (string)e["action"] == "trucker_release_blocked_kyc"
             && (string)e["metadata"] == "code=ESCROW_029;reason=profile_missing"));
         await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), "completed",

@@ -1753,6 +1753,7 @@ public sealed class EscrowService
             if (truckerBlockReason != null)
             {
                 releaseFields[TruckerPayoutFields.BlockReason] = truckerBlockReason;
+                releaseFields[TruckerPayoutFields.BlockReasonAt] = now;
             }
         }
 
@@ -1778,10 +1779,11 @@ public sealed class EscrowService
         {
             // ESC-04: a gate block is a known wait for the trucker to verify, like
             // release_blocked_kyc: audited with its reason, no money alarm (the overdue alarm
-            // fires after 24 hours). A gateway refusal is a settlement failure.
+            // fires after 24 hours), at the time the row stores with the reason, so the hourly
+            // retry re-ensures a row this write lost. A gateway refusal is a settlement failure.
             if (truckerBlockReason != null)
             {
-                await AppendAuditAsync(request.EscrowId, TruckerBlockedAuditAction, currentStatus, currentStatus,
+                await EnsureAuditAsync(request.EscrowId, now, TruckerBlockedAuditAction, currentStatus, currentStatus,
                     SystemActor, metadata: TruckerBlockedMetadata(truckerBlockReason));
             }
             else
@@ -3181,6 +3183,16 @@ public sealed class EscrowService
             }
         }
 
+        // A pending leg without a pending time was left by the code before ESC-04 (a crash between
+        // the released and completed writes), when the runbook said to pay it by hand: parked for
+        // the admin, never retried.
+        if (GetStringOrNull(escrow, TruckerPayoutFields.PendingSince) == null)
+        {
+            return await ParkLegacyAsync(escrow, "released")
+                ? new(TruckerRetryOutcome.Queued, "legacy")
+                : new(TruckerRetryOutcome.Skipped, null);
+        }
+
         // O2: never pay without the identity gate; a missing profile repository is a misconfiguration.
         if (_userRepo == null)
         {
@@ -3394,17 +3406,27 @@ public sealed class EscrowService
     /// <summary>
     /// ESC-04 legacy, one row from <see cref="IEscrowRepository.QueryLegacyTruckerLegsAsync"/>: a
     /// <c>completed</c> escrow whose trucker leg was never paid (before ESC-04 a release completed
-    /// without it). Under the old runbook it may have been paid by hand, so it is never retried:
-    /// the escrow goes back to <c>released</c> and the leg into the manual payout queue as
-    /// <c>GATEWAY_OUTCOME_UNKNOWN</c> (the admin checks the portal first), in one conditional write.
-    /// Returns true when this call parked it. Never calls the gateway.
+    /// without it). See <see cref="ParkLegacyAsync"/>. Returns true when this call parked it.
     /// </summary>
     public async Task<bool> ParkLegacyTruckerLegAsync(Dictionary<string, object> row)
     {
-        var escrowId = GetString(row, "escrowId");
-        var escrow = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
-        if (escrow == null || GetString(escrow, "status") != "completed"
-            || !GetBool(escrow, TruckerPayoutFields.Pending) || IsManualPayoutOpen(escrow))
+        var escrow = await _escrowRepo.GetByIdAsync(GetString(row, "escrowId"), consistentRead: true);
+        return escrow != null && await ParkLegacyAsync(escrow, "completed");
+    }
+
+    /// <summary>
+    /// ESC-04 legacy: a trucker leg left pending by the code before ESC-04 (no pending time),
+    /// <c>completed</c> or (a crash between the two writes) <c>released</c>. Under the old runbook it
+    /// may have been paid by hand, so it is never retried: the escrow becomes <c>released</c> and the
+    /// leg goes into the manual payout queue as <c>GATEWAY_OUTCOME_UNKNOWN</c> (the admin checks the
+    /// portal first), in one conditional write. Returns true when this call parked it. Never calls
+    /// the gateway.
+    /// </summary>
+    private async Task<bool> ParkLegacyAsync(Dictionary<string, object> escrow, string status)
+    {
+        var escrowId = GetString(escrow, "escrowId");
+        if (GetString(escrow, "status") != status || !GetBool(escrow, TruckerPayoutFields.Pending)
+            || IsManualPayoutOpen(escrow) || GetStringOrNull(escrow, TruckerPayoutFields.PendingSince) != null)
         {
             return false;
         }
@@ -3423,7 +3445,7 @@ public sealed class EscrowService
         bool reopened;
         try
         {
-            reopened = await _escrowRepo.TryReopenLegacyTruckerLegAsync(escrowId, createdAt, legs, queuedAt, pendingSince);
+            reopened = await _escrowRepo.TryParkLegacyTruckerLegAsync(escrowId, createdAt, status, legs, queuedAt, pendingSince);
         }
         catch (Exception)
         {
@@ -3445,8 +3467,8 @@ public sealed class EscrowService
         AlarmLog(MoneyAlarmLog.SettlementFailed(escrowId, "legacy_trucker_parked", MoneyAlarmLog.OutcomeUnknown, "release:trucker"));
         Console.WriteLine(
             $"ESCROW_MANUAL_PAYOUT_QUEUED escrowId={MoneyAlarmLog.LogId(escrowId)} op=release legs=farmer,trucker reason={ManualPayoutFields.ReasonGatewayOutcomeUnknown}");
-        await EnsureAuditAsync(escrowId, AddTicks(queuedAt, -1), "trucker_leg_reopened", "completed", "released", SystemActor,
-            metadata: $"legacy=true;completedAt={completedAt ?? "-"}");
+        await EnsureAuditAsync(escrowId, AddTicks(queuedAt, -1), "legacy_trucker_parked", status, "released", SystemActor,
+            metadata: $"legacy=true;fromStatus={status};completedAt={completedAt ?? "-"}");
         await EnsureAuditAsync(escrowId, queuedAt, "manual_payout_queued", "released", "released", SystemActor,
             metadata: $"op=release;legs=farmer,trucker;reason={ManualPayoutFields.ReasonGatewayOutcomeUnknown}");
         return true;
@@ -3483,17 +3505,27 @@ public sealed class EscrowService
 
     /// <summary>
     /// R10: the reason is stored as a compare-and-set, so it is audited once per value however many
-    /// runs (or concurrent ones) see it.
+    /// runs (or concurrent ones) see it. The audit row sits at the time stored with the reason, so a
+    /// row whose write failed after the reason won is re-ensured by the next run that sees the same
+    /// reason (a conditional put that writes nothing when the row is there).
     /// </summary>
     private async Task NoteTruckerBlockedAsync(Dictionary<string, object> escrow, string reason)
     {
         var escrowId = GetString(escrow, "escrowId");
-        if (!await _escrowRepo.TrySetTruckerBlockReasonAsync(escrowId, GetString(escrow, "createdAt"), reason))
+        var reasonAt = DateTime.UtcNow.ToString("o");
+        if (!await _escrowRepo.TrySetTruckerBlockReasonAsync(escrowId, GetString(escrow, "createdAt"), reason, reasonAt))
         {
+            var storedAt = GetStringOrNull(escrow, TruckerPayoutFields.BlockReasonAt);
+            if (GetStringOrNull(escrow, TruckerPayoutFields.BlockReason) == reason && storedAt != null)
+            {
+                await EnsureAuditAsync(escrowId, storedAt, TruckerBlockedAuditAction, "released", "released", SystemActor,
+                    metadata: TruckerBlockedMetadata(reason));
+            }
+
             return;
         }
 
-        await AppendAuditAsync(escrowId, TruckerBlockedAuditAction, "released", "released", SystemActor,
+        await EnsureAuditAsync(escrowId, reasonAt, TruckerBlockedAuditAction, "released", "released", SystemActor,
             metadata: TruckerBlockedMetadata(reason));
         Console.WriteLine($"ESCROW_TRUCKER_PAYOUT_BLOCKED escrowId={MoneyAlarmLog.LogId(escrowId)} reason={reason}");
     }

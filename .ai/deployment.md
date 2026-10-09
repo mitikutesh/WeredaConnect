@@ -150,8 +150,26 @@ to pay such a leg by hand. The action moves each such escrow back to
 `released` and puts the leg into Manual Payouts as `GATEWAY_OUTCOME_UNKNOWN`,
 so the admin checks the portal before paying. It never calls Telebirr, is
 idempotent (a parked row is no longer `completed`), and answers 500 when a row
-could not be parked, which fails the step: re-run the workflow. The IAM grant is
+could not be parked. The step retries up to 6 times with backoff (escrow-cron's
+reserved concurrency of 2 can throttle the invoke while an hourly run is busy,
+and on the first run the new IAM grant may not have propagated yet) and fails
+only when every attempt failed: re-run the workflow. The IAM grant is
 `InvokeEscrowCronAfterDeploy` in `github-actions-stack.ts` (this one function).
+
+The read is bounded by a marker in the escrow idempotency table
+(`migration:esc-04:park_legacy_trucker_legs`, 30-day TTL): the first run that
+finds nothing writes `clean`, a later run that finds nothing at least 15 minutes
+after that writes `done`, and a `done` marker skips the read (the step logs
+`skipped=true`). Delete the marker to make the next deploy read again.
+
+A Lambda instance still running the old code when the deploy finishes can
+complete a release with its trucker leg unpaid after the step ran. That row
+(`completed` with `truckerPayoutPending`) waits for the next deploy's run: the
+hourly trucker retry and the `TRUCKER_PAYOUT_OVERDUE` report read only
+`released` rows. The two clean runs needed for `done` make sure a deploy after
+this one still looks. A `released` row left pending by the old code (no
+`truckerPayoutPendingSince`) is parked by the hourly retry the same way, never
+paid again.
 
 Manual equivalent:
 
@@ -166,6 +184,10 @@ aws dynamodb scan --table-name wereda-connect-dev-escrows \
 aws lambda invoke --function-name wereda-connect-dev-escrow-cron \
   --cli-binary-format raw-in-base64-out --cli-read-timeout 330 \
   --payload '{"body":"{\"action\":\"park_legacy_trucker_legs\"}"}' /dev/stdout
+
+# Read again on the next run (removes the done marker)
+aws dynamodb delete-item --table-name wereda-connect-dev-escrow-idempotency \
+  --key '{"idempotencyKey":{"S":"migration:esc-04:park_legacy_trucker_legs"}}'
 ```
 
 ### 4. Web App Deploys (CI/CD)

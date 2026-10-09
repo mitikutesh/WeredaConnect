@@ -191,9 +191,13 @@ jobs:
       # ESC-04: an escrow completed before ESC-04 with its trucker leg unpaid goes back to
       # released, with the leg in the manual payout queue as GATEWAY_OUTCOME_UNKNOWN (the old
       # runbook said to pay such a leg by hand, so the admin checks the portal first). Idempotent
-      # and never calls Telebirr; with nothing left it answers found=0. Runs whenever the CDK
-      # deploy succeeded, also when a dev-only admin step above failed. A row that could not be
-      # parked answers 500 and fails this step: re-run the workflow.
+      # and never calls Telebirr; with nothing left it answers found=0, and once two clean runs at
+      # least 15 minutes apart found nothing it reads nothing (marker "done", see .ai/deployment.md
+      # 3c). Runs whenever the CDK deploy succeeded, also when a dev-only admin step above failed.
+      # Retried with backoff: escrow-cron has a reserved concurrency of 2 (TooManyRequests while an
+      # hourly run is busy) and on the first run the new IAM grant may not have propagated yet
+      # (AccessDenied). A row that could not be parked answers 500 and is retried too; the step
+      # fails when every attempt failed.
       - name: Park legacy trucker legs (ESC-04, idempotent)
         if: ${{ !cancelled() && steps.cdk_deploy.outcome == 'success' }}
         env:
@@ -201,12 +205,9 @@ jobs:
           FUNCTION: wereda-connect-${{ github.event.inputs.environment || 'dev' }}-escrow-cron
         run: |
           out="$(mktemp)"
-          error="$(aws --region "$REGION" --output text lambda invoke --function-name "$FUNCTION" \
-            --cli-binary-format raw-in-base64-out --cli-read-timeout 330 \
-            --payload '{"body":"{\"action\":\"park_legacy_trucker_legs\"}"}' \
-            --query FunctionError "$out")"
-          cat "$out"; echo
-          python3 - "$out" "$error" <<'PY'
+          err="$(mktemp)"
+          check() {
+            python3 - "$out" "$1" <<'PY'
           import json, sys
           path, error = sys.argv[1], sys.argv[2]
           if error not in ("None", ""):
@@ -215,7 +216,27 @@ jobs:
           if response.get("statusCode") != 200:
               sys.exit(f"park_legacy_trucker_legs answered {response.get('statusCode')}: {response.get('body')}")
           summary = json.loads(response["body"])
-          print(f"legacy trucker legs: found={summary['found']} parked={summary['parked']}")
+          print(f"legacy trucker legs: found={summary['found']} parked={summary['parked']} "
+                f"marker={summary.get('marker')} skipped={summary.get('skipped')}")
           if summary.get("truncated") == "true":
               print("::warning::park_legacy_trucker_legs read its cap of rows; run the workflow again")
           PY
+          }
+          for attempt in 1 2 3 4 5 6; do
+            if error="$(aws --region "$REGION" --output text lambda invoke --function-name "$FUNCTION" \
+                --cli-binary-format raw-in-base64-out --cli-read-timeout 330 \
+                --payload '{"body":"{\"action\":\"park_legacy_trucker_legs\"}"}' \
+                --query FunctionError "$out" 2>"$err")"; then
+              cat "$out"; echo
+              if check "$error"; then
+                exit 0
+              fi
+            else
+              echo "attempt ${attempt}: invoke failed: $(cat "$err")"
+            fi
+            if [ "$attempt" -lt 6 ]; then
+              sleep $((attempt * 15))
+            fi
+          done
+          echo "::error::park_legacy_trucker_legs did not succeed after 6 attempts"
+          exit 1

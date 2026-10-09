@@ -147,10 +147,11 @@ public class EscrowRepositoryManualPayoutTests
         _update.ExpressionAttributeValues[":newStatus"].S.Should().Be("released");
         // ESC-04: once a release closes no trucker leg is owed, so its pending attributes go too.
         _update.UpdateExpression.Should().Contain("#status = :newStatus")
-            .And.Contain("REMOVE #marker, #tPending, #tBlock, #tLockId, #tLockAt")
+            .And.Contain("REMOVE #marker, #tPending, #tBlock, #tBlockAt, #tLockId, #tLockAt")
             .And.Contain("ADD #version :one");
         Name(_update, "#tPending").Should().Be("truckerPayoutPending");
         Name(_update, "#tBlock").Should().Be("truckerPayoutBlockReason");
+        Name(_update, "#tBlockAt").Should().Be("truckerPayoutBlockReasonAt");
         Name(_update, "#tLockId").Should().Be("truckerPayoutLockId");
         Name(_update, "#tLockAt").Should().Be("truckerPayoutLockAt");
 

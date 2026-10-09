@@ -147,10 +147,11 @@ public interface IEscrowRepository
     /// <summary>
     /// ESC-04: record why the payout gate blocks the trucker, as a compare-and-set: only when the
     /// stored reason is missing or different, the escrow is still <c>released</c> with the leg
-    /// pending, unqueued and unlocked. Returns false when the condition fails, so a reason is
-    /// audited once however many runs see it.
+    /// pending, unqueued and unlocked. Also stores <paramref name="reasonAt"/>, the key of the
+    /// reason's audit row. Returns false when the condition fails, so a reason is audited once
+    /// however many runs see it.
     /// </summary>
-    Task<bool> TrySetTruckerBlockReasonAsync(string escrowId, string createdAt, string reason);
+    Task<bool> TrySetTruckerBlockReasonAsync(string escrowId, string createdAt, string reason, string reasonAt);
 
     /// <summary>
     /// ESC-04: copy the trucker the escrow pays from its order, only when the escrow has none.
@@ -161,7 +162,7 @@ public interface IEscrowRepository
     /// <summary>
     /// ESC-04: take the trucker leg's lock (<c>truckerPayoutLockId</c>, <c>truckerPayoutLockAt</c>)
     /// before the gateway call, conditional on the escrow being <c>released</c> with the leg
-    /// pending, unlocked and unqueued; clears the block reason. Returns the lock id, or null when
+    /// pending, unlocked and unqueued; clears the block reason and its time. Returns the lock id, or null when
     /// the condition fails. A failed condition whose strongly consistent re-read shows this very
     /// lock id (an earlier attempt whose answer was lost) counts as acquired.
     /// </summary>
@@ -195,13 +196,16 @@ public interface IEscrowRepository
         string queuedAt, string lockId, string? parkId);
 
     /// <summary>
-    /// ESC-04 legacy: move a <c>completed</c> escrow whose trucker leg is still owed back to
-    /// <c>released</c> and queue that leg (reason <c>GATEWAY_OUTCOME_UNKNOWN</c>) in one write,
-    /// conditional on the escrow still being <c>completed</c>, pending and unqueued. Returns false
-    /// when the condition fails.
+    /// ESC-04 legacy: an escrow whose trucker leg was left pending before ESC-04 (no
+    /// <c>truckerPayoutPendingSince</c>): <paramref name="currentStatus"/> <c>completed</c> (a release
+    /// completed without it) or <c>released</c> (a crash between the two writes). In one write the
+    /// escrow becomes <c>released</c> (a completed one loses <c>completedAt</c>) and the leg is queued
+    /// as <c>GATEWAY_OUTCOME_UNKNOWN</c>, conditional on the same status, the leg pending without a
+    /// pending time or trucker lock, and no queue entry. Returns false when the condition fails.
     /// </summary>
-    Task<bool> TryReopenLegacyTruckerLegAsync(
-        string escrowId, string createdAt, IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt, string pendingSince);
+    Task<bool> TryParkLegacyTruckerLegAsync(
+        string escrowId, string createdAt, string currentStatus, IReadOnlyList<ManualPayoutLegSeed> legs,
+        string queuedAt, string pendingSince);
 
     /// <summary>
     /// Get an escrow by its associated delivery ID using the DeliveryIndex GSI.

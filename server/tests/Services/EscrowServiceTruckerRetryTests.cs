@@ -46,10 +46,10 @@ public class EscrowServiceTruckerRetryTests
         _escrowRepo.TryQueueTruckerLegAsync(EscrowId, CreatedAt, Arg.Any<string>(), Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(),
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(true);
-        _escrowRepo.TrySetTruckerBlockReasonAsync(EscrowId, CreatedAt, Arg.Any<string>()).Returns(true);
+        _escrowRepo.TrySetTruckerBlockReasonAsync(EscrowId, CreatedAt, Arg.Any<string>(), Arg.Any<string>()).Returns(true);
         _escrowRepo.TryBackfillTruckerIdAsync(EscrowId, CreatedAt, Arg.Any<string>()).Returns(true);
         _escrowRepo.ReleaseTruckerPayoutLockAsync(EscrowId, CreatedAt, LockId).Returns(true);
-        _escrowRepo.TryReopenLegacyTruckerLegAsync(EscrowId, CreatedAt, Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(),
+        _escrowRepo.TryParkLegacyTruckerLegAsync(EscrowId, CreatedAt, Arg.Any<string>(), Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(),
                 Arg.Any<string>(), Arg.Any<string>())
             .Returns(true);
         _gateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
@@ -224,6 +224,26 @@ public class EscrowServiceTruckerRetryTests
         await _escrowRepo.DidNotReceive().ReleaseTruckerPayoutLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
     }
 
+    [Fact]
+    public async Task RecordWriteFailsItsCondition_AndTheRowIsNotOurs_EscapesAsUnknown_WithoutACompleteRow()
+    {
+        // M18: the condition failed and a strongly consistent re-read shows the row not completed
+        // with our reference: the payout is unrecorded, so the lock stays for the stale-lock park.
+        var row = Pending();
+        BaseRowIs(row);
+        _escrowRepo.TryRecordTruckerPayoutAsync(EscrowId, CreatedAt, LockId, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(false);
+
+        var act = () => RetryAsync(row);
+
+        var thrown = await act.Should().ThrowAsync<Amazon.DynamoDBv2.Model.ConditionalCheckFailedException>();
+        MoneyAlarmLog.ExceptionOutcome(thrown.Which).Should().Be(MoneyAlarmLog.OutcomeUnknown);
+        await _escrowRepo.Received(1).TryRecordTruckerPayoutAsync(
+            EscrowId, CreatedAt, LockId, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        AuditActions().Should().NotContain(new[] { "complete", "trucker_release" });
+        await _escrowRepo.DidNotReceive().ReleaseTruckerPayoutLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
     private sealed class TransientWriteException : Exception;
 
     // ──────────────────────────────────────────────
@@ -387,7 +407,7 @@ public class EscrowServiceTruckerRetryTests
         var result = await RetryAsync(row);
 
         result.Should().Be(new EscrowService.TruckerRetryResult(EscrowService.TruckerRetryOutcome.Blocked, reason));
-        await _escrowRepo.Received(1).TrySetTruckerBlockReasonAsync(EscrowId, CreatedAt, reason);
+        await _escrowRepo.Received(1).TrySetTruckerBlockReasonAsync(EscrowId, CreatedAt, reason, Arg.Any<string>());
         AuditEntries().Should().ContainSingle(e => (string)e["action"] == "trucker_release_blocked_kyc"
                                                    && (string)e["metadata"] == $"code=ESCROW_029;reason={reason}");
         await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
@@ -396,17 +416,58 @@ public class EscrowServiceTruckerRetryTests
     }
 
     [Fact]
-    public async Task BlockedTrucker_WithTheSameReasonStored_WritesNoSecondAuditRow()
+    public async Task BlockedTrucker_WithTheSameReasonStored_ReEnsuresItsRowAtTheStoredTime_NeverASecondOne()
     {
+        // Item 3: a row lost after the reason won its compare-and-set is written by a later run, at
+        // the key stored with the reason (a conditional put that writes nothing when it is there).
         var row = Pending();
+        row[TruckerPayoutFields.BlockReason] = "phone_unverified";
+        row[TruckerPayoutFields.BlockReasonAt] = "2026-10-03T10:00:00.0000000Z";
         BaseRowIs(row);
         _userRepo.GetUserByIdAsync(TruckerId).Returns(User(TruckerId, phoneVerified: false));
-        _escrowRepo.TrySetTruckerBlockReasonAsync(EscrowId, CreatedAt, Arg.Any<string>()).Returns(false);
+        _escrowRepo.TrySetTruckerBlockReasonAsync(EscrowId, CreatedAt, Arg.Any<string>(), Arg.Any<string>()).Returns(false);
 
         var result = await RetryAsync(row);
 
         result.Outcome.Should().Be(EscrowService.TruckerRetryOutcome.Blocked);
+        var rows = AuditEntries();
+        rows.Should().ContainSingle();
+        rows[0]["action"].Should().Be("trucker_release_blocked_kyc");
+        rows[0]["timestamp"].Should().Be("2026-10-03T10:00:00.0000000Z");
+        await _auditRepo.Received(1).AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>());
+        await _auditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task BlockedTrucker_LostTheCompareAndSetToAnotherReason_WritesNothing()
+    {
+        var row = Pending();
+        row[TruckerPayoutFields.BlockReason] = "fayda_required";
+        row[TruckerPayoutFields.BlockReasonAt] = "2026-10-03T10:00:00.0000000Z";
+        BaseRowIs(row);
+        _userRepo.GetUserByIdAsync(TruckerId).Returns(User(TruckerId, phoneVerified: false));
+        _escrowRepo.TrySetTruckerBlockReasonAsync(EscrowId, CreatedAt, Arg.Any<string>(), Arg.Any<string>()).Returns(false);
+
+        await RetryAsync(row);
+
         AuditEntries().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task BlockedTrucker_WinningTheCompareAndSet_AuditsAtTheTimeItStored()
+    {
+        var row = Pending();
+        BaseRowIs(row);
+        _userRepo.GetUserByIdAsync(TruckerId).Returns(User(TruckerId, phoneVerified: false));
+        string? storedAt = null;
+        _escrowRepo.TrySetTruckerBlockReasonAsync(EscrowId, CreatedAt, "phone_unverified", Arg.Do<string>(at => storedAt = at))
+            .Returns(true);
+
+        await RetryAsync(row);
+
+        var audit = AuditEntries().Single();
+        audit["timestamp"].Should().Be(storedAt);
+        await _auditRepo.Received(1).AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>());
     }
 
     [Fact]
@@ -447,6 +508,23 @@ public class EscrowServiceTruckerRetryTests
         BaseRowIs(row);
         _orderRepo.GetByIdAsync("ord-4").Returns(new Dictionary<string, object> { ["orderId"] = "ord-4", ["truckerId"] = TruckerId });
         _deliveryRepo.GetByIdAsync("del-4").Returns(new Dictionary<string, object> { ["deliveryId"] = "del-4", ["truckerId"] = "trucker-other" });
+
+        var result = await RetryAsync(row);
+
+        result.Should().Be(new EscrowService.TruckerRetryResult(EscrowService.TruckerRetryOutcome.Blocked, "trucker_mismatch"));
+        await _escrowRepo.DidNotReceive().TryBackfillTruckerIdAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+    }
+
+    [Fact]
+    public async Task MissingTruckerId_WithADeliveryThatCannotBeRead_FailsClosedAsMismatch_NeverBackfilled()
+    {
+        // M32: no delivery row (deleted, or the read found nothing) cannot confirm the order's trucker.
+        var row = Pending(withTruckerId: false);
+        row["deliveryId"] = "del-4";
+        BaseRowIs(row);
+        _orderRepo.GetByIdAsync("ord-4").Returns(new Dictionary<string, object> { ["orderId"] = "ord-4", ["truckerId"] = TruckerId });
+        _deliveryRepo.GetByIdAsync("del-4").Returns((Dictionary<string, object>?)null);
 
         var result = await RetryAsync(row);
 
@@ -559,8 +637,29 @@ public class EscrowServiceTruckerRetryTests
     }
 
     // ──────────────────────────────────────────────
-    // Legacy completed rows
+    // Legacy rows (pending before ESC-04: no pending time)
     // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task LegacyReleasedRow_IsParkedByTheRetry_NeverCalled()
+    {
+        // A crash between the released and completed writes before ESC-04, when the runbook said to
+        // pay the trucker by hand: the hourly retry parks it for the admin instead of paying again.
+        var row = Pending();
+        row.Remove(TruckerPayoutFields.PendingSince);
+        BaseRowIs(row);
+
+        var result = await RetryAsync(row);
+
+        result.Should().Be(new EscrowService.TruckerRetryResult(EscrowService.TruckerRetryOutcome.Queued, "legacy"));
+        await _escrowRepo.Received(1).TryParkLegacyTruckerLegAsync(EscrowId, CreatedAt, "released",
+            Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(legs => legs.Count == 2 && legs[1].Status == "pending"),
+            Arg.Any<string>(), ReleasedAt);
+        await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        await _escrowRepo.DidNotReceive().TryAcquireTruckerPayoutLockAsync(Arg.Any<string>(), Arg.Any<string>());
+        AuditEntries().Should().Contain(e => (string)e["action"] == "legacy_trucker_parked"
+                                             && (string)e["fromState"] == "released" && (string)e["toState"] == "released");
+    }
 
     [Fact]
     public async Task LegacyCompletedRow_IsReopenedAndParked_NeverCalled()
@@ -573,12 +672,12 @@ public class EscrowServiceTruckerRetryTests
         var parked = await _service.ParkLegacyTruckerLegAsync(row);
 
         parked.Should().BeTrue();
-        await _escrowRepo.Received(1).TryReopenLegacyTruckerLegAsync(EscrowId, CreatedAt,
+        await _escrowRepo.Received(1).TryParkLegacyTruckerLegAsync(EscrowId, CreatedAt, "completed",
             Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(legs => legs.Count == 2 && legs[1].Status == "pending"),
             Arg.Any<string>(), "2026-10-03T10:00:01.0000000Z");
         _alarmLines.Should().Equal(
             "ESCROW_SETTLEMENT_FAILED escrowId=escrow-order-ord-4 action=legacy_trucker_parked outcome=unknown code=release:trucker");
-        AuditEntries().Should().Contain(e => (string)e["action"] == "trucker_leg_reopened"
+        AuditEntries().Should().Contain(e => (string)e["action"] == "legacy_trucker_parked"
                                              && (string)e["fromState"] == "completed" && (string)e["toState"] == "released");
         await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
     }
@@ -590,7 +689,18 @@ public class EscrowServiceTruckerRetryTests
         BaseRowIs(Pending(status: "released", queued: true));
 
         (await _service.ParkLegacyTruckerLegAsync(row)).Should().BeFalse();
-        await _escrowRepo.DidNotReceive().TryReopenLegacyTruckerLegAsync(Arg.Any<string>(), Arg.Any<string>(),
+        await _escrowRepo.DidNotReceive().TryParkLegacyTruckerLegAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task ACompletedRowWrittenByEsc04_IsNotLegacy()
+    {
+        var row = Pending(status: "completed");
+        BaseRowIs(row);
+
+        (await _service.ParkLegacyTruckerLegAsync(row)).Should().BeFalse();
+        await _escrowRepo.DidNotReceive().TryParkLegacyTruckerLegAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string>());
     }
 
@@ -598,8 +708,9 @@ public class EscrowServiceTruckerRetryTests
     public async Task LegacyReopen_WhoseAnswerWasLost_CountsAsParked()
     {
         var row = Pending(status: "completed");
+        row.Remove(TruckerPayoutFields.PendingSince);
         string? queuedAt = null;
-        _escrowRepo.TryReopenLegacyTruckerLegAsync(EscrowId, CreatedAt, Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(),
+        _escrowRepo.TryParkLegacyTruckerLegAsync(EscrowId, CreatedAt, "completed", Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(),
                 Arg.Do<string>(q => queuedAt = q), Arg.Any<string>())
             .ThrowsAsync(new HttpRequestException("lost"));
         _escrowRepo.GetByIdAsync(EscrowId, true).Returns(_ => queuedAt == null

@@ -534,9 +534,10 @@ public sealed class EscrowRepository : IEscrowRepository
         {
             names["#tPending"] = TruckerPayoutFields.Pending;
             names["#tBlock"] = TruckerPayoutFields.BlockReason;
+            names["#tBlockAt"] = TruckerPayoutFields.BlockReasonAt;
             names["#tLockId"] = TruckerPayoutFields.LockId;
             names["#tLockAt"] = TruckerPayoutFields.LockAt;
-            removes += ", #tPending, #tBlock, #tLockId, #tLockAt";
+            removes += ", #tPending, #tBlock, #tBlockAt, #tLockId, #tLockAt";
         }
 
         var request = new UpdateItemRequest
@@ -958,19 +959,20 @@ public sealed class EscrowRepository : IEscrowRepository
     }
 
     /// <inheritdoc />
-    public async Task<bool> TrySetTruckerBlockReasonAsync(string escrowId, string createdAt, string reason)
+    public async Task<bool> TrySetTruckerBlockReasonAsync(string escrowId, string createdAt, string reason, string reasonAt)
     {
         var request = new UpdateItemRequest
         {
             TableName = _tableName,
             Key = EscrowKey(escrowId, createdAt),
-            UpdateExpression = "SET #reason = :reason, #updated = :now",
+            UpdateExpression = "SET #reason = :reason, #reasonAt = :reasonAt, #updated = :reasonAt",
             ConditionExpression =
                 "(attribute_not_exists(#reason) OR #reason <> :reason) AND #status = :released AND #pending = :true "
                 + "AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#lockId)",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
                 { "#reason", TruckerPayoutFields.BlockReason },
+                { "#reasonAt", TruckerPayoutFields.BlockReasonAt },
                 { "#updated", "updatedAt" },
                 { "#status", "status" },
                 { "#pending", TruckerPayoutFields.Pending },
@@ -980,7 +982,7 @@ public sealed class EscrowRepository : IEscrowRepository
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
                 { ":reason", new AttributeValue { S = reason } },
-                { ":now", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
+                { ":reasonAt", new AttributeValue { S = reasonAt } },
                 { ":released", new AttributeValue { S = "released" } },
                 { ":true", new AttributeValue { BOOL = true } }
             }
@@ -1021,7 +1023,7 @@ public sealed class EscrowRepository : IEscrowRepository
         {
             TableName = _tableName,
             Key = EscrowKey(escrowId, createdAt),
-            UpdateExpression = "SET #lockId = :lockId, #lockAt = :now, #updated = :now REMOVE #reason",
+            UpdateExpression = "SET #lockId = :lockId, #lockAt = :now, #updated = :now REMOVE #reason, #reasonAt",
             ConditionExpression =
                 "#status = :released AND #pending = :true AND attribute_not_exists(#lockId) "
                 + "AND attribute_not_exists(#manualPayout)",
@@ -1031,6 +1033,7 @@ public sealed class EscrowRepository : IEscrowRepository
                 { "#lockAt", TruckerPayoutFields.LockAt },
                 { "#updated", "updatedAt" },
                 { "#reason", TruckerPayoutFields.BlockReason },
+                { "#reasonAt", TruckerPayoutFields.BlockReasonAt },
                 { "#status", "status" },
                 { "#pending", TruckerPayoutFields.Pending },
                 { "#manualPayout", ManualPayoutFields.Marker }
@@ -1097,7 +1100,7 @@ public sealed class EscrowRepository : IEscrowRepository
             Key = EscrowKey(escrowId, createdAt),
             UpdateExpression =
                 "SET #status = :completed, #ref = :ref, #paidAt = :paidAt, #completedAt = :completedAt, "
-                + "#updated = :completedAt REMOVE #pending, #reason, #lockId, #lockAt ADD #version :one",
+                + "#updated = :completedAt REMOVE #pending, #reason, #reasonAt, #lockId, #lockAt ADD #version :one",
             ConditionExpression = "#status = :released AND #lockId = :lockId AND attribute_not_exists(#manualPayout)",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
@@ -1108,6 +1111,7 @@ public sealed class EscrowRepository : IEscrowRepository
                 { "#updated", "updatedAt" },
                 { "#pending", TruckerPayoutFields.Pending },
                 { "#reason", TruckerPayoutFields.BlockReason },
+                { "#reasonAt", TruckerPayoutFields.BlockReasonAt },
                 { "#lockId", TruckerPayoutFields.LockId },
                 { "#lockAt", TruckerPayoutFields.LockAt },
                 { "#version", "version" },
@@ -1150,8 +1154,9 @@ public sealed class EscrowRepository : IEscrowRepository
     }
 
     /// <inheritdoc />
-    public async Task<bool> TryReopenLegacyTruckerLegAsync(
-        string escrowId, string createdAt, IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt, string pendingSince)
+    public async Task<bool> TryParkLegacyTruckerLegAsync(
+        string escrowId, string createdAt, string currentStatus, IReadOnlyList<ManualPayoutLegSeed> legs,
+        string queuedAt, string pendingSince)
     {
         var request = BuildQueueRequest(
             escrowId, createdAt, ManualPayoutFields.OpRelease, ManualPayoutFields.ReasonGatewayOutcomeUnknown,
@@ -1162,10 +1167,14 @@ public sealed class EscrowRepository : IEscrowRepository
         request.ExpressionAttributeNames["#pendingSince"] = TruckerPayoutFields.PendingSince;
         request.ExpressionAttributeNames["#completedAt"] = "completedAt";
         request.ExpressionAttributeNames["#pending"] = TruckerPayoutFields.Pending;
+        request.ExpressionAttributeNames["#tLockId"] = TruckerPayoutFields.LockId;
         request.ExpressionAttributeValues[":pendingSince"] = new AttributeValue { S = pendingSince };
-        request.ExpressionAttributeValues[":completed"] = new AttributeValue { S = "completed" };
+        request.ExpressionAttributeValues[":current"] = new AttributeValue { S = currentStatus };
         request.ExpressionAttributeValues[":true"] = new AttributeValue { BOOL = true };
-        request.ConditionExpression = "#status = :completed AND #pending = :true AND attribute_not_exists(#marker)";
+        // Legacy only: ESC-04 writes a pending time with every pending flag and takes its own lock.
+        request.ConditionExpression =
+            "#status = :current AND #pending = :true AND attribute_not_exists(#pendingSince) "
+            + "AND attribute_not_exists(#tLockId) AND attribute_not_exists(#marker)";
         return await TryConditionalUpdateAsync(request);
     }
 

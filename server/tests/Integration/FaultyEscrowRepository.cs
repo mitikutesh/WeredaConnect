@@ -36,8 +36,8 @@ internal sealed class FaultyEscrowRepository : IEscrowRepository
 
     public Task<List<Dictionary<string, object>>> QueryPendingTruckerLegsAsync(int limit) => _inner.QueryPendingTruckerLegsAsync(limit);
     public Task<List<Dictionary<string, object>>> QueryLegacyTruckerLegsAsync(int limit) => _inner.QueryLegacyTruckerLegsAsync(limit);
-    public Task<bool> TrySetTruckerBlockReasonAsync(string escrowId, string createdAt, string reason)
-        => _inner.TrySetTruckerBlockReasonAsync(escrowId, createdAt, reason);
+    public Task<bool> TrySetTruckerBlockReasonAsync(string escrowId, string createdAt, string reason, string reasonAt)
+        => _inner.TrySetTruckerBlockReasonAsync(escrowId, createdAt, reason, reasonAt);
     public Task<bool> TryBackfillTruckerIdAsync(string escrowId, string createdAt, string truckerId)
         => _inner.TryBackfillTruckerIdAsync(escrowId, createdAt, truckerId);
     public Task<string?> TryAcquireTruckerPayoutLockAsync(string escrowId, string createdAt)
@@ -47,9 +47,9 @@ internal sealed class FaultyEscrowRepository : IEscrowRepository
     public Task<bool> TryQueueTruckerLegAsync(string escrowId, string createdAt, string reason,
         IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt, string lockId, string? parkId)
         => _inner.TryQueueTruckerLegAsync(escrowId, createdAt, reason, legs, queuedAt, lockId, parkId);
-    public Task<bool> TryReopenLegacyTruckerLegAsync(string escrowId, string createdAt,
+    public Task<bool> TryParkLegacyTruckerLegAsync(string escrowId, string createdAt, string currentStatus,
         IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt, string pendingSince)
-        => _inner.TryReopenLegacyTruckerLegAsync(escrowId, createdAt, legs, queuedAt, pendingSince);
+        => _inner.TryParkLegacyTruckerLegAsync(escrowId, createdAt, currentStatus, legs, queuedAt, pendingSince);
 
     public Task CreateAsync(Dictionary<string, object> escrow) => _inner.CreateAsync(escrow);
     public Task<Dictionary<string, object>?> GetByIdAsync(string escrowId) => _inner.GetByIdAsync(escrowId);

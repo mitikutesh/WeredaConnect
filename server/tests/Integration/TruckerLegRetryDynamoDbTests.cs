@@ -61,6 +61,7 @@ public sealed class TruckerLegRetryDynamoDbTests
     private EscrowRepository EscrowRepo => new(Ddb, _db.Escrows);
     private EscrowAuditRepository AuditRepo => new(Ddb, _db.EscrowAudit);
     private UserRepository UserRepo => new(Ddb, _db.Users);
+    private EscrowIdempotencyRepository IdempotencyRepo => new(Ddb, _db.Idempotency);
     private OrderRepository OrderRepo => new(Ddb, _db.Orders);
     private DeliveryRepository DeliveryRepo => new(Ddb, _db.Deliveries);
 
@@ -587,7 +588,8 @@ public sealed class TruckerLegRetryDynamoDbTests
     {
         await SeedUsersAsync(truckerPhoneVerified: true);
         var escrowId = await SeedPendingAsync(status: "completed", pendingSince: false, hoursAgo: 24 * 20);
-        var cron = new EscrowCronFunction(Service(), EscrowRepo, AuditRepo, _gateway, DeliveryRepo, OrderRepo);
+        var cron = new EscrowCronFunction(Service(), EscrowRepo, AuditRepo, _gateway, DeliveryRepo, OrderRepo,
+            idempotencyRepo: IdempotencyRepo);
         var request = new APIGatewayProxyRequest { Body = "{\"action\":\"park_legacy_trucker_legs\"}" };
 
         var first = await cron.FunctionHandler(request, new TestLambdaContext());
@@ -595,6 +597,10 @@ public sealed class TruckerLegRetryDynamoDbTests
 
         first.StatusCode.Should().Be(200, first.Body);
         second.StatusCode.Should().Be(200, second.Body);
+        // The second run found nothing: the marker is clean (done only after a later clean run).
+        second.Body.Should().Contain("\"found\":\"0\"");
+        var marker = await IdempotencyRepo.GetAsync(EscrowCronFunction.LegacyTruckerMarkerKey);
+        Str(marker!, "status").Should().BeOneOf("clean", "done");
         var row = await EscrowAsync(escrowId);
         Str(row, "status").Should().Be("released");
         Str(row, "completedAt").Should().BeNull();
@@ -603,7 +609,7 @@ public sealed class TruckerLegRetryDynamoDbTests
         Str(row, "manualPayoutReason").Should().Be("GATEWAY_OUTCOME_UNKNOWN");
         Str(row, "manualFarmerStatus").Should().Be("paid");
         Str(row, "manualTruckerStatus").Should().Be("pending");
-        (await AuditActionsAsync(escrowId)).Count(a => a == "trucker_leg_reopened").Should().Be(1);
+        (await AuditActionsAsync(escrowId)).Count(a => a == "legacy_trucker_parked").Should().Be(1);
         _alarms.Should().ContainSingle(l => l.Contains($"escrowId={escrowId.Replace('_', '-')} action=legacy_trucker_parked"));
         Calls(TruckerRef(escrowId)).Should().Be(0);
 
@@ -612,5 +618,82 @@ public sealed class TruckerLegRetryDynamoDbTests
         Calls(TruckerRef(escrowId)).Should().Be(0);
         (await Service().CompleteManualPayoutAsync(escrowId, "trucker", "TB-PORTAL-LEGACY", "admin-esc04", adminGroupVerified: true))
             .Value!.EscrowStatus.Should().Be("completed");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task LegacyAction_ADoneMarker_ReadsNothing()
+    {
+        await IdempotencyRepo.StoreAsync(EscrowCronFunction.LegacyTruckerMarkerKey, "-", "clean");
+        await IdempotencyRepo.UpdateAsync(EscrowCronFunction.LegacyTruckerMarkerKey, "done");
+        try
+        {
+            var escrowId = await SeedPendingAsync(status: "completed", pendingSince: false);
+            var cron = new EscrowCronFunction(Service(), EscrowRepo, AuditRepo, _gateway, DeliveryRepo, OrderRepo,
+                idempotencyRepo: IdempotencyRepo);
+
+            var response = await cron.FunctionHandler(
+                new APIGatewayProxyRequest { Body = "{\"action\":\"park_legacy_trucker_legs\"}" }, new TestLambdaContext());
+
+            response.StatusCode.Should().Be(200, response.Body);
+            response.Body.Should().Contain("\"skipped\":\"true\"");
+            Str(await EscrowAsync(escrowId), "status").Should().Be("completed");
+
+            // Leave nothing the other legacy test could trip on.
+            await Ddb.DeleteItemAsync(new DeleteItemRequest { TableName = _db.Escrows, Key = Key(escrowId) });
+        }
+        finally
+        {
+            await IdempotencyRepo.DeleteAsync(EscrowCronFunction.LegacyTruckerMarkerKey);
+        }
+    }
+
+    [LocalDynamoDbFact]
+    public async Task ALegacyReleasedRow_IsParkedByTheHourlyRun_AndNeverPaid()
+    {
+        // Item 1: pending before ESC-04 (no pending time), when the runbook said to pay by hand.
+        await SeedUsersAsync(truckerPhoneVerified: true);
+        var escrowId = await SeedPendingAsync(pendingSince: false, hoursAgo: 24 * 3);
+
+        await SweepAsync();
+        await SweepAsync();
+
+        var row = await EscrowAsync(escrowId);
+        Str(row, "status").Should().Be("released");
+        Str(row, "manualPayout").Should().Be("open");
+        Str(row, "manualPayoutReason").Should().Be("GATEWAY_OUTCOME_UNKNOWN");
+        Str(row, "manualPayoutFromStatus").Should().Be("released");
+        Str(row, "manualFarmerStatus").Should().Be("paid");
+        Str(row, "manualTruckerStatus").Should().Be("pending");
+        Str(row, "truckerPayoutPendingSince").Should().NotBeNull();
+        Calls(TruckerRef(escrowId)).Should().Be(0);
+        (await AuditActionsAsync(escrowId)).Count(a => a == "legacy_trucker_parked").Should().Be(1);
+
+        (await Service().CompleteManualPayoutAsync(escrowId, "trucker", "TB-PORTAL-OLD", "admin-esc04", adminGroupVerified: true))
+            .Value!.EscrowStatus.Should().Be("completed");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task ALostBlockAuditRow_IsReEnsuredByTheNextRun_AtTheSameKey()
+    {
+        // Item 3: the reason won its compare-and-set but its audit row was lost.
+        await SeedUsersAsync(truckerPhoneVerified: false);
+        var escrowId = await SeedPendingAsync();
+        await SweepAsync();
+        var trail = await AuditRepo.GetAuditTrailAsync(escrowId);
+        var blocked = trail.Single(a => (string)a["action"] == "trucker_release_blocked_kyc");
+        var key = (string)blocked["timestamp"];
+        Str(await EscrowAsync(escrowId), "truckerPayoutBlockReasonAt").Should().Be(key);
+        await Ddb.DeleteItemAsync(new DeleteItemRequest
+        {
+            TableName = _db.EscrowAudit,
+            Key = new Dictionary<string, AttributeValue> { ["escrowId"] = S(escrowId), ["timestamp"] = S(key) }
+        });
+
+        await SweepAsync();
+        await SweepAsync();
+
+        var again = (await AuditRepo.GetAuditTrailAsync(escrowId)).Where(a => (string)a["action"] == "trucker_release_blocked_kyc").ToList();
+        again.Should().ContainSingle();
+        again[0]["timestamp"].Should().Be(key);
     }
 }
