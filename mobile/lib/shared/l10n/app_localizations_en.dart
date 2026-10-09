@@ -2828,4 +2828,87 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get kycPhoneNotProven =>
       'Your Fayda ID is confirmed, but Fayda does not list this account\'s phone number, so your phone is still not verified. The payment was not sent.';
+
+  @override
+  String get payWithTelebirr => 'Pay with Telebirr';
+
+  @override
+  String telebirrLivePayInstructions(String amount) {
+    return 'You will pay $amount in Telebirr. When you finish, come back to this app. The payment is confirmed automatically.';
+  }
+
+  @override
+  String get orderCheckoutTitle => 'Telebirr payment';
+
+  @override
+  String get orderCheckoutWaitingToSend =>
+      'Your payment is waiting to be sent. Telebirr opens once it reaches the server.';
+
+  @override
+  String orderCheckoutOpenUntil(String time) {
+    return 'You can finish this payment in Telebirr until $time.';
+  }
+
+  @override
+  String get orderCheckoutWindowClosed =>
+      'This Telebirr payment page has closed. Start a new one to pay.';
+
+  @override
+  String get orderCheckoutStartNew => 'Start a new Telebirr payment';
+
+  @override
+  String get orderCheckoutCheckAgain => 'Check payment status';
+
+  @override
+  String get orderCheckoutStillWaiting =>
+      'We have not received the payment yet. If you paid, tap Check payment status.';
+
+  @override
+  String get orderCheckoutTimeRanOut =>
+      'The time to pay for this order has run out. The order will be marked as failed, then you can pay again.';
+
+  @override
+  String get orderCheckoutNotWaiting =>
+      'This order is no longer waiting for payment.';
+
+  @override
+  String get orderCheckoutNotPayableOnline =>
+      'This order can\'t be paid online. Contact support.';
+
+  @override
+  String get orderCheckoutConfirmedAutomatically =>
+      'Payments are confirmed automatically here. Checking your order...';
+
+  @override
+  String get orderCheckoutAlreadyOpen =>
+      'A Telebirr payment for this order is being set up or was interrupted. If you already paid, it will be confirmed here. Otherwise try again later (it can take up to 2 hours).';
+
+  @override
+  String get orderCheckoutGatewayProblem =>
+      'Telebirr could not start the payment. If you already paid, it will be confirmed here. Otherwise try again.';
+
+  @override
+  String get orderCheckoutOrderMissing =>
+      'This order is not on the server yet. Try again once it has synced.';
+
+  @override
+  String get orderCheckoutPaymentFailed =>
+      'This payment could not be confirmed in time. You can pay again.';
+
+  @override
+  String get orderCheckoutNotSent =>
+      'Your payment was not sent. If you were asked to verify your identity, it is sent again once you do; otherwise open the order to pay again.';
+
+  @override
+  String get orderCheckoutCheckingPayment => 'Checking your payment...';
+
+  @override
+  String get paymentTotalOutOfRange =>
+      'Telebirr takes 100 to 500,000 ETB in one payment. This order\'s total is outside that, so it can\'t be paid with Telebirr.';
+
+  @override
+  String get continuePayment => 'Continue payment';
+
+  @override
+  String get payAgain => 'Pay again';
 }

@@ -58,6 +58,17 @@ typedef PermanentRejectionHandler = Future<void> Function(
   String message,
 );
 
+/// The operation data the server gets. Keys the client keeps for itself
+/// (prefixed `_`, such as the order status a refused payment goes back to)
+/// are left out: the server refuses unknown fields.
+Object? wireOperationData(String data) {
+  final decoded = jsonDecode(data);
+  if (decoded is Map<String, dynamic>) {
+    decoded.removeWhere((key, _) => key.startsWith('_'));
+  }
+  return decoded;
+}
+
 /// Status of a sync batch execution.
 enum SyncBatchStatus {
   /// All operations in the batch succeeded or resolved conflicts.
@@ -583,7 +594,7 @@ class SyncExecutor {
               'entityType': op.entityType,
               'entityId': op.entityId,
               'action': op.action,
-              'data': jsonDecode(op.data),
+              'data': wireOperationData(op.data),
               'timestamp': op.createdAt.toIso8601String(),
             },
           )

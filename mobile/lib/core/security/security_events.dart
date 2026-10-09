@@ -87,10 +87,10 @@ class KycRequired extends SecurityEvent {
 
   KycReason get reason => KycReason.fromMessage(message);
 
-  /// True when the rejected payment can be submitted again as it was.
-  bool get canResubmit =>
-      (paymentMethod?.isNotEmpty ?? false) &&
-      (paymentReference?.isNotEmpty ?? false);
+  /// True when the rejected payment can be submitted again as it was. A live
+  /// Telebirr payment carries no reference (ESC-44), so only the method is
+  /// needed.
+  bool get canResubmit => paymentMethod?.isNotEmpty ?? false;
 }
 
 /// The server refused a queued operation for good
@@ -155,6 +155,7 @@ class SecurityEvents {
 
   final DateTime Function() _now;
   DateTime? _stepUpDeclinedAt;
+  StepUpRequired? _pendingStepUp;
 
   /// How many undelivered [SyncOperationRejected] events are kept; the
   /// oldest is dropped beyond that.
@@ -169,6 +170,8 @@ class SecurityEvents {
   );
   final StreamController<void> _stepUpCompleted =
       StreamController<void>.broadcast();
+  final StreamController<String> _paymentResubmitted =
+      StreamController<String>.broadcast();
 
   /// Events the UI should prompt for.
   Stream<SecurityEvent> get events => _events.stream;
@@ -176,10 +179,21 @@ class SecurityEvents {
   /// Fires after the user re-authenticated; pending money ops should retry.
   Stream<void> get onStepUpCompleted => _stepUpCompleted.stream;
 
+  /// Fires with the order id after a payment the KYC gate refused was sent
+  /// again (the buyer verified), so an open checkout reads the order again
+  /// (ESC-44).
+  Stream<String> get onPaymentResubmitted => _paymentResubmitted.stream;
+
+  /// Report that the payment of [orderId] was sent again after KYC.
+  void paymentResubmitted(String orderId) {
+    if (!_paymentResubmitted.isClosed) _paymentResubmitted.add(orderId);
+  }
+
   /// Raise an event for the UI. A [StepUpRequired] inside the cooldown
   /// after a cancelled prompt is dropped. A [SyncOperationRejected] with no
   /// listener is kept for the first one.
   void emit(SecurityEvent event) {
+    if (event is StepUpRequired) _pendingStepUp = event;
     if (event is StepUpRequired && stepUpSuppressed) return;
     if (_events.isClosed) return;
     if (event is SyncOperationRejected && !_events.hasListener) {
@@ -198,9 +212,19 @@ class SecurityEvents {
     }
   }
 
-  /// Drop the kept [SyncOperationRejected] events (logout), so the next
-  /// account signed in on this device is not shown them.
-  void clearKeptRejections() => _undeliveredRejections.clear();
+  /// Drop the kept [SyncOperationRejected] events and [pendingStepUp]
+  /// (logout), so the next account signed in on this device is not shown
+  /// them.
+  void clearKeptRejections() {
+    _undeliveredRejections.clear();
+    _pendingStepUp = null;
+  }
+
+  /// The last step-up a queued payment asked for and nobody confirmed yet,
+  /// also while the prompt is quiet after a cancel. The checkout screen
+  /// offers "Confirm it's you" from it (ESC-44). Cleared by
+  /// [stepUpCompleted].
+  StepUpRequired? get pendingStepUp => _pendingStepUp;
 
   /// True while a cancelled step-up prompt keeps background re-prompts quiet.
   bool get stepUpSuppressed {
@@ -214,6 +238,7 @@ class SecurityEvents {
   /// Report a successful step-up re-authentication.
   void stepUpCompleted() {
     _stepUpDeclinedAt = null;
+    _pendingStepUp = null;
     if (!_stepUpCompleted.isClosed) _stepUpCompleted.add(null);
   }
 }

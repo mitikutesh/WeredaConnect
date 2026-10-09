@@ -114,17 +114,18 @@ class CreateOrder extends OrderEvent {
 
 /// Submit payment proof for an order (buyer action).
 ///
-/// [paymentMethod] selects the (currently mocked) rail — `cbe_transfer` or
-/// `telebirr`. [cbeTransactionId] carries the payment reference for either rail
-/// (a mock reference is generated when the buyer doesn't enter a real one).
+/// [paymentMethod] selects the rail: `cbe_transfer` or `telebirr`. In demo
+/// builds [cbeTransactionId] carries the payment reference for either rail (a
+/// mock reference is generated when the buyer doesn't enter a real one). Live
+/// Telebirr payments send none: the server's checkout matches them (ESC-44).
 class SubmitPayment extends OrderEvent {
   final String orderId;
-  final String cbeTransactionId;
+  final String? cbeTransactionId;
   final String paymentMethod;
 
   const SubmitPayment({
     required this.orderId,
-    required this.cbeTransactionId,
+    this.cbeTransactionId,
     this.paymentMethod = 'cbe_transfer',
   });
 

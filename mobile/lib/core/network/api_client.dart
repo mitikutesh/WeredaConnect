@@ -3,6 +3,7 @@ import 'dart:convert' show jsonDecode;
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:dio/dio.dart';
+import 'package:intl/intl.dart' show DateFormat;
 
 import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
@@ -172,6 +173,25 @@ class ApiClient {
         cancelToken: cancelToken,
       );
       return _parseResponse<T>(response, parser);
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  /// POST that also returns the response's `Date` header (UTC), for a
+  /// deadline the server set on its own clock (ESC-44 checkout window). The
+  /// date is null when the header is missing or hidden: browsers hide `Date`
+  /// on cross-origin responses unless the API exposes it.
+  Future<({T data, DateTime? serverDate})> postWithServerDate<T>(
+    String path, {
+    dynamic data,
+  }) async {
+    try {
+      final response = await dio.post<dynamic>(path, data: data);
+      return (
+        data: _parseResponse<T>(response, null),
+        serverDate: parseHttpDate(response.headers.value('date')),
+      );
     } catch (e) {
       throw _handleError(e);
     }
@@ -359,6 +379,21 @@ class ApiClient {
       return data;
     }
 
+    return null;
+  }
+}
+
+/// Parse an HTTP `Date` header (`Thu, 09 Oct 2026 10:00:00 GMT`) as UTC, or
+/// null when it is missing or not in that form.
+DateTime? parseHttpDate(String? value) {
+  if (value == null) return null;
+  final match = RegExp(
+    r'^[A-Za-z]{3}, (\d{2} [A-Za-z]{3} \d{4} \d{2}:\d{2}:\d{2}) GMT$',
+  ).firstMatch(value.trim());
+  if (match == null) return null;
+  try {
+    return DateFormat('dd MMM yyyy HH:mm:ss', 'en_US').parseUtc(match[1]!);
+  } on FormatException {
     return null;
   }
 }

@@ -1,3 +1,5 @@
+import 'package:wereda_connect/core/models/order.dart';
+
 /// Downloads the shared marketplace — all active crop listings and all open
 /// trips — from the server into local storage.
 ///
@@ -40,6 +42,14 @@ abstract class MarketplaceSync {
   /// farmer never sees an incoming buyer order on mobile. Scoped to the caller's
   /// role-appropriate id (`GET /orders?farmerId=`/`buyerId=`/`truckerId=`).
   Future<void> pullOrders({required String userId, String? role});
+
+  /// Fetch one order from the server (`GET /orders/{id}`) into local storage
+  /// and return the server's copy (ESC-44: the live checkout follows the
+  /// server's status). Returns null, without a request, while a local change
+  /// of the order is still waiting to upload: the server copy would be older.
+  /// Never moves the local row to an older version. Errors (offline, 404)
+  /// propagate.
+  Future<Order?> pullOrder(String orderId);
 
   /// Convenience: pull both crops and trips.
   Future<void> pullAll();

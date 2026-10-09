@@ -437,6 +437,46 @@ void main() {
         );
       });
 
+      testWidgets('a payment sent again wakes an open checkout (ESC-44)',
+          (tester) async {
+        final woken = <String>[];
+        final sub = events.onPaymentResubmitted.listen(woken.add);
+        addTearDown(sub.cancel);
+
+        await run(tester, rejected, verifies: true);
+
+        expect(woken, ['o-1']);
+      });
+
+      testWidgets('a failed verification wakes nothing', (tester) async {
+        final woken = <String>[];
+        final sub = events.onPaymentResubmitted.listen(woken.add);
+        addTearDown(sub.cancel);
+
+        await run(tester, rejected, verifies: false);
+
+        expect(woken, isEmpty);
+      });
+
+      testWidgets(
+          'a live Telebirr payment (no reference, ESC-44) is sent again too',
+          (tester) async {
+        const live = KycRequired(
+          orderId: 'o-1',
+          message: 'ORDER_KYC_REQUIRED: buyer_fayda: Verify your Fayda ID',
+          paymentMethod: 'telebirr',
+        );
+
+        final resubmitted = await run(tester, live, verifies: true);
+
+        expect(resubmitted.single.paymentMethod, 'telebirr');
+        expect(resubmitted.single.paymentReference, isNull);
+        expect(
+          find.text('Identity verified. Your payment will be sent again.'),
+          findsOneWidget,
+        );
+      });
+
       Future<void> verifyWithDefaultResend(
         WidgetTester tester,
         MockOrderBloc orderBloc,

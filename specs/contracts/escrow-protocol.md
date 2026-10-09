@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.10.0
+1.10.1
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -1374,6 +1374,39 @@ Success (`200`):
 | `503` | `ESCROW_012` | Payments are temporarily unavailable |
 | `403` | `FRAUD_ACCOUNT_HELD` | Caller's risk tier is CRITICAL; checked before any Telebirr call (1.7.0, planned FRD-04) |
 
+#### How the app uses it (1.10.1, ESC-44)
+
+- The app reads the order from the server first (`GET /orders/{id}`; on mobile only once its
+  queued `payment_submitted` has synced). `funded` or later means paid and no checkout is
+  opened. That is the normal mock result: mock payments fund the order during the sync.
+- The checkout is requested only for a `payment_submitted` order. At most one automatic
+  request per screen visit (the buyer has just paid or tapped "Continue payment"); it may
+  happen on the first read after a queued payment syncs, which can be a poll, an app
+  resume or a return link, and never a second time. After that only from a button (start
+  a new payment after `openUntil`, retry after an error) or one retry when the network
+  comes back after a request failed offline, so velocity only counts what the buyer asked
+  for. Before starting a new payment the order is read again.
+- "Open Telebirr again" while `openUntil` is ahead opens the URL the app already holds.
+  Neither `toPayUrl` nor `openUntil` is stored on the device; after a restart the next
+  request returns the open checkout (`isExisting: true`). The time left is `openUntil`
+  minus the response's `Date` header, and the page ends at the first of a monotonic
+  deadline and a device-clock deadline. Browsers hide `Date` on cross-origin responses, so
+  web uses the device clock: a new page counts as open for at most the full window, a page
+  returned again for at most 10 minutes (then a new request returns it again while it is
+  open).
+- Android opens Telebirr on its own once; web opens it only from a tap (a real link), as
+  browsers block pop-ups after a network wait. The return link
+  `weredaconnect://payment/complete` (Android) or coming back to the tab refreshes at once;
+  a cold start from the return link checks the buyer's waiting orders.
+- The order is polled with backoff (5 s rising to 30 s, at most 10 minutes after the last
+  trigger, paused in the background) until it is `funded`, `payment_failed`, `cancelled`
+  or `rejected`.
+- `409 ESCROW_030` is told apart by reading the order again: still `payment_submitted`
+  means the payment time ran out. `ESCROW_031` keeps polling for the mock funding.
+  `ESCROW_032` and `ESCROW_013` keep polling (a payment may still land) and offer a retry;
+  `ESCROW_032` can last until `openUntil` (up to about 130 minutes). Each code has its own
+  message in en, am and om. No server change.
+
 ### How a checkout is recorded
 
 Rows in the escrow idempotency table. Slot and mapping rows keep a 400-day TTL, far past any
@@ -2231,6 +2264,7 @@ Clients (mobile and web) see no change: the escrow keeps its status.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.10.1 | 2026-10-09 | App side of the order checkout (ESC-44): when the mobile and web apps request it, how they reuse an open checkout, poll the order and tell the `ESCROW_030` causes apart, and localized `ESCROW_030` to `ESCROW_033`; no server or wire change |
 | 1.10.0 | 2026-10-09 | No double pay, no stuck lock (ESC-05): a gateway timeout, lost or unreadable answer (`TELEBIRR_NETWORK`, also for the live preOrder's unreadable 200 or missing `prepay_id`) or a call that threw (`GATEWAY_EXCEPTION:<type>`) keeps the settlement lock and parks the escrow in the manual payout queue with the new reason `GATEWAY_OUTCOME_UNKNOWN` (`202 ESCROW_034`, unknown-outcome message), never a blind retry; a `GATEWAY_REF_MISSING` queue write is retried and never releases the lock (FUP-03); only a definite refusal releases the lock (lock first, then the audit row); an unknown trucker leg is queued with the farmer leg paid, and never falls back to `truckerPayoutPending`; payout destinations and the refund phone are read before the lock and the idempotency record after the gateway answered; the `refunded` write retries like the `released` write, and a condition failure after a lost commit counts as written; the lock carries `settlementLockAt` and `settlementLockId` (a lost answer on the lock write is recognised by the id), and releasing it is a no-op on a queued row; hourly recovery step parks a lock older than 15 minutes on `escrowed`, `dispute_resolved` or (legacy) `disputed` rows, fenced on the lock and status, silent when it loses a race (`manualPayoutParkId`), audited `stale_lock_parked`, never calling the gateway; auto-refund skips a locked row before any delivery or order write; the release, refund and crash-recovery queries fail on their own (`sweep_failed outcome=failed`); `outcome=unknown` only after the lock (exceptions before it are `failed`); new alarm `escrow-settlement-unknown-outcomes` (FUP-06); manual payout list items gain `settlementLockedAt` and legs `gatewayRef`, plus `disputeResolution` with a warning when the parked operation goes against the verdict; a settled status found by a consistent re-read after any failed condition counts as written; exceptions after the settled status write log `outcome=failed`; a park write that throws on a still-unparked lock alarms `stale_lock_recovery_failed`; auto-refund re-reads the base row strongly consistent before any side effect; admin page strings in en/am/om; no client change |
 | 1.9.0 | 2026-10-09 | Dispute verdicts settle (ESC-03): the settlement lock requires the exact status the caller validated, settleable `escrowed` and `dispute_resolved` (`dispute_resolved` added, `disputed` removed); release and refund of a `disputed` escrow refused (`422`, verdict first), and of a `dispute_resolved` escrow only the way its verdict says (`farmer_wins` releases, `buyer_wins` refunds; legacy verdicts either way); `POST /admin/disputes/{id}/resolve` admin group only (`403 ESCROW_015`), `resolution` `farmer_wins` or `buyer_wins` with a matching `action` (`400 ADMIN_014`; `partial_refund` refused until ESC-20), refused while a settlement holds the lock (`409 ADMIN_010`), same-verdict replay answers `200` with the current status; the order and delivery follow the verdict at the verdict and again before settlement (`DisputeVerdictMirror`; order hops to `dispute_resolved`, delivery stamped `disputeResolution`/`disputeResolvedAt`, both legs decided before any write), `buyer_wins` refunds a cancelled or rejected order as it is and cancels an order before pickup (pending delivery cancelled, stock restored) before refunding; a verdict whose order cannot follow it is not settled (`422`, `DISPUTE_VERDICT_ORDER_MISMATCH` and the `dispute-verdict-order-mismatch` alarm), with an admin-group override (`overrideOrderMismatch` and a reason) for a `buyer_wins` whose goods are moving, never for `farmer_wins`; a failed order or delivery read, or a `buyer_wins` cancel or restock that did not land, fails closed (`503 ESCROW_012`, `DISPUTE_VERDICT_SETTLEMENT_BLOCKED` and the `dispute-verdict-settlement-blocked` alarm when blocked in three of four hourly periods, one `dispute_settlement_blocked` audit row); failures audited once per escrow and action at the verdict time plus one or two ticks (`dispute_verdict_mismatch`, `dispute_verdict_propagation_failed`); transaction-audit rows for every hop; `escrowed -> disputed` refused while a settlement holds the lock (`409 ESCROW_INVALID_TRANSITION`; a sync delivery dispute is not frozen, audited `dispute_refused_settlement_in_flight`); `dispute_resolved` counts as an active escrow; escrow and escrow-cron Lambdas get `TRANSACTION_AUDIT_TABLE` (`PutItem` only); `ADMIN_010` and `ADMIN_014` localized in admin (en/am/om) |
 | 1.8.1 | 2026-10-09 | Money alarms (ESC-13): `ESCROW_SETTLEMENT_FAILED` logged for every failed release, refund or trucker leg (outcome `failed` or `unknown`; `unknown` also for `MANUAL_QUEUE_FAILED:GATEWAY_REF_MISSING`), for exceptions mid-sweep and on the admin settlement routes; a payout queued for an admin (`202 ESCROW_034`) is not counted; the 1.8.0 overdue report logs `MANUAL_PAYOUT_OVERDUE` through `MoneyAlarmLog` (same line); `ADMIN_QUEUE_OVERDUE` defined for ESC-06 (24 hours); five alarms: settlement failures, escrow-cron errors, order escrow problems (create, link, refund schedule; replaces the create-failed alarm), manual payouts overdue, admin queue overdue (log alarms over 5 periods of 15 minutes, escrow-cron errors over 4 periods of 5 minutes); client-influenced values in the escrow, escrow-cron, sync and webhook log lines have `_` turned into `-` and the escrow Lambda logs the route template, so no client can spell a token; no endpoint or response change |

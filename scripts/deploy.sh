@@ -124,6 +124,11 @@ if [[ -n "$COGNITO_CLIENT_ID" ]]; then
 fi
 DART_DEFINES="$DART_DEFINES --dart-define=COGNITO_REGION=eu-north-1"
 DART_DEFINES="$DART_DEFINES --dart-define=ENVIRONMENT=$ENV"
+# ESC-44: TELEBIRR_LIVE=true when this environment's server runs the live
+# Telebirr gateway (enableTelebirrLive); prod builds are live regardless.
+if [[ "${TELEBIRR_LIVE:-}" == "true" ]]; then
+  DART_DEFINES="$DART_DEFINES --dart-define=TELEBIRR_LIVE=true"
+fi
 
 # shellcheck disable=SC2086
 flutter build web --release --no-tree-shake-icons --target lib/main_web.dart $DART_DEFINES

@@ -496,4 +496,37 @@ void main() {
       expect(entry.metadata, isNull);
     });
   });
+
+  group('OrderCheckoutResponse (ESC-44)', () {
+    test('fromJson parses the server answer', () {
+      final response = OrderCheckoutResponse.fromJson({
+        'orderId': 'order-1',
+        'amount': 15000,
+        'currency': 'ETB',
+        'toPayUrl': 'https://pay.example/checkout?prepay_id=P1',
+        'openUntil': '2026-09-30T10:00:00.0000000Z',
+        'isExisting': true,
+      });
+
+      expect(response.orderId, 'order-1');
+      expect(response.amount, 15000.0);
+      expect(response.currency, 'ETB');
+      expect(response.toPayUrl, contains('prepay_id=P1'));
+      expect(response.openUntil, DateTime.utc(2026, 9, 30, 10));
+      expect(response.openUntil.isUtc, isTrue);
+      expect(response.isExisting, isTrue);
+    });
+
+    test('isExisting defaults to false', () {
+      final response = OrderCheckoutResponse.fromJson({
+        'orderId': 'order-1',
+        'amount': 500.5,
+        'currency': 'ETB',
+        'toPayUrl': 'https://pay.example/x',
+        'openUntil': '2026-09-30T10:00:00Z',
+      });
+
+      expect(response.isExisting, isFalse);
+    });
+  });
 }

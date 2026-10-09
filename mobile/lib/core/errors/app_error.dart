@@ -38,6 +38,10 @@ enum AppErrorCode {
   /// rejection), or a local guard refused it; nothing was changed.
   orderRefused,
 
+  /// The live gateway refused the payment: one Telebirr payment takes 100 to
+  /// 500,000 ETB and the order total is outside that (ESC-44).
+  paymentTotalOutOfRange,
+
   /// The server refused a queued order create, so the local order was
   /// removed (mobile).
   orderNotPlaced,
@@ -93,6 +97,9 @@ AppErrorCode mapErrorToCode(Object error) {
       AppErrorCode.stepUpRequired,
     SyncRejectedException(:final message) when isKycRequiredMessage(message) =>
       AppErrorCode.kycRequired,
+    SyncRejectedException(:final message)
+        when isPaymentTotalOutOfRangeMessage(message) =>
+      AppErrorCode.paymentTotalOutOfRange,
     SyncConflictException() => AppErrorCode.conflict,
     SyncRejectedException(:final message)
         when isRevertableRejectionMessage(message) =>
@@ -130,6 +137,7 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.faydaStepUpRequired => l10n.faydaStepUpMessage,
     AppErrorCode.kycRequired => l10n.kycRequiredFaydaMessage,
     AppErrorCode.orderRefused => l10n.errorOrderRefused,
+    AppErrorCode.paymentTotalOutOfRange => l10n.paymentTotalOutOfRange,
     AppErrorCode.orderNotPlaced => l10n.errorOrderNotPlaced,
     AppErrorCode.alreadyRated => l10n.alreadyRated,
     AppErrorCode.deliveryCancelNotAllowed => l10n.deliveryErrorCancelNotAllowed,
@@ -153,8 +161,9 @@ AppErrorCode syncRejectionErrorCode({
   required String message,
 }) {
   if (entityType == 'order') {
-    return action == 'create'
-        ? AppErrorCode.orderNotPlaced
+    if (action == 'create') return AppErrorCode.orderNotPlaced;
+    return isPaymentTotalOutOfRangeMessage(message)
+        ? AppErrorCode.paymentTotalOutOfRange
         : AppErrorCode.orderRefused;
   }
   if (isDeliveryCancelRefusalMessage(message)) {

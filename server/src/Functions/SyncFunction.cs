@@ -275,7 +275,11 @@ public partial class SyncFunction
         { "delivered", new HashSet<string> { "disbursing", "disputed" } },
         { "disbursing", new HashSet<string> { "settled" } },
         { "disputed", new HashSet<string> { "dispute_resolved" } },
-        { "payment_failed", new HashSet<string> { "pending_payment", "cancelled" } },
+        // ESC-47 (1), done in ESC-44: a retry after payment_failed may go straight to
+        // payment_submitted. The payment gates run on the new status as for any payment,
+        // paymentSubmittedAt is stamped again (a new payment attempt), and the pending_payment
+        // auto-cancel, which counts from createdAt, never sees the order.
+        { "payment_failed", new HashSet<string> { "pending_payment", "payment_submitted", "cancelled" } },
     };
 
     // Server-controlled fields that must not be set by clients.

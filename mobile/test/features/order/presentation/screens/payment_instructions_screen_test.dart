@@ -8,9 +8,14 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart';
+import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
+import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
+import 'package:wereda_connect/features/order/presentation/screens/order_checkout_screen.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -283,7 +288,7 @@ void main() {
       expect(payment.paymentMethod, 'cbe_transfer');
       expect(payment.cbeTransactionId, 'MOCK-CBE-$defaultOrderId');
       // The server refuses a cbeTransactionId above 100 characters.
-      expect(payment.cbeTransactionId.length, lessThanOrEqualTo(100));
+      expect(payment.cbeTransactionId!.length, lessThanOrEqualTo(100));
     });
 
     testWidgets('Telebirr with no reference sends MOCK-TBR-{orderId}',
@@ -295,7 +300,7 @@ void main() {
       final payment = submitted.single;
       expect(payment.paymentMethod, 'telebirr');
       expect(payment.cbeTransactionId, 'MOCK-TBR-$defaultOrderId');
-      expect(payment.cbeTransactionId.length, lessThanOrEqualTo(100));
+      expect(payment.cbeTransactionId!.length, lessThanOrEqualTo(100));
     });
 
     testWidgets('an entered transaction id is sent trimmed, as typed',
@@ -332,4 +337,107 @@ void main() {
       expect(find.text('Copied to clipboard'), findsOneWidget);
     });
   });
+
+  group('live Telebirr build (ESC-44)', () {
+    late _MockEscrowBloc escrowBloc;
+    late _MockEscrowRepository escrow;
+    late _MockOrderRepository orders;
+
+    setUp(() {
+      escrowBloc = _MockEscrowBloc();
+      escrow = _MockEscrowRepository();
+      orders = _MockOrderRepository();
+      when(() => escrowBloc.repository).thenReturn(escrow);
+      when(() => escrowBloc.stream).thenAnswer((_) => const Stream.empty());
+      when(() => bloc.repository).thenReturn(orders);
+      when(() => orders.getOrderById(any())).thenAnswer(
+        (_) async => order()..status = OrderStatus.paymentSubmitted,
+      );
+      when(() => escrow.openOrderCheckout(any())).thenAnswer(
+        (_) async => const OrderCheckoutFailed('ESCROW_031', 409, 'mock'),
+      );
+    });
+
+    Future<void> openLive(WidgetTester tester, {double? orderTotal}) async {
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<OrderBloc>.value(value: bloc),
+            BlocProvider<EscrowBloc>.value(value: escrowBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: PaymentInstructionsScreen(
+              order: order()..orderTotal = orderTotal ?? 94500,
+              telebirrLive: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('Telebirr only: no demo notice, no CBE, no reference fields',
+        (tester) async {
+      await openLive(tester);
+
+      expect(find.text('Pay with Telebirr'), findsOneWidget);
+      expect(find.textContaining('Demo mode'), findsNothing);
+      expect(find.text('Commercial Bank of Ethiopia (CBE)'), findsNothing);
+      expect(find.text('CBE Transaction ID (optional)'), findsNothing);
+      expect(find.text(defaultOrderId), findsNothing);
+      expect(find.text('Submit Payment'), findsNothing);
+      expect(find.textContaining('94500.00 ETB'), findsWidgets);
+    });
+
+    testWidgets('sends a Telebirr payment with no reference', (tester) async {
+      await openLive(tester);
+
+      await tester.tap(find.text('Pay with Telebirr'));
+      await tester.pump();
+
+      expect(submitted, hasLength(1));
+      expect(submitted.single.paymentMethod, 'telebirr');
+      expect(submitted.single.cbeTransactionId, isNull);
+    });
+
+    for (final total in [99.99, 500000.01]) {
+      testWidgets('a total of $total ETB cannot be sent', (tester) async {
+        await openLive(tester, orderTotal: total);
+
+        expect(
+          find.textContaining('Telebirr takes 100 to 500,000 ETB'),
+          findsOneWidget,
+        );
+        final button = tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton, 'Pay with Telebirr'),
+        );
+        expect(button.onPressed, isNull);
+      });
+    }
+
+    testWidgets('once submitted, the checkout screen takes over',
+        (tester) async {
+      await openLive(tester);
+
+      states.add(const PaymentSubmitted());
+      await tester.pump();
+      // The page transition.
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(find.byType(OrderCheckoutScreen), findsOneWidget);
+      expect(find.byType(PaymentInstructionsScreen), findsNothing);
+      verify(() => escrow.openOrderCheckout(defaultOrderId)).called(1);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
 }
+
+class _MockEscrowBloc extends Mock implements EscrowBloc {}
+
+class _MockEscrowRepository extends Mock implements BaseEscrowRepository {}
+
+class _MockOrderRepository extends Mock implements BaseOrderRepository {}

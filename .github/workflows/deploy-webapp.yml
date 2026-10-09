@@ -52,6 +52,11 @@ jobs:
         working-directory: mobile
         run: flutter pub get
 
+      # TELEBIRR_LIVE (ESC-44): set it to 'true' as a variable of the GitHub
+      # environment (dev, staging) whose server runs with enableTelebirrLive,
+      # never at repo level, so one environment going live does not switch the
+      # others. Unset means the demo payment screen. A prod build is always
+      # live (ENVIRONMENT=prod), whatever this says.
       - name: Build Flutter web
         working-directory: mobile
         run: |
@@ -62,7 +67,8 @@ jobs:
             --dart-define=API_BASE_URL=${{ secrets.API_BASE_URL }} \
             --dart-define=COGNITO_USER_POOL_ID=${{ secrets.COGNITO_USER_POOL_ID }} \
             --dart-define=COGNITO_CLIENT_ID=${{ secrets.COGNITO_CLIENT_ID }} \
-            --dart-define=COGNITO_REGION=${{ secrets.COGNITO_REGION }}
+            --dart-define=COGNITO_REGION=${{ secrets.COGNITO_REGION }} \
+            --dart-define=TELEBIRR_LIVE=${{ vars.TELEBIRR_LIVE == 'true' }}
 
       - name: Set AWS region
         id: region

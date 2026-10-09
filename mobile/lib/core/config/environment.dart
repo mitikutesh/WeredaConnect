@@ -31,6 +31,22 @@ class Environment {
     );
   }
 
+  /// Whether this build pays orders through the live Telebirr checkout
+  /// (ESC-44). Only decides what the payment screen shows; what happens after
+  /// a payment is decided by the server.
+  static bool get telebirrLive => telebirrLiveFor(
+        const String.fromEnvironment('ENVIRONMENT'),
+        define: const bool.fromEnvironment('TELEBIRR_LIVE'),
+      );
+
+  /// [telebirrLive] for a raw `ENVIRONMENT` define. A production build is
+  /// always live: the server refuses mock payments there. CI passes `prod`,
+  /// which [current] does not recognise, so the raw value is read here.
+  static bool telebirrLiveFor(String rawEnvironment, {required bool define}) {
+    final env = rawEnvironment.trim().toLowerCase();
+    return define || env == 'prod' || env == 'production';
+  }
+
   /// Configuration for current environment
   static Environment get config {
     switch (current) {

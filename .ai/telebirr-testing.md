@@ -227,6 +227,12 @@ Their answers → drop their public key + `signPadding` into the secret; set
 - **Mobile**: the buyer flow opens the returned `toPayUrl` (Telebirr H5) via
   `url_launcher`, then polls `GET /escrow/{id}` (+ `weredaconnect://payment/complete`
   deep link / app-resume) until the webhook flips it to `escrowed`.
+- **Mobile and web, order checkout (ESC-44)**: after the buyer's
+  `payment_submitted` reaches the server, the order checkout screen calls
+  `POST /escrow/order-checkout`, opens Telebirr (Android on its own, web from a
+  link) and polls `GET /orders/{id}` until the webhook funds the order. Live
+  builds (`--dart-define=TELEBIRR_LIVE=true`, and every `prod` build) show the
+  Telebirr-only payment screen; demo builds keep the mock screen.
 
 ### Go-live sequence
 
@@ -304,9 +310,14 @@ Their answers → drop their public key + `signPadding` into the secret; set
 5. **Confirm the exact wire details** against the `Demo_Project` sample and the
    portal docs — the fabric-token/preOrder **paths** and any field-casing quirks.
    Flip `signPadding` back to `pss` only if the portal rejects PKCS#1.
-6. Pay with a Telebirr **test account**, confirm the webhook flips the escrow to
-   `escrowed`, then switch base URLs to `https://app.ethiotelebirr.et:38443/…`
-   for production.
+6. **Build the app live** for that environment: set the GitHub environment
+   variable `TELEBIRR_LIVE=true` on the environment (dev or staging, never at
+   repo level) and redeploy the webapp (`deploy-webapp.yml`); for a manual web
+   deploy run `TELEBIRR_LIVE=true scripts/deploy.sh <env>`; Android builds pass
+   `--dart-define=TELEBIRR_LIVE=true`. Prod builds are live without it.
+7. Pay with a Telebirr **test account**, confirm the webhook flips the escrow to
+   `escrowed` (and an order checkout to `funded`), then switch base URLs to
+   `https://app.ethiotelebirr.et:38443/…` for production.
 
 > **Still not built** (out of scope for this prep): the payout/refund
 > disbursement leg. Since ESC-02 the live gateway's release and refund fail
@@ -332,3 +343,4 @@ Their answers → drop their public key + `signPadding` into the secret; set
 | Webhook verify/timestamp/replay/amount + transition | `server/tests/Functions/TelebirrWebhookFunctionTests.cs` |
 | Simulator protocol end-to-end | `tools/telebirr-sandbox/` (`npm run selftest`) |
 | Whole marketplace flow + role visibility | `scripts/e2e_full_flow.py` |
+| App order checkout (ESC-44) | `mobile/test/features/order/presentation/bloc/order_checkout_bloc_test.dart`, `.../screens/order_checkout_screen_test.dart`; live web path with a faked gateway: `e2e/webapp/order-checkout.spec.ts` (`E2E_LIVE_CHECKOUT=1`, local `TELEBIRR_LIVE=true` build) |

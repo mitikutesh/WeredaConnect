@@ -12,6 +12,7 @@ import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_event.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_state.dart';
 import 'package:wereda_connect/features/onboarding/screens/welcome_screen.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/payment_return_listener.dart';
 import 'package:wereda_connect/screens/main_navigation.dart';
 import 'package:wereda_connect/screens/splash_screen.dart';
 
@@ -56,7 +57,11 @@ class _AuthGateState extends State<AuthGate> {
           context.read<OnboardingBloc>().add(const MarkWelcomeSeen());
           // The app lock sits above the Navigator (AuthAppLock, mounted
           // from MaterialApp.builder) so it also covers pushed routes.
-          return const SecurityPromptListener(child: MainNavigation());
+          // A Telebirr return link that no checkout screen takes (the app
+          // was killed while the buyer paid) checks the payment (ESC-44).
+          return const SecurityPromptListener(
+            child: PaymentReturnListener(child: MainNavigation()),
+          );
         }
 
         // If initial auth check still in progress, show loading splash

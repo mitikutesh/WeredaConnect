@@ -37,6 +37,11 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- The app handles its own links with app_links (Fayda callback,
+                 Telebirr return). Flutter's default deep linking (on since
+                 Flutter 3.27) would also push weredaconnect://payment/complete
+                 as the route "/complete", which this app has no route for. -->
+            <meta-data android:name="flutter_deeplinking_enabled" android:value="false" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>

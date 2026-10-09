@@ -5199,6 +5199,138 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Your Fayda ID is confirmed, but Fayda does not list this account\'s phone number, so your phone is still not verified. The payment was not sent.'**
   String get kycPhoneNotProven;
+
+  /// Live payment screen: the button that sends the payment and opens Telebirr (ESC-44)
+  ///
+  /// In en, this message translates to:
+  /// **'Pay with Telebirr'**
+  String get payWithTelebirr;
+
+  /// Live payment screen: what happens when the buyer pays (ESC-44)
+  ///
+  /// In en, this message translates to:
+  /// **'You will pay {amount} in Telebirr. When you finish, come back to this app. The payment is confirmed automatically.'**
+  String telebirrLivePayInstructions(String amount);
+
+  /// Title of the order's Telebirr checkout screen (ESC-44)
+  ///
+  /// In en, this message translates to:
+  /// **'Telebirr payment'**
+  String get orderCheckoutTitle;
+
+  /// Checkout screen: the payment is still queued on the phone (offline, or waiting for a step-up)
+  ///
+  /// In en, this message translates to:
+  /// **'Your payment is waiting to be sent. Telebirr opens once it reaches the server.'**
+  String get orderCheckoutWaitingToSend;
+
+  /// Checkout screen: until when the open Telebirr payment can be finished
+  ///
+  /// In en, this message translates to:
+  /// **'You can finish this payment in Telebirr until {time}.'**
+  String orderCheckoutOpenUntil(String time);
+
+  /// Checkout screen: the Telebirr payment page expired unpaid
+  ///
+  /// In en, this message translates to:
+  /// **'This Telebirr payment page has closed. Start a new one to pay.'**
+  String get orderCheckoutWindowClosed;
+
+  /// Checkout screen button: open a new Telebirr payment after the old page expired
+  ///
+  /// In en, this message translates to:
+  /// **'Start a new Telebirr payment'**
+  String get orderCheckoutStartNew;
+
+  /// Checkout screen button: read the order's payment status again
+  ///
+  /// In en, this message translates to:
+  /// **'Check payment status'**
+  String get orderCheckoutCheckAgain;
+
+  /// Checkout screen: automatic checks stopped and no payment arrived yet
+  ///
+  /// In en, this message translates to:
+  /// **'We have not received the payment yet. If you paid, tap Check payment status.'**
+  String get orderCheckoutStillWaiting;
+
+  /// ESCROW_030: the payment time ran out (20 hours after the payment was submitted)
+  ///
+  /// In en, this message translates to:
+  /// **'The time to pay for this order has run out. The order will be marked as failed, then you can pay again.'**
+  String get orderCheckoutTimeRanOut;
+
+  /// ESCROW_030: the order is no longer waiting for payment (cancelled or rejected)
+  ///
+  /// In en, this message translates to:
+  /// **'This order is no longer waiting for payment.'**
+  String get orderCheckoutNotWaiting;
+
+  /// ESCROW_030 (422): the order cannot be paid online
+  ///
+  /// In en, this message translates to:
+  /// **'This order can\'t be paid online. Contact support.'**
+  String get orderCheckoutNotPayableOnline;
+
+  /// ESCROW_031: no Telebirr page here (mock payments); the app waits for the automatic confirmation
+  ///
+  /// In en, this message translates to:
+  /// **'Payments are confirmed automatically here. Checking your order...'**
+  String get orderCheckoutConfirmedAutomatically;
+
+  /// ESCROW_032: a Telebirr payment is being set up, or its answer was lost; blocked until the old page expires
+  ///
+  /// In en, this message translates to:
+  /// **'A Telebirr payment for this order is being set up or was interrupted. If you already paid, it will be confirmed here. Otherwise try again later (it can take up to 2 hours).'**
+  String get orderCheckoutAlreadyOpen;
+
+  /// ESCROW_013: Telebirr refused or did not answer when opening the payment
+  ///
+  /// In en, this message translates to:
+  /// **'Telebirr could not start the payment. If you already paid, it will be confirmed here. Otherwise try again.'**
+  String get orderCheckoutGatewayProblem;
+
+  /// ESCROW_033: the order is not on the server
+  ///
+  /// In en, this message translates to:
+  /// **'This order is not on the server yet. Try again once it has synced.'**
+  String get orderCheckoutOrderMissing;
+
+  /// Checkout screen: the order moved to payment_failed
+  ///
+  /// In en, this message translates to:
+  /// **'This payment could not be confirmed in time. You can pay again.'**
+  String get orderCheckoutPaymentFailed;
+
+  /// Checkout screen: the server refused the payment (or the KYC gate held it until the buyer verifies), so it was not sent
+  ///
+  /// In en, this message translates to:
+  /// **'Your payment was not sent. If you were asked to verify your identity, it is sent again once you do; otherwise open the order to pay again.'**
+  String get orderCheckoutNotSent;
+
+  /// Shown when the buyer comes back from Telebirr and the app checks the payment
+  ///
+  /// In en, this message translates to:
+  /// **'Checking your payment...'**
+  String get orderCheckoutCheckingPayment;
+
+  /// Live payments: the order total is outside what one Telebirr payment takes (ORDER_VALIDATION / ESCROW_001)
+  ///
+  /// In en, this message translates to:
+  /// **'Telebirr takes 100 to 500,000 ETB in one payment. This order\'s total is outside that, so it can\'t be paid with Telebirr.'**
+  String get paymentTotalOutOfRange;
+
+  /// Order detail button (buyer, payment submitted): open the order's Telebirr checkout
+  ///
+  /// In en, this message translates to:
+  /// **'Continue payment'**
+  String get continuePayment;
+
+  /// Order detail button (buyer, payment failed): pay the order again
+  ///
+  /// In en, this message translates to:
+  /// **'Pay again'**
+  String get payAgain;
 }
 
 class _AppLocalizationsDelegate

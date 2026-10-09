@@ -126,7 +126,10 @@ Future<void> runMobile({
       await OrderRepository(
         isar: IsarService.instance.db,
         syncQueue: syncQueue,
-      ).revertRejectedPaymentSubmission(operation.entityId);
+      ).revertRejectedPaymentSubmission(
+        operation.entityId,
+        sentData: operation.data,
+      );
     },
     // Any other permanent order rejection: server wins, the local order goes
     // back to the server's view (sync-protocol.md 1.10.0).

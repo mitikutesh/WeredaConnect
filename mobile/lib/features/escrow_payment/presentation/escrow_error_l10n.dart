@@ -35,6 +35,13 @@ String localizeEscrowError(
     'ESCROW_025' => l10n.escrowErrorUnauthorized,
     'ESCROW_026' => l10n.escrowErrorUnauthorized,
     'ESCROW_028' => l10n.escrowErrorInvalidAmount,
+    // Order checkout (ESC-44). ESCROW_030 has three causes; the checkout
+    // screen tells them apart (order_checkout_l10n.dart), this is the
+    // generic one.
+    'ESCROW_030' => l10n.orderCheckoutNotWaiting,
+    'ESCROW_031' => l10n.orderCheckoutConfirmedAutomatically,
+    'ESCROW_032' => l10n.orderCheckoutAlreadyOpen,
+    'ESCROW_033' => l10n.orderCheckoutOrderMissing,
     'ESCROW_038' => l10n.escrowErrorPayoutInProgress,
     'ESCROW_INVALID_TRANSITION' => l10n.escrowErrorInvalidTransition,
     'ESCROW_OFFLINE' => l10n.escrowErrorOffline,

@@ -116,6 +116,32 @@ class EscrowRepository extends BaseEscrowRepository {
     }
   }
 
+  /// Open (or get back) the live Telebirr checkout of an order.
+  ///
+  /// Online only, unlike [initiatePayment]: no intent is queued, because a
+  /// checkout replayed later could start a second payment. Nothing is cached:
+  /// the URL is transient and the server keeps the open checkout.
+  @override
+  Future<OrderCheckoutResult> openOrderCheckout(String orderId) async {
+    try {
+      final response =
+          await _apiClient.postWithServerDate<Map<String, dynamic>>(
+        ApiConfig.escrowOrderCheckout,
+        data: {'orderId': orderId},
+      );
+      final checkout = OrderCheckoutResponse.fromJson(response.data);
+      return OrderCheckoutOpened(
+        toPayUrl: checkout.toPayUrl,
+        openUntil: checkout.openUntil,
+        amount: checkout.amount,
+        isExisting: checkout.isExisting,
+        serverDate: response.serverDate,
+      );
+    } on ApiException catch (e) {
+      return orderCheckoutFailureOf(e);
+    }
+  }
+
   /// Raise dispute on an escrowed payment.
   ///
   /// Online-only: POST /escrow/dispute -> update local [Payment].

@@ -88,6 +88,9 @@ class _SpyMarketplaceSync implements MarketplaceSync {
   }
 
   @override
+  Future<Order?> pullOrder(String orderId) async => null;
+
+  @override
   Future<void> pullCrops() async {}
 
   @override
@@ -156,7 +159,7 @@ class _FakeOrderRepository extends BaseOrderRepository {
   @override
   Future<void> submitPayment(
     String orderId,
-    String cbeTransactionId, {
+    String? cbeTransactionId, {
     String paymentMethod = 'cbe_transfer',
   }) =>
       throw UnimplementedError();

@@ -279,4 +279,83 @@ void main() {
       );
     });
   });
+
+  group('WebOrderRepository payments (ESC-44)', () {
+    Map<String, dynamic>? sentBody;
+
+    void stubSync() {
+      sentBody = null;
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer((invocation) async {
+        sentBody = invocation.namedArguments[#data] as Map<String, dynamic>;
+        return {
+          'results': [
+            {'status': 'success'},
+          ],
+        };
+      });
+    }
+
+    List<Map<String, dynamic>> sentOps() => [
+          for (final op in sentBody!['operations'] as List)
+            op as Map<String, dynamic>,
+        ];
+
+    test('a live Telebirr payment sends no reference', () async {
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-1'))
+          .thenAnswer((_) async => {'order': orderDto()});
+      stubSync();
+
+      await repo.submitPayment('ord-1', null, paymentMethod: 'telebirr');
+
+      final data = sentOps().single['data'] as Map<String, dynamic>;
+      expect(data['status'], 'payment_submitted');
+      expect(data.containsKey('cbeTransactionId'), isFalse);
+    });
+
+    test('a retry after payment_failed is one payment_submitted change',
+        () async {
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-1')).thenAnswer(
+        (_) async => {
+          'order': {...orderDto(status: 'payment_failed'), 'version': 6},
+        },
+      );
+      stubSync();
+
+      await repo.submitPayment('ord-1', null, paymentMethod: 'telebirr');
+
+      final ops = sentOps();
+      expect(ops, hasLength(1));
+      final data = ops.single['data'] as Map<String, dynamic>;
+      expect(data['status'], 'payment_submitted');
+      expect(data['version'], 6);
+    });
+
+    test('already payment_submitted on the server: nothing is sent', () async {
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-1')).thenAnswer(
+        (_) async => {'order': orderDto(status: 'payment_submitted')},
+      );
+      stubSync();
+
+      await repo.submitPayment('ord-1', null, paymentMethod: 'telebirr');
+
+      expect(sentBody, isNull);
+    });
+
+    test('fetchOrder lets errors through; getOrderById swallows them',
+        () async {
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-1'))
+          .thenThrow(const NetworkException('offline'));
+
+      await expectLater(
+        repo.fetchOrder('ord-1'),
+        throwsA(isA<NetworkException>()),
+      );
+      expect(await repo.getOrderById('ord-1'), isNull);
+    });
+  });
 }

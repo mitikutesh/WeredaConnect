@@ -638,6 +638,43 @@ void main() {
         expect(op['data'], isA<Map<String, dynamic>>());
         expect(op['timestamp'], isNotEmpty);
       });
+
+      test('client-only keys (`_` prefix) are never sent (ESC-44)', () async {
+        await enqueueTestOperation(
+          operationId: 'op-client-key',
+          entityType: 'order',
+          entityId: 'order-001',
+          action: 'update',
+          data: '{"status":"payment_submitted","version":3,'
+              '"_statusBefore":"paymentFailed"}',
+        );
+
+        Map<String, dynamic>? capturedRequest;
+        dioAdapter.onPost(
+          '/sync',
+          (server) {
+            server.reply(200, buildSuccessResponse(['op-client-key']));
+          },
+          data: Matchers.any,
+        );
+        dio.interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              capturedRequest = options.data as Map<String, dynamic>?;
+              handler.next(options);
+            },
+          ),
+        );
+
+        await executor.executeBatch();
+
+        final op = (capturedRequest!['operations'] as List).single
+            as Map<String, dynamic>;
+        expect(op['data'], {'status': 'payment_submitted', 'version': 3});
+        // The queue keeps it for the client.
+        final stored = await syncQueue.getOperation('op-client-key');
+        expect(stored!.data, contains('_statusBefore'));
+      });
     });
 
     group('syncNow', () {

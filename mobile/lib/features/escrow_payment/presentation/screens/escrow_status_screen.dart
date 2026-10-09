@@ -4,7 +4,6 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
@@ -12,6 +11,7 @@ import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error_l10n.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/raise_dispute_screen.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/telebirr_launcher.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_timeline.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -61,6 +61,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
   StreamSubscription<Uri>? _linkSub;
   // Set once the escrow leaves `initiated`; stops any further polling/refresh.
   bool _resolved = false;
+  bool _watchingReturn = false;
 
   @override
   void initState() {
@@ -74,11 +75,11 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
       // (weredaconnect://payment/complete) or app resume — instead of waiting
       // for the next poll tick.
       WidgetsBinding.instance.addObserver(this);
+      TelebirrReturnWatchers.add();
+      _watchingReturn = true;
       _linkSub = AppLinks().uriLinkStream.listen(
         (uri) {
-          if (uri.scheme == 'weredaconnect' && uri.host == 'payment') {
-            _refreshNow();
-          }
+          if (isTelebirrReturnLink(uri)) _refreshNow();
         },
         onError: (Object _) {},
       );
@@ -92,6 +93,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
     if (widget.awaitingPayment) {
       WidgetsBinding.instance.removeObserver(this);
     }
+    if (_watchingReturn) TelebirrReturnWatchers.remove();
     super.dispose();
   }
 
@@ -134,28 +136,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
 
   /// Open the Telebirr H5 checkout in the external browser / Telebirr app.
   Future<void> _launchTelebirr() async {
-    final url = widget.toPayUrl;
-    if (url == null || url.isEmpty) return;
-    final messenger = ScaffoldMessenger.of(context);
-    final l10n = AppLocalizations.of(context)!;
-    final uri = Uri.tryParse(url);
-    var launched = false;
-    if (uri != null) {
-      try {
-        launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } on Object {
-        launched = false;
-      }
-    }
-    if (!mounted) return;
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          launched ? l10n.escrowPaymentOpening : l10n.escrowPaymentOpenFailed,
-        ),
-        backgroundColor: launched ? null : AppTheme.statusError,
-      ),
-    );
+    await openTelebirrCheckout(context, widget.toPayUrl);
   }
 
   void _loadEscrow() {
