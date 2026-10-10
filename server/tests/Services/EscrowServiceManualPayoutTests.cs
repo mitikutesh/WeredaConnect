@@ -354,10 +354,11 @@ public class EscrowServiceManualPayoutTests
     }
 
     [Fact]
-    public async Task Release_TruckerQueueWriteFails_AfterFarmerPaid_FallsBackToTruckerPayoutPending()
+    public async Task Release_TruckerQueueWriteFails_AfterFarmerPaid_StaysReleasedWithTheTruckerLegPending()
     {
-        // The farmer leg is paid, so the escrow must still advance (today's behaviour)
-        // rather than strand under a held lock. The owed trucker leg is flagged.
+        // The farmer leg is paid, so the escrow must still advance rather than strand under a
+        // held lock. The owed trucker leg is flagged and (ESC-04) the escrow stays released for
+        // the hourly trucker retry, never completed with the leg unpaid.
         _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
         _gateway.ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => !r.TransactionRef.EndsWith(":trucker")))
             .Returns(new ReleaseFundsResponse { Success = true, TelebirrRef = "GW-FARMER-1" });
@@ -371,16 +372,21 @@ public class EscrowServiceManualPayoutTests
         var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
 
         result.IsSuccess.Should().BeTrue();
-        result.Value!.Status.Should().Be("completed");
+        result.Value!.Status.Should().Be("released");
         result.Value.TelebirrRef.Should().Be("GW-FARMER-1");
+        result.Value.TruckerTelebirrRef.Should().BeNull();
         await _escrowRepo.Received(4).TryQueueManualPayoutAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
         await _escrowRepo.Received(1).UpdateStatusAsync(EscrowId, CreatedAt, "released", "escrowed",
             Arg.Is<Dictionary<string, object>>(f =>
-                (string)f["telebirrReleaseRef"] == "GW-FARMER-1" && (bool)f["truckerPayoutPending"]));
+                (string)f["telebirrReleaseRef"] == "GW-FARMER-1" && (bool)f["truckerPayoutPending"]
+                && f.ContainsKey("truckerPayoutPendingSince") && !f.ContainsKey("truckerPayoutBlockReason")));
+        await _escrowRepo.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), "completed",
+            Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
         await _escrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
         (await AuditWritten("trucker_release_failed", "MANUAL_QUEUE_FAILED:PAYOUT_NOT_SUPPORTED")).Should().BeTrue();
+        (await AuditWritten("complete")).Should().BeFalse();
     }
 
     [Fact]
@@ -472,9 +478,10 @@ public class EscrowServiceManualPayoutTests
     }
 
     [Fact]
-    public async Task Release_UnverifiedTrucker_KeepsTruckerPayoutPendingBehaviour()
+    public async Task Release_UnverifiedTrucker_StaysReleased_WithTheBlockReasonOnTheRowAndInTheAudit()
     {
-        // ESC-04 owns the KYC-blocked trucker leg: no gateway call, no queue entry.
+        // ESC-04 owns the KYC-blocked trucker leg: no gateway call, no queue entry, and the escrow
+        // waits in released (farmer paid) for the trucker retry with the reason kept.
         _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
         _userRepo.GetUserByIdAsync(TruckerId).Returns(User(TruckerId, "trucker", TruckerPhone, phoneVerified: false));
         _gateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
@@ -483,13 +490,62 @@ public class EscrowServiceManualPayoutTests
         var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
 
         result.IsSuccess.Should().BeTrue();
-        result.Value!.Status.Should().Be("completed");
+        result.Value!.Status.Should().Be("released");
         await _gateway.Received(1).ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
         await _escrowRepo.DidNotReceive().TryQueueManualPayoutAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
         await _escrowRepo.Received(1).UpdateStatusAsync(EscrowId, CreatedAt, "released", "escrowed",
-            Arg.Is<Dictionary<string, object>>(f => (bool)f["truckerPayoutPending"]));
+            Arg.Is<Dictionary<string, object>>(f => (bool)f["truckerPayoutPending"]
+                && (string)f["truckerPayoutBlockReason"] == "phone_unverified"
+                && (string)f["truckerPayoutBlockReasonAt"] == (string)f["truckerPayoutPendingSince"]));
+        await _escrowRepo.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), "completed",
+            Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        (await AuditWritten("trucker_release_blocked_kyc", "code=ESCROW_029;reason=phone_unverified")).Should().BeTrue();
+        (await AuditWritten("trucker_release_failed")).Should().BeFalse();
+        _alarmLines.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("", "no_trucker")]
+    [InlineData("trucker-gone", "profile_missing")]
+    public async Task Release_TruckerWithoutPayableProfile_IsPendingWithItsReason(string truckerId, string reason)
+    {
+        var escrow = Escrow();
+        if (truckerId.Length == 0)
+        {
+            escrow.Remove("truckerId");
+        }
+        else
+        {
+            escrow["truckerId"] = truckerId;
+        }
+
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(escrow);
+        _gateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
+            .Returns(new ReleaseFundsResponse { Success = true, TelebirrRef = "GW-FARMER-1" });
+
+        var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
+
+        result.Value!.Status.Should().Be("released");
+        await _escrowRepo.Received(1).UpdateStatusAsync(EscrowId, CreatedAt, "released", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f => (string)f["truckerPayoutBlockReason"] == reason));
+    }
+
+    [Fact]
+    public async Task Release_TruckerAboveTheFaydaTierWithoutFayda_IsPendingAsFaydaRequired()
+    {
+        var escrow = Escrow();
+        escrow["truckerPayout"] = 12_000m;
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(escrow);
+        _userRepo.GetUserByIdAsync(TruckerId).Returns(User(TruckerId, "trucker", TruckerPhone, fayda: false));
+        _gateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
+            .Returns(new ReleaseFundsResponse { Success = true, TelebirrRef = "GW-FARMER-1" });
+
+        await _service.ReleaseAsync(ReleaseRequest(), "system");
+
+        await _escrowRepo.Received(1).UpdateStatusAsync(EscrowId, CreatedAt, "released", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f => (string)f["truckerPayoutBlockReason"] == "fayda_required"));
     }
 
     [Fact]
@@ -1205,6 +1261,24 @@ public class EscrowServiceManualPayoutTests
             Arg.Any<Dictionary<string, object>>());
     }
 
+    [Theory]
+    [InlineData("completed")]
+    [InlineData("released")]
+    public async Task Complete_CompletedWriteRefused_AnswersTheRowsRealStatus(string rowStatus)
+    {
+        // ESC-04: a refused released to completed write means a parallel completion or (the
+        // repository guard) a leg still owed; the answer follows the row, never assumes completed.
+        var after = Escrow(status: rowStatus, queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid");
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"), after);
+        _escrowRepo.UpdateStatusAsync(EscrowId, CreatedAt, "completed", "released", Arg.Any<Dictionary<string, object>?>())
+            .ThrowsAsync(new ConditionalCheckFailedException("guarded"));
+
+        var result = await Complete("trucker", "TB-REF-0002");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.EscrowStatus.Should().Be(rowStatus);
+    }
+
     [Fact]
     public async Task Complete_ReplayOnACompletedEscrow_ReEnsuresTheCompleteRowAtCompletedAt()
     {
@@ -1358,6 +1432,173 @@ public class EscrowServiceManualPayoutTests
         frozen.Should().Be(DeliveryDisputeFreeze.RefusedSettlementInFlight);
         (await AuditWritten("dispute_refused_settlement_in_flight", "deliveryId=del-1")).Should().BeTrue();
         (await AuditWritten("dispute")).Should().BeFalse();
+    }
+
+    // ──────────────────────────────────────────────
+    // ESC-04: a trucker leg queued on a released escrow
+    // ──────────────────────────────────────────────
+
+    private const string FarmerGatewayRef = "GW-FARMER-1";
+    private const string ReleasedAt = "2026-10-02T08:00:00.0000000Z";
+    private const string TruckerLockAt = "2026-10-02T08:30:00.0000000Z";
+
+    /// <summary>The farmer was paid by the release; the trucker retry queued the trucker leg.</summary>
+    private static Dictionary<string, object> ReleasedTruckerQueue(bool withTruckerId = true)
+    {
+        var item = Escrow(status: "released", queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid");
+        item["telebirrReleaseRef"] = FarmerGatewayRef;
+        item["releasedAt"] = ReleasedAt;
+        item[ManualPayoutFields.RefAttr("farmer")] = FarmerGatewayRef;
+        item[ManualPayoutFields.PaidByAttr("farmer")] = ManualPayoutFields.PaidByGateway;
+        item[ManualPayoutFields.PaidAtAttr("farmer")] = ReleasedAt;
+        item[TruckerPayoutFields.Pending] = true;
+        item[TruckerPayoutFields.LockId] = "trucker-lock-1";
+        item[TruckerPayoutFields.LockAt] = TruckerLockAt;
+        if (!withTruckerId)
+        {
+            item.Remove("truckerId");
+        }
+
+        return item;
+    }
+
+    private (EscrowService Service, IOrderRepository Orders, IDeliveryRepository Deliveries) ServiceWithOrderAndDelivery()
+    {
+        var orders = Substitute.For<IOrderRepository>();
+        var deliveries = Substitute.For<IDeliveryRepository>();
+        return (new EscrowService(_escrowRepo, _auditRepo, _idempotencyRepo, _gateway, _userRepo, orders, deliveries), orders, deliveries);
+    }
+
+    [Fact]
+    public async Task Complete_TruckerLegOfAReleasedEscrow_ClosesStraightToCompleted_AndKeepsTheRelease()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(ReleasedTruckerQueue());
+        Dictionary<string, object>? fields = null;
+        _escrowRepo.TryCloseManualPayoutAsync(EscrowId, CreatedAt, ManualPayoutFields.OpRelease, "trucker", "TB-REF-0002",
+                AdminId, Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), "completed",
+                Arg.Do<Dictionary<string, object>>(f => fields = f))
+            .Returns(true);
+
+        var result = await Complete("trucker", "TB-REF-0002");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.EscrowStatus.Should().Be("completed");
+        result.Value.RemainingLegs.Should().BeEmpty();
+        await _escrowRepo.Received(1).TryCloseManualPayoutAsync(
+            EscrowId, CreatedAt, ManualPayoutFields.OpRelease, "trucker", "TB-REF-0002", AdminId, Arg.Any<string>(),
+            Arg.Is<IReadOnlyList<string>>(others => others.Count == 1 && others[0] == "farmer"), "completed",
+            Arg.Any<Dictionary<string, object>>());
+        // R3: the release already happened; its time and reference stay as the release wrote them.
+        fields!.Should().ContainKey("truckerTelebirrRef").WhoseValue.Should().Be("TB-REF-0002");
+        fields.Should().ContainKey("truckerPaidAt");
+        fields.Should().NotContainKey("releasedAt").And.NotContainKey("telebirrReleaseRef");
+        await _escrowRepo.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        (await AuditWritten("manual_payout_paid", "leg=trucker;amount=3000.00")).Should().BeTrue();
+        (await AuditWritten("release")).Should().BeFalse();
+        var complete = AuditEntries().Single(e => (string)e["action"] == "complete");
+        complete["timestamp"].Should().Be(fields!["completedAt"]);
+        complete["metadata"].Should().Be("manual");
+        complete["fromState"].Should().Be("released");
+        await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+    }
+
+    [Fact]
+    public async Task Complete_ReplayOnAClosedReleasedTruckerQueue_ReEnsuresTheCompleteRow_NeverARelease()
+    {
+        var closed = ReleasedTruckerQueue();
+        closed["status"] = "completed";
+        closed.Remove(ManualPayoutFields.Marker);
+        closed[ManualPayoutFields.StatusAttr("trucker")] = ManualPayoutFields.LegPaid;
+        closed[ManualPayoutFields.RefAttr("trucker")] = "TB-REF-0002";
+        closed[ManualPayoutFields.PaidByAttr("trucker")] = AdminId;
+        closed[ManualPayoutFields.PaidAtAttr("trucker")] = "2026-10-02T11:00:00.0000000Z";
+        closed["completedAt"] = "2026-10-02T11:00:00.0000001Z";
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(closed);
+
+        var result = await Complete("trucker", "TB-REF-0002");
+
+        result.Value!.AlreadyRecorded.Should().BeTrue();
+        result.Value.EscrowStatus.Should().Be("completed");
+        (await AuditWritten("release")).Should().BeFalse();
+        AuditEntries().Should().Contain(e => (string)e["action"] == "complete"
+                                             && (string)e["timestamp"] == "2026-10-02T11:00:00.0000001Z");
+        AuditEntries().Should().Contain(e => (string)e["action"] == "manual_payout_paid"
+                                             && (string)e["fromState"] == "released");
+    }
+
+    [Fact]
+    public async Task Complete_TruckerLegWithoutTruckerId_TakesTheOrdersTrucker_ThenRecords()
+    {
+        var (service, orders, deliveries) = ServiceWithOrderAndDelivery();
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(ReleasedTruckerQueue(withTruckerId: false));
+        orders.GetByIdAsync("ord-1").Returns(new Dictionary<string, object> { ["orderId"] = "ord-1", ["truckerId"] = TruckerId });
+        deliveries.GetByIdAsync("del-1").Returns(new Dictionary<string, object> { ["deliveryId"] = "del-1", ["truckerId"] = TruckerId });
+        _escrowRepo.TryBackfillTruckerIdAsync(EscrowId, CreatedAt, TruckerId).Returns(true);
+
+        var result = await service.CompleteManualPayoutAsync(EscrowId, "trucker", "TB-REF-0002", AdminId, adminGroupVerified: true);
+
+        result.IsSuccess.Should().BeTrue();
+        await _escrowRepo.Received(1).TryBackfillTruckerIdAsync(EscrowId, CreatedAt, TruckerId);
+        (await AuditWritten("trucker_backfilled", $"truckerId={TruckerId}")).Should().BeTrue();
+        (await AuditWritten("manual_payout_paid", $"payee={TruckerId}")).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Complete_TruckerLegWithoutTruckerId_AndADeliveryForAnotherTrucker_Returns409Escrow029()
+    {
+        var (service, orders, deliveries) = ServiceWithOrderAndDelivery();
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(ReleasedTruckerQueue(withTruckerId: false));
+        orders.GetByIdAsync("ord-1").Returns(new Dictionary<string, object> { ["orderId"] = "ord-1", ["truckerId"] = TruckerId });
+        deliveries.GetByIdAsync("del-1").Returns(new Dictionary<string, object> { ["deliveryId"] = "del-1", ["truckerId"] = "trucker-other" });
+
+        var result = await service.CompleteManualPayoutAsync(EscrowId, "trucker", "TB-REF-0002", AdminId, adminGroupVerified: true);
+
+        result.Error!.HttpStatus.Should().Be(409);
+        result.Error.Code.Should().Be("ESCROW_029");
+        result.Error.Message.Should().Contain("does not match");
+        await _escrowRepo.DidNotReceive().TryBackfillTruckerIdAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await AssertNothingSettled();
+    }
+
+    [Fact]
+    public async Task List_ReleasedTruckerQueue_ShowsTheTruckerCallTime_AndTheOrdersTruckerForAMissingTruckerId()
+    {
+        var (service, orders, deliveries) = ServiceWithOrderAndDelivery();
+        var row = ReleasedTruckerQueue(withTruckerId: false);
+        row[SettlementLockFields.LockAt] = "2026-10-01T12:00:00.0000000Z";
+        _escrowRepo.QueryOpenManualPayoutsAsync(20, null).Returns((new List<Dictionary<string, object>> { row }, null));
+        orders.GetByIdAsync("ord-1").Returns(new Dictionary<string, object> { ["orderId"] = "ord-1", ["truckerId"] = TruckerId });
+        deliveries.GetByIdAsync("del-1").Returns(new Dictionary<string, object> { ["deliveryId"] = "del-1", ["truckerId"] = TruckerId });
+
+        var payout = (await service.ListManualPayoutsAsync(20, null)).Value!.Payouts.Single();
+
+        payout.EscrowStatus.Should().Be("released");
+        payout.FromStatus.Should().Be("released");
+        payout.SettlementLockedAt.Should().Be(TruckerLockAt);
+        payout.PendingAmount.Should().Be(3_000m);
+        var trucker = payout.Legs.Single(l => l.Ref == "trucker");
+        trucker.PayeeId.Should().Be(TruckerId);
+        trucker.PayeePhone.Should().Be(TruckerPhone);
+        trucker.PayeeVerified.Should().BeTrue();
+        // Listing writes nothing; recording the leg keeps the truckerId on the escrow.
+        await _escrowRepo.DidNotReceive().TryBackfillTruckerIdAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task List_TruckerLegWithoutTruckerId_AndADeliveryForAnotherTrucker_ShowsItBlocked()
+    {
+        var (service, orders, deliveries) = ServiceWithOrderAndDelivery();
+        _escrowRepo.QueryOpenManualPayoutsAsync(20, null)
+            .Returns((new List<Dictionary<string, object>> { ReleasedTruckerQueue(withTruckerId: false) }, null));
+        orders.GetByIdAsync("ord-1").Returns(new Dictionary<string, object> { ["orderId"] = "ord-1", ["truckerId"] = TruckerId });
+        deliveries.GetByIdAsync("del-1").Returns(new Dictionary<string, object> { ["deliveryId"] = "del-1", ["truckerId"] = "trucker-other" });
+
+        var trucker = (await service.ListManualPayoutsAsync(20, null)).Value!.Payouts.Single().Legs.Single(l => l.Ref == "trucker");
+
+        trucker.PayeeVerified.Should().BeFalse();
+        trucker.PayeeId.Should().BeEmpty();
+        trucker.BlockReason.Should().Contain("does not match");
     }
 
     // ──────────────────────────────────────────────

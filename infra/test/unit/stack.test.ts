@@ -764,6 +764,7 @@ describe('MonitoringStack', () => {
     'wereda-connect-dev-escrow-cron-errors',
     'wereda-connect-dev-order-escrow-problems',
     'wereda-connect-dev-manual-payouts-overdue',
+    'wereda-connect-dev-trucker-payouts-overdue',
     'wereda-connect-dev-admin-queue-overdue',
     'wereda-connect-dev-dispute-verdict-order-mismatch',
     'wereda-connect-dev-dispute-verdict-settlement-blocked',
@@ -784,6 +785,8 @@ describe('MonitoringStack', () => {
   // ESC-02's producer: one line per pending leg, ref=<op>:<leg>.
   const PAYOUT_LINE = 'MANUAL_PAYOUT_OVERDUE escrowId=escrow-order-ord-1 ref=release:farmer ageHours=26';
   const QUEUE_LINE = 'ADMIN_QUEUE_OVERDUE orderId=ord-1 reason=undelivered ageHours=30';
+  // ESC-04's producer: one line per released escrow whose trucker leg is still owed.
+  const TRUCKER_LINE = 'TRUCKER_PAYOUT_OVERDUE escrowId=escrow-order-ord-1 reason=phone_unverified ageHours=26';
   // ESC-03's refusal to settle a verdict its order cannot follow.
   const MISMATCH_LINE =
     'DISPUTE_VERDICT_ORDER_MISMATCH escrowId=escrow-order-ord-1 op=refund legs=order:mismatch:accepted';
@@ -983,6 +986,42 @@ describe('MonitoringStack', () => {
     }
   });
 
+  test('ESC-04: overdue trucker legs are counted on escrow-cron, and only there', () => {
+    const template = monitoringTemplate(false);
+    const filter = metricFilter(template, ESCROW_CRON_LG, 'TruckerPayoutsOverdue');
+    expect(filter.Properties.MetricTransformations[0].MetricValue).toBe('1');
+    expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, TRUCKER_LINE)).toBe(true);
+    expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, `2026-10-10T10:00:00.000Z\t4f1c7a2e-req\twarn\t${TRUCKER_LINE}`)).toBe(true);
+    // Its own token only: not the manual payout line, the run summary, or a truncated read.
+    for (const line of [
+      PAYOUT_LINE,
+      QUEUE_LINE,
+      SETTLEMENT_LINE,
+      'Auto-release/refund complete: trucker legs: 0 paid, 0 queued, 1 blocked, 0 failed, 0 deferred, 1 overdue.',
+      'ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_truncated outcome=failed code=trucker_retry_query:500',
+      'ESCROW_TRUCKER_PAYOUT_BLOCKED escrowId=escrow-order-ord-1 reason=phone_unverified',
+    ]) {
+      expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, false]);
+    }
+    for (const [lg, metric] of [
+      [ESCROW_CRON_LG, 'EscrowSettlementFailures'],
+      [ESCROW_CRON_LG, 'ManualPayoutsOverdue'],
+      [ESCROW_CRON_LG, 'AdminQueueOverdue'],
+    ]) {
+      expect(cloudWatchTermsMatch(metricFilter(template, lg, metric).Properties.FilterPattern, TRUCKER_LINE)).toBe(false);
+    }
+    expect(() => metricFilter(template, ESCROW_LG, 'TruckerPayoutsOverdue')).toThrow();
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-trucker-payouts-overdue',
+      Metrics: [customMetric('TruckerPayoutsOverdue', 900)],
+      Threshold: 0,
+      ComparisonOperator: 'GreaterThanThreshold',
+      EvaluationPeriods: 5,
+      DatapointsToAlarm: 1,
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
   test('ESC-03: refused dispute verdicts are counted on the escrow and escrow-cron log groups', () => {
     const template = monitoringTemplate(false);
     for (const lg of [ESCROW_LG, ESCROW_CRON_LG]) {
@@ -1085,7 +1124,7 @@ describe('MonitoringStack', () => {
     const money = [
       'EscrowSettlementFailures', 'OrderEscrowProblems', 'ManualPayoutsOverdue', 'AdminQueueOverdue',
       'OrderPaymentProblems', 'DisputeVerdictOrderMismatch', 'DisputeVerdictSettlementBlocked',
-      'EscrowSettlementUnknownOutcomes',
+      'EscrowSettlementUnknownOutcomes', 'TruckerPayoutsOverdue',
     ];
     return (Object.values(template.findResources('AWS::Logs::MetricFilter')) as MetricFilterResource[])
       .filter((f) => groups.includes(f.Properties.LogGroupName) && money.includes(f.Properties.MetricTransformations[0].MetricName))
@@ -1101,7 +1140,7 @@ describe('MonitoringStack', () => {
 
   test('ESC-13: every money filter needs a term with an underscore (the server defangs client text by turning _ into -)', () => {
     const patterns = moneyFilterPatterns(monitoringTemplate(true));
-    expect(patterns.length).toBe(11);
+    expect(patterns.length).toBe(12);
     for (const pattern of patterns) {
       const terms = filterTerms(pattern);
       // Alternatives: every term must carry one. All required (ESC-05's unknown filter pairs the
@@ -1176,6 +1215,7 @@ describe('MonitoringStack', () => {
         'EscrowCronErrors',
         'OrderEscrowProblems',
         'ManualPayoutsOverdue',
+        'TruckerPayoutsOverdue',
         'AdminQueueOverdue',
         'DisputeVerdictOrderMismatch',
         'DisputeVerdictSettlementBlocked',
@@ -1293,6 +1333,23 @@ describe('GithubActionsStack', () => {
         ]),
       },
     });
+  });
+
+  test('ESC-04: the role can invoke only escrow-cron, for the post-deploy legacy trucker action', () => {
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          {
+            Sid: 'InvokeEscrowCronAfterDeploy',
+            Action: 'lambda:InvokeFunction',
+            Effect: 'Allow',
+            Resource: 'arn:aws:lambda:eu-north-1:123456789012:function:wereda-connect-dev-escrow-cron',
+          },
+        ]),
+      }),
+    });
+    const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+    expect(policies.match(/lambda:InvokeFunction/g) ?? []).toHaveLength(1);
   });
 
   test('dev role can seed the dashboard admin user in Cognito; prod role cannot', () => {

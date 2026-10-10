@@ -100,6 +100,46 @@ internal static class SettlementLockFields
 }
 
 /// <summary>
+/// The trucker leg of a release that the release itself could not pay (ESC-04). The escrow
+/// stays <c>released</c> (the farmer is paid) with <c>truckerPayoutPending = true</c> until the
+/// leg is paid: by the hourly retry in escrow-cron, under its own lock (the row keeps the
+/// release's <c>settlementLock</c>, so that one cannot be reused), or through the manual payout
+/// queue. Only then does the escrow become <c>completed</c>.
+/// </summary>
+internal static class TruckerPayoutFields
+{
+    public const string Pending = "truckerPayoutPending";
+
+    /// <summary>
+    /// ISO time the leg went pending; the overdue alarm counts from it (fallback <c>releasedAt</c>).
+    /// Written since ESC-04 with every pending flag, so a pending leg without it is legacy (before
+    /// ESC-04, when the old runbook said to pay it by hand) and is parked, never retried.
+    /// </summary>
+    public const string PendingSince = "truckerPayoutPendingSince";
+
+    /// <summary>Why the payout gate blocks the trucker, one of the Block* values; audited once per value.</summary>
+    public const string BlockReason = "truckerPayoutBlockReason";
+
+    /// <summary>ISO time the block reason was set: the deterministic key of its audit row, re-ensured each run.</summary>
+    public const string BlockReasonAt = "truckerPayoutBlockReasonAt";
+
+    /// <summary>Random id and ISO time of the retry's lock; from the lock on the gateway may have been called.</summary>
+    public const string LockId = "truckerPayoutLockId";
+    public const string LockAt = "truckerPayoutLockAt";
+
+    public const string Ref = "truckerTelebirrRef";
+    public const string PaidAt = "truckerPaidAt";
+
+    public const string BlockNoTrucker = "no_trucker";
+    public const string BlockProfileMissing = "profile_missing";
+    public const string BlockPhoneUnverified = "phone_unverified";
+    public const string BlockFaydaRequired = "fayda_required";
+
+    /// <summary>The escrow has no truckerId and the order's trucker is not the delivery's.</summary>
+    public const string BlockTruckerMismatch = "trucker_mismatch";
+}
+
+/// <summary>
 /// One payee leg written when an escrow enters the manual payout queue. A leg the gateway
 /// already paid (the farmer, when only the trucker leg failed) is seeded <c>paid</c> with
 /// its real reference and <c>PaidBy = gateway</c>.

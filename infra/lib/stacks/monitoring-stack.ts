@@ -289,6 +289,16 @@ export class MonitoringStack extends cdk.Stack {
       metricValue: '1',
       defaultValue: 0,
     });
+    // ESC-04: the hourly trucker retry logs one line per released escrow whose trucker leg is
+    // still owed (and not queued) more than 24 hours after it went pending.
+    new logs.MetricFilter(this, 'TruckerPayoutsOverdueFilter', {
+      logGroup: escrowCronLogGroup,
+      filterPattern: logs.FilterPattern.literal('"TRUCKER_PAYOUT_OVERDUE"'),
+      metricNamespace,
+      metricName: 'TruckerPayoutsOverdue',
+      metricValue: '1',
+      defaultValue: 0,
+    });
 
     // ─── CloudWatch Dashboard ────────────────────────────────────────
     const dashboard = new cloudwatch.Dashboard(this, 'Dashboard', {
@@ -846,9 +856,11 @@ export class MonitoringStack extends cdk.Stack {
         'portal before any manual release or refund, and the separate ' +
         'escrow-settlement-unknown-outcomes alarm fires too (ESC-05). outcome=failed: a definite ' +
         'refusal or a failure before the settlement lock; nothing moved and the next hourly sweep ' +
-        'retries. trucker_release_failed with outcome=failed: the escrow completed with ' +
-        'truckerPayoutPending and nothing retries the trucker leg until ESC-04: pay the trucker by ' +
-        'hand. A payout waiting in the manual payout queue (202 ESCROW_034) is not counted here.',
+        'retries. trucker_release_failed with outcome=failed: the farmer is paid and the escrow ' +
+        'stays released with truckerPayoutPending; the hourly trucker retry pays the leg with the ' +
+        'same reference (ESC-04). Do not pay the trucker by hand; trucker-payouts-overdue fires if ' +
+        'the leg is still owed after 24 hours. A payout waiting in the manual payout queue ' +
+        '(202 ESCROW_034) is not counted here.',
     );
 
     // ESC-05: an unknown outcome is never retried by the server. The escrow keeps its settlement
@@ -888,6 +900,25 @@ export class MonitoringStack extends cdk.Stack {
         'with ESCROW_029 (unverified payee) ' +
         'cannot be recorded and keeps this alarm on until the payee verifies. While the alarm ' +
         'is in ALARM a newly overdue leg is not announced again: read the lines or the page.',
+    );
+
+    // ESC-04: a trucker leg the release could not pay is retried hourly, outside the manual
+    // payout queue until the gateway cannot pay it; this alarm makes sure none waits silently.
+    const truckerPayoutsOverdueAlarm = moneyLogAlarm(
+      'TruckerPayoutsOverdue',
+      'trucker-payouts-overdue',
+      'TruckerPayoutsOverdue',
+      'Trucker Payouts Overdue',
+      'A trucker leg is still owed more than 24 hours after the farmer was paid ' +
+        '(TRUCKER_PAYOUT_OVERDUE in the escrow-cron log group, one line per escrow per hourly ' +
+        'run, with escrowId, reason and ageHours; the escrow stays released and the hourly ' +
+        'trucker retry keeps trying, ESC-04). reason=phone_unverified or fayda_required: ask the ' +
+        'trucker to verify; the next hourly run pays the leg (with the live gateway it moves to ' +
+        'Manual Payouts). reason=no_trucker, profile_missing or trucker_mismatch: the escrow has ' +
+        'no payable trucker. The hourly run copies the truckerId from the order when the delivery ' +
+        'agrees; if the order has none the leg has no payee until ESC-20. Escalate, and never ' +
+        'edit the escrow row by hand. reason=gateway_refused or queue_failed: see ' +
+        'escrow-settlement-failures. A leg in Manual Payouts is reported by manual-payouts-overdue instead.',
     );
 
     const disputeVerdictMismatchAlarm = moneyLogAlarm(
@@ -1102,6 +1133,7 @@ export class MonitoringStack extends cdk.Stack {
           escrowCronErrorsAlarm,
           orderEscrowProblemsAlarm,
           manualPayoutsOverdueAlarm,
+          truckerPayoutsOverdueAlarm,
           adminQueueOverdueAlarm,
           disputeVerdictMismatchAlarm,
           disputeSettlementBlockedAlarm,

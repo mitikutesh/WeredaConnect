@@ -443,16 +443,20 @@ public class EscrowServiceSettlementRecoveryTests
     }
 
     [Fact]
-    public async Task Release_TruckerDefiniteRefusal_StillCompletesWithTruckerPayoutPending()
+    public async Task Release_TruckerDefiniteRefusal_StaysReleasedWithTruckerPayoutPending()
     {
         _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(withTrucker: true));
         FarmerPaidTruckerGets(() => new ReleaseFundsResponse { Success = false, ErrorCode = "TELEBIRR_RELEASE_FAILED" });
 
         var result = await _service.ReleaseAsync(ReleaseRequest(), EscrowService.SystemActor);
 
+        // ESC-04: the farmer is paid, the trucker leg waits for the hourly retry; never completed.
         result.IsSuccess.Should().BeTrue();
+        result.Value!.Status.Should().Be("released");
         await _escrowRepo.Received(1).UpdateStatusAsync(EscrowId, CreatedAt, "released", "escrowed",
             Arg.Is<Dictionary<string, object>>(f => (bool)f["truckerPayoutPending"]));
+        await _escrowRepo.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), "completed",
+            Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
         // The leg audit rows follow the status write (ESC-05).
         Received.InOrder(() =>
         {

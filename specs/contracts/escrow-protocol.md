@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.10.1
+1.11.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -77,8 +77,8 @@ Also:
 |-------|-------------|----------|
 | `initiated` | Buyer submitted payment intent; Telebirr HoldFunds call pending or in progress | No |
 | `escrowed` | Funds successfully held in platform Telebirr account | No |
-| `released` | Funds released to farmer's Telebirr (minus commission) | No |
-| `completed` | Farmer received funds; transaction fully settled | Yes |
+| `released` | Funds released to farmer's Telebirr (minus commission). With `truckerPayoutPending` the trucker leg is still owed and the escrow stays here until it is paid (1.11.0) | No |
+| `completed` | Every leg is paid (farmer and, when there is one, trucker); transaction fully settled | Yes |
 | `cancelled` | Buyer cancelled before funds were held | Yes |
 | `disputed` | Buyer or farmer raised a dispute within 48 hours of delivery | No |
 | `refunded` | Funds returned to buyer's Telebirr account | Yes |
@@ -99,7 +99,8 @@ state.
 | `escrowed` | `released` | Delivery confirmed AND dispute resolved in farmer's favor | Admin/System |
 | `escrowed` | `disputed` | Buyer or farmer raises dispute within 48 hours of delivery confirmation | Buyer or Farmer |
 | `escrowed` | `refunded` | Delivery not completed within 7 days of escrow | System (auto-refund) |
-| `released` | `completed` | Telebirr ReleaseFunds confirmed | System |
+| `released` | `completed` | Every leg paid: at release, by the hourly trucker retry, or by the manual payout close (1.11.0; never while `truckerPayoutPending`) | System/Admin |
+| `completed` | `released` | One-off `park_legacy_trucker_legs` migration only: a pre-1.11.0 escrow completed with its trucker leg unpaid (1.11.0) | System |
 | *(created as)* `escrowed` | — | Order funding verified (order-funded escrow, below) | System |
 | `disputed` | `dispute_resolved` | Admin verdict (`POST /admin/disputes/{id}/resolve`, 1.3.0) | Admin |
 | `dispute_resolved` | `released` | `farmer_wins`, settled by the hourly sweep (1.3.0) or an admin release (1.9.0) | System/Admin |
@@ -1282,7 +1283,7 @@ profile at settlement time, never to a client-supplied number. Before the settle
 | amount above 10,000 ETB and farmer not Fayda-verified | `403 ESCROW_029` |
 
 Every blocked release writes a `release_blocked_kyc` audit entry whose metadata names the reason.
-| trucker leg with an unverified trucker | farmer leg proceeds, trucker leg stays `truckerPayoutPending` |
+| trucker leg with an unverified trucker | farmer leg proceeds, trucker leg stays `truckerPayoutPending`; since 1.11.0 the escrow stays `released` and the hourly trucker retry pays the leg once the trucker passes the gate |
 
 A blocked release leaves the escrow untouched for an admin.
 
@@ -1632,8 +1633,9 @@ except an unknown outcome, which is queued as `GATEWAY_OUTCOME_UNKNOWN`).
   reference, queues it. When the farmer leg was paid by the gateway and only the trucker leg
   needs a manual payout, the farmer leg is seeded `paid` with its gateway reference
   (`paidBy = gateway`). If that
-  queue write keeps failing after the farmer was paid, the escrow completes with
-  `truckerPayoutPending = true` as before 1.8.0 (ESC-04) instead of stranding under a held lock.
+  queue write keeps failing after the farmer was paid, the escrow advances with
+  `truckerPayoutPending = true` instead of stranding under a held lock (1.11.0: it stays
+  `released`, and the hourly trucker retry pays or queues the leg).
 
 ### Row attributes (escrows table, flat)
 
@@ -1817,7 +1819,8 @@ duplicate refunds).
 - A leg the identity gate blocks (`ESCROW_029`: an unverified trucker, an escrow without
   `truckerId`, a buyer without a profile or phone) cannot be recorded and has no unqueue path.
   It stays in the queue and keeps `${prefix}-manual-payouts-overdue` in ALARM until the payee
-  verifies (ESC-04 owns the trucker backfill).
+  verifies. 1.11.0: a trucker leg recorded on an escrow without `truckerId` takes the order's
+  trucker when the delivery names the same one, and the list shows that trucker.
 - FRD-03 (`held`, 1.7.0): a queued escrow keeps its settlement lock, so the hold write
   (`attribute_not_exists(settlementLock)`) never holds it, and the cron queries already skip
   it. The reverse case is open: when FRD-03 lets an admin settle a `held` escrow and the live
@@ -1863,6 +1866,7 @@ or `LogText`).
 ```
 ESCROW_SETTLEMENT_FAILED escrowId=<id> action=<action> outcome=<failed|unknown> code=<code>
 MANUAL_PAYOUT_OVERDUE escrowId=<id> ref=<ref> ageHours=<n>
+TRUCKER_PAYOUT_OVERDUE escrowId=<id> reason=<reason> ageHours=<n>   (1.11.0)
 ADMIN_QUEUE_OVERDUE orderId=<id> reason=<code> ageHours=<n>
 ```
 
@@ -1874,7 +1878,7 @@ the gateway call): check the merchant portal before any manual release or refund
 
 | Where | action | outcome | code |
 |---|---|---|---|
-| `EscrowService`, with the `release_failed`, `refund_failed` and `trucker_release_failed` audit rows | the audit action | `unknown` when the code is `TELEBIRR_TIMEOUT`, `TELEBIRR_NETWORK`, `TELEBIRR_PREORDER`, `GATEWAY_EXCEPTION:<type>` (1.10.0) or `MANUAL_QUEUE_FAILED:<reason>` for any reason but `PAYOUT_NOT_SUPPORTED` (1.10.0; before: only `GATEWAY_REF_MISSING`), else `failed` | the gateway error code; `MANUAL_QUEUE_FAILED:<reason>` when the manual payout queue write failed (1.8.0); `-` when the trucker leg was skipped for an unverified trucker |
+| `EscrowService`, with the `release_failed`, `refund_failed` and `trucker_release_failed` audit rows | the audit action | `unknown` when the code is `TELEBIRR_TIMEOUT`, `TELEBIRR_NETWORK`, `TELEBIRR_PREORDER`, `GATEWAY_EXCEPTION:<type>` (1.10.0) or `MANUAL_QUEUE_FAILED:<reason>` for any reason but `PAYOUT_NOT_SUPPORTED` (1.10.0; before: only `GATEWAY_REF_MISSING`), else `failed` | the gateway error code; `MANUAL_QUEUE_FAILED:<reason>` when the manual payout queue write failed (1.8.0); before 1.11.0 `-` when the trucker leg was skipped for an unverified trucker (since 1.11.0 that is `trucker_release_blocked_kyc`, not counted) |
 | escrow-cron, exception while settling one escrow | `auto_release_exception`, `auto_refund_exception`, `dispute_settlement_exception` | `unknown` when the exception escaped after the settlement lock, `failed` before it (1.10.0) | exception type name |
 | escrow-cron, the `dispute_resolved` query failed (run skipped) | `sweep_failed` | `failed` | `dispute_query:<exception type>` |
 | escrow-cron, the `ManualPayoutIndex` query of the overdue report failed (1.8.0) | `sweep_failed` | `failed` | `manual_payout_query:<exception type>` |
@@ -1885,13 +1889,15 @@ the gateway call): check the merchant portal before any manual release or refund
 
 Who retries (1.10.0): after a line with `outcome=failed` the lock is released and the next hourly
 sweep retries (`release_failed`, `refund_failed`), or the escrow completes with
-`truckerPayoutPending` and nothing retries the trucker leg until ESC-04 (`trucker_release_failed`):
-pay the trucker by hand. After a line with `outcome=unknown` nothing retries: the escrow keeps its
+`truckerPayoutPending` (`trucker_release_failed`): since 1.11.0 it stays `released` and the hourly
+trucker retry pays the leg with the same reference; do not pay the trucker by hand. After a line with `outcome=unknown` nothing retries: the escrow keeps its
 lock and waits in Manual Payouts as `GATEWAY_OUTCOME_UNKNOWN` (or `GATEWAY_REF_MISSING`), at once or
 through the recovery step; check the portal before paying (Additions in 1.10.0).
 
-Not counted on purpose: `release_blocked_kyc` (a known wait for the farmer to verify), a
-lock-held `ESCROW_INVALID_TRANSITION` answer (no gateway call was made), a failed `complete`
+Not counted on purpose: `release_blocked_kyc` and (1.11.0) `trucker_release_blocked_kyc` (a known
+wait for the farmer or the trucker to verify; the trucker's is reported by `TRUCKER_PAYOUT_OVERDUE`
+after 24 hours), a lock-held
+`ESCROW_INVALID_TRANSITION` answer (no gateway call was made), a failed `complete`
 step (the money already moved) and the reconciliation of `initiated` escrows (funding side).
 A settlement queued for a manual payout (1.8.0) is not a failure either: `202 ESCROW_034`,
 audit `manual_payout_queued`, log lines `ESCROW_MANUAL_PAYOUT_QUEUED` and, on later sweeps,
@@ -1922,6 +1928,7 @@ manual payout alarm.
 | `${prefix}-escrow-settlement-unknown-outcomes` (1.10.0) | `ESCROW_SETTLEMENT_FAILED` lines with `outcome=unknown` in the escrow and escrow-cron log groups | same as settlement failures; the escrow is or will be in Manual Payouts as `GATEWAY_OUTCOME_UNKNOWN`: never release or refund it by hand |
 | `${prefix}-order-escrow-problems` | `ORDER_ESCROW_CREATE_FAILED`, `ORDER_ESCROW_LINK_FAILED`, `ORDER_ESCROW_REFUND_SCHEDULE_FAILED` in the sync log group (replaces `${prefix}-order-escrow-create-failed`) | any line in 15 minutes |
 | `${prefix}-manual-payouts-overdue` | `MANUAL_PAYOUT_OVERDUE` in the escrow-cron log group | any line in 15 minutes, same hold and clear as settlement failures; a leg that stays blocked keeps it in ALARM (1.8.0 known limits). The admin acts on the Manual Payouts page (`/payouts`) |
+| `${prefix}-trucker-payouts-overdue` (1.11.0) | `TRUCKER_PAYOUT_OVERDUE` in the escrow-cron log group | same as manual payouts overdue: a trucker leg still owed (not queued) more than 24 hours after it went pending; see Additions in 1.11.0 |
 | `${prefix}-admin-queue-overdue` | `ADMIN_QUEUE_OVERDUE` in the escrow-cron log group | same |
 
 `scripts/money_alarms_synthetic.sh` checks that the deployed filters match these exact lines
@@ -2120,7 +2127,7 @@ the farmer was paid queues the farmer leg `paid` (`paidBy = gateway`, its refere
 trucker leg `pending`. If that queue write keeps failing, a `PAYOUT_NOT_SUPPORTED` trucker leg
 still falls back to `truckerPayoutPending` (1.8.0, nothing moved for the trucker); any other
 reason keeps the lock and never completes, so `truckerPayoutPending` only ever means a definite
-refusal or an unverified trucker (safe for ESC-04 to retry). Refund: the buyer leg.
+refusal or an unverified trucker, which is why 1.11.0 may retry it. Refund: the buyer leg.
 
 When an unknown outcome cannot be queued after 4 attempts, the call answers `502 ESCROW_013`
 ("the gateway may already have paid ... not retried"), the lock and the idempotency record stay,
@@ -2260,10 +2267,171 @@ Clients (mobile and web) see no change: the escrow keeps its status.
 
 ---
 
+## Additions in 1.11.0 (trucker leg retry, ESC-04)
+
+Before 1.11.0 a release whose trucker leg was refused, or whose trucker failed the payout gate,
+still moved the escrow to `completed` with `truckerPayoutPending = true`, nothing ever read that
+flag, and the block reason was lost (the audit row said `code=-`). An escrow could be completed
+with a leg unpaid, silently.
+
+### The rule
+An escrow is `completed` only once every leg is paid. `released` means the farmer is paid; with
+`truckerPayoutPending = true` the trucker leg is still owed and the escrow stays `released` until the
+hourly trucker retry pays it, or an admin records it in Manual Payouts. The repository refuses a move
+to `completed` while `truckerPayoutPending` or `manualPayout` is set, so no writer (the release, the
+crash recovery, a manual close) can complete an escrow with a leg owed.
+
+`truckerPayoutPending` is only set where nothing moved for the trucker (1.10.0): a definite gateway
+refusal, a `PAYOUT_NOT_SUPPORTED` leg whose queue write failed, or a trucker the gate blocks (no
+call). That is what makes a retry with the same reference safe.
+
+### Release
+`POST /escrow/release` (and the sweeps) with a pending trucker leg answer `200` with
+`"status": "released"`, `truckerTelebirrRef: null` and the message "Farmer paid. The transport payout
+is pending and is retried every hour." No `completed` write follows. A trucker blocked by the payout
+gate is audited `trucker_release_blocked_kyc` (metadata `code=ESCROW_029;reason=<reason>`, no money
+alarm, like `release_blocked_kyc`); a definite refusal stays `trucker_release_failed` with its code.
+
+### Row attributes (escrows table)
+
+| Attribute | Value |
+|---|---|
+| `truckerPayoutPending` | `true` while the trucker leg is owed; removed when the leg is recorded (before 1.11.0 never removed) |
+| `truckerPayoutPendingSince` | ISO time the leg went pending; the overdue alarm counts from it (fallback `releasedAt`). Written with every pending flag since 1.11.0, so a pending leg without it is legacy (see Legacy rows) |
+| `truckerPayoutBlockReason` | `no_trucker`, `profile_missing`, `phone_unverified`, `fayda_required` or `trucker_mismatch`; written as a compare-and-set, so each value is audited once; removed when the gate passes |
+| `truckerPayoutBlockReasonAt` | ISO time the reason was set: the key of its `trucker_release_blocked_kyc` row (written with a conditional put), which every run that sees the same reason re-ensures, so a row lost after the reason was stored comes back |
+| `truckerPayoutLockId`, `truckerPayoutLockAt` | the trucker retry's lock (random id, ISO time); the release's `settlementLock` stays on a released row and is not reused |
+| `truckerPaidAt` | ISO time the trucker leg was recorded |
+
+### Trucker retry (escrow-cron, hourly)
+Last in `auto_release_and_refund`, after the crash recovery:
+
+1. Reads `StatusExpiresIndex` for `released` rows with `truckerPayoutPending = true` and no
+   `manualPayout`, oldest `expiresAt` first, up to 500 rows (more logs `ESCROW_SETTLEMENT_FAILED
+   escrowId=- action=sweep_truncated outcome=failed code=trucker_retry_query:500`; a failed query logs
+   `sweep_failed outcome=failed code=trucker_retry_query:<type>`). The crash recovery's query leaves
+   these rows out. A leg that went pending in this run waits for the next one.
+2. Per row, a strongly consistent read of the base row; a row no longer released, pending and
+   unqueued is skipped. A pending leg without `truckerPayoutPendingSince` was left by the code before
+   1.11.0 (a crash between the released and completed writes) and is parked as a legacy row (see
+   Legacy rows), never retried.
+3. A trucker lock younger than 15 minutes is left to its owner. An older one has no living owner and
+   its gateway call may have paid: the leg is parked in Manual Payouts as `GATEWAY_OUTCOME_UNKNOWN`
+   (fenced on the same lock id, `manualPayoutParkId`, silent when another run parked it first), alarm
+   `stale_lock_parked outcome=unknown code=release:trucker`, audit `stale_lock_parked` (metadata
+   `op=release;leg=trucker;lockedAt=..;ageMinutes=..`) and `manual_payout_queued`. Never released.
+4. An escrow without `truckerId` takes the order's `truckerId`, only when the escrow's delivery
+   names the same trucker (the delivery's `truckerId` never changes); audit `trucker_backfilled`
+   (`source=order;truckerId=..`). An order without one is `no_trucker`; a delivery that cannot be
+   read or names another trucker is `trucker_mismatch`, and nothing is written.
+5. The payout gate (phone, and Fayda above 10,000 ETB on the transport leg); without a profile
+   repository the retry fails closed (`gate_unavailable`). A blocked trucker is not called: the reason
+   is stored and audited once per value.
+6. A trucker lock (`#status = released AND truckerPayoutPending AND no lock AND no manualPayout`; a
+   lost answer is recognised by the lock id) is taken only with more than 90 seconds of the run left
+   (the gateway's 30 second timeout plus the writes after it) and below 25 gateway calls per run.
+   The gateway is called at once with `release:<escrowId>:trucker`, the hold reference, the trucker's
+   registered phone and the transport leg; an exception from here on is an unknown outcome
+   (`trucker_retry_exception outcome=unknown`).
+
+| Answer | What happens |
+|---|---|
+| success with a reference | one write fenced on the lock id: `completed`, `truckerTelebirrRef`, `truckerPaidAt`, `completedAt`, the pending flag, block reason and lock removed (4 attempts; a failed condition whose consistent re-read shows our reference counts as written; otherwise `ESCROW_SETTLEMENT_PAID_UNRECORDED` and the lock stays for step 3). Audit `trucker_release` (metadata `source=retry`) at `truckerPaidAt` and `complete` (`trucker_retry`) at `completedAt`, one 100 ns tick later, both at deterministic keys |
+| `PAYOUT_NOT_SUPPORTED`, success without a reference | the trucker leg goes to Manual Payouts (op `release`, from status `released`, the farmer leg seeded `paid` by `gateway` with `telebirrReleaseRef` at `releasedAt`), fenced on the trucker lock, which stays. If the queue write fails 4 times: `PAYOUT_NOT_SUPPORTED` releases the lock (nothing moved) and audits `MANUAL_QUEUE_FAILED:PAYOUT_NOT_SUPPORTED`; `GATEWAY_REF_MISSING` keeps it for step 3 |
+| unknown (`TELEBIRR_TIMEOUT`, `TELEBIRR_NETWORK`, `TELEBIRR_PREORDER`, no answer, `GATEWAY_EXCEPTION:*`) | audit `trucker_release_failed` with the code (`outcome=unknown`), queued as `GATEWAY_OUTCOME_UNKNOWN`, lock kept, never retried |
+| any other code | a definite refusal: the lock goes first, then `trucker_release_failed` with the code (`outcome=failed`); the next run retries with the same reference |
+
+Every leg still owed and not queued more than 24 hours after `truckerPayoutPendingSince` logs, once
+per run, `TRUCKER_PAYOUT_OVERDUE escrowId=<id> reason=<reason> ageHours=<n>` (a `LogWarning`), with
+the block reason or why the run did not pay it (`gateway_refused`, `queue_failed`, `in_flight`,
+`deferred`, `error`). The run summary gains `truckerLegsPaid`, `truckerLegsQueued`,
+`truckerLegsBlocked`, `truckerLegsFailed`, `truckerLegsDeferred` and `truckerLegsOverdue`.
+
+### Manual Payouts on a released escrow
+A trucker leg queued on a `released` escrow (from status `released`) closes too: the close condition
+accepts `released` when `manualPayoutFromStatus` is `released`. Recording it moves the escrow straight
+to `completed` in the closing write (`truckerTelebirrRef`, `truckerPaidAt`, `completedAt`, the
+pending flag, block reason and lock removed); `releasedAt` and `telebirrReleaseRef` stay as the release
+wrote them. Audit `manual_payout_paid` (from = to = `released`) and `complete` (`manual`) at
+`completedAt`, no `release` row; a replay re-ensures the same rows. `GET /admin/payouts/manual` shows
+such an item with `escrowStatus` and `fromStatus` `released` and `settlementLockedAt` set to the trucker
+lock time. A trucker leg of an escrow without `truckerId` shows (and, when recorded, keeps) the order's
+trucker under the rule of step 4; `trucker_mismatch` or `no_trucker` answer `409 ESCROW_029`. No admin
+page or string change.
+
+### Legacy rows (`park_legacy_trucker_legs`)
+A trucker leg left pending before 1.11.0 has no `truckerPayoutPendingSince`, and the 1.8.1 runbook said
+to pay such a leg by hand, so it is never retried. A legacy row is moved to `released` with the leg queued
+as `GATEWAY_OUTCOME_UNKNOWN` in one write conditional on the same status, the leg pending without a
+pending time or trucker lock, and no queue entry (`completedAt` removed, `truckerPayoutPendingSince` =
+the old `completedAt` or `releasedAt`; the order's trucker is backfilled first under step 4). Alarm
+`legacy_trucker_parked outcome=unknown code=release:trucker`, audit `legacy_trucker_parked` (from the
+old status to `released`, metadata `legacy=true;fromStatus=..;completedAt=..`) and `manual_payout_queued`.
+Never calls the gateway.
+
+- A `released` legacy row (a crash between the two writes) is parked by the hourly trucker retry
+  (step 2), whose run summary counts it as queued.
+- A `completed` legacy row (a release that completed without the leg) is parked by the escrow-cron
+  action `park_legacy_trucker_legs` (no schedule; `deploy-server.yml` invokes it after every successful
+  deploy with `{"body": "{\"action\":\"park_legacy_trucker_legs\"}"}`, retrying with backoff on
+  throttling or a grant that has not propagated yet). It reads the `completed` partition for such rows (up
+  to 5000), answers `200` with `found`, `parked`, `failed`, `truncated`, `marker` and `skipped`, or `500`
+  when a row could not be parked (`legacy_trucker_park_failed`). Idempotent. The CI deploy role may
+  invoke only escrow-cron (`InvokeEscrowCronAfterDeploy`).
+- Bounded by a marker in the escrow idempotency table (`migration:esc-04:park_legacy_trucker_legs`,
+  30-day TTL): the first run that finds nothing writes `clean`; a later run that finds nothing at least
+  15 minutes after that writes `done`; a `done` marker skips the read. The two clean runs apart catch a
+  release that a Lambda instance still running the old code completed with the leg unpaid after the
+  deploy's first run. Until the marker is done such a row waits for the next deploy's run: the hourly
+  retry and the overdue report read only `released` rows. Deleting the marker makes the next deploy read
+  again.
+
+### Alarms
+New `${prefix}-trucker-payouts-overdue` (metric `TruckerPayoutsOverdue` from the `TRUCKER_PAYOUT_OVERDUE`
+filter on escrow-cron, 15 minute periods, 5 periods, any line alarms). Runbook: `phone_unverified` or
+`fayda_required`: ask the trucker to verify, the next hourly run pays (with the live gateway it moves to
+Manual Payouts); `no_trucker`, `profile_missing` or `trucker_mismatch`: no payable trucker; the hourly
+run copies the truckerId from the order when the delivery agrees, otherwise the leg has no payee until
+ESC-20: escalate, never edit the escrow row by hand; `gateway_refused`, `queue_failed`: see
+settlement failures. A `trucker_release_failed outcome=failed` line no longer means "pay the trucker by
+hand".
+
+### Roles and clients
+Farmer and buyer: unaffected (the farmer is paid at release; `released` already reads "Funds sent to
+farmer"). Trucker: paid by the retry; while the leg waits the escrow reads `released` instead of a false
+`completed`. No wire, model or string change for mobile, web or admin. Account deletion is unchanged:
+a `released` escrow already blocks every party (account-deletion 1.0.0).
+
+### Not in 1.11.0 (known limits)
+- No attempt cap on definite refusals: the leg is retried every hour and alarms each time, like the
+  farmer leg (ESC-20 moves a leg to `manual` after 3 failures).
+- A trucker who never verifies keeps the leg owed and `trucker-payouts-overdue` in ALARM; the buyer
+  cannot get the transport leg back until ESC-20 (`refund#transport`).
+- A two-leg Manual Payouts entry (the live gateway queues farmer and trucker at once) still holds a
+  blocked trucker leg as in 1.8.0, and recording the farmer leg alone leaves the escrow `escrowed`
+  until the trucker leg is recorded.
+- Pending trucker legs past the first 500 of the `released` partition are neither retried nor
+  reported overdue in that run (the truncation line alarms instead).
+- ESC-09 (order follows the money) should keep the order `disbursing` while the escrow is `released`
+  and move it to `settled` only on `completed`.
+- The `trucker_release` and `complete` rows after a retry payment sit at deterministic keys, but a row
+  lost after the record write is not re-ensured: the completed escrow leaves the retry query. The escrow
+  row keeps `truckerTelebirrRef`, `truckerPaidAt` and `completedAt` (as for the 1.10.0 settled rows).
+- O4: a retry can run days after the release; a trucker suspended since then is still paid if verified.
+  Blocking suspended payees belongs to FRD and would change the release gate too.
+- O7: a future B2B gateway may answer "duplicate reference" on a reused `release:{id}:trucker` after an
+  earlier refusal; that answer must be classified as maybe-paid (queued, never retried) when B2B or
+  ESC-45 lands.
+- ESC-20 (ledger) replaces the trucker lock, the retry and the legacy action with a
+  `release#trucker#{id}` row.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.11.0 | 2026-10-10 | Trucker leg retry (ESC-04): an escrow is `completed` only once every leg is paid (the repository refuses `completed` while `truckerPayoutPending` or `manualPayout` is set); a release with a pending trucker leg stays `released` and answers `status: released`; a gate-blocked trucker is audited `trucker_release_blocked_kyc` with its reason (no money alarm) and the reason is stored once per value (compare-and-set); new row attributes `truckerPayoutPendingSince`, `truckerPayoutBlockReason`, `truckerPayoutLockId`, `truckerPayoutLockAt`, `truckerPaidAt`; hourly trucker retry last in the run (after the crash recovery) under its own lock, only with time left (90 s) and up to 25 gateway calls, with the stable reference `release:<id>:trucker`: paid completes in one fenced write (deterministic `trucker_release` and `complete` rows), not supported, no reference or unknown queues the leg on the released row, a definite refusal releases the lock for the next run, a stale trucker lock is parked as `GATEWAY_OUTCOME_UNKNOWN`; truckerId backfilled from the order only when the delivery names the same trucker (`trucker_mismatch` otherwise), also when an admin records the leg; Manual Payouts closes a trucker leg on a released escrow straight to `completed` without touching the release; pre-1.11.0 trucker legs (no pending time) are parked in the queue as `GATEWAY_OUTCOME_UNKNOWN`, never retried: released ones by the hourly retry, completed ones by `park_legacy_trucker_legs`, which the server deploy invokes (with retries) until a marker says two clean runs found nothing; the block reason's audit row sits at `truckerPayoutBlockReasonAt` and is re-ensured; new token `TRUCKER_PAYOUT_OVERDUE` and alarm `trucker-payouts-overdue`; `sweep_truncated`, `trucker_retry_exception`, `legacy_trucker_parked` and `legacy_trucker_park_failed` lines; the crash recovery and the cron status queries skip pending trucker legs; no client change |
 | 1.10.1 | 2026-10-09 | App side of the order checkout (ESC-44): when the mobile and web apps request it, how they reuse an open checkout, poll the order and tell the `ESCROW_030` causes apart, and localized `ESCROW_030` to `ESCROW_033`; no server or wire change |
 | 1.10.0 | 2026-10-09 | No double pay, no stuck lock (ESC-05): a gateway timeout, lost or unreadable answer (`TELEBIRR_NETWORK`, also for the live preOrder's unreadable 200 or missing `prepay_id`) or a call that threw (`GATEWAY_EXCEPTION:<type>`) keeps the settlement lock and parks the escrow in the manual payout queue with the new reason `GATEWAY_OUTCOME_UNKNOWN` (`202 ESCROW_034`, unknown-outcome message), never a blind retry; a `GATEWAY_REF_MISSING` queue write is retried and never releases the lock (FUP-03); only a definite refusal releases the lock (lock first, then the audit row); an unknown trucker leg is queued with the farmer leg paid, and never falls back to `truckerPayoutPending`; payout destinations and the refund phone are read before the lock and the idempotency record after the gateway answered; the `refunded` write retries like the `released` write, and a condition failure after a lost commit counts as written; the lock carries `settlementLockAt` and `settlementLockId` (a lost answer on the lock write is recognised by the id), and releasing it is a no-op on a queued row; hourly recovery step parks a lock older than 15 minutes on `escrowed`, `dispute_resolved` or (legacy) `disputed` rows, fenced on the lock and status, silent when it loses a race (`manualPayoutParkId`), audited `stale_lock_parked`, never calling the gateway; auto-refund skips a locked row before any delivery or order write; the release, refund and crash-recovery queries fail on their own (`sweep_failed outcome=failed`); `outcome=unknown` only after the lock (exceptions before it are `failed`); new alarm `escrow-settlement-unknown-outcomes` (FUP-06); manual payout list items gain `settlementLockedAt` and legs `gatewayRef`, plus `disputeResolution` with a warning when the parked operation goes against the verdict; a settled status found by a consistent re-read after any failed condition counts as written; exceptions after the settled status write log `outcome=failed`; a park write that throws on a still-unparked lock alarms `stale_lock_recovery_failed`; auto-refund re-reads the base row strongly consistent before any side effect; admin page strings in en/am/om; no client change |
 | 1.9.0 | 2026-10-09 | Dispute verdicts settle (ESC-03): the settlement lock requires the exact status the caller validated, settleable `escrowed` and `dispute_resolved` (`dispute_resolved` added, `disputed` removed); release and refund of a `disputed` escrow refused (`422`, verdict first), and of a `dispute_resolved` escrow only the way its verdict says (`farmer_wins` releases, `buyer_wins` refunds; legacy verdicts either way); `POST /admin/disputes/{id}/resolve` admin group only (`403 ESCROW_015`), `resolution` `farmer_wins` or `buyer_wins` with a matching `action` (`400 ADMIN_014`; `partial_refund` refused until ESC-20), refused while a settlement holds the lock (`409 ADMIN_010`), same-verdict replay answers `200` with the current status; the order and delivery follow the verdict at the verdict and again before settlement (`DisputeVerdictMirror`; order hops to `dispute_resolved`, delivery stamped `disputeResolution`/`disputeResolvedAt`, both legs decided before any write), `buyer_wins` refunds a cancelled or rejected order as it is and cancels an order before pickup (pending delivery cancelled, stock restored) before refunding; a verdict whose order cannot follow it is not settled (`422`, `DISPUTE_VERDICT_ORDER_MISMATCH` and the `dispute-verdict-order-mismatch` alarm), with an admin-group override (`overrideOrderMismatch` and a reason) for a `buyer_wins` whose goods are moving, never for `farmer_wins`; a failed order or delivery read, or a `buyer_wins` cancel or restock that did not land, fails closed (`503 ESCROW_012`, `DISPUTE_VERDICT_SETTLEMENT_BLOCKED` and the `dispute-verdict-settlement-blocked` alarm when blocked in three of four hourly periods, one `dispute_settlement_blocked` audit row); failures audited once per escrow and action at the verdict time plus one or two ticks (`dispute_verdict_mismatch`, `dispute_verdict_propagation_failed`); transaction-audit rows for every hop; `escrowed -> disputed` refused while a settlement holds the lock (`409 ESCROW_INVALID_TRANSITION`; a sync delivery dispute is not frozen, audited `dispute_refused_settlement_in_flight`); `dispute_resolved` counts as an active escrow; escrow and escrow-cron Lambdas get `TRANSACTION_AUDIT_TABLE` (`PutItem` only); `ADMIN_010` and `ADMIN_014` localized in admin (en/am/om) |
@@ -2286,6 +2454,6 @@ Clients (mobile and web) see no change: the escrow keeps its status.
 
 ---
 
-**Last Updated**: 2026-10-09
-**Version**: 1.10.0
+**Last Updated**: 2026-10-10
+**Version**: 1.11.0
 **Status**: Draft (Phase R4)

@@ -12,6 +12,8 @@ namespace WeredaConnect.Server.Functions;
 /// Routes based on "action" field in the request body:
 ///   - auto_release_and_refund (hourly): release confirmed + refund expired escrows
 ///   - reconciliation (every 6h): reconcile stuck "initiated" escrows with Telebirr
+///   - park_legacy_trucker_legs (no schedule; the server deploy invokes it, ESC-04): queue the
+///     trucker legs of escrows completed before ESC-04 without them
 ///
 /// Accepts APIGatewayProxyRequest for compatibility with the existing Lambda bootstrap.
 /// EventBridge rule passes the action payload in the request body as JSON.
@@ -37,6 +39,8 @@ public class EscrowCronFunction
     // Optional: lets a cancelled stale-funded order give its listing stock back
     // (SIM-13). Absent env → the cancel and refund still happen, stock is not restored.
     private readonly ICropRepository? _cropRepo;
+    // Optional: holds the ESC-04 legacy action's done marker. Absent → the action always runs.
+    private readonly IEscrowIdempotencyRepository? _idempotencyRepo;
 
     /// <summary>
     /// Order statuses that mean the trade is actively progressing toward delivery —
@@ -73,6 +77,32 @@ public class EscrowCronFunction
     /// <summary>ESC-05: stale settlement locks parked per status per run.</summary>
     private const int StaleLockBatchSize = 50;
 
+    /// <summary>
+    /// ESC-04: pending trucker legs read per run (the released partition holds little else), and
+    /// gateway calls per run. Rows past the read cap log a truncation alarm line.
+    /// </summary>
+    private const int TruckerRetryMaxRows = 500;
+    private const int MaxTruckerGatewayCallsPerRun = 25;
+
+    /// <summary>
+    /// ESC-04: a trucker lock is taken only with more time left than this: the gateway's 30 second
+    /// timeout plus a margin for the writes after it, so the 5 minute run is never killed under a lock.
+    /// </summary>
+    internal static readonly TimeSpan TruckerRetryTimeReserve = TimeSpan.FromSeconds(90);
+
+    /// <summary>ESC-04: legacy rows the one-off action reads in one invocation.</summary>
+    private const int LegacyTruckerMaxRows = 5000;
+
+    /// <summary>
+    /// ESC-04: the legacy action's marker in the escrow idempotency table (30-day TTL, so the action
+    /// reads the completed partition again at most a few times a month). <c>clean</c> after the first
+    /// run that found nothing, <c>done</c> after a second clean run at least
+    /// <see cref="LegacyTruckerSettleTime"/> later; a done marker skips the read. Two clean runs apart
+    /// catch a release that an instance still running the old code completed after the first one.
+    /// </summary>
+    internal const string LegacyTruckerMarkerKey = "migration:esc-04:park_legacy_trucker_legs";
+    internal static readonly TimeSpan LegacyTruckerSettleTime = TimeSpan.FromMinutes(15);
+
     private const int ReconciliationStaleMinutes = 30;
 
     /// <summary>
@@ -102,6 +132,7 @@ public class EscrowCronFunction
         _escrowRepo = new EscrowRepository(dynamoDb, escrowsTable);
         _auditRepo = new EscrowAuditRepository(dynamoDb, auditTable);
         var idempotencyRepo = new EscrowIdempotencyRepository(dynamoDb, idempotencyTable);
+        _idempotencyRepo = idempotencyRepo;
         _telebirrGateway = CreateTelebirrGateway();
 
         // Optional: only wired when the deliveries table is provisioned for this
@@ -149,7 +180,8 @@ public class EscrowCronFunction
         ITelebirrGateway telebirrGateway,
         IDeliveryRepository? deliveryRepo = null,
         IOrderRepository? orderRepo = null,
-        ICropRepository? cropRepo = null)
+        ICropRepository? cropRepo = null,
+        IEscrowIdempotencyRepository? idempotencyRepo = null)
     {
         _escrowService = escrowService ?? throw new ArgumentNullException(nameof(escrowService));
         _escrowRepo = escrowRepo ?? throw new ArgumentNullException(nameof(escrowRepo));
@@ -158,6 +190,7 @@ public class EscrowCronFunction
         _deliveryRepo = deliveryRepo;
         _orderRepo = orderRepo;
         _cropRepo = cropRepo;
+        _idempotencyRepo = idempotencyRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -191,7 +224,7 @@ public class EscrowCronFunction
         if (string.IsNullOrEmpty(action))
         {
             return LambdaResponse.Error(400, "ESCROW_CRON_VALIDATION",
-                "Missing 'action' field. Expected: auto_release_and_refund, reconciliation.");
+                "Missing 'action' field. Expected: auto_release_and_refund, reconciliation, park_legacy_trucker_legs.");
         }
 
         var safeAction = action.Length > 50 ? action[..50] : action;
@@ -203,8 +236,9 @@ public class EscrowCronFunction
             {
                 "auto_release_and_refund" => await HandleAutoReleaseAndRefundAsync(context),
                 "reconciliation" => await HandleReconciliationAsync(context),
+                "park_legacy_trucker_legs" => await HandleParkLegacyTruckerLegsAsync(context),
                 _ => LambdaResponse.Error(400, "ESCROW_CRON_VALIDATION",
-                    $"Unknown action '{safeAction}'. Expected: auto_release_and_refund, reconciliation.")
+                    $"Unknown action '{safeAction}'. Expected: auto_release_and_refund, reconciliation, park_legacy_trucker_legs.")
             };
         }
         catch (Exception ex)
@@ -229,6 +263,7 @@ public class EscrowCronFunction
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleAutoReleaseAndRefundAsync(ILambdaContext context)
     {
+        var runStart = DateTime.UtcNow;
         _manualPayoutsWaiting = 0;
         // First and self-contained, so a failing sweep below can never skip the overdue alarm lines.
         var overdueCount = await ReportOverdueManualPayoutsAsync(context);
@@ -238,6 +273,8 @@ public class EscrowCronFunction
         var refundCount = await AutoRefundAsync(context);
         var (settledReleases, settledRefunds) = await SettleResolvedDisputesAsync(context);
         var completedCount = await CompleteReleasedAsync(context);
+        // ESC-04: last, so the money sweeps above keep their share of the 5 minute run.
+        var trucker = await RetryPendingTruckerLegsAsync(context, runStart);
 
         var summary = new Dictionary<string, string>
         {
@@ -249,6 +286,12 @@ public class EscrowCronFunction
             { "manualPayoutsWaiting", _manualPayoutsWaiting.ToString() },
             { "manualPayoutsOverdue", overdueCount.ToString() },
             { "staleLocksParked", parkedCount.ToString() },
+            { "truckerLegsPaid", trucker.Paid.ToString() },
+            { "truckerLegsQueued", trucker.Queued.ToString() },
+            { "truckerLegsBlocked", trucker.Blocked.ToString() },
+            { "truckerLegsFailed", trucker.Failed.ToString() },
+            { "truckerLegsDeferred", trucker.Deferred.ToString() },
+            { "truckerLegsOverdue", trucker.Overdue.ToString() },
             { "completedAt", DateTime.UtcNow.ToString("o") }
         };
 
@@ -256,7 +299,8 @@ public class EscrowCronFunction
             $"Auto-release/refund complete: {releaseCount} released, {refundCount} refunded, "
             + $"{settledReleases + settledRefunds} resolved disputes settled, {completedCount} crash-recovered to completed, "
             + $"{_manualPayoutsWaiting} waiting for a manual payout, {overdueCount} manual payout legs overdue, "
-            + $"{parkedCount} stale settlement locks parked.");
+            + $"{parkedCount} stale settlement locks parked, trucker legs: {trucker.Paid} paid, {trucker.Queued} queued, "
+            + $"{trucker.Blocked} blocked, {trucker.Failed} failed, {trucker.Deferred} deferred, {trucker.Overdue} overdue.");
 
         return new APIGatewayProxyResponse
         {
@@ -902,7 +946,9 @@ public class EscrowCronFunction
     ///
     /// If Lambda crashes between the two writes the escrow is permanently stuck in "released".
     /// Money has already moved at this point so no Telebirr call is required — we only need
-    /// to write the final status and append an audit entry.
+    /// to write the final status and append an audit entry. ESC-04: a released escrow whose
+    /// trucker leg is still owed is not stuck: the query leaves it to the trucker retry, and the
+    /// repository refuses to complete it.
     /// </summary>
     private async Task<int> CompleteReleasedAsync(ILambdaContext context)
     {
@@ -949,6 +995,245 @@ public class EscrowCronFunction
 
         return completedCount;
     }
+
+    /// <summary>What the trucker retry did this run (ESC-04).</summary>
+    private sealed class TruckerRetryCounts
+    {
+        public int Paid { get; set; }
+        public int Queued { get; set; }
+        public int Blocked { get; set; }
+        public int Failed { get; set; }
+        public int Deferred { get; set; }
+        public int Overdue { get; set; }
+    }
+
+    /// <summary>
+    /// ESC-04 trucker retry, last in the run: every released escrow whose trucker leg is still owed
+    /// and not queued, oldest first (<see cref="EscrowService.RetryTruckerLegAsync"/>). A leg that
+    /// went pending in this run waits for the next one. A trucker lock (and so a gateway call) is
+    /// taken only while the run has more than <see cref="TruckerRetryTimeReserve"/> left and fewer
+    /// than <see cref="MaxTruckerGatewayCallsPerRun"/> calls were made. Every leg still owed more
+    /// than 24 hours after it went pending logs <c>TRUCKER_PAYOUT_OVERDUE</c>, so none waits silently.
+    /// A failed query logs <c>sweep_failed</c>; rows past the read cap log <c>sweep_truncated</c>.
+    /// </summary>
+    private async Task<TruckerRetryCounts> RetryPendingTruckerLegsAsync(ILambdaContext context, DateTime runStart)
+    {
+        var counts = new TruckerRetryCounts();
+        var rows = await QuerySweepAsync(context, "trucker_retry_query",
+            () => _escrowRepo.QueryPendingTruckerLegsAsync(TruckerRetryMaxRows + 1));
+        if (rows.Count > TruckerRetryMaxRows)
+        {
+            // O5: the rows past the cap are neither retried nor reported overdue this run.
+            context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                null, "sweep_truncated", MoneyAlarmLog.OutcomeFailed, $"trucker_retry_query:{TruckerRetryMaxRows}"));
+            context.Logger.LogWarning(
+                $"Trucker retry read stopped after {TruckerRetryMaxRows} rows; the newer pending trucker legs wait for a later run.");
+            rows = rows.Take(TruckerRetryMaxRows).ToList();
+        }
+
+        var now = DateTime.UtcNow;
+        var gatewayCalls = 0;
+        foreach (var row in rows)
+        {
+            var escrowId = GetStringOrNull(row, "escrowId");
+            EscrowService.TruckerRetryResult result;
+            if (ParseUtc(GetStringOrNull(row, TruckerPayoutFields.PendingSince)) is { } since && since >= runStart)
+            {
+                result = new(EscrowService.TruckerRetryOutcome.Deferred, "pending_this_run");
+            }
+            else
+            {
+                var mayCallGateway = gatewayCalls < MaxTruckerGatewayCallsPerRun
+                                     && context.RemainingTime > TruckerRetryTimeReserve;
+                try
+                {
+                    result = await _escrowService.RetryTruckerLegAsync(row, now, mayCallGateway);
+                }
+                catch (Exception ex)
+                {
+                    // Unknown when the exception escaped after the trucker lock (ESC-05 rule).
+                    context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                        escrowId, "trucker_retry_exception", MoneyAlarmLog.ExceptionOutcome(ex), ex.GetType().Name));
+                    result = new(EscrowService.TruckerRetryOutcome.Failed, "error");
+                }
+
+                if (result.Outcome is EscrowService.TruckerRetryOutcome.Paid or EscrowService.TruckerRetryOutcome.Failed
+                    || (result.Outcome == EscrowService.TruckerRetryOutcome.Queued && result.Reason is not ("stale_lock" or "legacy")))
+                {
+                    gatewayCalls++;
+                }
+            }
+
+            switch (result.Outcome)
+            {
+                case EscrowService.TruckerRetryOutcome.Paid:
+                    counts.Paid++;
+                    break;
+                case EscrowService.TruckerRetryOutcome.Queued:
+                    counts.Queued++;
+                    break;
+                case EscrowService.TruckerRetryOutcome.Blocked:
+                    counts.Blocked++;
+                    break;
+                case EscrowService.TruckerRetryOutcome.Failed:
+                    counts.Failed++;
+                    break;
+                case EscrowService.TruckerRetryOutcome.Deferred:
+                case EscrowService.TruckerRetryOutcome.InFlight:
+                    counts.Deferred++;
+                    break;
+            }
+
+            if (result.Outcome is EscrowService.TruckerRetryOutcome.Skipped or EscrowService.TruckerRetryOutcome.Paid
+                or EscrowService.TruckerRetryOutcome.Queued)
+            {
+                continue;
+            }
+
+            var pendingSince = ParseUtc(GetStringOrNull(row, TruckerPayoutFields.PendingSince))
+                               ?? ParseUtc(GetStringOrNull(row, "releasedAt"))
+                               ?? ParseUtc(GetStringOrNull(row, "updatedAt"));
+            var age = pendingSince is { } at ? now - at : MoneyAlarmLog.QueueAlarmAfter; // unreadable time: overdue
+            if (age >= MoneyAlarmLog.QueueAlarmAfter)
+            {
+                context.Logger.LogWarning(MoneyAlarmLog.TruckerPayoutOverdue(escrowId, result.Reason ?? "pending", (int)age.TotalHours));
+                counts.Overdue++;
+            }
+        }
+
+        return counts;
+    }
+
+    /// <summary>
+    /// ESC-04 legacy action (<c>park_legacy_trucker_legs</c>, invoked by the server deploy, never
+    /// scheduled): a <c>completed</c> escrow still flagged <c>truckerPayoutPending</c> was completed
+    /// before ESC-04 without its trucker leg, which the old runbook said to pay by hand. Each one goes
+    /// back to <c>released</c> with the leg in the manual payout queue as
+    /// <c>GATEWAY_OUTCOME_UNKNOWN</c> (<see cref="EscrowService.ParkLegacyTruckerLegAsync"/>), never
+    /// retried. Idempotent: a parked row is no longer in the query. Answers 500 when a row could not
+    /// be parked, so the deploy step fails visibly; a re-run picks it up. Bounded: once the marker
+    /// (<see cref="LegacyTruckerMarkerKey"/>) is done, a run reads nothing. A release completed by an
+    /// instance still running the old code after a run waits for the next deploy's run. A released
+    /// legacy row (no pending time) is parked by the hourly trucker retry instead.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleParkLegacyTruckerLegsAsync(ILambdaContext context)
+    {
+        var marker = await ReadLegacyMarkerAsync(context);
+        var markerStatus = marker != null ? GetStringOrNull(marker, "status") : null;
+        if (markerStatus == "done")
+        {
+            context.Logger.LogInformation("Legacy trucker legs: done marker found, nothing read.");
+            return LegacySummary(200, found: 0, parked: 0, failed: 0, truncated: false, "done", skipped: true);
+        }
+
+        var rows = await _escrowRepo.QueryLegacyTruckerLegsAsync(LegacyTruckerMaxRows);
+        var parked = 0;
+        var failed = 0;
+        foreach (var row in rows)
+        {
+            try
+            {
+                if (await _escrowService.ParkLegacyTruckerLegAsync(row))
+                {
+                    parked++;
+                }
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                    GetStringOrNull(row, "escrowId"), "legacy_trucker_park_failed", MoneyAlarmLog.OutcomeFailed, ex.GetType().Name));
+            }
+        }
+
+        var truncated = rows.Count >= LegacyTruckerMaxRows;
+        if (rows.Count == 0 && failed == 0)
+        {
+            markerStatus = await AdvanceLegacyMarkerAsync(marker, context) ?? markerStatus;
+        }
+
+        context.Logger.LogInformation(
+            $"Legacy trucker legs: {rows.Count} found, {parked} parked, {failed} failed, marker {markerStatus ?? "none"}.");
+        return LegacySummary(failed > 0 ? 500 : 200, rows.Count, parked, failed, truncated, markerStatus, skipped: false);
+    }
+
+    /// <summary>The legacy action's marker, or null (none, no idempotency table, or a failed read: the action runs).</summary>
+    private async Task<Dictionary<string, object>?> ReadLegacyMarkerAsync(ILambdaContext context)
+    {
+        if (_idempotencyRepo == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await _idempotencyRepo.GetAsync(LegacyTruckerMarkerKey);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning($"Legacy trucker legs: marker read failed [{ex.GetType().Name}]; running the read.");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// A clean run (nothing found) moves the marker from none to <c>clean</c>, and from <c>clean</c> to
+    /// <c>done</c> once <see cref="LegacyTruckerSettleTime"/> passed since it was written. Returns the
+    /// new status, or null when nothing was written. A failed write only logs: the next run tries again.
+    /// </summary>
+    private async Task<string?> AdvanceLegacyMarkerAsync(Dictionary<string, object>? marker, ILambdaContext context)
+    {
+        if (_idempotencyRepo == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            if (marker == null)
+            {
+                await _idempotencyRepo.StoreAsync(LegacyTruckerMarkerKey, "-", "clean");
+                return "clean";
+            }
+
+            var cleanAt = ParseUtc(GetStringOrNull(marker, "createdAt"));
+            if (GetStringOrNull(marker, "status") == "clean" && cleanAt is { } at
+                && DateTime.UtcNow - at >= LegacyTruckerSettleTime)
+            {
+                await _idempotencyRepo.UpdateAsync(LegacyTruckerMarkerKey, "done");
+                return "done";
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning($"Legacy trucker legs: marker write failed [{ex.GetType().Name}].");
+        }
+
+        return null;
+    }
+
+    private static APIGatewayProxyResponse LegacySummary(
+        int statusCode, int found, int parked, int failed, bool truncated, string? marker, bool skipped) => new()
+    {
+        StatusCode = statusCode,
+        Body = JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            { "action", "park_legacy_trucker_legs" },
+            { "found", found.ToString() },
+            { "parked", parked.ToString() },
+            { "failed", failed.ToString() },
+            { "truncated", truncated ? "true" : "false" },
+            { "marker", marker ?? "none" },
+            { "skipped", skipped ? "true" : "false" },
+            { "completedAt", DateTime.UtcNow.ToString("o") }
+        }, AppJsonContext.Default.DictionaryStringString),
+        Headers = new Dictionary<string, string> { { "Content-Type", "application/json" } }
+    };
+
+    private static DateTime? ParseUtc(string? value)
+        => DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)
+            ? parsed.ToUniversalTime()
+            : null;
 
     // ──────────────────────────────────────────────
     // Reconciliation
