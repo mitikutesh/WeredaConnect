@@ -2829,4 +2829,23 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get payAgain => 'እንደገና ይክፈሉ';
+
+  @override
+  String get orderPickupDeadline => 'የማንሳት የመጨረሻ ቀን';
+
+  @override
+  String get orderTransportFailedBuyerHint =>
+      'ሰብሉ በጊዜው አልተነሳም። ይህን ትዕዛዝ ሰርዘው የከፈሉትን ገንዘብ በሙሉ መመለስ ይችላሉ።';
+
+  @override
+  String get orderTransportFailedPartyHint =>
+      'ሰብሉ በጊዜው አልተነሳም። ገዢው አሁን ይህን ትዕዛዝ መሰረዝ ይችላል።';
+
+  @override
+  String get cancelOrderTransportFailedBody =>
+      'የትራንስፖርትና የመድረክ ኮሚሽንን ጨምሮ የከፈሉት ሁሉ ይመለስልዎታል።';
+
+  @override
+  String get errorOrderCancelNotAllowed =>
+      'ይህ ትዕዛዝ አሁን ሊሰረዝ አይችልም። መሰረዝ የሚቻለው ሰብሉ በጊዜው ካልተነሳና ምንም ካልተወሰደ ብቻ ነው።';
 }

@@ -42,6 +42,14 @@ public interface IEscrowRepository
     Task UpdateStatusAsync(string escrowId, string createdAt, string newStatus, string? expectedCurrentStatus = null, Dictionary<string, object>? additionalFields = null);
 
     /// <summary>
+    /// ESC-06: push an order escrow's <c>expiresAt</c> forward while it is still a plain
+    /// <c>escrowed</c> hold: no refund scheduled (<c>refundReason</c>), no settlement lock, no open
+    /// manual payout. Returns false when that no longer holds (a refund scheduled in the meantime
+    /// keeps its <c>expiresAt</c>, so the sweep refunds it).
+    /// </summary>
+    Task<bool> TryExtendExpiryAsync(string escrowId, string createdAt, string expiresAt);
+
+    /// <summary>
     /// Atomically claim settlement (release or refund) for an escrow BEFORE any
     /// irreversible Telebirr call. Sets a <c>settlementLock</c> attribute conditional
     /// on no lock already existing, no open manual payout (ESC-02), and the escrow still

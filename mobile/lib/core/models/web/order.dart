@@ -31,6 +31,9 @@ class Order {
   DateTime? cancelledAt;
   String? cancelReason;
   DateTime? updatedAt;
+
+  /// ESC-06: the buyer may cancel an accepted order nobody picked up after this (UTC).
+  DateTime? pickupDeadlineAt;
 }
 
 /// Status of an order in its lifecycle.

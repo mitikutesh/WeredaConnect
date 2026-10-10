@@ -78,6 +78,9 @@ public partial class SyncFunction
     // record so the pickup nonce can never leak via any sync-down/GSI/DTO/conflict path.
     // Absent env → null (falls back to the legacy on-record qrNonce for in-flight deliveries).
     private readonly IDeliveryQrSecretRepository? _qrSecretRepo;
+    // ESC-06: the system cancel of a pending delivery (status-conditional, like the dispute
+    // verdict's) when its buyer cancels an order after a transport failure.
+    private readonly IDeliveryRepository _deliveryRepo;
 
     // Who/where for the current sync batch (same user/IP/correlation across all
     // operations in one request). Set at the top of FunctionHandler. Lambda runs
@@ -235,7 +238,11 @@ public partial class SyncFunction
         // ESC-01: the live Telebirr payment behind a funding; only the webhook writes them.
         // paymentSubmittedAt starts the payment clock and is stamped by the server.
         OrderFundingService.MerchOrderIdField, OrderFundingService.PaymentOrderIdField,
-        OrderFundingService.TransIdField, "paymentSubmittedAt"
+        OrderFundingService.TransIdField, "paymentSubmittedAt",
+        // ESC-06: the pickup deadline is stamped at the farmer's accept; cancelNote keeps the
+        // buyer's text of a transport-failure cancel; the admin queue is written by escrow-cron.
+        PickupDeadline.Field, "cancelNote",
+        AdminQueueFields.Marker, AdminQueueFields.QueuedAt, AdminQueueFields.Reason, AdminQueueFields.EscrowId
     };
 
     /// <summary>
@@ -269,7 +276,9 @@ public partial class SyncFunction
         // terminal state (authorization + respondedAt/audit side-effects already
         // handle "rejected" — only this transition entry was missing).
         { "funded", new HashSet<string> { "accepted", "rejected", "cancelled" } },
-        { "accepted", new HashSet<string> { "pickup_confirmed" } },
+        // ESC-06: the buyer may cancel an accepted order only after a transport failure (no
+        // pickup by pickupDeadlineAt); ProcessTransportFailureCancelAsync enforces it.
+        { "accepted", new HashSet<string> { "pickup_confirmed", "cancelled" } },
         { "pickup_confirmed", new HashSet<string> { "in_transit" } },
         { "in_transit", new HashSet<string> { "delivered" } },
         { "delivered", new HashSet<string> { "disbursing", "disputed" } },
@@ -451,6 +460,7 @@ public partial class SyncFunction
         _syncMetadataRepo = new SyncMetadataRepository(_dynamoDb, syncMetadataTable);
         _cropRepo = new CropRepository(_dynamoDb, cropsTable);
         _orderRepo = new OrderRepository(_dynamoDb, ordersTable);
+        _deliveryRepo = new DeliveryRepository(_dynamoDb, _deliveriesTable);
         _rateLimitService = new RateLimitService(new RateLimitRepository(_dynamoDb, rateLimitTable));
         // Fraud signals feed the admin review queue; absent env → writes no-op.
         var fraudSignalsTable = Environment.GetEnvironmentVariable("FRAUD_SIGNALS_TABLE") ?? "";
@@ -502,7 +512,7 @@ public partial class SyncFunction
                 telebirrGateway: null,
                 userRepo: _userRepo,
                 orderRepo: _orderRepo,
-                deliveryRepo: new DeliveryRepository(_dynamoDb, _deliveriesTable),
+                deliveryRepo: _deliveryRepo,
                 transactionAuditRepo: _transactionAuditRepo)
             : null;
         _orderFunding = new OrderFundingService(_orderRepo, _cropRepo, _orderEscrowService);
@@ -545,7 +555,8 @@ public partial class SyncFunction
         ITransactionAuditRepository? transactionAuditRepo = null,
         IDeliveryQrSecretRepository? qrSecretRepo = null,
         IMessageRepository? messageRepo = null,
-        EscrowService? orderEscrowService = null)
+        EscrowService? orderEscrowService = null,
+        IDeliveryRepository? deliveryRepo = null)
     {
         _syncMetadataRepo = syncMetadataRepo ?? throw new ArgumentNullException(nameof(syncMetadataRepo));
         _cropRepo = cropRepo ?? throw new ArgumentNullException(nameof(cropRepo));
@@ -564,6 +575,7 @@ public partial class SyncFunction
         _qrSecretRepo = qrSecretRepo;
         _messageRepo = messageRepo;
         _orderEscrowService = orderEscrowService;
+        _deliveryRepo = deliveryRepo ?? new DeliveryRepository(_dynamoDb, _deliveriesTable);
         _orderFunding = new OrderFundingService(_orderRepo, _cropRepo, _orderEscrowService);
     }
 
@@ -3969,6 +3981,15 @@ public partial class SyncFunction
                                 Status = "error",
                                 Message = "DELIVERY_VALIDATION: Referenced order not found."
                             };
+                        case DeliverySlotWriteResult.OrderNotActive:
+                            // ESC-06: the order was cancelled (or moved on) after it was read above.
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_VALIDATION: The order no longer takes a delivery "
+                                    + "(it must be accepted, pickup_confirmed or in_transit)."
+                            };
                     }
 
                     try
@@ -4079,6 +4100,7 @@ public partial class SyncFunction
                     }
                     if (currentStatus == "cancelled")
                     {
+                        await AlarmPickupOnTransportCancelledDeliveryAsync(operation, existing, authenticatedUserId, context);
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
@@ -5475,6 +5497,8 @@ public partial class SyncFunction
             };
         }
 
+        KeepServerCancelCodesReserved(operation.Data);
+
         // SIM-05: the client's copy of the listing and trip is not trusted. Load both,
         // bind every party, price and quantity to the server's records, and compute the
         // money fields from those records only.
@@ -5709,6 +5733,13 @@ public partial class SyncFunction
                 };
             }
 
+            // ESC-06: an accepted order is cancelled only after a transport failure, with its own
+            // checks and writes (the pending delivery first, then the order, then the refund).
+            if (currentStatus == "accepted" && newStatus == "cancelled")
+            {
+                return await ProcessTransportFailureCancelAsync(operation, context);
+            }
+
             // KYC and step-up gates on the buyer's payment. The order-funded escrow leg is
             // the real money path, so the checks /escrow/initiate makes (both parties
             // phone-verified, Fayda above 10,000 ETB) and the payment step-up (a fresh
@@ -5787,7 +5818,23 @@ public partial class SyncFunction
             }
 
             // Add server-side timestamps for specific transitions
-            var now = DateTime.UtcNow.ToString("o");
+            var nowUtc = DateTime.UtcNow;
+            var now = nowUtc.ToString("o");
+
+            // ESC-06: the farmer's accept starts the pickup clock in the same write. A trip that
+            // cannot be read refuses the accept for now (transient, so the client retries): no
+            // accepted order is left without its deadline.
+            if (newStatus == "accepted")
+            {
+                var pickupDeadline = await ComputePickupDeadlineAsync(existingOrder, nowUtc, context);
+                if (pickupDeadline == null)
+                {
+                    return TransientOrderError(operation, "The order's trip could not be read. Please try again later.");
+                }
+
+                operation.Data[PickupDeadline.Field] = PickupDeadline.Format(pickupDeadline.Value);
+            }
+
             switch (newStatus)
             {
                 case "cancelled":
@@ -5807,6 +5854,8 @@ public partial class SyncFunction
                     break;
             }
         }
+
+        KeepServerCancelCodesReserved(operation.Data);
 
         // SIM-08: an order update is never applied without the client's version. The old
         // fallback to the stored version skipped optimistic concurrency entirely, so a
@@ -6346,6 +6395,538 @@ public partial class SyncFunction
             context.Logger.LogError(
                 $"ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId={MoneyAlarmLog.LogId(orderId)} reason=[{ex.GetType().Name}]");
         }
+    }
+
+    /// <summary>
+    /// ESC-06: codes the server writes into <c>cancelReason</c> (order-lifecycle.md 1.15.0; the rest are
+    /// reserved for ESC-15, spec 4.6). A client text equal to one is kept in <c>cancelNote</c> instead,
+    /// so no cancel can pass for a server decision.
+    /// </summary>
+    private static readonly HashSet<string> ServerCancelReasonCodes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        PickupDeadline.CancelReason, "escrow_refunded", "buyer_withdrew", "unpaid_expired",
+        "farmer_response_expired", "farmer_cancelled", "farmer_no_show", "transport_not_arranged",
+        "listing_out_of_stock", "buyer_no_show"
+    };
+
+    /// <summary>ESC-06: moves a client <c>cancelReason</c> that spells a server code to <c>cancelNote</c>.</summary>
+    private static void KeepServerCancelCodesReserved(Dictionary<string, object> data)
+    {
+        if (data.TryGetValue("cancelReason", out var raw)
+            && raw?.ToString()?.Trim() is { Length: > 0 } text
+            && ServerCancelReasonCodes.Contains(text))
+        {
+            data.Remove("cancelReason");
+            data["cancelNote"] = text;
+        }
+    }
+
+    /// <summary>ESC-06: order cancel writes per transport-failure cancel (a concurrent write can move the version).</summary>
+    private const int TransportCancelOrderAttempts = 3;
+
+    /// <summary>ESC-06: the refund reason stamped on the escrow of a transport-failure cancel.</summary>
+    private const string TransportCancelRefundReason = "order_transport_failed";
+
+    /// <summary>Delivery statuses that mean nothing left the farm yet (no row counts as none).</summary>
+    private static bool IsBeforePickup(string? deliveryStatus) => deliveryStatus is null or "pending" or "cancelled";
+
+    /// <summary>
+    /// ESC-06: the buyer cancels an <c>accepted</c> order nobody picked up by its
+    /// <c>pickupDeadlineAt</c>, for a full refund (order-lifecycle.md 1.15.0). Decided before any
+    /// write: the client's version against a strongly consistent read (a stale command only gets the
+    /// server's row back), the deadline on the server clock, the active delivery (nothing picked up)
+    /// and the order escrow (plain <c>escrowed</c>; a missing one is created first, as delivery
+    /// linkage does). Each refusal is <c>ORDER_CANCEL_NOT_ALLOWED</c>; a read or write that fails
+    /// answers an unprefixed error, so the client retries. Then, in the dispute verdict's order so a
+    /// pickup racing in leaves the order alone: the pending delivery is cancelled, the order is
+    /// cancelled (<c>cancelReason: transport_failed_buyer_cancelled</c>, the buyer's text in
+    /// <c>cancelNote</c>; a version conflict re-reads and retries while the order is still
+    /// <c>accepted</c>), the delivery slot is released, the listing stock restored and the escrow
+    /// refund scheduled for the hourly sweep.
+    /// </summary>
+    private async Task<SyncOperationResult> ProcessTransportFailureCancelAsync(
+        SyncOperationRequest operation, ILambdaContext context)
+    {
+        if (!TryGetClientVersion(operation, out var clientVersion))
+        {
+            return OrderValidationError(operation,
+                "version is required for order updates (send clientVersion or data.version).");
+        }
+
+        var orderId = operation.EntityId;
+        Dictionary<string, object>? order;
+        try
+        {
+            order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+        }
+        catch (Exception ex)
+        {
+            return TransportCancelUnavailable(operation, context, orderId, "order", ex);
+        }
+
+        if (order == null)
+        {
+            return TransientOrderError(operation, "Order not found.");
+        }
+
+        if (OrderVersionOf(order) != clientVersion || ItemString(order, "status") != "accepted")
+        {
+            return OrderConflict(operation, order, clientVersion);
+        }
+
+        var nowUtc = DateTime.UtcNow;
+        DateTime? deadline = PickupDeadline.TryParse(ItemString(order, PickupDeadline.Field), out var stamped)
+            ? stamped
+            : null;
+        if (deadline == null)
+        {
+            // Accepted before ESC-06: the same rule, from the live trip and the acceptance time.
+            var acceptedAt = PickupDeadline.AcceptedAt(order);
+            deadline = acceptedAt == null ? null : await ComputePickupDeadlineAsync(order, acceptedAt.Value, context);
+            if (deadline == null)
+            {
+                return TransientOrderError(operation, "The order's trip could not be read. Please try again later.");
+            }
+        }
+
+        if (nowUtc < deadline.Value)
+        {
+            return CancelNotAllowed(operation,
+                $"The crops can still be collected until {PickupDeadline.Format(deadline.Value)}.");
+        }
+
+        // The order's deliveries decide whether anything was picked up (the order can lag them).
+        var activeDeliveryId = ItemString(order, "activeDeliveryId");
+        List<string> pendingDeliveryIds;
+        try
+        {
+            var deliveries = await ReadOrderDeliveriesAsync(order, activeDeliveryId);
+            if (deliveries.PickedUp)
+            {
+                return CancelNotAllowed(operation, "The crops were already picked up.");
+            }
+
+            pendingDeliveryIds = deliveries.Pending;
+        }
+        catch (Exception ex)
+        {
+            return TransportCancelUnavailable(operation, context, orderId, "delivery", ex);
+        }
+
+        if (_orderEscrowService == null)
+        {
+            return TransientOrderError(operation, "Refunds are unavailable right now. Please try again later.");
+        }
+
+        OrderEscrowCancelReadiness readiness;
+        try
+        {
+            readiness = await _orderEscrowService.PrepareOrderEscrowForCancelAsync(order, "system", _batchAudit);
+        }
+        catch (Exception ex)
+        {
+            return TransportCancelUnavailable(operation, context, orderId, "escrow", ex);
+        }
+
+        switch (readiness)
+        {
+            case OrderEscrowCancelReadiness.Busy:
+                return CancelNotAllowed(operation, "The payment is being settled or reviewed.");
+            case OrderEscrowCancelReadiness.Unavailable:
+                return TransientOrderError(operation,
+                    "The payment could not be prepared for a refund. Please try again later.");
+        }
+
+        // The pending deliveries first: once one is cancelled no pickup can land on it.
+        string? cancelledDeliveryId = null;
+        foreach (var pendingId in pendingDeliveryIds)
+        {
+            try
+            {
+                if (await _deliveryRepo.TryCancelPendingAsync(pendingId))
+                {
+                    await EmitTxAuditAsync(context, orderId, "delivery", pendingId,
+                        "delivery_cancelled", "pending", "cancelled", metadata: $"reason={PickupDeadline.CancelReason}");
+                }
+                else
+                {
+                    var latest = await GetDeliveryItemAsync(pendingId, consistentRead: true);
+                    var latestStatus = latest == null ? null : DeliveryStatusOf(latest);
+                    if (latestStatus == "pending")
+                    {
+                        return TransientOrderError(operation,
+                            "The delivery could not be cancelled right now. Please try again later.");
+                    }
+
+                    if (!IsBeforePickup(latestStatus))
+                    {
+                        return CancelNotAllowed(operation, "The crops were already picked up.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return TransportCancelUnavailable(operation, context, orderId, "delivery", ex);
+            }
+
+            if (pendingId == activeDeliveryId)
+            {
+                cancelledDeliveryId = pendingId;
+            }
+        }
+
+        var cancelFields = new Dictionary<string, object>
+        {
+            { "status", "cancelled" },
+            { "cancelledAt", nowUtc.ToString("o") },
+            { "cancelReason", PickupDeadline.CancelReason }
+        };
+        var note = operation.Data!.TryGetValue("cancelReason", out var noteObj) ? noteObj?.ToString()?.Trim() : null;
+        if (!string.IsNullOrEmpty(note))
+        {
+            cancelFields["cancelNote"] = note;
+        }
+
+        var version = clientVersion;
+        Dictionary<string, object>? cancelled;
+        for (var attempt = 1; ; attempt++)
+        {
+            Dictionary<string, object>? latest;
+            try
+            {
+                var update = await _orderRepo.UpdateAsync(orderId, cancelFields, version);
+                if (update.IsSuccess)
+                {
+                    cancelled = update.Value;
+                    break;
+                }
+
+                if (update.Error?.HttpStatus != 409 || attempt >= TransportCancelOrderAttempts)
+                {
+                    return TransientOrderError(operation, "The order could not be cancelled right now. Please try again later.");
+                }
+
+                // A system write moved the version after the delivery was cancelled: the buyer's
+                // cancel still stands while the order is accepted.
+                latest = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+            }
+            catch (Exception ex)
+            {
+                return TransportCancelUnavailable(operation, context, orderId, "order", ex);
+            }
+
+            if (latest == null)
+            {
+                return TransientOrderError(operation, "Order not found.");
+            }
+
+            if (ItemString(latest, "status") != "accepted")
+            {
+                return OrderConflict(operation, latest, clientVersion);
+            }
+
+            // A delivery that took the slot meanwhile must not have been picked up; a pending one is
+            // cancelled with the slot below.
+            var latestHolder = ItemString(latest, "activeDeliveryId");
+            if (latestHolder.Length > 0 && latestHolder != activeDeliveryId)
+            {
+                Dictionary<string, AttributeValue>? holder;
+                try
+                {
+                    holder = await GetDeliveryItemAsync(latestHolder, consistentRead: true);
+                }
+                catch (Exception ex)
+                {
+                    return TransportCancelUnavailable(operation, context, orderId, "delivery", ex);
+                }
+
+                if (!IsBeforePickup(holder == null ? null : DeliveryStatusOf(holder)))
+                {
+                    return CancelNotAllowed(operation, "The crops were already picked up.");
+                }
+
+                activeDeliveryId = latestHolder;
+            }
+
+            version = OrderVersionOf(latest);
+        }
+
+        await EmitTxAuditAsync(context, orderId, "order", orderId, "order_cancelled", "accepted", "cancelled",
+            metadata: $"cancelReason={PickupDeadline.CancelReason}");
+        await ReleaseTransportCancelSlotAsync(orderId, cancelledDeliveryId, context);
+        await TryRestoreListingStockAsync(order, context);
+        await TryScheduleOrderEscrowRefundAsync(orderId, TransportCancelRefundReason, context);
+
+        return new SyncOperationResult
+        {
+            OperationId = operation.OperationId,
+            Status = "success",
+            ServerVersion = version + 1,
+            ServerData = cancelled
+        };
+    }
+
+    /// <summary>
+    /// ESC-06: free the cancelled order's delivery slot, then read the slot again. A pending delivery
+    /// created between the delivery cancel and the order cancel is cancelled too. Any other live
+    /// holder (picked up in that window, or unreadable) means goods may have left the farm on a
+    /// cancelled order and is logged with the alarmed <c>ORDER_TRANSPORT_CANCEL_LATE_DELIVERY</c>
+    /// token. Never throws: the order is cancelled either way.
+    /// </summary>
+    private async Task ReleaseTransportCancelSlotAsync(string orderId, string? cancelledDeliveryId, ILambdaContext context)
+    {
+        string? holderId = null;
+        try
+        {
+            if (!string.IsNullOrEmpty(cancelledDeliveryId))
+            {
+                await _orderRepo.ReleaseDeliverySlotAsync(orderId, cancelledDeliveryId);
+            }
+
+            var order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+            holderId = order == null ? null : ItemString(order, "activeDeliveryId");
+            if (string.IsNullOrEmpty(holderId) || holderId == cancelledDeliveryId)
+            {
+                return;
+            }
+
+            if (await _deliveryRepo.TryCancelPendingAsync(holderId))
+            {
+                await EmitTxAuditAsync(context, orderId, "delivery", holderId,
+                    "delivery_cancelled", "pending", "cancelled", metadata: $"reason={PickupDeadline.CancelReason}");
+                await _orderRepo.ReleaseDeliverySlotAsync(orderId, holderId);
+                context.Logger.LogWarning(
+                    $"Transport cancel of order {MoneyAlarmLog.LogId(orderId)} also cancelled pending delivery "
+                    + $"{MoneyAlarmLog.LogId(holderId)}, created while the order was being cancelled.");
+                return;
+            }
+
+            var holder = await GetDeliveryItemAsync(holderId, consistentRead: true);
+            var holderStatus = holder == null ? null : DeliveryStatusOf(holder);
+            if (holderStatus is null or "cancelled")
+            {
+                // A dead holder whose own slot release was lost: free it.
+                await _orderRepo.ReleaseDeliverySlotAsync(orderId, holderId);
+                return;
+            }
+
+            context.Logger.LogError(
+                $"ORDER_TRANSPORT_CANCEL_LATE_DELIVERY orderId={MoneyAlarmLog.LogId(orderId)} "
+                + $"deliveryId={MoneyAlarmLog.LogId(holderId)} status={MoneyAlarmLog.LogId(holderStatus)}");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(
+                $"ORDER_TRANSPORT_CANCEL_LATE_DELIVERY orderId={MoneyAlarmLog.LogId(orderId)} "
+                + $"deliveryId={MoneyAlarmLog.LogId(holderId ?? cancelledDeliveryId)} status=unknown [{ex.GetType().Name}]");
+        }
+    }
+
+    /// <summary>
+    /// ESC-06, the reverse offline race: a pickup (or a self-pickup scan) that reaches a delivery the
+    /// buyer's transport-failure cancel already cancelled means the goods may have left the farm on an
+    /// order being refunded. Logs the alarmed <c>ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED</c> token (ids
+    /// defanged); the refusal itself is unchanged. Only the party who could have made that step counts
+    /// (the delivery's trucker for <c>pickedUp</c> and <c>inTransit</c>, its buyer for <c>delivered</c>),
+    /// so nobody else can page the alarm. Best-effort: never throws.
+    /// </summary>
+    private async Task AlarmPickupOnTransportCancelledDeliveryAsync(
+        SyncOperationRequest operation, Dictionary<string, AttributeValue> delivery, string? authenticatedUserId,
+        ILambdaContext context)
+    {
+        var requested = operation.Data != null && operation.Data.TryGetValue("status", out var statusObj)
+            ? statusObj?.ToString()
+            : null;
+        var party = requested switch
+        {
+            "pickedUp" or "inTransit" => AttrString(delivery, "truckerId"),
+            "delivered" => AttrString(delivery, "buyerId"),
+            _ => ""
+        };
+        var orderId = AttrString(delivery, "orderId");
+        if (party.Length == 0 || authenticatedUserId != party || orderId.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var order = await _orderRepo.GetByIdAsync(orderId);
+            if (order == null || ItemString(order, "cancelReason") != PickupDeadline.CancelReason)
+            {
+                return;
+            }
+
+            context.Logger.LogError(
+                $"ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED orderId={MoneyAlarmLog.LogId(orderId)} "
+                + $"deliveryId={MoneyAlarmLog.LogId(operation.EntityId)} status={MoneyAlarmLog.LogId(requested)}");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Pickup on a cancelled delivery {MoneyAlarmLog.LogId(operation.EntityId)}: its order could not be read: [{ex.GetType().Name}]");
+        }
+    }
+
+    /// <summary>
+    /// ESC-06: the pickup deadline of <paramref name="order"/> accepted at
+    /// <paramref name="acceptedAtUtc"/> (<see cref="PickupDeadline.Compute"/>): from its trip's
+    /// departure, or the self-pickup window when it has no trip or the trip is gone (missing or
+    /// soft-deleted). Null when the trip could not be read.
+    /// </summary>
+    private async Task<DateTime?> ComputePickupDeadlineAsync(
+        Dictionary<string, object> order, DateTime acceptedAtUtc, ILambdaContext context)
+    {
+        var tripId = ItemString(order, "tripId");
+        if (tripId.Length == 0)
+        {
+            return PickupDeadline.Compute(null, acceptedAtUtc);
+        }
+
+        Dictionary<string, AttributeValue>? trip;
+        try
+        {
+            trip = await GetTripItemAsync(tripId);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Pickup deadline: trip {MoneyAlarmLog.LogId(tripId)} of order {MoneyAlarmLog.LogId(ItemString(order, "orderId"))} "
+                + $"could not be read: [{ex.GetType().Name}]");
+            return null;
+        }
+
+        DateTime? departure = null;
+        if (trip != null
+            && AttrString(trip, "deletedAt").Length == 0
+            && TryParseDepartureDateUtc(AttrString(trip, "departureDate"), requireIsoShape: false, out var departureUtc))
+        {
+            departure = departureUtc;
+        }
+
+        return PickupDeadline.Compute(departure, acceptedAtUtc);
+    }
+
+    /// <summary>
+    /// ESC-06: the order's deliveries, read strongly consistent: the active one (the slot holder), or
+    /// for an order whose delivery predates the slot claim, every delivery of its listing that names
+    /// the order. <c>PickedUp</c> when any of them left <c>pending</c> for a pickup status; otherwise the
+    /// pending ones to cancel. Throws when a read fails (the caller answers a transient error).
+    /// </summary>
+    private async Task<(bool PickedUp, List<string> Pending)> ReadOrderDeliveriesAsync(
+        Dictionary<string, object> order, string activeDeliveryId)
+    {
+        var ids = activeDeliveryId.Length > 0
+            ? new List<string> { activeDeliveryId }
+            : await QueryOrderDeliveryIdsByListingAsync(ItemString(order, "listingId"), ItemString(order, "orderId"));
+
+        var pending = new List<string>();
+        foreach (var id in ids)
+        {
+            var delivery = await GetDeliveryItemAsync(id, consistentRead: true);
+            var status = delivery == null ? null : DeliveryStatusOf(delivery);
+            if (!IsBeforePickup(status))
+            {
+                return (true, pending);
+            }
+
+            if (status == "pending")
+            {
+                pending.Add(id);
+            }
+        }
+
+        return (false, pending);
+    }
+
+    /// <summary>ESC-06: pages of the listing's deliveries read for an order without a slot claim.</summary>
+    private const int LegacyDeliveryLookupMaxPages = 10;
+
+    /// <summary>
+    /// ESC-06: the deliveries of the order's listing (<c>ListingIndex</c>) that name the order. Throws when
+    /// the listing has more pages than <see cref="LegacyDeliveryLookupMaxPages"/>, so an unread delivery
+    /// never counts as none.
+    /// </summary>
+    private async Task<List<string>> QueryOrderDeliveryIdsByListingAsync(string listingId, string orderId)
+    {
+        var ids = new List<string>();
+        if (listingId.Length == 0)
+        {
+            return ids;
+        }
+
+        var request = new QueryRequest
+        {
+            TableName = _deliveriesTable,
+            IndexName = "ListingIndex",
+            KeyConditionExpression = "listingId = :listingId",
+            FilterExpression = "orderId = :orderId",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":listingId", new AttributeValue { S = listingId } },
+                { ":orderId", new AttributeValue { S = orderId } }
+            }
+        };
+
+        for (var page = 0; page < LegacyDeliveryLookupMaxPages; page++)
+        {
+            var response = await _dynamoDb.QueryAsync(request);
+            ids.AddRange(response.Items.Select(item => AttrString(item, "deliveryId")).Where(id => id.Length > 0));
+            if (response.LastEvaluatedKey == null || response.LastEvaluatedKey.Count == 0)
+            {
+                return ids;
+            }
+
+            request.ExclusiveStartKey = response.LastEvaluatedKey;
+        }
+
+        // Not every delivery of the listing was read: the order's own may be among the rest.
+        throw new InvalidOperationException("The listing has more deliveries than the lookup reads.");
+    }
+
+    private static string DeliveryStatusOf(Dictionary<string, AttributeValue> delivery)
+    {
+        var status = AttrString(delivery, "status");
+        return status.Length == 0 ? "pending" : status;
+    }
+
+    private static int OrderVersionOf(Dictionary<string, object> order)
+        => order.TryGetValue("version", out var raw)
+           && int.TryParse(raw?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var version)
+            ? version
+            : 0;
+
+    private static SyncOperationResult OrderConflict(
+        SyncOperationRequest operation, Dictionary<string, object> serverOrder, int clientVersion) => new()
+        {
+            OperationId = operation.OperationId,
+            Status = "conflict",
+            ServerVersion = OrderVersionOf(serverOrder),
+            ServerData = serverOrder,
+            Message = $"Version conflict: server has version {OrderVersionOf(serverOrder)}, client expected {clientVersion}."
+        };
+
+    private static SyncOperationResult CancelNotAllowed(SyncOperationRequest operation, string message) => new()
+    {
+        OperationId = operation.OperationId,
+        Status = "error",
+        Message = $"ORDER_CANCEL_NOT_ALLOWED: {message}"
+    };
+
+    /// <summary>A transient order failure: no <c>ORDER_</c> prefix, so the client keeps the change and retries.</summary>
+    private static SyncOperationResult TransientOrderError(SyncOperationRequest operation, string message) => new()
+    {
+        OperationId = operation.OperationId,
+        Status = "error",
+        Message = message
+    };
+
+    private static SyncOperationResult TransportCancelUnavailable(
+        SyncOperationRequest operation, ILambdaContext context, string orderId, string what, Exception ex)
+    {
+        context.Logger.LogWarning(
+            $"Transport cancel of order {MoneyAlarmLog.LogId(orderId)}: the {what} could not be read or written: [{ex.GetType().Name}]");
+        return TransientOrderError(operation, $"The order's {what} could not be read. Please try again later.");
     }
 
     /// <summary>

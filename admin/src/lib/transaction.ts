@@ -120,3 +120,7 @@ export const deliveryStatusLabel = (status: string, t: Translate) =>
 
 export const timelineActionLabel = (action: string, t: Translate) =>
   labelOrRaw(t, `transactions.action_${action}`, action);
+
+/** ESC-06: why an order waits in the admin stuck-order queue (hold_cap). */
+export const adminQueueLabel = (reason: string, t: Translate) =>
+  labelOrRaw(t, `transactions.adminQueue_${reason}`, reason);

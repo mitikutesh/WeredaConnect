@@ -1118,6 +1118,14 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "AttributeName": "truckerId",
             "AttributeType": "S",
           },
+          {
+            "AttributeName": "adminQueue",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "adminQueuedAt",
+            "AttributeType": "S",
+          },
         ],
         "BillingMode": "PAY_PER_REQUEST",
         "GlobalSecondaryIndexes": [
@@ -1210,6 +1218,22 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
               },
               {
                 "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "AdminQueueIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "adminQueue",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "adminQueuedAt",
                 "KeyType": "RANGE",
               },
             ],

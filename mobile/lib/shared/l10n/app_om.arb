@@ -2557,5 +2557,10 @@
   "orderCheckoutCheckingPayment": "Kaffaltii keessan ilaalaa jirra...",
   "paymentTotalOutOfRange": "Telebirr kaffaltii tokkoon qarshii 100 hanga 500,000 fudhata. Waliigalli ajaja kanaa kanaan ala waan ta'eef, Telebirr'n kaffalamuu hin danda'u.",
   "continuePayment": "Kaffaltii itti fufaa",
-  "payAgain": "Irra deebi'aa kaffalaa"
+  "payAgain": "Irra deebi'aa kaffalaa",
+  "orderPickupDeadline": "Guyyaa dhumaa fudhannaa",
+  "orderTransportFailedBuyerHint": "Midhaan yeroodhaan hin fudhatamne. Ajaja kana haqxanii maallaqa kaffaltan hunda deebifachuu dandeessu.",
+  "orderTransportFailedPartyHint": "Midhaan yeroodhaan hin fudhatamne. Bitataan amma ajaja kana haquu danda'a.",
+  "cancelOrderTransportFailedBody": "Kan kaffaltan hundi, baasii geejjibaa fi komishinii waltajjii dabalatee, isinii deebi'a.",
+  "errorOrderCancelNotAllowed": "Ajajni kun amma haqamuu hin danda'u. Kan haqamu midhaan yeroodhaan yoo hin fudhatamin fi wanti tokkollee yoo hin fudhatamin qofa."
 }

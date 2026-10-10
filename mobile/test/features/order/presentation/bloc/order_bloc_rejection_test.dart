@@ -85,7 +85,6 @@ void main() {
     'ORDER_VALIDATION',
     'ORDER_UNAUTHORIZED',
     'ORDER_DEADLINE_PASSED',
-    'ORDER_CANCEL_NOT_ALLOWED',
     'ORDER_ACTION_NOT_ALLOWED',
     'ORDER_TRIP_NOT_ELIGIBLE',
     'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED',
@@ -102,6 +101,26 @@ void main() {
       }
     });
   }
+
+  // ESC-06: the cancel refusal explains when an accepted order can be cancelled.
+  group('ORDER_CANCEL_NOT_ALLOWED', () {
+    for (final action in actions.keys) {
+      test('$action ends in orderCancelNotAllowed, never success', () async {
+        final states = await run(
+          action,
+          const SyncRejectedException('ORDER_CANCEL_NOT_ALLOWED: refused'),
+        );
+        expectError(states, AppErrorCode.orderCancelNotAllowed);
+      });
+    }
+
+    test('the local cancel guard reads the same', () async {
+      expectError(
+        await run('cancel', const OrderCancelNotAllowedException('not yet')),
+        AppErrorCode.orderCancelNotAllowed,
+      );
+    });
+  });
 
   group('other refusals', () {
     for (final action in actions.keys) {

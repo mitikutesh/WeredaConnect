@@ -2915,4 +2915,23 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get payAgain => 'Pay again';
+
+  @override
+  String get orderPickupDeadline => 'Collect by';
+
+  @override
+  String get orderTransportFailedBuyerHint =>
+      'The crops were not collected in time. You can cancel this order and get all your money back.';
+
+  @override
+  String get orderTransportFailedPartyHint =>
+      'The crops were not collected in time. The buyer can now cancel this order.';
+
+  @override
+  String get cancelOrderTransportFailedBody =>
+      'You get back everything you paid, including transport and the platform commission.';
+
+  @override
+  String get errorOrderCancelNotAllowed =>
+      'This order can\'t be cancelled now. It can be cancelled only when the crops were not collected in time and nothing was picked up.';
 }

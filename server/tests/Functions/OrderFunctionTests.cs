@@ -402,5 +402,25 @@ public class OrderFunctionTests
         Assert.Null(dto.RejectionReason);
         Assert.Null(dto.CancelledAt);
         Assert.Null(dto.CancelReason);
+        Assert.Null(dto.PickupDeadlineAt);
+        Assert.Null(dto.AdminQueueReason);
+        Assert.Null(dto.AdminQueuedAt);
+    }
+
+    [Fact]
+    public void MapToOrderDto_CarriesThePickupDeadlineAndTheAdminQueueEntry()
+    {
+        // ESC-06: clients show Cancel from pickupDeadlineAt; the admin transaction detail shows the queue.
+        var item = CreateOrderItem();
+        item["pickupDeadlineAt"] = "2026-10-12T08:00:00.0000000Z";
+        item["adminQueue"] = "open";
+        item["adminQueuedAt"] = "2026-10-30T08:00:00.0000000Z";
+        item["adminQueueReason"] = "hold_cap";
+
+        var dto = OrderFunction.MapToOrderDto(item);
+
+        Assert.Equal("2026-10-12T08:00:00.0000000Z", dto.PickupDeadlineAt);
+        Assert.Equal("hold_cap", dto.AdminQueueReason);
+        Assert.Equal("2026-10-30T08:00:00.0000000Z", dto.AdminQueuedAt);
     }
 }

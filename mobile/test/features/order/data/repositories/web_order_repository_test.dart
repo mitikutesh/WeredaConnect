@@ -53,6 +53,19 @@ void main() {
       expect(order.cropType, 'teff');
     });
 
+    test('parses the server pickup deadline (ESC-06)', () async {
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-pd')).thenAnswer(
+        (_) async => {
+          'order': orderDto(orderId: 'ord-pd', status: 'accepted')
+            ..['pickupDeadlineAt'] = '2026-10-12T08:00:00.0000000Z',
+        },
+      );
+
+      final order = await repo.getOrderById('ord-pd');
+
+      expect(order!.pickupDeadlineAt, DateTime.utc(2026, 10, 12, 8));
+    });
+
     test('still accepts the legacy {"item": {...}} envelope', () async {
       when(() => api.get<Map<String, dynamic>>('/orders/ord-2'))
           .thenAnswer((_) async => {'item': orderDto(orderId: 'ord-2')});

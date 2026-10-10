@@ -96,8 +96,9 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
             ("ManualPayoutIndex", "manualPayout", "manualPayoutQueuedAt"));
         await CreateAsync(EscrowAudit, ("escrowId", "timestamp"));
         await CreateAsync(Idempotency, ("idempotencyKey", null));
-        await CreateAsync(Orders, ("orderId", "createdAt"));
+        await CreateAsync(Orders, ("orderId", "createdAt"), ("AdminQueueIndex", "adminQueue", "adminQueuedAt"));
         await CreateAsync(Deliveries, ("deliveryId", "tripId"),
+            ("ListingIndex", "listingId", "createdAt"),
             ("ParticipantIndex", "participantId", "createdAt"),
             ("FarmerIdCreatedAtIndex", "farmerId", "createdAt"),
             ("TruckerIdCreatedAtIndex", "truckerId", "createdAt"));

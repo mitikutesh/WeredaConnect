@@ -669,6 +669,7 @@ public class EscrowCronFunctionTests
     {
         var expiredAt = DateTime.UtcNow.AddDays(-1).ToString("o");
         var escrow = MakeOrderSourcedEscrowItem("escrow-order-ord-1", "ord-1", expiresAt: expiredAt);
+        escrow["createdAt"] = DateTime.UtcNow.AddDays(-3).ToString("o"); // funded 3 days ago, far from the cap
 
         _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
             .Returns(new List<Dictionary<string, object>>());
@@ -686,13 +687,14 @@ public class EscrowCronFunctionTests
         var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
 
         Assert.Equal(200, response.StatusCode);
-        // The trade is live: never refund; push the expiry forward instead.
+        // The trade is live: never refund; push the expiry forward instead (ESC-06: conditionally,
+        // so a refund scheduled meanwhile keeps its expiry).
         await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
-        await _mockEscrowRepo.Received(1).UpdateStatusAsync(
-            "escrow-order-ord-1", Arg.Any<string>(), "escrowed", "escrowed",
-            Arg.Is<Dictionary<string, object>>(f =>
-                DateTime.Parse((string)f["expiresAt"], null,
-                    System.Globalization.DateTimeStyles.AdjustToUniversal) > DateTime.UtcNow));
+        await _mockEscrowRepo.Received(1).TryExtendExpiryAsync(
+            "escrow-order-ord-1", Arg.Any<string>(),
+            Arg.Is<string>(e => DateTime.Parse(e, null, System.Globalization.DateTimeStyles.AdjustToUniversal) > DateTime.UtcNow));
+        await orderRepo.DidNotReceive().TryEnterAdminQueueAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
     }
 
     [Fact]

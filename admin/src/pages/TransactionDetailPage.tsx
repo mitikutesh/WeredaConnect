@@ -24,6 +24,7 @@ import {
   escrowStatusLabel,
   deliveryStatusLabel,
   timelineActionLabel,
+  adminQueueLabel,
   deriveStage,
 } from "@/lib/transaction";
 
@@ -117,6 +118,19 @@ export function TransactionDetailPage() {
             <Field label={t("transactions.createdAt")}>
               {order.createdAt ? formatDateTime(s(order.createdAt)) : ""}
             </Field>
+            {/* ESC-06: after it, the buyer may cancel an accepted order nobody picked up. */}
+            {order.pickupDeadlineAt ? (
+              <Field label={t("transactions.pickupDeadline")}>
+                {formatDateTime(s(order.pickupDeadlineAt))}
+              </Field>
+            ) : null}
+            {/* ESC-06: the order waits in the admin stuck-order queue. */}
+            {order.adminQueueReason ? (
+              <Field label={t("transactions.adminQueue")}>
+                <Badge variant="warning">{adminQueueLabel(s(order.adminQueueReason), t)}</Badge>{" "}
+                {order.adminQueuedAt ? formatDateTime(s(order.adminQueuedAt)) : ""}
+              </Field>
+            ) : null}
           </dl>
         </Card>
 

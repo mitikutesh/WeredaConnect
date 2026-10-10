@@ -1362,6 +1362,85 @@ public sealed class EscrowService
     }
 
     /// <summary>
+    /// ESC-06: before a buyer cancels an accepted order after a transport failure, check that its
+    /// money can be refunded by <see cref="ScheduleRefundForOrderAsync"/>. Every escrow the order
+    /// index lists as active, and the order's own <c>escrow-order-{orderId}</c>, is re-read
+    /// strongly consistent: each one that still holds money must be plain <c>escrowed</c> (no
+    /// settlement lock, no open manual payout, no confirmed delivery), and an order escrow that
+    /// already settled refuses too. When the held money has no record at all (the funding-time
+    /// create failed, <c>ORDER_ESCROW_CREATE_FAILED</c>), it is created first, as delivery linkage
+    /// does, so the refund has a record to pay out of.
+    /// </summary>
+    public async Task<OrderEscrowCancelReadiness> PrepareOrderEscrowForCancelAsync(
+        Dictionary<string, object> order, string actor, AuditContext? auditContext = null)
+    {
+        _auditContext = auditContext;
+
+        var orderId = GetString(order, "orderId");
+        if (orderId.Length == 0)
+        {
+            return OrderEscrowCancelReadiness.Unavailable;
+        }
+
+        var orderEscrowId = $"escrow-order-{orderId}";
+        var candidates = new List<string>();
+        foreach (var row in await _escrowRepo.QueryByOrderIdAsync(orderId) ?? new List<Dictionary<string, object>>())
+        {
+            var id = GetString(row, "escrowId");
+            if (id.Length > 0 && ActiveEscrowStatuses.Contains(GetString(row, "status")) && !candidates.Contains(id))
+            {
+                candidates.Add(id);
+            }
+        }
+
+        if (!candidates.Contains(orderEscrowId))
+        {
+            candidates.Add(orderEscrowId);
+        }
+
+        var plain = 0;
+        foreach (var escrowId in candidates)
+        {
+            var current = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
+            if (current == null)
+            {
+                continue;
+            }
+
+            if (IsPlainEscrowed(current))
+            {
+                plain++;
+            }
+            else if (ActiveEscrowStatuses.Contains(GetString(current, "status")) || escrowId == orderEscrowId)
+            {
+                return OrderEscrowCancelReadiness.Busy;
+            }
+        }
+
+        if (plain > 0)
+        {
+            return OrderEscrowCancelReadiness.Ready;
+        }
+
+        if (!await CreateFromFundedOrderAsync(order, actor, auditContext))
+        {
+            return OrderEscrowCancelReadiness.Unavailable;
+        }
+
+        var created = await _escrowRepo.GetByIdAsync(orderEscrowId, consistentRead: true);
+        return created != null && IsPlainEscrowed(created)
+            ? OrderEscrowCancelReadiness.Ready
+            : OrderEscrowCancelReadiness.Unavailable;
+    }
+
+    /// <summary>ESC-06: held money nothing else owns: escrowed, unlocked, not queued, delivery not confirmed.</summary>
+    private static bool IsPlainEscrowed(Dictionary<string, object> escrow)
+        => string.Equals(GetString(escrow, "status"), "escrowed", StringComparison.Ordinal)
+           && !IsManualPayoutOpen(escrow)
+           && GetStringOrNull(escrow, SettlementLockFields.Lock) == null
+           && string.IsNullOrEmpty(GetStringOrNull(escrow, "deliveryConfirmedAt"));
+
+    /// <summary>
     /// Newest active escrow for an order via the sparse OrderIndex GSI. An order may
     /// legitimately have inert rows (refunded/cancelled) next to one active one.
     ///
@@ -4858,6 +4937,13 @@ public sealed class EscrowService
             return true;
         }
 
+        // ESC-06: a hold at its 21-day cap keeps its past expiry while an admin decides; it is not
+        // on its way back to the buyer.
+        if (!string.IsNullOrEmpty(GetStringOrNull(item, AdminQueueFields.HoldCapReachedAt)))
+        {
+            return false;
+        }
+
         return DateTime.TryParse(
                    GetStringOrNull(item, "expiresAt"), CultureInfo.InvariantCulture,
                    DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var expiresAt)
@@ -5325,4 +5411,17 @@ public sealed record DeliveryDisputeFreezeResult(DeliveryDisputeFreeze Outcome, 
 {
     /// <summary>True when the delivery and order may follow: the escrow is frozen now or was already.</summary>
     public bool MayMirror => Outcome is DeliveryDisputeFreeze.Frozen or DeliveryDisputeFreeze.AlreadyDisputed;
+}
+
+/// <summary>What <see cref="EscrowService.PrepareOrderEscrowForCancelAsync"/> found for an order's money (ESC-06).</summary>
+public enum OrderEscrowCancelReadiness
+{
+    /// <summary>The money is held in a plain <c>escrowed</c> record that a scheduled refund can pay back.</summary>
+    Ready,
+
+    /// <summary>A settlement, a manual payout, a dispute or a confirmed delivery owns the money: refuse the cancel.</summary>
+    Busy,
+
+    /// <summary>No record could be found or created right now: nothing may be written; the client retries.</summary>
+    Unavailable
 }

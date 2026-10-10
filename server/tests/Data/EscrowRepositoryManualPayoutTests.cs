@@ -376,10 +376,71 @@ public class EscrowRepositoryManualPayoutTests
         {
             r.IndexName.Should().Be("StatusExpiresIndex");
             // ESC-04: a released escrow with an owed trucker leg belongs to the trucker retry.
-            r.FilterExpression.Should().Be("attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending)");
+            r.FilterExpression.Should().Be("attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending) AND " + HoldCapFilter);
             r.ExpressionAttributeNames["#manualPayout"].Should().Be("manualPayout");
             r.ExpressionAttributeNames["#truckerPending"].Should().Be("truckerPayoutPending");
         });
+    }
+
+    /// <summary>ESC-06: the clause that hides an escrow held to its cap until a refund or a confirmed delivery.</summary>
+    private const string HoldCapFilter =
+        "(attribute_not_exists(#holdCap) OR attribute_exists(#capRefund) OR attribute_exists(#capConfirmed))";
+
+    [Fact]
+    public async Task CronQuery_ExcludesCappedRows_UntilARefundOrAConfirmedDelivery_AndKeepsPaging()
+    {
+        // ESC-06: 150 escrows held to their cap sit at the head of the oldest-first window; a
+        // releasable one and a refund-scheduled capped one behind them must still be returned.
+        var index = Enumerable.Range(0, 150)
+            .Select(n => new Dictionary<string, AttributeValue>
+            {
+                { "escrowId", new AttributeValue { S = $"escrow-capped-{n:D3}" } },
+                { "status", new AttributeValue { S = "escrowed" } },
+                { "expiresAt", new AttributeValue { S = $"2026-09-01T00:{n / 60:D2}:{n % 60:D2}Z" } },
+                { "holdCapReachedAt", new AttributeValue { S = "2026-09-01T00:00:00Z" } }
+            })
+            .Append(new Dictionary<string, AttributeValue>
+            {
+                { "escrowId", new AttributeValue { S = "escrow-capped-refund" } },
+                { "status", new AttributeValue { S = "escrowed" } },
+                { "expiresAt", new AttributeValue { S = "2026-09-30T00:00:00Z" } },
+                { "holdCapReachedAt", new AttributeValue { S = "2026-09-01T00:00:00Z" } },
+                { "refundReason", new AttributeValue { S = "order_transport_failed" } }
+            })
+            .Append(new Dictionary<string, AttributeValue>
+            {
+                { "escrowId", new AttributeValue { S = "escrow-capped-confirmed" } },
+                { "status", new AttributeValue { S = "escrowed" } },
+                { "expiresAt", new AttributeValue { S = "2026-09-30T01:00:00Z" } },
+                { "holdCapReachedAt", new AttributeValue { S = "2026-09-01T00:00:00Z" } },
+                { "deliveryConfirmedAt", new AttributeValue { S = "2026-09-29T00:00:00Z" } }
+            })
+            .ToList();
+        var requests = new List<QueryRequest>();
+        _dynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(call => FakeIndexPage(index, call.Arg<QueryRequest>(), requests));
+
+        var items = await _repo.QueryByStatusForCronAsync("escrowed", limit: 100);
+
+        items.Select(i => (string)i["escrowId"]).Should().Equal("escrow-capped-refund", "escrow-capped-confirmed");
+        requests.Should().AllSatisfy(r =>
+        {
+            r.ExpressionAttributeNames["#holdCap"].Should().Be("holdCapReachedAt");
+            r.ExpressionAttributeNames["#capRefund"].Should().Be("refundReason");
+            r.ExpressionAttributeNames["#capConfirmed"].Should().Be("deliveryConfirmedAt");
+        });
+    }
+
+    [Theory]
+    [InlineData("released")]
+    [InlineData("dispute_resolved")]
+    public async Task CronQuery_OtherStatuses_KeepCappedRowsVisible(string status)
+    {
+        // A capped escrow that moved on (a verdict, a release) must stay visible to its sweep.
+        await _repo.QueryByStatusForCronAsync(status);
+
+        _query!.FilterExpression.Should().Be("attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending)");
+        _query.ExpressionAttributeNames.Should().NotContainKey("#holdCap");
     }
 
     [Fact]
@@ -388,7 +449,8 @@ public class EscrowRepositoryManualPayoutTests
         await _repo.QueryByStatusForCronAsync("escrowed", deliveryConfirmedBefore: "2026-10-01T00:00:00Z");
 
         _query!.FilterExpression.Should().Be(
-            "attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending) AND #confirmedAt <= :confirmedBefore");
+            "attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending) AND " + HoldCapFilter
+            + " AND #confirmedAt <= :confirmedBefore");
     }
 
     /// <summary>
@@ -404,9 +466,14 @@ public class EscrowRepositoryManualPayoutTests
             : 0;
         var evaluated = index.Skip(start).Take(request.Limit > 0 ? request.Limit : index.Count).ToList();
         var filterQueued = request.FilterExpression?.Contains("attribute_not_exists(#manualPayout)") == true;
+        var filterCapped = request.FilterExpression?.Contains(HoldCapFilter) == true;
         return new QueryResponse
         {
-            Items = evaluated.Where(i => !filterQueued || !i.ContainsKey("manualPayout")).ToList(),
+            Items = evaluated
+                .Where(i => !filterQueued || !i.ContainsKey("manualPayout"))
+                .Where(i => !filterCapped || !i.ContainsKey("holdCapReachedAt")
+                    || i.ContainsKey("refundReason") || i.ContainsKey("deliveryConfirmedAt"))
+                .ToList(),
             LastEvaluatedKey = start + evaluated.Count < index.Count
                 ? new Dictionary<string, AttributeValue> { { "escrowId", evaluated[^1]["escrowId"] } }
                 : new Dictionary<string, AttributeValue>()

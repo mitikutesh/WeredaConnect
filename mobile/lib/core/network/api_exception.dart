@@ -95,6 +95,17 @@ bool isRevertableRejectionMessage(String? message) =>
     message.startsWith('ORDER_') &&
     !isKycRequiredMessage(message);
 
+/// Sync rejection prefix when the buyer cancels an accepted order before its
+/// pickup deadline passed, or after the crops were picked up (ESC-06,
+/// sync-protocol.md 1.13.0).
+const String orderCancelNotAllowedCode = 'ORDER_CANCEL_NOT_ALLOWED';
+
+/// Whether a /sync per-operation error message refuses an order cancel
+/// (`ORDER_CANCEL_NOT_ALLOWED: ...`). Permanent like every `ORDER_*` refusal:
+/// the local cancel is undone and the buyer may cancel again once allowed.
+bool isOrderCancelNotAllowedMessage(String? message) =>
+    message != null && message.startsWith(orderCancelNotAllowedCode);
+
 /// Sync rejection prefix when a party tries to cancel a delivery after pickup
 /// (ESC-08, sync-protocol.md 1.11.0).
 const String deliveryCancelNotAllowedCode = 'DELIVERY_CANCEL_NOT_ALLOWED';

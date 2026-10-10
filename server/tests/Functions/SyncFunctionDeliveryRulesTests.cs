@@ -495,6 +495,24 @@ public class SyncFunctionDeliveryRulesTests
             Arg.Any<Dictionary<string, AttributeValue>>(), Arg.Any<DeliverySlotHolder?>());
     }
 
+    [Fact]
+    public async Task Create_OrderCancelledAfterItWasRead_IsRefusedByTheSlotWrite()
+    {
+        // ESC-06: the slot claim requires the order to still take a delivery, so a create racing a
+        // buyer's transport-failure cancel never lands on the cancelled order.
+        SetupCreate();
+        _orders.TryCreateDeliveryWithSlotAsync(OrderId, DeliveriesTable,
+                Arg.Any<Dictionary<string, AttributeValue>>(), Arg.Any<DeliverySlotHolder?>())
+            .Returns(DeliverySlotWriteResult.OrderNotActive);
+
+        var result = await SendAsync(CreateOp(), TruckerId);
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should().Be(
+            "DELIVERY_VALIDATION: The order no longer takes a delivery (it must be accepted, pickup_confirmed or in_transit).");
+        _auditRows.Should().BeEmpty();
+    }
+
     [Theory]
     [InlineData("pending")]
     [InlineData("pickedUp")]

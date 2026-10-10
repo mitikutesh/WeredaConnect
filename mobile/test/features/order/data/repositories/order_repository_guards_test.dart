@@ -56,9 +56,11 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
-  Future<void> putOrder(OrderStatus status) => isar.writeTxn(() async {
+  Future<void> putOrder(OrderStatus status, {DateTime? pickupDeadlineAt}) =>
+      isar.writeTxn(() async {
         await isar.orders.put(
           Order()
+            ..pickupDeadlineAt = pickupDeadlineAt
             ..orderId = 'order-1'
             ..listingId = 'listing-1'
             ..buyerId = 'buyer-1'
@@ -266,6 +268,60 @@ void main() {
       final order = await load();
       expect(order.status, OrderStatus.paymentSubmitted);
       expect(order.version, 4);
+    });
+  });
+
+  group('cancel of an accepted order (ESC-06)', () {
+    Future<Map<String, dynamic>> onlyQueuedPayload() async {
+      final ops = await isar.syncOperations.where().findAll();
+      expect(ops, hasLength(1));
+      return jsonDecode(ops.single.data) as Map<String, dynamic>;
+    }
+
+    test('before the pickup deadline it is refused locally', () async {
+      await putOrder(
+        OrderStatus.accepted,
+        pickupDeadlineAt: DateTime.now().toUtc().add(const Duration(hours: 3)),
+      );
+
+      Object? error;
+      try {
+        await repo.cancelOrder('order-1', 'buyer-1');
+      } on Object catch (e) {
+        error = e;
+      }
+
+      expect(error, isA<OrderCancelNotAllowedException>());
+      expect(mapErrorToCode(error!), AppErrorCode.orderCancelNotAllowed);
+      await expectUntouched(OrderStatus.accepted);
+    });
+
+    test('without a deadline (accepted before ESC-06) it is refused locally',
+        () async {
+      await putOrder(OrderStatus.accepted);
+
+      await expectLater(
+        repo.cancelOrder('order-1', 'buyer-1'),
+        throwsA(isA<OrderCancelNotAllowedException>()),
+      );
+      await expectUntouched(OrderStatus.accepted);
+    });
+
+    test('after the deadline it writes and queues the cancel', () async {
+      await putOrder(
+        OrderStatus.accepted,
+        pickupDeadlineAt: DateTime.now().toUtc().subtract(
+              const Duration(minutes: 5),
+            ),
+      );
+
+      await repo.cancelOrder('order-1', 'buyer-1', reason: 'No truck came');
+
+      final data = await onlyQueuedPayload();
+      expect(data['status'], 'cancelled');
+      expect(data['cancelReason'], 'No truck came');
+      expect(data['version'], 3);
+      expect((await load()).status, OrderStatus.cancelled);
     });
   });
 }

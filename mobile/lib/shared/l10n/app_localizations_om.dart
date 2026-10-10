@@ -2938,4 +2938,23 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get payAgain => 'Irra deebi\'aa kaffalaa';
+
+  @override
+  String get orderPickupDeadline => 'Guyyaa dhumaa fudhannaa';
+
+  @override
+  String get orderTransportFailedBuyerHint =>
+      'Midhaan yeroodhaan hin fudhatamne. Ajaja kana haqxanii maallaqa kaffaltan hunda deebifachuu dandeessu.';
+
+  @override
+  String get orderTransportFailedPartyHint =>
+      'Midhaan yeroodhaan hin fudhatamne. Bitataan amma ajaja kana haquu danda\'a.';
+
+  @override
+  String get cancelOrderTransportFailedBody =>
+      'Kan kaffaltan hundi, baasii geejjibaa fi komishinii waltajjii dabalatee, isinii deebi\'a.';
+
+  @override
+  String get errorOrderCancelNotAllowed =>
+      'Ajajni kun amma haqamuu hin danda\'u. Kan haqamu midhaan yeroodhaan yoo hin fudhatamin fi wanti tokkollee yoo hin fudhatamin qofa.';
 }

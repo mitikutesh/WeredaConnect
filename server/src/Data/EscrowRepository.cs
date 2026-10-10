@@ -173,6 +173,44 @@ public sealed class EscrowRepository : IEscrowRepository
         await _dynamoDb.UpdateItemAsync(request);
     }
 
+    /// <inheritdoc />
+    public async Task<bool> TryExtendExpiryAsync(string escrowId, string createdAt, string expiresAt)
+    {
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "SET #expiresAt = :expiresAt, #updated = :updated",
+            ConditionExpression = "#status = :escrowed AND attribute_not_exists(#refundReason) "
+                + "AND attribute_not_exists(#lock) AND attribute_not_exists(#manualPayout)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#expiresAt", "expiresAt" },
+                { "#updated", "updatedAt" },
+                { "#status", "status" },
+                { "#refundReason", "refundReason" },
+                { "#lock", SettlementLockFields.Lock },
+                { "#manualPayout", ManualPayoutFields.Marker }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":expiresAt", new AttributeValue { S = expiresAt } },
+                { ":updated", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
+                { ":escrowed", new AttributeValue { S = "escrowed" } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// Statuses a settlement may lock from (ESC-03). <c>dispute_resolved</c> settles the admin
     /// verdict; <c>disputed</c> is not here because a dispute settles only through a verdict.
@@ -837,6 +875,18 @@ public sealed class EscrowRepository : IEscrowRepository
         var filters = new List<string> { "attribute_not_exists(#manualPayout)", "attribute_not_exists(#truckerPending)" };
         request.ExpressionAttributeNames["#manualPayout"] = ManualPayoutFields.Marker;
         request.ExpressionAttributeNames["#truckerPending"] = TruckerPayoutFields.Pending;
+
+        // ESC-06: an order escrow held to its 21-day cap keeps that expiresAt and its order waits in
+        // the admin queue, which owns it; it would sit at the head of both sweep windows for good.
+        // It comes back once a refund is scheduled or its delivery is confirmed. Escrowed rows only:
+        // a capped escrow that later moved on (disputed, released) must stay visible to its sweep.
+        if (status == "escrowed")
+        {
+            filters.Add("(attribute_not_exists(#holdCap) OR attribute_exists(#capRefund) OR attribute_exists(#capConfirmed))");
+            request.ExpressionAttributeNames["#holdCap"] = AdminQueueFields.HoldCapReachedAt;
+            request.ExpressionAttributeNames["#capRefund"] = "refundReason";
+            request.ExpressionAttributeNames["#capConfirmed"] = "deliveryConfirmedAt";
+        }
 
         // Post-query filter for deliveryConfirmedBefore
         if (!string.IsNullOrEmpty(deliveryConfirmedBefore))

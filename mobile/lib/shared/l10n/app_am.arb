@@ -2564,5 +2564,10 @@
   "orderCheckoutCheckingPayment": "ክፍያዎን በማረጋገጥ ላይ...",
   "paymentTotalOutOfRange": "ቴሌብር በአንድ ክፍያ ከ100 እስከ 500,000 ብር ይቀበላል። የዚህ ትዕዛዝ ጠቅላላ ዋጋ ከዚህ ውጭ ስለሆነ በቴሌብር ሊከፈል አይችልም።",
   "continuePayment": "ክፍያውን ይቀጥሉ",
-  "payAgain": "እንደገና ይክፈሉ"
+  "payAgain": "እንደገና ይክፈሉ",
+  "orderPickupDeadline": "የማንሳት የመጨረሻ ቀን",
+  "orderTransportFailedBuyerHint": "ሰብሉ በጊዜው አልተነሳም። ይህን ትዕዛዝ ሰርዘው የከፈሉትን ገንዘብ በሙሉ መመለስ ይችላሉ።",
+  "orderTransportFailedPartyHint": "ሰብሉ በጊዜው አልተነሳም። ገዢው አሁን ይህን ትዕዛዝ መሰረዝ ይችላል።",
+  "cancelOrderTransportFailedBody": "የትራንስፖርትና የመድረክ ኮሚሽንን ጨምሮ የከፈሉት ሁሉ ይመለስልዎታል።",
+  "errorOrderCancelNotAllowed": "ይህ ትዕዛዝ አሁን ሊሰረዝ አይችልም። መሰረዝ የሚቻለው ሰብሉ በጊዜው ካልተነሳና ምንም ካልተወሰደ ብቻ ነው።"
 }

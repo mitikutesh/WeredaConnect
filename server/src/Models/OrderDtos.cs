@@ -142,6 +142,21 @@ public sealed record OrderDto
     /// <summary>ISO 8601 UTC timestamp of cancellation.</summary>
     public string? CancelledAt { get; init; }
 
-    /// <summary>Reason for cancellation.</summary>
+    /// <summary>
+    /// Reason for cancellation: the buyer's text, or a server code
+    /// (<c>transport_failed_buyer_cancelled</c>, <c>escrow_refunded</c>).
+    /// </summary>
     public string? CancelReason { get; init; }
+
+    /// <summary>
+    /// ESC-06: ISO 8601 UTC time after which an accepted order nobody picked up counts as a
+    /// transport failure and its buyer may cancel it. Stamped at the farmer's accept.
+    /// </summary>
+    public string? PickupDeadlineAt { get; init; }
+
+    /// <summary>ESC-06: why the order waits in the admin stuck-order queue (<c>hold_cap</c>); null when it does not.</summary>
+    public string? AdminQueueReason { get; init; }
+
+    /// <summary>ESC-06: ISO 8601 UTC time the order entered the admin queue.</summary>
+    public string? AdminQueuedAt { get; init; }
 }

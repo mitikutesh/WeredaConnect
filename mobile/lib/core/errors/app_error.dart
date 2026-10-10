@@ -61,6 +61,10 @@ enum AppErrorCode {
   /// (`DELIVERY_DISPUTE_EXPIRED`); the local dispute was undone.
   deliveryDisputeExpired,
 
+  /// ESC-06: an accepted order may be cancelled only after a transport
+  /// failure (`ORDER_CANCEL_NOT_ALLOWED`, or the local guard); nothing changed.
+  orderCancelNotAllowed,
+
   /// The server refused a queued change (not an order) for good, so it was
   /// never saved there.
   changeNotSaved,
@@ -77,6 +81,12 @@ class OrderActionNotAllowedException implements Exception {
 
   @override
   String toString() => 'OrderActionNotAllowedException: $message';
+}
+
+/// ESC-06: the local guard refused to cancel an accepted order whose pickup
+/// deadline has not passed. Surfaced as [AppErrorCode.orderCancelNotAllowed].
+class OrderCancelNotAllowedException extends OrderActionNotAllowedException {
+  const OrderCancelNotAllowedException(super.message);
 }
 
 /// The server already holds this rating (one per order and ratee), so the
@@ -110,6 +120,9 @@ AppErrorCode mapErrorToCode(Object error) {
       AppErrorCode.paymentTotalOutOfRange,
     SyncConflictException() => AppErrorCode.conflict,
     SyncRejectedException(:final message)
+        when isOrderCancelNotAllowedMessage(message) =>
+      AppErrorCode.orderCancelNotAllowed,
+    SyncRejectedException(:final message)
         when isRevertableRejectionMessage(message) =>
       AppErrorCode.orderRefused,
     SyncRejectedException(:final message)
@@ -118,6 +131,7 @@ AppErrorCode mapErrorToCode(Object error) {
     SyncRejectedException(:final message)
         when isDeliveryDisputeExpiredMessage(message) =>
       AppErrorCode.deliveryDisputeExpired,
+    OrderCancelNotAllowedException() => AppErrorCode.orderCancelNotAllowed,
     OrderActionNotAllowedException() => AppErrorCode.orderRefused,
     AlreadyRatedException() => AppErrorCode.alreadyRated,
     TimeoutException() => AppErrorCode.timeout,
@@ -157,6 +171,7 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.deliveryCancelNotAllowed => l10n.deliveryErrorCancelNotAllowed,
     AppErrorCode.deliveryDisputeRefused => l10n.deliveryErrorDisputeRefused,
     AppErrorCode.deliveryDisputeExpired => l10n.deliveryErrorDisputeExpired,
+    AppErrorCode.orderCancelNotAllowed => l10n.errorOrderCancelNotAllowed,
     AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
@@ -179,6 +194,9 @@ AppErrorCode syncRejectionErrorCode({
 }) {
   if (entityType == 'order') {
     if (action == 'create') return AppErrorCode.orderNotPlaced;
+    if (isOrderCancelNotAllowedMessage(message)) {
+      return AppErrorCode.orderCancelNotAllowed;
+    }
     return isPaymentTotalOutOfRangeMessage(message)
         ? AppErrorCode.paymentTotalOutOfRange
         : AppErrorCode.orderRefused;

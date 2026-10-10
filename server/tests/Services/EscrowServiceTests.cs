@@ -2501,6 +2501,26 @@ public class EscrowServiceTests
     }
 
     [Theory]
+    [InlineData(null, false)]
+    [InlineData("order_transport_failed", true)]
+    public void MapToEscrowSummaryDto_HoldAtItsCap_IsNotRefundPending_UntilARefundIsScheduled(
+        string? refundReason, bool expected)
+    {
+        // ESC-06: a capped hold keeps its past expiry while an admin decides; only a scheduled
+        // refund (the buyer cancelled) makes it read as money on its way back.
+        var item = MakeEscrowItem(status: "escrowed");
+        item["expiresAt"] = "2020-01-01T00:00:00Z";
+        item["holdCapReachedAt"] = "2020-01-01T00:00:00Z";
+        if (refundReason != null)
+        {
+            item["refundReason"] = refundReason;
+        }
+
+        Assert.Equal(expected, EscrowService.MapToEscrowSummaryDto(item, isBuyer: false).RefundPending);
+        Assert.Equal(expected, EscrowService.MapToEscrowDto(item).RefundPending);
+    }
+
+    [Theory]
     [InlineData("escrowed", "order_cancelled", "2099-01-01T00:00:00Z", true)]
     [InlineData("escrowed", null, "2020-01-01T00:00:00Z", true)]
     [InlineData("escrowed", null, "2099-01-01T00:00:00Z", false)]

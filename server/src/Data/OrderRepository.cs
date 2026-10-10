@@ -18,6 +18,7 @@ namespace WeredaConnect.Server.Data;
 ///   GSI StatusCreatedAtIndex: status + createdAt
 ///   GSI ListingIdIndex: listingId + createdAt
 ///   GSI TripIdIndex: tripId + createdAt
+///   GSI AdminQueueIndex (sparse, ESC-06): adminQueue + adminQueuedAt
 /// </summary>
 public sealed class OrderRepository : IOrderRepository
 {
@@ -385,6 +386,12 @@ public sealed class OrderRepository : IOrderRepository
             }
         }
 
+        // ESC-06: the claim also requires the order to still take a delivery, so one never lands
+        // on an order that was cancelled after the caller read it.
+        values[":accepted"] = new AttributeValue { S = "accepted" };
+        values[":pickupConfirmed"] = new AttributeValue { S = "pickup_confirmed" };
+        values[":inTransit"] = new AttributeValue { S = "in_transit" };
+
         // Deliveries have no order index, so the order row carries the single-active-
         // delivery invariant as a conditional write, in the same transaction as the row it
         // names. The version is deliberately not bumped: the claim is not a client-visible
@@ -404,11 +411,13 @@ public sealed class OrderRepository : IOrderRepository
                             { "createdAt", new AttributeValue { S = existing["createdAt"].S } }
                         },
                         UpdateExpression = "SET #slot = :did, #claimedAt = :now",
-                        ConditionExpression = $"attribute_exists(orderId) AND ({slotCondition})",
+                        ConditionExpression = "attribute_exists(orderId) "
+                            + $"AND #status IN (:accepted, :pickupConfirmed, :inTransit) AND ({slotCondition})",
                         ExpressionAttributeNames = new Dictionary<string, string>
                         {
                             { "#slot", "activeDeliveryId" },
-                            { "#claimedAt", "activeDeliveryClaimedAt" }
+                            { "#claimedAt", "activeDeliveryClaimedAt" },
+                            { "#status", "status" }
                         },
                         ExpressionAttributeValues = values
                     }
@@ -441,7 +450,14 @@ public sealed class OrderRepository : IOrderRepository
 
             if (IsConditionFailure(ex.CancellationReasons, 0))
             {
-                return DeliverySlotWriteResult.SlotTaken;
+                // The slot or the order status refused it: the fresh row says which.
+                var current = await GetItemAsync(orderId, consistentRead: true);
+                var status = current != null && current.TryGetValue("status", out var statusAttr) ? statusAttr.S : null;
+                return current == null
+                    ? DeliverySlotWriteResult.OrderNotFound
+                    : status is "accepted" or "pickup_confirmed" or "in_transit"
+                        ? DeliverySlotWriteResult.SlotTaken
+                        : DeliverySlotWriteResult.OrderNotActive;
             }
 
             // A conflicting transaction or throttling: nothing was written, so the caller's
@@ -452,6 +468,132 @@ public sealed class OrderRepository : IOrderRepository
 
     private static bool IsConditionFailure(List<CancellationReason>? reasons, int index) =>
         reasons != null && reasons.Count > index && reasons[index]?.Code == "ConditionalCheckFailed";
+
+    /// <inheritdoc />
+    public async Task<bool> TryEnterAdminQueueAsync(
+        string orderId, string reason, string escrowId, string queuedAt, string expectedStatus)
+    {
+        var existing = await GetItemAsync(orderId);
+        if (existing == null)
+        {
+            return false;
+        }
+
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = OrderKey(orderId, existing["createdAt"].S),
+            UpdateExpression = "SET #marker = :open, #queuedAt = :queuedAt, #reason = :reason, #escrowId = :escrowId",
+            ConditionExpression = "attribute_exists(orderId) AND attribute_not_exists(#marker) AND #status = :status",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#marker", AdminQueueFields.Marker },
+                { "#queuedAt", AdminQueueFields.QueuedAt },
+                { "#reason", AdminQueueFields.Reason },
+                { "#escrowId", AdminQueueFields.EscrowId },
+                { "#status", "status" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":open", new AttributeValue { S = AdminQueueFields.MarkerOpen } },
+                { ":queuedAt", new AttributeValue { S = queuedAt } },
+                { ":reason", new AttributeValue { S = reason } },
+                { ":escrowId", new AttributeValue { S = escrowId } },
+                { ":status", new AttributeValue { S = expectedStatus } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryLeaveAdminQueueAsync(string orderId, string seenQueuedAt)
+    {
+        var existing = await GetItemAsync(orderId);
+        if (existing == null)
+        {
+            return false;
+        }
+
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = OrderKey(orderId, existing["createdAt"].S),
+            UpdateExpression = "REMOVE #marker, #queuedAt, #reason, #escrowId",
+            ConditionExpression = "#queuedAt = :seen",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#marker", AdminQueueFields.Marker },
+                { "#queuedAt", AdminQueueFields.QueuedAt },
+                { "#reason", AdminQueueFields.Reason },
+                { "#escrowId", AdminQueueFields.EscrowId }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":seen", new AttributeValue { S = seenQueuedAt } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryAdminQueueAsync(
+        int limit, Dictionary<string, AttributeValue>? exclusiveStartKey)
+    {
+        if (limit < 1 || limit > 100)
+        {
+            limit = 50;
+        }
+
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = AdminQueueFields.IndexName,
+            KeyConditionExpression = "#marker = :open",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#marker", AdminQueueFields.Marker }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":open", new AttributeValue { S = AdminQueueFields.MarkerOpen } }
+            },
+            Limit = limit,
+            ScanIndexForward = true
+        };
+
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
+        }
+
+        var response = await _dynamoDb.QueryAsync(request);
+        var items = response.Items.Select(DynamoDbHelper.FromItem).ToList();
+        return (items, response.LastEvaluatedKey?.Count > 0 ? response.LastEvaluatedKey : null);
+    }
+
+    private static Dictionary<string, AttributeValue> OrderKey(string orderId, string createdAt) => new()
+    {
+        { "orderId", new AttributeValue { S = orderId } },
+        { "createdAt", new AttributeValue { S = createdAt } }
+    };
 
     /// <inheritdoc />
     public async Task ReleaseDeliverySlotAsync(string orderId, string deliveryId)
