@@ -1953,6 +1953,11 @@ public class EscrowCronFunction
         }
     }
 
+    /// <summary>
+    /// ESC-10: the one place the paged sweeps ask the run budget, before each row: the time since the
+    /// invocation started (<see cref="Elapsed"/>, else the run clock) against the sweep's limit, and the
+    /// Lambda time left. Nothing else in the pager reads a clock.
+    /// </summary>
     private bool SweepOutOfTime(ILambdaContext context, TimeSpan until)
         => (Elapsed?.Invoke() ?? _runClock.Elapsed) >= until
            || (context.RemainingTime > TimeSpan.Zero

@@ -2711,7 +2711,7 @@ reason of its own gate (`<op>:<gate>:` prefix) only.
 
 ### The auto-release reads the order and delivery (FUP-28)
 
-Before a release the sweep reads the escrow's delivery and, when it names one, its order, both strongly
+Before a release the hourly sweep reads the escrow's delivery and, when it names one, its order, both strongly
 consistent. A read that throws fails the row (`auto_release_exception`, alarm) and nothing is paid. In
 order:
 
@@ -2727,8 +2727,9 @@ order:
 | `delivered` | `created`, `pending_payment`, `payment_submitted`, `payment_failed`, `funded`, `rejected`, `cancelled`, `settled`, or a status the sweep does not know | blocked `order_<status>` |
 | `delivered` | none, `accepted`, `pickup_confirmed`, `in_transit`, `delivered`, `disbursing` (the order may lag the delivery) | released as before (then the 1.3.0 payout gate) |
 
-An admin's own `POST /escrow/release` is not gated. Every order status of the order state machine has a
-class in the sweep (a server test enforces it, so a new status fails the build until it is classified).
+This check belongs to the hourly sweeps. The admin `POST /escrow/release` and `POST /escrow/refund`
+have their own order checks (ESC-09, §Additions in 1.14.0). Every order status of the order state machine
+has a class in the sweep (a server test enforces it, so a new status fails the build until it is classified).
 
 **Frozen.** A disputed delivery or order behind an `escrowed` escrow is a row the 1.12.0 freeze never
 reached. The sweep freezes it through the 1.12.0 delivery dispute path (`escrowed -> disputed`, the
