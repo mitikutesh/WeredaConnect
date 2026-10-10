@@ -194,15 +194,19 @@ jobs:
       # and never calls Telebirr; with nothing left it answers found=0, and once two clean runs at
       # least 15 minutes apart found nothing it reads nothing (marker "done", see .ai/deployment.md
       # 3c). Runs whenever the CDK deploy succeeded, also when a dev-only admin step above failed.
-      # Retried with backoff: escrow-cron has a reserved concurrency of 2 (TooManyRequests while an
-      # hourly run is busy) and on the first run the new IAM grant may not have propagated yet
-      # (AccessDenied). A row that could not be parked answers 500 and is retried too; the step
-      # fails when every attempt failed.
+      # Only this loop retries (the CLI's own retries are off). An invoke error that may pass on its
+      # own is retried up to 6 times with backoff: throttling (escrow-cron has a reserved concurrency
+      # of 2), AccessDenied (on the first run the new IAM grant may not have propagated yet) and
+      # 5xx errors of the Lambda service. Any other invoke error fails at once. A failed function (a
+      # FunctionError such as a timeout, or a 500 answer when a row could not be parked) fails after
+      # 2 attempts (2 x 330 s plus the backoff), so the worst case stays under 15 minutes.
       - name: Park legacy trucker legs (ESC-04, idempotent)
         if: ${{ !cancelled() && steps.cdk_deploy.outcome == 'success' }}
         env:
           REGION: ${{ steps.region.outputs.region }}
           FUNCTION: wereda-connect-${{ github.event.inputs.environment || 'dev' }}-escrow-cron
+          AWS_MAX_ATTEMPTS: '1'
+          AWS_RETRY_MODE: standard
         run: |
           out="$(mktemp)"
           err="$(mktemp)"
@@ -222,6 +226,8 @@ jobs:
               print("::warning::park_legacy_trucker_legs read its cap of rows; run the workflow again")
           PY
           }
+          retryable='TooManyRequests|Throttl|Rate exceeded|AccessDenied|ServiceException|ServiceUnavailable|InternalServerError|EC2ThrottledException|ResourceConflictException|\(5[0-9][0-9]\)'
+          function_failures=0
           for attempt in 1 2 3 4 5 6; do
             if error="$(aws --region "$REGION" --output text lambda invoke --function-name "$FUNCTION" \
                 --cli-binary-format raw-in-base64-out --cli-read-timeout 330 \
@@ -231,8 +237,16 @@ jobs:
               if check "$error"; then
                 exit 0
               fi
+              function_failures=$((function_failures + 1))
+              if [ "$function_failures" -ge 2 ]; then
+                echo "::error::park_legacy_trucker_legs failed twice in the function; see the escrow-cron logs"
+                exit 1
+              fi
+            elif grep -qE "$retryable" "$err"; then
+              echo "attempt ${attempt}: retryable invoke error: $(cat "$err")"
             else
-              echo "attempt ${attempt}: invoke failed: $(cat "$err")"
+              echo "::error::invoke failed and is not retryable: $(cat "$err")"
+              exit 1
             fi
             if [ "$attempt" -lt 6 ]; then
               sleep $((attempt * 15))

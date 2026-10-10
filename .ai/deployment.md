@@ -150,10 +150,13 @@ to pay such a leg by hand. The action moves each such escrow back to
 `released` and puts the leg into Manual Payouts as `GATEWAY_OUTCOME_UNKNOWN`,
 so the admin checks the portal before paying. It never calls Telebirr, is
 idempotent (a parked row is no longer `completed`), and answers 500 when a row
-could not be parked. The step retries up to 6 times with backoff (escrow-cron's
-reserved concurrency of 2 can throttle the invoke while an hourly run is busy,
-and on the first run the new IAM grant may not have propagated yet) and fails
-only when every attempt failed: re-run the workflow. The IAM grant is
+could not be parked. The step retries an invoke error that may pass on its own
+(throttling: escrow-cron's reserved concurrency of 2 can be busy with an hourly
+run; `AccessDenied`: on the first run the new IAM grant may not have propagated
+yet; a 5xx from the Lambda service) up to 6 times with backoff, fails at once on
+any other invoke error, and fails after 2 attempts when the function itself
+failed (a `FunctionError` such as a timeout, or a 500 answer), so the worst case
+stays under 15 minutes. On failure re-run the workflow. The IAM grant is
 `InvokeEscrowCronAfterDeploy` in `github-actions-stack.ts` (this one function).
 
 The read is bounded by a marker in the escrow idempotency table
@@ -187,6 +190,50 @@ aws lambda invoke --function-name wereda-connect-dev-escrow-cron \
 
 # Read again on the next run (removes the done marker)
 aws dynamodb delete-item --table-name wereda-connect-dev-escrow-idempotency \
+  --key '{"idempotencyKey":{"S":"migration:esc-04:park_legacy_trucker_legs"}}'
+```
+
+#### Rolling back ESC-04
+
+The code before ESC-04 cannot close a trucker leg queued on a `released`
+escrow (`manualPayoutFromStatus = released`, from a retry or a legacy park):
+its close accepts only `escrowed`, `disputed` and `dispute_resolved`, so the
+admin page answers 409 `ESCROW_INVALID_TRANSITION`. Its crash recovery would
+also complete every `released` escrow with `truckerPayoutPending`, dropping the
+owed leg silently again. Before reverting, list both kinds:
+
+```bash
+aws dynamodb scan --table-name wereda-connect-<env>-escrows \
+  --filter-expression "#s = :r AND truckerPayoutPending = :t" \
+  --expression-attribute-names '{"#s":"status"}' \
+  --expression-attribute-values '{":r":{"S":"released"},":t":{"BOOL":true}}' \
+  --projection-expression "escrowId,createdAt,manualPayout,manualPayoutReason,truckerId,truckerPayout"
+```
+
+After the revert, for each one find the trucker leg in the Telebirr portal
+(`GATEWAY_OUTCOME_UNKNOWN`: it may already be paid) or pay it there, then close
+the row by hand with the portal transaction id:
+
+```bash
+aws dynamodb update-item --table-name wereda-connect-<env>-escrows \
+  --key '{"escrowId":{"S":"<id>"},"createdAt":{"S":"<createdAt>"}}' \
+  --update-expression "SET #s = :c, truckerTelebirrRef = :ref, truckerPaidAt = :now, completedAt = :now, manualTruckerStatus = :paid, manualTruckerRef = :ref, manualTruckerPaidBy = :admin, manualTruckerPaidAt = :now REMOVE manualPayout, truckerPayoutPending, truckerPayoutBlockReason, truckerPayoutBlockReasonAt, truckerPayoutLockId, truckerPayoutLockAt" \
+  --condition-expression "#s = :r" \
+  --expression-attribute-names '{"#s":"status"}' \
+  --expression-attribute-values '{":c":{"S":"completed"},":r":{"S":"released"},":paid":{"S":"paid"},":ref":{"S":"<portal transaction id>"},":admin":{"S":"<admin id>"},":now":{"S":"<ISO time>"}}'
+```
+
+The `manualTrucker*` fields apply only to a queued row; leave them out for a
+row without `manualPayout`. The other new attributes (`truckerPayoutPendingSince`,
+`truckerPaidAt`, the marker) are ignored by the old code.
+
+After redeploying ESC-04 following a revert, delete the legacy marker, so the
+next deploy reads the `completed` partition again for the rows the old code
+completed in between (deleting it just before the redeploy lets that deploy's own
+run read):
+
+```bash
+aws dynamodb delete-item --table-name wereda-connect-<env>-escrow-idempotency \
   --key '{"idempotencyKey":{"S":"migration:esc-04:park_legacy_trucker_legs"}}'
 ```
 
