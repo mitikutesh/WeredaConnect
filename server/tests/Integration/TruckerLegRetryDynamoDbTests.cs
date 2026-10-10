@@ -159,6 +159,19 @@ public sealed class TruckerLegRetryDynamoDbTests
         {
             item["deliveryId"] = S(deliveryId);
         }
+        else if (orderId == null)
+        {
+            // ESC-10: the auto-release pays only a delivery that is delivered.
+            item["deliveryId"] = S($"del-{escrowId}");
+            await Ddb.PutItemAsync(new PutItemRequest
+            {
+                TableName = _db.Deliveries,
+                Item = new Dictionary<string, AttributeValue>
+                {
+                    ["deliveryId"] = S($"del-{escrowId}"), ["tripId"] = S($"trip-{escrowId}"), ["status"] = S("delivered")
+                }
+            });
+        }
 
         await Ddb.PutItemAsync(new PutItemRequest { TableName = _db.Escrows, Item = item });
         return escrowId;

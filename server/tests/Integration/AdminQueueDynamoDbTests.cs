@@ -230,11 +230,22 @@ public sealed class AdminQueueDynamoDbTests
                 ("holdCapReachedAt", "1999-01-01T00:00:00.0000000Z"));
         }
 
-        // Capped, then delivered: the confirmed delivery brings it back for the release.
+        // Capped, then delivered: the confirmed delivery brings it back for the release (ESC-10: the
+        // delivery row says delivered too).
+        var deliveredId = NewId("del-esc06");
+        await Ddb.PutItemAsync(new PutItemRequest
+        {
+            TableName = _db.Deliveries,
+            Item = new Dictionary<string, AttributeValue>
+            {
+                ["deliveryId"] = S(deliveredId), ["tripId"] = S($"trip-{deliveredId}"), ["status"] = S("delivered")
+            }
+        });
         var releasable = await SeedEscrowAsync(null, "1999-06-01T00:00:00.0000000Z",
             ("holdCapReachedAt", "1999-01-01T00:00:00.0000000Z"),
             ("deliveryConfirmedAt", DateTime.UtcNow.AddHours(-60).ToString("o")),
-            ("disputeWindowEndsAt", DateTime.UtcNow.AddHours(-12).ToString("o")));
+            ("disputeWindowEndsAt", DateTime.UtcNow.AddHours(-12).ToString("o")),
+            ("deliveryId", deliveredId));
 
         // Capped, then the buyer cancelled after a transport failure: the scheduled refund brings it back.
         var listingId = NewId("crop-esc06");

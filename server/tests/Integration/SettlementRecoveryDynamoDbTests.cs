@@ -115,6 +115,16 @@ public sealed class SettlementRecoveryDynamoDbTests
         {
             item["deliveryConfirmedAt"] = S(Ago(60 * 50));
             item["disputeWindowEndsAt"] = S(Ago(60 * 2));
+            // ESC-10: the auto-release pays only a delivery that is delivered.
+            item["deliveryId"] = S($"del-{escrowId}");
+            await Ddb.PutItemAsync(new PutItemRequest
+            {
+                TableName = _db.Deliveries,
+                Item = new Dictionary<string, AttributeValue>
+                {
+                    ["deliveryId"] = S($"del-{escrowId}"), ["tripId"] = S($"trip-{escrowId}"), ["status"] = S("delivered")
+                }
+            });
         }
 
         if (withTrucker)

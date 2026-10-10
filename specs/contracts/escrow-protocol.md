@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.13.0
+1.15.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -1191,7 +1191,9 @@ Every escrow state change MUST produce an EscrowAuditEntry. The audit trail is:
 A scheduled Lambda runs every hour:
 1. Query `StatusExpiresIndex` for escrows with `status = escrowed`
 2. For each, check if `deliveryConfirmedAt` is set AND `now > disputeWindowEndsAt`
-3. If yes, call POST /escrow/release with `trigger = delivery_confirmed`
+3. If yes, call POST /escrow/release with `trigger = delivery_confirmed`; from 1.15.0 only when the
+   delivery is `delivered` and the order agrees (§Additions in 1.15.0), and the sweep pages through every
+   escrowed row
 4. Log audit entry with `actor = system`
 5. From 1.7.0 (planned FRD-03, FRD-04): between steps 2 and 3 the sweep checks every party's risk tier and suspension; on a trigger the escrow becomes `held` and no money moves
 
@@ -1199,7 +1201,9 @@ A scheduled Lambda runs every hour:
 
 A scheduled Lambda runs every hour:
 1. Query `StatusExpiresIndex` for escrows with `status = escrowed` AND `expiresAt < now`
-2. For each expired escrow, call POST /escrow/refund with `trigger = delivery_timeout`
+2. For each expired escrow, call POST /escrow/refund with `trigger = delivery_timeout`; order escrows
+   follow their order (1.1.0, 1.13.0), and from 1.15.0 an `/escrow/initiate` escrow follows its delivery
+   and order and is never refunded while its goods move (§Additions in 1.15.0)
 3. Log audit entry with `actor = system`
 4. Notify buyer and farmer via push notification
 5. From 1.7.0 (planned FRD-03, FRD-04): the same risk gate runs after the order-aware checks and before a stale `funded` order is cancelled or restocked
@@ -1298,7 +1302,9 @@ profile at settlement time, never to a client-supplied number. Before the settle
 | farmer phone not verified | `403 ESCROW_029` |
 | amount above 10,000 ETB and farmer not Fayda-verified | `403 ESCROW_029` |
 
-Every blocked release writes a `release_blocked_kyc` audit entry whose metadata names the reason.
+Every blocked release writes a `release_blocked_kyc` audit entry whose metadata names the reason (since
+1.15.0 `code=ESCROW_029;reason=<reason>`, once per reason for the hourly sweeps, on every attempt for an
+admin).
 | trucker leg with an unverified trucker | farmer leg proceeds, trucker leg stays `truckerPayoutPending`; since 1.11.0 the escrow stays `released` and the hourly trucker retry pays the leg once the trucker passes the gate |
 
 A blocked release leaves the escrow untouched for an admin.
@@ -2526,9 +2532,8 @@ already in dispute.
 
 ### Follow-ups
 
-- The auto-release sweep (`EscrowCronFunction.AutoReleaseAsync`) reads only the escrow: it never
-  checks that the order or delivery is disputed. Since 1.12.0 a disputed order or delivery implies
-  a frozen escrow, except rows left inconsistent before it (scan before deploy).
+- Done in 1.15.0 (ESC-10, FUP-28): the auto-release sweep reads the order and delivery before it pays,
+  and freezes a disputed trade it finds behind an `escrowed` escrow.
 - `POST /escrow/dispute` before delivery confirmation freezes the money but leaves the order and
   delivery as they are (`disputed` only follows `delivered`); the decision to refuse it is FUP-16.
 
@@ -2634,10 +2639,180 @@ reasons are unchanged.
 
 ---
 
+## Additions in 1.15.0 (sweep hygiene, ESC-10)
+
+Before 1.15.0 every status sweep took the first 100 rows of its `StatusExpiresIndex` partition that
+passed the filter, oldest `expiresAt` first, and skipped the ones it could not act on in memory. 100
+such rows at the head (unconfirmed trades in flight, a farmer the payout gate blocks, an order in an
+unexpected status) hid every row behind them for good, and a blocked release wrote a
+`release_blocked_kyc` row every hour. An escrow paid through `POST /escrow/initiate` was refunded at
+day 7 while its goods were on the road, and the auto-release never looked at the order or delivery.
+
+### Paged sweeps (escrow-cron)
+
+The auto-release, auto-refund and dispute-settlement sweeps (hourly) and the reconciliation (every 6
+hours) page through their whole partition, one Query of 100 evaluated rows at a time. Skips that need
+no read are part of the filter, next to the 1.8.0, 1.11.0 and 1.13.0 ones:
+
+| Sweep | Query | Filter added in 1.15.0 |
+|---|---|---|
+| Auto-release | `status = escrowed` | `deliveryConfirmedAt` present, no `settlementLock` |
+| Auto-refund | `status = escrowed`, `expiresAt <= now` | no `deliveryConfirmedAt`, no `settlementLock` |
+| Dispute settlement | `status = dispute_resolved` | no `settlementLock` |
+| Reconciliation | `status = initiated` | none |
+
+A locked row belongs to the 1.10.0 recovery step. The window check and every other skip stay in the
+sweep; a row it skips no longer hides the rows behind it.
+
+Budget per sweep and run: at most 50 pages, at most 1,000 rows that needed a read or a write (rows
+skipped on their own attributes do not count), and no new row once the run is 90 s old (auto-release),
+135 s (auto-refund), 165 s (dispute settlement) or 180 s (reconciliation), or once the Lambda has less
+than the trucker retry's 90 s reserve plus 30 s left. The limits count from the start of the run, so
+the reports and the recovery step before the sweeps count too and the trucker retry (last) keeps its
+time. A sweep a limit stops logs `ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_truncated
+outcome=failed code=<sweep>:<pages|rows|time>` (the settlement-failures alarm) and is named in the run
+summary's `sweepsTruncated`; the rows it did not reach wait for a later run (no cursor; ESC-16's deadline
+index replaces the partition walk). A failed page logs `sweep_failed` with the sweep's code as before
+(`release_query`, `refund_query`, `dispute_query`) and ends that sweep only; the reconciliation still
+answers 500. In the reconciliation, one row no longer stops the others: a cancel that lost to the
+webhook (the escrow moved on) is an Information line, any other failed cancel logs
+`ESCROW_SETTLEMENT_FAILED .. action=reconciliation_exception outcome=failed`.
+
+### A block is stored and audited once
+
+Server-only escrow attributes:
+
+| Attribute | Meaning |
+|---|---|
+| `settlementBlockReason` | why the hourly sweeps cannot settle this escrow: `release:payout:<reason>` (the 1.3.0 farmer payout gate: `profile_missing`, `phone_unverified`, `fayda_required`), `release:trade:<reason>` or `refund:trade:<reason>` (the order and delivery check below) |
+| `settlementBlockReasonAt` | ISO time the reason was first stored: the timestamp, and so the key, of its one audit row |
+
+The reason is written by compare-and-set (only when missing or different, on the status the sweep read,
+unlocked, not queued); the version and `updatedAt` do not move. The audit row is written with
+`AppendIfAbsent` at `settlementBlockReasonAt`, so later runs that see the same reason write nothing new
+(a row a crash lost is written then). A reason that changes gets one row per change. The `released` and
+`refunded` status writes and a closed manual payout remove both attributes; a gate that passes removes a
+reason of its own gate (`<op>:<gate>:` prefix) only.
+
+- `release_blocked_kyc`: from the sweeps once per reason, metadata `code=ESCROW_029;reason=<reason>`. An
+  admin's own `POST /escrow/release` that the gate blocks is audited on every attempt, with the same
+  metadata. The answer is unchanged (`403` or `422 ESCROW_029`). The cron logs
+  `ESCROW_RELEASE_BLOCKED escrowId=<id> code=ESCROW_029 sweep=<sweep>` at Information (was an error
+  line) and counts `releaseBlocked`.
+- `auto_release_blocked`, `auto_refund_blocked` (new audit actions, `actor: system`, metadata
+  `reason=<reason>;orderStatus=<status>;deliveryStatus=<status>`): a block of the check below. When the
+  reason is first stored the run also logs one `ESCROW_SETTLEMENT_FAILED escrowId=<id>
+  action=auto_release_blocked|auto_refund_blocked outcome=failed code=<op>:trade:<reason>` line (a
+  person must look), never again for the same reason. Every run logs `ESCROW_SETTLEMENT_BLOCKED
+  escrowId=<id> op=<op> reason=<reason>` at Warning (not an alarm token) and counts `releaseBlocked` or
+  `refundBlocked`.
+- A definite gateway refusal (`release_failed`, `refund_failed`, `trucker_release_failed`) is still one
+  row per attempt: each is a real gateway call.
+
+### The auto-release reads the order and delivery (FUP-28)
+
+Before a release the sweep reads the escrow's delivery and, when it names one, its order, both strongly
+consistent. A read that throws fails the row (`auto_release_exception`, alarm) and nothing is paid. In
+order:
+
+| Delivery | Order | Result |
+|---|---|---|
+| no delivery repository, or an `orderId` and no order repository | | blocked `repo_unavailable` |
+| the escrow names none / the row is missing | | blocked `no_delivery` / `delivery_missing` |
+| any | `dispute_resolved`, or a `disputed` delivery with `disputeResolution` | blocked `dispute_resolved` (never frozen) |
+| `disputed` | any | frozen (below) |
+| `delivered` | `disputed` | frozen (below) |
+| `pending`, `pickedUp`, `inTransit`, `cancelled` | | blocked `delivery_<status>` |
+| `delivered` | the escrow names one and it is missing | blocked `order_missing` |
+| `delivered` | `created`, `pending_payment`, `payment_submitted`, `payment_failed`, `funded`, `rejected`, `cancelled`, `settled`, or a status the sweep does not know | blocked `order_<status>` |
+| `delivered` | none, `accepted`, `pickup_confirmed`, `in_transit`, `delivered`, `disbursing` (the order may lag the delivery) | released as before (then the 1.3.0 payout gate) |
+
+An admin's own `POST /escrow/release` is not gated. Every order status of the order state machine has a
+class in the sweep (a server test enforces it, so a new status fails the build until it is classified).
+
+**Frozen.** A disputed delivery or order behind an `escrowed` escrow is a row the 1.12.0 freeze never
+reached. The sweep freezes it through the 1.12.0 delivery dispute path (`escrowed -> disputed`, the
+`dispute` audit row, `disputedBy` the delivery's or order's, else `system`) and, like every dispute path,
+moves the delivery and order to `disputed` after it. Only a freeze of this very escrow counts: that path
+prefers `escrow-order-{orderId}`, so when it lands on another escrow, or refuses
+(`freeze_other_escrow`, `freeze_other_delivery`, `freeze_not_held`, `freeze_no_escrow`), the escrow is
+blocked with that reason, and a stored refusal of these is not asked again. A lock or queue entry that
+appeared since the read defers to the next run. Without a delivery the escrow is blocked
+`order_disputed`. Counted in the run summary's `disputesFrozen`.
+
+### Refunds of `/escrow/initiate` escrows
+
+An escrow without `source: order` pays for its delivery. When it expires the sweep reads its delivery
+and, when it names one, its order, both strongly consistent (a read that throws fails the row,
+`auto_refund_exception`). Order escrows keep the 1.13.0 order rules unchanged. In order:
+
+1. No repository: blocked `repo_unavailable`. The order's own escrow (`escrow-order-{orderId}`) holds or
+   paid the money too (`initiated`, `escrowed`, `released`, `disputed`, `dispute_resolved`): blocked
+   `double_escrow`.
+2. The escrow names an order that is missing: the 1.13.0 missing-order rule (skipped, never refunded;
+   from the cap plus 24 hours `ADMIN_QUEUE_OVERDUE orderId=<id> reason=order_missing` every run).
+3. A resolved dispute: blocked `dispute_resolved`. A disputed delivery or order: frozen, as above. No
+   delivery row: blocked `delivery_missing`. An order status the sweep does not know: blocked
+   `order_<status>`.
+4. Then, with the order **live** when it is `accepted` to `disbursing`:
+
+| Delivery | Live order | No order | Order not live |
+|---|---|---|---|
+| `delivered` | stamped (`deliveryConfirmedAt`, window), not refunded; the release sweep pays it | same | same |
+| `pickedUp`, `inTransit` | held | held | blocked `delivery_moving` |
+| `pending` | held | cancelled, then refunded | cancelled, then refunded |
+| `cancelled` | held | refunded | refunded |
+| anything else | blocked `delivery_<status>` | same | same |
+
+**Held**: like an order escrow before its cap (1.13.0), `expiresAt = min(now + 48h, createdAt + 21
+days)`, written only while the escrow is a plain hold. At `createdAt + 21 days` an escrow with an order
+enters the admin queue (`hold_cap`, the entry's `adminQueueEscrowId` is this escrow); without an order
+there is no queue entry, so from the cap plus 24 hours every run logs `ADMIN_QUEUE_OVERDUE orderId=-
+reason=no_order ageHours=<hours since the cap> escrowId=<id>` (the admin-queue-overdue alarm), and the
+block `hold_cap_no_order` is audited once without the settlement-failure line.
+
+**Cancelled, then refunded**: the delivery is cancelled first, conditional on `pending`
+(`delivery-verification-api.md` 1.12.0), audited in transaction-audit as `delivery_cancelled` with
+`reason=escrow_expired`, and counted in `pendingDeliveriesCancelled`; a pickup that won the race keeps
+the money held (the next run sees the delivery moving). The refund is the 1.1.0 one (`delivery_timeout`,
+the stable `refund:<id>` reference). An `/escrow/initiate` escrow never cancels or restocks the order: the
+order's own escrow and the sync cancel own that. A refund scheduled by an order cancel
+(`refundReason`) passes the same check, so goods on the road are never refunded.
+
+### Admin queue: one entry per order
+
+An order has one admin queue entry. An escrow is stamped `holdCapReachedAt` and audited
+`hold_cap_reached` only for an entry it owns (`adminQueueEscrowId`, else `escrow-order-{orderId}`).
+
+### Run summary
+
+New keys of the `auto_release_and_refund` summary: `releaseBlocked`, `refundBlocked`, `disputesFrozen`,
+`pendingDeliveriesCancelled`, `sweepsTruncated` (`-` or a comma list). The reconciliation summary gains
+`sweepsTruncated`; its `total` counts the rows it read.
+
+### Deploying 1.15.0
+
+The first run settles what the 100-row window hid, within the budget: on a live environment each
+release or refund goes to Manual Payouts (`PAYOUT_NOT_SUPPORTED`) and the overdue alarm 24 hours later,
+and the `dispute_resolved` backlog (FUP-17) drains faster than 100 rows an hour. Every escrow a gate now
+blocks writes one more audit row and, for the order and delivery check, one alarm line, then none.
+Legacy `/escrow/initiate` escrows whose order is `created` or `pending_payment` no longer auto-release
+(blocked `order_<status>`; an admin settles them).
+
+### Not in 1.15.0 (known limits)
+
+- No persistent cursor: a sweep a limit stops every run never reaches its tail (it alarms every run).
+- A farmer the payout gate blocks has no overdue alarm (only the audit row and the summary count).
+- A legacy double payment (an `/escrow/initiate` escrow next to the order's own escrow) is blocked, not
+  settled: an admin decides.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.15.0 | 2026-10-10 | Sweep hygiene (ESC-10): the auto-release, auto-refund, dispute-settlement and reconciliation sweeps page through their whole partition (pages of 100) within a budget per sweep (50 pages, 1,000 rows that needed I/O, a time limit counted from the run start, the trucker reserve kept), with confirmation and lock skips in the filter and `sweep_truncated` when a limit stops one; a blocked settlement stores `settlementBlockReason`/`settlementBlockReasonAt` by compare-and-set and is audited once per reason (`release_blocked_kyc` from the sweeps, metadata `code=ESCROW_029;reason=<reason>`; admin attempts each time; new `auto_release_blocked`, `auto_refund_blocked` with one alarm line when first stored); the released and refunded writes clear it; the auto-release reads the delivery and order first (FUP-28): delivered and an order in flight or none pays, a disputed trade is frozen through the 1.12.0 path (this escrow only) and its delivery and order follow, a resolved dispute and every mismatch block; an expired `/escrow/initiate` escrow follows its delivery and order: goods moving or an order in flight hold it (extended to the 21-day cap, then the admin queue, or `ADMIN_QUEUE_OVERDUE reason=no_order` without an order), a pending delivery is cancelled before the refund, a double escrow or missing row blocks; an admin queue entry stamps only the escrow it owns; reconciliation rows are isolated; new run summary keys; no client change |
 | 1.13.0 | 2026-10-10 | 21-day hold cap and the admin stuck-order queue (ESC-06): the auto-refund sweep never extends an order escrow past funding + 21 days, and the extension is conditional (no `refundReason`, lock or manual payout); at the cap the order enters the admin queue (`adminQueue`, sparse `AdminQueueIndex` on orders, not versioned), audited `admin_queue_entered` and `hold_cap_reached`, and the escrow is stamped `holdCapReachedAt` last; capped escrows leave both sweep windows until a refund is scheduled or the delivery is confirmed; the hourly report produces `ADMIN_QUEUE_OVERDUE` (due from the queue time, or the pickup deadline of an accepted order; `ageHours` since due), clears an entry on escrow evidence only and re-arms a lost refund or delivery stamp; a capped escrow with a missing order logs `reason=order_missing`; `refundPending` stays false on a capped hold; the refund of a transport-failure cancel restores the listing stock first (fail closed) |
 | 1.12.0 | 2026-10-10 | Disputes always freeze money (ESC-07): the client order dispute is gone (`order-lifecycle.md` 1.14.0); a delivery dispute through sync freezes the escrow before the delivery or order is written (order escrow by its deterministic id, else the `DeliveryIndex`, decided on a consistent base row; manual payout, lock, any status but `escrowed`/`disputed`, another delivery: refused with `DELIVERY_DISPUTE_REFUSED` and nothing written; undecided: `DELIVERY_DISPUTE_RETRY`; no escrow for a funded order: refused and alarmed `DISPUTE_NO_ESCROW`); one dispute mirror for both paths (consistent reads, a lagging order advanced first, one transaction-audit row per hop, the delivery version added to); `POST /escrow/dispute` answers every lost race (`ESCROW_020`, `ESCROW_038`, `ESCROW_INVALID_TRANSITION`) and frees its key, never a `500`; new audit actions `dispute_refused_not_held`, `dispute_refused_other_delivery`; dispute rows at a deterministic key (repaired by a retry), refusal rows once a day per escrow, delivery and reason; the disputed write adds to the version; a dispute on an escrow already `disputed` answers `409 ESCROW_020` (was `422`) |
 | 1.11.0 | 2026-10-10 | Trucker leg retry (ESC-04): an escrow is `completed` only once every leg is paid (the repository refuses `completed` while `truckerPayoutPending` or `manualPayout` is set); a release with a pending trucker leg stays `released` and answers `status: released`; a gate-blocked trucker is audited `trucker_release_blocked_kyc` with its reason (no money alarm) and the reason is stored once per value (compare-and-set); new row attributes `truckerPayoutPendingSince`, `truckerPayoutBlockReason`, `truckerPayoutLockId`, `truckerPayoutLockAt`, `truckerPaidAt`; hourly trucker retry last in the run (after the crash recovery) under its own lock, only with time left (90 s) and up to 25 gateway calls, with the stable reference `release:<id>:trucker`: paid completes in one fenced write (deterministic `trucker_release` and `complete` rows), not supported, no reference or unknown queues the leg on the released row, a definite refusal releases the lock for the next run, a stale trucker lock is parked as `GATEWAY_OUTCOME_UNKNOWN`; truckerId backfilled from the order only when the delivery names the same trucker (`trucker_mismatch` otherwise), also when an admin records the leg; Manual Payouts closes a trucker leg on a released escrow straight to `completed` without touching the release; pre-1.11.0 trucker legs (no pending time) are parked in the queue as `GATEWAY_OUTCOME_UNKNOWN`, never retried: released ones by the hourly retry, completed ones by `park_legacy_trucker_legs`, which the server deploy invokes (with retries) until a marker says two clean runs found nothing; the block reason's audit row sits at `truckerPayoutBlockReasonAt` and is re-ensured; new token `TRUCKER_PAYOUT_OVERDUE` and alarm `trucker-payouts-overdue`; `sweep_truncated`, `trucker_retry_exception`, `legacy_trucker_parked` and `legacy_trucker_park_failed` lines; the crash recovery and the cron status queries skip pending trucker legs; no client change |
@@ -2664,5 +2839,5 @@ reasons are unchanged.
 ---
 
 **Last Updated**: 2026-10-10
-**Version**: 1.13.0
+**Version**: 1.15.0
 **Status**: Draft (Phase R4)

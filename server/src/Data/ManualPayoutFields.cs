@@ -140,6 +140,27 @@ internal static class TruckerPayoutFields
 }
 
 /// <summary>
+/// ESC-10: why a settlement of an <c>escrowed</c> or <c>dispute_resolved</c> escrow does not go ahead
+/// on the hourly sweeps: the farmer payout gate (<c>release:payout:&lt;reason&gt;</c>) or the sweep's
+/// order and delivery check (<c>release:trade:&lt;reason&gt;</c>, <c>refund:trade:&lt;reason&gt;</c>).
+/// Stored by compare-and-set with the time first seen, which keys the reason's one audit row. The
+/// <c>released</c> and <c>refunded</c> status writes remove both fields, and a gate that passes
+/// removes a reason of its own gate.
+/// </summary>
+internal static class SettlementBlockFields
+{
+    public const string Reason = "settlementBlockReason";
+    public const string ReasonAt = "settlementBlockReasonAt";
+
+    public const string GatePayout = "payout";
+    public const string GateTrade = "trade";
+
+    public static string Value(string op, string gate, string reason) => $"{op}:{gate}:{reason}";
+
+    public static string Prefix(string op, string gate) => $"{op}:{gate}:";
+}
+
+/// <summary>
 /// One payee leg written when an escrow enters the manual payout queue. A leg the gateway
 /// already paid (the farmer, when only the trucker leg failed) is seeded <c>paid</c> with
 /// its real reference and <c>PaidBy = gateway</c>.

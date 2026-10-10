@@ -14,7 +14,7 @@ namespace WeredaConnect.Server.Helpers;
 /// <code>
 /// ESCROW_SETTLEMENT_FAILED escrowId=&lt;id&gt; action=&lt;action&gt; outcome=&lt;failed|unknown&gt; code=&lt;code&gt;
 /// MANUAL_PAYOUT_OVERDUE escrowId=&lt;id&gt; ref=&lt;ref&gt; ageHours=&lt;n&gt;
-/// ADMIN_QUEUE_OVERDUE orderId=&lt;id&gt; reason=&lt;code&gt; ageHours=&lt;n&gt;
+/// ADMIN_QUEUE_OVERDUE orderId=&lt;id&gt; reason=&lt;code&gt; ageHours=&lt;n&gt; [escrowId=&lt;id&gt;]
 /// DISPUTE_VERDICT_ORDER_MISMATCH escrowId=&lt;id&gt; op=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=&lt;id&gt; op=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// TRUCKER_PAYOUT_OVERDUE escrowId=&lt;id&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
@@ -50,8 +50,16 @@ namespace WeredaConnect.Server.Helpers;
 /// logs <c>MANUAL_PAYOUT_OVERDUE</c> per pending leg with <c>ref=&lt;op&gt;:&lt;leg&gt;</c>;
 /// <c>EscrowCronFunction.ReportAdminQueueAsync</c> (ESC-06) logs <c>ADMIN_QUEUE_OVERDUE</c> per
 /// entry due for that long, with <c>ageHours</c> counted from when it became due, and the
-/// auto-refund sweep logs it for a capped escrow whose order is missing. Contract:
-/// <c>specs/contracts/escrow-protocol.md</c>, "Additions in 1.8.1" and "Additions in 1.13.0".
+/// auto-refund sweep logs it for a capped escrow whose order is missing, and (ESC-10) with
+/// <c>orderId=- reason=no_order</c> and a trailing <c>escrowId=</c> for an /escrow/initiate escrow with no
+/// order held to its cap. Contract: <c>specs/contracts/escrow-protocol.md</c>, "Additions in 1.8.1",
+/// "Additions in 1.13.0" and "Additions in 1.15.0".
+/// </para>
+/// <para>
+/// ESC-10 adds <c>ESCROW_SETTLEMENT_FAILED</c> actions from escrow-cron: <c>sweep_truncated</c> for a paged
+/// sweep its budget stopped (<c>code=&lt;sweep&gt;:&lt;pages|rows|time&gt;</c>), <c>auto_release_blocked</c> and
+/// <c>auto_refund_blocked</c> once per escrow and reason when the order and delivery check first blocks a
+/// settlement (<c>code=&lt;op&gt;:trade:&lt;reason&gt;</c>), and <c>reconciliation_exception</c>.
 /// </para>
 /// <para>
 /// Spoofing: a metric filter counts any line of its log group that contains the token, so a
@@ -132,8 +140,9 @@ public static class MoneyAlarmLog
     public static string ManualPayoutOverdue(string? escrowId, string? reference, int ageHours)
         => $"{ManualPayoutOverdueToken} escrowId={LogId(escrowId)} ref={Safe(reference)} ageHours={Math.Max(0, ageHours)}";
 
-    public static string AdminQueueOverdue(string? orderId, string? reason, int ageHours)
-        => $"{AdminQueueOverdueToken} orderId={LogId(orderId)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}";
+    public static string AdminQueueOverdue(string? orderId, string? reason, int ageHours, string? escrowId = null)
+        => $"{AdminQueueOverdueToken} orderId={LogId(orderId)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}"
+           + (escrowId == null ? "" : $" escrowId={LogId(escrowId)}");
 
     /// <summary>ESC-04: a released escrow's trucker leg is still owed (and not queued) after <see cref="QueueAlarmAfter"/>.</summary>
     public static string TruckerPayoutOverdue(string? escrowId, string? reason, int ageHours)

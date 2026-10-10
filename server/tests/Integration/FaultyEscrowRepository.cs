@@ -90,4 +90,10 @@ internal sealed class FaultyEscrowRepository : IEscrowRepository
     public Task<List<Dictionary<string, object>>> QueryByStatusForCronAsync(
         string status, string? expiresAtBefore = null, string? deliveryConfirmedBefore = null, int limit = 100)
         => _inner.QueryByStatusForCronAsync(status, expiresAtBefore, deliveryConfirmedBefore, limit);
+    public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryCronPageAsync(
+        CronSweepQuery query, Dictionary<string, AttributeValue>? exclusiveStartKey) => _inner.QueryCronPageAsync(query, exclusiveStartKey);
+    public Task<bool> TrySetSettlementBlockReasonAsync(string escrowId, string createdAt, string expectedStatus, string reason, string reasonAt)
+        => _inner.TrySetSettlementBlockReasonAsync(escrowId, createdAt, expectedStatus, reason, reasonAt);
+    public Task<bool> TryClearSettlementBlockReasonAsync(string escrowId, string createdAt, string storedReason)
+        => _inner.TryClearSettlementBlockReasonAsync(escrowId, createdAt, storedReason);
 }

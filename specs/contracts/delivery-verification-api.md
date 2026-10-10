@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.10.0
+1.12.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -144,6 +144,15 @@ reaches the delivery too (v1.8.0, ESC-03): a delivery still `delivered` is marke
 `buyer_wins` refund before pickup cancels a delivery that is still `pending` (`status: cancelled`,
 version incremented; since 1.9.0 no `deletedAt`, audited `delivery_cancelled`), as a system actor,
 before the order is cancelled.
+
+The hourly refund sweep does the same system cancel (v1.12.0, ESC-10, `escrow-protocol.md` 1.15.0):
+before it refunds an expired escrow paid through `POST /escrow/initiate` whose delivery is still
+`pending` and whose order is not in flight (none, or not `accepted` to `disbursing`), it cancels the
+delivery (`status: cancelled`, conditional on `pending`, version incremented, no `deletedAt`), audited
+in transaction-audit as `delivery_cancelled` with `reason=escrow_expired`. A pickup that wins the race
+leaves the delivery `pickedUp` and the money held; a pickup synced after the cancel is refused by the
+1.9.0 rules (`cancelled` is final). The sweep never refunds that escrow while the delivery is
+`pickedUp` or `inTransit`.
 
 **Cancel (1.9.0, ESC-08).** A party cancels with an update `{"status": "cancelled", "version": n}`
 (nothing else in `data` but the echo keys; other fields are refused with `DELIVERY_VALIDATION`).
@@ -992,9 +1001,10 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.9.0 | 2026-10-09 | Delivery rules (ESC-08): cancel by update `{status, version}` or the legacy `delete` (same rules), any party, `pending` only, `DELIVERY_CANCEL_NOT_ALLOWED` after pickup (`pickedUp → cancelled` removed), `DELIVERY_UNAUTHORIZED` for anyone else, `conflict` with the row when already cancelled, other `data` fields refused, a failed write condition judged again on a fresh read; the cancel writes no `deletedAt` (the system cancel of a verdict neither), is audited `delivery_cancelled` (`via=update` or `via=delete`) and frees the slot; photo upload refuses a cancelled delivery by status too; slot claim and delivery row in one transaction, `activeDeliveryClaimedAt`, a dead holder (cancelled, or an untimed legacy claim without a row) taken over only from the claim that was read; trucker create must carry the order's `tripId` and `listingId` and a trip of the caller; validation and authorization sections brought in line with the server. |
 | 1.8.0 | 2026-10-09 | Dispute verdict (ESC-03): the admin's verdict marks a still `delivered` delivery `disputed` and stamps the server-only `disputeResolution` and `disputeResolvedAt` on the disputed delivery (status unchanged, one stamp per delivery, version incremented); a `buyer_wins` refund before pickup cancels a `pending` delivery (system soft delete); system writes audited in transaction-audit. |
 | 1.10.0 | 2026-10-10 | Dispute freezes first (ESC-07): a `disputed` transition freezes the order's escrow before the delivery is written (version checked on a consistent read first); a refused freeze writes nothing and answers `DELIVERY_DISPUTE_REFUSED` (manual payout, settlement in flight, escrow not holding the money, linked to another delivery, or no escrow for the order, alarmed `DISPUTE_NO_ESCROW`); an undecided freeze answers `DELIVERY_DISPUTE_RETRY`; a conflict after the freeze still marks the delivery and order; the delivery hop is audited `dispute`; the escrow mirror adds to the delivery version; status and transition text say any participant may dispute, as the authorization sections already did. |
+| 1.12.0 | 2026-10-10 | Refund sweep (ESC-10): an expired `/escrow/initiate` escrow with a `pending` delivery and no order in flight has the delivery cancelled by the system first (conditional on `pending`, audited `delivery_cancelled`, `reason=escrow_expired`), then is refunded; one whose delivery is `pickedUp` or `inTransit` is never refunded by the sweep. No client change. |
 
 ---
 
 **Last Updated**: 2026-10-10
-**Version**: 1.10.0
+**Version**: 1.12.0
 **Status**: Draft (Phase R4.2)
