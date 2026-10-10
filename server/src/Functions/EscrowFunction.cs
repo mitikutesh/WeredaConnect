@@ -98,6 +98,9 @@ public class EscrowFunction
         }
     }
 
+    /// <summary>ESC-45 (D6): run time kept back from Telebirr calls for the writes and the response after them.</summary>
+    internal static readonly TimeSpan GatewayCallReserve = TimeSpan.FromSeconds(5);
+
     /// <summary>
     /// Constructor for testing with mocked dependencies.
     /// </summary>
@@ -118,6 +121,10 @@ public class EscrowFunction
         // AWS does not promise that a payload 1.0 resource is always the template.
         context.Logger.LogInformation(
             $"EscrowFunction invoked: {MoneyAlarmLog.LogId(request.HttpMethod)} {MoneyAlarmLog.LogText(request.Resource)}");
+
+        // ESC-45 (D6): every Telebirr call ends before the writes after it (slot outcome, audit,
+        // settlement status) and the response need the last seconds of the 30 s run.
+        using var gatewayDeadline = GatewayDeadline.Begin(context, GatewayCallReserve);
 
         var action = ExtractAction(request);
 

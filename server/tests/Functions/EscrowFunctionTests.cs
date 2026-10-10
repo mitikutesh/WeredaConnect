@@ -137,6 +137,35 @@ public class EscrowFunctionTests
     }
 
     [Fact]
+    public async Task FunctionHandler_BoundsTelebirrCallsByTheRemainingTime()
+    {
+        // ESC-45 (D6): the gateway sees a deadline 5 s before the end of the run.
+        TimeSpan? seen = null;
+        _mockTelebirrGateway.HoldFundsAsync(Arg.Any<HoldFundsRequest>()).Returns(_ =>
+        {
+            seen = WeredaConnect.Server.Helpers.GatewayDeadline.Remaining;
+            return new HoldFundsResponse { Success = true, TelebirrRef = "MOCK-HOLD-REF" };
+        });
+        var body = JsonSerializer.Serialize(new InitiateEscrowRequest
+        {
+            DeliveryId = "del-001",
+            BuyerId = BuyerId,
+            FarmerId = FarmerId,
+            Amount = 5_000m,
+            Currency = "ETB",
+            IdempotencyKey = $"{BuyerId}:del-001:initiate:1708084800001"
+        }, AppJsonContext.Default.InitiateEscrowRequest);
+        var request = WithAuthTime(
+            MakePostRequest("/escrow/initiate", body, BuyerId), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+        await _function.FunctionHandler(request, new TestLambdaContext { RemainingTime = TimeSpan.FromSeconds(20) });
+
+        Assert.NotNull(seen);
+        Assert.InRange(seen!.Value, TimeSpan.FromSeconds(13), TimeSpan.FromSeconds(15.5));
+        Assert.Null(WeredaConnect.Server.Helpers.GatewayDeadline.Remaining);
+    }
+
+    [Fact]
     public async Task FunctionHandler_GetById_Routes()
     {
         var escrowItem = new Dictionary<string, object>

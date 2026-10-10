@@ -422,6 +422,7 @@ public class EscrowServiceOrderCheckoutTests
     [Theory]
     [InlineData("TELEBIRR_ERR_AMOUNT")]
     [InlineData(TelebirrGatewayErrors.TokenFailed)] // ESC-45: no token, so preOrder was never sent
+    [InlineData(TelebirrGatewayErrors.NoTime)] // ESC-45: too little time left, nothing was sent
     public async Task CreateOrderCheckout_DefiniteGatewayRefusal_FreesTheSlot(string errorCode)
     {
         _gateway.HoldFundsAsync(Arg.Any<HoldFundsRequest>())

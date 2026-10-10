@@ -1,7 +1,9 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 
 namespace WeredaConnect.Server.Services;
@@ -27,6 +29,12 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
     // Order"); the local simulator serves the same paths (ESC-45, F9).
     private const string TokenPath = "/payment/v1/token";
     private const string PreOrderPath = "/payment/v1/merchant/preOrder";
+
+    /// <summary>
+    /// ESC-45 (D6): no request starts with less than this before the invocation's deadline; the
+    /// call then fails with the definite <see cref="TelebirrGatewayErrors.NoTime"/> (nothing sent).
+    /// </summary>
+    internal static readonly TimeSpan MinCallBudget = TimeSpan.FromSeconds(2);
 
     private readonly HttpClient _http;
     private readonly ITelebirrSignatureService _signer;
@@ -55,6 +63,10 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
         try
         {
             token = await AcquireTokenAsync();
+        }
+        catch (NoTimeLeftException)
+        {
+            return Fail(TelebirrGatewayErrors.NoTime, "Not enough time left in this run to call Telebirr.");
         }
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException)
         {
@@ -123,11 +135,10 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
             req.Headers.TryAddWithoutValidation("Authorization", token);
             req.Headers.TryAddWithoutValidation("X-APP-Key", _config.FabricAppId);
 
-            using var resp = await _http.SendAsync(req);
-            var body = await resp.Content.ReadAsStringAsync();
-            if (!resp.IsSuccessStatusCode)
+            var (status, body) = await SendBoundedAsync(req);
+            if ((int)status is < 200 or > 299)
             {
-                return Fail("TELEBIRR_PREORDER", $"preOrder HTTP {(int)resp.StatusCode}");
+                return Fail("TELEBIRR_PREORDER", $"preOrder HTTP {(int)status}");
             }
 
             // ESC-05: an answer we cannot read, or a success without its prepay_id, does not say
@@ -167,6 +178,11 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
                 ToPayUrl = toPayUrl,
                 PrepayId = prepayId,
             };
+        }
+        catch (NoTimeLeftException)
+        {
+            // Raised before the request was sent: Telebirr has seen nothing.
+            return Fail(TelebirrGatewayErrors.NoTime, "Not enough time left in this run to call Telebirr.");
         }
         catch (HttpRequestException ex)
         {
@@ -247,9 +263,12 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
         };
         req.Headers.TryAddWithoutValidation("X-APP-Key", _config.FabricAppId);
 
-        using var resp = await _http.SendAsync(req);
-        resp.EnsureSuccessStatusCode();
-        var body = await resp.Content.ReadAsStringAsync();
+        var (status, body) = await SendBoundedAsync(req);
+        if ((int)status is < 200 or > 299)
+        {
+            throw new HttpRequestException($"Telebirr fabric-token HTTP {(int)status}.");
+        }
+
         var parsed = JsonSerializer.Deserialize(body, AppJsonContext.Default.TelebirrTokenResponse);
         if (parsed?.Token is not { Length: > 0 } token)
         {
@@ -293,6 +312,36 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
         var query = string.Join("&", ordered.Select(p => $"{p.Key}={Uri.EscapeDataString(p.Value)}"));
         var web = _config.WebUrl.TrimEnd('/');
         return $"{web}?{query}";
+    }
+
+    /// <summary>
+    /// ESC-45 (D6): every Telebirr HTTP call goes through here. With less than
+    /// <see cref="MinCallBudget"/> before the invocation's <see cref="GatewayDeadline"/>, nothing is
+    /// sent (<see cref="NoTimeLeftException"/>); otherwise the send and the body read are cancelled
+    /// at the deadline (an <see cref="OperationCanceledException"/>, mapped to an unknown-outcome
+    /// timeout like the client's own 30 s timeout). Any future payout call must use it too.
+    /// </summary>
+    private async Task<(HttpStatusCode Status, string Body)> SendBoundedAsync(HttpRequestMessage request)
+    {
+        using var cts = new CancellationTokenSource();
+        if (GatewayDeadline.Remaining is { } remaining)
+        {
+            if (remaining < MinCallBudget)
+            {
+                throw new NoTimeLeftException();
+            }
+
+            cts.CancelAfter(remaining);
+        }
+
+        using var resp = await _http.SendAsync(request, cts.Token);
+        var body = await resp.Content.ReadAsStringAsync(cts.Token);
+        return (resp.StatusCode, body);
+    }
+
+    /// <summary>The deadline left no time for a call; raised before anything is sent.</summary>
+    private sealed class NoTimeLeftException : Exception
+    {
     }
 
     /// <summary>Request and checkout-URL timestamps are UTC epoch seconds, as Ethio Telecom documents (ESC-45, F10).</summary>

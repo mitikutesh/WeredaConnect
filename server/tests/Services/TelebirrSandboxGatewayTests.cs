@@ -1,8 +1,10 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Diagnostics;
 using FluentAssertions;
 using WeredaConnect.Server;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.Services;
 using Xunit;
@@ -302,6 +304,105 @@ public class TelebirrSandboxGatewayTests
         resp.ToPayUrl.Should().StartWith(config.WebUrl).And.Contain("prepay_id=");
     }
 
+    // ===== ESC-45 (D6): every call ends at the invocation's deadline (timeout tests) =====
+
+    private static HttpResponseMessage TokenAnswer()
+        => Json(new TelebirrTokenResponse { Token = "Bearer T", ExpiresIn = 3600 }, AppJsonContext.Default.TelebirrTokenResponse);
+
+    /// <summary>A Telebirr that answers the token and then never answers preOrder (until cancelled).</summary>
+    private static FakeHandler PreOrderHangs(Action? onPreOrder = null) => new((req, ct) =>
+    {
+        if (req.RequestUri!.AbsolutePath.EndsWith("/payment/v1/token"))
+        {
+            return Task.FromResult(TokenAnswer());
+        }
+
+        onPreOrder?.Invoke();
+        return Hang(ct);
+    });
+
+    private static async Task<HttpResponseMessage> Hang(CancellationToken ct)
+    {
+        await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+        throw new InvalidOperationException("unreachable");
+    }
+
+    private static TelebirrSandboxGateway Gateway(HttpMessageHandler handler)
+        => new(new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) },
+            new TelebirrSignatureService(TestPrivateKeyPem, null, TelebirrSignaturePadding.Pkcs1), TestConfig());
+
+    private static HoldFundsRequest Hold() => new()
+    {
+        TransactionRef = "WCO1", BuyerPhone = "+2519", Amount = 100m, Description = "x",
+    };
+
+    [Fact]
+    public async Task HoldFunds_a_preorder_that_hangs_is_cut_at_the_deadline_as_a_timeout()
+    {
+        using var deadline = GatewayDeadline.Begin(DateTimeOffset.UtcNow.AddSeconds(3));
+        var watch = Stopwatch.StartNew();
+
+        var resp = await Gateway(PreOrderHangs()).HoldFundsAsync(Hold());
+
+        watch.Stop();
+        resp.Success.Should().BeFalse();
+        resp.ErrorCode.Should().Be(TelebirrGatewayErrors.Timeout, "Telebirr may have created the payment");
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(6), "the call stops at the deadline, not at the client's 30 s");
+    }
+
+    [Fact]
+    public async Task HoldFunds_with_too_little_time_left_sends_nothing()
+    {
+        var requests = 0;
+        var handler = new FakeHandler((_, _) =>
+        {
+            Interlocked.Increment(ref requests);
+            return Task.FromResult(TokenAnswer());
+        });
+        using var deadline = GatewayDeadline.Begin(DateTimeOffset.UtcNow.AddSeconds(1));
+
+        var resp = await Gateway(handler).HoldFundsAsync(Hold());
+
+        resp.ErrorCode.Should().Be(TelebirrGatewayErrors.NoTime);
+        requests.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task HoldFunds_a_token_call_that_uses_up_the_budget_never_sends_the_preorder()
+    {
+        var preOrders = 0;
+        var handler = new FakeHandler((req, ct) =>
+        {
+            if (req.RequestUri!.AbsolutePath.EndsWith("/payment/v1/merchant/preOrder"))
+            {
+                Interlocked.Increment(ref preOrders);
+            }
+
+            return Hang(ct);
+        });
+        using var deadline = GatewayDeadline.Begin(DateTimeOffset.UtcNow.AddSeconds(3));
+
+        var resp = await Gateway(handler).HoldFundsAsync(Hold());
+
+        resp.ErrorCode.Should().Be(TelebirrGatewayErrors.TokenFailed, "no token, no payment: a definite failure");
+        preOrders.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task HoldFunds_without_a_deadline_is_unchanged()
+    {
+        var resp = await Gateway(new FakeHandler((req, _) => Task.FromResult(
+            req.RequestUri!.AbsolutePath.EndsWith("/payment/v1/token")
+                ? TokenAnswer()
+                : Json(new TelebirrPreOrderResponse
+                {
+                    Result = "SUCCESS", Code = "0",
+                    BizContent = new TelebirrPreOrderRespBiz { PrepayId = "P1", MerchOrderId = "WCO1" },
+                }, AppJsonContext.Default.TelebirrPreOrderResponse)))).HoldFundsAsync(Hold());
+
+        resp.Success.Should().BeTrue();
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private static HttpResponseMessage Json<T>(T value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> ti)
@@ -312,10 +413,11 @@ public class TelebirrSandboxGatewayTests
 
     private sealed class FakeHandler : HttpMessageHandler
     {
-        private readonly Func<HttpRequestMessage, Task<HttpResponseMessage>> _fn;
-        public FakeHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> fn) => _fn = fn;
+        private readonly Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> _fn;
+        public FakeHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> fn) => _fn = (req, _) => fn(req);
+        public FakeHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> fn) => _fn = fn;
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-            => _fn(request);
+            => _fn(request, ct);
     }
 }
