@@ -2832,7 +2832,11 @@ sandbox checklist).
   has one (then only `data` is read; `sign` from it, or from the top level when it has none). A
   `biz_content` object is flattened one level (the earlier simulator shape). Any other object or
   array value, and any key seen twice, refuses the body; JSON null is absent. Numbers keep their
-  raw text, booleans become `1`/`0`.
+  raw text, booleans become `1`/`0`. A key containing `&` or `=`, or a value containing `&`, refuses
+  the body (`separator_in_field`, `200`, nothing written): the signed string escapes nothing, so such
+  a field could re-split a captured notification into a different map with the same signed string.
+  Outbound, an order title drops `&` and `=`, and a key that appears twice once `biz_content` is
+  merged up refuses to sign.
 - **Signature** over every field of that map except `sign`, `sign_type`, `header`, `refund_info`,
   `openType`, `raw_request`, `wallet_reference_data`, sorted, `key=value&...`, SHA-256 with RSA-PSS
   or PKCS#1 v1.5 (both checked against Telebirr's public key; the log names the padding that
@@ -2876,11 +2880,12 @@ Bodies: `200` `{"code":"0","msg":"success"}`, `500` `{"code":"1","msg":"error"}`
   counts the attempt and sets the next replay 5, 10, 20, 40, then 60 minutes later, and is then replayed
   like a redelivery (the funding write is the fence against a redelivery at the same moment).
 - **Give-up**: after the 8th failed attempt, or for a due row with every attempt used, the row moves to
-  `inboxReplay = exhausted` (status `unprocessed`, stored fields kept), conditional on still pending with
-  the attempt count read; only then `ORDER_PAYMENT_UNPROCESSED ... reason=replay_exhausted cause=<why>
+  `inboxReplay = exhausted` (status `unprocessed`, stored fields kept, `exhaustedAt` stamped and never
+  removed), conditional on still pending with the attempt count read; only then `ORDER_PAYMENT_UNPROCESSED ... reason=replay_exhausted cause=<why>
   attempts=<n>` and an `order_payment_unprocessed` escrow-audit row. A malformed or missing mapping or an
-  unreadable stored notification is given up at once. A row that later applies (a redelivery or a
-  requeue) logs "applied after its inbox row was given up; stop any manual refund".
+  unreadable stored notification is given up at once. A row with `exhaustedAt` that later applies (a
+  redelivery, or the sweep after a requeue) logs "applied after its inbox row was given up; stop any
+  manual refund".
 - One `TELEBIRR_INBOX_REPLAY_RUN due= claimed= applied= pending= exhausted=` line per run, none when the
   index query failed; alarm `{prefix}-telebirr-inbox-replay-stalled` after 30 minutes without one.
 - The rule in §Webhook: order payments about not refunding an `ORDER_PAYMENT_UNPROCESSED` payment while

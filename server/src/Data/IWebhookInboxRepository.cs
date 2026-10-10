@@ -50,9 +50,10 @@ public interface IWebhookInboxRepository
     Task<bool> TryClaimAsync(string key, string seenReplayAt, int seenAttempts, DateTime nextReplayAtUtc, DateTime nowUtc);
 
     /// <summary>
-    /// Give up on a row: move it to the <c>exhausted</c> partition, only while it is still pending
-    /// with <paramref name="seenAttempts"/> (a finalize that won the race is never undone). False
-    /// when the condition failed.
+    /// Give up on a row: move it to the <c>exhausted</c> partition and stamp <c>exhaustedAt</c> (kept
+    /// through a requeue and a final outcome, so a payment that applies later still says so), only
+    /// while it is still pending with <paramref name="seenAttempts"/> (a finalize that won the race is
+    /// never undone). False when the condition failed.
     /// </summary>
     Task<bool> ExhaustAsync(string key, int seenAttempts);
 }
@@ -117,7 +118,8 @@ public sealed record WebhookInboxRow(
     string? ReplayAt,
     int Attempts,
     string? CreatedAt,
-    TelebirrWebhookBiz? Biz)
+    TelebirrWebhookBiz? Biz,
+    string? ExhaustedAt = null)
 {
     /// <summary>A row whose outcome is final: neither received nor unprocessed, and out of the index.</summary>
     public bool IsFinal => Status is not (WebhookInbox.Received or WebhookInbox.Unprocessed);

@@ -19,6 +19,10 @@ namespace WeredaConnect.Server.Services;
 /// <item>A <c>biz_content</c> object is flattened one level with the same rules; any other object
 /// or array value refuses the body, and so does a key seen twice (in one object, or between the
 /// source and its <c>biz_content</c>).</item>
+/// <item>A key containing <c>&amp;</c> or <c>=</c>, or a value containing <c>&amp;</c>, refuses the
+/// body. The signed string joins <c>key=value</c> pairs with <c>&amp;</c> and escapes nothing, so
+/// such a field could re-split a captured notification into a different map with the same signed
+/// string (a payment reference moved into another field, for example).</item>
 /// </list>
 /// AOT-safe: <see cref="JsonDocument"/> only, no serializer metadata.
 /// </summary>
@@ -155,13 +159,26 @@ public static class TelebirrNotifyParser
                 return false;
             }
 
+            if (member.Name.AsSpan().IndexOfAny('&', '=') >= 0)
+            {
+                error = "separator_in_field";
+                return false;
+            }
+
             var value = member.Value;
             switch (value.ValueKind)
             {
                 case JsonValueKind.Null:
                     break;
                 case JsonValueKind.String:
-                    fields[member.Name] = value.GetString()!;
+                    var text = value.GetString()!;
+                    if (text.Contains('&'))
+                    {
+                        error = "separator_in_field";
+                        return false;
+                    }
+
+                    fields[member.Name] = text;
                     break;
                 case JsonValueKind.Number:
                     fields[member.Name] = value.GetRawText();

@@ -111,6 +111,14 @@ public sealed class TelebirrSignatureService : ITelebirrSignatureService
     public bool VerifyFlat(
         IReadOnlyDictionary<string, string> fields, string base64Signature, out TelebirrSignaturePadding matched)
     {
+        // The signed string escapes nothing: a separator inside a field would make it match a
+        // different map (ESC-45). The parser refuses such bodies first; this keeps the rule here too.
+        matched = _padding;
+        if (fields.Any(kv => kv.Key.AsSpan().IndexOfAny('&', '=') >= 0 || kv.Value.Contains('&')))
+        {
+            return false;
+        }
+
         var canonical = BuildFlatCanonicalString(fields);
         var other = _padding == TelebirrSignaturePadding.Pss ? TelebirrSignaturePadding.Pkcs1 : TelebirrSignaturePadding.Pss;
         foreach (var padding in new[] { _padding, other })
@@ -122,7 +130,6 @@ public sealed class TelebirrSignatureService : ITelebirrSignatureService
             }
         }
 
-        matched = _padding;
         return false;
     }
 
@@ -175,6 +182,13 @@ public sealed class TelebirrSignatureService : ITelebirrSignatureService
         if (ExcludedKeys.Contains(key))
         {
             return;
+        }
+
+        // ESC-45: a key that appears twice once biz_content is merged up would let one value
+        // silently replace the other in the signed string.
+        if (value is not IReadOnlyDictionary<string, object?> and not IDictionary<string, object?> && outMap.ContainsKey(key))
+        {
+            throw new InvalidOperationException($"Telebirr signing: the key '{key}' appears twice after flattening.");
         }
 
         switch (value)

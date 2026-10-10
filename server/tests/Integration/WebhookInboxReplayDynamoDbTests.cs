@@ -62,8 +62,11 @@ public sealed class WebhookInboxReplayDynamoDbTests : IDisposable
             TableName = _db.Crops,
             Item = new Dictionary<string, AttributeValue>
             {
-                ["cropId"] = S(_listingId), ["createdAt"] = S("2026-10-01T10:00:00.0000000Z"),
-                ["status"] = S("active"), ["quantity"] = N("10"), ["version"] = N("1")
+                ["cropId"] = S(_listingId),
+                ["createdAt"] = S("2026-10-01T10:00:00.0000000Z"),
+                ["status"] = S("active"),
+                ["quantity"] = N("10"),
+                ["version"] = N("1")
             }
         });
         await Ddb.PutItemAsync(new PutItemRequest
@@ -71,10 +74,17 @@ public sealed class WebhookInboxReplayDynamoDbTests : IDisposable
             TableName = _db.Orders,
             Item = new Dictionary<string, AttributeValue>
             {
-                ["orderId"] = S(_orderId), ["createdAt"] = S(orderCreatedAt), ["status"] = S("payment_submitted"),
-                ["buyerId"] = S("buyer-esc45"), ["farmerId"] = S("farmer-esc45"), ["listingId"] = S(_listingId),
-                ["quantity"] = N("500"), ["orderTotal"] = N("15000"), ["cropCost"] = N("14600"),
-                ["paymentSubmittedAt"] = S(paymentSubmittedAt), ["version"] = N("3")
+                ["orderId"] = S(_orderId),
+                ["createdAt"] = S(orderCreatedAt),
+                ["status"] = S("payment_submitted"),
+                ["buyerId"] = S("buyer-esc45"),
+                ["farmerId"] = S("farmer-esc45"),
+                ["listingId"] = S(_listingId),
+                ["quantity"] = N("500"),
+                ["orderTotal"] = N("15000"),
+                ["cropCost"] = N("14600"),
+                ["paymentSubmittedAt"] = S(paymentSubmittedAt),
+                ["version"] = N("3")
             }
         });
         var checkouts = new OrderCheckoutRepository(Ddb, _db.Idempotency);
@@ -255,11 +265,41 @@ public sealed class WebhookInboxReplayDynamoDbTests : IDisposable
         var biz = TelebirrNotifyParser.ToBiz(TelebirrNotifyParser.TryParse(Notify(), out var parsed, out _) ? parsed!.Fields : throw new InvalidOperationException());
         (await Inbox.RecordAsync(InboxKey, EscrowId, _orderId, MerchOrderId, biz, DateTime.UtcNow.AddMinutes(-10))).Should().BeTrue();
 
+        // One order repository for both sweeps: each replay that runs reads the order once (and fails).
+        var orders = FlakyOrders(failures: 100);
         await Task.WhenAll(
-            Webhook(FlakyOrders(failures: 100)).FunctionHandler(Replay(), Context()),
-            Webhook(FlakyOrders(failures: 100)).FunctionHandler(Replay(), Context()));
+            Webhook(orders).FunctionHandler(Replay(), Context()),
+            Webhook(orders).FunctionHandler(Replay(), Context()));
 
         (await RawInboxRowAsync())["replayAttempts"].N.Should().Be("1");
+        orders.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IOrderRepository.GetByIdAsync))
+            .Should().Be(1, "only the sweep that won the claim replays the row");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task A_claim_holds_only_for_the_replay_time_and_attempt_count_that_were_read()
+    {
+        // Two runners that read the same due row: the second claim must fail on both the replay time
+        // and the attempt count, or both would replay the row in one round.
+        await SeedAsync();
+        var biz = TelebirrNotifyParser.ToBiz(TelebirrNotifyParser.TryParse(Notify(), out var parsed, out _) ? parsed!.Fields : throw new InvalidOperationException());
+        var now = DateTime.UtcNow;
+        (await Inbox.RecordAsync(InboxKey, EscrowId, _orderId, MerchOrderId, biz, now.AddMinutes(-10))).Should().BeTrue();
+        var seen = (await Inbox.GetAsync(InboxKey))!;
+
+        (await Inbox.TryClaimAsync(InboxKey, seen.ReplayAt!, seen.Attempts, now.AddMinutes(5), now)).Should().BeTrue();
+        (await Inbox.TryClaimAsync(InboxKey, seen.ReplayAt!, seen.Attempts, now.AddMinutes(6), now))
+            .Should().BeFalse("the first claim moved the replay time and counted the attempt");
+
+        var afterFirst = (await Inbox.GetAsync(InboxKey))!;
+        (await Inbox.TryClaimAsync(InboxKey, afterFirst.ReplayAt!, seen.Attempts, now.AddMinutes(7), now))
+            .Should().BeFalse("a stale attempt count never claims, even with the current replay time");
+        (await Inbox.TryClaimAsync(InboxKey, seen.ReplayAt!, afterFirst.Attempts, now.AddMinutes(8), now))
+            .Should().BeFalse("a stale replay time never claims, even with the current attempt count");
+
+        var row = await RawInboxRowAsync();
+        row["replayAttempts"].N.Should().Be("1");
+        row["inboxReplayAt"].S.Should().Be(WebhookInbox.Iso(now.AddMinutes(5)));
     }
 
     [LocalDynamoDbFact]
@@ -326,6 +366,37 @@ public sealed class WebhookInboxReplayDynamoDbTests : IDisposable
         (await RawInboxRowAsync())["inboxReplay"].S.Should().Be("exhausted");
         Logs(context).Split('\n').Should().Contain(l => l.Contains("reason=replay_exhausted") && l.Contains(MerchOrderId));
         (await OrderAsync())["status"].ToString().Should().Be("payment_submitted", "a given-up row is not replayed");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task A_requeued_row_that_applies_says_stop_any_manual_refund()
+    {
+        // The runbook requeue sets the row pending again; exhaustedAt stays, so the apply is flagged.
+        await SeedAsync();
+        var biz = TelebirrNotifyParser.ToBiz(TelebirrNotifyParser.TryParse(Notify(), out var parsed, out _) ? parsed!.Fields : throw new InvalidOperationException());
+        (await Inbox.RecordAsync(InboxKey, EscrowId, _orderId, MerchOrderId, biz, DateTime.UtcNow.AddHours(-5))).Should().BeTrue();
+        (await Inbox.ExhaustAsync(InboxKey, 0)).Should().BeTrue();
+        await Ddb.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _db.Idempotency,
+            Key = new Dictionary<string, AttributeValue> { ["idempotencyKey"] = S(InboxKey) },
+            UpdateExpression = "SET inboxReplay = :p, replayAttempts = :z, inboxReplayAt = :now",
+            ConditionExpression = "inboxReplay = :x",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                [":p"] = S("pending"),
+                [":z"] = N("0"),
+                [":x"] = S("exhausted"),
+                [":now"] = S(WebhookInbox.Iso(DateTime.UtcNow.AddMinutes(-1)))
+            }
+        });
+
+        var context = Context();
+        await Webhook(Orders).FunctionHandler(Replay(), context);
+
+        await AssertFundedOnceAsync();
+        Logs(context).Split('\n').Should().Contain(l => l.Contains("stop any manual refund") && l.Contains(MerchOrderId));
+        (await RawInboxRowAsync()).Should().ContainKey("exhaustedAt");
     }
 
     [LocalDynamoDbFact]

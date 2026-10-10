@@ -92,7 +92,7 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
                     ["merch_code"] = _config.MerchantCode,
                     ["merch_order_id"] = request.TransactionRef,
                     ["trade_type"] = "Checkout",
-                    ["title"] = Truncate(request.Description, 120),
+                    ["title"] = SafeTitle(request.Description),
                     ["total_amount"] = request.Amount.ToString("F2"),
                     ["trans_currency"] = "ETB",
                     ["timeout_express"] = "120m",
@@ -116,7 +116,7 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
                     MerchCode = _config.MerchantCode,
                     MerchOrderId = request.TransactionRef,
                     TradeType = "Checkout",
-                    Title = Truncate(request.Description, 120),
+                    Title = SafeTitle(request.Description),
                     TotalAmount = request.Amount.ToString("F2"),
                     TransCurrency = "ETB",
                     TimeoutExpress = "120m",
@@ -362,4 +362,12 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
 
     private static string Truncate(string s, int max)
         => s.Length <= max ? s : s[..max];
+
+    /// <summary>
+    /// The order title sent to Telebirr: at most 120 characters, without <c>&amp;</c> or <c>=</c>, so a
+    /// client-chosen id inside it can never change how the signed <c>key=value&amp;...</c> string splits
+    /// (ESC-45).
+    /// </summary>
+    private static string SafeTitle(string description)
+        => Truncate(description.Replace('&', ' ').Replace('=', ' '), 120);
 }

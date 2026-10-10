@@ -1,7 +1,7 @@
+using System.Diagnostics;
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using System.Diagnostics;
 using FluentAssertions;
 using WeredaConnect.Server;
 using WeredaConnect.Server.Helpers;
@@ -154,7 +154,10 @@ public class TelebirrSandboxGatewayTests
 
         var resp = await gateway.HoldFundsAsync(new HoldFundsRequest
         {
-            TransactionRef = "WCO1", BuyerPhone = "+2519", Amount = 100m, Description = "x",
+            TransactionRef = "WCO1",
+            BuyerPhone = "+2519",
+            Amount = 100m,
+            Description = "x",
         });
 
         resp.Success.Should().BeFalse();
@@ -184,7 +187,10 @@ public class TelebirrSandboxGatewayTests
 
         var resp = await gateway.HoldFundsAsync(new HoldFundsRequest
         {
-            TransactionRef = "b:d:initiate:1", BuyerPhone = "+2519", Amount = 100m, Description = "x",
+            TransactionRef = "b:d:initiate:1",
+            BuyerPhone = "+2519",
+            Amount = 100m,
+            Description = "x",
         });
 
         resp.Success.Should().BeFalse();
@@ -333,7 +339,10 @@ public class TelebirrSandboxGatewayTests
 
     private static HoldFundsRequest Hold() => new()
     {
-        TransactionRef = "WCO1", BuyerPhone = "+2519", Amount = 100m, Description = "x",
+        TransactionRef = "WCO1",
+        BuyerPhone = "+2519",
+        Amount = 100m,
+        Description = "x",
     };
 
     [Fact]
@@ -396,11 +405,40 @@ public class TelebirrSandboxGatewayTests
                 ? TokenAnswer()
                 : Json(new TelebirrPreOrderResponse
                 {
-                    Result = "SUCCESS", Code = "0",
+                    Result = "SUCCESS",
+                    Code = "0",
                     BizContent = new TelebirrPreOrderRespBiz { PrepayId = "P1", MerchOrderId = "WCO1" },
                 }, AppJsonContext.Default.TelebirrPreOrderResponse)))).HoldFundsAsync(Hold());
 
         resp.Success.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task HoldFunds_title_never_carries_a_separator_into_the_signed_string()
+    {
+        // ESC-45 review: a client-chosen id in the description cannot change how the signed
+        // key=value&... string splits.
+        string? title = null;
+        var handler = new FakeHandler(async (req, _) =>
+        {
+            if (req.RequestUri!.AbsolutePath.EndsWith("/payment/v1/token"))
+            {
+                return TokenAnswer();
+            }
+
+            var order = JsonSerializer.Deserialize(await req.Content!.ReadAsStringAsync(), AppJsonContext.Default.TelebirrPreOrderRequest)!;
+            title = order.BizContent.Title;
+            return Json(new TelebirrPreOrderResponse
+            {
+                Result = "SUCCESS",
+                Code = "0",
+                BizContent = new TelebirrPreOrderRespBiz { PrepayId = "P1", MerchOrderId = "WCO1" },
+            }, AppJsonContext.Default.TelebirrPreOrderResponse);
+        });
+
+        await Gateway(handler).HoldFundsAsync(Hold() with { Description = "WeredaConnect escrow for delivery d1&total_amount=1" });
+
+        title.Should().NotBeNull().And.NotContain("&").And.NotContain("=");
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

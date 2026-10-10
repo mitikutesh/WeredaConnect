@@ -1564,4 +1564,122 @@ public class TelebirrWebhookFunctionTests
         resp.StatusCode.Should().Be(200);
         await _inboxRepo.DidNotReceive().QueryDueAsync(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
     }
+
+    // ===== ESC-45 review: separators cannot re-split a captured notification =====
+
+    /// <summary>
+    /// A captured, genuinely signed notification re-split into a different map with the same signed
+    /// string: <paramref name="moveKey"/>'s pair is appended to <paramref name="intoKey"/>'s value (its
+    /// neighbour in the sorted string) and the key itself is dropped.
+    /// </summary>
+    private static string ReSplit(Dictionary<string, string> captured, string intoKey, string moveKey)
+    {
+        var body = captured.ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+        body[intoKey] = $"{captured[intoKey]}&{moveKey}={captured[moveKey]}";
+        body.Remove(moveKey);
+        body["sign"] = Sign(captured);
+        body["sign_type"] = "SHA256WithRSA";
+        return JsonSerializer.Serialize(body);
+    }
+
+    [Fact]
+    public async Task A_payment_reference_moved_into_notify_url_is_refused_before_any_state()
+    {
+        // Variant (a): verified before the fix; the reader got no payment_order_id and a new inbox key.
+        var fn = NewOrderFunction();
+        var captured = SignedFields("Completed", merchOrderId: OrderMerchOrderId, paymentOrderId: OrderPaymentId);
+        var signer = new TelebirrSignatureService(PrivateKeyPem, null, TelebirrSignaturePadding.Pkcs1);
+        signer.BuildFlatCanonicalString(new Dictionary<string, string>(captured) { ["notify_url"] = captured["notify_url"] + "&payment_order_id=" + OrderPaymentId }
+                .Where(kv => kv.Key != "payment_order_id").ToDictionary(kv => kv.Key, kv => kv.Value))
+            .Should().Be(signer.BuildFlatCanonicalString(captured), "the attack relies on an identical signed string");
+
+        var resp = await fn.FunctionHandler(Req(ReSplit(captured, "notify_url", "payment_order_id")), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        Logs.Should().Contain("separator_in_field").And.NotContain("ORDER_PAYMENT_");
+        await _checkoutRepo.DidNotReceive().GetMappingAsync(Arg.Any<string>());
+        await _inboxRepo.DidNotReceive().GetAsync(Arg.Any<string>());
+        await _auditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task An_amount_moved_into_the_payment_reference_is_refused_before_any_state()
+    {
+        // Variant (b): on an order funded by this payment it logged a DUPLICATE refund case.
+        var fn = NewOrderFunction();
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("funded", OrderPaymentId));
+        var captured = SignedFields("Completed", merchOrderId: OrderMerchOrderId, paymentOrderId: OrderPaymentId);
+
+        var resp = await fn.FunctionHandler(Req(ReSplit(captured, "payment_order_id", "total_amount")), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        Logs.Should().Contain("separator_in_field").And.NotContain("ORDER_PAYMENT_");
+        await _checkoutRepo.DidNotReceive().GetMappingAsync(Arg.Any<string>());
+        await _auditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task A_key_with_a_separator_is_refused()
+    {
+        var body = Signed(SignedFields("Completed"));
+        body["trade_status=Completed"] = "x";
+
+        await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+
+        await EscrowNotMoved();
+        Logs.Should().Contain("separator_in_field");
+    }
+
+    [Fact]
+    public async Task An_equals_sign_inside_a_value_still_verifies()
+    {
+        // '=' cannot re-split once keys may not contain it: a query string in notify_url is fine.
+        var fields = SignedFields("Completed");
+        fields["notify_url"] = "https://api.example/webhooks/telebirr?src=telebirr";
+
+        await NewFunction().FunctionHandler(Req(Json(Signed(fields))), _ctx);
+
+        await EscrowMovedTo("escrowed");
+    }
+
+    // ===== ESC-45 review: a payment that applies after its row was given up says so =====
+
+    [Fact]
+    public async Task A_requeued_row_that_the_sweep_applies_says_stop_any_manual_refund()
+    {
+        var fn = NewOrderFunction();
+        OrderFundsCleanly();
+        DueRows(InboxRow(WebhookInbox.Unprocessed, WebhookInbox.Pending) with { ExhaustedAt = WebhookInbox.Iso(DateTime.UtcNow.AddHours(-2)) });
+        ClaimSucceeds();
+
+        await fn.FunctionHandler(ReplayRequest(), _ctx);
+
+        await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "applied");
+        Logs.Should().Contain("stop any manual refund");
+    }
+
+    [Fact]
+    public async Task A_redelivery_of_a_requeued_row_that_applies_says_stop_any_manual_refund()
+    {
+        var fn = NewOrderFunction();
+        OrderFundsCleanly();
+        _inboxRepo.GetAsync(OrderInboxKey).Returns(
+            InboxRow(WebhookInbox.Unprocessed, WebhookInbox.Pending) with { ExhaustedAt = WebhookInbox.Iso(DateTime.UtcNow.AddHours(-2)) });
+
+        await fn.FunctionHandler(Req(OrderBody()), _ctx);
+
+        Logs.Should().Contain("stop any manual refund");
+    }
+
+    [Fact]
+    public async Task An_out_of_window_redelivery_of_a_given_up_row_points_at_the_requeue()
+    {
+        var fn = NewOrderFunction();
+        _inboxRepo.GetAsync(OrderInboxKey).Returns(InboxRow(WebhookInbox.Unprocessed, WebhookInbox.Exhausted, 8));
+
+        await fn.FunctionHandler(Req(OrderBodyAt(_clock.GetUtcNow().AddHours(-60))), _ctx);
+
+        Logs.Should().Contain("gave up on").And.Contain("requeue it to apply").And.NotContain("the sweep applies it");
+        Logs.Should().NotContain("ORDER_PAYMENT_UNPROCESSED");
+    }
 }

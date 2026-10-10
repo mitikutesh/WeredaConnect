@@ -324,7 +324,11 @@ public class OrderCronFunction
 
     private static int GetInt(Dictionary<string, object> item, string key)
     {
-        if (!item.TryGetValue(key, out var value)) return 0;
+        if (!item.TryGetValue(key, out var value))
+        {
+            return 0;
+        }
+
         return value switch
         {
             int i => i,

@@ -13,7 +13,8 @@ namespace WeredaConnect.Server.Data;
 ///
 /// Row: idempotencyKey, escrowId, orderId, result (= merchOrderId), status, createdAt, updatedAt,
 /// expiresAt (TTL, 30 days), and while pending or exhausted: inboxReplay (GSI partition),
-/// inboxReplayAt (GSI sort key), replayAttempts, lastReplayAt, notificationBiz.
+/// inboxReplayAt (GSI sort key), replayAttempts, lastReplayAt, notificationBiz; exhaustedAt once
+/// the sweep gave the row up (never removed).
 /// </summary>
 public sealed class WebhookInboxRepository : IWebhookInboxRepository
 {
@@ -196,12 +197,12 @@ public sealed class WebhookInboxRepository : IWebhookInboxRepository
             {
                 TableName = _tableName,
                 Key = Key(key),
-                UpdateExpression = "SET #marker = :exhausted, #status = :unprocessed, #updated = :now",
+                UpdateExpression = "SET #marker = :exhausted, #status = :unprocessed, #updated = :now, #exhaustedAt = :now",
                 ConditionExpression = "#marker = :pending AND #attempts = :seenAttempts",
                 ExpressionAttributeNames = new Dictionary<string, string>
                 {
                     { "#marker", WebhookInbox.Marker }, { "#attempts", WebhookInbox.Attempts },
-                    { "#status", "status" }, { "#updated", "updatedAt" }
+                    { "#status", "status" }, { "#updated", "updatedAt" }, { "#exhaustedAt", "exhaustedAt" }
                 },
                 ExpressionAttributeValues = new Dictionary<string, AttributeValue>
                 {
@@ -275,7 +276,8 @@ public sealed class WebhookInboxRepository : IWebhookInboxRepository
             ReplayAt: GetS(item, WebhookInbox.ReplayAt),
             Attempts: int.TryParse(GetN(item, WebhookInbox.Attempts), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : 0,
             CreatedAt: GetS(item, "createdAt"),
-            Biz: biz);
+            Biz: biz,
+            ExhaustedAt: GetS(item, "exhaustedAt"));
     }
 
     private static string ExpiresAt(DateTime receivedAtUtc)

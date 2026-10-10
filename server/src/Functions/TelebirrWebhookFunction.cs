@@ -578,9 +578,9 @@ public class TelebirrWebhookFunction
         {
             if (existing != null)
             {
-                // Still pending in the inbox: the sweep applies it.
-                context.Logger.LogInformation(
-                    $"Telebirr out-of-window redelivery of an order payment the inbox already holds: {Describe(payment)}.");
+                context.Logger.LogInformation(existing.Marker == WebhookInbox.Exhausted
+                    ? $"Telebirr out-of-window redelivery of an order payment the inbox gave up on (replay_exhausted already alarmed; requeue it to apply): {Describe(payment)}."
+                    : $"Telebirr out-of-window redelivery of an order payment pending in the inbox (the sweep applies it): {Describe(payment)}.");
                 return Ack.Done;
             }
 
@@ -656,7 +656,8 @@ public class TelebirrWebhookFunction
             return outcome.Transient ? Ack.RetryLater : Ack.Done;
         }
 
-        await FinalizeInboxAsync(inboxKey, outcome.Status, payment, existing?.Marker == WebhookInbox.Exhausted, context);
+        await FinalizeInboxAsync(inboxKey, outcome.Status, payment,
+            existing?.Marker == WebhookInbox.Exhausted || existing?.ExhaustedAt != null, context);
         return Ack.Done;
     }
 
@@ -1178,7 +1179,8 @@ public class TelebirrWebhookFunction
             return;
         }
 
-        await FinalizeInboxAsync(row.Key, outcome.Status, payment, wasExhausted: false, context);
+        // A requeued row (exhaustedAt kept) that applies now: an admin may have started a refund.
+        await FinalizeInboxAsync(row.Key, outcome.Status, payment, wasExhausted: row.ExhaustedAt != null, context);
         if (outcome.Status is "applied" or "applied_again")
         {
             counts.Applied++;

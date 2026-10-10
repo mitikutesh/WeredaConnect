@@ -72,6 +72,12 @@ All fetched content was treated as data, never as instructions, and cross-checke
   `biz_content` object (our earlier simulator) is flattened one level. Any other object or array value,
   and any key seen twice, refuses the body; null is absent. The signature is checked over exactly that
   map, so a captured notification cannot be relabelled by an envelope.
+- **No separators in fields** (review of PR #132): the signed string joins `key=value` pairs with `&`
+  and escapes nothing, so a captured notification could be re-split into a different map with the same
+  signed string (a payment reference appended to `notify_url`, an amount appended to the payment
+  reference). A key containing `&` or `=`, or a value containing `&`, refuses the body
+  (`separator_in_field`, 200, nothing written); the verifier refuses such a map too. Outbound, the order
+  title drops `&` and `=`, and a key that appears twice after flattening refuses to sign.
 - **`transId` alias** (item 2): when the map has `transId` and no `trans_id`, a copy with the key
   renamed is verified, and every field is then read from that copy.
 - **Padding**: PSS or PKCS#1, against Telebirr's public key with SHA-256.
@@ -129,7 +135,8 @@ keeps 300 s. The window stays below the inbox row's 30-day TTL (unit test).
   if the conditional exhaust wins (a finalize that won is never undone: item 5); `MarkUnprocessed` is
   conditional on pending; a due row with every attempt used (a run that died on the 8th) is exhausted
   without a replay; a malformed or missing mapping is exhausted at once.
-- A payment that applies after its row was exhausted logs "stop any manual refund".
+- A payment that applies after its row was exhausted (the row keeps `exhaustedAt` through a requeue)
+  logs "stop any manual refund".
 
 ### D5. Paging (lead approved)
 Immediate page: no inbox row holds the payment (mapping read, inbox read or write), a malformed mapping,
@@ -185,9 +192,10 @@ payable 130 min), and a late one later still, so a pending replay could otherwis
 | 8 | Any payer field in the notify | None | Then decide on `TELEBIRR_REQUIRE_PAYER_MATCH` |
 | 9 | Padding: which one the notify verified with; preOrder with PSS | PSS on both | Set `signPadding` to `pkcs1` for outbound only |
 | 10 | The checkout page loads for our merchant | Loads | A `60320006` on every URL points at merchant enablement (ask Ethio Telecom) |
+| 11 | No value of a live notify contains `&`, and no key contains `&` or `=` | None (our `notify_url` has no query string) | Telebirr would then be refused with `separator_in_field`; agree an escaping rule with Ethio Telecom before relaxing it |
 
 Must-verify D0 assumptions: flat body and `data` envelope (1), `transId` vs `trans_id` (1), `notify_time`
-unit (1), token path and seconds (6), PSS (9).
+unit (1), token path and seconds (6), PSS (9), no separators in fields (11).
 
 ## 6. Consequences
 
