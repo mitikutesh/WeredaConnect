@@ -4081,13 +4081,13 @@ abstract class AppLocalizations {
   /// Timeline explanation for the disbursing status
   ///
   /// In en, this message translates to:
-  /// **'The money is being released from escrow to the farmer.'**
+  /// **'The money is leaving escrow: the farmer, and the trucker if there is one, are being paid.'**
   String get statusDisbursingInfo;
 
   /// Timeline explanation for the settled status
   ///
   /// In en, this message translates to:
-  /// **'The farmer has received the money. The order is complete.'**
+  /// **'Everyone has been paid: the farmer, and the trucker if there is one. The order is complete.'**
   String get statusSettledInfo;
 
   /// Timeline explanation for the cancelled status

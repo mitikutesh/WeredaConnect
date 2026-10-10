@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.16.0
+1.17.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -35,13 +35,13 @@ statuses are camelCase on the wire).
 | 6 | `pickup_confirmed` | Pickup from the farmer confirmed (QR scan; trucker delivery or buyer self-pickup). | In escrow. | **System** when the delivery becomes `pickedUp` (1.4.0). A participant (incl. the trucker) may request it only once the order's active delivery is `pickedUp` or later; an order without an active delivery is refused (1.10.0) |
 | 7 | `in_transit` | Crops en route to the buyer. | In escrow. | **System** when the delivery becomes `inTransit`. A participant (incl. the trucker) may request it only once the active delivery is `inTransit` or later (1.10.0) |
 | 8 | `delivered` | Delivery confirmed by the buyer. Starts the dispute window (see `escrow-protocol.md`: 48h; auto-release after it). | In escrow, release pending. | **System** when the delivery becomes `delivered` (self-pickup jumps here from `accepted`); a client request is refused unless the order's active delivery is already `delivered` |
-| 9 | `disbursing` | Escrow release to the farmer's account is in progress (minus commission). | Leaving escrow. | **System only** |
-| 10 | `settled` | Farmer received the money. Order complete. | Paid out. Terminal. | **System only** |
+| 9 | `disbursing` | The release is committed: the farmer leg is paid or waits in the manual payout queue (also an unknown outcome or a parked release lock); the trucker leg may still be owed (1.17.0). With the live gateway this can last days. | Leaving escrow. | **System only**, when the escrow becomes `released` or its release is queued (1.17.0) |
+| 10 | `settled` | Every leg is paid: the farmer and, when there is one, the trucker. Order complete. | Paid out. Terminal. | **System only**, when the escrow becomes `completed` with no leg owed (1.17.0) |
 | — | `cancelled` | Order cancelled (buyer action, or auto-cancel, see below). Escrowed money, if any, refunds to the buyer. An `accepted` order only after a transport failure (1.15.0, see Transport failure cancel). | Refunded/none. Terminal. | Buyer / system cron |
 | — | `rejected` | Farmer declined the funded order; escrow refunds to the buyer. | Refunded. Terminal. | Farmer |
 | — | `payment_failed` | Payment could not be verified: the order cron sets it 24 hours after `paymentSubmittedAt` when no payment was confirmed (1.7.0). Buyer may retry (`→ payment_submitted` directly since 1.13.0, or `→ pending_payment`) or cancel. | No confirmed money. | **System only** (enforced since 1.7.0) |
 | — | `disputed` | Dispute raised within the window; escrow keeps holding the money. Ratings are blocked while disputed. | Frozen in escrow. | **System only** (1.14.0): from an escrow dispute (`POST /escrow/dispute`, buyer or farmer) or a delivery dispute via sync (1.4.1), each only after the escrow is frozen. A client order update to `disputed` is refused (`ORDER_UNAUTHORIZED`) |
-| — | `dispute_resolved` | Dispute decided; money released to farmer or refunded to buyer per outcome. | Released per verdict. Terminal. | **System only**: when the admin records the verdict (`POST /admin/disputes/{id}/resolve`), and again before the escrow is settled if that failed (1.12.0) |
+| — | `dispute_resolved` | Dispute decided; money released to farmer or refunded to buyer per outcome. The order stays here after the verdict is settled (it never moves to `disbursing` or `settled`; the escrow status says whether the money moved, 1.17.0). | Released per verdict. Terminal. | **System only**: when the admin records the verdict (`POST /admin/disputes/{id}/resolve`), and again before the escrow is settled if that failed (1.12.0), and by the hourly order-money sweep after a settled verdict whose order hop failed (1.17.0) |
 
 ### The three "payment" levels, in one line each
 
@@ -88,7 +88,11 @@ mismatch — see `trip-transition` gotchas: send the **pre-increment** version).
 | `payment_submitted` + `TELEBIRR_MOCK=true` | Server auto-advances to `funded` as a system actor (audited as `payment_verified`). Never active in prod / live gateway. | `TryAutoFundMockOrderAsync` |
 | `created`/`pending_payment` older than 24h | Auto-cancelled by cron. | `OrderCronFunction.cs` |
 | `payment_submitted` for 24h (from `paymentSubmittedAt`; `createdAt` for orders from before 1.7.0) with no confirmed payment | Moved to `payment_failed` by the same hourly cron, version-checked so a funding that lands at the same time wins; audited as `order_updated` (`payment_submitted → payment_failed`). Since 1.16.0 (ESC-45) never while a verified Telebirr payment for the order is pending in the webhook inbox: the cron skips orders whose server-only `paymentHoldUntil` is in the future and orders with a row in the inbox's `pending` partition (if that partition cannot be read, no order is failed that run), and its write is also conditional on the hold, so a hold written after the cron read the order wins. The hold is set by the webhook for every verified `Completed` notification of the order's current payment attempt (extend-only, without changing `version` or `updatedAt`) and lapses on its own once the inbox stops replaying the payment (at most about 75 minutes after the last replay; `escrow-protocol.md` §Additions in 1.16.0). The order checkout stops opening new attempts 20 hours after `paymentSubmittedAt` (`escrow-protocol.md` 1.5.0), so none is still open then. A retry goes `payment_failed → payment_submitted` in one change (1.13.0, ESC-47 item 1): the payment gates run as for any payment, `paymentSubmittedAt` is stamped again, and the `pending_payment` auto-cancel above (which counts from `createdAt`) never sees the order. The older `payment_failed → pending_payment → payment_submitted` path is still accepted, but an order older than 24h left at `pending_payment` is cancelled at the next run (1.7.0). | `OrderCronFunction.FailStalePaymentsAsync` |
-| `delivered` + 48h no dispute | Escrow auto-releases to farmer (`disbursing → settled`). | escrow cron, `escrow-protocol.md` |
+| `delivered` + 48h no dispute | Escrow auto-releases to farmer; the order follows the money (`disbursing`, then `settled`), see "The order follows the money" below (1.17.0). | escrow cron, `escrow-protocol.md` |
+| release committed (escrow `released`, or the release queued for a manual payout) | `delivered → disbursing`, after the escrow write (1.17.0). | `OrderMoneyMirror`; below |
+| escrow `completed` (every leg paid) | `→ settled` (through `disbursing`), after the escrow write (1.17.0). | `OrderMoneyMirror`; below |
+| admin refund of a plain `escrowed` order escrow (`POST /escrow/refund`, not the system sweep) | `funded`, or `accepted` with no delivery or a `pending` one: the order is cancelled first (pending delivery first, `cancelReason: escrow_refunded`, slot freed, listing stock restored) and the refund is scheduled on the escrow, then refunded. `cancelled` or `rejected`: refunded as is (stock given back first after an `escrow_refunded` or transport-failure cancel). Goods moving or `delivered`: `422` unless `overrideOrderMismatch` with a reason (admin group), which refunds, flags the order (`refundOverride*`, server-only) and leaves its status. Anything else: `422` (1.17.0, ESC-09). | `EscrowService.PrepareAdminRefundOrderAsync`; `escrow-protocol.md` §Additions in 1.15.0 |
+| admin release of a plain `escrowed` order escrow | Only an order `delivered` or `disbursing` (an order left behind a delivered delivery is advanced to `delivered` first); anything else `422`, no override (1.17.0). | `EscrowService.CheckAdminReleaseOrderAsync` |
 | escrowed + 7 days no delivery | Escrow refunds the buyer. For order-funded escrows the sweep is order-aware: it refunds only stale-`funded` or terminal orders (then cancels a stale-funded order, `cancelReason: escrow_refunded`, and restores its listing stock, 1.4.2); progressing orders get the expiry pushed +48h, never past funding + 21 days (1.15.0). | `escrow-protocol.md` §Order-Funded Escrow; `EscrowCronFunction.TryRestoreListingStockAsync` |
 | funded + 21 days, order not done | No more extension: the order enters the admin stuck-order queue (server-only `adminQueue`, `adminQueuedAt`, `adminQueueReason: hold_cap`, `adminQueueEscrowId`, written without bumping `version`), audited `admin_queue_entered`; the hourly report alarms `ADMIN_QUEUE_OVERDUE` once an entry is due for 24 hours and clears it when the escrow shows the money moved on. Nothing moves the money by itself (1.15.0). | `EscrowCronFunction`; `escrow-protocol.md` §Additions in 1.13.0 |
 | escrow due to settle (auto-release, auto-refund, dispute settlement) while a party is suspended or at risk tier CRITICAL | The escrow moves to `held` instead of paying out; the order status does not change (a stale-funded order is not cancelled and its stock not restored until the admin decides). Planned FRD-03, FRD-04, behind `FRAUD_HOLD_ENABLED` (1.9.0). | `EscrowCronFunction`; `escrow-protocol.md` §Additions in 1.7.0 |
@@ -365,8 +369,55 @@ cancel of `accepted` with the same code.
 
 ---
 
+## The order follows the money (1.17.0, ESC-09)
+
+Before 1.17.0 nothing wrote `disbursing` or `settled`: every order the escrow paid out stayed
+`delivered` forever (the Escrow tile counted it as held, the admin stage stayed Delivered).
+
+**Target.** The escrow's state decides where its order goes:
+
+| Escrow | Order |
+|---|---|
+| any escrow with a dispute verdict (`disputeResolution`) | owned by the verdict: `dispute_resolved` (repaired after a settled verdict whose order hop failed), never `disbursing` or `settled` |
+| `completed`, no `truckerPayoutPending`, no open manual payout | `settled` |
+| `completed` still owing a leg (a legacy row before the ESC-04 park), `released` (with or without a trucker leg owed or queued), `escrowed` with a release in the manual payout queue | `disbursing` |
+| `refunded` | not moved; the order must already be `cancelled`, `rejected` or `dispute_resolved` (or flagged by an override) |
+| anything else (`escrowed`, `disputed`, a refund still queued, `initiated`, `cancelled`, `held`) | not moved |
+
+**Moves.** Forward only, one hop at a time: `delivered → disbursing`, `disbursing → settled` (the two
+system edges of `OrderTransitions`), and an order left at `accepted`, `pickup_confirmed` or
+`in_transit` behind a confirmed delivery is first advanced to `delivered` (the system catch-up of
+1.4.0 and 1.12.0). Each hop is one write conditioned on the order's status (not its version) that
+adds 1 to `version` and stamps `updatedAt`, with one transaction-audit row `order_updated`
+(system actor, metadata `escrowId`, `escrowStatus`, `source`). A hop lost to another writer re-reads
+and decides again. `settled` is never written while the escrow is still `escrowed`.
+
+**When.** Right after every escrow money write: the release (its queued, pending-trucker and completed
+answers), the hourly trucker retry that pays the last leg, a manual payout leg or close (also a
+replay), the stale release-lock park, the legacy trucker park and the crash recovery. Best-effort: it
+never changes the settlement's answer; a failure logs `ORDER_MONEY_FOLLOW_DEFERRED`.
+
+**Self-heal and backfill.** The hourly escrow-cron run ends with the order-money sweep: it pages the
+orders `StatusCreatedAtIndex` partitions `delivered`, `disbursing`, `disputed`, `accepted`,
+`pickup_confirmed`, `in_transit` (oldest first, within a 30 second slice of the run and 2,000
+orders; a run that stops early saves a cursor and the next one goes on from there), finds each order's escrow (`escrow-order-{orderId}`, else the order or delivery index) and
+applies the same rules. Its first run moves every order left `delivered` by releases before 1.17.0.
+An order past delivery with no escrow, a refund behind a closed or flagged order, or a mismatch it
+alarmed is marked with the server-only
+`moneySweepSkip` (its status then) and `moneySweepSkipAt`, without a `version` or `updatedAt` change;
+later runs skip it until its status moves. Alarm `ORDER_MONEY_MISMATCH` (`escrow-protocol.md`
+§Additions in 1.15.0).
+
+**Clients.** No new status and no wire change: shipped apps already know `disbursing` and `settled`.
+A device that still shows an older status and queues a status change (for example the `delivered`
+catch-up) gets `ORDER_VALIDATION: Invalid status transition` from the transition check, which runs
+before the version check; it is permanent and the client reverts to the server row. The buyer may rate
+at `delivered`, `disbursing` and `settled` (`rating-api.md` 1.1.0). The Escrow tile and "In Escrow"
+keep counting only `funded` to `delivered` and `disputed`.
+
 ## Changelog
 
+- **1.17.0 (2026-10-10)**: The order follows the money (ESC-09): `disbursing` when the release is committed (the escrow `released` or its release queued), `settled` only when the escrow is `completed` with no leg owed; a lagging logistics order is advanced to `delivered` first; status-conditioned hops with `ADD version`, one `order_updated` row each, after the escrow write; a verdict escrow keeps its order at `dispute_resolved`; the hourly order-money sweep repairs and backfills, with the server-only skip marker `moneySweepSkip`; an admin refund of a plain escrowed order escrow cancels a pre-pickup order first (refund scheduled, stock restored) and refuses goods on the move unless overridden (`refundOverride*`); an admin release pays only a delivered order; ratings allowed on `disbursing`; a client status change on a mirrored order is a permanent `ORDER_VALIDATION`.
 - **1.16.0 (2026-10-10)**: Pending payments hold the order (ESC-45): the order cron does not move a `payment_submitted` order to `payment_failed` while a verified Telebirr payment for it is pending in the webhook inbox (server-only `paymentHoldUntil`, written extend-only without a version bump, and the inbox's pending partition; the payment-failed write is conditional on the hold; an unreadable inbox skips the step for that run). No client change.
 - **1.15.0 (2026-10-10)**: Transport failure cancel (ESC-06): the farmer's accept stamps `pickupDeadlineAt` (trip orders 48 hours after the later of departure and acceptance, self-pickup or a gone trip 7 days after acceptance; an unreadable trip refuses the accept for now); the buyer may cancel an `accepted` order once the deadline passed and nothing was picked up, for a full refund (pending delivery first, then the order with `cancelReason: transport_failed_buyer_cancelled` and `cancelNote`, slot, stock, refund; `ORDER_CANCEL_NOT_ALLOWED` otherwise; unprefixed transient errors write nothing; a missing escrow record is created first); a delivery can no longer be created on an order that does not take one; order escrows are never extended past funding + 21 days and the order enters the admin stuck-order queue (`adminQueue*`, not versioned); `GET /orders` returns `pickupDeadlineAt`, `adminQueueReason`, `adminQueuedAt`; server `cancelReason` codes are reserved (a client text spelling one goes to `cancelNote`); a pickup refused on a delivery that cancel cancelled logs the alarmed `ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED`; mobile and web show Cancel only in that case, with notices for all three roles.
 - **1.14.0 (2026-10-10)**: Disputes always freeze money (ESC-07): `disputed` is system-managed (a client order update to it gets `ORDER_UNAUTHORIZED`, which clients since 1.10.0 revert); every dispute freezes the escrow before the delivery or order moves, and a refused freeze moves nothing; the order follows a dispute through the escrow service's mirror (advance a lagging order to `delivered` first, consistent reads, retries, one transaction-audit row per hop, `dispute` action). No client change for the order path: no shipped app sent it.

@@ -2905,11 +2905,11 @@
   "@statusDeliveredInfo": {
     "description": "Timeline explanation for the delivered status"
   },
-  "statusDisbursingInfo": "The money is being released from escrow to the farmer.",
+  "statusDisbursingInfo": "The money is leaving escrow: the farmer, and the trucker if there is one, are being paid.",
   "@statusDisbursingInfo": {
     "description": "Timeline explanation for the disbursing status"
   },
-  "statusSettledInfo": "The farmer has received the money. The order is complete.",
+  "statusSettledInfo": "Everyone has been paid: the farmer, and the trucker if there is one. The order is complete.",
   "@statusSettledInfo": {
     "description": "Timeline explanation for the settled status"
   },

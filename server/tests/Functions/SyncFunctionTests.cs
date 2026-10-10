@@ -3988,6 +3988,44 @@ public class SyncFunctionTests
     }
 
     [Fact]
+    public async Task OrderUpdate_OnAnOrderTheMoneyMovedOn_FailsTheTransitionCheck_AndWritesNothing()
+    {
+        // ESC-09 (V8): a device still showing in_transit queues the delivered catch-up after the
+        // escrow release moved the order to disbursing. The transition check runs before the version
+        // check, so the answer is a permanent ORDER_VALIDATION (the client reverts to the server row).
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-001" },
+            { "buyerId", "buyer-001" },
+            { "farmerId", "farmer-001" },
+            { "status", "disbursing" },
+            { "version", "7" }
+        });
+
+        var function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+            "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, orderRepo: orderRepo);
+
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-late-delivered",
+            IdempotencyKey = "user:order:order-001:update:12346",
+            EntityType = "order",
+            EntityId = "order-001",
+            Action = "update",
+            Data = new Dictionary<string, object> { { "status", "delivered" }, { "version", 5 } }
+        };
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer"), _context);
+
+        // The body is JSON, which escapes the quotes around the statuses.
+        Assert.Contains("ORDER_VALIDATION: Invalid status transition from \\u0027disbursing\\u0027 to \\u0027delivered\\u0027.", response.Body);
+        await orderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await orderRepo.DidNotReceive().TryAdvanceStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
     public async Task OrderUpdate_FundedToRejected_IsAllowedForFarmer()
     {
         // The farmer responds to a funded order with accept OR reject; the

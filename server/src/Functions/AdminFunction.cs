@@ -605,7 +605,8 @@ public class AdminFunction
     /// <summary>
     /// The escrow service without gateway or idempotency wiring: the queue endpoints never
     /// call Telebirr. Null when the escrow tables are not configured. The order and delivery
-    /// repositories (read only here) find the trucker of an escrow that has none (ESC-04).
+    /// repositories find the trucker of an escrow that has none (ESC-04), and a closed payout moves
+    /// its order after the money, audited in transaction-audit (ESC-09).
     /// </summary>
     private EscrowService? ManualPayoutService()
     {
@@ -621,7 +622,10 @@ public class AdminFunction
             telebirrGateway: null,
             userRepo: string.IsNullOrEmpty(_usersTable) ? null : new UserRepository(_dynamoDb, _usersTable),
             orderRepo: string.IsNullOrEmpty(_ordersTable) ? null : new OrderRepository(_dynamoDb, _ordersTable),
-            deliveryRepo: string.IsNullOrEmpty(_deliveriesTable) ? null : new DeliveryRepository(_dynamoDb, _deliveriesTable));
+            deliveryRepo: string.IsNullOrEmpty(_deliveriesTable) ? null : new DeliveryRepository(_dynamoDb, _deliveriesTable),
+            transactionAuditRepo: string.IsNullOrEmpty(_transactionAuditTable)
+                ? null
+                : new TransactionAuditRepository(_dynamoDb, _transactionAuditTable));
     }
 
     /// <summary>GET /admin/payouts/manual?limit=&nextToken= (oldest first).</summary>
@@ -1587,17 +1591,22 @@ public class AdminFunction
 
     /// <summary>
     /// Collapse the fine-grained order status into a coarse lifecycle stage used to
-    /// group/colour rows in the monitor. Kept in sync with the OrderDto state machine.
+    /// group/colour rows in the monitor. Kept in sync with the OrderDto state machine and
+    /// admin/src/lib/transaction.ts. ESC-09: the order follows the money, so <c>disbursing</c>
+    /// (paying out, possibly days in Manual Payouts) and <c>dispute_resolved</c> (decided) get
+    /// stages of their own, and <c>rejected</c> ends like a cancel.
     /// </summary>
-    private static string DeriveStage(string status) => status switch
+    internal static string DeriveStage(string status) => status switch
     {
         "created" or "pending_payment" => "awaiting_payment",
         "payment_submitted" or "funded" or "accepted"
-            or "pickup_confirmed" or "in_transit" or "disbursing" => "in_progress",
+            or "pickup_confirmed" or "in_transit" => "in_progress",
         "delivered" => "delivered",
+        "disbursing" => "paying_out",
         "settled" => "completed",
-        "cancelled" => "cancelled",
-        "payment_failed" or "disputed" or "dispute_resolved" => "problem",
+        "cancelled" or "rejected" => "cancelled",
+        "dispute_resolved" => "resolved",
+        "payment_failed" or "disputed" => "problem",
         _ => "unknown"
     };
 

@@ -20,7 +20,7 @@ public class MoneyAlarmLogTests
         "ESCROW_SETTLEMENT_FAILED", "MANUAL_PAYOUT_OVERDUE", "ADMIN_QUEUE_OVERDUE",
         "ORDER_ESCROW_CREATE_FAILED", "ORDER_ESCROW_LINK_FAILED", "ORDER_ESCROW_REFUND_SCHEDULE_FAILED",
         "ORDER_PAYMENT_UNMATCHED", "ORDER_PAYMENT_DUPLICATE", "ORDER_PAYMENT_UNPROCESSED",
-        "ORDER_STOCK_DECREMENT_FAILED",
+        "ORDER_STOCK_DECREMENT_FAILED", "ORDER_MONEY_MISMATCH",
         // ESC-45: the inbox replay heartbeat; a spelled one would hide a stalled sweep.
         "TELEBIRR_INBOX_REPLAY_RUN"
     };
@@ -62,6 +62,18 @@ public class MoneyAlarmLogTests
         TokensIn(settlement).Should().Equal("ESCROW_SETTLEMENT_FAILED");
         TokensIn(overdue).Should().Equal("MANUAL_PAYOUT_OVERDUE");
         TokensIn(queue).Should().Equal("ADMIN_QUEUE_OVERDUE");
+    }
+
+    [Fact]
+    public void OrderMoneyMismatch_FormatsTokenAndFields_AndDefangsTheIds()
+    {
+        MoneyAlarmLog.OrderMoneyMismatch("ord-1", "escrow-order-ord-1", "delivered", "refunded", "cannot_follow")
+            .Should().Be(
+                "ORDER_MONEY_MISMATCH orderId=ord-1 escrowId=escrow-order-ord-1 orderStatus=delivered escrowStatus=refunded reason=cannot_follow");
+        MoneyAlarmLog.OrderMoneyMismatch(null, null, null, null, "sweep_truncated")
+            .Should().Be("ORDER_MONEY_MISMATCH orderId=- escrowId=- orderStatus=- escrowStatus=- reason=sweep_truncated");
+        TokensIn(MoneyAlarmLog.OrderMoneyMismatch(Hostile, $"escrow-order-{Hostile}", "delivered", "completed", "write_failed"))
+            .Should().Equal("ORDER_MONEY_MISMATCH");
     }
 
     [Fact]

@@ -367,10 +367,11 @@ class _OrderDetailBody extends StatelessWidget {
       );
     }
 
-    // Buyer + delivered/settled → rate the farmer (and trucker if any)
+    // Buyer + delivered, disbursing or settled → rate the farmer (and trucker
+    // if any). ESC-09: the order moves on to disbursing and settled after the
+    // money; disbursing can last days while a manual payout waits.
     if (userRole == UserRole.buyer &&
-        (order.status == OrderStatus.delivered ||
-            order.status == OrderStatus.settled)) {
+        deliveredOrderStatuses.contains(order.status)) {
       widgets.add(
         _RateCounterpartiesSection(order: order, buyerId: userId),
       );
@@ -795,7 +796,7 @@ class _OrderDeliveryActionsState extends State<_OrderDeliveryActions> {
   }
 }
 
-/// Buyer-only section (delivered/settled orders) to rate the farmer and, when
+/// Buyer-only section (delivered, disbursing or settled orders) to rate the farmer and, when
 /// the order was transported, the trucker. Tracks which counterparties have
 /// already been rated (local check) and hides them once done.
 class _RateCounterpartiesSection extends StatefulWidget {

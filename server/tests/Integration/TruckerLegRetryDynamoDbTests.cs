@@ -572,6 +572,10 @@ public sealed class TruckerLegRetryDynamoDbTests
         Str(row, "status").Should().Be("completed");
         (await AuditActionsAsync(escrowId)).Should().Contain("trucker_backfilled");
         Paid(TruckerRef(escrowId)).Should().Be(1);
+        // ESC-09: the last leg is paid, so the order follows the money to settled (two hops).
+        var order = (await OrderRepo.GetByIdAsync(orderId, consistentRead: true))!;
+        Str(order, "status").Should().Be("settled");
+        Str(order, "version").Should().Be("6");
     }
 
     [LocalDynamoDbFact]
@@ -590,6 +594,9 @@ public sealed class TruckerLegRetryDynamoDbTests
         Str(row, "status").Should().Be("released");
         Str(row, "truckerPayoutBlockReason").Should().Be("trucker_mismatch");
         Calls(TruckerRef(escrowId)).Should().Be(0);
+        // ESC-09: the escrow stays released while the trucker leg is owed, so the order is disbursing
+        // (the hourly order-money sweep in the same run moves it), never settled.
+        Str((await OrderRepo.GetByIdAsync(orderId, consistentRead: true))!, "status").Should().Be("disbursing");
     }
 
     // ──────────────────────────────────────────────

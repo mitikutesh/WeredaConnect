@@ -24,7 +24,6 @@ describe("deriveStage", () => {
       "accepted",
       "pickup_confirmed",
       "in_transit",
-      "disbursing",
     ]) {
       expect(deriveStage(s)).toBe("in_progress");
     }
@@ -36,7 +35,23 @@ describe("deriveStage", () => {
     expect(deriveStage("cancelled")).toBe("cancelled");
     expect(deriveStage("payment_failed")).toBe("problem");
     expect(deriveStage("disputed")).toBe("problem");
-    expect(deriveStage("dispute_resolved")).toBe("problem");
+  });
+
+  // ESC-09: the order follows the money; same table as AdminDeriveStageTests (server).
+  it("gives paying out, a decided dispute and a rejection their own stages", () => {
+    expect(deriveStage("disbursing")).toBe("paying_out");
+    expect(deriveStage("dispute_resolved")).toBe("resolved");
+    expect(deriveStage("rejected")).toBe("cancelled");
+  });
+
+  it("labels the new stages and statuses in every locale", () => {
+    for (const locale of ["en", "am", "om"] as const) {
+      const tr = (key: string) => translate(key, locale);
+      expect(stageLabel("paying_out", tr)).not.toBe("paying_out");
+      expect(stageLabel("resolved", tr)).not.toBe("resolved");
+      expect(orderStatusLabel("rejected", tr)).not.toBe("rejected");
+      expect(timelineActionLabel("order_money_mismatch", tr)).not.toBe("order_money_mismatch");
+    }
   });
 
   it("falls back to unknown for unmapped statuses", () => {

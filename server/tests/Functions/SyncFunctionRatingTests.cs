@@ -145,6 +145,35 @@ public class SyncFunctionRatingTests
             Arg.Any<Dictionary<string, object>>());
     }
 
+    [Theory]
+    [InlineData("delivered")]
+    [InlineData("disbursing")]
+    [InlineData("settled")]
+    public async Task RatingADeliveredOrder_IsAllowedWhileItsMoneyIsPaidOutAndAfter(string status)
+    {
+        // ESC-09: the order follows the money (delivered, disbursing, settled); disbursing can last
+        // days in the manual payout queue, so the buyer may rate during it.
+        OrderReturns(status: status);
+
+        var response = await _fn.FunctionHandler(Req(RatingOp(), "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("success", response.Body);
+        await _ratings.Received(1).CreateAsync("order-1:farmer-1", Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Theory]
+    [InlineData("dispute_resolved")]
+    [InlineData("accepted")]
+    public async Task RatingAnOrderNotDelivered_IsRejected_WithTheStatusesThatAllowIt(string status)
+    {
+        OrderReturns(status: status);
+
+        var response = await _fn.FunctionHandler(Req(RatingOp(), "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("RATING_FORBIDDEN: You can only rate a delivered order (delivered, disbursing or settled).", response.Body);
+        await _ratings.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
     [Fact]
     public async Task RatingOnDisputedOrder_IsRejected()
     {

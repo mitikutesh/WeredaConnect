@@ -160,6 +160,9 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
             _buildChip('funded', l10n.orderFunded),
             _buildChip('inTransit', l10n.deliveryFilterInTransit),
             _buildChip('delivered', l10n.deliveryFilterDelivered),
+            // ESC-09: paid-out orders move on from delivered with their money.
+            _buildChip('disbursing', l10n.statusDisbursing),
+            _buildChip('settled', l10n.statusSettled),
             _buildChip('cancelled', l10n.orderCancelled),
           ],
         ),
@@ -177,6 +180,9 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
             _buildChip('funded', l10n.orderFunded),
             _buildChip('inTransit', l10n.deliveryFilterInTransit),
             _buildChip('delivered', l10n.deliveryFilterDelivered),
+            // ESC-09: paid-out orders move on from delivered with their money.
+            _buildChip('disbursing', l10n.statusDisbursing),
+            _buildChip('settled', l10n.statusSettled),
             _buildChip('cancelled', l10n.orderCancelled),
           ],
         ),

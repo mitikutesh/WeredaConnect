@@ -1,7 +1,7 @@
 # Rating API
 
 ## Version
-1.0.0
+1.1.0
 
 ## Parties
 Mobile, Backend, Infrastructure
@@ -94,7 +94,7 @@ for this order+ratee already exists).
 |------|------|---------|
 | `RATING_VALIDATION` | 400 | Missing/invalid fields; unknown fields; `stars` out of 1–5; bad `rateeRole`; `ratee` is not the order's farmer/trucker; order not found; malformed `ratingId`; bad `limit`/`nextToken` |
 | `RATING_UNAUTHORIZED` | 200 (sync op `error`) | Caller is not a buyer, or `raterId` ≠ authenticated user |
-| `RATING_FORBIDDEN` | 200 (sync op `error`) | Order is not the buyer's, or order not yet `delivered`/`settled` |
+| `RATING_FORBIDDEN` | 200 (sync op `error`) | Order is not the buyer's, or order not `delivered`, `disbursing` or `settled` (1.1.0) |
 | `RATING_UNAVAILABLE` | 200 (sync op `error`) | Ratings table not provisioned in this environment |
 | `RATING_NOT_FOUND` | 404 | `GET /ratings/{id}` — no such rating |
 | `SYNC_CONFLICT` | 200 (sync op `conflict`) | A rating already exists for this (order, ratee) |
@@ -104,7 +104,7 @@ for this order+ratee already exists).
 1. **One rating per (order, ratee)** — enforced by the deterministic `ratingId`
    plus a create-time `attribute_not_exists(ratingId)` condition.
 2. **Only the buyer of an order may rate**, and only its farmer or trucker.
-3. **Order must be `delivered` or `settled`** at rating time.
+3. **Order must be `delivered`, `disbursing` or `settled`** at rating time (1.1.0: the order follows its money after delivery, and `disbursing` can last days while a manual payout waits, `order-lifecycle.md` 1.17.0).
 4. **Ratings are immutable** — no update/delete.
 5. `stars ∈ [1,5]` (integer); `comment` ≤ 500 chars.
 6. `createdAt`, `updatedAt`, `version` are server-stamped (client values ignored).
@@ -116,5 +116,6 @@ for this order+ratee already exists).
   powers `GET /ratings?rateeId=` and the aggregate summary.
 
 ## Changelog
+- **1.1.0** (2026-10-10): ratings also open on `disbursing` (ESC-09); `RATING_FORBIDDEN` reads "You can only rate a delivered order (delivered, disbursing or settled)."
 - **1.0.0** (2026-07-09) — Initial contract: buyer rates farmer/trucker after a
   delivered order; sync-create + `GET /ratings` reads; ratings immutable.

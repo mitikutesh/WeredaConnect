@@ -60,4 +60,24 @@ void main() {
       );
     }
   });
+
+  // ESC-09: the order follows its money after delivered (disbursing, settled).
+  test('the goods-arrived statuses are delivered and the money stages after it',
+      () {
+    expect(deliveredOrderStatuses, {
+      OrderStatus.delivered,
+      OrderStatus.disbursing,
+      OrderStatus.settled,
+    });
+    expect(
+      deliveredOrderStatuses.contains(OrderStatus.disputeResolved),
+      isFalse,
+    );
+    expect(deliveredOrderStatuses.contains(OrderStatus.disputed), isFalse);
+  });
+
+  test('the escrow tile still leaves out money that is leaving escrow', () {
+    expect(escrowHeldOrderStatuses.contains(OrderStatus.disbursing), isFalse);
+    expect(escrowHeldOrderStatuses.contains(OrderStatus.settled), isFalse);
+  });
 }

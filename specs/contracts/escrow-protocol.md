@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.16.0
+1.17.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -371,7 +371,8 @@ Triggers release of escrowed funds to the farmer. This is an **internal trigger*
 | `403` | `ESCROW_015` | Unauthorized to release (not system/admin) |
 | `404` | `ESCROW_016` | Escrow not found |
 | `503` | `ESCROW_012` | The order or delivery behind a verdict could not be read; nothing moved, retry (1.9.0) |
-| `422` | `ESCROW_INVALID_TRANSITION` | Escrow is not `escrowed` or `dispute_resolved`, or its verdict is `buyer_wins` (1.9.0; before 1.9.0 `disputed` was accepted too); from 1.7.0 the admin may also settle `held` (planned FRD-03) |
+| `422` | `ESCROW_INVALID_TRANSITION` | Escrow is not `escrowed` or `dispute_resolved`, or its verdict is `buyer_wins` (1.9.0; before 1.9.0 `disputed` was accepted too); from 1.7.0 the admin may also settle `held` (planned FRD-03); from 1.15.0 an admin release of a plain `escrowed` order escrow whose order is not `delivered` or `disbursing` (nor left behind a delivered delivery), no override |
+| `503` | `ESCROW_012` | From 1.15.0 also: the order behind an admin release could not be read, or changed while it was advanced to `delivered`; nothing moved, retry |
 | `202` | `ESCROW_034` | The release is waiting in the manual payout queue and this call made no payout (1.8.0); with reason `GATEWAY_OUTCOME_UNKNOWN` an earlier gateway call may have paid (1.10.0) |
 | `502` | `ESCROW_013` | Telebirr gateway error (a definite refusal, retried by the next sweep); from 1.10.0 also an unknown outcome whose queue write failed: not retried, the lock stays |
 | `503` | `ESCROW_014` | Telebirr service unavailable |
@@ -521,7 +522,8 @@ Refunds escrowed funds to the buyer. Triggered by admin (a `buyer_wins` dispute 
 | `403` | `ESCROW_021` | Unauthorized to refund (not admin/system), or `overrideOrderMismatch` from outside the admin group (1.9.0) |
 | `404` | `ESCROW_016` | Escrow not found |
 | `503` | `ESCROW_012` | The order or delivery behind a verdict could not be read; nothing moved, retry (1.9.0) |
-| `422` | `ESCROW_INVALID_TRANSITION` | Escrow is not `escrowed` or `dispute_resolved`, its verdict is `farmer_wins`, or its order cannot follow the verdict and no override was given (1.9.0; before 1.9.0 `disputed` was accepted too); from 1.7.0 the admin may also settle `held` (planned FRD-03), except a `heldFor: refund` order escrow whose order is progressing |
+| `422` | `ESCROW_INVALID_TRANSITION` | Escrow is not `escrowed` or `dispute_resolved`, its verdict is `farmer_wins`, or its order cannot follow the verdict and no override was given (1.9.0; before 1.9.0 `disputed` was accepted too); from 1.7.0 the admin may also settle `held` (planned FRD-03), except a `heldFor: refund` order escrow whose order is progressing; from 1.15.0 an admin refund of a plain `escrowed` order escrow whose goods are moving or delivered (no `overrideOrderMismatch`), or whose order is anything but `funded`, `accepted`, `cancelled`, `rejected`, `pickup_confirmed`, `in_transit` or `delivered` (no override) |
+| `503` | `ESCROW_012` | From 1.15.0 also: before an admin refund of a plain `escrowed` order escrow, its order could not be read, or a pre-pickup order could not be cancelled or its stock given back; nothing moved, retry |
 | `202` | `ESCROW_034` | The refund is waiting in the manual payout queue and this call made no payout (1.8.0); with reason `GATEWAY_OUTCOME_UNKNOWN` an earlier gateway call may have paid (1.10.0) |
 | `502` | `ESCROW_013` | Telebirr gateway error (a definite refusal, retried by the next sweep); from 1.10.0 also an unknown outcome whose queue write failed: not retried, the lock stays |
 | `503` | `ESCROW_014` | Telebirr service unavailable |
@@ -2445,8 +2447,8 @@ a `released` escrow already blocks every party (account-deletion 1.0.0).
   until the trucker leg is recorded.
 - Pending trucker legs past the first 500 of the `released` partition are neither retried nor
   reported overdue in that run (the truncation line alarms instead).
-- ESC-09 (order follows the money) should keep the order `disbursing` while the escrow is `released`
-  and move it to `settled` only on `completed`.
+- Done in 1.15.0 (ESC-09): the order stays `disbursing` while the escrow is `released` and moves to
+  `settled` only on `completed` (see Additions in 1.15.0).
 - The `trucker_release` and `complete` rows after a retry payment sit at deterministic keys, but a row
   lost after the record write is not re-ensured: the completed escrow leaves the retry query. The escrow
   row keeps `truckerTelebirrRef`, `truckerPaidAt` and `completedAt` (as for the 1.10.0 settled rows).
@@ -2912,12 +2914,116 @@ at the deadline is `TELEBIRR_TIMEOUT` (unknown, as in 1.10.0). A failed fabric-t
 and checkout-URL timestamps are epoch seconds. Release and refund still make no HTTP call; a future
 payout call must keep the same deadline rule.
 
+## Additions in 1.15.0 (the order follows the money, ESC-09)
+
+Before 1.15.0 no escrow writer touched the order after the money moved: every paid-out order stayed
+`delivered` (`order-lifecycle.md` 1.17.0 has the order side).
+
+### Every money writer and the order
+
+| Writer | Escrow after | Order after |
+|---|---|---|
+| Release, farmer leg queued (`PAYOUT_NOT_SUPPORTED`, no reference, unknown outcome) | `escrowed` + queue op=release | `disbursing` |
+| Release, farmer paid, trucker leg queued | `escrowed` + queue op=release | `disbursing` |
+| Release, farmer paid, trucker leg pending or blocked | `released` + `truckerPayoutPending` | `disbursing` |
+| Release, every leg paid | `completed` | `settled` |
+| Hourly trucker retry pays the last leg | `completed` | `settled` |
+| Manual payout leg recorded, others pending | queue still open | `disbursing` |
+| Manual payout close (release, or a released trucker queue), and its replay | `completed` | `settled` |
+| Stale release-lock park (ESC-05) | `escrowed` + queue | `disbursing` |
+| Legacy trucker park (ESC-04 deploy action) | `released` + queue | `disbursing` |
+| Crash recovery `released -> completed` | `completed` | `settled` |
+| Any of the above on a verdict escrow | as above | stays `dispute_resolved` (the verdict owns it) |
+| Refund (sweeps, verdict, admin) | `refunded` | not moved: `cancelled`, `rejected`, `dispute_resolved`, or flagged |
+
+The order is written after the escrow write, never between the settlement lock and the gateway
+call, by `OrderMoneyMirror` (status-conditioned hop, `ADD version 1`, one transaction-audit
+`order_updated` per hop). The settlement's answer never depends on it: a failure logs
+`ORDER_MONEY_FOLLOW_DEFERRED` (not an alarm token) and the hourly sweep repairs it.
+
+### The hourly order-money sweep
+
+Last step of `auto_release_and_refund` (it moves no money). Shared run budget `CronRunBudget`
+(anchored when the handler starts; each sweep takes a slice with its own length and its own Lambda
+reserve, and starts no new row once `0 < RemainingTime < reserve`); this sweep: slice 30 seconds,
+reserve 30 seconds, at most 2,000 orders. It reads the orders
+`StatusCreatedAtIndex` partitions `delivered`, `disbursing`, `disputed`, then `accepted`,
+`pickup_confirmed`, `in_transit`, with the filter `attribute_not_exists(moneySweepSkip) OR
+moneySweepSkip <> :status`. Per order, strongly consistent: the order escrow
+(`escrow-order-{orderId}`), and when it is missing or refunded the `OrderIndex` (and the active
+delivery's `DeliveryIndex` row); the escrow furthest along wins. Then the same rules as the inline
+write. A verdict escrow whose money moved is repaired through the ESC-03 mirror (no cancel) toward
+`dispute_resolved`; a verdict whose money has not moved is left to its settlement.
+
+| Finding | Action |
+|---|---|
+| order moved | counted (`ordersMoved`, `ordersSettled`) |
+| money held, order waiting | nothing, read again next run |
+| no escrow at all (only past delivery: an order before it may still get one through linkage), a refund behind a closed order or a flagged override (`refundOverride*`, ESC-03 `disputeOverride*`; a flag only ever excuses a refund, since it is written before the money moves) | order marked `moneySweepSkip` (its status) and `moneySweepSkipAt`, unversioned |
+| cannot follow (a refund behind a `delivered` order, a payout behind an order not delivered) or order ahead (`disbursing`/`settled` over held money), still so after a fresh read of the escrow | escrow-audit row `order_money_mismatch` at `createdAt + 7` ticks, or `order_money_ahead` at `createdAt + 8` (`AppendIfAbsentAsync`); only when the row is new: `ORDER_MONEY_MISMATCH ... reason=cannot_follow|order_ahead` and a transaction-audit row on the order; then the skip mark |
+| the hops failed (throttle, permissions, lost races) | `ORDER_MONEY_MISMATCH ... reason=write_failed` every run once the money moved more than 2 hours ago, an info line before; no mark |
+| slice or row cap used up | the cursor `cursor:esc-09:order_money_sweep` (escrow idempotency table, 30-day TTL) saves the partition and the index key of the last order decided, and the next run goes on from there; the cycle's start is the row's `createdAt` and the row is deleted when a cycle has read every partition. Info `ORDER_MONEY_SWEEP_PAUSED`; `ORDER_MONEY_MISMATCH orderId=- ... reason=sweep_truncated` only once a cycle is unfinished 24 hours after it started |
+| a page query failed | `ORDER_MONEY_MISMATCH orderId=- ... reason=sweep_failed`, the next partition goes on |
+
+Run summary keys: `ordersMoved`, `ordersSettled`, `orderMoneyMismatches`, `orderMoneyFailed`,
+`ordersWithoutEscrow`. Alarm `${prefix}-order-money-mismatch` (metric `OrderMoneyMismatch`, escrow-cron
+log group only, 15 minute periods, 5 periods, any line alarms).
+
+Escrow-audit slots in use (the table's sort key is the timestamp): `disputeResolvedAt + 1/2/3`
+(ESC-03), `queuedAt - 1` (ESC-05, ESC-04), manual close `paidAt` and `paidAt + 1` (ESC-02), trucker
+retry `paidAt + 1` (ESC-04), `createdAt + 7` and `+ 8` (ESC-09).
+
+### Part B: an admin release or refund of a plain escrowed order escrow checks the order first
+
+Only for a caller other than the system sweep, only on `escrowed` (verdicts keep 1.9.0), only when the
+escrow resolves to an order (its `orderId`, else its delivery's). Before the payout gate and the lock.
+
+- Release: the order must be `delivered` or `disbursing`; an order at `accepted`, `pickup_confirmed`
+  or `in_transit` whose active delivery is `delivered` is advanced to `delivered` first (`503
+  ESCROW_012` if that write loses). Anything else `422 ESCROW_INVALID_TRANSITION`, no override. Audited
+  `admin_settlement_order_refused` per attempt.
+- Refund: `rejected` as is; `cancelled` as is, after the listing stock is given back first when the
+  cancel was `escrow_refunded` or `transport_failed_buyer_cancelled` (`503` if not); `funded`, or
+  `accepted` with no delivery or a `pending` one: cancelled first through the ESC-03 path (pending
+  delivery, order `cancelReason: escrow_refunded`, slot, stock; `503` if any of it does not land) and
+  the refund scheduled on the escrow (`expiresAt = now`, `refundReason: admin_refund`, audit
+  `refund_scheduled`) so a gateway refusal leaves it for the hourly sweep. Goods moving or
+  `delivered`: `422` unless `overrideOrderMismatch` with a reason of 10 to 500 characters (admin group):
+  audited `refund_order_mismatch_overridden` before the money (`503` if that write fails), the order
+  flagged `refundOverrideAt`, `refundOverrideBy`, `refundOverrideReason`, `refundOverrideEscrowId`
+  (server-only, version-checked, status left). Anything else (`disputed`, `disbursing`, `settled`,
+  `dispute_resolved`, a payment status, a missing order): `422`, no override.
+
+This resolves the 1.13.0 limit "An admin must not refund an accepted order by hand": the refund now
+cancels the order first.
+
+### Roles and clients
+
+Buyer: sees Disbursing then Settled and may rate from Disbursing. Farmer: Disbursing while paid or in
+Manual Payouts, Settled once every leg is paid. Trucker: Disbursing until the transport leg is paid.
+Admin: stages `paying_out` and `resolved`, `rejected` shown as cancelled. No new wire field; the skip
+and override fields are server-only.
+
+### Not in 1.15.0 (known limits)
+- An admin release before the delivery is confirmed is refused with no override: pay such a farmer
+  through the dispute path, or the admin actions of FUP-16.
+- A mismatch in a status the sweep does not read (`funded`, `cancelled`, `rejected`) after money moved
+  is logged only by the inline call (`ORDER_MONEY_FOLLOW_DEFERRED`); with Part B only legacy rows get there.
+- A hop whose answer was lost and retried by the SDK lands without its transaction-audit row.
+- Rows still waiting for their money (held escrows of orders in flight, a release blocked by the payout
+  gate) are read once per cycle; at volume a cycle spans several runs, so a repair can take as many hours.
+  ESC-16's deadline index is the scale path.
+- Part B: when the order's cancel lands but its stock restore does not, the refund answers `503` and is
+  not scheduled; the admin's retry gives the stock back first and refunds (or the escrow's expiry does).
+- ESC-16's deadline index replaces the partition walk.
+
 ---
 
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.17.0 | 2026-10-10 | The order follows the money (ESC-09): every escrow money writer moves the order after its write (`disbursing` once the release is committed, `settled` once `completed` with no leg owed, a verdict escrow's order stays `dispute_resolved`), status-conditioned with `ADD version`; the hourly order-money sweep (shared `CronRunBudget`, skip marker `moneySweepSkip`, escrow-audit `order_money_mismatch`/`order_money_ahead` once at `createdAt + 7/8` ticks) repairs and backfills; alarm `order-money-mismatch` (`ORDER_MONEY_MISMATCH`); Part B: an admin release of a plain escrowed order escrow needs a delivered order (`422`, no override), an admin refund cancels a pre-pickup order first and schedules the refund, refuses goods on the move unless overridden (`refundOverride*`) |
 | 1.16.0 | 2026-10-10 | Telebirr live dialect, webhook answers and inbox replay (ESC-45): the flat documented notify (one map verified and read, `data` envelope, nested `biz_content`, `transId` alias only without `trans_id`, duplicate keys and nested values refused), PSS or PKCS#1 accepted inbound, `notify_time` freshness by digit range with a 48 h late window on the order path only; `500` for verified notifications not recorded or not applied for a retryable reason, small JSON bodies; inbox rows carry `orderId`, the stored payment fields and a replay queue (sparse `InboxReplayIndex`); a 5-minute sweep replays them with claim, backoff and a conditional give-up after 8 attempts (`replay_exhausted`), heartbeat and stalled alarm; `ORDER_PAYMENT_REPLAY_PENDING` not alarmed; order `paymentHoldUntil` (order-lifecycle 1.16.0); every gateway call bounded by the run's deadline (`TELEBIRR_NO_TIME`, `TELEBIRR_TOKEN` definite); token path `/payment/v1/token`, timestamps in seconds; `/escrow/initiate` not usable live and cancels only on `Failed`, `Failure`, `Expired`; no payer field in the documented notify |
 | 1.15.0 | 2026-10-10 | Sweep hygiene (ESC-10): the auto-release, auto-refund, dispute-settlement and reconciliation sweeps page through their whole partition (pages of 100) within a budget per sweep (50 pages, 1,000 rows that needed I/O, a time limit counted from the run start, the trucker reserve kept), with confirmation and lock skips in the filter and `sweep_truncated` when a limit stops one; a blocked settlement stores `settlementBlockReason`/`settlementBlockReasonAt` by compare-and-set and is audited once per reason (`release_blocked_kyc` from the sweeps, metadata `code=ESCROW_029;reason=<reason>`; admin attempts each time; new `auto_release_blocked`, `auto_refund_blocked` with one alarm line when first stored); the released and refunded writes clear it; the auto-release reads the delivery and order first (FUP-28): delivered and an order in flight or none pays, a disputed trade is frozen through the 1.12.0 path (this escrow only) and its delivery and order follow, a resolved dispute and every mismatch block; an expired `/escrow/initiate` escrow follows its delivery and order: goods moving or an order in flight hold it (extended to the 21-day cap, then the admin queue, or `ADMIN_QUEUE_OVERDUE reason=no_order` without an order), a pending delivery is cancelled before the refund, a double escrow or missing row blocks; an admin queue entry stamps only the escrow it owns; reconciliation rows are isolated; new run summary keys; no client change |
 | 1.14.0 | 2026-10-17 | Not released: number reserved for ESC-09 and left unused when the merge order changed; ESC-09 is 1.17.0. |

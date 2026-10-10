@@ -22,14 +22,18 @@ export const orderStatusVariant: Record<string, Variant> = {
   disbursing: "info",
   settled: "success",
   cancelled: "default",
+  rejected: "default",
   disputed: "danger",
   dispute_resolved: "success",
 };
 
 /**
  * Collapse an order status into its coarse lifecycle stage. Mirrors the server
- * DeriveStage (AdminFunction) — kept in sync so the detail header matches the
+ * DeriveStage (AdminFunction), kept in sync so the detail header matches the
  * list row. Used where the API returns only the raw status (transaction detail).
+ * ESC-09: the order follows the money, so disbursing (paying out, possibly days
+ * in Manual Payouts) and dispute_resolved (decided) have stages of their own,
+ * and rejected ends like a cancel.
  */
 export function deriveStage(status: string): string {
   switch (status) {
@@ -41,17 +45,20 @@ export function deriveStage(status: string): string {
     case "accepted":
     case "pickup_confirmed":
     case "in_transit":
-    case "disbursing":
       return "in_progress";
     case "delivered":
       return "delivered";
+    case "disbursing":
+      return "paying_out";
     case "settled":
       return "completed";
     case "cancelled":
+    case "rejected":
       return "cancelled";
+    case "dispute_resolved":
+      return "resolved";
     case "payment_failed":
     case "disputed":
-    case "dispute_resolved":
       return "problem";
     default:
       return "unknown";
@@ -63,8 +70,10 @@ export const stageVariant: Record<string, Variant> = {
   awaiting_payment: "warning",
   in_progress: "info",
   delivered: "success",
+  paying_out: "info",
   completed: "success",
   cancelled: "default",
+  resolved: "success",
   problem: "danger",
   unknown: "default",
 };

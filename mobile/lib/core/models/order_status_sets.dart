@@ -25,6 +25,16 @@ const Set<OrderStatus> activeOrderStatuses = {
   OrderStatus.accepted,
 };
 
+/// The goods arrived: delivered, and the money stages after it. ESC-09: after
+/// delivered the order follows its money to disbursing (which can last days
+/// while a manual payout waits) and settled. The buyer may rate the farmer and
+/// trucker at any of them (rating-api.md 1.1.0).
+const Set<OrderStatus> deliveredOrderStatuses = {
+  OrderStatus.delivered,
+  OrderStatus.disbursing,
+  OrderStatus.settled,
+};
+
 /// Enum-name forms for O(1) matching of statuses parsed off the wire
 /// (see order_status_wire.dart).
 final Set<String> escrowHeldOrderStatusNames =
