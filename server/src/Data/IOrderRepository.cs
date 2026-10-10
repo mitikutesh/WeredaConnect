@@ -104,6 +104,31 @@ public interface IOrderRepository
     /// <summary>ESC-06: one page of the admin queue (<c>AdminQueueIndex</c>), oldest first.</summary>
     Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryAdminQueueAsync(
         int limit, Dictionary<string, AttributeValue>? exclusiveStartKey);
+
+    /// <summary>
+    /// ESC-45 (D8): hold a <c>payment_submitted</c> order out of the order cron's
+    /// <c>payment_failed</c> until <paramref name="holdUntil"/> (ISO-8601 UTC), because a verified
+    /// Telebirr payment for it is waiting in the webhook inbox. Extend-only; when
+    /// <paramref name="paymentSubmittedAt"/> is given, only for that payment attempt. Written without
+    /// bumping <c>version</c> or <c>updatedAt</c> (a server bookkeeping field must not make a client
+    /// conflict). False when the order is missing, not <c>payment_submitted</c>, in another attempt,
+    /// or already held as long.
+    /// </summary>
+    Task<bool> TryHoldForPaymentAsync(string orderId, string holdUntil, string? paymentSubmittedAt);
+
+    /// <summary>
+    /// ESC-45 (D8): the order cron's <c>payment_submitted -> payment_failed</c>, version-checked like
+    /// <see cref="UpdateAsync"/> and also conditional on no payment hold beyond
+    /// <paramref name="nowIso"/>, so a hold written after the cron read the order still wins. False
+    /// when any condition failed or the order is missing.
+    /// </summary>
+    Task<bool> TryMarkPaymentFailedAsync(string orderId, int expectedVersion, string nowIso);
+}
+
+/// <summary>ESC-45 (D8): the server-only order field that holds an order for a pending payment.</summary>
+public static class PaymentHoldFields
+{
+    public const string HoldUntil = "paymentHoldUntil";
 }
 
 /// <summary>

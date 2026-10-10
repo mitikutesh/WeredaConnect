@@ -95,8 +95,10 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
             ("OrderIndex", "orderId", "createdAt"),
             ("ManualPayoutIndex", "manualPayout", "manualPayoutQueuedAt"));
         await CreateAsync(EscrowAudit, ("escrowId", "timestamp"));
-        await CreateAsync(Idempotency, ("idempotencyKey", null));
-        await CreateAsync(Orders, ("orderId", "createdAt"), ("AdminQueueIndex", "adminQueue", "adminQueuedAt"));
+        // ESC-45: the webhook inbox's sparse replay queue.
+        await CreateAsync(Idempotency, ("idempotencyKey", null), ("InboxReplayIndex", "inboxReplay", "inboxReplayAt"));
+        await CreateAsync(Orders, ("orderId", "createdAt"), ("AdminQueueIndex", "adminQueue", "adminQueuedAt"),
+            ("StatusCreatedAtIndex", "status", "createdAt"));
         await CreateAsync(Deliveries, ("deliveryId", "tripId"),
             ("ListingIndex", "listingId", "createdAt"),
             ("ParticipantIndex", "participantId", "createdAt"),

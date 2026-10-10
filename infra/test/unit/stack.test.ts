@@ -47,6 +47,22 @@ describe('DatabaseStack', () => {
     });
   });
 
+  test('escrow idempotency table carries the sparse InboxReplayIndex (ESC-45)', () => {
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      TableName: 'wereda-connect-dev-escrow-idempotency',
+      GlobalSecondaryIndexes: [
+        Match.objectLike({
+          IndexName: 'InboxReplayIndex',
+          KeySchema: [
+            { AttributeName: 'inboxReplay', KeyType: 'HASH' },
+            { AttributeName: 'inboxReplayAt', KeyType: 'RANGE' },
+          ],
+          Projection: { ProjectionType: 'ALL' },
+        }),
+      ],
+    });
+  });
+
   test('orders table carries the sparse AdminQueueIndex (ESC-06)', () => {
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       TableName: 'wereda-connect-dev-orders',
@@ -563,6 +579,54 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     },
   );
 
+  test('ON: the inbox replay rule invokes the webhook every 5 minutes with the replay body (ESC-45)', () => {
+    const t = buildTemplate(true);
+    t.hasResourceProperties('AWS::Events::Rule', {
+      Name: 'wereda-connect-dev-telebirr-inbox-replay',
+      ScheduleExpression: 'rate(5 minutes)',
+      Targets: [
+        Match.objectLike({
+          Arn: { 'Fn::GetAtt': [Match.stringLikeRegexp('^TelebirrWebhookFunction'), 'Arn'] },
+          Input: JSON.stringify({ body: JSON.stringify({ action: 'webhook_inbox_replay' }) }),
+        }),
+      ],
+    });
+  });
+
+  test('OFF: no inbox replay rule (the webhook does not exist)', () => {
+    const rules = buildTemplate(false).findResources('AWS::Events::Rule');
+    expect(JSON.stringify(rules)).not.toContain('telebirr-inbox-replay');
+  });
+
+  test('ON: the webhook may query the InboxReplayIndex (ESC-45)', () => {
+    const policies = buildTemplate(true).findResources('AWS::IAM::Policy');
+    const webhook = Object.entries(policies).filter(([id]) => id.startsWith('TelebirrWebhookFunction'));
+    expect(webhook.length).toBeGreaterThan(0);
+    const text = JSON.stringify(webhook);
+    expect(text).toContain('dynamodb:Query');
+    expect(text).toContain('/index/*');
+  });
+
+  test.each([false, true])(
+    'order cron reads only the InboxReplayIndex of the idempotency table (live=%s, ESC-45)',
+    (live) => {
+      const t = buildTemplate(live);
+      t.hasResourceProperties('AWS::Lambda::Function', {
+        FunctionName: 'wereda-connect-dev-order-cron',
+        Environment: { Variables: Match.objectLike({ ESCROW_IDEMPOTENCY_TABLE: Match.anyValue() }) },
+      });
+      const policies = t.findResources('AWS::IAM::Policy');
+      const cron = Object.entries(policies).filter(([id]) => id.startsWith('OrderCronFunction'));
+      const statements = cron.flatMap(([, p]) =>
+        (p as { Properties: { PolicyDocument: { Statement: Array<{ Action: unknown; Resource: unknown }> } } })
+          .Properties.PolicyDocument.Statement);
+      const onIdempotency = statements.filter((s) => JSON.stringify(s.Resource).includes('EscrowIdempotencyTable'));
+      expect(onIdempotency).toHaveLength(1);
+      expect(onIdempotency[0].Action).toBe('dynamodb:Query');
+      expect(JSON.stringify(onIdempotency[0].Resource)).toContain('/index/InboxReplayIndex');
+    },
+  );
+
   test('ON: escrow Lambda drops TELEBIRR_MOCK and gets the secret + notify URL', () => {
     buildTemplate(true).hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-escrow',
@@ -803,6 +867,22 @@ describe('MonitoringStack', () => {
     template.hasResourceProperties('AWS::CloudWatch::Alarm', {
       AlarmName: 'wereda-connect-dev-order-payment-problems',
       Threshold: 0,
+    });
+  });
+
+  test('ON: a stalled inbox replay sweep alarms (ESC-45)', () => {
+    const template = monitoringTemplate(true);
+    template.hasResourceProperties('AWS::Logs::MetricFilter', {
+      LogGroupName: '/aws/lambda/wereda-connect-dev-telebirr-webhook',
+      FilterPattern: '"TELEBIRR_INBOX_REPLAY_RUN"',
+      MetricTransformations: [Match.objectLike({ MetricName: 'TelebirrInboxReplayRuns', DefaultValue: 0 })],
+    });
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-telebirr-inbox-replay-stalled',
+      Threshold: 1,
+      EvaluationPeriods: 3,
+      ComparisonOperator: 'LessThanThreshold',
+      TreatMissingData: 'breaching',
     });
   });
 

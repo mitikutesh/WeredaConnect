@@ -412,6 +412,17 @@ export class DatabaseStack extends cdk.Stack {
     );
     this.escrowIdempotencyTable = escrowIdempotency.table;
 
+    // GSI: Telebirr webhook inbox replay queue (ESC-45). Sparse: only order-payment
+    // inbox rows that have not reached a final outcome carry inboxReplay ("pending"
+    // for the sweep, "exhausted" after the last attempt); the sort key is the next
+    // replay time. See WebhookInboxRepository and TelebirrWebhookFunction's sweep.
+    this.escrowIdempotencyTable.addGlobalSecondaryIndex({
+      indexName: "InboxReplayIndex",
+      partitionKey: { name: "inboxReplay", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "inboxReplayAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // Enable TTL for automatic cleanup after 30 days (longer than sync 7-day TTL)
     (
       this.escrowIdempotencyTable.node.defaultChild as dynamodb.CfnTable

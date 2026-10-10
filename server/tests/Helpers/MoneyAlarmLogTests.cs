@@ -20,7 +20,9 @@ public class MoneyAlarmLogTests
         "ESCROW_SETTLEMENT_FAILED", "MANUAL_PAYOUT_OVERDUE", "ADMIN_QUEUE_OVERDUE",
         "ORDER_ESCROW_CREATE_FAILED", "ORDER_ESCROW_LINK_FAILED", "ORDER_ESCROW_REFUND_SCHEDULE_FAILED",
         "ORDER_PAYMENT_UNMATCHED", "ORDER_PAYMENT_DUPLICATE", "ORDER_PAYMENT_UNPROCESSED",
-        "ORDER_STOCK_DECREMENT_FAILED"
+        "ORDER_STOCK_DECREMENT_FAILED",
+        // ESC-45: the inbox replay heartbeat; a spelled one would hide a stalled sweep.
+        "TELEBIRR_INBOX_REPLAY_RUN"
     };
 
     /// <summary>A client value that spells every alarm token.</summary>

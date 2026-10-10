@@ -1,3 +1,4 @@
+using System.Globalization;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Services;
@@ -587,6 +588,89 @@ public sealed class OrderRepository : IOrderRepository
         var response = await _dynamoDb.QueryAsync(request);
         var items = response.Items.Select(DynamoDbHelper.FromItem).ToList();
         return (items, response.LastEvaluatedKey?.Count > 0 ? response.LastEvaluatedKey : null);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryHoldForPaymentAsync(string orderId, string holdUntil, string? paymentSubmittedAt)
+    {
+        var existing = await GetItemAsync(orderId, consistentRead: true);
+        if (existing == null)
+        {
+            return false;
+        }
+
+        var condition = "#status = :submitted AND (attribute_not_exists(#hold) OR #hold < :hold)";
+        var names = new Dictionary<string, string> { { "#status", "status" }, { "#hold", PaymentHoldFields.HoldUntil } };
+        var values = new Dictionary<string, AttributeValue>
+        {
+            { ":submitted", new AttributeValue { S = "payment_submitted" } },
+            { ":hold", new AttributeValue { S = holdUntil } }
+        };
+        if (!string.IsNullOrEmpty(paymentSubmittedAt))
+        {
+            condition += " AND #psa = :psa";
+            names["#psa"] = "paymentSubmittedAt";
+            values[":psa"] = new AttributeValue { S = paymentSubmittedAt };
+        }
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = OrderKey(orderId, existing["createdAt"].S),
+                UpdateExpression = "SET #hold = :hold",
+                ConditionExpression = condition,
+                ExpressionAttributeNames = names,
+                ExpressionAttributeValues = values
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryMarkPaymentFailedAsync(string orderId, int expectedVersion, string nowIso)
+    {
+        var existing = await GetItemAsync(orderId);
+        if (existing == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = OrderKey(orderId, existing["createdAt"].S),
+                UpdateExpression = "SET #status = :failed, #updated = :updated, #v = :newVersion",
+                ConditionExpression =
+                    "#v = :expectedVersion AND #status = :submitted AND (attribute_not_exists(#hold) OR #hold <= :now)",
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#status", "status" }, { "#updated", "updatedAt" }, { "#v", "version" },
+                    { "#hold", PaymentHoldFields.HoldUntil }
+                },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":failed", new AttributeValue { S = "payment_failed" } },
+                    { ":submitted", new AttributeValue { S = "payment_submitted" } },
+                    { ":updated", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
+                    { ":newVersion", new AttributeValue { N = (expectedVersion + 1).ToString(CultureInfo.InvariantCulture) } },
+                    { ":expectedVersion", new AttributeValue { N = expectedVersion.ToString(CultureInfo.InvariantCulture) } },
+                    { ":now", new AttributeValue { S = nowIso } }
+                }
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
     }
 
     private static Dictionary<string, AttributeValue> OrderKey(string orderId, string createdAt) => new()
