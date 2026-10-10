@@ -1390,28 +1390,43 @@ public class EscrowServiceManualPayoutTests
     [Fact]
     public async Task DeliveryDispute_QueuedEscrow_IsNotFrozen_AndTheRefusalIsAudited()
     {
-        _escrowRepo.GetByDeliveryIdAsync("del-1").Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease));
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease));
 
-        var frozen = await _service.MarkDisputedFromDeliveryAsync("del-1", BuyerId, "never arrived");
+        var frozen = await _service.FreezeForDeliveryDisputeAsync("del-1", "ord-1", BuyerId, "never arrived");
 
-        frozen.Should().Be(DeliveryDisputeFreeze.RefusedManualPayout);
+        frozen.Outcome.Should().Be(DeliveryDisputeFreeze.RefusedManualPayout);
+        frozen.MayMirror.Should().BeFalse();
         await _escrowRepo.DidNotReceive().UpdateStatusAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
         (await AuditWritten("dispute_refused_manual_payout", "deliveryId=del-1;op=release")).Should().BeTrue();
     }
 
     [Fact]
+    public async Task DeliveryDispute_DisputedEscrowStillQueued_IsRefused_NotTreatedAsAlreadyFrozen()
+    {
+        // ESC-07: a legacy disputed row can carry an open manual payout (TryCloseManualPayoutAsync
+        // accepts disputed). The queue owns it, so the delivery and order must not follow.
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(status: "disputed", queuedOp: ManualPayoutFields.OpRefund));
+
+        var frozen = await _service.FreezeForDeliveryDisputeAsync("del-1", "ord-1", BuyerId, "never arrived");
+
+        frozen.Outcome.Should().Be(DeliveryDisputeFreeze.RefusedManualPayout);
+        frozen.MayMirror.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task DeliveryDispute_StaleLockOnTheIndexCopy_DoesNotRefuseAValidDispute()
     {
-        // ESC-03: the DeliveryIndex copy can be stale. Only the write's lock condition decides,
-        // so a lock left on the copy (released on the table since) never refuses the dispute.
+        // The DeliveryIndex copy only names the escrow (ESC-07): the decision is made on the
+        // base row, so a lock left on the copy (released on the table since) never refuses.
         var staleCopy = Escrow();
         staleCopy["settlementLock"] = "refund";
         _escrowRepo.GetByDeliveryIdAsync("del-1").Returns(staleCopy);
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow());
 
-        var frozen = await _service.MarkDisputedFromDeliveryAsync("del-1", BuyerId, "never arrived");
+        var frozen = await _service.FreezeForDeliveryDisputeAsync("del-1", orderId: null, BuyerId, "never arrived");
 
-        frozen.Should().Be(DeliveryDisputeFreeze.Frozen);
+        frozen.Outcome.Should().Be(DeliveryDisputeFreeze.Frozen);
         await _escrowRepo.Received(1).UpdateStatusAsync(
             EscrowId, CreatedAt, "disputed", "escrowed", Arg.Any<Dictionary<string, object>?>());
         (await AuditWritten("dispute_refused_settlement_in_flight")).Should().BeFalse();
@@ -1422,14 +1437,13 @@ public class EscrowServiceManualPayoutTests
     {
         var locked = Escrow();
         locked["settlementLock"] = "release";
-        _escrowRepo.GetByDeliveryIdAsync("del-1").Returns(Escrow());
-        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(locked);
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(), locked);
         _escrowRepo.UpdateStatusAsync(EscrowId, CreatedAt, "disputed", "escrowed", Arg.Any<Dictionary<string, object>?>())
             .ThrowsAsync(new ConditionalCheckFailedException("locked"));
 
-        var frozen = await _service.MarkDisputedFromDeliveryAsync("del-1", BuyerId, "never arrived");
+        var frozen = await _service.FreezeForDeliveryDisputeAsync("del-1", "ord-1", BuyerId, "never arrived");
 
-        frozen.Should().Be(DeliveryDisputeFreeze.RefusedSettlementInFlight);
+        frozen.Outcome.Should().Be(DeliveryDisputeFreeze.RefusedSettlementInFlight);
         (await AuditWritten("dispute_refused_settlement_in_flight", "deliveryId=del-1")).Should().BeTrue();
         (await AuditWritten("dispute")).Should().BeFalse();
     }

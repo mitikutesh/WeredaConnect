@@ -2232,6 +2232,10 @@
   "@deliveryErrorCancelNotAllowed": {
     "description": "A delivery cancel refused because the crops were already picked up (only a delivery that is not picked up yet can be cancelled)"
   },
+  "deliveryErrorDisputeRefused": "This dispute can't be opened right now. Contact support.",
+  "@deliveryErrorDisputeRefused": {
+    "description": "A delivery dispute the server refused (the payment could not be frozen: an admin is paying it out, it is being settled, it is no longer held or it is not on record); nothing was changed. Neutral on purpose: the same text covers every reason"
+  },
   "deliveryQrTooLarge": "QR code too large",
   "@deliveryQrTooLarge": {
     "description": "Error when scanned QR code exceeds size limit"

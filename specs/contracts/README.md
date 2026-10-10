@@ -56,11 +56,11 @@ Each contract file follows this structure:
 
 | Contract | File | Version | Parties |
 |----------|------|---------|---------|
-| Sync Protocol | `sync-protocol.md` | 1.11.0 | Mobile, Backend |
+| Sync Protocol | `sync-protocol.md` | 1.12.0 | Mobile, Backend |
 | Authentication API | `auth-api.md` | 2.7.0 | Mobile, Backend, Infrastructure |
 | User Entity | `user-entity.md` | 1.1.0 | Mobile, Backend, Infrastructure |
 | Rating API | `rating-api.md` | 1.0.0 | Mobile, Backend, Infrastructure |
-| Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 1.13.0 | Mobile, Backend, Admin |
+| Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 1.14.0 | Mobile, Backend, Admin |
 | Account Deletion | `account-deletion.md` | 1.0.0 | Mobile, Backend, Infrastructure, Admin |
 
 ---

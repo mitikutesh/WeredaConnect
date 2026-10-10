@@ -511,6 +511,139 @@ void main() {
     });
   });
 
+  // ESC-07: the server freezes the payment before it writes the delivery. A
+  // refusal surfaces with its code, and a conflict after the freeze (the
+  // server marked the delivery disputed anyway) is done.
+  group('raiseDispute', () {
+    void stubReads(List<String> statuses) {
+      var read = 0;
+      when(() => api.get<Map<String, dynamic>>('/deliveries/del-1')).thenAnswer(
+        (_) async => {
+          'delivery': {
+            'deliveryId': 'del-1',
+            'status': statuses[read < statuses.length ? read++ : read - 1],
+            'version': 2,
+          },
+        },
+      );
+    }
+
+    test('a refused freeze throws the server reason', () async {
+      stubCurrentVersion(2);
+      answerSync({
+        'results': [
+          {
+            'status': 'error',
+            'message': 'DELIVERY_DISPUTE_REFUSED: The payment for this '
+                'delivery is being settled, so it can no longer be disputed. '
+                'Contact support.',
+          },
+        ],
+      });
+
+      await expectLater(
+        repository.raiseDispute(
+          deliveryId: 'del-1',
+          userId: 'buyer-1',
+          reason: 'wet bags',
+        ),
+        throwsA(
+          isA<SyncRejectedException>().having(
+            (e) => isDeliveryDisputeRefusalMessage(e.message),
+            'dispute refusal',
+            isTrue,
+          ),
+        ),
+      );
+    });
+
+    test('a conflict that left the delivery disputed is done', () async {
+      stubReads(['delivered', 'disputed']);
+      answerSync({
+        'results': [
+          {'status': 'conflict', 'message': 'Version conflict.'},
+        ],
+      });
+
+      await repository.raiseDispute(
+        deliveryId: 'del-1',
+        userId: 'buyer-1',
+        reason: 'wet bags',
+      );
+
+      expect(sentOp()['data'], {
+        'status': 'disputed',
+        'disputeReason': 'wet bags',
+        'version': 2,
+      });
+    });
+
+    test('the conflict row decides: disputed is done without a re-read',
+        () async {
+      // The re-read would lag (still delivered); the server's row does not.
+      stubReads(['delivered', 'delivered']);
+      answerSync({
+        'results': [
+          {
+            'status': 'conflict',
+            'message': 'The delivery is already disputed.',
+            'serverData': {'deliveryId': 'del-1', 'status': 'disputed'},
+          },
+        ],
+      });
+
+      await repository.raiseDispute(
+        deliveryId: 'del-1',
+        userId: 'buyer-1',
+        reason: 'wet bags',
+      );
+
+      // One read for the version, none after the conflict.
+      verify(() => api.get<Map<String, dynamic>>('/deliveries/del-1'))
+          .called(1);
+    });
+
+    test('the conflict row decides: anything else throws', () async {
+      stubReads(['delivered', 'disputed']);
+      answerSync({
+        'results': [
+          {
+            'status': 'conflict',
+            'message': 'Version conflict.',
+            'serverData': {'deliveryId': 'del-1', 'status': 'cancelled'},
+          },
+        ],
+      });
+
+      await expectLater(
+        repository.raiseDispute(
+          deliveryId: 'del-1',
+          userId: 'buyer-1',
+          reason: 'wet bags',
+        ),
+        throwsA(isA<SyncConflictException>()),
+      );
+    });
+
+    test('a conflict that left the delivery delivered still throws', () async {
+      stubReads(['delivered', 'delivered']);
+      answerSync({
+        'results': [
+          {'status': 'conflict', 'message': 'Version conflict.'},
+        ],
+      });
+
+      await expectLater(
+        repository.raiseDispute(
+          deliveryId: 'del-1',
+          userId: 'buyer-1',
+          reason: 'wet bags',
+        ),
+        throwsA(isA<SyncConflictException>()),
+      );
+    });
+  });
+
   test('a deferred pickup throws instead of reporting success', () async {
     stubCurrentVersion(2);
     answerSync({

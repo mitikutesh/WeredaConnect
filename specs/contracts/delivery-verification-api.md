@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.9.0
+1.10.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -113,6 +113,29 @@ A `disputed` transition (raised by a participant within the 48-hour window) also
 moves a `delivered` order to `disputed` and freezes the escrow behind the delivery
 (v1.4.1, SIM-12). In the other direction, an escrow dispute raised through
 `POST /escrow/dispute` marks the delivery `disputed`.
+
+**Dispute freezes first (1.10.0, ESC-07).** After the window, party, step-up and reason checks
+and a version check against a strongly consistent read (a stale version is a `conflict` and
+freezes nothing), the server freezes the order's escrow **before** it writes the delivery
+(`escrow-protocol.md` 1.12.0, "Additions in 1.12.0"). When it cannot, nothing is written:
+
+| Escrow behind the delivery | Answer |
+|---|---|
+| `escrowed` (frozen now) or already `disputed` | the delivery is written (`disputed`, version incremented); the order follows (`delivered → disputed`, a lagging order advanced to `delivered` first) |
+| manual payout queued, settlement in flight, any other status (`released`, `completed`, `refunded`, `initiated`, ...), or the order's escrow linked to another delivery | `DELIVERY_DISPUTE_REFUSED: <why> Contact support.` (permanent; audited on the escrow) |
+| none, and the delivery has an `orderId` | `DELIVERY_DISPUTE_REFUSED: No payment is on record for this delivery's order, ...` (alarmed `DISPUTE_NO_ESCROW`) |
+| none, legacy delivery without an `orderId` | the delivery is written as before (nothing to freeze) |
+| the freeze could not be decided (an exception) | `DELIVERY_DISPUTE_RETRY: ...` (transient; nothing written) |
+
+If the delivery write then fails its version condition, the money is frozen, so the delivery and
+order are still marked `disputed` and the answer is `conflict` with the row as it is now. A
+dispute for a delivery that is already `disputed` (also when only the strongly consistent read
+shows it) is never written again: a participant's request finishes the freeze and the order and
+answers `conflict` with the row; an outsider gets `DELIVERY_UNAUTHORIZED`. If it
+fails any other way (a throttle), the request errors with only the escrow disputed; the retry
+finds the escrow already disputed and finishes the delivery and order. The delivery hop is
+audited in transaction-audit as `dispute` (the caller as actor), the order hops as a system actor.
+Client handling of the new codes: `sync-protocol.md` 1.12.0.
 
 The admin's dispute verdict (`POST /admin/disputes/{id}/resolve`, `escrow-protocol.md` 1.9.0)
 reaches the delivery too (v1.8.0, ESC-03): a delivery still `delivered` is marked `disputed`, and a
@@ -477,7 +500,7 @@ server refused the whole confirmation (`DELIVERY_INVALID_FIELD`).
 | `inTransit` | Trucker is en route to the buyer (optional intermediate state) |
 | `delivered` | Buyer has confirmed receipt of the crops |
 | `cancelled` | Delivery cancelled before completion |
-| `disputed` | Buyer or farmer raised a dispute (within 48 hours of delivery) |
+| `disputed` | A participant (buyer, farmer or trucker) raised a dispute within 48 hours of delivery, or an escrow dispute marked it; the payment is frozen first (1.10.0) |
 
 ### Status Transitions
 
@@ -489,7 +512,7 @@ pending → cancelled       (any participant cancels before pickup, by update or
 pickedUp → inTransit   (trucker departs from pickup location)
 pickedUp → delivered    (buyer confirms the handoff; marking in transit is optional)
 inTransit → delivered   (buyer scans trucker's QR code at dropoff)
-delivered → disputed     (farmer or buyer raises dispute within 48 hours)
+delivered → disputed     (any participant raises a dispute within 48 hours; the escrow is frozen first, 1.10.0)
 ```
 
 Since 1.9.0 (ESC-08) nothing cancels a delivery after pickup through sync (before, `pickedUp →
@@ -968,9 +991,10 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.7.0 | 2026-10-06 | Photo evidence aligned with the shipped server (SIM-60): section 4 is JSON `{type}` in and a pre-signed S3 `PUT` (`uploadUrl`, `photoRef`, `issuedAt`, `expiresInSeconds`) out; keys are `uploads/photos/{deliveryId}/{type}-{ms}.webp`; a sync photo ref of any other shape fails the whole op (`DELIVERY_INVALID_FIELD`); size and per-type count are client-side rules; shipped clients keep the local path on the device and send a photo ref only when it is a server key (upload is FRD-12). |
 | 1.9.0 | 2026-10-09 | Delivery rules (ESC-08): cancel by update `{status, version}` or the legacy `delete` (same rules), any party, `pending` only, `DELIVERY_CANCEL_NOT_ALLOWED` after pickup (`pickedUp → cancelled` removed), `DELIVERY_UNAUTHORIZED` for anyone else, `conflict` with the row when already cancelled, other `data` fields refused, a failed write condition judged again on a fresh read; the cancel writes no `deletedAt` (the system cancel of a verdict neither), is audited `delivery_cancelled` (`via=update` or `via=delete`) and frees the slot; photo upload refuses a cancelled delivery by status too; slot claim and delivery row in one transaction, `activeDeliveryClaimedAt`, a dead holder (cancelled, or an untimed legacy claim without a row) taken over only from the claim that was read; trucker create must carry the order's `tripId` and `listingId` and a trip of the caller; validation and authorization sections brought in line with the server. |
 | 1.8.0 | 2026-10-09 | Dispute verdict (ESC-03): the admin's verdict marks a still `delivered` delivery `disputed` and stamps the server-only `disputeResolution` and `disputeResolvedAt` on the disputed delivery (status unchanged, one stamp per delivery, version incremented); a `buyer_wins` refund before pickup cancels a `pending` delivery (system soft delete); system writes audited in transaction-audit. |
+| 1.10.0 | 2026-10-10 | Dispute freezes first (ESC-07): a `disputed` transition freezes the order's escrow before the delivery is written (version checked on a consistent read first); a refused freeze writes nothing and answers `DELIVERY_DISPUTE_REFUSED` (manual payout, settlement in flight, escrow not holding the money, linked to another delivery, or no escrow for the order, alarmed `DISPUTE_NO_ESCROW`); an undecided freeze answers `DELIVERY_DISPUTE_RETRY`; a conflict after the freeze still marks the delivery and order; the delivery hop is audited `dispute`; the escrow mirror adds to the delivery version; status and transition text say any participant may dispute, as the authorization sections already did. |
 
 ---
 
-**Last Updated**: 2026-10-09
-**Version**: 1.9.0
+**Last Updated**: 2026-10-10
+**Version**: 1.10.0
 **Status**: Draft (Phase R4.2)

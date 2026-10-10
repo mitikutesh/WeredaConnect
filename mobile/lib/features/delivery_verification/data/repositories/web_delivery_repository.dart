@@ -191,8 +191,9 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
   /// this throws when the read fails: a guessed version would only conflict,
   /// and a conflict is now reported as a failure.
   Future<int> _currentVersion(String deliveryId) async {
-    final data =
-        await _api.get<Map<String, dynamic>>('/deliveries/$deliveryId');
+    final data = await _api.get<Map<String, dynamic>>(
+      '/deliveries/$deliveryId',
+    );
     final envelope = data['delivery'] ?? data['item'];
     final map = envelope is Map<String, dynamic>
         ? envelope
@@ -365,7 +366,34 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
         ],
       },
     );
-    ensureSyncSucceeded(response);
+    try {
+      ensureSyncSucceeded(response);
+    } on SyncConflictException {
+      // ESC-07: the server freezes the payment before it writes the delivery.
+      // When the delivery changed in between (or it was already disputed), the
+      // server still marks it disputed and answers a conflict with the row.
+      // Then the dispute is done; any other conflict is still a failure. The
+      // row in the answer decides (a read right after may still lag); only an
+      // answer without one falls back to a re-read.
+      final serverStatus = _conflictServerStatus(response);
+      if (serverStatus != null) {
+        if (serverStatus != DeliveryStatus.disputed.name) rethrow;
+        return;
+      }
+      final current = await getDeliveryById(deliveryId, userId: userId);
+      if (current?.status != DeliveryStatus.disputed) rethrow;
+    }
+  }
+
+  /// The delivery status in the first `conflict` result's `serverData`, or
+  /// null when the answer carries none.
+  static String? _conflictServerStatus(Map<String, dynamic> response) {
+    final results = response['results'];
+    if (results is! List || results.isEmpty) return null;
+    final result = results.first;
+    if (result is! Map || result['status'] != 'conflict') return null;
+    final serverData = result['serverData'];
+    return serverData is Map ? serverData['status'] as String? : null;
   }
 
   @override
@@ -435,8 +463,9 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     required String userId,
   }) async {
     try {
-      final data =
-          await _api.get<Map<String, dynamic>>('/deliveries/$deliveryId');
+      final data = await _api.get<Map<String, dynamic>>(
+        '/deliveries/$deliveryId',
+      );
       // Server wraps the single-GET response as {"delivery": {...}}.
       if (data['delivery'] is Map<String, dynamic>) {
         return _parseDeliveryMap(data['delivery'] as Map<String, dynamic>);

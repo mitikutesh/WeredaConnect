@@ -110,6 +110,22 @@ public class DeliveryRepositoryDisputeTests
     }
 
     [Fact]
+    public async Task MarkDisputed_AddsToTheVersion_NeverWritesItFromTheRead()
+    {
+        // ESC-07: the condition is the status only, so a version set from the read could land on
+        // a concurrent update's version and let a stale client CAS through.
+        var ok = await _repo.TryMarkDisputedAsync("delivery-1", "buyer-1", "wet bags");
+
+        ok.Should().BeTrue();
+        _update!.ConditionExpression.Should().Be("#status = :delivered");
+        _update.UpdateExpression.Should().EndWith("ADD #v :one");
+        _update.UpdateExpression.Should().NotContain(":newVersion");
+        _update.ExpressionAttributeValues[":one"].N.Should().Be("1");
+        _update.ExpressionAttributeValues[":disputedBy"].S.Should().Be("buyer-1");
+        _update.ExpressionAttributeValues[":reason"].S.Should().Be("wet bags");
+    }
+
+    [Fact]
     public async Task GetById_Consistent_SetsConsistentRead()
     {
         await _repo.GetByIdAsync("delivery-1", consistentRead: true);

@@ -124,6 +124,43 @@ void main() {
       }
     });
 
+    // ESC-07: the local dispute was undone, so say why, not "not saved".
+    test('a refused or late delivery dispute has its own reason', () {
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'delivery',
+          action: 'update',
+          message: 'DELIVERY_DISPUTE_REFUSED: The payment for this delivery '
+              'is being settled, so it can no longer be disputed.',
+        ),
+        AppErrorCode.deliveryDisputeRefused,
+      );
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'delivery',
+          action: 'update',
+          message: 'DELIVERY_DISPUTE_EXPIRED: Dispute window (48 hours) has '
+              'expired.',
+        ),
+        AppErrorCode.deliveryDisputeExpired,
+      );
+    });
+
+    test('web: a refused or late dispute maps to its own code', () {
+      expect(
+        mapErrorToCode(
+          const SyncRejectedException('DELIVERY_DISPUTE_REFUSED: settled.'),
+        ),
+        AppErrorCode.deliveryDisputeRefused,
+      );
+      expect(
+        mapErrorToCode(
+          const SyncRejectedException('DELIVERY_DISPUTE_EXPIRED: too late.'),
+        ),
+        AppErrorCode.deliveryDisputeExpired,
+      );
+    });
+
     test('any other refused change was not saved', () {
       for (final (entityType, message) in [
         ('crop_listing', 'FRAUD_VELOCITY_EXCEEDED: slow down'),
@@ -154,6 +191,8 @@ void main() {
         AppErrorCode.alreadyRated,
         AppErrorCode.changeNotSaved,
         AppErrorCode.deliveryCancelNotAllowed,
+        AppErrorCode.deliveryDisputeRefused,
+        AppErrorCode.deliveryDisputeExpired,
       ]) {
         final text = localizeErrorCode(code, l10n);
         expect(text, isNotEmpty, reason: '$locale $code');
@@ -178,6 +217,14 @@ void main() {
       expect(
         localizeErrorCode(AppErrorCode.deliveryCancelNotAllowed, l10n),
         l10n.deliveryErrorCancelNotAllowed,
+      );
+      expect(
+        localizeErrorCode(AppErrorCode.deliveryDisputeRefused, l10n),
+        l10n.deliveryErrorDisputeRefused,
+      );
+      expect(
+        localizeErrorCode(AppErrorCode.deliveryDisputeExpired, l10n),
+        l10n.deliveryErrorDisputeExpired,
       );
     }
   });

@@ -17,6 +17,7 @@ String localizeDeliveryError(AppLocalizations l10n, String? code) {
     DeliveryErrorCode.notFound => l10n.deliveryErrorNotFound,
     DeliveryErrorCode.qrPending => l10n.deliveryErrorQrPending,
     DeliveryErrorCode.cancelNotAllowed => l10n.deliveryErrorCancelNotAllowed,
+    DeliveryErrorCode.disputeRefused => l10n.deliveryErrorDisputeRefused,
     _ => l10n.deliveryErrorGeneric,
   };
 }

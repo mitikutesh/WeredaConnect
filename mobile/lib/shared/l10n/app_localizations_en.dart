@@ -1678,6 +1678,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'This delivery was already picked up, so it can no longer be cancelled. Contact support if there is a problem.';
 
   @override
+  String get deliveryErrorDisputeRefused =>
+      'This dispute can\'t be opened right now. Contact support.';
+
+  @override
   String get deliveryQrTooLarge => 'QR code too large';
 
   @override

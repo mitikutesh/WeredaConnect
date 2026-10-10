@@ -53,6 +53,14 @@ enum AppErrorCode {
   /// picked up (`DELIVERY_CANCEL_NOT_ALLOWED`); the local cancel was undone.
   deliveryCancelNotAllowed,
 
+  /// The server refused a delivery dispute because the payment could not be
+  /// frozen (`DELIVERY_DISPUTE_REFUSED`, ESC-07); the local dispute was undone.
+  deliveryDisputeRefused,
+
+  /// The server refused a delivery dispute raised after the 48-hour window
+  /// (`DELIVERY_DISPUTE_EXPIRED`); the local dispute was undone.
+  deliveryDisputeExpired,
+
   /// The server refused a queued change (not an order) for good, so it was
   /// never saved there.
   changeNotSaved,
@@ -104,6 +112,12 @@ AppErrorCode mapErrorToCode(Object error) {
     SyncRejectedException(:final message)
         when isRevertableRejectionMessage(message) =>
       AppErrorCode.orderRefused,
+    SyncRejectedException(:final message)
+        when isDeliveryDisputeRefusalMessage(message) =>
+      AppErrorCode.deliveryDisputeRefused,
+    SyncRejectedException(:final message)
+        when isDeliveryDisputeExpiredMessage(message) =>
+      AppErrorCode.deliveryDisputeExpired,
     OrderActionNotAllowedException() => AppErrorCode.orderRefused,
     AlreadyRatedException() => AppErrorCode.alreadyRated,
     TimeoutException() => AppErrorCode.timeout,
@@ -141,6 +155,8 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.orderNotPlaced => l10n.errorOrderNotPlaced,
     AppErrorCode.alreadyRated => l10n.alreadyRated,
     AppErrorCode.deliveryCancelNotAllowed => l10n.deliveryErrorCancelNotAllowed,
+    AppErrorCode.deliveryDisputeRefused => l10n.deliveryErrorDisputeRefused,
+    AppErrorCode.deliveryDisputeExpired => l10n.deliveryErrorDisputeExpired,
     AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
@@ -153,7 +169,8 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
 /// The reason to show for an operation the sync queue rejected for good
 /// (mobile background sync, `SyncOperationRejected`). A refused order create
 /// removed the local order; any other refused order change was undone; a
-/// delivery cancel refused after pickup was undone (ESC-08); any other refused
+/// delivery cancel refused after pickup was undone (ESC-08), and so was a
+/// delivery dispute that was refused or too late (ESC-07); any other refused
 /// change was not saved on the server.
 AppErrorCode syncRejectionErrorCode({
   required String entityType,
@@ -168,6 +185,12 @@ AppErrorCode syncRejectionErrorCode({
   }
   if (isDeliveryCancelRefusalMessage(message)) {
     return AppErrorCode.deliveryCancelNotAllowed;
+  }
+  if (isDeliveryDisputeRefusalMessage(message)) {
+    return AppErrorCode.deliveryDisputeRefused;
+  }
+  if (isDeliveryDisputeExpiredMessage(message)) {
+    return AppErrorCode.deliveryDisputeExpired;
   }
   return isRevertableRejectionMessage(message)
       ? AppErrorCode.orderRefused

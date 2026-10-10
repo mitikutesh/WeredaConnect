@@ -301,6 +301,61 @@ void main() {
     });
   });
 
+  // ESC-07: a dispute the server could not freeze the payment for, or one
+  // after the 48-hour window, is refused for good; the local dispute is undone
+  // and explained. A dispute whose freeze was undecided keeps retrying.
+  group('a refused or late delivery dispute is permanent and reverted', () {
+    for (final message in [
+      'DELIVERY_DISPUTE_REFUSED: The payment for this delivery is being '
+          'settled, so it can no longer be disputed. Contact support.',
+      'DELIVERY_DISPUTE_EXPIRED: Dispute window (48 hours) has expired.',
+    ]) {
+      test(message.split(':').first, () async {
+        await enqueue(
+          'op-1',
+          entityType: 'delivery',
+          entityId: 'del-1',
+          data: '{"deliveryId":"del-1","status":"disputed",'
+              '"disputeReason":"wet bags","version":3}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await _waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        expect(reverts, hasLength(1));
+        expect(reverts.single.$1.entityType, 'delivery');
+        expect(reverts.single.$2, message);
+        expect(rejections().single.message, message);
+      });
+    }
+
+    test('DELIVERY_DISPUTE_RETRY keeps retrying and is not reverted', () async {
+      await enqueue(
+        'op-1',
+        entityType: 'delivery',
+        entityId: 'del-1',
+        data: '{"status":"disputed","disputeReason":"wet bags","version":3}',
+      );
+      replyWith([
+        error(
+          'op-1',
+          'DELIVERY_DISPUTE_RETRY: The dispute could not be recorded right '
+              'now. It will be sent again.',
+        ),
+      ]);
+
+      await executor.executeBatch();
+
+      final op = await syncQueue.getOperation('op-1');
+      expect(op!.status, SyncStatus.pending);
+      expect(op.retryCount, 1);
+      expect(reverts, isEmpty);
+    });
+  });
+
   test('ORDER_KYC_REQUIRED keeps its own path', () async {
     await enqueue('op-1', data: '{"status":"payment_submitted","version":2}');
     replyWith([error('op-1', 'ORDER_KYC_REQUIRED: buyer_fayda: Verify')]);

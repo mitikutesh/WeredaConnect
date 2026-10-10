@@ -95,7 +95,8 @@ public sealed class EscrowRepository : IEscrowRepository
                     continue;
                 }
 
-                if (kvp.Value == null)
+                // ESC-07: a dispute adds to the version below; a caller's read + 1 is never written.
+                if (kvp.Value == null || (newStatus == "disputed" && kvp.Key == "version"))
                 {
                     continue;
                 }
@@ -121,6 +122,15 @@ public sealed class EscrowRepository : IEscrowRepository
             ExpressionAttributeNames = attrNames,
             ExpressionAttributeValues = attrValues
         };
+
+        // ESC-07: the dispute freeze is conditioned on the status, the marker and the lock, not on
+        // the version, so the version is added to (a row without one gets 1), never set from a read.
+        if (newStatus == "disputed")
+        {
+            request.UpdateExpression += " ADD #version :one";
+            request.ExpressionAttributeNames["#version"] = "version";
+            request.ExpressionAttributeValues[":one"] = new AttributeValue { N = "1" };
+        }
 
         // Optimistic concurrency: verify expected current status before update
         var conditions = new List<string>();

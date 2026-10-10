@@ -2069,6 +2069,7 @@
   "@deliveryErrorNotFound": {
     "description": "Error when delivery cannot be found"
   },
+  "deliveryErrorDisputeRefused": "ይህ ክርክር አሁን ሊከፈት አይችልም። ድጋፍ ሰጪን ያግኙ።",
   "deliveryQrTooLarge": "QR ኮድ በጣም ትልቅ ነው",
   "@deliveryQrTooLarge": {
     "description": "Error when scanned QR code exceeds size limit"

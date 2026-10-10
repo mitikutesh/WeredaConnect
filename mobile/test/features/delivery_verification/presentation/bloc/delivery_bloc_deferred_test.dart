@@ -83,4 +83,48 @@ void main() {
     );
     await done;
   });
+
+  // ESC-07: web sends the dispute straight to /sync too: a dispute the server
+  // could not freeze the payment for, or one after the 48-hour window, gets
+  // its own message instead of the generic error.
+  for (final (message, code) in [
+    (
+      'DELIVERY_DISPUTE_REFUSED: The payment for this delivery is being '
+          'settled, so it can no longer be disputed. Contact support.',
+      DeliveryErrorCode.disputeRefused,
+    ),
+    (
+      'DELIVERY_DISPUTE_EXPIRED: Dispute window (48 hours) has expired.',
+      DeliveryErrorCode.disputeExpired,
+    ),
+  ]) {
+    test('a refused dispute emits $code', () async {
+      final repository = _MockRepository();
+      when(
+        () => repository.raiseDispute(
+          deliveryId: any(named: 'deliveryId'),
+          userId: any(named: 'userId'),
+          reason: any(named: 'reason'),
+        ),
+      ).thenThrow(SyncRejectedException(message));
+      final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
+
+      final done = expectLater(
+        bloc.stream,
+        emitsThrough(
+          isA<DeliveryError>().having((e) => e.code, 'code', code),
+        ),
+      );
+      bloc.add(
+        const RaiseDispute(
+          deliveryId: 'del-1',
+          userId: 'buyer-1',
+          tripId: 'trip-1',
+          reason: 'wet bags',
+        ),
+      );
+      await done;
+    });
+  }
 }

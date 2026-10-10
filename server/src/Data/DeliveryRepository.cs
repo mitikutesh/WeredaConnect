@@ -315,8 +315,6 @@ public sealed class DeliveryRepository : IDeliveryRepository
         // The sync handler keys deliveries on deliveryId + tripId (self-pickup stores a
         // synthetic tripId), so the same key is used here.
         var tripId = existing.TryGetValue("tripId", out var tripAttr) ? tripAttr.S ?? "" : "";
-        var version = existing.TryGetValue("version", out var vAttr)
-            && int.TryParse(vAttr.N, out var parsed) ? parsed : 1;
         var now = DateTime.UtcNow.ToString("o");
 
         var attrNames = new Dictionary<string, string>
@@ -329,10 +327,10 @@ public sealed class DeliveryRepository : IDeliveryRepository
             { ":disputed", new AttributeValue { S = "disputed" } },
             { ":delivered", new AttributeValue { S = "delivered" } },
             { ":updated", new AttributeValue { S = now } },
-            { ":newVersion", new AttributeValue { N = (version + 1).ToString() } },
+            { ":one", new AttributeValue { N = "1" } },
             { ":disputedBy", new AttributeValue { S = disputedBy } }
         };
-        var setParts = "#status = :disputed, #updated = :updated, #v = :newVersion, #disputedBy = :disputedBy";
+        var setParts = "#status = :disputed, #updated = :updated, #disputedBy = :disputedBy";
         if (!string.IsNullOrWhiteSpace(reason))
         {
             attrNames["#reason"] = "disputeReason";
@@ -348,7 +346,10 @@ public sealed class DeliveryRepository : IDeliveryRepository
                 { "deliveryId", new AttributeValue { S = deliveryId } },
                 { "tripId", new AttributeValue { S = tripId } }
             },
-            UpdateExpression = "SET " + setParts,
+            // ESC-07: ADD, never a version from the read above. The condition is the status
+            // only, so a concurrent update could otherwise end up at the same version and a
+            // client CAS at that stale version would succeed. A row without a version gets 1.
+            UpdateExpression = "SET " + setParts + " ADD #v :one",
             ConditionExpression = "#status = :delivered",
             ExpressionAttributeNames = attrNames,
             ExpressionAttributeValues = attrValues

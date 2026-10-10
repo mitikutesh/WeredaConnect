@@ -3154,6 +3154,12 @@ abstract class AppLocalizations {
   /// **'This delivery was already picked up, so it can no longer be cancelled. Contact support if there is a problem.'**
   String get deliveryErrorCancelNotAllowed;
 
+  /// A delivery dispute the server refused (the payment could not be frozen: an admin is paying it out, it is being settled, it is no longer held or it is not on record); nothing was changed. Neutral on purpose: the same text covers every reason
+  ///
+  /// In en, this message translates to:
+  /// **'This dispute can\'t be opened right now. Contact support.'**
+  String get deliveryErrorDisputeRefused;
+
   /// Error when scanned QR code exceeds size limit
   ///
   /// In en, this message translates to:

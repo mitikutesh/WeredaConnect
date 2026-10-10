@@ -105,6 +105,35 @@ const String deliveryCancelNotAllowedCode = 'DELIVERY_CANCEL_NOT_ALLOWED';
 bool isDeliveryCancelRefusalMessage(String? message) =>
     message != null && message.startsWith(deliveryCancelNotAllowedCode);
 
+/// Sync rejection prefix when a delivery dispute cannot freeze the payment
+/// (ESC-07, sync-protocol.md 1.12.0): it is queued for an admin payout, being
+/// settled, no longer held, or not on record. Nothing was written.
+const String deliveryDisputeRefusedCode = 'DELIVERY_DISPUTE_REFUSED';
+
+/// Sync rejection prefix when a delivery dispute comes after the 48-hour
+/// window.
+const String deliveryDisputeExpiredCode = 'DELIVERY_DISPUTE_EXPIRED';
+
+/// Whether a /sync per-operation error message refuses a delivery dispute
+/// (`DELIVERY_DISPUTE_REFUSED: ...`). Permanent: the client undoes its local
+/// dispute instead of retrying.
+bool isDeliveryDisputeRefusalMessage(String? message) =>
+    message != null && message.startsWith(deliveryDisputeRefusedCode);
+
+/// Whether a /sync per-operation error message refuses a delivery dispute
+/// raised after the 48-hour window (`DELIVERY_DISPUTE_EXPIRED: ...`).
+/// Permanent since ESC-07: the client undoes its local dispute.
+bool isDeliveryDisputeExpiredMessage(String? message) =>
+    message != null && message.startsWith(deliveryDisputeExpiredCode);
+
+/// Whether a /sync per-operation error message refuses a delivery change for
+/// good and the client must put the delivery back from the server: a cancel
+/// after pickup (ESC-08) or a dispute that was refused or too late (ESC-07).
+bool isRevertableDeliveryRejectionMessage(String? message) =>
+    isDeliveryCancelRefusalMessage(message) ||
+    isDeliveryDisputeRefusalMessage(message) ||
+    isDeliveryDisputeExpiredMessage(message);
+
 /// Whether a /sync per-operation error message is the live gateway's refusal
 /// of a payment whose order total one Telebirr payment cannot take
 /// (`ORDER_VALIDATION: This order total (X ETB) is outside what one Telebirr
@@ -134,11 +163,7 @@ final class NotFoundException extends ApiException {
 
 /// Conflict error (409) - used for sync conflicts
 final class ConflictException extends ApiException {
-  const ConflictException(
-    super.message, [
-    super.statusCode = 409,
-    super.code,
-  ]);
+  const ConflictException(super.message, [super.statusCode = 409, super.code]);
 
   /// Server data that conflicts with local data
   final Map<String, dynamic>? serverData = null;

@@ -36,7 +36,7 @@ class DeliveryErrorCode {
   static const invalidId = 'DELIVERY_INVALID_ID';
   static const statusInvalid = 'DELIVERY_STATUS_INVALID';
   static const unauthorized = 'DELIVERY_UNAUTHORIZED';
-  static const disputeExpired = 'DELIVERY_DISPUTE_EXPIRED';
+  static const disputeExpired = deliveryDisputeExpiredCode;
   static const disputeReasonRequired = 'DELIVERY_DISPUTE_REASON_REQUIRED';
   static const gpsInvalid = 'DELIVERY_GPS_INVALID';
   static const notFound = 'DELIVERY_NOT_FOUND';
@@ -44,5 +44,9 @@ class DeliveryErrorCode {
 
   /// A cancel after pickup, refused locally or by the server (ESC-08).
   static const cancelNotAllowed = deliveryCancelNotAllowedCode;
+
+  /// A dispute the server refused because the payment could not be frozen
+  /// (ESC-07): queued for an admin payout, being settled or no longer held.
+  static const disputeRefused = deliveryDisputeRefusedCode;
   static const generic = 'DELIVERY_GENERIC';
 }

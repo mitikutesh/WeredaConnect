@@ -221,6 +221,25 @@ void main() {
     expect(find.text(en.deliveryErrorCancelNotAllowed), findsOneWidget);
   });
 
+  // ESC-07: the local dispute was undone because the payment could not be
+  // frozen.
+  testWidgets('a refused delivery dispute says why', (tester) async {
+    await tester.pumpWidget(host());
+
+    events.emit(
+      const SyncOperationRejected(
+        entityType: 'delivery',
+        entityId: 'delivery-1',
+        action: 'update',
+        message: 'DELIVERY_DISPUTE_REFUSED: being settled.',
+        userId: 'farmer-1',
+      ),
+    );
+    await settle(tester);
+
+    expect(find.text(en.deliveryErrorDisputeRefused), findsOneWidget);
+  });
+
   testWidgets('another user\'s refusal is not shown (shared device)',
       (tester) async {
     // Kept before this user signed in, raised for someone else's op.

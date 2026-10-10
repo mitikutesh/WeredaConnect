@@ -81,7 +81,8 @@ public interface IDeliveryRepository
     /// <summary>
     /// SIM-12: move a <c>delivered</c> delivery to <c>disputed</c> (conditional write; the
     /// escrow dispute mirrors onto the handoff). Returns false when the delivery does not
-    /// exist or is not <c>delivered</c>, so a repeat is a no-op.
+    /// exist or is not <c>delivered</c>, so a repeat is a no-op. ESC-07: the version is
+    /// incremented atomically (<c>ADD</c>), never written from a read.
     /// </summary>
     Task<bool> TryMarkDisputedAsync(string deliveryId, string disputedBy, string? reason);
 

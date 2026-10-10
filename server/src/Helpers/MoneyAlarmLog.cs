@@ -18,6 +18,7 @@ namespace WeredaConnect.Server.Helpers;
 /// DISPUTE_VERDICT_ORDER_MISMATCH escrowId=&lt;id&gt; op=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=&lt;id&gt; op=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// TRUCKER_PAYOUT_OVERDUE escrowId=&lt;id&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
+/// DISPUTE_NO_ESCROW orderId=&lt;id&gt; deliveryId=&lt;id&gt;
 /// </code>
 /// <para>
 /// The trucker line (ESC-04) is logged by escrow-cron's trucker retry, once per hourly run for
@@ -77,6 +78,7 @@ public static class MoneyAlarmLog
     public const string DisputeVerdictOrderMismatchToken = "DISPUTE_VERDICT_ORDER_MISMATCH";
     public const string DisputeVerdictSettlementBlockedToken = "DISPUTE_VERDICT_SETTLEMENT_BLOCKED";
     public const string TruckerPayoutOverdueToken = "TRUCKER_PAYOUT_OVERDUE";
+    public const string DisputeNoEscrowToken = "DISPUTE_NO_ESCROW";
 
     /// <summary>The gateway definitely refused the settlement; no money moved.</summary>
     public const string OutcomeFailed = "failed";
@@ -142,6 +144,13 @@ public static class MoneyAlarmLog
     /// <summary>ESC-03: a dispute verdict's settlement failed closed (unreadable order, or a cancel or restock that did not land).</summary>
     public static string DisputeVerdictSettlementBlocked(string? escrowId, string? op, string? legs)
         => $"{DisputeVerdictSettlementBlockedToken} escrowId={LogId(escrowId)} op={Safe(op)} legs={LogId(legs?.Replace(',', '.'))}";
+
+    /// <summary>
+    /// ESC-07: a delivery of a funded order was disputed but no escrow holds its money, so the
+    /// dispute was refused. Logged by the sync Lambda (the order-escrow problems alarm counts it).
+    /// </summary>
+    public static string DisputeNoEscrow(string? orderId, string? deliveryId)
+        => $"{DisputeNoEscrowToken} orderId={LogId(orderId)} deliveryId={LogId(deliveryId)}";
 
     /// <summary>
     /// A client-chosen or client-influenced id (entity id, path parameter, header, an escrow id

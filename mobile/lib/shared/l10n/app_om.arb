@@ -2084,6 +2084,7 @@
   "@deliveryErrorNotFound": {
     "description": "Error when delivery cannot be found"
   },
+  "deliveryErrorDisputeRefused": "Komiin kun amma banamuu hin danda'u. Deeggarsa qunnamaa.",
   "deliveryQrTooLarge": "QR koodiin baay'ee guddaadha",
   "@deliveryQrTooLarge": {
     "description": "Error when scanned QR code exceeds size limit"
