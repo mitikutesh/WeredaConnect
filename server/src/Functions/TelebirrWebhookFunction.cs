@@ -584,6 +584,14 @@ public class TelebirrWebhookFunction
                 return Ack.Done;
             }
 
+            if (!IsCompleted(payment.TradeStatus))
+            {
+                // No money behind it: nothing to alarm.
+                context.Logger.LogInformation(
+                    $"Telebirr out-of-window {SafeLogId(payment.TradeStatus)} notification ignored: {Describe(payment)}.");
+                return Ack.Done;
+            }
+
             // Too old (or from the future) to process, and never seen: a verified payment is not
             // dropped silently.
             context.Logger.LogError($"{UnprocessedToken} {Describe(payment)} reason=stale_notify_time");
@@ -1190,7 +1198,13 @@ public class TelebirrWebhookFunction
             return;
         }
 
-        await _inboxRepo!.MarkUnprocessedAsync(row.Key);
+        if (!await _inboxRepo!.MarkUnprocessedAsync(row.Key))
+        {
+            // A redelivery wrote a final outcome meanwhile.
+            context.Logger.LogInformation($"Telebirr inbox replay: row finished elsewhere: {DescribeRow(row, payment)}.");
+            return;
+        }
+
         counts.Pending++;
         context.Logger.LogWarning(
             $"{ReplayPendingToken} {DescribeRow(row, payment)} attempt={attempts}/{WebhookInbox.MaxAttempts} reason={SafeLogId(reason)}");

@@ -107,8 +107,8 @@ Fresh: `|now - notify_time| <= 300 s`. On the order path a verified notification
 processed (logged `late=true`), because a retry may keep the original `notify_time`: the inbox key, the
 status-conditional funding write, classification by `telebirrPaymentOrderId` and the attempt binding make
 a replay harmless. A late redelivery of a notification whose inbox row is final changes nothing (no apply,
-no hold, no alarm: validator item 4). Older than 48 h, or more than 300 s in the future, is refused and
-alarmed (`reason=stale_notify_time`) only when the inbox has never seen it. The `/escrow/initiate` path
+no hold, no alarm: validator item 4). Older than 48 h, or more than 300 s in the future, is refused, and
+alarmed (`reason=stale_notify_time`) only when it is a `Completed` payment the inbox has never seen. The `/escrow/initiate` path
 keeps 300 s. The window stays below the inbox row's 30-day TTL (unit test).
 
 ### D4. Inbox and replay sweep

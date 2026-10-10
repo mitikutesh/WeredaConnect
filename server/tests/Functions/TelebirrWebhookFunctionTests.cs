@@ -1351,6 +1351,17 @@ public class TelebirrWebhookFunctionTests
     }
 
     [Fact]
+    public async Task An_out_of_window_failure_notification_is_not_alarmed()
+    {
+        var fn = NewOrderFunction();
+
+        await fn.FunctionHandler(Req(OrderBodyAt(_clock.GetUtcNow().AddHours(-60), "Failure")), _ctx);
+
+        Logs.Should().NotContain("ORDER_PAYMENT_UNPROCESSED");
+        await _auditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
     public async Task An_out_of_window_redelivery_of_a_handled_payment_is_not_alarmed()
     {
         var fn = NewOrderFunction();

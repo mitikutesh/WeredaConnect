@@ -2842,9 +2842,9 @@ sandbox checklist).
   milliseconds, anything else is refused. Fresh is `|now - notify_time| <= 300 s`. On the order
   path a verified notification up to **48 hours** old is still processed (a retry may keep its
   original `notify_time`); a late redelivery of a notification whose inbox row is final changes
-  nothing; older than 48 h, or more than 300 s in the future, is refused and alarmed
+  nothing; older than 48 h, or more than 300 s in the future, is refused, and alarmed
   (`ORDER_PAYMENT_UNPROCESSED reason=stale_notify_time`, plus an `order_payment_unprocessed` audit
-  row) only when the inbox has never seen it. The `/escrow/initiate` path keeps 300 s.
+  row) only when it is a `Completed` payment the inbox has never seen. The `/escrow/initiate` path keeps 300 s.
 - **Statuses**: only `Completed` funds; `Failed` and `Failure` are a failed try
   (`order_payment_failed`); others are `order_payment_status_ignored`.
 - Field names of a body that did not verify are logged at most 20, each defanged (`MoneyAlarmLog.LogId`).
