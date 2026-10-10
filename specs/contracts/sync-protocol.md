@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.12.0
+1.13.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -383,10 +383,38 @@ per escrow, delivery and reason a day.
 
 ---
 
+## Order cancel refusal (1.13.0, ESC-06)
+
+The server now sends `ORDER_CANCEL_NOT_ALLOWED:` when a buyer cancels an `accepted` order before
+its `pickupDeadlineAt`, after its crops were picked up, or while its money is being settled or
+reviewed (`order-lifecycle.md` 1.15.0, Transport failure cancel). It is permanent under the
+`ORDER_*` rule above (mark rejected, never resent, revert the local order), with its own message in
+en, am and om. Unlike the other `ORDER_*` codes it depends on the server clock: the same cancel can
+be allowed later. The client never resends the refused operation; the buyer cancels again once it is
+allowed. The cancel's read or write failures (trip, delivery, escrow, order) answer unprefixed errors
+(`... Please try again later.`), which mobile retries.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `success` | Synced; the order is `cancelled`, the refund follows within the hourly sweep. | Done. |
+| `ORDER_CANCEL_NOT_ALLOWED:` | Permanent: revert as for any `ORDER_*` (re-read `GET /orders/{id}`), show `errorOrderCancelNotAllowed`. | Failure with the same message. |
+| `conflict` (the order moved since the client read it) | Server wins, as for any conflict. | Failure. |
+| unprefixed error | Retried. | Failure (generic message). |
+
+The client shows Cancel on an `accepted` order only once the device clock is past
+`pickupDeadlineAt`, and mobile refuses a local cancel before it (`OrderCancelNotAllowedException`,
+same message), so the refusal only comes back after a clock difference or a race (a pickup synced
+first). A delivery create racing the cancel is refused by the slot write:
+`DELIVERY_VALIDATION: The order no longer takes a delivery (it must be accepted, pickup_confirmed or in_transit).`
+Clients older than 1.13.0 never send an `accepted -> cancelled` change.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.13.0 | 2026-10-10 | Order cancel refusal (ESC-06): `ORDER_CANCEL_NOT_ALLOWED` is sent for a buyer cancel of an `accepted` order before its pickup deadline, after pickup or while its money is being settled; permanent (server-clock dependent, never resent), its own localized message on mobile and web; the cancel's read and write failures are unprefixed and retried; a delivery create on an order that no longer takes one is refused with `DELIVERY_VALIDATION`; order rows carry `pickupDeadlineAt` |
 | 1.12.0 | 2026-10-10 | Delivery dispute (ESC-07): the server freezes the escrow before it writes a disputed delivery; new `DELIVERY_DISPUTE_REFUSED` (permanent, the mobile client reverts the delivery like a refused cancel and explains it in en, am and om with one neutral text) and `DELIVERY_DISPUTE_RETRY` (transient); `DELIVERY_DISPUTE_EXPIRED` becomes permanent and reverted; a conflict after a successful freeze, and a dispute for a delivery already disputed, carry the row already `disputed` (the order is finished first; web: the answer's row decides, else a re-read); a client order update to `disputed` is `ORDER_UNAUTHORIZED`; older clients resend a refusal on every reconnect, audited once a day |
 | 1.11.0 | 2026-10-09 | Delivery cancel (ESC-08): sent as `update {status, version}` by every party; `delete` still accepted under the same rules (old queued operations are not rewritten); `DELIVERY_CANCEL_NOT_ALLOWED` is permanent, the mobile client reverts the delivery (read-back, else the lowest sent version) and explains it in en, am and om; a cancel of a cancelled delivery answers `conflict` with the row (web: done when a re-read shows `cancelled`) |
 | 1.10.0 | 2026-10-09 | Permanent order rejections (ESC-12 part A): every `ORDER_*` operation error except `ORDER_KYC_REQUIRED` is permanent; the mobile client marks it rejected, reverts the local order (create: remove it; update: re-read `GET /orders/{id}`, 404/403 remove it, other failures restore the lowest sent version), shows a localized reason (kept until the UI listens, per user, dropped on logout), rejects the operations queued behind any refused create, and stops rejected operations from blocking pulls; other permanent rejections of order operations are reverted the same way; other entities' permanent rejections are explained and still counted as failed; web treats `conflict` as a failure and reads versions strictly; server rules for `ORDER_*` errors and new order fields; the five non-order codes wait for part B |
@@ -403,4 +431,4 @@ per escrow, delivery and reason a day.
 ---
 
 **Last Updated**: 2026-10-10
-**Version**: 1.12.0
+**Version**: 1.13.0

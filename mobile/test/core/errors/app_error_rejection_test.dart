@@ -9,12 +9,12 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 /// each get a code the screens can explain in all three languages.
 void main() {
   // Emitted today, plus the planned ORDER_* codes (spec section 8), which the
-  // prefix rule already covers with the generic text.
+  // prefix rule already covers with the generic text. ORDER_CANCEL_NOT_ALLOWED
+  // has its own text since ESC-06 (below).
   const orderCodes = [
     'ORDER_VALIDATION',
     'ORDER_UNAUTHORIZED',
     'ORDER_DEADLINE_PASSED',
-    'ORDER_CANCEL_NOT_ALLOWED',
     'ORDER_ACTION_NOT_ALLOWED',
     'ORDER_TRIP_NOT_ELIGIBLE',
     'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED',
@@ -109,6 +109,21 @@ void main() {
       }
     });
 
+    // ESC-06: an accepted order may be cancelled only after a transport failure.
+    test(
+        'an order cancel refused before the pickup deadline has its own reason',
+        () {
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'order',
+          action: 'update',
+          message: 'ORDER_CANCEL_NOT_ALLOWED: The crops can still be collected '
+              'until 2026-10-12T08:00:00.0000000Z.',
+        ),
+        AppErrorCode.orderCancelNotAllowed,
+      );
+    });
+
     // ESC-08: the local cancel was undone, so say why, not "not saved".
     test('a delivery cancel refused after pickup has its own reason', () {
       for (final action in ['update', 'delete']) {
@@ -193,6 +208,7 @@ void main() {
         AppErrorCode.deliveryCancelNotAllowed,
         AppErrorCode.deliveryDisputeRefused,
         AppErrorCode.deliveryDisputeExpired,
+        AppErrorCode.orderCancelNotAllowed,
       ]) {
         final text = localizeErrorCode(code, l10n);
         expect(text, isNotEmpty, reason: '$locale $code');
@@ -226,7 +242,33 @@ void main() {
         localizeErrorCode(AppErrorCode.deliveryDisputeExpired, l10n),
         l10n.deliveryErrorDisputeExpired,
       );
+      expect(
+        localizeErrorCode(AppErrorCode.orderCancelNotAllowed, l10n),
+        l10n.errorOrderCancelNotAllowed,
+      );
     }
+  });
+
+  group('order cancel refusal (ESC-06)', () {
+    test('web: the refused cancel and the local guard read the same', () {
+      expect(
+        mapErrorToCode(
+          const SyncRejectedException(
+            'ORDER_CANCEL_NOT_ALLOWED: The crops were already picked up.',
+          ),
+        ),
+        AppErrorCode.orderCancelNotAllowed,
+      );
+      expect(
+        mapErrorToCode(const OrderCancelNotAllowedException('not yet')),
+        AppErrorCode.orderCancelNotAllowed,
+      );
+      // Still a permanent order refusal: the queue reverts it like any ORDER_*.
+      expect(
+        isRevertableRejectionMessage('ORDER_CANCEL_NOT_ALLOWED: not yet'),
+        isTrue,
+      );
+    });
   });
 
   group('live Telebirr total refusal (ESC-44)', () {

@@ -258,7 +258,10 @@ public class OrderFunction
             RespondedAt = GetStringOrNull(item, "respondedAt"),
             RejectionReason = GetStringOrNull(item, "rejectionReason"),
             CancelledAt = GetStringOrNull(item, "cancelledAt"),
-            CancelReason = GetStringOrNull(item, "cancelReason")
+            CancelReason = GetStringOrNull(item, "cancelReason"),
+            PickupDeadlineAt = GetStringOrNull(item, PickupDeadline.Field),
+            AdminQueueReason = GetStringOrNull(item, AdminQueueFields.Reason),
+            AdminQueuedAt = GetStringOrNull(item, AdminQueueFields.QueuedAt)
         };
     }
 

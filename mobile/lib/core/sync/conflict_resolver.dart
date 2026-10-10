@@ -384,6 +384,11 @@ class ConflictResolver {
             ? DateTime.parse(paymentVerifiedAtStr).toUtc()
             : null;
 
+        // ESC-06: the server-stamped pickup deadline (Cancel after a transport failure).
+        order!.pickupDeadlineAt = DateTime.tryParse(
+          serverData['pickupDeadlineAt'] as String? ?? '',
+        )?.toUtc();
+
         // Optional fields
         order!.rejectionReason = serverData['rejectionReason'] as String?;
         order!.cancelReason = serverData['cancelReason'] as String?;

@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
@@ -346,6 +347,14 @@ class OrderRepository extends BaseOrderRepository {
     if (order.status == OrderStatus.cancelled) return;
 
     final now = DateTime.now().toUtc();
+    // ESC-06: an accepted order is cancelled only after a transport failure.
+    if (order.status == OrderStatus.accepted &&
+        !isTransportFailureCancelOpen(order, now)) {
+      throw const OrderCancelNotAllowedException(
+        'An accepted order can be cancelled only after its pickup deadline.',
+      );
+    }
+
     final baseVersion = order.version;
 
     await _writeThenEnqueue(

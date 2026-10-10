@@ -514,6 +514,22 @@ void main() {
       expect(local.version, 4);
     });
 
+    test('the server pickup deadline is stored (ESC-06)', () async {
+      await putOrder(version: 4);
+      answerOrder(
+        () async => {
+          'order': _serverOrder(status: 'accepted', version: 5)
+            ..['pickupDeadlineAt'] = '2026-10-12T08:00:00.0000000Z',
+        },
+      );
+
+      await sync.pullOrder('order-1');
+
+      final local = await load();
+      // Isar hands DateTimes back in local time: compare the instant.
+      expect(local!.pickupDeadlineAt!.toUtc(), DateTime.utc(2026, 10, 12, 8));
+    });
+
     test('errors reach the caller', () async {
       await putOrder();
       answerOrder(() async => throw const NotFoundException());

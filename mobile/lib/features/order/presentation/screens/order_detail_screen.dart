@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -160,6 +161,18 @@ class _OrderDetailBody extends StatelessWidget {
                       label: l10n.statusCreated,
                       value: dateFormat.format(order.createdAt),
                     ),
+                    // ESC-06: when the crops must be collected by, for all
+                    // three parties of an accepted order.
+                    if (order.status == OrderStatus.accepted &&
+                        order.pickupDeadlineAt != null) ...[
+                      const Divider(height: 16),
+                      _InfoRow(
+                        label: l10n.orderPickupDeadline,
+                        value: dateFormat.format(
+                          order.pickupDeadlineAt!.toLocal(),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -364,14 +377,34 @@ class _OrderDetailBody extends StatelessWidget {
       widgets.add(const SizedBox(height: 12));
     }
 
+    // ESC-06: nobody collected the crops by the pickup deadline, a transport
+    // failure. The buyer may cancel for a full refund; the farmer and the
+    // trucker are told the buyer can.
+    final transportFailed = isTransportFailureCancelOpen(
+      order,
+      DateTime.now().toUtc(),
+    );
+    if (transportFailed) {
+      widgets.add(
+        _TransportFailureNotice(
+          text: order.buyerId == userId
+              ? l10n.orderTransportFailedBuyerHint
+              : l10n.orderTransportFailedPartyHint,
+        ),
+      );
+      widgets.add(const SizedBox(height: 12));
+    }
+
     // Cancellable statuses — only the BUYER may cancel (the server rejects a
     // cancel from anyone else), so don't show a dead button to farmers/truckers.
+    // An accepted order only after a transport failure (ESC-06).
     const cancellable = {
       OrderStatus.created,
       OrderStatus.pendingPayment,
       OrderStatus.funded,
     };
-    if (cancellable.contains(order.status) && order.buyerId == userId) {
+    if ((cancellable.contains(order.status) || transportFailed) &&
+        order.buyerId == userId) {
       widgets.add(
         SizedBox(
           width: double.infinity,
@@ -503,16 +536,28 @@ class _OrderDetailBody extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (dialogContext) {
+        final reasonField = TextField(
+          controller: reasonController,
+          decoration: InputDecoration(
+            hintText: l10n.cancelReason,
+            border: const OutlineInputBorder(),
+          ),
+          maxLines: 3,
+        );
         return AlertDialog(
           title: Text(l10n.cancelOrder),
-          content: TextField(
-            controller: reasonController,
-            decoration: InputDecoration(
-              hintText: l10n.cancelReason,
-              border: const OutlineInputBorder(),
-            ),
-            maxLines: 3,
-          ),
+          // ESC-06: cancelling after a transport failure refunds everything.
+          content: order.status == OrderStatus.accepted
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(l10n.cancelOrderTransportFailedBody),
+                    const SizedBox(height: 12),
+                    reasonField,
+                  ],
+                )
+              : reasonField,
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
@@ -1080,6 +1125,41 @@ class _TimelineStep {
   final String info;
 
   const _TimelineStep(this.status, this.label, this.info);
+}
+
+/// ESC-06: the accepted order was not collected by its pickup deadline.
+class _TransportFailureNotice extends StatelessWidget {
+  final String text;
+
+  const _TransportFailureNotice({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        border: Border.all(color: AppTheme.statusWarning),
+        borderRadius: BorderRadius.circular(8),
+        color: AppTheme.statusWarningContainer,
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.warning_amber,
+            color: AppTheme.onStatusWarningContainer,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(color: AppTheme.onStatusWarningContainer),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _InfoRow extends StatelessWidget {

@@ -41,10 +41,13 @@ public class EscrowCronFunction
     private readonly ICropRepository? _cropRepo;
     // Optional: holds the ESC-04 legacy action's done marker. Absent → the action always runs.
     private readonly IEscrowIdempotencyRepository? _idempotencyRepo;
+    // Optional: ESC-06 audits an order entering or leaving the admin stuck-order queue.
+    private readonly ITransactionAuditRepository? _transactionAuditRepo;
 
     /// <summary>
     /// Order statuses that mean the trade is actively progressing toward delivery —
-    /// its escrow must NOT be refunded by the 7-day sweep; push the expiry instead.
+    /// its escrow must NOT be refunded by the 7-day sweep; push the expiry instead,
+    /// never past the 21-day hold cap (ESC-06).
     /// </summary>
     private static readonly HashSet<string> ProgressingOrderStatuses = new()
     {
@@ -69,6 +72,10 @@ public class EscrowCronFunction
     /// per instance at a time.
     /// </summary>
     private int _manualPayoutsWaiting;
+
+    /// <summary>ESC-06: orders this run put in the admin queue, and overdue lines logged for missing orders.</summary>
+    private int _adminQueueEntered;
+    private int _adminQueueOverdue;
 
     /// <summary>ESC-02: page size and page cap of the hourly overdue-payout report.</summary>
     private const int ManualPayoutReportPageSize = 50;
@@ -166,6 +173,7 @@ public class EscrowCronFunction
             ? new TransactionAuditRepository(dynamoDb, txAuditTable)
             : null;
 
+        _transactionAuditRepo = txAuditRepo;
         _escrowService = new EscrowService(_escrowRepo, _auditRepo, idempotencyRepo, _telebirrGateway, userRepo,
             _orderRepo, _deliveryRepo, transactionAuditRepo: txAuditRepo, cropRepo: _cropRepo);
     }
@@ -181,7 +189,8 @@ public class EscrowCronFunction
         IDeliveryRepository? deliveryRepo = null,
         IOrderRepository? orderRepo = null,
         ICropRepository? cropRepo = null,
-        IEscrowIdempotencyRepository? idempotencyRepo = null)
+        IEscrowIdempotencyRepository? idempotencyRepo = null,
+        ITransactionAuditRepository? transactionAuditRepo = null)
     {
         _escrowService = escrowService ?? throw new ArgumentNullException(nameof(escrowService));
         _escrowRepo = escrowRepo ?? throw new ArgumentNullException(nameof(escrowRepo));
@@ -191,6 +200,7 @@ public class EscrowCronFunction
         _orderRepo = orderRepo;
         _cropRepo = cropRepo;
         _idempotencyRepo = idempotencyRepo;
+        _transactionAuditRepo = transactionAuditRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -265,8 +275,12 @@ public class EscrowCronFunction
     {
         var runStart = DateTime.UtcNow;
         _manualPayoutsWaiting = 0;
+        _adminQueueEntered = 0;
+        _adminQueueOverdue = 0;
         // First and self-contained, so a failing sweep below can never skip the overdue alarm lines.
         var overdueCount = await ReportOverdueManualPayoutsAsync(context);
+        // ESC-06: the admin queue owns the capped order escrows the sweeps no longer see.
+        var (queueOverdue, queueCleared) = await ReportAdminQueueAsync(context);
         // ESC-05: before the sweeps, so a parked escrow is already out of their way this run.
         var parkedCount = await ParkStaleSettlementLocksAsync(context);
         var releaseCount = await AutoReleaseAsync(context);
@@ -292,6 +306,9 @@ public class EscrowCronFunction
             { "truckerLegsFailed", trucker.Failed.ToString() },
             { "truckerLegsDeferred", trucker.Deferred.ToString() },
             { "truckerLegsOverdue", trucker.Overdue.ToString() },
+            { "adminQueueEntered", _adminQueueEntered.ToString() },
+            { "adminQueueOverdue", (queueOverdue + _adminQueueOverdue).ToString() },
+            { "adminQueueCleared", queueCleared.ToString() },
             { "completedAt", DateTime.UtcNow.ToString("o") }
         };
 
@@ -300,7 +317,9 @@ public class EscrowCronFunction
             + $"{settledReleases + settledRefunds} resolved disputes settled, {completedCount} crash-recovered to completed, "
             + $"{_manualPayoutsWaiting} waiting for a manual payout, {overdueCount} manual payout legs overdue, "
             + $"{parkedCount} stale settlement locks parked, trucker legs: {trucker.Paid} paid, {trucker.Queued} queued, "
-            + $"{trucker.Blocked} blocked, {trucker.Failed} failed, {trucker.Deferred} deferred, {trucker.Overdue} overdue.");
+            + $"{trucker.Blocked} blocked, {trucker.Failed} failed, {trucker.Deferred} deferred, {trucker.Overdue} overdue, "
+            + $"{_adminQueueEntered} orders entered the admin queue, "
+            + $"{queueOverdue + _adminQueueOverdue} admin queue entries overdue, {queueCleared} cleared.");
 
         return new APIGatewayProxyResponse
         {
@@ -551,8 +570,8 @@ public class EscrowCronFunction
                 // ESC-05: the index copy can lag the base row (an admin release that just took the
                 // lock, a queue write, a status move, a delivery confirmation). One strongly
                 // consistent read decides before any side effect below.
-                var skipReason = AutoRefundSkipReason(
-                    await _escrowRepo.GetByIdAsync(GetString(escrow, "escrowId"), consistentRead: true));
+                var baseRow = await _escrowRepo.GetByIdAsync(GetString(escrow, "escrowId"), consistentRead: true);
+                var skipReason = AutoRefundSkipReason(baseRow);
                 if (skipReason != null)
                 {
                     context.Logger.LogInformation(
@@ -597,24 +616,41 @@ public class EscrowCronFunction
                     var orderStatus = fundedOrder != null
                         ? GetStringOrNull(fundedOrder, "status") : null;
 
-                    if (orderStatus != null && ProgressingOrderStatuses.Contains(orderStatus))
-                    {
-                        // Trade is live — push the expiry forward and re-check next sweep.
-                        await _escrowRepo.UpdateStatusAsync(
-                            escrowId, escrowCreatedAt, "escrowed", "escrowed",
-                            new Dictionary<string, object>
-                            {
-                                { "expiresAt", now.AddHours(OrderEscrowExpiryExtensionHours).ToString("o") }
-                            });
-                        continue;
-                    }
-
                     if (orderStatus == null || !RefundableOrderStatuses.Contains(orderStatus))
                     {
+                        // ESC-06: never held past funding + 21 days. Before the cap a live trade gets
+                        // its expiry pushed (never past the cap); at the cap an admin decides.
+                        var capAt = HoldCapAt(escrowCreatedAt);
+                        if (capAt == null || now >= capAt.Value)
+                        {
+                            await EnterHoldCapQueueAsync(baseRow!, fundedOrder, escrowOrderId, now, capAt, context);
+                            continue;
+                        }
+
+                        if (orderStatus != null && ProgressingOrderStatuses.Contains(orderStatus))
+                        {
+                            // Trade is live: push the expiry forward and re-check next sweep. Conditional,
+                            // so a refund scheduled since the read above keeps its expiry.
+                            var extendTo = now.AddHours(OrderEscrowExpiryExtensionHours);
+                            await _escrowRepo.TryExtendExpiryAsync(
+                                escrowId, escrowCreatedAt, (extendTo < capAt.Value ? extendTo : capAt.Value).ToString("o"));
+                            continue;
+                        }
+
                         context.Logger.LogWarning(
                             $"Order-funded escrow {MoneyAlarmLog.LogId(escrowId)} expired but its order "
                             + $"{MoneyAlarmLog.LogId(escrowOrderId)} is '{MoneyAlarmLog.LogId(orderStatus ?? "missing")}', skipping "
                             + "refund; needs reconciliation.");
+                        continue;
+                    }
+
+                    // ESC-06: a buyer's transport-failure cancel gives the stock back before the
+                    // money (the sync cancel restores it best-effort; this repairs a restore that
+                    // did not land). Fails closed like the dispute verdict's cancel-then-refund.
+                    if (orderStatus == "cancelled"
+                        && GetStringOrNull(fundedOrder!, "cancelReason") == PickupDeadline.CancelReason
+                        && !await EnsureListingStockRestoredAsync(fundedOrder!, context))
+                    {
                         continue;
                     }
 
@@ -935,6 +971,307 @@ public class EscrowCronFunction
                 + $"[{ex.GetType().Name}] — refund deferred to the next sweep.");
             return false;
         }
+    }
+
+    // ──────────────────────────────────────────────
+    // ESC-06: 21-day hold cap and the admin stuck-order queue
+    // ──────────────────────────────────────────────
+
+    /// <summary>ESC-06: an order escrow is never extended past funding + 21 days.</summary>
+    private static readonly TimeSpan HoldCap = TimeSpan.FromDays(21);
+
+    /// <summary>ESC-06: page size and page cap of the hourly admin queue report.</summary>
+    private const int AdminQueueReportPageSize = 50;
+    private const int AdminQueueReportMaxPages = 20;
+
+    /// <summary>
+    /// ESC-06: the hold cap of an order escrow, whose <c>createdAt</c> is the funding time. Null when
+    /// that cannot be read, which the caller treats as capped.
+    /// </summary>
+    private static DateTime? HoldCapAt(string createdAt)
+        => ParseUtc(createdAt) is { } fundedAt ? fundedAt + HoldCap : null;
+
+    /// <summary>
+    /// ESC-06: an order escrow reached its hold cap while its order is not refundable (still moving,
+    /// disputed, or anything else the sweep cannot settle), so an admin decides. The order enters the
+    /// admin queue (<see cref="IOrderRepository.TryEnterAdminQueueAsync"/>, not versioned), with a
+    /// transaction-audit row <c>admin_queue_entered</c> and an escrow-audit row <c>hold_cap_reached</c>
+    /// keyed on the queue time (a repeat writes nothing). The escrow is stamped
+    /// <c>holdCapReachedAt</c> LAST: the stamp takes it out of the sweep windows, so it is written only
+    /// once the queue owns the order. A missing order has no row to queue: its escrow is not stamped,
+    /// stays in the windows and logs <c>ADMIN_QUEUE_OVERDUE ... reason=order_missing</c> every run
+    /// once the cap is 24 hours old.
+    /// </summary>
+    private async Task EnterHoldCapQueueAsync(
+        Dictionary<string, object> escrow, Dictionary<string, object>? order, string orderId,
+        DateTime now, DateTime? capAt, ILambdaContext context)
+    {
+        var escrowId = GetString(escrow, "escrowId");
+        if (order == null)
+        {
+            var overdueFor = capAt == null ? MoneyAlarmLog.QueueAlarmAfter : now - capAt.Value;
+            if (overdueFor >= MoneyAlarmLog.QueueAlarmAfter)
+            {
+                context.Logger.LogWarning(MoneyAlarmLog.AdminQueueOverdue(
+                    orderId, AdminQueueFields.ReasonOrderMissing, (int)overdueFor.TotalHours));
+                _adminQueueOverdue++;
+            }
+
+            return;
+        }
+
+        var orderStatus = GetString(order, "status");
+        string? queuedAt = now.ToString("o");
+        if (await _orderRepo!.TryEnterAdminQueueAsync(
+                orderId, AdminQueueFields.ReasonHoldCap, escrowId, queuedAt, orderStatus))
+        {
+            _adminQueueEntered++;
+            await TransactionAuditWriter.EmitAsync(
+                _transactionAuditRepo, context, orderId, "order", orderId,
+                "admin_queue_entered", orderStatus, orderStatus, AuditContext.ForSystem(),
+                metadata: $"reason={AdminQueueFields.ReasonHoldCap};escrowId={escrowId}");
+            context.Logger.LogInformation(
+                $"ORDER_ESCROW_HOLD_CAPPED orderId={MoneyAlarmLog.LogId(orderId)} escrowId={MoneyAlarmLog.LogId(escrowId)}");
+        }
+        else
+        {
+            // Queued by an earlier run (whose stamp below may not have landed), or the order moved on
+            // since it was read: then the next run decides again.
+            var current = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+            queuedAt = current == null ? null : GetStringOrNull(current, AdminQueueFields.QueuedAt);
+            if (queuedAt == null)
+            {
+                return;
+            }
+        }
+
+        await _auditRepo.AppendIfAbsentAsync(new Dictionary<string, object>
+        {
+            { "auditId", EscrowAuditRepository.DeterministicAuditId("hold_cap_reached", queuedAt) },
+            { "escrowId", escrowId },
+            { "action", "hold_cap_reached" },
+            { "fromState", "escrowed" },
+            { "toState", "escrowed" },
+            { "actor", "system" },
+            { "timestamp", queuedAt },
+            { "metadata", $"orderId={orderId};reason={AdminQueueFields.ReasonHoldCap}" }
+        });
+
+        if (GetStringOrNull(escrow, AdminQueueFields.HoldCapReachedAt) == null)
+        {
+            await _escrowRepo.UpdateStatusAsync(escrowId, GetString(escrow, "createdAt"), "escrowed", "escrowed",
+                new Dictionary<string, object> { { AdminQueueFields.HoldCapReachedAt, queuedAt } });
+        }
+    }
+
+    /// <summary>
+    /// ESC-06: before the refund of a buyer's transport-failure cancel, make sure the cancelled order's
+    /// quintals are back on its listing (idempotent per order). The dispute verdict's rules: nothing to
+    /// give back (no listing, a quantity that is not positive) or a listing that is gone counts as
+    /// done; a restore that keeps conflicting or throws logs <c>ORDER_STOCK_RESTORE_FAILED</c> and
+    /// blocks this run's refund, and the next run retries. Without a crops table there is nothing to
+    /// check, and the refund goes ahead.
+    /// </summary>
+    private async Task<bool> EnsureListingStockRestoredAsync(Dictionary<string, object> order, ILambdaContext context)
+    {
+        var orderId = GetString(order, "orderId");
+        var listingId = GetStringOrNull(order, "listingId");
+        var quintals = double.TryParse(GetStringOrNull(order, "quantity"), NumberStyles.Any,
+            CultureInfo.InvariantCulture, out var kg) ? kg / 100.0 : 0.0;
+        if (_cropRepo == null || string.IsNullOrEmpty(listingId) || quintals <= 0)
+        {
+            return true;
+        }
+
+        string reason;
+        try
+        {
+            var result = await _cropRepo.RestoreStockAsync(listingId, orderId, quintals);
+            if (result is StockRestoreResult.Restored or StockRestoreResult.AlreadyRestored or StockRestoreResult.ListingNotFound)
+            {
+                return true;
+            }
+
+            reason = "restock:conflict";
+        }
+        catch (Exception ex)
+        {
+            reason = $"restock:[{ex.GetType().Name}]";
+        }
+
+        context.Logger.LogWarning(
+            $"ORDER_STOCK_RESTORE_FAILED orderId={MoneyAlarmLog.LogId(orderId)} listingId={MoneyAlarmLog.LogId(listingId)} "
+            + $"reason={MoneyAlarmLog.LogText(reason)}; refund deferred to the next sweep.");
+        return false;
+    }
+
+    /// <summary>What <see cref="ReviewAdminQueueEntryAsync"/> did with one admin queue entry.</summary>
+    private enum AdminQueueReview
+    {
+        Waiting,
+        Overdue,
+        Cleared
+    }
+
+    /// <summary>
+    /// ESC-06 producer of the ESC-13 <c>ADMIN_QUEUE_OVERDUE</c> alarm, and the owner of the queued
+    /// orders: their capped escrows are out of the sweep windows. Every hourly run reads each entry
+    /// (oldest first, pages of 50, at most 20 pages) and decides it with
+    /// <see cref="ReviewAdminQueueEntryAsync"/>. Never throws: a failed query logs a definite
+    /// settlement-failure line (<c>admin_queue_query</c>); an entry that cannot be reviewed is never
+    /// cleared, and logs the overdue line once it is 24 hours old.
+    /// </summary>
+    private async Task<(int Overdue, int Cleared)> ReportAdminQueueAsync(ILambdaContext context)
+    {
+        if (_orderRepo == null)
+        {
+            return (0, 0);
+        }
+
+        var now = DateTime.UtcNow;
+        var overdue = 0;
+        var cleared = 0;
+        try
+        {
+            Dictionary<string, Amazon.DynamoDBv2.Model.AttributeValue>? startKey = null;
+            for (var page = 1; page <= AdminQueueReportMaxPages; page++)
+            {
+                var (items, lastKey) = await _orderRepo.QueryAdminQueueAsync(AdminQueueReportPageSize, startKey);
+                foreach (var item in items)
+                {
+                    AdminQueueReview review;
+                    try
+                    {
+                        review = await ReviewAdminQueueEntryAsync(item, now, context);
+                    }
+                    catch (Exception ex)
+                    {
+                        context.Logger.LogWarning(
+                            $"Admin queue entry {MoneyAlarmLog.LogId(GetStringOrNull(item, "orderId"))} could not be reviewed: [{ex.GetType().Name}]");
+                        review = LogIfOverdue(item, ParseUtc(GetStringOrNull(item, AdminQueueFields.QueuedAt)), now, context);
+                    }
+
+                    if (review == AdminQueueReview.Overdue)
+                    {
+                        overdue++;
+                    }
+                    else if (review == AdminQueueReview.Cleared)
+                    {
+                        cleared++;
+                    }
+                }
+
+                if (lastKey == null)
+                {
+                    return (overdue, cleared);
+                }
+
+                startKey = lastKey;
+            }
+
+            context.Logger.LogWarning(
+                $"Admin queue report stopped after {AdminQueueReportMaxPages} pages; newer entries may be unreported.");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                null, "sweep_failed", MoneyAlarmLog.OutcomeFailed, $"admin_queue_query:{ex.GetType().Name}"));
+        }
+
+        return (overdue, cleared);
+    }
+
+    /// <summary>
+    /// ESC-06: one admin queue entry, read with its escrow, both strongly consistent.
+    /// - Cleared only on escrow evidence: the escrow is gone or no longer <c>escrowed</c>, waits in
+    ///   the manual payout queue, or has a confirmed delivery (the release sweep pays it). Never on
+    ///   the order status alone.
+    /// - Re-armed when the order ended without its exit: a <c>cancelled</c> or <c>rejected</c> order
+    ///   whose escrow has no refund scheduled gets one (the refund sweep then sees the escrow again);
+    ///   otherwise an escrow linked to a delivery that is <c>delivered</c> gets the stamp repair,
+    ///   whatever the order status says (it can lag the delivery).
+    /// - Otherwise, with no refund on its way, the entry logs one <c>ADMIN_QUEUE_OVERDUE</c> line once
+    ///   it has been due for 24 hours. It is due from its queue time, or from the order's
+    ///   <c>pickupDeadlineAt</c> when the order is still <c>accepted</c> and that is later (a trip that
+    ///   departs after day 21 is not overdue yet).
+    /// </summary>
+    private async Task<AdminQueueReview> ReviewAdminQueueEntryAsync(
+        Dictionary<string, object> item, DateTime now, ILambdaContext context)
+    {
+        var orderId = GetString(item, "orderId");
+        var queuedAt = GetStringOrNull(item, AdminQueueFields.QueuedAt);
+        var escrowId = GetStringOrNull(item, AdminQueueFields.EscrowId) ?? $"escrow-order-{orderId}";
+        var escrow = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
+
+        if (escrow == null
+            || GetString(escrow, "status") != "escrowed"
+            || EscrowService.IsManualPayoutOpen(escrow)
+            || !string.IsNullOrEmpty(GetStringOrNull(escrow, "deliveryConfirmedAt")))
+        {
+            if (queuedAt == null || !await _orderRepo!.TryLeaveAdminQueueAsync(orderId, queuedAt))
+            {
+                return AdminQueueReview.Waiting;
+            }
+
+            await TransactionAuditWriter.EmitAsync(
+                _transactionAuditRepo, context, orderId, "order", orderId,
+                "admin_queue_cleared", null, null, AuditContext.ForSystem(),
+                metadata: $"reason={GetStringOrNull(item, AdminQueueFields.Reason)};escrowStatus={(escrow == null ? "missing" : GetString(escrow, "status"))}");
+            context.Logger.LogInformation(
+                $"Admin queue entry for order {MoneyAlarmLog.LogId(orderId)} cleared: escrow {MoneyAlarmLog.LogId(escrowId)} moved on.");
+            return AdminQueueReview.Cleared;
+        }
+
+        var order = await _orderRepo!.GetByIdAsync(orderId, consistentRead: true);
+        var orderStatus = order == null ? null : GetStringOrNull(order, "status");
+        var exitArmed = !string.IsNullOrEmpty(GetStringOrNull(escrow, "refundReason"));
+        if (!exitArmed && orderStatus is "cancelled" or "rejected")
+        {
+            exitArmed = await _escrowService.ScheduleRefundForOrderAsync(orderId, $"order_{orderStatus}", "system");
+            context.Logger.LogInformation(
+                $"Admin queue entry for order {MoneyAlarmLog.LogId(orderId)}: refund {(exitArmed ? "scheduled" : "not scheduled")} "
+                + $"for its {orderStatus} order.");
+        }
+        else if (!exitArmed && !string.IsNullOrEmpty(GetStringOrNull(escrow, "deliveryId")))
+        {
+            // The order status can lag its delivery: a linked delivery that is delivered gets the
+            // escrow stamped, so the release sweep sees it again.
+            exitArmed = await IsDeliveryConfirmedAndStampAsync(escrow, context);
+        }
+
+        if (exitArmed)
+        {
+            return AdminQueueReview.Waiting;
+        }
+
+        var dueAt = ParseUtc(queuedAt);
+        if (dueAt != null && orderStatus == "accepted"
+            && PickupDeadline.TryParse(GetStringOrNull(order!, PickupDeadline.Field), out var pickupBy)
+            && pickupBy > dueAt.Value)
+        {
+            dueAt = pickupBy;
+        }
+
+        return LogIfOverdue(item, dueAt, now, context);
+    }
+
+    /// <summary>
+    /// ESC-06: log <c>ADMIN_QUEUE_OVERDUE</c> for an entry due since <paramref name="dueAt"/> once that is
+    /// 24 hours ago; <c>ageHours</c> counts whole hours since it became due. An unreadable time counts
+    /// as overdue.
+    /// </summary>
+    private static AdminQueueReview LogIfOverdue(
+        Dictionary<string, object> item, DateTime? dueAt, DateTime now, ILambdaContext context)
+    {
+        var dueFor = dueAt == null ? MoneyAlarmLog.QueueAlarmAfter : now - dueAt.Value;
+        if (dueFor < MoneyAlarmLog.QueueAlarmAfter)
+        {
+            return AdminQueueReview.Waiting;
+        }
+
+        context.Logger.LogWarning(MoneyAlarmLog.AdminQueueOverdue(
+            GetStringOrNull(item, "orderId"), GetStringOrNull(item, AdminQueueFields.Reason), (int)dueFor.TotalHours));
+        return AdminQueueReview.Overdue;
     }
 
     /// <summary>

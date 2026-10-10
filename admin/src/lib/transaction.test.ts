@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import { t as translate } from "@/lib/i18n";
+
 import {
+  adminQueueLabel,
   deriveStage,
   orderStatusLabel,
   stageLabel,
@@ -54,5 +57,17 @@ describe("label helpers", () => {
     expect(orderStatusLabel("in_transit", t)).toBe("in_transit");
     expect(stageLabel("in_progress", t)).toBe("in_progress");
     expect(timelineActionLabel("some_new_action", t)).toBe("some_new_action");
+  });
+});
+
+describe("admin queue label (ESC-06)", () => {
+  it("names the hold-cap reason in every locale and keeps an unknown reason raw", () => {
+    for (const locale of ["en", "am", "om"] as const) {
+      const tr = (key: string) => translate(key, locale);
+      expect(adminQueueLabel("hold_cap", tr)).not.toBe("hold_cap");
+      expect(tr("transactions.adminQueue")).not.toBe("transactions.adminQueue");
+      expect(tr("transactions.pickupDeadline")).not.toBe("transactions.pickupDeadline");
+      expect(adminQueueLabel("t11_verdict", tr)).toBe("t11_verdict");
+    }
   });
 });

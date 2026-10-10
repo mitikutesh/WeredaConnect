@@ -522,6 +522,19 @@ export class DatabaseStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // GSI: Admin stuck-order queue (ESC-06). Sparse: only orders an admin must
+    // decide on carry adminQueue = "open" (an order escrow held 21 days after
+    // funding while its order is not done); the sort key orders the queue oldest
+    // first. Written and removed without bumping the order version. ESC-16 adds
+    // more reasons to it. See OrderRepository.QueryAdminQueueAsync and the
+    // escrow-cron admin queue report (ADMIN_QUEUE_OVERDUE).
+    this.ordersTable.addGlobalSecondaryIndex({
+      indexName: "AdminQueueIndex",
+      partitionKey: { name: "adminQueue", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "adminQueuedAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // ─── Buyer Intents Table (push-alerts; synced from mobile) ─────
     const intents = new WeredaDynamoTable(this, "IntentsTable", {
       tableName: `${prefix}-intents`,

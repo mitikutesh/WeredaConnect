@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.12.0
+1.13.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -157,7 +157,9 @@ exists. The server materializes an escrow record at that moment so
 - **Order-aware auto-refund**: for `source == "order"` escrows the 7-day sweep
   loads the order first. It refunds only a stale-`funded` (farmer never responded)
   or terminal (`rejected`/`cancelled`) order; a progressing order
-  (`accepted` … `disbursing`) gets `expiresAt` pushed +48h instead. Fail-safe: if
+  (`accepted` … `disbursing`) gets `expiresAt` pushed +48h instead, never past funding +
+  21 days (1.13.0, ESC-06: at the cap the order enters the admin stuck-order queue; see
+  §Additions in 1.13.0). Fail-safe: if
   the orders table isn't wired, order-sourced escrows are skipped, never refunded
   blind. A stale-funded order is cancelled FIRST via version-CAS
   (`cancelReason: escrow_refunded`) — the CAS fences out a concurrent farmer
@@ -1924,8 +1926,9 @@ failed audit write still alarms. Exception messages are never logged, only the t
 `MANUAL_PAYOUT_OVERDUE` is logged by the hourly escrow-cron run, once per run for each
 pending leg of a manual payout (1.8.0) queued more than 24 hours ago
 (`MoneyAlarmLog.QueueAlarmAfter`), with `ref=<op>:<leg>` (see "Overdue alarm producer
-(ESC-13)" in 1.8.0). `ADMIN_QUEUE_OVERDUE` is logged the same way for each admin stuck-order
-queue entry once ESC-06 builds that queue; until then its alarm is wired and stays at zero.
+(ESC-13)" in 1.8.0). `ADMIN_QUEUE_OVERDUE` is logged by the same run for each admin stuck-order
+queue entry due for 24 hours, and for a capped escrow whose order is missing (1.13.0, ESC-06; due
+time and `ageHours` in §Additions in 1.13.0).
 Both must be logged from the escrow-cron Lambda, because their metric filters sit on its log
 group; a producer in another Lambda (order-cron, for example) adds its own filter on that
 Lambda's log group publishing the same metric.
@@ -1943,7 +1946,7 @@ manual payout alarm.
 | `${prefix}-order-escrow-problems` | `ORDER_ESCROW_CREATE_FAILED`, `ORDER_ESCROW_LINK_FAILED`, `ORDER_ESCROW_REFUND_SCHEDULE_FAILED` in the sync log group (replaces `${prefix}-order-escrow-create-failed`) | any line in 15 minutes |
 | `${prefix}-manual-payouts-overdue` | `MANUAL_PAYOUT_OVERDUE` in the escrow-cron log group | any line in 15 minutes, same hold and clear as settlement failures; a leg that stays blocked keeps it in ALARM (1.8.0 known limits). The admin acts on the Manual Payouts page (`/payouts`) |
 | `${prefix}-trucker-payouts-overdue` (1.11.0) | `TRUCKER_PAYOUT_OVERDUE` in the escrow-cron log group | same as manual payouts overdue: a trucker leg still owed (not queued) more than 24 hours after it went pending; see Additions in 1.11.0 |
-| `${prefix}-admin-queue-overdue` | `ADMIN_QUEUE_OVERDUE` in the escrow-cron log group | same |
+| `${prefix}-admin-queue-overdue` | `ADMIN_QUEUE_OVERDUE` in the escrow-cron log group | same; an entry that stays undecided keeps it in ALARM (1.13.0, runbook in `.ai/deployment.md`) |
 
 `scripts/money_alarms_synthetic.sh` checks that the deployed filters match these exact lines
 and, with `--fire`, that every alarm reaches ALARM from synthetic lines plus one failed
@@ -2529,10 +2532,113 @@ already in dispute.
 - `POST /escrow/dispute` before delivery confirmation freezes the money but leaves the order and
   delivery as they are (`disputed` only follows `delivered`); the decision to refuse it is FUP-16.
 
+---
+
+## Additions in 1.13.0 (21-day hold cap and the admin stuck-order queue, ESC-06)
+
+Before 1.13.0 the auto-refund sweep pushed an order escrow's `expiresAt` 48 hours forward on every
+run while its order was `accepted` to `disbursing`, with no end: when the trucker never came, the
+buyer's money was held forever (M5). Now no order escrow is held past funding + 21 days by the
+sweep; an admin queue entry and an alarm take over, and nothing moves the money by itself.
+
+### The cap (auto-refund sweep, `source=order` escrows)
+
+`capAt = escrow.createdAt + 21 days` (the escrow's `createdAt` is the order's `paymentVerifiedAt`);
+an unreadable `createdAt` counts as capped.
+
+| Order | Before `capAt` | From `capAt` |
+|---|---|---|
+| `funded`, `rejected`, `cancelled` (refundable) | refunded as before | refunded as before; the cap never blocks a refund |
+| `accepted` ... `disbursing` (progressing) | `expiresAt = min(now + 48h, capAt)`, written only while the escrow is still a plain hold: `escrowed`, no `refundReason`, no settlement lock, no open manual payout (`TryExtendExpiryAsync`), so a refund scheduled meanwhile keeps its expiry | not extended; the order enters the admin queue |
+| any other status (`disputed`, `payment_submitted`, ...) | skipped as before ("needs reconciliation") | the order enters the admin queue |
+| missing order | skipped as before | no row to queue: the escrow is not stamped and stays in the sweep windows; from `capAt + 24h` every run logs `ADMIN_QUEUE_OVERDUE orderId=<id> reason=order_missing ageHours=<hours since capAt>` |
+
+Entering the queue, in this order (each run repeats the idempotent writes, so a failed step is
+repaired on the next run):
+1. the order marker (below), conditional on the status the sweep read;
+2. transaction-audit row `admin_queue_entered` on the order (system actor, only when the marker
+   write landed) and the info line `ORDER_ESCROW_HOLD_CAPPED orderId=<id> escrowId=<id>` (not an
+   alarm token);
+3. escrow-audit row `hold_cap_reached` keyed on the entry's `adminQueuedAt` (`AppendIfAbsentAsync`,
+   one row per entry however often the run repeats);
+4. LAST, the escrow stamp `holdCapReachedAt` (escrowed to escrowed). It takes the escrow out of both
+   sweep windows, so it is written only once the queue owns the order. When the marker write did
+   not land and the order is not queued (it moved on since the read), nothing is stamped and the
+   next run decides again.
+
+`StatusExpiresIndex` queries for `escrowed` rows (release and refund sweeps) skip an escrow that
+carries `holdCapReachedAt` unless it also carries `refundReason` (the buyer cancelled after a
+transport failure, or the queue re-armed a refund) or `deliveryConfirmedAt` (the release sweep pays
+it), next to the 1.8.0 manual payout filter. Paging goes on through filtered pages, so 150 capped
+rows at the head of the window no longer starve the escrows behind them. Other statuses are not
+filtered: a capped escrow that later moved on (`disputed`, `released`) stays visible to its sweep.
+
+`EscrowDto.refundPending` / `EscrowSummaryDto.refundPending` stay false on a capped hold until a
+refund is scheduled: its expiry is past, but the money is not on its way back.
+
+### The queue (orders table)
+
+Server-only order fields, written and removed without bumping `version` or `updatedAt` (like the
+delivery slot claim), so a buyer's queued change never conflicts with them:
+`adminQueue = "open"` (partition key of the sparse `AdminQueueIndex`), `adminQueuedAt` (sort key,
+oldest first), `adminQueueReason` (`hold_cap`), `adminQueueEscrowId`. `GET /orders` and
+`GET /admin/transactions/{orderId}` return `adminQueueReason` and `adminQueuedAt`; the admin
+transaction detail shows them. ESC-16 adds more reasons to the same index; ESC-24 adds the admin
+page and decision actions.
+
+### The report (escrow-cron, every `auto_release_and_refund` run)
+
+`ReportAdminQueueAsync` runs right after the manual payout report and before the sweeps. It reads
+every entry (pages of 50, at most 20 pages) with its escrow (`adminQueueEscrowId`, else
+`escrow-order-{orderId}`), both strongly consistent:
+- **Cleared** only on escrow evidence: the escrow is gone or not `escrowed` (refunded, released,
+  disputed), it waits in the manual payout queue, or it has `deliveryConfirmedAt`. Never on the
+  order status alone. The clear is conditional on the `adminQueuedAt` that was read, and audited
+  `admin_queue_cleared`.
+- **Re-armed** when the order ended without its exit: `cancelled` or `rejected` with no
+  `refundReason` on the escrow gets `ScheduleRefundForOrderAsync` (the refund sweep then sees it);
+  otherwise an escrow linked to a delivery that is `delivered` gets the delivery stamp repair,
+  whatever the order status says (it can lag the delivery).
+  An entry whose exit is armed (a `refundReason`, or a repaired stamp) logs nothing.
+- **Overdue** otherwise, once it has been due for 24 hours (`MoneyAlarmLog.QueueAlarmAfter`): one
+  `ADMIN_QUEUE_OVERDUE orderId=<id> reason=<reason> ageHours=<n>` line per entry per run. An entry
+  is due from its `adminQueuedAt`, or from the order's `pickupDeadlineAt` when the order is still
+  `accepted` and that is later (a trip that departs after day 21 has not failed yet).
+  **`ageHours` is the whole number of hours since the entry became due** (so it is at least 24 on
+  every line). For `reason=order_missing` it counts from `capAt`.
+- An entry that cannot be reviewed (a read throws) is never cleared, and logs the overdue line once
+  its `adminQueuedAt` is 24 hours old. A failed index query logs `ESCROW_SETTLEMENT_FAILED
+  escrowId=- action=sweep_failed outcome=failed code=admin_queue_query:<type>`.
+
+The run summary gains `adminQueueEntered`, `adminQueueOverdue` and `adminQueueCleared`.
+
+### Refund of a transport-failure cancel (order-lifecycle.md 1.15.0)
+
+The buyer's cancel of an `accepted` order after a transport failure schedules the refund like any
+cancel (`refundReason: order_transport_failed`). Before refunding an order `cancelled` with
+`cancelReason: transport_failed_buyer_cancelled`, the sweep makes sure the order's quintals are back
+on its listing (`RestoreStockAsync`, idempotent per order), with the dispute verdict's rules: no
+listing or a quantity that is not positive counts as done (never blocks the refund), a listing that
+is gone counts as done, and a restore that keeps conflicting or throws logs
+`ORDER_STOCK_RESTORE_FAILED` and skips this run's refund (the next run retries). Other cancel
+reasons are unchanged.
+
+### Not in 1.13.0 (known limits)
+- No admin decision action yet (ESC-24): an entry for an `accepted` order past its pickup deadline
+  waits for the buyer's in-app cancel; when the buyer is unreachable the alarm stays in ALARM.
+  An admin must not refund an `accepted` order by hand (the order would stay `accepted` and a later
+  delivery could not be paid).
+- Goods moving at the cap (`pickup_confirmed`, `in_transit`) leave the queue only through a
+  dispute and its verdict, or a confirmed delivery.
+- ESC-16 replaces the cap with the T12 deadline and stops the sweep extending order escrows at all.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.13.0 | 2026-10-10 | 21-day hold cap and the admin stuck-order queue (ESC-06): the auto-refund sweep never extends an order escrow past funding + 21 days, and the extension is conditional (no `refundReason`, lock or manual payout); at the cap the order enters the admin queue (`adminQueue`, sparse `AdminQueueIndex` on orders, not versioned), audited `admin_queue_entered` and `hold_cap_reached`, and the escrow is stamped `holdCapReachedAt` last; capped escrows leave both sweep windows until a refund is scheduled or the delivery is confirmed; the hourly report produces `ADMIN_QUEUE_OVERDUE` (due from the queue time, or the pickup deadline of an accepted order; `ageHours` since due), clears an entry on escrow evidence only and re-arms a lost refund or delivery stamp; a capped escrow with a missing order logs `reason=order_missing`; `refundPending` stays false on a capped hold; the refund of a transport-failure cancel restores the listing stock first (fail closed) |
 | 1.12.0 | 2026-10-10 | Disputes always freeze money (ESC-07): the client order dispute is gone (`order-lifecycle.md` 1.14.0); a delivery dispute through sync freezes the escrow before the delivery or order is written (order escrow by its deterministic id, else the `DeliveryIndex`, decided on a consistent base row; manual payout, lock, any status but `escrowed`/`disputed`, another delivery: refused with `DELIVERY_DISPUTE_REFUSED` and nothing written; undecided: `DELIVERY_DISPUTE_RETRY`; no escrow for a funded order: refused and alarmed `DISPUTE_NO_ESCROW`); one dispute mirror for both paths (consistent reads, a lagging order advanced first, one transaction-audit row per hop, the delivery version added to); `POST /escrow/dispute` answers every lost race (`ESCROW_020`, `ESCROW_038`, `ESCROW_INVALID_TRANSITION`) and frees its key, never a `500`; new audit actions `dispute_refused_not_held`, `dispute_refused_other_delivery`; dispute rows at a deterministic key (repaired by a retry), refusal rows once a day per escrow, delivery and reason; the disputed write adds to the version; a dispute on an escrow already `disputed` answers `409 ESCROW_020` (was `422`) |
 | 1.11.0 | 2026-10-10 | Trucker leg retry (ESC-04): an escrow is `completed` only once every leg is paid (the repository refuses `completed` while `truckerPayoutPending` or `manualPayout` is set); a release with a pending trucker leg stays `released` and answers `status: released`; a gate-blocked trucker is audited `trucker_release_blocked_kyc` with its reason (no money alarm) and the reason is stored once per value (compare-and-set); new row attributes `truckerPayoutPendingSince`, `truckerPayoutBlockReason`, `truckerPayoutLockId`, `truckerPayoutLockAt`, `truckerPaidAt`; hourly trucker retry last in the run (after the crash recovery) under its own lock, only with time left (90 s) and up to 25 gateway calls, with the stable reference `release:<id>:trucker`: paid completes in one fenced write (deterministic `trucker_release` and `complete` rows), not supported, no reference or unknown queues the leg on the released row, a definite refusal releases the lock for the next run, a stale trucker lock is parked as `GATEWAY_OUTCOME_UNKNOWN`; truckerId backfilled from the order only when the delivery names the same trucker (`trucker_mismatch` otherwise), also when an admin records the leg; Manual Payouts closes a trucker leg on a released escrow straight to `completed` without touching the release; pre-1.11.0 trucker legs (no pending time) are parked in the queue as `GATEWAY_OUTCOME_UNKNOWN`, never retried: released ones by the hourly retry, completed ones by `park_legacy_trucker_legs`, which the server deploy invokes (with retries) until a marker says two clean runs found nothing; the block reason's audit row sits at `truckerPayoutBlockReasonAt` and is re-ensured; new token `TRUCKER_PAYOUT_OVERDUE` and alarm `trucker-payouts-overdue`; `sweep_truncated`, `trucker_retry_exception`, `legacy_trucker_parked` and `legacy_trucker_park_failed` lines; the crash recovery and the cron status queries skip pending trucker legs; no client change |
 | 1.10.1 | 2026-10-09 | App side of the order checkout (ESC-44): when the mobile and web apps request it, how they reuse an open checkout, poll the order and tell the `ESCROW_030` causes apart, and localized `ESCROW_030` to `ESCROW_033`; no server or wire change |
@@ -2558,5 +2664,5 @@ already in dispute.
 ---
 
 **Last Updated**: 2026-10-10
-**Version**: 1.12.0
+**Version**: 1.13.0
 **Status**: Draft (Phase R4)

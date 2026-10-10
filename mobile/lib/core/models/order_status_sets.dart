@@ -32,6 +32,17 @@ final Set<String> escrowHeldOrderStatusNames =
 final Set<String> activeOrderStatusNames =
     activeOrderStatuses.map((s) => s.name).toSet();
 
+/// ESC-06: an accepted order nobody picked up by its server-stamped
+/// [Order.pickupDeadlineAt] counts as a transport failure, and its buyer may
+/// cancel it for a full refund (order-lifecycle.md 1.15.0). This uses the
+/// device clock to show the action; the server decides with its own clock.
+bool isTransportFailureCancelOpen(Order order, DateTime nowUtc) {
+  final deadline = order.pickupDeadlineAt;
+  return order.status == OrderStatus.accepted &&
+      deadline != null &&
+      !nowUtc.isBefore(deadline);
+}
+
 /// ETB locked in escrow on one order: the stored full total when present,
 /// else the crop subtotal (quantity × price) for legacy orders created
 /// before the cost breakdown existed.

@@ -47,6 +47,22 @@ describe('DatabaseStack', () => {
     });
   });
 
+  test('orders table carries the sparse AdminQueueIndex (ESC-06)', () => {
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      TableName: 'wereda-connect-dev-orders',
+      GlobalSecondaryIndexes: Match.arrayWith([
+        Match.objectLike({
+          IndexName: 'AdminQueueIndex',
+          KeySchema: [
+            { AttributeName: 'adminQueue', KeyType: 'HASH' },
+            { AttributeName: 'adminQueuedAt', KeyType: 'RANGE' },
+          ],
+          Projection: { ProjectionType: 'ALL' },
+        }),
+      ]),
+    });
+  });
+
   test('creates S3 buckets with encryption (uploads + access logs)', () => {
     template.resourceCountIs('AWS::S3::Bucket', 2);
     template.hasResourceProperties('AWS::S3::Bucket', {
@@ -806,6 +822,10 @@ describe('MonitoringStack', () => {
   const REFUND_SCHEDULE_LINE = 'ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId=ord-1 reason=[TimeoutException]';
   // ESC-07: a funded order's delivery disputed with no escrow holding its money.
   const DISPUTE_NO_ESCROW_LINE = 'DISPUTE_NO_ESCROW orderId=ord-1 deliveryId=del-1';
+  // ESC-06: a delivery that was not pending held the slot right after a transport-failure cancel.
+  const LATE_DELIVERY_LINE = 'ORDER_TRANSPORT_CANCEL_LATE_DELIVERY orderId=ord-1 deliveryId=del-1 status=pickedUp';
+  // ESC-06: the reverse offline race, a pickup refused on a delivery that cancel cancelled.
+  const PICKUP_REFUSED_LINE = 'ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED orderId=ord-1 deliveryId=del-1 status=pickedUp';
   // ESC-02's producer: one line per pending leg, ref=<op>:<leg>.
   const PAYOUT_LINE = 'MANUAL_PAYOUT_OVERDUE escrowId=escrow-order-ord-1 ref=release:farmer ageHours=26';
   const QUEUE_LINE = 'ADMIN_QUEUE_OVERDUE orderId=ord-1 reason=undelivered ageHours=30';
@@ -975,7 +995,7 @@ describe('MonitoringStack', () => {
   test('ESC-13: order escrow problems cover create, link and refund-schedule failures (ESC-07: and a dispute with no escrow)', () => {
     const template = monitoringTemplate(false);
     const filter = metricFilter(template, SYNC_LG, 'OrderEscrowProblems');
-    for (const line of [CREATE_LINE, LINK_LINE, REFUND_SCHEDULE_LINE, DISPUTE_NO_ESCROW_LINE]) {
+    for (const line of [CREATE_LINE, LINK_LINE, REFUND_SCHEDULE_LINE, DISPUTE_NO_ESCROW_LINE, LATE_DELIVERY_LINE, PICKUP_REFUSED_LINE]) {
       expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, line)).toBe(true);
     }
     template.hasResourceProperties('AWS::CloudWatch::Alarm', {
@@ -1135,6 +1155,42 @@ describe('MonitoringStack', () => {
     }
     // A sanitized field value cannot forge a token (MoneyAlarmLog drops spaces and newlines).
     expect(cloudWatchTermsMatch(payouts, 'ESCROW_SETTLEMENT_FAILED escrowId=xMANUAL_PAYOUT_OVERDUEx action=a outcome=failed code=-')).toBe(false);
+  });
+
+  test('ESC-06: the late-delivery and pickup-refused tokens count on sync only, and nothing else counts them', () => {
+    const template = monitoringTemplate(false);
+    const orderProblems = metricFilter(template, SYNC_LG, 'OrderEscrowProblems').Properties.FilterPattern;
+    expect(cloudWatchTermsMatch(orderProblems, LATE_DELIVERY_LINE)).toBe(true);
+    expect(cloudWatchTermsMatch(orderProblems, PICKUP_REFUSED_LINE)).toBe(true);
+    expect(cloudWatchTermsMatch(orderProblems, `2026-10-10T10:00:00.000Z\t4f1c7a2e-req\terror\t${PICKUP_REFUSED_LINE}`)).toBe(true);
+    expect(cloudWatchTermsMatch(orderProblems, `2026-10-10T10:00:00.000Z\t4f1c7a2e-req\terror\t${LATE_DELIVERY_LINE}`)).toBe(true);
+    // The cancel's other lines: a late pending delivery it cancelled itself, and the refund schedule.
+    for (const line of [
+      'Transport cancel of order ord-1 also cancelled pending delivery del-1, created while the order was being cancelled.',
+      'Order escrow refund scheduled: orderId=ord-1 reason=order_transport_failed',
+      'Transport cancel of order ord-1: the delivery could not be read or written: [TimeoutException]',
+      // An id defanged by MoneyAlarmLog.LogId cannot spell the token.
+      'Transport cancel of order ORDER-TRANSPORT-CANCEL-LATE-DELIVERY also cancelled pending delivery del-1',
+      'Pickup on a cancelled delivery ORDER-TRANSPORT-CANCEL-PICKUP-REFUSED: its order could not be read: [TimeoutException]',
+      // The refusal the trucker's device gets is not the alarm line.
+      'DELIVERY_ALREADY_CANCELLED: Cannot update a cancelled delivery.',
+    ]) {
+      expect([line, cloudWatchTermsMatch(orderProblems, line)]).toEqual([line, false]);
+    }
+    for (const [lg, metric] of [
+      [ESCROW_LG, 'EscrowSettlementFailures'],
+      [ESCROW_CRON_LG, 'EscrowSettlementFailures'],
+      [ESCROW_CRON_LG, 'ManualPayoutsOverdue'],
+      [ESCROW_CRON_LG, 'AdminQueueOverdue'],
+    ]) {
+      expect(cloudWatchTermsMatch(metricFilter(template, lg, metric).Properties.FilterPattern, LATE_DELIVERY_LINE)).toBe(false);
+      expect(cloudWatchTermsMatch(metricFilter(template, lg, metric).Properties.FilterPattern, PICKUP_REFUSED_LINE)).toBe(false);
+    }
+    // The hold-cap info line and the overdue line of a missing order.
+    const adminQueue = metricFilter(template, ESCROW_CRON_LG, 'AdminQueueOverdue').Properties.FilterPattern;
+    expect(cloudWatchTermsMatch(adminQueue, 'ORDER_ESCROW_HOLD_CAPPED orderId=ord-1 escrowId=escrow-order-ord-1')).toBe(false);
+    expect(cloudWatchTermsMatch(adminQueue, 'ADMIN_QUEUE_OVERDUE orderId=ord-1 reason=order_missing ageHours=30')).toBe(true);
+    expect(cloudWatchTermsMatch(orderProblems, 'ORDER_ESCROW_HOLD_CAPPED orderId=ord-1 escrowId=escrow-order-ord-1')).toBe(false);
   });
 
   // Every term of a money filter, as the synthesized pattern spells it.

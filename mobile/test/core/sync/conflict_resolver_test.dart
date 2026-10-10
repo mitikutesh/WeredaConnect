@@ -5,6 +5,7 @@ import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/schemas/order.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
@@ -29,6 +30,7 @@ void main() {
           CropListingSchema,
           TripSchema,
           DeliverySchema,
+          OrderSchema,
           PaymentSchema,
           SyncOperationSchema,
         ],
@@ -43,6 +45,47 @@ void main() {
       if (tempDir.existsSync()) {
         tempDir.deleteSync(recursive: true);
       }
+    });
+
+    group('Order conflict resolution', () {
+      test('takes the server pickup deadline (ESC-06)', () async {
+        final operation = SyncOperation()
+          ..operationId = 'op-order-1'
+          ..idempotencyKey = 'key-order-1'
+          ..entityType = 'order'
+          ..entityId = 'order-001'
+          ..action = 'update'
+          ..data = '{}'
+          ..status = SyncStatus.syncing
+          ..retryCount = 0
+          ..createdAt = DateTime.now().toUtc();
+
+        await resolver.resolve(
+          operation: operation,
+          serverData: {
+            'orderId': 'order-001',
+            'listingId': 'listing-001',
+            'buyerId': 'buyer-001',
+            'farmerId': 'farmer-001',
+            'buyerName': 'Buyer',
+            'farmerName': 'Farmer',
+            'cropType': 'teff',
+            'quantity': 500,
+            'pricePerUnit': 45.5,
+            'totalPrice': 22750,
+            'status': 'accepted',
+            'createdAt': '2026-10-01T08:00:00Z',
+            'pickupDeadlineAt': '2026-10-12T08:00:00.0000000Z',
+          },
+          serverVersion: 5,
+        );
+
+        final order =
+            await isar.orders.filter().orderIdEqualTo('order-001').findFirst();
+        expect(order!.status, OrderStatus.accepted);
+        expect(order.pickupDeadlineAt!.toUtc(), DateTime.utc(2026, 10, 12, 8));
+        expect(order.version, 5);
+      });
     });
 
     group('CropListing conflict resolution', () {

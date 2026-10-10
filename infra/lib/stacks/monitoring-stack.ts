@@ -190,7 +190,12 @@ export class MonitoringStack extends cdk.Stack {
     //     confirmation may never reach it and the refund-safety check cannot see it;
     //   ORDER_ESCROW_REFUND_SCHEDULE_FAILED: a cancelled order's money stays held;
     //   DISPUTE_NO_ESCROW (ESC-07): a funded order's delivery was disputed but no escrow
-    //     holds its money, so the dispute was refused.
+    //     holds its money, so the dispute was refused;
+    //   ORDER_TRANSPORT_CANCEL_LATE_DELIVERY (ESC-06): a buyer cancelled an order after a
+    //     transport failure and a delivery that was not pending (picked up, or unreadable)
+    //     held the order's slot right after: goods may have left the farm on a refunded order;
+    //   ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED (ESC-06): a pickup synced after that cancel had
+    //     cancelled the delivery (the reverse offline race): the trucker has the goods.
     const syncLogGroup = logs.LogGroup.fromLogGroupName(
       this,
       'SyncLogGroup',
@@ -203,6 +208,8 @@ export class MonitoringStack extends cdk.Stack {
         'ORDER_ESCROW_LINK_FAILED',
         'ORDER_ESCROW_REFUND_SCHEDULE_FAILED',
         'DISPUTE_NO_ESCROW',
+        'ORDER_TRANSPORT_CANCEL_LATE_DELIVERY',
+        'ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED',
       ),
       metricNamespace,
       metricName: 'OrderEscrowProblems',
@@ -273,9 +280,9 @@ export class MonitoringStack extends cdk.Stack {
     });
 
     // ESC-13: queue age. The hourly escrow-cron run logs one line per pending manual
-    // payout leg older than 24 hours (ESC-02, ReportOverdueManualPayoutsAsync) and, once
-    // ESC-06 builds the admin stuck-order queue, one per overdue entry. Until ESC-06 the
-    // admin-queue metric stays at zero; its alarm is already wired.
+    // payout leg older than 24 hours (ESC-02, ReportOverdueManualPayoutsAsync) and one per
+    // admin stuck-order queue entry due for 24 hours (ESC-06, ReportAdminQueueAsync; plus
+    // a capped escrow whose order is missing).
     new logs.MetricFilter(this, 'ManualPayoutsOverdueFilter', {
       logGroup: escrowCronLogGroup,
       filterPattern: logs.FilterPattern.literal('"MANUAL_PAYOUT_OVERDUE"'),
@@ -796,7 +803,9 @@ export class MonitoringStack extends cdk.Stack {
           'cancelled order\'s money stays in escrow; set the escrow expiry by hand so the ' +
           'hourly sweep refunds the buyer. DISPUTE_NO_ESCROW (ESC-07): a delivery of the order ' +
           'was disputed but no escrow-order row holds its money, so the dispute was refused; ' +
-          'find where the payment is held and contact the parties.',
+          'find where the payment is held and contact the parties. ORDER_TRANSPORT_CANCEL_LATE_DELIVERY ' +
+          'or _PICKUP_REFUSED (ESC-06): goods may have left the farm on an order cancelled for ' +
+          'transport failure; call the parties.',
         metric: new cloudwatch.Metric({
           namespace: metricNamespace,
           metricName: 'OrderEscrowProblems',
@@ -976,12 +985,14 @@ export class MonitoringStack extends cdk.Stack {
       'admin-queue-overdue',
       'AdminQueueOverdue',
       'Admin Queue Overdue',
-      'A stuck order in the admin queue (funded but not delivered or settled after its ' +
-        'window, ESC-06) has waited more than 24 hours for an admin decision ' +
-        '(ADMIN_QUEUE_OVERDUE in the escrow-cron log group, one line per overdue entry per ' +
-        'hourly run, with orderId, reason and ageHours). The buyer\'s money is held while ' +
-        'nobody decides: open the admin stuck-order queue and release, refund or extend ' +
-        'the order. The producer comes with ESC-06; until then this alarm stays OK.',
+      'An order escrow held 21 days after funding (ESC-06) has been due in the admin ' +
+        'stuck-order queue for 24 hours (ADMIN_QUEUE_OVERDUE in the escrow-cron log group, ' +
+        'one line per entry per hourly run, with orderId, reason and ageHours). Nothing moves ' +
+        'the money by itself. Open /transactions/<orderId> in the admin app. reason=hold_cap: ' +
+        'order accepted past its pickup deadline: the buyer can cancel in the app for a full ' +
+        'refund, ask them to; goods moving: the buyer or farmer opens a dispute and the verdict ' +
+        'settles it. Never refund an accepted order by hand. reason=order_missing: escalate. ' +
+        'Runbook: .ai/deployment.md, Monitoring.',
     );
 
     // ESC-01: live order payments. The Telebirr webhook (and its log group) only

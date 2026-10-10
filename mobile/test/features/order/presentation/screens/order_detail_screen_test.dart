@@ -61,6 +61,7 @@ Order _makeOrder({
   String? tripId,
   String? truckerId,
   String? truckerName,
+  DateTime? pickupDeadlineAt,
 }) {
   return Order()
     ..orderId = 'order-001'
@@ -78,7 +79,8 @@ Order _makeOrder({
     ..version = 1
     ..tripId = tripId
     ..truckerId = truckerId
-    ..truckerName = truckerName;
+    ..truckerName = truckerName
+    ..pickupDeadlineAt = pickupDeadlineAt;
 }
 
 /// A delivery of order-001 (self-pickup unless a trucker is given).
@@ -535,6 +537,108 @@ void main() {
       for (final label in payLabels) {
         expect(find.text(label), findsNothing);
       }
+    });
+  });
+
+  group('OrderDetailScreen cancel after a transport failure (ESC-06)', () {
+    final passed = DateTime.now().toUtc().subtract(const Duration(hours: 1));
+    final ahead = DateTime.now().toUtc().add(const Duration(days: 2));
+    const buyerHint = 'The crops were not collected in time. You can cancel '
+        'this order and get all your money back.';
+    const partyHint = 'The crops were not collected in time. The buyer can '
+        'now cancel this order.';
+
+    Order truckOrder(DateTime? deadline) => _makeOrder(
+          tripId: _tripId,
+          truckerId: _truckerId,
+          truckerName: 'Trucker Tesfaye',
+          pickupDeadlineAt: deadline,
+        );
+
+    for (final (name, order) in [
+      ('trucker order', () => truckOrder(passed)),
+      ('self-pickup order', () => _makeOrder(pickupDeadlineAt: passed)),
+    ]) {
+      testWidgets('buyer of an accepted $name past its deadline can cancel',
+          (tester) async {
+        stubAuth(UserRole.buyer, _buyerId);
+        await tester.pumpWidget(buildScreen(order()));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Collect by'), findsOneWidget);
+        expect(find.text(buyerHint), findsOneWidget);
+        final cancel = find.text('Cancel Order');
+        expect(cancel, findsOneWidget);
+
+        await tester.ensureVisible(cancel);
+        await tester.tap(cancel);
+        await tester.pumpAndSettle();
+        expect(
+          find.text('You get back everything you paid, including transport '
+              'and the platform commission.'),
+          findsOneWidget,
+        );
+        await tester.tap(find.text('Cancel Order').last);
+        await tester.pump();
+
+        verify(
+          () => orderBloc.add(
+            any(
+              that: isA<CancelOrder>()
+                  .having((e) => e.orderId, 'orderId', 'order-001'),
+            ),
+          ),
+        ).called(1);
+      });
+    }
+
+    testWidgets('buyer sees no Cancel before the pickup deadline',
+        (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(buildScreen(truckOrder(ahead)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Collect by'), findsOneWidget);
+      expect(find.text('Cancel Order'), findsNothing);
+      expect(find.text(buyerHint), findsNothing);
+    });
+
+    testWidgets('an accepted order without a deadline offers no Cancel',
+        (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(buildScreen(truckOrder(null)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Collect by'), findsNothing);
+      expect(find.text('Cancel Order'), findsNothing);
+    });
+
+    for (final (role, userId) in [
+      (UserRole.farmer, _farmerId),
+      (UserRole.trucker, _truckerId),
+    ]) {
+      testWidgets(
+          '${role.name} is told the buyer can cancel, but gets no Cancel',
+          (tester) async {
+        stubAuth(role, userId);
+        await tester.pumpWidget(buildScreen(truckOrder(passed)));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Collect by'), findsOneWidget);
+        expect(find.text(partyHint), findsOneWidget);
+        expect(find.text('Cancel Order'), findsNothing);
+      });
+    }
+
+    testWidgets('a funded order still offers the buyer Cancel', (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(
+        buildScreen(_makeOrder(status: OrderStatus.funded)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Cancel Order'), findsOneWidget);
+      expect(find.text('Collect by'), findsNothing);
     });
   });
 }

@@ -107,6 +107,11 @@ class Order {
 
   /// When the order was last updated (UTC)
   DateTime? updatedAt;
+
+  /// ESC-06: after this time (UTC) an accepted order nobody picked up counts
+  /// as a transport failure and its buyer may cancel it for a full refund.
+  /// Stamped by the server when the farmer accepts; null before that.
+  DateTime? pickupDeadlineAt;
 }
 
 /// Status of an order in its lifecycle

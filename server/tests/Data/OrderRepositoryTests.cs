@@ -257,7 +257,12 @@ public class OrderRepositoryTests
                 && r.TransactItems[0].Update.Key["createdAt"].S == "2026-09-30T08:00:00.0000000Z"
                 && r.TransactItems[0].Update.UpdateExpression == "SET #slot = :did, #claimedAt = :now"
                 && r.TransactItems[0].Update.ConditionExpression
-                    == "attribute_exists(orderId) AND (attribute_not_exists(#slot) OR #slot = :did)"
+                    == "attribute_exists(orderId) AND #status IN (:accepted, :pickupConfirmed, :inTransit) "
+                    + "AND (attribute_not_exists(#slot) OR #slot = :did)"
+                && r.TransactItems[0].Update.ExpressionAttributeNames["#status"] == "status"
+                && r.TransactItems[0].Update.ExpressionAttributeValues[":accepted"].S == "accepted"
+                && r.TransactItems[0].Update.ExpressionAttributeValues[":pickupConfirmed"].S == "pickup_confirmed"
+                && r.TransactItems[0].Update.ExpressionAttributeValues[":inTransit"].S == "in_transit"
                 && r.TransactItems[0].Update.ExpressionAttributeNames["#slot"] == "activeDeliveryId"
                 && r.TransactItems[0].Update.ExpressionAttributeNames["#claimedAt"] == "activeDeliveryClaimedAt"
                 && r.TransactItems[0].Update.ExpressionAttributeValues[":did"].S == "del-1"
@@ -280,7 +285,8 @@ public class OrderRepositoryTests
 
         await _mockDynamoDb.Received(1).TransactWriteItemsAsync(
             Arg.Is<TransactWriteItemsRequest>(r =>
-                r.TransactItems[0].Update.ConditionExpression == $"attribute_exists(orderId) AND ({slotCondition})"
+                r.TransactItems[0].Update.ConditionExpression
+                    == $"attribute_exists(orderId) AND #status IN (:accepted, :pickupConfirmed, :inTransit) AND ({slotCondition})"
                 && r.TransactItems[0].Update.ExpressionAttributeValues[":stale"].S == "del-dead"
                 && (claimedAt == null
                     ? !r.TransactItems[0].Update.ExpressionAttributeValues.ContainsKey(":seen")
@@ -301,6 +307,24 @@ public class OrderRepositoryTests
         var result = await _repository.TryCreateDeliveryWithSlotAsync("order-1", "test-deliveries", DeliveryRow());
 
         Assert.Equal(expected, result);
+    }
+
+    [Theory]
+    [InlineData("cancelled")]
+    [InlineData("rejected")]
+    [InlineData("delivered")]
+    public async Task TryCreateDeliveryWithSlot_OrderNoLongerTakesADelivery_ReportsOrderNotActive(string freshStatus)
+    {
+        // ESC-06: the slot leg also requires the order to take a delivery; the fresh row tells
+        // a cancelled order from a taken slot.
+        StubStoredOrder(freshStatus);
+        StubTransactionCancelled("ConditionalCheckFailed", "None");
+
+        var result = await _repository.TryCreateDeliveryWithSlotAsync("order-1", "test-deliveries", DeliveryRow());
+
+        Assert.Equal(DeliverySlotWriteResult.OrderNotActive, result);
+        await _mockDynamoDb.Received().QueryAsync(
+            Arg.Is<QueryRequest>(q => q.ConsistentRead == true), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -337,6 +361,83 @@ public class OrderRepositoryTests
                 && r.ConditionExpression == "#slot = :did"
                 && r.ExpressionAttributeNames["#claimedAt"] == "activeDeliveryClaimedAt"
                 && r.ExpressionAttributeValues[":did"].S == "del-1"),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ESC-06: the admin stuck-order queue lives on the order row and never bumps its version.
+    [Fact]
+    public async Task TryEnterAdminQueue_SetsTheMarkerOnlyWhileUnqueuedAndInTheReadStatus_WithoutTheVersion()
+    {
+        StubStoredOrder("accepted");
+
+        var entered = await _repository.TryEnterAdminQueueAsync(
+            "order-1", "hold_cap", "escrow-order-order-1", "2026-10-30T08:00:00.0000000Z", "accepted");
+
+        Assert.True(entered);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r =>
+                r.Key["createdAt"].S == "2026-09-30T08:00:00.0000000Z"
+                && r.UpdateExpression == "SET #marker = :open, #queuedAt = :queuedAt, #reason = :reason, #escrowId = :escrowId"
+                && r.ConditionExpression == "attribute_exists(orderId) AND attribute_not_exists(#marker) AND #status = :status"
+                && r.ExpressionAttributeNames["#marker"] == "adminQueue"
+                && r.ExpressionAttributeNames["#queuedAt"] == "adminQueuedAt"
+                && r.ExpressionAttributeValues[":open"].S == "open"
+                && r.ExpressionAttributeValues[":reason"].S == "hold_cap"
+                && r.ExpressionAttributeValues[":status"].S == "accepted"
+                && !r.UpdateExpression.Contains("version")
+                && !r.UpdateExpression.Contains("updatedAt")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryEnterAdminQueue_ConditionFails_ReturnsFalse()
+    {
+        StubStoredOrder("accepted");
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns<UpdateItemResponse>(_ => throw new ConditionalCheckFailedException("queued"));
+
+        Assert.False(await _repository.TryEnterAdminQueueAsync(
+            "order-1", "hold_cap", "escrow-order-order-1", "2026-10-30T08:00:00.0000000Z", "accepted"));
+    }
+
+    [Fact]
+    public async Task TryEnterAdminQueue_MissingOrder_WritesNothing()
+    {
+        Assert.False(await _repository.TryEnterAdminQueueAsync(
+            "order-1", "hold_cap", "escrow-order-order-1", "2026-10-30T08:00:00.0000000Z", "accepted"));
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryLeaveAdminQueue_RemovesTheEntryOnlyWhenItIsTheOneThatWasRead()
+    {
+        StubStoredOrder("cancelled");
+
+        Assert.True(await _repository.TryLeaveAdminQueueAsync("order-1", "2026-10-30T08:00:00.0000000Z"));
+        await _mockDynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r =>
+                r.UpdateExpression == "REMOVE #marker, #queuedAt, #reason, #escrowId"
+                && r.ConditionExpression == "#queuedAt = :seen"
+                && r.ExpressionAttributeValues[":seen"].S == "2026-10-30T08:00:00.0000000Z"),
+            Arg.Any<CancellationToken>());
+
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns<UpdateItemResponse>(_ => throw new ConditionalCheckFailedException("newer entry"));
+        Assert.False(await _repository.TryLeaveAdminQueueAsync("order-1", "2026-10-30T08:00:00.0000000Z"));
+    }
+
+    [Fact]
+    public async Task QueryAdminQueue_ReadsTheSparseIndexOldestFirst()
+    {
+        await _repository.QueryAdminQueueAsync(50, null);
+
+        await _mockDynamoDb.Received(1).QueryAsync(
+            Arg.Is<QueryRequest>(q =>
+                q.IndexName == "AdminQueueIndex"
+                && q.KeyConditionExpression == "#marker = :open"
+                && q.ExpressionAttributeValues[":open"].S == "open"
+                && q.ScanIndexForward == true
+                && q.Limit == 50),
             Arg.Any<CancellationToken>());
     }
 }

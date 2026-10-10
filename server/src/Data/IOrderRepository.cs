@@ -84,6 +84,26 @@ public interface IOrderRepository
     /// Query orders by status for cron processing (e.g. auto-cancel expired).
     /// </summary>
     Task<List<Dictionary<string, object>>> QueryByStatusForCronAsync(string status, string? createdBefore = null);
+
+    /// <summary>
+    /// ESC-06: put the order in the admin stuck-order queue (<see cref="AdminQueueFields"/>) while
+    /// it is still <paramref name="expectedStatus"/> and not queued yet. Written without bumping
+    /// <c>version</c> or <c>updatedAt</c>, like the delivery slot claim. Returns false when the
+    /// order is missing, already queued or moved on.
+    /// </summary>
+    Task<bool> TryEnterAdminQueueAsync(
+        string orderId, string reason, string escrowId, string queuedAt, string expectedStatus);
+
+    /// <summary>
+    /// ESC-06: take the order out of the admin queue, only while the entry is the one queued at
+    /// <paramref name="seenQueuedAt"/> (a stale reader never removes a newer entry). Not versioned.
+    /// Returns false when the entry is gone or different.
+    /// </summary>
+    Task<bool> TryLeaveAdminQueueAsync(string orderId, string seenQueuedAt);
+
+    /// <summary>ESC-06: one page of the admin queue (<c>AdminQueueIndex</c>), oldest first.</summary>
+    Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryAdminQueueAsync(
+        int limit, Dictionary<string, AttributeValue>? exclusiveStartKey);
 }
 
 /// <summary>
@@ -104,6 +124,9 @@ public enum DeliverySlotWriteResult
 
     /// <summary>The order does not exist.</summary>
     OrderNotFound,
+
+    /// <summary>ESC-06: the order no longer takes a delivery (it is not accepted, pickup_confirmed or in_transit).</summary>
+    OrderNotActive,
 }
 
 /// <summary>

@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.14.0
+1.15.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -37,7 +37,7 @@ statuses are camelCase on the wire).
 | 8 | `delivered` | Delivery confirmed by the buyer. Starts the dispute window (see `escrow-protocol.md`: 48h; auto-release after it). | In escrow, release pending. | **System** when the delivery becomes `delivered` (self-pickup jumps here from `accepted`); a client request is refused unless the order's active delivery is already `delivered` |
 | 9 | `disbursing` | Escrow release to the farmer's account is in progress (minus commission). | Leaving escrow. | **System only** |
 | 10 | `settled` | Farmer received the money. Order complete. | Paid out. Terminal. | **System only** |
-| — | `cancelled` | Order cancelled (buyer action, or auto-cancel — see below). Escrowed money, if any, refunds to the buyer. | Refunded/none. Terminal. | Buyer / system cron |
+| — | `cancelled` | Order cancelled (buyer action, or auto-cancel, see below). Escrowed money, if any, refunds to the buyer. An `accepted` order only after a transport failure (1.15.0, see Transport failure cancel). | Refunded/none. Terminal. | Buyer / system cron |
 | — | `rejected` | Farmer declined the funded order; escrow refunds to the buyer. | Refunded. Terminal. | Farmer |
 | — | `payment_failed` | Payment could not be verified: the order cron sets it 24 hours after `paymentSubmittedAt` when no payment was confirmed (1.7.0). Buyer may retry (`→ payment_submitted` directly since 1.13.0, or `→ pending_payment`) or cancel. | No confirmed money. | **System only** (enforced since 1.7.0) |
 | — | `disputed` | Dispute raised within the window; escrow keeps holding the money. Ratings are blocked while disputed. | Frozen in escrow. | **System only** (1.14.0): from an escrow dispute (`POST /escrow/dispute`, buyer or farmer) or a delivery dispute via sync (1.4.1), each only after the escrow is frozen. A client order update to `disputed` is refused (`ORDER_UNAUTHORIZED`) |
@@ -58,6 +58,7 @@ created ──► pending_payment ──► payment_submitted ──► funded �
    │   └────────────────────────────► (direct hop: buyers usually pay immediately)                                    │
    │                                payment_submitted ──► payment_failed ──► payment_submitted | pending_payment | cancelled ├──► disputed ──► dispute_resolved
    └──► cancelled            funded ──► rejected | cancelled
+                             accepted ──► cancelled   (buyer, only after a transport failure, 1.15.0)
 ```
 
 Source of truth: `OrderTransitions` in `SyncFunction.cs`. Anything not in that
@@ -67,7 +68,7 @@ mismatch — see `trip-transition` gotchas: send the **pre-increment** version).
 ### Actor authorization (`ValidateOrderTransitionAuth`)
 
 - **System-managed** (client sync is rejected): `funded`, `disbursing`, `settled`, `dispute_resolved`, since 1.7.0 `payment_failed`, and since 1.14.0 `disputed`. Before 1.7.0 any participant (the farmer too) could set `payment_failed` while a Telebirr payment was in flight, which let the buyer resubmit and pay twice. Before 1.14.0 the buyer or the farmer could set `delivered → disputed` on the order itself: no escrow was frozen, the delivery stayed `delivered`, the 48-hour auto-release still paid the farmer, and the admin never saw the dispute (ESC-07). A dispute now comes only from the delivery (sync) or `POST /escrow/dispute`. No shipped app ever sent the order update.
-- **Buyer-only**: `cancelled`, `pending_payment`, `payment_submitted`.
+- **Buyer-only**: `cancelled`, `pending_payment`, `payment_submitted`. From `accepted`, `cancelled` is allowed only after a transport failure and runs its own checks (1.15.0, Transport failure cancel).
 - **Farmer-only**: `accepted`, `rejected`.
 - **Either participant**: `pickup_confirmed`, `in_transit`, `delivered`. The order's matched trucker counts as a participant for these three only (1.4.0). Each is a catch-up of what the delivery already says: `delivered` requires the order's active delivery to be `delivered` (1.4.0; orders without an active delivery keep the old behaviour), `pickup_confirmed` requires it to be `pickedUp` or later and `in_transit` requires `inTransit` or later, and an order with no active delivery is refused for both (`ORDER_VALIDATION`, 1.10.0). Before 1.10.0 any participant could mark pickup or transit with no delivery at all.
 
@@ -81,12 +82,15 @@ mismatch — see `trip-transition` gotchas: send the **pre-increment** version).
 | `→ funded` | An escrow record is materialized for the held money (`escrow-order-{orderId}`, status `escrowed`, `source: order`). Best-effort with alarmable `ORDER_ESCROW_CREATE_FAILED` token; delivery-time linkage self-heals, and a payment redelivery repairs it. | `OrderFundingService.EnsureFundedSideEffectsAsync` → `EscrowService.CreateFromFundedOrderAsync`; `escrow-protocol.md` §Order-Funded Escrow |
 | live Telebirr payment for an order checkout | One write conditioned on `status = payment_submitted` sets `funded`, `paymentVerifiedAt` and the server-only `telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId` (clients can never set them; create and update strip them), then runs the two side effects above and a transaction-audit `payment_verified` row (actor `telebirr`). A second payment, a payment for an order no longer waiting, or one made in a checkout from an earlier `payment_submitted` (the checkout records the order's `paymentSubmittedAt`) changes nothing and is alarmed for a manual refund. | `TelebirrWebhookFunction.cs`; `escrow-protocol.md` §Additions in 1.5.0 |
 | `funded → rejected\|cancelled` | The order's escrow is expired NOW (+`refundReason`) so the hourly auto-refund cron pays the buyer back (≤1h). The listing gets its stock back: `quantity / 100` quintals, idempotent per order (the listing records restored order ids), race-safe (version CAS), `reserved → available` (1.4.2, SIM-13). | `TryScheduleOrderEscrowRefundAsync`, `TryRestoreListingStockAsync` → `ICropRepository.TryRestoreStockAsync`; `escrow-protocol.md` |
-| delivery created | The delivery (which now REQUIRES `orderId`) is linked to the order's escrow, activating confirmation-stamping / auto-release / the self-pickup QR gate. | `TryLinkOrderEscrowAsync`; `delivery-verification-api.md` |
+| `funded → accepted` | The server stamps `pickupDeadlineAt` in the same version-checked write as `respondedAt` (1.15.0). A trip whose row cannot be read refuses the accept for now with an unprefixed error (the client retries), so no accepted order goes without its deadline. | `ProcessOrderUpdateAsync`, `PickupDeadline` |
+| `accepted → cancelled` (buyer, after a transport failure) | The pending delivery is cancelled first, then the order (`cancelReason: transport_failed_buyer_cancelled`, the buyer's text in `cancelNote`), the delivery slot is released, the listing stock restored and the escrow refund scheduled (`refundReason: order_transport_failed`); audited (1.15.0). | `ProcessTransportFailureCancelAsync`; Transport failure cancel below |
+| delivery created | The delivery (which now REQUIRES `orderId`) is linked to the order's escrow, activating confirmation-stamping / auto-release / the self-pickup QR gate. The slot claim requires the order to be `accepted`, `pickup_confirmed` or `in_transit` in the same transaction (1.15.0): a create racing a cancel is refused (`DELIVERY_VALIDATION: The order no longer takes a delivery ...`). | `TryLinkOrderEscrowAsync`; `delivery-verification-api.md` |
 | `payment_submitted` + `TELEBIRR_MOCK=true` | Server auto-advances to `funded` as a system actor (audited as `payment_verified`). Never active in prod / live gateway. | `TryAutoFundMockOrderAsync` |
 | `created`/`pending_payment` older than 24h | Auto-cancelled by cron. | `OrderCronFunction.cs` |
 | `payment_submitted` for 24h (from `paymentSubmittedAt`; `createdAt` for orders from before 1.7.0) with no confirmed payment | Moved to `payment_failed` by the same hourly cron, version-checked so a funding that lands at the same time wins; audited as `order_updated` (`payment_submitted → payment_failed`). The order checkout stops opening new attempts 20 hours after `paymentSubmittedAt` (`escrow-protocol.md` 1.5.0), so none is still open then. A retry goes `payment_failed → payment_submitted` in one change (1.13.0, ESC-47 item 1): the payment gates run as for any payment, `paymentSubmittedAt` is stamped again, and the `pending_payment` auto-cancel above (which counts from `createdAt`) never sees the order. The older `payment_failed → pending_payment → payment_submitted` path is still accepted, but an order older than 24h left at `pending_payment` is cancelled at the next run (1.7.0). | `OrderCronFunction.FailStalePaymentsAsync` |
 | `delivered` + 48h no dispute | Escrow auto-releases to farmer (`disbursing → settled`). | escrow cron, `escrow-protocol.md` |
-| escrowed + 7 days no delivery | Escrow refunds the buyer. For order-funded escrows the sweep is order-aware: it refunds only stale-`funded` or terminal orders (then cancels a stale-funded order, `cancelReason: escrow_refunded`, and restores its listing stock, 1.4.2); progressing orders get the expiry pushed +48h. | `escrow-protocol.md` §Order-Funded Escrow; `EscrowCronFunction.TryRestoreListingStockAsync` |
+| escrowed + 7 days no delivery | Escrow refunds the buyer. For order-funded escrows the sweep is order-aware: it refunds only stale-`funded` or terminal orders (then cancels a stale-funded order, `cancelReason: escrow_refunded`, and restores its listing stock, 1.4.2); progressing orders get the expiry pushed +48h, never past funding + 21 days (1.15.0). | `escrow-protocol.md` §Order-Funded Escrow; `EscrowCronFunction.TryRestoreListingStockAsync` |
+| funded + 21 days, order not done | No more extension: the order enters the admin stuck-order queue (server-only `adminQueue`, `adminQueuedAt`, `adminQueueReason: hold_cap`, `adminQueueEscrowId`, written without bumping `version`), audited `admin_queue_entered`; the hourly report alarms `ADMIN_QUEUE_OVERDUE` once an entry is due for 24 hours and clears it when the escrow shows the money moved on. Nothing moves the money by itself (1.15.0). | `EscrowCronFunction`; `escrow-protocol.md` §Additions in 1.13.0 |
 | escrow due to settle (auto-release, auto-refund, dispute settlement) while a party is suspended or at risk tier CRITICAL | The escrow moves to `held` instead of paying out; the order status does not change (a stale-funded order is not cancelled and its stock not restored until the admin decides). Planned FRD-03, FRD-04, behind `FRAUD_HOLD_ENABLED` (1.9.0). | `EscrowCronFunction`; `escrow-protocol.md` §Additions in 1.7.0 |
 | delivery `pickedUp` / `inTransit` / `delivered` | The linked order advances to `pickup_confirmed` / `in_transit` / `delivered` as a system actor, forward only (never out of `disputed`, `cancelled` or a later status). Self-pickup: `accepted → delivered` in one hop. Best-effort: a failure is logged, the delivery update still succeeds. This is what unblocks ratings without any manual stepping (1.4.0, SIM-11). | `TryAdvanceOrderForDeliveryAsync`, `SyncFunction.cs` |
 | escrow or delivery `disputed` | Every dispute freezes the escrow **first** (1.14.0, ESC-07); only a frozen (or already `disputed`) escrow lets the delivery and the order move, and a refused freeze moves nothing. A delivery dispute that cannot freeze (manual payout queued, settlement in flight, escrow not holding the money, no escrow for a funded order) is refused with `DELIVERY_DISPUTE_REFUSED` (`sync-protocol.md` 1.12.0). Then the order moves `delivered → disputed` (blocks ratings); an order left at `accepted`, `pickup_confirmed` or `in_transit` behind a `delivered` or `disputed` delivery is first advanced to `delivered`. System actor, version-checked from a consistent read, the third conflict gives up, one transaction-audit row per hop (`order_updated`, `dispute`). An escrow dispute also marks the delivery `disputed` (transaction-audit `dispute`). A failed hop leaves the money frozen and is repaired by the verdict mirror before any settlement (1.4.1 SIM-12, 1.14.0). | `EscrowService.FreezeForDeliveryDisputeAsync` + `MirrorDisputeAsync`; `FreezeBeforeDeliveryDisputeAsync` (`SyncFunction.cs`) |
@@ -143,6 +147,8 @@ Client previews of an order total (place order, the listing detail price breakdo
 - **Echo keys** the clients send: `orderId` must equal the operation `entityId` (`orderId does not match the operation entityId.`), `updatedAt` is dropped (the repository stamps it), `version` feeds the optimistic-concurrency check. Client-sent `cancelledAt` / `respondedAt` / `paymentVerifiedAt` / `paymentSubmittedAt` (1.7.0) are dropped and re-stamped by the server, and the server-only Telebirr references (`telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId`) are dropped.
 - **Immutable after create**: `listingId`, `buyerId`, `farmerId`, `buyerName`, `farmerName`, `cropType`, `quantity`, `pricePerUnit`, `tripId`, `truckerId`, `truckerName`, `transportCost`. An unchanged echo is dropped; a changed value is rejected with `ORDER_VALIDATION: <field> is immutable and cannot be changed on update.` This holds in every status, including after `funded`.
 - **Server-owned money** (`cropCost`, `commissionRate`, `commissionAmount`, `orderTotal`) is always dropped from the payload, so `orderTotal` can never drift from its inputs.
+- **Server-only since 1.15.0**: `pickupDeadlineAt`, `cancelNote` and the admin queue fields (`adminQueue`, `adminQueuedAt`, `adminQueueReason`, `adminQueueEscrowId`) are dropped from create and update payloads. `GET /orders` returns `pickupDeadlineAt`, `adminQueueReason` and `adminQueuedAt`.
+- **`cancelReason`** is the buyer's free text on every cancel except the transport-failure cancel, where the server writes the code `transport_failed_buyer_cancelled` and keeps the buyer's text in `cancelNote` (1.15.0). The sweeps write the code `escrow_refunded`. Server codes are reserved: a client `cancelReason` that spells one (`transport_failed_buyer_cancelled`, `escrow_refunded`, or a spec 4.6 code such as `buyer_withdrew`; case and surrounding spaces ignored) is stored as `cancelNote` instead, on create and on every update.
 - **Unknown keys** are rejected: `ORDER_VALIDATION: Unknown fields: a, b`.
 
 ## List Scoping (GET /orders, 1.4.3)
@@ -284,10 +290,84 @@ order, a farmer response from anyone but the order's farmer or on an order that 
 `funded`, and a cancel from anyone but the buyer or farmer. Repeating what the order
 already shows (accept on `accepted`, pay on `payment_submitted`) is a no-op.
 
+## Transport failure cancel (1.15.0, ESC-06)
+
+A stopgap before the `awaiting_transport` flow (ESC-19): an `accepted` order that nobody picked up
+in time counts as a transport failure, and its buyer may cancel it for a full refund (crop cost,
+transport and commission).
+
+**The deadline** (`pickupDeadlineAt`, stamped when the farmer accepts, server clock):
+
+| Order | `pickupDeadlineAt` |
+|---|---|
+| Trip order (`tripId`) | 48 hours after the later of the trip's `departureDate` and the acceptance |
+| Self-pickup order (no `tripId`), or a trip that is missing or soft-deleted | 7 days after the acceptance |
+
+The stamp never moves: a trucker who postpones the trip after the acceptance does not push the
+buyer's exit back. An order accepted before 1.15.0 has no stamp; the server computes the same rule
+at cancel time from the live trip and `respondedAt` (else `paymentVerifiedAt`, else `createdAt`).
+Clients show no Cancel for such an order (the 21-day hold cap still ends it).
+
+**The cancel** (`POST /sync`, order `update` `{status: cancelled, version}`, buyer only; the farmer
+and the trucker still get `ORDER_UNAUTHORIZED`). Decided before any write, in this order:
+1. The client's version against a strongly consistent read: a stale command gets `conflict` with
+   the server's row and changes nothing.
+2. The server clock is at or past the deadline, else `ORDER_CANCEL_NOT_ALLOWED: The crops can still
+   be collected until <ISO time>.`
+3. The order's deliveries (strongly consistent) are absent, `pending` or `cancelled`, else
+   `ORDER_CANCEL_NOT_ALLOWED: The crops were already picked up.` (the order can lag its delivery).
+   That is the active delivery (the slot holder), or for an order whose delivery predates the slot
+   claim, every delivery of its listing that names the order (a lookup that cannot read them all is
+   a transient error).
+4. Every escrow of the order that still holds money is plain `escrowed` (no settlement lock, no open
+   manual payout, no confirmed delivery), and the order's own escrow has not settled, else
+   `ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.` When the held money has no
+   escrow record (the funding-time create failed), it is created first, as delivery linkage does.
+
+A read or write that fails, or an escrow record that cannot be created, answers an unprefixed error
+("... Please try again later.") and writes nothing: mobile retries it. Then, in the dispute verdict's
+order so a pickup racing in leaves the order alone:
+1. each pending delivery is cancelled (condition `status = pending`); if that fails and a re-read
+   shows it picked up, the cancel is refused as in step 3 and the order stays `accepted`;
+2. the order is cancelled (version-checked; a conflict re-reads and retries while the order is still
+   `accepted`, at most 3 writes, else a transient error; an order that moved on answers `conflict`;
+   a delivery that took the slot meanwhile and was picked up refuses the cancel as in step 3);
+3. the delivery slot is released, and a pending delivery created between steps 1 and 2 is cancelled
+   too; any other holder (picked up in that window, or unreadable) is logged with the alarmed
+   `ORDER_TRANSPORT_CANCEL_LATE_DELIVERY orderId=.. deliveryId=.. status=..` (sync log group,
+   `order-escrow-problems` alarm);
+4. the listing stock is restored (best-effort here; the refund sweep makes sure of it before paying);
+5. the escrow refund is scheduled for the hourly sweep (`refundReason: order_transport_failed`).
+
+Transaction-audit rows `delivery_cancelled` (metadata `reason=transport_failed_buyer_cancelled`) and
+`order_cancelled` (metadata `cancelReason=transport_failed_buyer_cancelled`), actor the buyer.
+
+`ORDER_CANCEL_NOT_ALLOWED` is permanent like every `ORDER_*` refusal (sync-protocol.md 1.13.0), but
+it depends on the server clock: the client undoes its local cancel and never resends that operation;
+the buyer may cancel again once it is allowed.
+
+**Clients (mobile and web, order detail):** an `accepted` order with a `pickupDeadlineAt` shows a
+"Collect by" row to all three parties. Once the device clock is past it, the buyer gets a notice
+and Cancel (the dialog says everything paid comes back); the farmer and the trucker get a notice
+that the buyer can now cancel, and no Cancel. Mobile refuses the cancel locally before the
+deadline. Strings in en, am and om.
+
+**Known limits:** the reverse offline race: a trucker who picks up offline while the buyer's cancel
+syncs first finds the delivery cancelled and the pickup refused, so the goods are with the trucker
+on a refunded order. The refused pickup logs the alarmed `ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED
+orderId=.. deliveryId=.. status=..` (sync log group, `order-escrow-problems` alarm) so an admin calls
+the parties; nothing reverts the refund by itself. Only the party who could have made that step
+counts (the delivery's trucker for `pickedUp` and `inTransit`, its buyer for `delivered`), so no
+other caller can page the alarm.
+A self-pickup buyer who does not come also gets a full refund (charging is ESC-40). ESC-19 replaces
+this cancel with `awaiting_transport` and the buyer's three options; ESC-15 then refuses a buyer
+cancel of `accepted` with the same code.
+
 ---
 
 ## Changelog
 
+- **1.15.0 (2026-10-10)**: Transport failure cancel (ESC-06): the farmer's accept stamps `pickupDeadlineAt` (trip orders 48 hours after the later of departure and acceptance, self-pickup or a gone trip 7 days after acceptance; an unreadable trip refuses the accept for now); the buyer may cancel an `accepted` order once the deadline passed and nothing was picked up, for a full refund (pending delivery first, then the order with `cancelReason: transport_failed_buyer_cancelled` and `cancelNote`, slot, stock, refund; `ORDER_CANCEL_NOT_ALLOWED` otherwise; unprefixed transient errors write nothing; a missing escrow record is created first); a delivery can no longer be created on an order that does not take one; order escrows are never extended past funding + 21 days and the order enters the admin stuck-order queue (`adminQueue*`, not versioned); `GET /orders` returns `pickupDeadlineAt`, `adminQueueReason`, `adminQueuedAt`; server `cancelReason` codes are reserved (a client text spelling one goes to `cancelNote`); a pickup refused on a delivery that cancel cancelled logs the alarmed `ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED`; mobile and web show Cancel only in that case, with notices for all three roles.
 - **1.14.0 (2026-10-10)**: Disputes always freeze money (ESC-07): `disputed` is system-managed (a client order update to it gets `ORDER_UNAUTHORIZED`, which clients since 1.10.0 revert); every dispute freezes the escrow before the delivery or order moves, and a refused freeze moves nothing; the order follows a dispute through the escrow service's mirror (advance a lagging order to `delivered` first, consistent reads, retries, one transaction-audit row per hop, `dispute` action). No client change for the order path: no shipped app sent it.
 - **1.13.0 (2026-10-09)**: Retry and live checkout (ESC-44, takes ESC-47 item 1): `payment_failed → payment_submitted` is allowed in one change (gates run, `paymentSubmittedAt` restamped; `payment_failed → pending_payment` still accepted); the app pays live orders through the order checkout, sends `paymentMethod: telebirr` with no `cbeTransactionId` in live builds, offers Continue payment / Pay Now / Pay again to the buyer, and localizes the live total refusal.
 - **1.12.0 (2026-10-09)**: Dispute verdicts move the order (ESC-03): the admin verdict moves the order to `dispute_resolved` (`delivered → disputed → dispute_resolved` or `disputed → dispute_resolved`, advancing an order left behind its `delivered` or `disputed` delivery first), system actor, version-checked, one transaction-audit row per hop; repeated before the escrow is settled to repair a failed hop; `buyer_wins` refunds a cancelled or rejected order as it is and cancels an order before pickup (stock restored) first; any other order that cannot follow is left as it is, and the verdict is not settled until the admin brings the order to a status it can follow, or overrides a `buyer_wins` (order flagged with `disputeOverride*`); alarmed, audited once. No client change: the clients already show `dispute_resolved`.

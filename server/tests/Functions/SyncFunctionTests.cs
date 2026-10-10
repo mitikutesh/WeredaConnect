@@ -3745,6 +3745,8 @@ public class SyncFunctionTests
     {
         SetupExistingOrder(status: "funded", version: 3);
         SetupOrderUpdateSucceeds();
+        SetupExistingTrip("trip-001", "trucker-001", "open", 1,
+            departureDate: DateTime.UtcNow.AddDays(3).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'"));
 
         var body = await UpdateOrderAs("farmer-001", "farmer", new Dictionary<string, object>
         {
@@ -3756,6 +3758,8 @@ public class SyncFunctionTests
         Assert.False(_updatedOrderData!.ContainsKey("orderTotal"));
         Assert.False(_updatedOrderData.ContainsKey("commissionAmount"));
         Assert.Equal("accepted", _updatedOrderData["status"].ToString());
+        // ESC-06: the accept stamps the pickup deadline in the same write.
+        Assert.True(_updatedOrderData.ContainsKey("pickupDeadlineAt"));
     }
 
     [Fact]

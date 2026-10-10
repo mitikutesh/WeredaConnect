@@ -5337,6 +5337,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Pay again'**
   String get payAgain;
+
+  /// Order detail row (all roles, accepted order): the time by which the crops must be collected; after it the buyer may cancel (ESC-06)
+  ///
+  /// In en, this message translates to:
+  /// **'Collect by'**
+  String get orderPickupDeadline;
+
+  /// Order detail notice to the buyer: the accepted order was not picked up by its deadline, so it may be cancelled for a full refund (ESC-06)
+  ///
+  /// In en, this message translates to:
+  /// **'The crops were not collected in time. You can cancel this order and get all your money back.'**
+  String get orderTransportFailedBuyerHint;
+
+  /// Order detail notice to the farmer and the trucker: the accepted order was not picked up by its deadline, so the buyer may cancel it (ESC-06)
+  ///
+  /// In en, this message translates to:
+  /// **'The crops were not collected in time. The buyer can now cancel this order.'**
+  String get orderTransportFailedPartyHint;
+
+  /// Cancel dialog body when the buyer cancels an accepted order after a transport failure (ESC-06)
+  ///
+  /// In en, this message translates to:
+  /// **'You get back everything you paid, including transport and the platform commission.'**
+  String get cancelOrderTransportFailedBody;
+
+  /// The server (ORDER_CANCEL_NOT_ALLOWED) or the app refused to cancel an accepted order: its pickup deadline has not passed, or the crops were picked up (ESC-06)
+  ///
+  /// In en, this message translates to:
+  /// **'This order can\'t be cancelled now. It can be cancelled only when the crops were not collected in time and nothing was picked up.'**
+  String get errorOrderCancelNotAllowed;
 }
 
 class _AppLocalizationsDelegate

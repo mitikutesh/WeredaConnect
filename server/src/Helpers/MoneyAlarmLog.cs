@@ -48,8 +48,10 @@ namespace WeredaConnect.Server.Helpers;
 /// per hourly run for each item older than <see cref="QueueAlarmAfter"/>, because the
 /// metric filters sit on that log group. <c>EscrowCronFunction.ReportOverdueManualPayoutsAsync</c>
 /// logs <c>MANUAL_PAYOUT_OVERDUE</c> per pending leg with <c>ref=&lt;op&gt;:&lt;leg&gt;</c>;
-/// the <c>ADMIN_QUEUE_OVERDUE</c> producer comes with ESC-06. Contract:
-/// <c>specs/contracts/escrow-protocol.md</c>, "Additions in 1.8.1".
+/// <c>EscrowCronFunction.ReportAdminQueueAsync</c> (ESC-06) logs <c>ADMIN_QUEUE_OVERDUE</c> per
+/// entry due for that long, with <c>ageHours</c> counted from when it became due, and the
+/// auto-refund sweep logs it for a capped escrow whose order is missing. Contract:
+/// <c>specs/contracts/escrow-protocol.md</c>, "Additions in 1.8.1" and "Additions in 1.13.0".
 /// </para>
 /// <para>
 /// Spoofing: a metric filter counts any line of its log group that contains the token, so a

@@ -405,7 +405,9 @@ class WebOrderRepository extends BaseOrderRepository {
           DateTime.tryParse(m['paymentVerifiedAt'] as String? ?? '')
       ..cancelledAt = DateTime.tryParse(m['cancelledAt'] as String? ?? '')
       ..cancelReason = m['cancelReason'] as String?
-      ..updatedAt = DateTime.tryParse(m['updatedAt'] as String? ?? '');
+      ..updatedAt = DateTime.tryParse(m['updatedAt'] as String? ?? '')
+      ..pickupDeadlineAt =
+          DateTime.tryParse(m['pickupDeadlineAt'] as String? ?? '')?.toUtc();
   }
 
   OrderStatus _parseOrderStatus(String? s) {
