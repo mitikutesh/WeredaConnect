@@ -252,20 +252,43 @@ public class EscrowCronOrderMoneySweepTests
             Rows[key] = new Dictionary<string, object>
             {
                 { "idempotencyKey", key }, { "escrowId", escrowId }, { "status", status },
-                { "createdAt", DateTime.UtcNow.ToString("o") }, { "result", result ?? "" }
+                { "createdAt", DateTime.UtcNow.ToString("o") }, { "expiresAt", "ttl" }, { "result", result ?? "" }
             };
             return Task.FromResult(true);
         }
 
+        /// <summary>Runs before a conditional update (a concurrent run that ends the cycle, say).</summary>
+        public Action? BeforeConditionalUpdate { get; set; }
+
         public Task UpdateAsync(string key, string status, string? result = null)
         {
-            Rows[key]["status"] = status;
+            // Unconditional, like DynamoDB's UpdateItem: a missing row comes back bare.
+            if (!Rows.TryGetValue(key, out var row))
+            {
+                row = new Dictionary<string, object> { { "idempotencyKey", key } };
+                Rows[key] = row;
+            }
+
+            row["status"] = status;
             if (result != null)
             {
-                Rows[key]["result"] = result;
+                row["result"] = result;
             }
 
             return Task.CompletedTask;
+        }
+
+        public Task<bool> TryUpdateExistingAsync(string key, string status, string result)
+        {
+            BeforeConditionalUpdate?.Invoke();
+            if (!Rows.TryGetValue(key, out var row))
+            {
+                return Task.FromResult(false);
+            }
+
+            row["status"] = status;
+            row["result"] = result;
+            return Task.FromResult(true);
         }
 
         public Task DeleteAsync(string key)
@@ -337,5 +360,28 @@ public class EscrowCronOrderMoneySweepTests
         await RunAsync(MakeFunction(maxRows: 1, cursorStore: store));
 
         Logs.Should().Contain("ORDER_MONEY_MISMATCH orderId=- escrowId=- orderStatus=- escrowStatus=- reason=sweep_truncated");
+    }
+
+    [Fact]
+    public async Task ACursorDeletedByAnotherRunMeanwhile_ComesBackAsANewCycle_WithItsStartAndTtl()
+    {
+        for (var i = 1; i <= 3; i++)
+        {
+            SeedOrder($"o-{i}", "delivered", "completed");
+        }
+
+        PartitionsHold();
+        var store = new MemoryIdempotency();
+        await store.StoreAsync(EscrowCronFunction.OrderMoneyCursorKey, "-", "open", "{\"status\":\"delivered\"}");
+        store.Rows[EscrowCronFunction.OrderMoneyCursorKey]["createdAt"] = DateTime.UtcNow.AddHours(-30).ToString("o");
+        // Another run finishes the cycle and deletes the cursor while this one is still going.
+        store.BeforeConditionalUpdate = () => store.Rows.Remove(EscrowCronFunction.OrderMoneyCursorKey);
+
+        await RunAsync(MakeFunction(maxRows: 1, cursorStore: store));
+
+        var row = store.Rows[EscrowCronFunction.OrderMoneyCursorKey];
+        row.Should().ContainKey("expiresAt");
+        DateTime.Parse(row["createdAt"].ToString()!).Should().BeAfter(DateTime.UtcNow.AddMinutes(-1));
+        row["result"].ToString().Should().Contain("\"orderId\":\"o-1\"");
     }
 }

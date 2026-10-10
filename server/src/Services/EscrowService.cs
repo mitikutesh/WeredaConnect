@@ -4212,7 +4212,14 @@ public sealed class EscrowService
 
             case OrderMoneyOutcome.Mismatch:
                 await ReportOrderMoneyMismatchOnceAsync(escrow, orderId, result, context);
-                await MarkMoneySweepSkipAsync(orderId, result.OrderStatus ?? indexStatus, now);
+                // An order before delivery can still be fixed by its delivery (a confirmation whose order
+                // advance failed): it stays in the sweep, read every run, alarmed once. Past delivery only
+                // a status change can, so it is marked.
+                if (!LogisticsOrderStatuses.Contains(result.OrderStatus ?? indexStatus))
+                {
+                    await MarkMoneySweepSkipAsync(orderId, result.OrderStatus ?? indexStatus, now);
+                }
+
                 return OrderMoneySweepOutcome.Mismatch;
 
             case OrderMoneyOutcome.Failed:
@@ -4493,6 +4500,15 @@ public sealed class EscrowService
                 var cancel = await _verdictMirror.CancelBeforeRefundAsync(escrow);
                 if (cancel.Order is VerdictLegOutcome.Cancelled or VerdictLegOutcome.Closed)
                 {
+                    // Closed: a concurrent cancel won the race (the buyer's transport-failure cancel, say),
+                    // whose own restock may not have landed. Its stock goes back first, as for any order
+                    // found cancelled.
+                    if (cancel.Order == VerdictLegOutcome.Closed && cancel.OrderItem != null
+                        && await EnsureRefundRestockAsync(cancel.OrderItem, escrowId) is { } restockBlock)
+                    {
+                        return restockBlock;
+                    }
+
                     await ScheduleAdminRefundAsync(escrow, actor);
                     return null;
                 }

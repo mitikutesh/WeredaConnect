@@ -124,8 +124,12 @@ public sealed class OrderFollowsMoneyDynamoDbTests
         var orderId = NewId("ord-esc09");
         var item = new Dictionary<string, AttributeValue>
         {
-            ["orderId"] = S(orderId), ["createdAt"] = S(createdAt ?? "2026-10-01T09:00:00.0000000Z"), ["status"] = S(status),
-            ["version"] = N(version.ToString()), ["buyerId"] = S("buyer-esc09"), ["farmerId"] = S(FarmerId),
+            ["orderId"] = S(orderId),
+            ["createdAt"] = S(createdAt ?? "2026-10-01T09:00:00.0000000Z"),
+            ["status"] = S(status),
+            ["version"] = N(version.ToString()),
+            ["buyerId"] = S("buyer-esc09"),
+            ["farmerId"] = S(FarmerId),
             ["quantity"] = N("500")
         };
         if (deliveryId != null)
@@ -147,8 +151,11 @@ public sealed class OrderFollowsMoneyDynamoDbTests
         var deliveryId = NewId("del-esc09");
         var item = new Dictionary<string, AttributeValue>
         {
-            ["deliveryId"] = S(deliveryId), ["tripId"] = S($"trip-{deliveryId}"), ["status"] = S(status),
-            ["truckerId"] = S(TruckerId), ["version"] = N("2")
+            ["deliveryId"] = S(deliveryId),
+            ["tripId"] = S($"trip-{deliveryId}"),
+            ["status"] = S(status),
+            ["truckerId"] = S(TruckerId),
+            ["version"] = N("2")
         };
         if (orderId != null)
         {
@@ -167,10 +174,20 @@ public sealed class OrderFollowsMoneyDynamoDbTests
         var escrowId = $"escrow-order-{orderId}";
         var item = new Dictionary<string, AttributeValue>
         {
-            ["escrowId"] = S(escrowId), ["createdAt"] = S(FundedAt), ["updatedAt"] = S(FundedAt), ["status"] = S(status),
-            ["source"] = S("order"), ["orderId"] = S(orderId), ["buyerId"] = S("buyer-esc09"), ["farmerId"] = S(FarmerId),
-            ["amount"] = N("8000"), ["commission"] = N("200"), ["farmerPayout"] = N(truckerLeg ? "6800" : "7800"),
-            ["currency"] = S("ETB"), ["telebirrHoldRef"] = S("HOLD-ESC09"), ["expiresAt"] = S("2026-10-08T10:00:00.0000000Z"),
+            ["escrowId"] = S(escrowId),
+            ["createdAt"] = S(FundedAt),
+            ["updatedAt"] = S(FundedAt),
+            ["status"] = S(status),
+            ["source"] = S("order"),
+            ["orderId"] = S(orderId),
+            ["buyerId"] = S("buyer-esc09"),
+            ["farmerId"] = S(FarmerId),
+            ["amount"] = N("8000"),
+            ["commission"] = N("200"),
+            ["farmerPayout"] = N(truckerLeg ? "6800" : "7800"),
+            ["currency"] = S("ETB"),
+            ["telebirrHoldRef"] = S("HOLD-ESC09"),
+            ["expiresAt"] = S("2026-10-08T10:00:00.0000000Z"),
             ["deliveryConfirmedAt"] = S(DateTime.UtcNow.AddHours(-50).ToString("o")),
             ["disputeWindowEndsAt"] = S(DateTime.UtcNow.AddHours(-2).ToString("o")),
             ["version"] = N("3")
@@ -213,14 +230,18 @@ public sealed class OrderFollowsMoneyDynamoDbTests
 
     private static ReleaseEscrowRequest Release(string escrowId, string trigger = "delivery_confirmed") => new()
     {
-        EscrowId = escrowId, Trigger = trigger, DeliveryId = "-",
+        EscrowId = escrowId,
+        Trigger = trigger,
+        DeliveryId = "-",
         IdempotencyKey = $"system:{escrowId}:release:{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}"
     };
 
     private static RefundEscrowRequest AdminRefund(string escrowId, bool overrideMismatch = false) => new()
     {
-        EscrowId = escrowId, Trigger = "admin_override",
-        Reason = overrideMismatch ? "The truck was robbed on the road." : null, OverrideOrderMismatch = overrideMismatch,
+        EscrowId = escrowId,
+        Trigger = "admin_override",
+        Reason = overrideMismatch ? "The truck was robbed on the road." : null,
+        OverrideOrderMismatch = overrideMismatch,
         IdempotencyKey = $"admin:{escrowId}:refund:{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}"
     };
 
@@ -520,7 +541,8 @@ public sealed class OrderFollowsMoneyDynamoDbTests
 
         var idempotency = new EscrowIdempotencyRepository(Ddb, _db.Idempotency);
         EscrowCronFunction Capped(int rows) => new(Service(), EscrowRepo, AuditRepo, _gateway, DeliveryRepo, OrderRepo, CropRepo,
-            idempotency, TxRepo) { OrderMoneySweepMaxRows = rows };
+            idempotency, TxRepo)
+        { OrderMoneySweepMaxRows = rows };
 
         await RunCronAsync(Capped(3));
         (await StatusesAsync(ids)).Should().Equal("settled", "settled", "settled", "delivered", "delivered", "delivered", "delivered");
@@ -532,6 +554,25 @@ public sealed class OrderFollowsMoneyDynamoDbTests
         await RunCronAsync(Capped(2000));
         (await StatusesAsync(ids)).Should().OnlyContain(s => s == "settled");
         (await idempotency.GetAsync(EscrowCronFunction.OrderMoneyCursorKey)).Should().BeNull();
+    }
+
+    [LocalDynamoDbFact]
+    public async Task TheCursorUpdate_NeverRecreatesADeletedRow_AndKeepsTheCycleStartAndTtl()
+    {
+        var idempotency = new EscrowIdempotencyRepository(Ddb, _db.Idempotency);
+        var key = $"cursor:test:{_run}";
+
+        (await idempotency.TryUpdateExistingAsync(key, "open", "{}")).Should().BeFalse();
+        (await idempotency.GetAsync(key)).Should().BeNull();
+
+        (await idempotency.StoreAsync(key, "-", "open", "{\"status\":\"delivered\"}")).Should().BeTrue();
+        var stored = (await idempotency.GetAsync(key))!;
+        (await idempotency.TryUpdateExistingAsync(key, "open", "{\"status\":\"in_transit\"}")).Should().BeTrue();
+
+        var row = (await idempotency.GetAsync(key))!;
+        Str(row, "result").Should().Be("{\"status\":\"in_transit\"}");
+        Str(row, "createdAt").Should().Be(Str(stored, "createdAt"));
+        Str(row, "expiresAt").Should().Be(Str(stored, "expiresAt"));
     }
 
     private async Task<List<string?>> StatusesAsync(List<string> ids)
@@ -558,8 +599,11 @@ public sealed class OrderFollowsMoneyDynamoDbTests
             TableName = _db.Crops,
             Item = new Dictionary<string, AttributeValue>
             {
-                ["cropId"] = S(listingId), ["createdAt"] = S(FundedAt), ["status"] = S("reserved"),
-                ["quantity"] = N("0"), ["version"] = N("1")
+                ["cropId"] = S(listingId),
+                ["createdAt"] = S(FundedAt),
+                ["status"] = S("reserved"),
+                ["quantity"] = N("0"),
+                ["version"] = N("1")
             }
         });
         var orderId = await SeedOrderAsync("funded", listingId: listingId);

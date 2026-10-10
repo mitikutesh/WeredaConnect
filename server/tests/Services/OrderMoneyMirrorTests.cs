@@ -396,6 +396,27 @@ public class OrderMoneyMirrorTests
     }
 
     [Fact]
+    public async Task TheSweepsVerdictRepair_NeverCancelsOrRestocks_AnOrderBeforePickup()
+    {
+        // A buyer_wins refund already paid over an order still before pickup: only the refund settlement
+        // may cancel it (and give its stock back); the repair reports it and writes nothing.
+        _status = "accepted";
+        _deliveries.GetByIdAsync(DeliveryId, true).Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", DeliveryId }, { "status", "pending" }, { "orderId", OrderId }
+        });
+        var crops = Substitute.For<ICropRepository>();
+        var mirror = new OrderMoneyMirror(_orders, _deliveries, _txAudit, new DisputeVerdictMirror(_orders, _deliveries, _txAudit, crops));
+
+        var result = await mirror.FollowAsync(Escrow("refunded", ("disputeResolution", "buyer_wins")), "sweep");
+
+        result.Outcome.Should().Be(OrderMoneyOutcome.Mismatch);
+        await _deliveries.DidNotReceive().TryCancelPendingAsync(Arg.Any<string>());
+        await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await crops.DidNotReceive().RestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
+    }
+
+    [Fact]
     public async Task AVerdictWhoseMoneyHasNotMoved_IsLeftToTheSettlement()
     {
         var result = await _mirror.FollowAsync(Escrow("dispute_resolved", ("disputeResolution", "farmer_wins")), "sweep");

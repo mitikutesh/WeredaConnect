@@ -1790,13 +1790,13 @@ public class EscrowCronFunction
             try
             {
                 var json = JsonSerializer.Serialize(saved, AppJsonContext.Default.DictionaryStringString);
-                if (cursor == null)
+                // Update only an existing cursor, so a row another run deleted at its cycle end never comes
+                // back without its cycle start and TTL; a missing one starts a new cycle.
+                var updated = cursor != null
+                              && await _idempotencyRepo.TryUpdateExistingAsync(OrderMoneyCursorKey, "open", json);
+                if (!updated && !await _idempotencyRepo.StoreAsync(OrderMoneyCursorKey, "-", "open", json))
                 {
-                    await _idempotencyRepo.StoreAsync(OrderMoneyCursorKey, "-", "open", json);
-                }
-                else
-                {
-                    await _idempotencyRepo.UpdateAsync(OrderMoneyCursorKey, "open", json);
+                    await _idempotencyRepo.TryUpdateExistingAsync(OrderMoneyCursorKey, "open", json);
                 }
             }
             catch (Exception ex)

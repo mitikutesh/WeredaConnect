@@ -300,14 +300,12 @@ public sealed class OrderMoneyMirror
                 return new(moved ? OrderMoneyOutcome.Moved : OrderMoneyOutcome.Consistent, target, orderId, status);
             }
 
+            // The money hops come from MoneyHops (the system edges of OrderTransitions), never past the goal.
+            var hop = MoneyHops.FirstOrDefault(h => h.From == status);
             string next;
-            if (status == "delivered")
+            if (hop.From != null && (hop.To != "settled" || goal == "settled"))
             {
-                next = "disbursing";
-            }
-            else if (status == "disbursing" && goal == "settled")
-            {
-                next = "settled";
+                next = hop.To;
             }
             else if (status == "settled")
             {

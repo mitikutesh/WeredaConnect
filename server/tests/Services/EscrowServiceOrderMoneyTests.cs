@@ -130,14 +130,19 @@ public class EscrowServiceOrderMoneyTests
 
     private ReleaseEscrowRequest Release(string trigger = "delivery_confirmed") => new()
     {
-        EscrowId = EscrowId, Trigger = trigger, DeliveryId = DeliveryId,
+        EscrowId = EscrowId,
+        Trigger = trigger,
+        DeliveryId = DeliveryId,
         IdempotencyKey = $"system:{EscrowId}:release:{Interlocked.Increment(ref _keys)}"
     };
 
     private RefundEscrowRequest Refund(bool overrideMismatch = false) => new()
     {
-        EscrowId = EscrowId, Trigger = "admin_override", Reason = overrideMismatch ? "The goods were lost on the road." : null,
-        IdempotencyKey = $"admin:{EscrowId}:refund:{Interlocked.Increment(ref _keys)}", OverrideOrderMismatch = overrideMismatch
+        EscrowId = EscrowId,
+        Trigger = "admin_override",
+        Reason = overrideMismatch ? "The goods were lost on the road." : null,
+        IdempotencyKey = $"admin:{EscrowId}:refund:{Interlocked.Increment(ref _keys)}",
+        OverrideOrderMismatch = overrideMismatch
     };
 
     // ──────────────────────────────────────────────
@@ -159,7 +164,8 @@ public class EscrowServiceOrderMoneyTests
     {
         _gateway.Configure().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>()).Returns(new ReleaseFundsResponse
         {
-            Success = false, ErrorCode = TelebirrGatewayErrors.PayoutNotSupported
+            Success = false,
+            ErrorCode = TelebirrGatewayErrors.PayoutNotSupported
         });
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
@@ -456,7 +462,8 @@ public class EscrowServiceOrderMoneyTests
     {
         _gateway.Configure().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>()).Returns(new ReleaseFundsResponse
         {
-            Success = false, ErrorCode = TelebirrGatewayErrors.PayoutNotSupported
+            Success = false,
+            ErrorCode = TelebirrGatewayErrors.PayoutNotSupported
         });
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
@@ -589,5 +596,194 @@ public class EscrowServiceOrderMoneyTests
         (await _service.ReconcileOrderMoneyAsync(IndexRow(), DateTime.UtcNow)).Should().Be(OrderMoneySweepOutcome.Waiting);
         _alarms.Should().BeEmpty();
         await _auditRepo.DidNotReceive().AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    // ──────────────────────────────────────────────
+    // rev-esc-09: each writer's own follow, and Part B's fail-closed edges
+    // ──────────────────────────────────────────────
+
+    private EscrowService ServiceWithUsers(IUserRepository users) => new(
+        _escrowRepo, _auditRepo, _idempotencyRepo, _gateway, users, _orders, _deliveries,
+        transactionAuditRepo: _txAudit, cropRepo: _crops)
+    {
+        AlarmLog = _alarms.Add
+    };
+
+    private static UserDto Trucker() => new()
+    {
+        UserId = "trucker-1",
+        PhoneNumber = "+251911000002",
+        DisplayName = "Trucker",
+        Role = "trucker",
+        Woreda = "test-woreda",
+        IsPhoneVerified = true,
+        FaydaVerified = true,
+        CreatedAt = CreatedAt,
+        UpdatedAt = CreatedAt,
+        Version = 1
+    };
+
+    [Fact]
+    public async Task AnOverrideRefund_WhoseAuditWriteFails_Is503_AndNeverReachesTheGateway()
+    {
+        _orderStatus = "in_transit";
+        _deliveryStatus = "inTransit";
+        _auditRepo.Configure().AppendAsync(Arg.Is<Dictionary<string, object>>(a =>
+                a["action"].ToString() == "refund_order_mismatch_overridden"))
+            .ThrowsAsync(new InvalidOperationException("audit table down"));
+
+        var result = await _service.RefundAsync(Refund(overrideMismatch: true), AdminId, "admin", adminGroupVerified: true);
+
+        result.Error!.HttpStatus.Should().Be(503);
+        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        await _orders.DidNotReceive().UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task AnAdminRelease_OverAMissingOrder_Is422_NothingPaid()
+    {
+        _orders.Configure().GetByIdAsync(OrderId, true).Returns((Dictionary<string, object>?)null);
+
+        var result = await _service.ReleaseAsync(Release("admin_override"), AdminId, "admin", adminGroupVerified: true);
+
+        result.Error!.HttpStatus.Should().Be(422);
+        await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+    }
+
+    [Fact]
+    public async Task AReleaseWhoseTruckerLegIsQueued_MovesTheOrderToDisbursing()
+    {
+        _escrow["truckerId"] = "trucker-1";
+        _escrow["truckerPayout"] = 100m;
+        _gateway.Configure().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>()).Returns(call =>
+            call.Arg<ReleaseFundsRequest>().TransactionRef.EndsWith(":trucker", StringComparison.Ordinal)
+                ? new ReleaseFundsResponse { Success = false, ErrorCode = TelebirrGatewayErrors.PayoutNotSupported }
+                : new ReleaseFundsResponse { Success = true, TelebirrRef = "TB-REL-1" });
+        _escrowRepo.TryQueueManualPayoutAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+            .Returns(_ =>
+            {
+                _escrow[ManualPayoutFields.Marker] = ManualPayoutFields.MarkerOpen;
+                _escrow[ManualPayoutFields.Op] = ManualPayoutFields.OpRelease;
+                return true;
+            });
+
+        var result = await _service.ReleaseAsync(Release(), "system");
+
+        result.Error!.Code.Should().Be("ESCROW_034");
+        _hops.Should().Equal(("delivered", "disbursing"));
+    }
+
+    [Fact]
+    public async Task TheTruckerRetryThatPaysTheLastLeg_SettlesTheOrder()
+    {
+        var users = Substitute.For<IUserRepository>();
+        users.GetUserByIdAsync("trucker-1").Returns(Trucker());
+        _orderStatus = "disbursing";
+        _escrow["status"] = "released";
+        _escrow["truckerId"] = "trucker-1";
+        _escrow["truckerPayout"] = 100m;
+        _escrow[TruckerPayoutFields.Pending] = true;
+        _escrow[TruckerPayoutFields.PendingSince] = "2026-10-05T10:00:00.0000000Z";
+        _escrowRepo.TryAcquireTruckerPayoutLockAsync(EscrowId, CreatedAt).Returns("lock-t");
+        _escrowRepo.TryRecordTruckerPayoutAsync(EscrowId, CreatedAt, "lock-t", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(_ =>
+            {
+                _escrow["status"] = "completed";
+                _escrow.Remove(TruckerPayoutFields.Pending);
+                return true;
+            });
+
+        var result = await ServiceWithUsers(users).RetryTruckerLegAsync(new Dictionary<string, object>(_escrow), DateTime.UtcNow, true);
+
+        result.Outcome.Should().Be(EscrowService.TruckerRetryOutcome.Paid);
+        _hops.Should().Equal(("disbursing", "settled"));
+    }
+
+    [Fact]
+    public async Task TheLegacyTruckerPark_MovesTheOrderToDisbursing()
+    {
+        _escrow["status"] = "completed";
+        _escrow["truckerId"] = "trucker-1";
+        _escrow["truckerPayout"] = 100m;
+        _escrow[TruckerPayoutFields.Pending] = true;
+        _escrow["completedAt"] = "2026-10-03T10:00:00.0000000Z";
+        _escrowRepo.TryParkLegacyTruckerLegAsync(EscrowId, CreatedAt, "completed",
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(_ =>
+            {
+                _escrow["status"] = "released";
+                _escrow[ManualPayoutFields.Marker] = ManualPayoutFields.MarkerOpen;
+                _escrow[ManualPayoutFields.Op] = ManualPayoutFields.OpRelease;
+                return true;
+            });
+
+        (await _service.ParkLegacyTruckerLegAsync(new Dictionary<string, object>(_escrow))).Should().BeTrue();
+
+        _hops.Should().Equal(("delivered", "disbursing"));
+    }
+
+    [Fact]
+    public async Task AReplayOfARecordedLeg_RepairsAnOrderTheCloseCouldNotMove()
+    {
+        // The close completed the escrow but its follow did not land: the order is still delivered.
+        _escrow["status"] = "completed";
+        _escrow["completedAt"] = "2026-10-05T10:00:00.0000001Z";
+        _escrow[ManualPayoutFields.Op] = ManualPayoutFields.OpRelease;
+        _escrow[ManualPayoutFields.FromStatus] = "escrowed";
+        _escrow[ManualPayoutFields.StatusAttr(ManualPayoutFields.LegFarmer)] = ManualPayoutFields.LegPaid;
+        _escrow[ManualPayoutFields.RefAttr(ManualPayoutFields.LegFarmer)] = "TB-FARMER-0001";
+        _escrow[ManualPayoutFields.PaidAtAttr(ManualPayoutFields.LegFarmer)] = "2026-10-05T10:00:00.0000000Z";
+        _escrow[ManualPayoutFields.PaidByAttr(ManualPayoutFields.LegFarmer)] = AdminId;
+
+        var result = await _service.CompleteManualPayoutAsync(EscrowId, ManualPayoutFields.LegFarmer, "TB-FARMER-0001", AdminId, true);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.AlreadyRecorded.Should().BeTrue();
+        _hops.Should().Equal(("delivered", "disbursing"), ("disbursing", "settled"));
+    }
+
+    [Fact]
+    public async Task ACancelLostToATransportFailureCancel_StillRetriesTheRestockFirst()
+    {
+        // Read accepted (pickup deadline passed); the buyer's transport-failure cancel lands between the
+        // read and Part B's cancel, and its own restock did not land. (rev-esc-09's probe.)
+        _orderStatus = "accepted";
+        _deliveryStatus = "pending";
+        _orderExtra["listingId"] = "crop-1";
+        _orderExtra["quantity"] = "500";
+        _crops.Configure().RestoreStockAsync("crop-1", OrderId, 5.0).Returns(StockRestoreResult.Failed);
+        _orders.Configure().UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>()).Returns(_ =>
+        {
+            _orderStatus = "cancelled";
+            _orderExtra["cancelReason"] = "transport_failed_buyer_cancelled";
+            return AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "version");
+        });
+
+        var refused = await _service.RefundAsync(Refund(), AdminId, "admin", adminGroupVerified: true);
+
+        refused.Error!.HttpStatus.Should().Be(503);
+        await _crops.Received().RestoreStockAsync("crop-1", OrderId, 5.0);
+        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+
+        // The admin's retry: the stock goes back, then the refund.
+        _crops.Configure().RestoreStockAsync("crop-1", OrderId, 5.0).Returns(StockRestoreResult.Restored);
+        (await _service.RefundAsync(Refund(), AdminId, "admin", adminGroupVerified: true)).IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Reconcile_AMismatchBeforeDelivery_AlarmsOnce_ButStaysInTheSweep()
+    {
+        // A payout behind an order whose delivery is not confirmed yet: a later confirmation can still fix it.
+        _orderStatus = "in_transit";
+        _deliveryStatus = "inTransit";
+        _escrow["status"] = "completed";
+        _escrow.Remove("deliveryConfirmedAt");
+
+        (await _service.ReconcileOrderMoneyAsync(IndexRow(), DateTime.UtcNow)).Should().Be(OrderMoneySweepOutcome.Mismatch);
+
+        _alarms.Should().ContainSingle(a => a.Contains("reason=cannot_follow"));
+        await _orders.DidNotReceive().TryMarkMoneySweepSkipAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
     }
 }

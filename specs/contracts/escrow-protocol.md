@@ -2960,9 +2960,9 @@ write. A verdict escrow whose money moved is repaired through the ESC-03 mirror 
 | order moved | counted (`ordersMoved`, `ordersSettled`) |
 | money held, order waiting | nothing, read again next run |
 | no escrow at all (only past delivery: an order before it may still get one through linkage), a refund behind a closed order or a flagged override (`refundOverride*`, ESC-03 `disputeOverride*`; a flag only ever excuses a refund, since it is written before the money moves) | order marked `moneySweepSkip` (its status) and `moneySweepSkipAt`, unversioned |
-| cannot follow (a refund behind a `delivered` order, a payout behind an order not delivered) or order ahead (`disbursing`/`settled` over held money), still so after a fresh read of the escrow | escrow-audit row `order_money_mismatch` at `createdAt + 7` ticks, or `order_money_ahead` at `createdAt + 8` (`AppendIfAbsentAsync`); only when the row is new: `ORDER_MONEY_MISMATCH ... reason=cannot_follow|order_ahead` and a transaction-audit row on the order; then the skip mark |
+| cannot follow (a refund behind a `delivered` order, a payout behind an order not delivered) or order ahead (`disbursing`/`settled` over held money), still so after a fresh read of the escrow | escrow-audit row `order_money_mismatch` at `createdAt + 7` ticks, or `order_money_ahead` at `createdAt + 8` (`AppendIfAbsentAsync`); only when the row is new: `ORDER_MONEY_MISMATCH ... reason=cannot_follow|order_ahead` and a transaction-audit row on the order; then the skip mark, only for an order past delivery (an order before it can still be fixed by a later delivery confirmation, so it is read every run, alarmed once) |
 | the hops failed (throttle, permissions, lost races) | `ORDER_MONEY_MISMATCH ... reason=write_failed` every run once the money moved more than 2 hours ago, an info line before; no mark |
-| slice or row cap used up | the cursor `cursor:esc-09:order_money_sweep` (escrow idempotency table, 30-day TTL) saves the partition and the index key of the last order decided, and the next run goes on from there; the cycle's start is the row's `createdAt` and the row is deleted when a cycle has read every partition. Info `ORDER_MONEY_SWEEP_PAUSED`; `ORDER_MONEY_MISMATCH orderId=- ... reason=sweep_truncated` only once a cycle is unfinished 24 hours after it started |
+| slice or row cap used up | the cursor `cursor:esc-09:order_money_sweep` (escrow idempotency table, 30-day TTL) saves the partition and the index key of the last order decided, and the next run goes on from there; the cycle's start is the row's `createdAt` and the row is deleted when a cycle has read every partition. The update is conditional on the row existing (`TryUpdateExistingAsync`), so a cursor another run deleted at its cycle end comes back only through a new store with its cycle start and TTL. Info `ORDER_MONEY_SWEEP_PAUSED`; `ORDER_MONEY_MISMATCH orderId=- ... reason=sweep_truncated` only once a cycle is unfinished 24 hours after it started |
 | a page query failed | `ORDER_MONEY_MISMATCH orderId=- ... reason=sweep_failed`, the next partition goes on |
 
 Run summary keys: `ordersMoved`, `ordersSettled`, `orderMoneyMismatches`, `orderMoneyFailed`,
@@ -2985,7 +2985,8 @@ escrow resolves to an order (its `orderId`, else its delivery's). Before the pay
 - Refund: `rejected` as is; `cancelled` as is, after the listing stock is given back first when the
   cancel was `escrow_refunded` or `transport_failed_buyer_cancelled` (`503` if not); `funded`, or
   `accepted` with no delivery or a `pending` one: cancelled first through the ESC-03 path (pending
-  delivery, order `cancelReason: escrow_refunded`, slot, stock; `503` if any of it does not land) and
+  delivery, order `cancelReason: escrow_refunded`, slot, stock; `503` if any of it does not land; when
+  a concurrent cancel won the race, that order's stock is given back first as above) and
   the refund scheduled on the escrow (`expiresAt = now`, `refundReason: admin_refund`, audit
   `refund_scheduled`) so a gateway refusal leaves it for the hourly sweep. Goods moving or
   `delivered`: `422` unless `overrideOrderMismatch` with a reason of 10 to 500 characters (admin group):

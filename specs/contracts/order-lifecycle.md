@@ -403,7 +403,7 @@ orders `StatusCreatedAtIndex` partitions `delivered`, `disbursing`, `disputed`, 
 orders; a run that stops early saves a cursor and the next one goes on from there), finds each order's escrow (`escrow-order-{orderId}`, else the order or delivery index) and
 applies the same rules. Its first run moves every order left `delivered` by releases before 1.17.0.
 An order past delivery with no escrow, a refund behind a closed or flagged order, or a mismatch it
-alarmed is marked with the server-only
+alarmed past delivery is marked with the server-only
 `moneySweepSkip` (its status then) and `moneySweepSkipAt`, without a `version` or `updatedAt` change;
 later runs skip it until its status moves. Alarm `ORDER_MONEY_MISMATCH` (`escrow-protocol.md`
 §Additions in 1.15.0).
