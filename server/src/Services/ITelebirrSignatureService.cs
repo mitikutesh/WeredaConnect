@@ -28,4 +28,19 @@ public interface ITelebirrSignatureService
 
     /// <summary>Verify a base64 signature over an already-built canonical string.</summary>
     bool Verify(string canonical, string base64Signature);
+
+    /// <summary>
+    /// ESC-45: the canonical string of an already-flat map (an inbound notification exactly as
+    /// it was read): excluded keys dropped, keys sorted ordinally, joined as key=value&amp;... No
+    /// flattening, so the string covers exactly the fields the caller will read.
+    /// </summary>
+    string BuildFlatCanonicalString(IReadOnlyDictionary<string, string> fields);
+
+    /// <summary>
+    /// ESC-45: verify a Telebirr notification over exactly <paramref name="fields"/>, with the
+    /// configured padding first and then the other one (Ethio Telecom's samples sign with PSS, the
+    /// deployed config said PKCS#1; both are checked against Telebirr's public key with SHA-256).
+    /// <paramref name="matched"/> says which padding verified.
+    /// </summary>
+    bool VerifyFlat(IReadOnlyDictionary<string, string> fields, string base64Signature, out TelebirrSignaturePadding matched);
 }

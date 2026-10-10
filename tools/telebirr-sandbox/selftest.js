@@ -60,8 +60,8 @@ async function main() {
   await new Promise((r) => receiver.listen(0, "127.0.0.1", r));
   const notifyUrl = `http://127.0.0.1:${receiver.address().port}/webhook`;
 
-  // 2. Fabric token.
-  const tok = await req("POST", `${SIM}/apply/fabric-token`, {
+  // 2. Fabric token (documented path).
+  const tok = await req("POST", `${SIM}/payment/v1/token`, {
     headers: { "X-APP-Key": creds.fabricAppId },
     body: JSON.stringify({ appSecret: creds.appSecret }),
   });
@@ -71,8 +71,9 @@ async function main() {
 
   // 3. preOrder (signed with merchant private key).
   const nonce = crypto.randomBytes(12).toString("hex");
-  const timestamp = Date.now().toString();
-  const merchOrderId = `buyer-x:delivery-y:initiate:${timestamp}`;
+  // Request timestamps are epoch seconds; a merch_order_id is letters and digits only.
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const merchOrderId = `WCOSELFTEST${timestamp}`;
   const body = {
     nonce_str: nonce,
     method: "payment.preorder",
@@ -131,13 +132,19 @@ async function main() {
 
   await new Promise((r) => setTimeout(r, 200));
   assert(received !== null, "webhook was delivered");
-  assert(
-    received.biz_content.merch_order_id === merchOrderId,
-    "webhook merch_order_id matches",
-  );
-  assert(received.biz_content.trade_status === "Completed", "webhook trade_status Completed");
-  const sigOk = C.verifyObject(received, received.sign, creds.telebirrPublicKeyPem);
-  assert(sigOk, "webhook signature verifies with Telebirr public key");
+  // Documented flat shape (ESC-45): no biz_content, notify_time in ms.
+  assert(received.biz_content === undefined, "webhook body is flat");
+  assert(received.merch_order_id === merchOrderId, "webhook merch_order_id matches");
+  assert(received.trade_status === "Completed", "webhook trade_status Completed");
+  assert(/^\d{13}$/.test(received.notify_time), "webhook notify_time is epoch ms");
+  // Telebirr signs the transaction id as trans_id; the simulator sends it as transId by default.
+  const signedView = { ...received };
+  if (signedView.transId !== undefined && signedView.trans_id === undefined) {
+    signedView.trans_id = signedView.transId;
+    delete signedView.transId;
+  }
+  const sigOk = C.verifyObject(signedView, received.sign, creds.telebirrPublicKeyPem);
+  assert(sigOk, "webhook signature verifies with Telebirr public key (trans_id alias)");
 
   receiver.close();
   console.log("\nALL SIMULATOR SELF-TESTS PASSED");

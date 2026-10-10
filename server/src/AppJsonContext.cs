@@ -110,7 +110,7 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(TelebirrTokenResponse))]
 [JsonSerializable(typeof(TelebirrPreOrderRequest))]
 [JsonSerializable(typeof(TelebirrPreOrderResponse))]
-[JsonSerializable(typeof(TelebirrWebhookNotification))]
+[JsonSerializable(typeof(TelebirrWebhookBiz))]
 // Escrow error DTOs
 [JsonSerializable(typeof(EscrowErrorResponse))]
 [JsonSerializable(typeof(EscrowError))]

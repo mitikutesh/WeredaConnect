@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text.Json;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
@@ -166,51 +165,61 @@ public class TelebirrWebhookFunction
             return;
         }
 
-        TelebirrWebhookNotification? n;
-        try
+        // ESC-45 (D0): Telebirr's notify is a flat body; one map is both verified and read.
+        if (!TelebirrNotifyParser.TryParse(request.Body, out var parsed, out var parseError))
         {
-            n = JsonSerializer.Deserialize(request.Body, AppJsonContext.Default.TelebirrWebhookNotification);
-        }
-        catch (JsonException)
-        {
-            context.Logger.LogWarning("Telebirr webhook: unparseable body.");
+            context.Logger.LogWarning($"Telebirr webhook: body refused ({parseError}).");
             return;
         }
 
-        if (n?.BizContent?.MerchOrderId is not { Length: > 0 } merchOrderId || string.IsNullOrEmpty(n.Sign))
+        if (parsed!.Fields.GetValueOrDefault("merch_order_id") is not { Length: > 0 } || string.IsNullOrEmpty(parsed.Sign))
         {
             context.Logger.LogWarning("Telebirr webhook: missing merch_order_id or sign.");
             return;
         }
 
-        // Layer 2 (primary): verify the signature with Telebirr's public key.
-        if (!_signer.VerifyObject(ToSignable(n), n.Sign))
+        // Layer 2 (primary): verify the signature with Telebirr's public key, over exactly the
+        // fields read below. Telebirr signs the transaction id as trans_id but has been seen
+        // sending transId; that rename is tried only when trans_id itself is absent.
+        var fields = parsed.Fields;
+        if (!_signer.VerifyFlat(fields, parsed.Sign, out var padding))
         {
-            context.Logger.LogWarning("Telebirr webhook: signature verification failed.");
-            return;
+            var renamed = TelebirrNotifyParser.WithTransIdAlias(fields);
+            if (renamed == null || !_signer.VerifyFlat(renamed, parsed.Sign, out padding))
+            {
+                context.Logger.LogWarning($"Telebirr webhook: signature verification failed. fields={DescribeFields(fields)}");
+                return;
+            }
+
+            fields = renamed;
         }
 
-        // Layer 3: timestamp freshness. Fail closed: a notification without a
-        // parseable timestamp is treated like a stale one (replay defence).
-        if (!long.TryParse(n.Timestamp, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tsMs))
+        var n = TelebirrNotifyParser.ToBiz(fields);
+        var merchOrderId = n.MerchOrderId!;
+
+        // Layer 3: freshness of notify_time (seconds or milliseconds by digit range). Fail closed:
+        // a notification without a parseable time is treated like a stale one (replay defence).
+        if (TelebirrNotifyParser.SentAt(fields) is not { } sentAt)
         {
-            context.Logger.LogWarning("Telebirr webhook: missing or unparseable timestamp.");
+            context.Logger.LogWarning("Telebirr webhook: missing or unparseable notify_time.");
             return;
         }
-        var skewSec = Math.Abs(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - tsMs) / 1000.0;
+        var skewSec = Math.Abs((DateTimeOffset.UtcNow - sentAt).TotalSeconds);
         if (skewSec > MaxTimestampSkewSeconds)
         {
-            context.Logger.LogWarning($"Telebirr webhook: stale timestamp (skew {skewSec:F0}s).");
+            context.Logger.LogWarning($"Telebirr webhook: stale notify_time (skew {skewSec:F0}s).");
             return;
         }
 
         // Layer 3b: the notification must be for our merchant account.
         if (!string.IsNullOrEmpty(_merchantCode)
-            && !string.Equals(n.BizContent.MerchCode, _merchantCode, StringComparison.Ordinal))
+            && !string.Equals(n.MerchCode, _merchantCode, StringComparison.Ordinal))
         {
             context.Logger.LogWarning("Telebirr webhook: merch_code does not match this merchant.");
             return;
         }
+
+        context.Logger.LogInformation($"Telebirr webhook: verified (padding={padding.ToString().ToLowerInvariant()}).");
 
         // ESC-01: an order checkout (server-generated merch_order_id) funds the order itself.
         // A failed lookup must never drop a verified payment silently: it is logged with the
@@ -226,14 +235,14 @@ public class TelebirrWebhookFunction
             {
                 context.Logger.LogError(
                     $"{UnprocessedToken} merchOrderId={SafeLogId(merchOrderId)} "
-                    + $"paymentOrderId={SafeLogId(n.BizContent.PaymentOrderId)} reason=mapping_lookup_{ex.GetType().Name}");
+                    + $"paymentOrderId={SafeLogId(n.PaymentOrderId)} reason=mapping_lookup_{ex.GetType().Name}");
                 return;
             }
         }
 
         if (checkout != null)
         {
-            await ProcessOrderPaymentAsync(n.BizContent, checkout, context);
+            await ProcessOrderPaymentAsync(n, checkout, context);
             return;
         }
 
@@ -259,9 +268,19 @@ public class TelebirrWebhookFunction
         // redelivery if the escrow update failed transiently, stranding a paid
         // payment in 'initiated'. The escrow CAS (expectedVersion 'initiated') is
         // the primary idempotency guard against concurrent duplicate deliveries.
-        var replayKey = $"webhook:{merchOrderId}:{n.BizContent.PaymentOrderId}:{n.BizContent.TradeStatus}";
+        var replayKey = $"webhook:{merchOrderId}:{n.PaymentOrderId}:{n.TradeStatus}";
 
-        var isSuccess = string.Equals(n.BizContent.TradeStatus, "Completed", StringComparison.OrdinalIgnoreCase);
+        var isSuccess = string.Equals(n.TradeStatus, "Completed", StringComparison.OrdinalIgnoreCase);
+
+        // Only a documented failure cancels the escrow. Pending ("payment completed, awaiting order
+        // synchronization") or Paying must not: the Completed that follows would then no-op on the
+        // CAS and strand a paid escrow (ESC-45).
+        if (!isSuccess && !IsFailedStatus(n.TradeStatus))
+        {
+            context.Logger.LogInformation(
+                $"Telebirr webhook: status {SafeLogId(n.TradeStatus)} for an escrow payment; nothing to do.");
+            return;
+        }
         var createdAt = GetString(escrow, "createdAt");
 
         // Payer binding: the wallet that paid should be the buyer's registered phone.
@@ -270,7 +289,7 @@ public class TelebirrWebhookFunction
         // is on (the field must be confirmed in Telebirr's live payload first);
         // otherwise a mismatch is recorded for the fraud review queue.
         if (isSuccess && !await PayerMatchesBuyerAsync(
-                GetString(escrow, "buyerId"), escrowId, n.BizContent.Msisdn, "initiated", context))
+                GetString(escrow, "buyerId"), escrowId, n.Msisdn, "initiated", context))
         {
             return;
         }
@@ -279,12 +298,12 @@ public class TelebirrWebhookFunction
         if (isSuccess)
         {
             var escrowAmount = GetDecimal(escrow, "amount");
-            if (!decimal.TryParse(n.BizContent.TotalAmount, NumberStyles.Number, CultureInfo.InvariantCulture, out var notified)
+            if (!decimal.TryParse(n.TotalAmount, NumberStyles.Number, CultureInfo.InvariantCulture, out var notified)
                 || Math.Abs(escrowAmount - notified) > 0.01m)
             {
                 context.Logger.LogWarning("Telebirr webhook: amount mismatch — rejecting.");
                 await AppendAuditAsync(escrowId, "webhook_amount_mismatch", "initiated", "initiated",
-                    metadata: $"escrow={escrowAmount},webhook={n.BizContent.TotalAmount}");
+                    metadata: $"escrow={escrowAmount},webhook={n.TotalAmount}");
                 return;
             }
         }
@@ -293,7 +312,7 @@ public class TelebirrWebhookFunction
         {
             if (isSuccess)
             {
-                var telebirrRef = n.BizContent.PaymentOrderId ?? "";
+                var telebirrRef = n.PaymentOrderId ?? "";
                 await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "escrowed", "initiated",
                     new Dictionary<string, object>
                     {
@@ -308,7 +327,7 @@ public class TelebirrWebhookFunction
             {
                 await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "cancelled", "initiated");
                 await AppendAuditAsync(escrowId, "webhook_hold_failed", "initiated", "cancelled",
-                    metadata: n.BizContent.TradeStatus);
+                    metadata: n.TradeStatus);
             }
 
             // The transition committed: only now record the replay/dedupe key so any
@@ -327,35 +346,19 @@ public class TelebirrWebhookFunction
         }
     }
 
-    /// <summary>Reconstruct the signed view of the notification (sign excluded by the signer).</summary>
-    private static Dictionary<string, object?> ToSignable(TelebirrWebhookNotification n)
-    {
-        var biz = n.BizContent;
-        var bizContent = new Dictionary<string, object?>
-        {
-            ["merch_order_id"] = biz?.MerchOrderId,
-            ["payment_order_id"] = biz?.PaymentOrderId,
-            ["total_amount"] = biz?.TotalAmount,
-            ["trans_currency"] = biz?.TransCurrency,
-            ["trade_status"] = biz?.TradeStatus,
-            ["merch_code"] = biz?.MerchCode,
-            ["trans_id"] = biz?.TransId,
-        };
-        if (biz?.Msisdn != null)
-        {
-            bizContent["msisdn"] = biz.Msisdn;
-        }
+    /// <summary>A status Telebirr documents as a failed payment (Failure) or that our earlier simulator sent (Failed), or an expired one.</summary>
+    private static bool IsFailedStatus(string? tradeStatus)
+        => tradeStatus is not null
+           && (tradeStatus.Equals("Failed", StringComparison.OrdinalIgnoreCase)
+               || tradeStatus.Equals("Failure", StringComparison.OrdinalIgnoreCase)
+               || tradeStatus.Equals("Expired", StringComparison.OrdinalIgnoreCase));
 
-        return new Dictionary<string, object?>
-        {
-            ["method"] = n.Method,
-            ["nonce_str"] = n.NonceStr,
-            ["timestamp"] = n.Timestamp,
-            ["notify_time"] = n.NotifyTime,
-            ["sign_type"] = n.SignType,
-            ["biz_content"] = bizContent,
-        };
-    }
+    /// <summary>
+    /// The field names of a body that did not verify, for diagnosis: at most 20, each through
+    /// <see cref="MoneyAlarmLog.LogId"/>, so an unverified body can never spell an alarm token.
+    /// </summary>
+    private static string DescribeFields(IReadOnlyDictionary<string, string> fields)
+        => string.Join(",", fields.Keys.Order(StringComparer.Ordinal).Take(20).Select(SafeLogId));
 
     /// <summary>
     /// False when the notification must be rejected. Records a mismatch (or a
@@ -676,7 +679,8 @@ public class TelebirrWebhookFunction
     /// </summary>
     private async Task<string> RecordNotCompletedAsync(OrderPayment payment)
     {
-        var failed = string.Equals(payment.TradeStatus, "Failed", StringComparison.OrdinalIgnoreCase);
+        var failed = string.Equals(payment.TradeStatus, "Failed", StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(payment.TradeStatus, "Failure", StringComparison.OrdinalIgnoreCase);
         await AppendAuditAsync(payment.EscrowId, failed ? "order_payment_failed" : "order_payment_status_ignored",
             "payment_submitted", "payment_submitted",
             metadata: $"orderId={payment.Checkout.OrderId},merchOrderId={payment.Checkout.MerchOrderId},"

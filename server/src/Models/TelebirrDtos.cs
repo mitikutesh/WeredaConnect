@@ -8,14 +8,14 @@ namespace WeredaConnect.Server.Models;
 // Field names are snake_case to match the Telebirr wire protocol.
 // ──────────────────────────────────────────────
 
-/// <summary>POST /apply/fabric-token request body.</summary>
+/// <summary>POST /payment/v1/token request body.</summary>
 public sealed record TelebirrTokenRequest
 {
     [JsonPropertyName("appSecret")]
     public required string AppSecret { get; init; }
 }
 
-/// <summary>POST /apply/fabric-token response.</summary>
+/// <summary>POST /payment/v1/token response.</summary>
 public sealed record TelebirrTokenResponse
 {
     [JsonPropertyName("token")]
@@ -116,7 +116,10 @@ public sealed record TelebirrPreOrderResponse
     public TelebirrPreOrderRespBiz? BizContent { get; init; }
 }
 
-/// <summary>biz_content of an inbound webhook notification.</summary>
+/// <summary>
+/// The payment fields of an inbound notification, read from the one verified field map
+/// (<see cref="WeredaConnect.Server.Services.TelebirrNotifyParser"/>); also the stored copy on an inbox row (ESC-45).
+/// </summary>
 public sealed record TelebirrWebhookBiz
 {
     [JsonPropertyName("merch_order_id")]
@@ -141,34 +144,9 @@ public sealed record TelebirrWebhookBiz
     public string? TransId { get; init; }
 
     /// <summary>
-    /// Paying wallet's phone number when Telebirr includes it. Field name to be
-    /// confirmed against the production notify payload; absent in the sandbox.
+    /// Paying wallet's phone number if Telebirr ever includes it. The documented notify has no
+    /// payer field (ESC-45, F13), so TELEBIRR_REQUIRE_PAYER_MATCH must stay off.
     /// </summary>
     [JsonPropertyName("msisdn")]
     public string? Msisdn { get; init; }
-}
-
-/// <summary>Inbound Telebirr payment notification (POST to notify_url).</summary>
-public sealed record TelebirrWebhookNotification
-{
-    [JsonPropertyName("method")]
-    public string? Method { get; init; }
-
-    [JsonPropertyName("nonce_str")]
-    public string? NonceStr { get; init; }
-
-    [JsonPropertyName("timestamp")]
-    public string? Timestamp { get; init; }
-
-    [JsonPropertyName("notify_time")]
-    public string? NotifyTime { get; init; }
-
-    [JsonPropertyName("sign_type")]
-    public string? SignType { get; init; }
-
-    [JsonPropertyName("sign")]
-    public string? Sign { get; init; }
-
-    [JsonPropertyName("biz_content")]
-    public TelebirrWebhookBiz? BizContent { get; init; }
 }

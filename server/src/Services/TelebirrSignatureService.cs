@@ -21,10 +21,11 @@ public enum TelebirrSignaturePadding
 public sealed class TelebirrSignatureService : ITelebirrSignatureService
 {
     // Keys never included in the signed string (they carry the signature itself,
-    // transport headers, or fields Telebirr appends after signing).
+    // transport headers, or fields Telebirr appends after signing). The list is Ethio
+    // Telecom's demo list (ESC-45, F11).
     private static readonly HashSet<string> ExcludedKeys = new(StringComparer.Ordinal)
     {
-        "sign", "sign_type", "header", "refund_info", "openType", "raw_request"
+        "sign", "sign_type", "header", "refund_info", "openType", "raw_request", "wallet_reference_data"
     };
 
     private readonly string? _privateKeyPem;
@@ -67,6 +68,22 @@ public sealed class TelebirrSignatureService : ITelebirrSignatureService
         return sb.ToString();
     }
 
+    public string BuildFlatCanonicalString(IReadOnlyDictionary<string, string> fields)
+    {
+        var sb = new StringBuilder();
+        foreach (var key in fields.Keys.Where(k => !ExcludedKeys.Contains(k)).Order(StringComparer.Ordinal))
+        {
+            if (sb.Length > 0)
+            {
+                sb.Append('&');
+            }
+
+            sb.Append(key).Append('=').Append(fields[key]);
+        }
+
+        return sb.ToString();
+    }
+
     public string SignObject(IReadOnlyDictionary<string, object?> payload)
         => Sign(BuildCanonicalString(payload));
 
@@ -89,6 +106,27 @@ public sealed class TelebirrSignatureService : ITelebirrSignatureService
         => Verify(BuildCanonicalString(payload), base64Signature);
 
     public bool Verify(string canonical, string base64Signature)
+        => Verify(canonical, base64Signature, _padding);
+
+    public bool VerifyFlat(
+        IReadOnlyDictionary<string, string> fields, string base64Signature, out TelebirrSignaturePadding matched)
+    {
+        var canonical = BuildFlatCanonicalString(fields);
+        var other = _padding == TelebirrSignaturePadding.Pss ? TelebirrSignaturePadding.Pkcs1 : TelebirrSignaturePadding.Pss;
+        foreach (var padding in new[] { _padding, other })
+        {
+            if (Verify(canonical, base64Signature, padding))
+            {
+                matched = padding;
+                return true;
+            }
+        }
+
+        matched = _padding;
+        return false;
+    }
+
+    private bool Verify(string canonical, string base64Signature, TelebirrSignaturePadding padding)
     {
         if (string.IsNullOrEmpty(_publicKeyPem))
         {
@@ -102,7 +140,7 @@ public sealed class TelebirrSignatureService : ITelebirrSignatureService
             rsa.ImportFromPem(_publicKeyPem);
             var data = Encoding.UTF8.GetBytes(canonical);
             var sig = Convert.FromBase64String(base64Signature);
-            return rsa.VerifyData(data, sig, HashAlgorithmName.SHA256, PaddingFor(_padding));
+            return rsa.VerifyData(data, sig, HashAlgorithmName.SHA256, PaddingFor(padding));
         }
         catch (Exception ex) when (ex is FormatException or CryptographicException)
         {

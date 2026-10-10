@@ -911,6 +911,9 @@ export class ApiStack extends cdk.Stack {
             merchantPrivateKeyPem: "PLACEHOLDER",
             telebirrPublicKeyPem: "PLACEHOLDER",
             returnUrl: "weredaconnect://payment/complete",
+            // ESC-45: left as is (editing this prod template can regenerate the
+            // secret). Populate the real value as "pss" (.ai/telebirr-testing.md); the
+            // webhook accepts a PSS or a PKCS#1 signature from Telebirr either way.
             signPadding: "pkcs1",
             // Optional Ethiopian egress proxy for OUTBOUND Telebirr calls
             // (http[s]://[user:pass@]host:port). Empty = direct. Telebirr's

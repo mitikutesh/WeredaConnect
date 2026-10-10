@@ -17,8 +17,8 @@ namespace WeredaConnect.Server.Tests.Functions;
 /// <summary>
 /// Verifies the Telebirr webhook handler: a valid signed "Completed" moves the
 /// escrow initiated→escrowed; "Failed" cancels it; and each security layer
-/// (bad signature, stale timestamp, replay, amount mismatch) blocks the
-/// transition. All responses are 200 OK.
+/// (bad signature, stale notify_time, replay, amount mismatch) blocks the
+/// transition. Notifications use the documented flat body (ESC-45).
 /// </summary>
 public class TelebirrWebhookFunctionTests
 {
@@ -57,63 +57,68 @@ public class TelebirrWebhookFunctionTests
             new TelebirrSignatureService(null, PublicKeyPem, TelebirrSignaturePadding.Pkcs1),
             merchantCode: merchantCode, userRepo: userRepo, requirePayerMatch: requirePayerMatch);
 
+    /// <summary>
+    /// The notify Telebirr documents (Notify_Callback, "Step 7"): one flat object, signed over every
+    /// field but sign and sign_type (ESC-45). <paramref name="transIdOnWire"/> sends the transaction
+    /// id as transId while it is signed as trans_id, as live Telebirr has been seen to do.
+    /// </summary>
     private static string SignedBody(string tradeStatus, string totalAmount = "15000.00", bool tamper = false,
-        long? timestampMs = null, string? rawTimestamp = null, string? msisdn = null,
+        long? notifyTimeMs = null, string? rawNotifyTime = null, string? msisdn = null,
+        string merchOrderId = MerchOrderId, string paymentOrderId = "TB123", string transCurrency = "ETB",
+        bool transIdOnWire = false, TelebirrSignaturePadding padding = TelebirrSignaturePadding.Pkcs1)
+    {
+        var fields = SignedFields(tradeStatus, totalAmount, notifyTimeMs, rawNotifyTime, msisdn,
+            merchOrderId, paymentOrderId, transCurrency);
+        var sign = Sign(fields, padding);
+        if (tamper)
+        {
+            sign = "AAAA" + sign[4..];
+        }
+
+        var body = fields.ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+        if (transIdOnWire)
+        {
+            body["transId"] = body["trans_id"];
+            body.Remove("trans_id");
+        }
+
+        body["sign"] = sign;
+        body["sign_type"] = "SHA256WithRSA";
+        return JsonSerializer.Serialize(body);
+    }
+
+    private static Dictionary<string, string> SignedFields(string tradeStatus, string totalAmount = "15000.00",
+        long? notifyTimeMs = null, string? rawNotifyTime = null, string? msisdn = null,
         string merchOrderId = MerchOrderId, string paymentOrderId = "TB123", string transCurrency = "ETB")
     {
-        var ts = rawTimestamp ?? (timestampMs ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).ToString();
-        var signable = new Dictionary<string, object?>
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var fields = new Dictionary<string, string>
         {
-            ["method"] = "payment.notify",
-            ["nonce_str"] = "n-123",
-            ["timestamp"] = ts,
-            ["notify_time"] = "2026-07-07T10:05:00Z",
-            ["sign_type"] = "SHA256WithRSA",
-            ["biz_content"] = new Dictionary<string, object?>
-            {
-                ["merch_order_id"] = merchOrderId,
-                ["payment_order_id"] = paymentOrderId,
-                ["total_amount"] = totalAmount,
-                ["trans_currency"] = transCurrency,
-                ["trade_status"] = tradeStatus,
-                ["merch_code"] = "220100",
-                ["trans_id"] = "TXN9",
-            },
-        };
-        var bizSignable = (Dictionary<string, object?>)signable["biz_content"]!;
-        if (msisdn != null)
-        {
-            bizSignable["msisdn"] = msisdn;
-        }
-        var signer = new TelebirrSignatureService(PrivateKeyPem, null, TelebirrSignaturePadding.Pkcs1);
-        var sign = tamper ? "AAAA" + signer.SignObject(signable)[4..] : signer.SignObject(signable);
-
-        var bizContent = new Dictionary<string, object?>
-        {
+            ["notify_url"] = "https://api.example/webhooks/telebirr",
+            ["appid"] = "853694808089634",
+            ["notify_time"] = rawNotifyTime ?? (notifyTimeMs ?? now).ToString(),
+            ["merch_code"] = "220100",
             ["merch_order_id"] = merchOrderId,
             ["payment_order_id"] = paymentOrderId,
             ["total_amount"] = totalAmount,
+            ["trans_id"] = "TXN9",
             ["trans_currency"] = transCurrency,
             ["trade_status"] = tradeStatus,
-            ["merch_code"] = "220100",
-            ["trans_id"] = "TXN9",
+            ["trans_end_time"] = now.ToString(),
         };
         if (msisdn != null)
         {
-            bizContent["msisdn"] = msisdn;
+            fields["msisdn"] = msisdn;
         }
-        var notification = new Dictionary<string, object?>
-        {
-            ["method"] = "payment.notify",
-            ["nonce_str"] = "n-123",
-            ["timestamp"] = ts,
-            ["notify_time"] = "2026-07-07T10:05:00Z",
-            ["sign_type"] = "SHA256WithRSA",
-            ["sign"] = sign,
-            ["biz_content"] = bizContent,
-        };
-        // Keys are serialized as-is (snake_case exactly as Telebirr sends them).
-        return JsonSerializer.Serialize(notification);
+
+        return fields;
+    }
+
+    private static string Sign(IReadOnlyDictionary<string, string> fields,
+        TelebirrSignaturePadding padding = TelebirrSignaturePadding.Pkcs1)
+    {
+        var signer = new TelebirrSignatureService(PrivateKeyPem, null, padding);
+        return signer.Sign(signer.BuildFlatCanonicalString(fields));
     }
 
     private static IUserRepository BuyerWithPhone(string phone)
@@ -182,7 +187,7 @@ public class TelebirrWebhookFunctionTests
     public async Task Stale_timestamp_does_not_transition()
     {
         var stale = DateTimeOffset.UtcNow.AddMinutes(-10).ToUnixTimeMilliseconds();
-        var resp = await NewFunction().FunctionHandler(Req(SignedBody("Completed", timestampMs: stale)), _ctx);
+        var resp = await NewFunction().FunctionHandler(Req(SignedBody("Completed", notifyTimeMs: stale)), _ctx);
 
         resp.StatusCode.Should().Be(200);
         await _escrowRepo.DidNotReceive().UpdateStatusAsync(
@@ -212,7 +217,7 @@ public class TelebirrWebhookFunctionTests
     [Fact]
     public async Task Unparseable_timestamp_does_not_transition()
     {
-        await NewFunction().FunctionHandler(Req(SignedBody("Completed", rawTimestamp: "not-a-number")), _ctx);
+        await NewFunction().FunctionHandler(Req(SignedBody("Completed", rawNotifyTime: "not-a-number")), _ctx);
 
         await _escrowRepo.DidNotReceive().UpdateStatusAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>());
@@ -221,7 +226,7 @@ public class TelebirrWebhookFunctionTests
     [Fact]
     public async Task Empty_timestamp_does_not_transition()
     {
-        await NewFunction().FunctionHandler(Req(SignedBody("Completed", rawTimestamp: "")), _ctx);
+        await NewFunction().FunctionHandler(Req(SignedBody("Completed", rawNotifyTime: "")), _ctx);
 
         await _escrowRepo.DidNotReceive().UpdateStatusAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>());
@@ -828,5 +833,272 @@ public class TelebirrWebhookFunctionTests
         Logs.Should().Contain("ORDER_PAYMENT_UNPROCESSED");
         await AuditRecorded("order_payment_unprocessed");
         await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    // ===== ESC-45 D0: the documented notify dialect =====
+
+    private Task EscrowNotMoved()
+        => _escrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>());
+
+    private Task EscrowMovedTo(string status)
+        => _escrowRepo.Received(1).UpdateStatusAsync(
+            EscrowId, Arg.Any<string>(), status, "initiated", Arg.Any<Dictionary<string, object>?>());
+
+    private static string Json(Dictionary<string, object?> body) => JsonSerializer.Serialize(body);
+
+    private static Dictionary<string, object?> Signed(Dictionary<string, string> fields)
+    {
+        var body = fields.ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+        body["sign"] = Sign(fields);
+        body["sign_type"] = "SHA256WithRSA";
+        return body;
+    }
+
+    [Fact]
+    public async Task A_notification_wrapped_in_a_data_envelope_is_read_from_the_envelope()
+    {
+        var envelope = new Dictionary<string, object?> { ["data"] = Signed(SignedFields("Completed")) };
+
+        await NewFunction().FunctionHandler(Req(Json(envelope)), _ctx);
+
+        await EscrowMovedTo("escrowed");
+    }
+
+    [Fact]
+    public async Task An_envelope_cannot_relabel_a_captured_notification()
+    {
+        // Validator item 1: a captured Failed notify, its fields put in data with Completed, Failed and
+        // the original signature at the top. The verified map must be the read map.
+        var captured = SignedFields("Failed");
+        var sign = Sign(captured);
+        var relabelled = captured.ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+        relabelled["trade_status"] = "Completed";
+        var attack = new Dictionary<string, object?>
+        {
+            ["data"] = relabelled, ["trade_status"] = "Failed", ["sign"] = sign, ["sign_type"] = "SHA256WithRSA",
+        };
+
+        await NewFunction().FunctionHandler(Req(Json(attack)), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Fact]
+    public async Task A_nested_object_next_to_the_signed_fields_refuses_the_body()
+    {
+        var body = Signed(SignedFields("Failed"));
+        body["data"] = Signed(SignedFields("Completed"));
+
+        await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Fact]
+    public async Task A_duplicate_key_refuses_the_body()
+    {
+        // The signed view says Failed; a second trade_status says Completed.
+        var signedJson = Json(Signed(SignedFields("Failed")));
+        var withDuplicate = signedJson[..^1] + ",\"trade_status\":\"Completed\"}";
+
+        await NewFunction().FunctionHandler(Req(withDuplicate), _ctx);
+
+        await EscrowNotMoved();
+        Logs.Should().Contain("duplicate_key");
+    }
+
+    [Fact]
+    public async Task An_array_value_refuses_the_body()
+    {
+        var body = Signed(SignedFields("Completed"));
+        body["extra"] = new[] { "a" };
+
+        await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Fact]
+    public async Task A_null_field_is_absent()
+    {
+        var body = Signed(SignedFields("Completed"));
+        body["callback_info"] = null;
+
+        await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+
+        await EscrowMovedTo("escrowed");
+    }
+
+    [Fact]
+    public async Task A_transaction_id_sent_as_transId_verifies_as_trans_id()
+    {
+        await NewFunction().FunctionHandler(Req(SignedBody("Completed", transIdOnWire: true)), _ctx);
+
+        await EscrowMovedTo("escrowed");
+    }
+
+    [Fact]
+    public async Task An_unsigned_trans_id_next_to_a_signed_transId_is_refused()
+    {
+        // Validator item 2: the alias applies only when trans_id itself is absent.
+        var fields = SignedFields("Completed");
+        var body = Signed(fields);
+        body["transId"] = body["trans_id"];
+        body["trans_id"] = "FORGED";
+
+        await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Fact]
+    public async Task The_transId_alias_feeds_the_order_its_transaction_id()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
+        _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
+            .Returns(StoredOrder("funded", OrderPaymentId));
+
+        await NewOrderFunction().FunctionHandler(Req(SignedBody("Completed", merchOrderId: OrderMerchOrderId,
+            paymentOrderId: OrderPaymentId, transIdOnWire: true)), _ctx);
+
+        await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Is<Dictionary<string, object>>(f =>
+            (string)f["telebirrTransId"] == "TXN9"));
+    }
+
+    [Theory]
+    [InlineData(TelebirrSignaturePadding.Pss, TelebirrSignaturePadding.Pkcs1)]
+    [InlineData(TelebirrSignaturePadding.Pkcs1, TelebirrSignaturePadding.Pss)]
+    public async Task Either_padding_verifies_whatever_is_configured(
+        TelebirrSignaturePadding configured, TelebirrSignaturePadding signedWith)
+    {
+        var fn = new TelebirrWebhookFunction(_escrowRepo, _auditRepo, _idemRepo,
+            new TelebirrSignatureService(null, PublicKeyPem, configured));
+
+        await fn.FunctionHandler(Req(SignedBody("Completed", padding: signedWith)), _ctx);
+
+        await EscrowMovedTo("escrowed");
+        Logs.Should().Contain($"padding={signedWith.ToString().ToLowerInvariant()}");
+    }
+
+    [Fact]
+    public async Task A_body_signed_by_another_key_is_refused_under_both_paddings()
+    {
+        using var other = System.Security.Cryptography.RSA.Create(2048);
+        var otherSigner = new TelebirrSignatureService(other.ExportPkcs8PrivateKeyPem(), null, TelebirrSignaturePadding.Pss);
+        var fields = SignedFields("Completed");
+        var body = fields.ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+        body["sign"] = otherSigner.Sign(otherSigner.BuildFlatCanonicalString(fields));
+
+        await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Fact]
+    public async Task A_notify_time_in_seconds_is_fresh()
+    {
+        var seconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+
+        await NewFunction().FunctionHandler(Req(SignedBody("Completed", rawNotifyTime: seconds)), _ctx);
+
+        await EscrowMovedTo("escrowed");
+    }
+
+    [Theory]
+    [InlineData("12345678")]
+    [InlineData("123456789012345")]
+    [InlineData("-1700000000000")]
+    [InlineData("2026-10-10T10:00:00Z")]
+    public async Task A_notify_time_outside_the_epoch_digit_ranges_is_refused(string raw)
+    {
+        await NewFunction().FunctionHandler(Req(SignedBody("Completed", rawNotifyTime: raw)), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Fact]
+    public async Task A_stale_notify_time_in_seconds_is_refused()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-10).ToUnixTimeSeconds().ToString();
+
+        await NewFunction().FunctionHandler(Req(SignedBody("Completed", rawNotifyTime: stale)), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Fact]
+    public async Task The_earlier_nested_shape_still_verifies_through_its_timestamp()
+    {
+        // Our earlier simulator: biz_content nested, notify_time an ISO string, timestamp in ms.
+        var fields = SignedFields("Completed");
+        fields["notify_time"] = "2026-07-07T10:05:00Z";
+        fields["timestamp"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+        var bizKeys = new[] { "merch_order_id", "payment_order_id", "total_amount", "trans_currency", "trade_status", "merch_code", "trans_id" };
+        var body = fields.Where(kv => !bizKeys.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+        body["biz_content"] = fields.Where(kv => bizKeys.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
+        body["sign"] = Sign(fields);
+
+        await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+
+        await EscrowMovedTo("escrowed");
+    }
+
+    [Fact]
+    public async Task A_biz_content_key_that_repeats_a_top_level_key_refuses_the_body()
+    {
+        var fields = SignedFields("Failed");
+        var body = Signed(fields);
+        body["biz_content"] = new Dictionary<string, string> { ["trade_status"] = "Completed" };
+
+        await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Theory]
+    [InlineData("Pending")]
+    [InlineData("Paying")]
+    public async Task An_in_progress_status_never_cancels_an_escrow(string status)
+    {
+        // Validator item 7: Pending means "payment completed, awaiting order synchronization".
+        await NewFunction().FunctionHandler(Req(SignedBody(status)), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Theory]
+    [InlineData("Failure")]
+    [InlineData("Expired")]
+    [InlineData("Failed")]
+    public async Task A_documented_failure_cancels_an_escrow(string status)
+    {
+        await NewFunction().FunctionHandler(Req(SignedBody(status)), _ctx);
+
+        await EscrowMovedTo("cancelled");
+    }
+
+    [Fact]
+    public async Task A_Failure_order_notification_is_recorded_as_a_failed_try()
+    {
+        await NewOrderFunction().FunctionHandler(Req(OrderBody(tradeStatus: "Failure")), _ctx);
+
+        await AuditRecorded("order_payment_failed");
+    }
+
+    [Fact]
+    public async Task A_refused_body_cannot_spell_an_alarm_token_in_the_log()
+    {
+        // Validator item 3: field names of an unverified body reach the log only defanged.
+        var body = Signed(SignedFields("Completed"));
+        foreach (var token in WeredaConnect.Server.Tests.Helpers.MoneyAlarmLogTests.AlarmTokens)
+        {
+            body[token] = "x";
+        }
+
+        await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+
+        await EscrowNotMoved();
+        WeredaConnect.Server.Tests.Helpers.MoneyAlarmLogTests.AlarmTokens.Where(Logs.Contains).Should().BeEmpty();
     }
 }

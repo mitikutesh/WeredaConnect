@@ -72,4 +72,10 @@ public static class TelebirrGatewayErrors
 
     /// <summary>No answer, or an answer that could not be read: Telebirr may have acted on it.</summary>
     public const string Network = "TELEBIRR_NETWORK";
+
+    /// <summary>
+    /// ESC-45: the fabric token could not be obtained, so the payment request was never sent. A
+    /// definite failure: nothing was created at Telebirr.
+    /// </summary>
+    public const string TokenFailed = "TELEBIRR_TOKEN";
 }

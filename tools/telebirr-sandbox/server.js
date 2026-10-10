@@ -11,10 +11,15 @@
  * developerportal.ethiotelebirr.et sandbox — only config differs.
  *
  * Endpoints (mirror real Telebirr):
- *   POST /apply/fabric-token             -> { token }
+ *   POST /payment/v1/token               -> { token, effectiveDate, expirationDate }
+ *                                           (/apply/fabric-token kept as an alias)
  *   POST /payment/v1/merchant/preOrder   -> verifies our sig, returns { prepay_id }
  *   GET  /payment/web/paygate?...        -> HTML "pay page" with Pay / Fail buttons
- *   POST /simulate/complete              -> fires an RSA-signed webhook to notify_url
+ *   POST /simulate/complete              -> fires an RSA-signed webhook to notify_url, in the
+ *                                           documented flat shape (ESC-45): notify_time in ms,
+ *                                           the transaction id signed as trans_id but sent as
+ *                                           transId (as live Telebirr has been seen to do; set
+ *                                           TELEBIRR_SIM_TRANS_ID_FIELD=trans_id for the doc sample)
  *   GET  /health, GET /                  -> status / help
  *
  * On first run it generates two RSA keypairs (merchant + "Telebirr") into
@@ -91,7 +96,7 @@ const KEYS = loadOrCreateKeys();
 
 // ── In-memory order store ──────────────────────────────────────────────────
 
-/** prepay_id -> { merchOrderId, amount, currency, notifyUrl, redirectUrl, title, status } */
+/** prepay_id -> { merchOrderId, amount, currency, notifyUrl, redirectUrl, title, appId, callbackInfo, status } */
 const orders = new Map();
 const fabricTokens = new Set();
 
@@ -127,23 +132,32 @@ function nowMs() {
 // ── Webhook delivery ───────────────────────────────────────────────────────
 
 async function fireWebhook(order, success) {
-  const notification = {
-    method: "payment.notify",
-    nonce_str: nonce(),
-    timestamp: nowMs(),
-    notify_time: new Date().toISOString(),
-    sign_type: "SHA256WithRSA",
-    biz_content: {
-      merch_order_id: order.merchOrderId,
-      payment_order_id: `TB${crypto.randomBytes(6).toString("hex").toUpperCase()}`,
-      total_amount: order.amount,
-      trans_currency: order.currency,
-      trade_status: success ? "Completed" : "Failed",
-      merch_code: MERCHANT.merchantCode,
-      trans_id: `TXN${crypto.randomBytes(6).toString("hex").toUpperCase()}`,
-    },
+  // Ethio Telecom's documented notify (Notify_Callback, "Step 7"): one flat object.
+  const signed = {
+    notify_url: order.notifyUrl,
+    appid: order.appId || MERCHANT.merchantAppId,
+    notify_time: nowMs(),
+    merch_code: MERCHANT.merchantCode,
+    merch_order_id: order.merchOrderId,
+    payment_order_id: `TB${crypto.randomBytes(6).toString("hex").toUpperCase()}`,
+    total_amount: order.amount,
+    trans_id: `TXN${crypto.randomBytes(6).toString("hex").toUpperCase()}`,
+    trans_currency: order.currency,
+    trade_status: success ? "Completed" : "Failure",
+    trans_end_time: nowMs(),
   };
-  notification.sign = C.signObject(notification, KEYS.telebirrPrivate);
+  if (order.callbackInfo) signed.callback_info = order.callbackInfo;
+  const sign = C.signObject(signed, KEYS.telebirrPrivate);
+
+  // Signed as trans_id, sent as transId unless told otherwise.
+  const transIdField = process.env.TELEBIRR_SIM_TRANS_ID_FIELD || "transId";
+  const notification = { ...signed };
+  if (transIdField !== "trans_id") {
+    notification[transIdField] = notification.trans_id;
+    delete notification.trans_id;
+  }
+  notification.sign = sign;
+  notification.sign_type = "SHA256WithRSA";
 
   const url = new URL(order.notifyUrl);
   const payload = JSON.stringify(notification);
@@ -165,7 +179,7 @@ async function fireWebhook(order, success) {
         r.on("data", (c) => (out += c));
         r.on("end", () => {
           console.log(
-            `[sim] webhook -> ${order.notifyUrl} : ${r.statusCode} (${order.merchOrderId}, ${success ? "Completed" : "Failed"})`,
+            `[sim] webhook -> ${order.notifyUrl} : ${r.statusCode} (${order.merchOrderId}, ${success ? "Completed" : "Failure"})`,
           );
           resolve({ status: r.statusCode, body: out });
         });
@@ -190,15 +204,22 @@ async function handle(req, res) {
   const url = new URL(req.url, PUBLIC_BASE);
   const route = `${req.method} ${url.pathname}`;
 
-  // POST /apply/fabric-token
-  if (route === "POST /apply/fabric-token") {
+  // POST /payment/v1/token (documented path; /apply/fabric-token is the old simulator alias)
+  if (route === "POST /payment/v1/token" || route === "POST /apply/fabric-token") {
     const appKey = req.headers["x-app-key"];
     if (appKey !== MERCHANT.fabricAppId) {
       return json(res, 401, { code: "40001", msg: "invalid X-APP-Key" });
     }
-    const token = `FABRIC-${nonce()}`;
+    const token = `Bearer ${nonce()}`;
     fabricTokens.add(token);
-    return json(res, 200, { token, expires_in: 7200 });
+    const stamp = (d) => d.toISOString().replace(/[-:T]/g, "").slice(0, 14);
+    const now = new Date();
+    return json(res, 200, {
+      token,
+      effectiveDate: stamp(now),
+      expirationDate: stamp(new Date(now.getTime() + 3600 * 1000)),
+      expires_in: 3600,
+    });
   }
 
   // POST /payment/v1/merchant/preOrder
@@ -234,6 +255,8 @@ async function handle(req, res) {
       notifyUrl: biz.notify_url,
       redirectUrl: biz.redirect_url,
       title: biz.title || "WeredaConnect payment",
+      appId: biz.appid,
+      callbackInfo: biz.callback_info,
       status: "pending",
     });
 
@@ -340,7 +363,7 @@ function helpPage() {
 <body><h1>Telebirr Sandbox Simulator</h1>
 <p>Playing the role of Telebirr's H5/C2B gateway at <code>${PUBLIC_BASE}</code>.</p>
 <ul>
-<li><code>POST /apply/fabric-token</code></li>
+<li><code>POST /payment/v1/token</code> (alias <code>/apply/fabric-token</code>)</li>
 <li><code>POST /payment/v1/merchant/preOrder</code></li>
 <li><code>GET  /payment/web/paygate</code> — the buyer pay page</li>
 <li><code>POST /simulate/complete</code> — fires the signed webhook</li>

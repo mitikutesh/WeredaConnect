@@ -23,8 +23,9 @@ namespace WeredaConnect.Server.Services;
 /// </summary>
 public sealed class TelebirrSandboxGateway : ITelebirrGateway
 {
-    // Endpoint paths (match the simulator; confirm against the portal for Tier 3).
-    private const string TokenPath = "/apply/fabric-token";
+    // Endpoint paths as Ethio Telecom documents them ("Apply Fabric Token", "Request Create
+    // Order"); the local simulator serves the same paths (ESC-45, F9).
+    private const string TokenPath = "/payment/v1/token";
     private const string PreOrderPath = "/payment/v1/merchant/preOrder";
 
     private readonly HttpClient _http;
@@ -48,11 +49,22 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
     /// </summary>
     public async Task<HoldFundsResponse> HoldFundsAsync(HoldFundsRequest request)
     {
+        // A failed token call cannot have created a payment (preOrder was never sent), so it is
+        // a definite failure, never an unknown outcome that blocks the buyer's checkout (ESC-45).
+        string token;
         try
         {
-            var token = await AcquireTokenAsync();
+            token = await AcquireTokenAsync();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            return Fail(TelebirrGatewayErrors.TokenFailed, $"Telebirr fabric token not obtained [{ex.GetType().Name}].");
+        }
+
+        try
+        {
             var nonce = GenerateNonce();
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+            var timestamp = UnixSecondsNow();
 
             // Build the signable view (top-level + biz_content) then sign it.
             var signable = new Dictionary<string, object?>
@@ -160,7 +172,7 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
         {
             return Fail(TelebirrGatewayErrors.Network, $"Network error contacting Telebirr: {ex.Message}");
         }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException)
         {
             return Fail(TelebirrGatewayErrors.Timeout, "Telebirr request timed out.");
         }
@@ -192,7 +204,11 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
     private const string PayoutNotSupportedMessage =
         "Telebirr payouts are not integrated yet. An admin pays this in the merchant portal.";
 
-    /// <summary>No status-polling endpoint in H5 C2B; reconciliation relies on webhooks.</summary>
+    /// <summary>
+    /// Not wired yet. Telebirr documents <c>/payment/v1/merchant/queryOrder</c> ("Step 5: queryOrder")
+    /// for a payment whose notification did not arrive; using it for reconciliation is an ESC-45
+    /// follow-up. Until then reconciliation relies on webhooks and the inbox replay.
+    /// </summary>
     public Task<TransactionStatusResponse> GetTransactionStatusAsync(string transactionRef)
         => Task.FromResult(new TransactionStatusResponse
         {
@@ -212,7 +228,7 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
     public string? BuildCheckoutUrl(string prepayId)
         => string.IsNullOrEmpty(prepayId)
             ? null
-            : BuildH5Url(GenerateNonce(), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(), prepayId);
+            : BuildH5Url(GenerateNonce(), UnixSecondsNow(), prepayId);
 
     // ── Internals ──────────────────────────────────────────────────────────
 
@@ -278,6 +294,10 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
         var web = _config.WebUrl.TrimEnd('/');
         return $"{web}?{query}";
     }
+
+    /// <summary>Request and checkout-URL timestamps are UTC epoch seconds, as Ethio Telecom documents (ESC-45, F10).</summary>
+    private static string UnixSecondsNow()
+        => DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     private string AbsoluteUrl(string path)
         => $"{_config.BaseUrl.TrimEnd('/')}{path}";

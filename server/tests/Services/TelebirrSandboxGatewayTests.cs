@@ -44,13 +44,13 @@ public class TelebirrSandboxGatewayTests
     {
         // Fake Telebirr verifies OUR request signature with the merchant public key.
         var verifier = new TelebirrSignatureService(null, TestPublicKeyPem, TelebirrSignaturePadding.Pkcs1);
-        string? capturedAuth = null, capturedAppKey = null;
+        string? capturedAuth = null, capturedAppKey = null, capturedTimestamp = null;
         var signatureVerified = false;
 
         var handler = new FakeHandler(async (req) =>
         {
             var path = req.RequestUri!.AbsolutePath;
-            if (path.EndsWith("/apply/fabric-token"))
+            if (path.EndsWith("/payment/v1/token"))
             {
                 capturedAppKey = req.Headers.TryGetValues("X-APP-Key", out var v) ? v.First() : null;
                 return Json(new TelebirrTokenResponse { Token = "FAB-TOKEN", ExpiresIn = 7200 },
@@ -86,6 +86,7 @@ public class TelebirrSandboxGatewayTests
                     },
                 };
                 signatureVerified = verifier.VerifyObject(signable, order.Sign);
+                capturedTimestamp = order.Timestamp;
                 return Json(new TelebirrPreOrderResponse
                 {
                     Result = "SUCCESS",
@@ -118,6 +119,45 @@ public class TelebirrSandboxGatewayTests
         resp.ToPayUrl!.Should().StartWith("http://telebirr.local/payment/web/paygate?");
         resp.ToPayUrl.Should().Contain("prepay_id=PREPAY-XYZ").And.Contain("sign=").And.Contain("trade_type=Checkout");
         resp.TelebirrRef.Should().StartWith("PENDING-WEBHOOK-");
+        // ESC-45 (F10): request and checkout-URL timestamps are epoch seconds.
+        capturedTimestamp.Should().MatchRegex("^[0-9]{10}$");
+        resp.ToPayUrl.Should().MatchRegex("timestamp=[0-9]{10}&");
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized, "{}")]
+    [InlineData(HttpStatusCode.OK, "{\"effectiveDate\":\"20261010120000\"}")]
+    [InlineData(HttpStatusCode.OK, "not json")]
+    public async Task HoldFunds_token_failure_is_definite_and_never_sends_the_preorder(HttpStatusCode status, string body)
+    {
+        // ESC-45: no token, no preOrder, so nothing was created at Telebirr: TELEBIRR_TOKEN is a
+        // definite failure, not an unknown outcome that blocks the buyer's checkout.
+        var preOrders = 0;
+        var handler = new FakeHandler(req =>
+        {
+            if (req.RequestUri!.AbsolutePath.EndsWith("/payment/v1/merchant/preOrder"))
+            {
+                preOrders++;
+            }
+
+            return Task.FromResult(new HttpResponseMessage(status)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json"),
+            });
+        });
+        var gateway = new TelebirrSandboxGateway(
+            new HttpClient(handler),
+            new TelebirrSignatureService(TestPrivateKeyPem, null, TelebirrSignaturePadding.Pkcs1),
+            TestConfig());
+
+        var resp = await gateway.HoldFundsAsync(new HoldFundsRequest
+        {
+            TransactionRef = "WCO1", BuyerPhone = "+2519", Amount = 100m, Description = "x",
+        });
+
+        resp.Success.Should().BeFalse();
+        resp.ErrorCode.Should().Be(TelebirrGatewayErrors.TokenFailed);
+        preOrders.Should().Be(0);
     }
 
     [Fact]
@@ -125,7 +165,7 @@ public class TelebirrSandboxGatewayTests
     {
         var handler = new FakeHandler((req) =>
         {
-            if (req.RequestUri!.AbsolutePath.EndsWith("/apply/fabric-token"))
+            if (req.RequestUri!.AbsolutePath.EndsWith("/payment/v1/token"))
             {
                 return Task.FromResult(Json(new TelebirrTokenResponse { Token = "T", ExpiresIn = 7200 },
                     AppJsonContext.Default.TelebirrTokenResponse));
@@ -161,7 +201,7 @@ public class TelebirrSandboxGatewayTests
         // ESC-05: an answer that does not say whether Telebirr created the payment is an unknown
         // outcome (TELEBIRR_NETWORK), never a definite refusal the caller may retry.
         var handler = new FakeHandler(req => Task.FromResult(
-            req.RequestUri!.AbsolutePath.EndsWith("/apply/fabric-token")
+            req.RequestUri!.AbsolutePath.EndsWith("/payment/v1/token")
                 ? Json(new TelebirrTokenResponse { Token = "T", ExpiresIn = 7200 }, AppJsonContext.Default.TelebirrTokenResponse)
                 : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") }));
         var gateway = new TelebirrSandboxGateway(
