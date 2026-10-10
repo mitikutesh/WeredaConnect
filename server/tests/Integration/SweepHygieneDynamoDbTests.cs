@@ -453,6 +453,38 @@ public sealed class SweepHygieneDynamoDbTests
         response.Body.Should().Contain("\"disputesFrozen\":\"1\"");
     }
 
+    [LocalDynamoDbTheory]
+    [InlineData("delivered")]
+    [InlineData("disputed")]
+    public async Task AutoRelease_DoubleEscrow_IsBlocked_AndTheOrdersOwnEscrowIsNeverFrozen(string deliveryStatus)
+    {
+        // An /escrow/initiate escrow on an order whose own escrow still holds the money (a legacy double
+        // payment): the sweep pays neither and never freezes the order's escrow from this row.
+        var farmer = await SeedUserAsync("farmer", phoneVerified: true);
+        var orderId = $"ord-esc10-dbl-{deliveryStatus}-{_run}";
+        var escrowId = $"escrow-esc10-dbl-{deliveryStatus}-{_run}";
+        var orderEscrow = $"escrow-order-{orderId}";
+        await BatchPutAsync(_db.Escrows, new[]
+        {
+            EscrowItem(escrowId, farmer, "2000-11-01T00:00:00.0000000Z", confirmed: true, deliveryId: $"del-{escrowId}", orderId: orderId),
+            EscrowItem(orderEscrow, farmer, "2099-11-01T00:00:00.0000000Z", orderId: orderId, orderSourced: true)
+        });
+        await BatchPutAsync(_db.Deliveries, new[] { DeliveryItem($"del-{escrowId}", deliveryStatus, orderId) });
+        await BatchPutAsync(_db.Orders, new[] { OrderItem(orderId, "delivered") });
+
+        await SweepAsync();
+
+        Paid($"release:{escrowId}").Should().Be(0);
+        Paid($"release:{orderEscrow}").Should().Be(0);
+        var row = await EscrowRepo.GetByIdAsync(escrowId, true);
+        Str(row, "status").Should().Be("escrowed");
+        Str(row, SettlementBlockFields.Reason).Should().Be("release:trade:double_escrow");
+        Str(await EscrowRepo.GetByIdAsync(orderEscrow, true), "status").Should().Be("escrowed");
+        Str(await OrderRepo.GetByIdAsync(orderId, consistentRead: true), "status").Should().Be("delivered");
+        (await TrailAsync(escrowId)).Count(a => (string)a["action"] == "auto_release_blocked").Should().Be(1);
+        (await TrailAsync(orderEscrow)).Should().NotContain(a => (string)a["action"] == "dispute");
+    }
+
     // ===== The new conditional writes =====
 
     [LocalDynamoDbFact]

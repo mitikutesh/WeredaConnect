@@ -3478,11 +3478,12 @@ public sealed class EscrowService
     /// reason (<see cref="SettlementBlockFields"/>, <c>&lt;op&gt;:&lt;gate&gt;:&lt;reason&gt;</c>) is stored on the
     /// escrow by compare-and-set with the time first seen, and the audit row
     /// (<paramref name="auditAction"/>) sits at that time, so later runs that see the same reason write
-    /// nothing but re-ensure a row a crash lost. With <paramref name="alarmAction"/> the first run logs
-    /// one <c>ESCROW_SETTLEMENT_FAILED</c> line (the block needs a person), before the audit row. A
-    /// lost-answer write that the SDK retried is recognised by its time. Best-effort: a failed write
-    /// logs <c>SETTLEMENT_BLOCK_AUDIT_FAILED</c> and the next run repairs it. Returns true when this call
-    /// stored the reason.
+    /// nothing but re-ensure a row a crash lost. With <paramref name="alarmAction"/> the run whose write
+    /// creates that row logs one <c>ESCROW_SETTLEMENT_FAILED</c> line (the block needs a person): once by
+    /// construction, also when the reason's write landed but its answer was lost, so the row came only on a
+    /// later run. A lost-answer write that the SDK retried is recognised by its time. Best-effort: a failed
+    /// write logs <c>SETTLEMENT_BLOCK_AUDIT_FAILED</c> and the next run repairs it. Returns true when this
+    /// call stored the reason.
     /// </summary>
     public async Task<bool> NoteSettlementBlockedAsync(
         Dictionary<string, object> escrow, string expectedStatus, string reason, string auditAction,
@@ -3494,8 +3495,7 @@ public sealed class EscrowService
             var storedAt = GetStringOrNull(escrow, SettlementBlockFields.ReasonAt);
             if (GetStringOrNull(escrow, SettlementBlockFields.Reason) == reason && storedAt != null)
             {
-                await EnsureAuditAsync(escrowId, storedAt, auditAction, expectedStatus, expectedStatus, SystemActor,
-                    metadata: metadata);
+                await AuditBlockOnceAsync(escrowId, storedAt);
                 return false;
             }
 
@@ -3512,25 +3512,28 @@ public sealed class EscrowService
 
                 if (latestAt != reasonAt)
                 {
-                    await EnsureAuditAsync(escrowId, latestAt, auditAction, expectedStatus, expectedStatus, SystemActor,
-                        metadata: metadata);
+                    await AuditBlockOnceAsync(escrowId, latestAt);
                     return false;
                 }
             }
 
-            if (alarmAction != null)
-            {
-                AlarmLog(MoneyAlarmLog.SettlementFailed(escrowId, alarmAction, MoneyAlarmLog.OutcomeFailed, reason));
-            }
-
-            await EnsureAuditAsync(escrowId, reasonAt, auditAction, expectedStatus, expectedStatus, SystemActor,
-                metadata: metadata);
+            await AuditBlockOnceAsync(escrowId, reasonAt);
             return true;
         }
         catch (Exception ex)
         {
             Console.WriteLine($"SETTLEMENT_BLOCK_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
             return false;
+        }
+
+        // The block's one audit row at its stored time, and the alarm line only from the write that created it.
+        async Task AuditBlockOnceAsync(string id, string at)
+        {
+            if (await EnsureAuditAsync(id, at, auditAction, expectedStatus, expectedStatus, SystemActor, metadata: metadata)
+                && alarmAction != null)
+            {
+                AlarmLog(MoneyAlarmLog.SettlementFailed(id, alarmAction, MoneyAlarmLog.OutcomeFailed, reason));
+            }
         }
     }
 
@@ -5192,12 +5195,13 @@ public sealed class EscrowService
     /// ESC-02: write an audit row at a deterministic key (<paramref name="timestamp"/> comes
     /// from the escrow row, for example a leg's paidAt), only if it is not there yet. A replay
     /// after a crash between the money write and its audit row fills the gap without a duplicate.
+    /// Returns true when this call wrote the row (ESC-10).
     /// </summary>
-    private async Task EnsureAuditAsync(
+    private async Task<bool> EnsureAuditAsync(
         string escrowId, string timestamp, string action, string fromState, string toState,
         string actor, string? telebirrRef = null, string? metadata = null)
     {
-        await _auditRepo.AppendIfAbsentAsync(BuildAuditEntry(
+        return await _auditRepo.AppendIfAbsentAsync(BuildAuditEntry(
             EscrowAuditRepository.DeterministicAuditId(action, timestamp), timestamp,
             escrowId, action, fromState, toState, actor, telebirrRef, metadata));
     }

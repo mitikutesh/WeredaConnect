@@ -31,6 +31,7 @@ public class EscrowCronSweepHygieneTests
     private readonly List<string> _alarms = new();
     private readonly List<Dictionary<string, object>> _auditRows = new();
     private readonly Dictionary<string, (string Reason, string At)> _markers = new();
+    private readonly HashSet<(string EscrowId, string Timestamp)> _auditKeys = new();
     private readonly TestLambdaContext _context = new();
 
     public EscrowCronSweepHygieneTests()
@@ -63,7 +64,13 @@ public class EscrowCronSweepHygieneTests
             .Returns(ci => new ReleaseFundsResponse { Success = true, TelebirrRef = $"GW-{ci.Arg<ReleaseFundsRequest>().TransactionRef}" });
         _gateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>())
             .Returns(ci => new RefundFundsResponse { Success = true, TelebirrRef = $"GW-{ci.Arg<RefundFundsRequest>().TransactionRef}" });
-        _audit.AppendIfAbsentAsync(Arg.Do<Dictionary<string, object>>(r => _auditRows.Add(r))).Returns(true);
+        // Like the conditional put: a row is created once per (escrowId, timestamp).
+        _audit.AppendIfAbsentAsync(Arg.Do<Dictionary<string, object>>(r => _auditRows.Add(r)))
+            .Returns(ci =>
+            {
+                var row = ci.Arg<Dictionary<string, object>>();
+                return _auditKeys.Add(((string)row["escrowId"], (string)row["timestamp"]));
+            });
         _audit.AppendAsync(Arg.Do<Dictionary<string, object>>(r => _auditRows.Add(r))).Returns(Task.CompletedTask);
         _txAudit.AppendAsync(Arg.Do<Dictionary<string, object>>(r => _txRows.Add(r))).Returns(Task.CompletedTask);
     }
@@ -595,12 +602,13 @@ public class EscrowCronSweepHygieneTests
     [Fact]
     public async Task Release_FreezeWouldHitTheOrderEscrow_BlocksFreezeOtherEscrow_AndDoesNotAskAgain()
     {
-        // An /escrow/initiate escrow on an order that also has its own escrow: ESC-07 freezes the order's.
+        // The order's own escrow is inert (refunded), so this is no double escrow, but ESC-07's freeze
+        // path still lands on it and refuses: this escrow is blocked, and the refusal is not asked again.
         var e = Escrow("escrow-other", confirmed: true, orderId: "ord-two");
         DeliveryIs("escrow-other", "disputed");
         OrderIs("ord-two", "disputed");
         var orderEscrow = Escrow("escrow-order-ord-two", orderId: "ord-two", orderSourced: true);
-        orderEscrow["status"] = "disputed";
+        orderEscrow["status"] = "refunded";
         orderEscrow.Remove("deliveryId");
         _escrows.GetByIdAsync("escrow-order-ord-two", true).Returns(orderEscrow);
         var swept = ReleaseSweep(e);
@@ -609,12 +617,88 @@ public class EscrowCronSweepHygieneTests
         await RunAsync(Cron());
 
         await NotReleased("escrow-other");
-        await _escrows.DidNotReceive().UpdateStatusAsync("escrow-other", Arg.Any<string>(), "disputed", Arg.Any<string?>(),
+        await _escrows.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), "disputed", Arg.Any<string?>(),
             Arg.Any<Dictionary<string, object>?>());
         _markers["escrow-other"].Reason.Should().Be("release:trade:freeze_other_escrow");
-        // The second run sees the stored permanent refusal and does not ask the freeze path again.
-        await _escrows.Received(1).GetByIdAsync("escrow-order-ord-two", true);
+        // The freeze path ran once (its refusal reads the order escrow's trail); the second run did not ask again.
+        await _audit.Received(1).GetAuditTrailAsync("escrow-order-ord-two");
         _alarms.Where(l => l.Contains("auto_release_blocked")).Should().ContainSingle();
+        swept.AssertServed();
+    }
+
+    [Fact]
+    public async Task Release_DoubleEscrow_DeliveredTrade_IsBlocked_NotReleased()
+    {
+        // An /escrow/initiate escrow on an order whose own escrow still holds the money: two payments.
+        var e = Escrow("escrow-dbl", confirmed: true, orderId: "ord-dbl");
+        DeliveryIs("escrow-dbl", "delivered");
+        OrderIs("ord-dbl", "delivered");
+        _escrows.GetByIdAsync("escrow-order-ord-dbl", true).Returns(Escrow("escrow-order-ord-dbl", orderId: "ord-dbl", orderSourced: true));
+        var swept = ReleaseSweep(e);
+
+        var response = await RunAsync(Cron());
+
+        await NotReleased("escrow-dbl");
+        _markers["escrow-dbl"].Reason.Should().Be("release:trade:double_escrow");
+        response.Body.Should().Contain("\"releaseBlocked\":\"1\"");
+        _alarms.Should().ContainSingle(l => l.Contains("escrowId=escrow-dbl") && l.Contains("code=release:trade:double_escrow"));
+        swept.AssertServed();
+    }
+
+    [Fact]
+    public async Task Release_DoubleEscrow_DisputedDelivery_IsBlockedBeforeAnyFreeze()
+    {
+        var e = Escrow("escrow-dbld", confirmed: true, orderId: "ord-dbld");
+        DeliveryIs("escrow-dbld", "disputed");
+        OrderIs("ord-dbld", "delivered");
+        _escrows.GetByIdAsync("escrow-order-ord-dbld", true).Returns(Escrow("escrow-order-ord-dbld", orderId: "ord-dbld", orderSourced: true));
+        var swept = ReleaseSweep(e);
+
+        var response = await RunAsync(Cron());
+
+        await NotReleased("escrow-dbld");
+        _markers["escrow-dbld"].Reason.Should().Be("release:trade:double_escrow");
+        // Neither escrow was frozen and nothing was mirrored: the order escrow is not this sweep's to freeze.
+        await _escrows.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), "disputed", Arg.Any<string?>(),
+            Arg.Any<Dictionary<string, object>?>());
+        await _deliveries.DidNotReceive().TryMarkDisputedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+        response.Body.Should().Contain("\"disputesFrozen\":\"0\"");
+        swept.AssertServed();
+    }
+
+    [Fact]
+    public async Task Block_ReasonWriteLandsButItsAnswerIsLost_TheNextRunAuditsAndAlarmsOnce()
+    {
+        var e = Escrow("escrow-lost", confirmed: true, orderId: "ord-lost", orderSourced: true);
+        DeliveryIs("escrow-lost", "delivered");
+        OrderIs("ord-lost", "cancelled");
+        // The first write lands (the row has the reason) but the call throws: no audit row, no alarm yet.
+        var first = true;
+        _escrows.TrySetSettlementBlockReasonAsync("escrow-lost", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(ci =>
+            {
+                if (!first)
+                {
+                    return false;
+                }
+
+                first = false;
+                _markers["escrow-lost"] = (ci.ArgAt<string>(3), ci.ArgAt<string>(4));
+                throw new ProvisionedThroughputExceededException("answer lost");
+            });
+        var swept = ReleaseSweep(e);
+
+        await RunAsync(Cron());
+        _alarms.Should().BeEmpty();
+        AuditRows("escrow-lost", "auto_release_blocked").Should().BeEmpty();
+
+        await RunAsync(Cron());
+        await RunAsync(Cron());
+
+        await NotReleased("escrow-lost");
+        _alarms.Where(l => l.Contains("escrowId=escrow-lost") && l.Contains("action=auto_release_blocked")).Should().ContainSingle();
+        AuditRows("escrow-lost", "auto_release_blocked").Select(r => r["timestamp"]).Distinct().Should().ContainSingle()
+            .Which.Should().Be(_markers["escrow-lost"].At);
         swept.AssertServed();
     }
 
@@ -1093,5 +1177,28 @@ public class EscrowCronSweepHygieneTests
         response.Body.Should().Contain("\"reconciledToEscrowed\":\"0\"").And.Contain("\"skipped\":\"1\"");
         Logs.Should().Contain("escrow-ref-won is no longer initiated; skipped");
         Logs.Should().NotContain("Telebirr query failed");
+    }
+
+    [Fact]
+    public async Task Reconciliation_CancelLandsButItsAuditRowFails_TheRunGoesOn_AndAlarms()
+    {
+        Dictionary<string, object> Initiated(string id) => new()
+        {
+            { "escrowId", id }, { "status", "initiated" },
+            { "createdAt", DateTime.UtcNow.AddHours(-5).ToString("o") }
+        };
+
+        _escrows.StubSweep("initiated", Initiated("escrow-audit-fails"), Initiated("escrow-audit-ok"));
+        _audit.AppendAsync(Arg.Is<Dictionary<string, object>>(r => (string)r["escrowId"] == "escrow-audit-fails"))
+            .ThrowsAsync(new ProvisionedThroughputExceededException("throttled"));
+
+        var response = await RunAsync(Cron(), "reconciliation");
+
+        response.StatusCode.Should().Be(200);
+        response.Body.Should().Contain("\"reconciledToCancelled\":\"2\"");
+        await _escrows.Received(1).UpdateStatusAsync("escrow-audit-ok", Arg.Any<string>(), "cancelled", "initiated",
+            Arg.Any<Dictionary<string, object>?>());
+        Logs.Should().Contain(
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-audit-fails action=reconciliation_exception outcome=failed code=audit:ProvisionedThroughputExceededException");
     }
 }

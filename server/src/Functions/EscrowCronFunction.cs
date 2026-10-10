@@ -1779,10 +1779,21 @@ public class EscrowCronFunction
                     continue;
                 }
 
-                await AppendAuditAsync(escrowId, "reconcile_cancel", "initiated", "cancelled",
-                    "system", metadata: "No Telebirr reference; payment window elapsed with no completion.");
-
                 reconciledToCancelled++;
+                try
+                {
+                    await AppendAuditAsync(escrowId, "reconcile_cancel", "initiated", "cancelled",
+                        "system", metadata: "No Telebirr reference; payment window elapsed with no completion.");
+                }
+                catch (Exception ex)
+                {
+                    // ESC-10: the cancel landed; only its audit row is missing, and the other rows go on.
+                    context.Logger.LogError(
+                        $"Reconciliation: {MoneyAlarmLog.LogId(escrowId)} cancelled but its audit row failed: [{ex.GetType().Name}]");
+                    context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                        escrowId, "reconciliation_exception", MoneyAlarmLog.OutcomeFailed, $"audit:{ex.GetType().Name}"));
+                }
+
                 continue;
             }
 
@@ -2009,11 +2020,28 @@ public class EscrowCronFunction
     };
 
     /// <summary>
+    /// ESC-10: the escrow names an order whose own escrow (<c>escrow-order-{orderId}</c>) also holds the
+    /// trade's money or paid it out: two payments for one trade, so neither sweep settles this one (a person
+    /// decides). Checked before any other read, and before a freeze, which would land on the order's escrow.
+    /// </summary>
+    private async Task<bool> IsDoubleEscrowAsync(Dictionary<string, object> escrow)
+    {
+        var orderId = GetStringOrNull(escrow, "orderId");
+        if (string.IsNullOrEmpty(orderId) || $"escrow-order-{orderId}" == GetString(escrow, "escrowId"))
+        {
+            return false;
+        }
+
+        var orderEscrow = await _escrowRepo.GetByIdAsync($"escrow-order-{orderId}", consistentRead: true);
+        return orderEscrow != null && MoneyHoldingEscrowStatuses.Contains(GetString(orderEscrow, "status"));
+    }
+
+    /// <summary>
     /// ESC-10 (FUP-28): the auto-release pays only a delivery that is <c>delivered</c>, behind an order
     /// that is in flight (<c>accepted</c> to <c>disbursing</c>: the order may lag the delivery) or none.
     /// Both are read strongly consistent; a read that throws fails the row (its alarm line), nothing
-    /// paid. A disputed trade is frozen (<see cref="FreezeDisputedTradeAsync"/>); a resolved dispute, any
-    /// other mismatch and a missing repository block, audited once with one alarm line.
+    /// paid. A double escrow blocks first; a disputed trade is frozen (<see cref="FreezeDisputedTradeAsync"/>);
+    /// a resolved dispute, any other mismatch and a missing repository block, audited once with one alarm line.
     /// </summary>
     private async Task<TradeCheck> CheckReleaseTradeAsync(Dictionary<string, object> escrow, ILambdaContext context)
     {
@@ -2022,6 +2050,11 @@ public class EscrowCronFunction
         if (_deliveryRepo == null || (!string.IsNullOrEmpty(orderId) && _orderRepo == null))
         {
             return await BlockSettlementAsync(escrow, "release", "repo_unavailable", null, context);
+        }
+
+        if (await IsDoubleEscrowAsync(escrow))
+        {
+            return await BlockSettlementAsync(escrow, "release", "double_escrow", null, context);
         }
 
         if (string.IsNullOrEmpty(deliveryId))
@@ -2097,13 +2130,9 @@ public class EscrowCronFunction
             return await BlockSettlementAsync(escrow, "refund", "repo_unavailable", null, context);
         }
 
-        if (!string.IsNullOrEmpty(orderId) && $"escrow-order-{orderId}" != escrowId)
+        if (await IsDoubleEscrowAsync(escrow))
         {
-            var orderEscrow = await _escrowRepo.GetByIdAsync($"escrow-order-{orderId}", consistentRead: true);
-            if (orderEscrow != null && MoneyHoldingEscrowStatuses.Contains(GetString(orderEscrow, "status")))
-            {
-                return await BlockSettlementAsync(escrow, "refund", "double_escrow", null, context);
-            }
+            return await BlockSettlementAsync(escrow, "refund", "double_escrow", null, context);
         }
 
         var trade = await ReadTradeAsync(deliveryId, orderId);

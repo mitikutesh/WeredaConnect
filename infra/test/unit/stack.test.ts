@@ -406,6 +406,26 @@ describe('ApiStack', () => {
     }
   });
 
+  test('ESC-10: escrow-cron can read the escrow audit trail the sweep freeze checks', () => {
+    // The sweeps freeze a disputed trade through the ESC-07 delivery dispute path, whose refusal row
+    // reads the escrow's audit trail first.
+    const policies = template.findResources('AWS::IAM::Policy');
+    const ids = Object.keys(policies).filter((key) => key.startsWith('EscrowCronFunctionServiceRole'));
+    expect(ids.length).toBeGreaterThan(0);
+    const actions = ids
+      .flatMap(
+        (id) =>
+          policies[id].Properties.PolicyDocument.Statement as Array<{
+            Action: string | string[];
+            Resource: unknown;
+          }>,
+      )
+      .filter((s) => JSON.stringify(s.Resource).includes('EscrowAuditTable'))
+      .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+    expect(actions).toContain('dynamodb:Query');
+    expect(actions).toContain('dynamodb:PutItem');
+  });
+
   test('ESC-05: the Lambdas that settle escrows stop well within the 15 minute stale-lock threshold', () => {
     // The recovery step parks a settlement lock older than 15 minutes as an unknown outcome. That
     // is only safe while no settlement can still be running after 15 minutes.

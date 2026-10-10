@@ -2700,10 +2700,11 @@ reason of its own gate (`<op>:<gate>:` prefix) only.
   `ESCROW_RELEASE_BLOCKED escrowId=<id> code=ESCROW_029 sweep=<sweep>` at Information (was an error
   line) and counts `releaseBlocked`.
 - `auto_release_blocked`, `auto_refund_blocked` (new audit actions, `actor: system`, metadata
-  `reason=<reason>;orderStatus=<status>;deliveryStatus=<status>`): a block of the check below. When the
-  reason is first stored the run also logs one `ESCROW_SETTLEMENT_FAILED escrowId=<id>
+  `reason=<reason>;orderStatus=<status>;deliveryStatus=<status>`): a block of the check below. The run
+  whose write creates the block's audit row also logs one `ESCROW_SETTLEMENT_FAILED escrowId=<id>
   action=auto_release_blocked|auto_refund_blocked outcome=failed code=<op>:trade:<reason>` line (a
-  person must look), never again for the same reason. Every run logs `ESCROW_SETTLEMENT_BLOCKED
+  person must look), never again for the same reason; a reason whose write landed but whose answer was
+  lost gets its row and its line on the next run. Every run logs `ESCROW_SETTLEMENT_BLOCKED
   escrowId=<id> op=<op> reason=<reason>` at Warning (not an alarm token) and counts `releaseBlocked` or
   `refundBlocked`.
 - A definite gateway refusal (`release_failed`, `refund_failed`, `trucker_release_failed`) is still one
@@ -2718,6 +2719,7 @@ order:
 | Delivery | Order | Result |
 |---|---|---|
 | no delivery repository, or an `orderId` and no order repository | | blocked `repo_unavailable` |
+| | the escrow is not the order's own and `escrow-order-{orderId}` holds or paid the money (`initiated`, `escrowed`, `released`, `disputed`, `dispute_resolved`) | blocked `double_escrow`, before any other read or a freeze |
 | the escrow names none / the row is missing | | blocked `no_delivery` / `delivery_missing` |
 | any | `dispute_resolved`, or a `disputed` delivery with `disputeResolution` | blocked `dispute_resolved` (never frozen) |
 | `disputed` | any | frozen (below) |
@@ -2805,7 +2807,7 @@ Legacy `/escrow/initiate` escrows whose order is `created` or `pending_payment` 
 - No persistent cursor: a sweep a limit stops every run never reaches its tail (it alarms every run).
 - A farmer the payout gate blocks has no overdue alarm (only the audit row and the summary count).
 - A legacy double payment (an `/escrow/initiate` escrow next to the order's own escrow) is blocked, not
-  settled: an admin decides.
+  settled, by both sweeps: an admin decides.
 
 ---
 
