@@ -1097,6 +1097,9 @@ export class ApiStack extends cdk.Stack {
     // Payout destinations and the release-time identity gate read profiles.
     props.usersTable.grantReadData(escrowCronFn.function);
     props.escrowAuditTable.grantWriteData(escrowCronFn.function);
+    // ESC-10: a sweep that freezes a disputed trade goes through the ESC-07 delivery dispute path, which
+    // reads the escrow's audit trail (Query) before it writes a refusal row.
+    props.escrowAuditTable.grantReadData(escrowCronFn.function);
     props.escrowIdempotencyTable.grantReadWriteData(escrowCronFn.function);
     props.deliveriesTable.grantReadData(escrowCronFn.function);
     // ESC-03: settling a dispute verdict first moves its delivery to the verdict

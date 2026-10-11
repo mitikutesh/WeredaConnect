@@ -37,6 +37,7 @@ public class EscrowCronTruckerRetryTests
     {
         _escrowRepo.QueryByStatusForCronAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
             .Returns(new List<Dictionary<string, object>>());
+        _escrowRepo.StubEmptySweeps();
         _escrowRepo.QueryOpenManualPayoutsAsync(Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
             .Returns((new List<Dictionary<string, object>>(), (Dictionary<string, AttributeValue>?)null));
         _escrowRepo.QueryStaleSettlementLocksAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>())

@@ -265,7 +265,8 @@ public partial class SyncFunction
         "orderId", "updatedAt", "version"
     };
 
-    private static readonly Dictionary<string, HashSet<string>> OrderTransitions = new()
+    // Internal for ESC-10's test that every order status has a class in the escrow sweeps.
+    internal static readonly Dictionary<string, HashSet<string>> OrderTransitions = new()
     {
         // Buyers pay immediately after placing an order, so allow the direct
         // created -> payment_submitted hop as well as the pending_payment step.

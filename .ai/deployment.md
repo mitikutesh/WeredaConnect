@@ -713,6 +713,29 @@ nothing.
 | `<prefix>-dispute-verdict-settlement-blocked` | a dispute verdict's settlement failed closed in three of the last four hourly periods (1 hour periods, 3 of 4 datapoints, so sweep jitter that leaves one hour empty does not hide it) (`DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=.. op=.. legs=..` in the escrow-cron log group, ESC-03): `read:<error>` (the order or delivery cannot be read), `cancel:<reason>` or `restock:<reason>` (a `buyer_wins` order could not be cancelled or its stock given back before the refund); no money moved | find the escrow (escrow-audit row `dispute_settlement_blocked` has the legs), fix the cause (Lambda permissions, throttling, the order or listing row), and let the next sweep settle it; it clears once a sweep is no longer blocked |
 | `<prefix>-dispute-verdict-order-mismatch` | a dispute verdict was not settled because its order or delivery is in a status the verdict cannot follow (`DISPUTE_VERDICT_ORDER_MISMATCH escrowId=.. op=.. legs=..` in the escrow or escrow-cron log group, ESC-03); usually a dispute raised while the goods were moving, or a `farmer_wins` before delivery; no money moved and the hourly sweep retries | find the escrow by escrowId (the escrow-audit row `dispute_verdict_mismatch` carries the legs). `farmer_wins`: it settles by itself once the delivery is confirmed and the order reaches `delivered`. `buyer_wins` with the goods moving: confirm the delivery, or refund by hand with `POST /escrow/refund` (admin group) and `{"escrowId": ..., "trigger": "dispute_resolved", "reason": "<10-500 chars>", "overrideOrderMismatch": true, "idempotencyKey": ...}`; the override is audited with your id and reason and the order is flagged (`disputeOverrideBy`) |
 
+
+ESC-10 lines on these alarms (escrow-cron log group; `specs/contracts/escrow-protocol.md`, "Additions in 1.15.0"):
+
+- `ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_truncated code=<sweep>:<pages|rows|time>` (settlement failures): a
+  paged sweep (`release_query`, `refund_query`, `dispute_query`, `reconciliation`, or the trucker retry's
+  `trucker_retry_query:500`) stopped at its budget, so rows behind the stop wait. `time` once after a slow run is
+  harmless; on every run, the partition has outgrown the budget: count the rows (scan in the ESC-10 PR body) and escalate
+  (ESC-16's deadline index is the fix). Never raise the Lambda timeout instead.
+- `ESCROW_SETTLEMENT_FAILED escrowId=<id> action=auto_release_blocked|auto_refund_blocked code=<op>:trade:<reason>`
+  (settlement failures, once per escrow and reason): the order and delivery check stopped a release or refund. The
+  escrow's audit trail has the row with `orderStatus` and `deliveryStatus`. `repo_unavailable`: the escrow-cron
+  Lambda lacks `DELIVERIES_TABLE` or `ORDERS_TABLE` (deploy). `dispute_resolved`, `order_<status>`,
+  `delivery_<status>`, `delivery_missing`, `order_missing`, `double_escrow`, `freeze_*`: the trade and the money
+  disagree; decide in the admin app, never by editing the escrow row. `delivery_moving`: goods are on the road
+  behind an order that ended; a dispute and its verdict settle it.
+- `ESCROW_SETTLEMENT_FAILED escrowId=<id> action=reconciliation_exception`: one initiated escrow's cancel failed; the
+  next reconciliation retries it.
+- `ADMIN_QUEUE_OVERDUE orderId=- reason=no_order ageHours=<n> escrowId=<id>` (admin queue overdue): an
+  `/escrow/initiate` escrow without an order has held goods on the road for 21 days plus 24 hours; there is no
+  queue entry. Open the escrow by id; a dispute and its verdict, or a confirmed delivery, end it.
+- `ESCROW_RELEASE_BLOCKED escrowId=<id> code=ESCROW_029` (Information, no alarm): the farmer must verify (phone or
+  Fayda); the next hourly run pays once they have. Audited once per reason (`release_blocked_kyc`).
+
 The settlement-failure, the unknown-outcome, the verdict-mismatch, the trucker-payouts and the two queue alarms evaluate 5 periods of 15 minutes, so an
 hourly producer keeps them in ALARM without flapping; they clear by themselves 75 to 90
 minutes after the last line. Order escrow problems uses one 15 minute period.

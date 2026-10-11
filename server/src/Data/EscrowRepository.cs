@@ -132,6 +132,14 @@ public sealed class EscrowRepository : IEscrowRepository
             request.ExpressionAttributeValues[":one"] = new AttributeValue { N = "1" };
         }
 
+        // ESC-10: a settled escrow is no longer blocked; its block reason goes with the settlement.
+        if (newStatus is "released" or "refunded")
+        {
+            request.UpdateExpression += " REMOVE #blockReason, #blockReasonAt";
+            request.ExpressionAttributeNames["#blockReason"] = SettlementBlockFields.Reason;
+            request.ExpressionAttributeNames["#blockReasonAt"] = SettlementBlockFields.ReasonAt;
+        }
+
         // Optimistic concurrency: verify expected current status before update
         var conditions = new List<string>();
         if (!string.IsNullOrEmpty(expectedCurrentStatus))
@@ -576,8 +584,11 @@ public sealed class EscrowRepository : IEscrowRepository
             i++;
         }
 
-        // ESC-04: once a release closes, no trucker leg is owed any more.
-        var removes = "#marker";
+        // ESC-04: once a release closes, no trucker leg is owed any more. ESC-10: nor is the
+        // settlement blocked.
+        names["#blockReason"] = SettlementBlockFields.Reason;
+        names["#blockReasonAt"] = SettlementBlockFields.ReasonAt;
+        var removes = "#marker, #blockReason, #blockReasonAt";
         if (op == ManualPayoutFields.OpRelease)
         {
             names["#tPending"] = TruckerPayoutFields.Pending;
@@ -838,6 +849,76 @@ public sealed class EscrowRepository : IEscrowRepository
             limit = 100;
         }
 
+        var (request, filters) = CronQuery(status, expiresAtBefore, limit);
+
+        // Post-query filter for deliveryConfirmedBefore
+        if (!string.IsNullOrEmpty(deliveryConfirmedBefore))
+        {
+            filters.Add("#confirmedAt <= :confirmedBefore");
+            request.ExpressionAttributeNames["#confirmedAt"] = "deliveryConfirmedAt";
+            request.ExpressionAttributeValues[":confirmedBefore"] = new AttributeValue { S = deliveryConfirmedBefore };
+        }
+
+        request.FilterExpression = string.Join(" AND ", filters);
+
+        var allItems = new List<Dictionary<string, object>>();
+        Dictionary<string, AttributeValue>? lastKey = null;
+
+        // Paginate through all results up to the limit. A filtered page can come back empty
+        // with a LastEvaluatedKey, so paging continues until the limit or the end of the index.
+        do
+        {
+            if (lastKey != null)
+            {
+                request.ExclusiveStartKey = lastKey;
+            }
+
+            var response = await _dynamoDb.QueryAsync(request);
+            allItems.AddRange(response.Items.Select(CropRepository.FromItem));
+            lastKey = response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null;
+        } while (lastKey != null && allItems.Count < limit);
+
+        return allItems.Take(limit).ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryCronPageAsync(
+        CronSweepQuery query, Dictionary<string, AttributeValue>? exclusiveStartKey)
+    {
+        var pageSize = query.PageSize is < 1 or > 500 ? 100 : query.PageSize;
+        var (request, filters) = CronQuery(query.Status, query.ExpiresAtBefore, pageSize);
+
+        // ESC-10: skips that need no read move into the filter, so they never reach the sweep.
+        if (query.DeliveryConfirmed is { } confirmed)
+        {
+            filters.Add(confirmed ? "attribute_exists(#confirmed)" : "attribute_not_exists(#confirmed)");
+            request.ExpressionAttributeNames["#confirmed"] = "deliveryConfirmedAt";
+        }
+
+        if (query.ExcludeLocked)
+        {
+            filters.Add("attribute_not_exists(#lock)");
+            request.ExpressionAttributeNames["#lock"] = SettlementLockFields.Lock;
+        }
+
+        request.FilterExpression = string.Join(" AND ", filters);
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
+        }
+
+        var response = await _dynamoDb.QueryAsync(request);
+        var items = response.Items.Select(CropRepository.FromItem).ToList();
+        return (items, response.LastEvaluatedKey?.Count > 0 ? response.LastEvaluatedKey : null);
+    }
+
+    /// <summary>
+    /// The status query both cron reads share: <c>StatusExpiresIndex</c>, oldest <c>expiresAt</c> first,
+    /// an optional <c>expiresAt</c> bound, and the filters that keep rows other owners hold out of every
+    /// sweep. Returns the filter terms for the caller to extend and join.
+    /// </summary>
+    private (QueryRequest Request, List<string> Filters) CronQuery(string status, string? expiresAtBefore, int limit)
+    {
         var keyCondition = "#status = :status";
         var attrNames = new Dictionary<string, string>
         {
@@ -888,34 +969,7 @@ public sealed class EscrowRepository : IEscrowRepository
             request.ExpressionAttributeNames["#capConfirmed"] = "deliveryConfirmedAt";
         }
 
-        // Post-query filter for deliveryConfirmedBefore
-        if (!string.IsNullOrEmpty(deliveryConfirmedBefore))
-        {
-            filters.Add("#confirmedAt <= :confirmedBefore");
-            request.ExpressionAttributeNames["#confirmedAt"] = "deliveryConfirmedAt";
-            request.ExpressionAttributeValues[":confirmedBefore"] = new AttributeValue { S = deliveryConfirmedBefore };
-        }
-
-        request.FilterExpression = string.Join(" AND ", filters);
-
-        var allItems = new List<Dictionary<string, object>>();
-        Dictionary<string, AttributeValue>? lastKey = null;
-
-        // Paginate through all results up to the limit. A filtered page can come back empty
-        // with a LastEvaluatedKey, so paging continues until the limit or the end of the index.
-        do
-        {
-            if (lastKey != null)
-            {
-                request.ExclusiveStartKey = lastKey;
-            }
-
-            var response = await _dynamoDb.QueryAsync(request);
-            allItems.AddRange(response.Items.Select(CropRepository.FromItem));
-            lastKey = response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null;
-        } while (lastKey != null && allItems.Count < limit);
-
-        return allItems.Take(limit).ToList();
+        return (request, filters);
     }
 
     /// <inheritdoc />
@@ -1016,6 +1070,59 @@ public sealed class EscrowRepository : IEscrowRepository
         } while (lastKey != null && items.Count < limit);
 
         return items.Take(limit).ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TrySetSettlementBlockReasonAsync(
+        string escrowId, string createdAt, string expectedStatus, string reason, string reasonAt)
+    {
+        // Bookkeeping only: neither the version nor updatedAt moves.
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "SET #reason = :reason, #reasonAt = :reasonAt",
+            ConditionExpression =
+                "(attribute_not_exists(#reason) OR #reason <> :reason) AND #status = :expected "
+                + "AND attribute_not_exists(#lock) AND attribute_not_exists(#manualPayout)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#reason", SettlementBlockFields.Reason },
+                { "#reasonAt", SettlementBlockFields.ReasonAt },
+                { "#status", "status" },
+                { "#lock", SettlementLockFields.Lock },
+                { "#manualPayout", ManualPayoutFields.Marker }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":reason", new AttributeValue { S = reason } },
+                { ":reasonAt", new AttributeValue { S = reasonAt } },
+                { ":expected", new AttributeValue { S = expectedStatus } }
+            }
+        };
+        return await TryConditionalUpdateAsync(request);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryClearSettlementBlockReasonAsync(string escrowId, string createdAt, string storedReason)
+    {
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "REMOVE #reason, #reasonAt",
+            ConditionExpression = "#reason = :stored",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#reason", SettlementBlockFields.Reason },
+                { "#reasonAt", SettlementBlockFields.ReasonAt }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":stored", new AttributeValue { S = storedReason } }
+            }
+        };
+        return await TryConditionalUpdateAsync(request);
     }
 
     /// <inheritdoc />

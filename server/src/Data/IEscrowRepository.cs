@@ -259,4 +259,41 @@ public interface IEscrowRepository
     /// <param name="limit">Maximum results to return.</param>
     Task<List<Dictionary<string, object>>> QueryByStatusForCronAsync(
         string status, string? expiresAtBefore = null, string? deliveryConfirmedBefore = null, int limit = 100);
+
+    /// <summary>
+    /// ESC-10: one page of a status sweep on <c>StatusExpiresIndex</c>, oldest <c>expiresAt</c> first:
+    /// a single Query of <see cref="CronSweepQuery.PageSize"/> evaluated rows with the filters of
+    /// <see cref="QueryByStatusForCronAsync"/> plus the query's own. A filtered page can be empty with a
+    /// <c>LastEvaluatedKey</c>; the caller pages on, so rows it skips never hide the rows behind them.
+    /// </summary>
+    Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryCronPageAsync(
+        CronSweepQuery query, Dictionary<string, AttributeValue>? exclusiveStartKey);
+
+    /// <summary>
+    /// ESC-10: record why a sweep or the payout gate blocks this escrow's settlement, as a
+    /// compare-and-set: only when the stored reason is missing or different, and the escrow is still
+    /// <paramref name="expectedStatus"/>, unlocked and unqueued. Also stores <paramref name="reasonAt"/>,
+    /// the key of the reason's audit row. Returns false when the condition fails, so a reason is
+    /// audited once however many runs see it.
+    /// </summary>
+    Task<bool> TrySetSettlementBlockReasonAsync(
+        string escrowId, string createdAt, string expectedStatus, string reason, string reasonAt);
+
+    /// <summary>
+    /// ESC-10: remove the stored block reason once its gate passes, only when it is still
+    /// <paramref name="storedReason"/>. Returns false when the condition fails.
+    /// </summary>
+    Task<bool> TryClearSettlementBlockReasonAsync(string escrowId, string createdAt, string storedReason);
 }
+
+/// <summary>
+/// ESC-10: what one page of a status sweep reads. <paramref name="DeliveryConfirmed"/> true keeps only
+/// rows with <c>deliveryConfirmedAt</c>, false only rows without it; <paramref name="ExcludeLocked"/>
+/// drops rows a settlement holds (the stale lock recovery owns those).
+/// </summary>
+public sealed record CronSweepQuery(
+    string Status,
+    string? ExpiresAtBefore = null,
+    bool? DeliveryConfirmed = null,
+    bool ExcludeLocked = false,
+    int PageSize = 100);

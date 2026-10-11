@@ -4051,14 +4051,176 @@ public class EscrowServiceTests
         userRepo.GetUserByIdAsync(BuyerId).Returns(MakeVerifiedUser(BuyerId, "buyer"));
         userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer") with { IsPhoneVerified = false });
 
+        string? storedAt = null;
+        _mockEscrowRepo.TrySetSettlementBlockReasonAsync("escrow-001", Arg.Any<string>(), "escrowed",
+                "release:payout:phone_unverified", Arg.Do<string>(at => storedAt = at))
+            .Returns(true);
+
         var result = await CreateServiceWithUserRepo(userRepo).ReleaseAsync(SystemRelease(), "system");
 
         Assert.False(result.IsSuccess);
         Assert.Equal("ESCROW_029", result.Error!.Code);
         await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
         await _mockEscrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
-        await _mockAuditRepo.Received().AppendAsync(Arg.Is<Dictionary<string, object>>(
+        // ESC-10: the sweep's block is stored once per reason, and its one row sits at that time.
+        Assert.NotNull(storedAt);
+        await _mockAuditRepo.Received(1).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(
+            e => e["action"].ToString() == "release_blocked_kyc"
+                 && e["metadata"].ToString() == "code=ESCROW_029;reason=phone_unverified"
+                 && e["timestamp"].ToString() == storedAt));
+        await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(
             e => e["action"].ToString() == "release_blocked_kyc"));
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_SystemBlockAlreadyStored_WritesNoNewReason_AndReEnsuresTheRowAtTheStoredTime()
+    {
+        var escrow = MakeEscrowItem(status: "escrowed", amount: 5_000m, commission: 125m, farmerPayout: 4_875m);
+        escrow[SettlementBlockFields.Reason] = "release:payout:phone_unverified";
+        escrow[SettlementBlockFields.ReasonAt] = "2026-10-09T10:00:00.0000000Z";
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrow);
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer") with { IsPhoneVerified = false });
+
+        var result = await CreateServiceWithUserRepo(userRepo).ReleaseAsync(SystemRelease(), "system");
+
+        Assert.Equal("ESCROW_029", result.Error!.Code);
+        await _mockEscrowRepo.DidNotReceiveWithAnyArgs().TrySetSettlementBlockReasonAsync(default!, default!, default!, default!, default!);
+        await _mockAuditRepo.Received(1).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(
+            e => e["action"].ToString() == "release_blocked_kyc" && e["timestamp"].ToString() == "2026-10-09T10:00:00.0000000Z"));
+        await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_SystemBlockReasonChanged_StoresTheNewReason_AndAuditsItOnce()
+    {
+        var escrow = MakeEscrowItem(status: "escrowed");
+        escrow[SettlementBlockFields.Reason] = "release:payout:phone_unverified";
+        escrow[SettlementBlockFields.ReasonAt] = "2026-10-09T10:00:00.0000000Z";
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrow);
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeUnverifiedFaydaUser(FarmerId, "farmer"));
+        _mockEscrowRepo.TrySetSettlementBlockReasonAsync("escrow-001", Arg.Any<string>(), "escrowed",
+                "release:payout:fayda_required", Arg.Any<string>())
+            .Returns(true);
+
+        await CreateServiceWithUserRepo(userRepo).ReleaseAsync(SystemRelease(), "system");
+
+        await _mockAuditRepo.Received(1).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(
+            e => e["action"].ToString() == "release_blocked_kyc"
+                 && e["metadata"].ToString() == "code=ESCROW_029;reason=fayda_required"
+                 && e["timestamp"].ToString() != "2026-10-09T10:00:00.0000000Z"));
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_SystemBlock_RowMovedOnBeforeTheReasonWasStored_AuditsNothing()
+    {
+        var escrow = MakeEscrowItem(status: "escrowed", amount: 5_000m, commission: 125m, farmerPayout: 4_875m);
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrow);
+        _mockEscrowRepo.GetByIdAsync("escrow-001", true).Returns(MakeEscrowItem(status: "released"));
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer") with { IsPhoneVerified = false });
+
+        var result = await CreateServiceWithUserRepo(userRepo).ReleaseAsync(SystemRelease(), "system");
+
+        Assert.Equal("ESCROW_029", result.Error!.Code);
+        await _mockEscrowRepo.Received(1).TrySetSettlementBlockReasonAsync("escrow-001", Arg.Any<string>(), "escrowed",
+            "release:payout:phone_unverified", Arg.Any<string>());
+        await _mockAuditRepo.DidNotReceiveWithAnyArgs().AppendIfAbsentAsync(default!);
+        await _mockAuditRepo.DidNotReceiveWithAnyArgs().AppendAsync(default!);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_SystemBlock_LostAnswerOnOurOwnWrite_StillAuditsOnce()
+    {
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed", amount: 5_000m,
+            commission: 125m, farmerPayout: 4_875m));
+        string? sentAt = null;
+        _mockEscrowRepo.TrySetSettlementBlockReasonAsync("escrow-001", Arg.Any<string>(), "escrowed",
+                "release:payout:phone_unverified", Arg.Do<string>(at => sentAt = at))
+            .Returns(false);
+        // The SDK retried our committed write: the row carries our reason at our time.
+        _mockEscrowRepo.GetByIdAsync("escrow-001", true).Returns(_ =>
+        {
+            var latest = MakeEscrowItem(status: "escrowed");
+            latest[SettlementBlockFields.Reason] = "release:payout:phone_unverified";
+            latest[SettlementBlockFields.ReasonAt] = sentAt!;
+            return latest;
+        });
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer") with { IsPhoneVerified = false });
+
+        await CreateServiceWithUserRepo(userRepo).ReleaseAsync(SystemRelease(), "system");
+
+        await _mockAuditRepo.Received(1).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(
+            e => e["action"].ToString() == "release_blocked_kyc" && e["timestamp"].ToString() == sentAt));
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_SystemBlock_MarkerWriteThrows_AnswerUnchanged_NothingAudited()
+    {
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed", amount: 5_000m,
+            commission: 125m, farmerPayout: 4_875m));
+        _mockEscrowRepo.TrySetSettlementBlockReasonAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<string>())
+            .ThrowsAsync(new ProvisionedThroughputExceededException("throttled"));
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer") with { IsPhoneVerified = false });
+
+        var result = await CreateServiceWithUserRepo(userRepo).ReleaseAsync(SystemRelease(), "system");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_029", result.Error!.Code);
+        await _mockAuditRepo.DidNotReceiveWithAnyArgs().AppendIfAbsentAsync(default!);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_AdminBlocked_IsAuditedOnEveryAttempt_WithoutAStoredReason()
+    {
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed", amount: 5_000m,
+            commission: 125m, farmerPayout: 4_875m));
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer") with { IsPhoneVerified = false });
+        var service = CreateServiceWithUserRepo(userRepo);
+        var request = SystemRelease() with { Trigger = "admin_override" };
+
+        await service.ReleaseAsync(request with { IdempotencyKey = "admin-7:escrow-001:release:1708171200001" },
+            "admin-7", role: "admin", adminGroupVerified: true);
+        await service.ReleaseAsync(request with { IdempotencyKey = "admin-7:escrow-001:release:1708171200002" },
+            "admin-7", role: "admin", adminGroupVerified: true);
+
+        await _mockAuditRepo.Received(2).AppendAsync(Arg.Is<Dictionary<string, object>>(
+            e => e["action"].ToString() == "release_blocked_kyc" && e["actor"].ToString() == "admin-7"
+                 && e["metadata"].ToString() == "code=ESCROW_029;reason=phone_unverified"));
+        await _mockEscrowRepo.DidNotReceiveWithAnyArgs().TrySetSettlementBlockReasonAsync(default!, default!, default!, default!, default!);
+    }
+
+    [Theory]
+    [InlineData("release:payout:phone_unverified", true)]
+    [InlineData("release:trade:order_cancelled", false)]
+    public async Task ReleaseAsync_PayoutGatePasses_ClearsOnlyItsOwnStoredReason(string stored, bool cleared)
+    {
+        var escrow = MakeEscrowItem(status: "escrowed");
+        escrow[SettlementBlockFields.Reason] = stored;
+        escrow[SettlementBlockFields.ReasonAt] = "2026-10-09T10:00:00.0000000Z";
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrow);
+        _mockEscrowRepo.TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(true);
+        _mockTelebirrGateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
+            .Returns(new ReleaseFundsResponse { Success = true, TelebirrRef = "TB-REL-1" });
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
+
+        await CreateServiceWithUserRepo(userRepo).ReleaseAsync(SystemRelease(), "system");
+
+        if (cleared)
+        {
+            await _mockEscrowRepo.Received(1).TryClearSettlementBlockReasonAsync("escrow-001", Arg.Any<string>(), stored);
+        }
+        else
+        {
+            await _mockEscrowRepo.DidNotReceiveWithAnyArgs().TryClearSettlementBlockReasonAsync(default!, default!, default!);
+        }
     }
 
     [Fact]

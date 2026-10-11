@@ -1594,15 +1594,34 @@ public sealed class EscrowService
         //     is proven and, above the NBE threshold, whose Fayda identity is verified.
         //     Checked before the lock so a blocked release leaves the escrow untouched
         //     for an admin to settle.
+        //     ESC-10: the hourly sweeps audit a block once per reason (stored on the escrow), an
+        //     admin's own attempt each time.
         var farmerId = GetString(escrowItem, "farmerId");
-        var payout = await ResolvePayoutAsync(farmerId, GetDecimal(escrowItem, "amount"), "farmer");
+        var (payout, payoutBlock) = await ResolvePayoutAsync(farmerId, GetDecimal(escrowItem, "amount"), "farmer");
         if (!payout.IsSuccess)
         {
-            await AppendAuditAsync(request.EscrowId, "release_blocked_kyc", currentStatus, currentStatus,
-                authenticatedUserId, metadata: payout.Error!.Code);
+            var blockReason = payoutBlock ?? "unknown";
+            if (authenticatedUserId == SystemActor)
+            {
+                await NoteSettlementBlockedAsync(escrowItem, currentStatus,
+                    SettlementBlockFields.Value("release", SettlementBlockFields.GatePayout, blockReason),
+                    "release_blocked_kyc", PayoutBlockedMetadata(blockReason));
+            }
+            else
+            {
+                await AppendAuditAsync(request.EscrowId, "release_blocked_kyc", currentStatus, currentStatus,
+                    authenticatedUserId, metadata: PayoutBlockedMetadata(blockReason));
+            }
+
             return EscrowResult<ReleaseEscrowResponse>.Failure(
-                payout.Error.HttpStatus, payout.Error.Code, payout.Error.Message);
+                payout.Error!.HttpStatus, payout.Error.Code, payout.Error.Message);
         }
+
+        if (authenticatedUserId == SystemActor)
+        {
+            await ClearSettlementBlockAsync(escrowItem, "release", SettlementBlockFields.GatePayout);
+        }
+
         var farmerPhone = payout.Value!;
 
         // 4c. ESC-05: the trucker's destination is read before the lock too, so no read can fail
@@ -1869,7 +1888,7 @@ public sealed class EscrowService
             if (truckerBlockReason != null)
             {
                 await EnsureAuditAsync(request.EscrowId, now, TruckerBlockedAuditAction, currentStatus, currentStatus,
-                    SystemActor, metadata: TruckerBlockedMetadata(truckerBlockReason));
+                    SystemActor, metadata: PayoutBlockedMetadata(truckerBlockReason));
             }
             else
             {
@@ -3451,13 +3470,106 @@ public sealed class EscrowService
     }
 
     // ──────────────────────────────────────────────
+    // Settlement blocks (ESC-10)
+    // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// ESC-10: a settlement the hourly sweeps cannot make on this run, audited once per reason. The
+    /// reason (<see cref="SettlementBlockFields"/>, <c>&lt;op&gt;:&lt;gate&gt;:&lt;reason&gt;</c>) is stored on the
+    /// escrow by compare-and-set with the time first seen, and the audit row
+    /// (<paramref name="auditAction"/>) sits at that time, so later runs that see the same reason write
+    /// nothing but re-ensure a row a crash lost. With <paramref name="alarmAction"/> the run whose write
+    /// creates that row logs one <c>ESCROW_SETTLEMENT_FAILED</c> line (the block needs a person): once by
+    /// construction, also when the reason's write landed but its answer was lost, so the row came only on a
+    /// later run. A lost-answer write that the SDK retried is recognised by its time. Best-effort: a failed
+    /// write logs <c>SETTLEMENT_BLOCK_AUDIT_FAILED</c> and the next run repairs it. Returns true when this
+    /// call stored the reason.
+    /// </summary>
+    public async Task<bool> NoteSettlementBlockedAsync(
+        Dictionary<string, object> escrow, string expectedStatus, string reason, string auditAction,
+        string metadata, string? alarmAction = null)
+    {
+        var escrowId = GetString(escrow, "escrowId");
+        try
+        {
+            var storedAt = GetStringOrNull(escrow, SettlementBlockFields.ReasonAt);
+            if (GetStringOrNull(escrow, SettlementBlockFields.Reason) == reason && storedAt != null)
+            {
+                await AuditBlockOnceAsync(escrowId, storedAt);
+                return false;
+            }
+
+            var reasonAt = DateTime.UtcNow.ToString("o");
+            if (!await _escrowRepo.TrySetSettlementBlockReasonAsync(
+                    escrowId, GetString(escrow, "createdAt"), expectedStatus, reason, reasonAt))
+            {
+                var latest = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
+                var latestAt = latest == null ? null : GetStringOrNull(latest, SettlementBlockFields.ReasonAt);
+                if (latest == null || GetStringOrNull(latest, SettlementBlockFields.Reason) != reason || latestAt == null)
+                {
+                    return false; // the escrow moved on (status, lock, queue): nothing to record
+                }
+
+                if (latestAt != reasonAt)
+                {
+                    await AuditBlockOnceAsync(escrowId, latestAt);
+                    return false;
+                }
+            }
+
+            await AuditBlockOnceAsync(escrowId, reasonAt);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"SETTLEMENT_BLOCK_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
+            return false;
+        }
+
+        // The block's one audit row at its stored time, and the alarm line only from the write that created it.
+        async Task AuditBlockOnceAsync(string id, string at)
+        {
+            if (await EnsureAuditAsync(id, at, auditAction, expectedStatus, expectedStatus, SystemActor, metadata: metadata)
+                && alarmAction != null)
+            {
+                AlarmLog(MoneyAlarmLog.SettlementFailed(id, alarmAction, MoneyAlarmLog.OutcomeFailed, reason));
+            }
+        }
+    }
+
+    /// <summary>
+    /// ESC-10: the gate (<paramref name="gate"/> for <paramref name="op"/>) passed, so a reason it stored
+    /// earlier no longer holds: remove it, only when the row still carries that very reason. Writes nothing
+    /// when the row carries no reason of this gate. Best-effort.
+    /// </summary>
+    public async Task ClearSettlementBlockAsync(Dictionary<string, object> escrow, string op, string gate)
+    {
+        var stored = GetStringOrNull(escrow, SettlementBlockFields.Reason);
+        if (stored == null || !stored.StartsWith(SettlementBlockFields.Prefix(op, gate), StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var escrowId = GetString(escrow, "escrowId");
+        try
+        {
+            await _escrowRepo.TryClearSettlementBlockReasonAsync(escrowId, GetString(escrow, "createdAt"), stored);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"SETTLEMENT_BLOCK_CLEAR_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
+        }
+    }
+
+    // ──────────────────────────────────────────────
     // Trucker leg retry (ESC-04)
     // ──────────────────────────────────────────────
 
     /// <summary>The audit action of a trucker leg the payout gate blocks (no money alarm, like <c>release_blocked_kyc</c>).</summary>
     private const string TruckerBlockedAuditAction = "trucker_release_blocked_kyc";
 
-    private static string TruckerBlockedMetadata(string reason) => $"code=ESCROW_029;reason={reason}";
+    /// <summary>Audit metadata of a payout the identity gate blocks: the farmer leg (ESC-10) and the trucker leg (ESC-04).</summary>
+    private static string PayoutBlockedMetadata(string reason) => $"code=ESCROW_029;reason={reason}";
 
     /// <summary>What the trucker retry did with one row (ESC-04).</summary>
     public enum TruckerRetryOutcome
@@ -3866,14 +3978,14 @@ public sealed class EscrowService
             if (GetStringOrNull(escrow, TruckerPayoutFields.BlockReason) == reason && storedAt != null)
             {
                 await EnsureAuditAsync(escrowId, storedAt, TruckerBlockedAuditAction, "released", "released", SystemActor,
-                    metadata: TruckerBlockedMetadata(reason));
+                    metadata: PayoutBlockedMetadata(reason));
             }
 
             return;
         }
 
         await EnsureAuditAsync(escrowId, reasonAt, TruckerBlockedAuditAction, "released", "released", SystemActor,
-            metadata: TruckerBlockedMetadata(reason));
+            metadata: PayoutBlockedMetadata(reason));
         Console.WriteLine($"ESCROW_TRUCKER_PAYOUT_BLOCKED escrowId={MoneyAlarmLog.LogId(escrowId)} reason={reason}");
     }
 
@@ -5083,12 +5195,13 @@ public sealed class EscrowService
     /// ESC-02: write an audit row at a deterministic key (<paramref name="timestamp"/> comes
     /// from the escrow row, for example a leg's paidAt), only if it is not there yet. A replay
     /// after a crash between the money write and its audit row fills the gap without a duplicate.
+    /// Returns true when this call wrote the row (ESC-10).
     /// </summary>
-    private async Task EnsureAuditAsync(
+    private async Task<bool> EnsureAuditAsync(
         string escrowId, string timestamp, string action, string fromState, string toState,
         string actor, string? telebirrRef = null, string? metadata = null)
     {
-        await _auditRepo.AppendIfAbsentAsync(BuildAuditEntry(
+        return await _auditRepo.AppendIfAbsentAsync(BuildAuditEntry(
             EscrowAuditRepository.DeterministicAuditId(action, timestamp), timestamp,
             escrowId, action, fromState, toState, actor, telebirrRef, metadata));
     }
@@ -5143,17 +5256,20 @@ public sealed class EscrowService
     /// Without a user repository (unit tests, misconfiguration) the user id is
     /// passed through as before. With one, the party must exist and be
     /// phone-verified, and Fayda-verified when the escrow amount exceeds the NBE
-    /// threshold; otherwise ESCROW_029 blocks the payout.
+    /// threshold; otherwise ESCROW_029 blocks the payout, with the rule that blocked it
+    /// (ESC-10 audits it once per rule).
     /// </summary>
-    private async Task<EscrowResult<string>> ResolvePayoutAsync(string? userId, decimal amount, string legLabel)
+    private async Task<(EscrowResult<string> Destination, string? BlockReason)> ResolvePayoutAsync(
+        string? userId, decimal amount, string legLabel)
     {
         if (_userRepo == null)
         {
-            return EscrowResult<string>.Success(userId ?? "");
+            return (EscrowResult<string>.Success(userId ?? ""), null);
         }
 
         var user = string.IsNullOrEmpty(userId) ? null : await _userRepo.GetUserByIdAsync(userId);
-        return CheckPayoutEligibility(user, amount, legLabel);
+        var destination = CheckPayoutEligibility(user, amount, legLabel);
+        return (destination, destination.IsSuccess ? null : PayoutBlockReason(user, amount));
     }
 
     /// <summary>The identity rules behind <see cref="ResolvePayoutAsync"/>, also applied to manual payouts (ESC-02).</summary>

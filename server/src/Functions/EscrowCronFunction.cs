@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Globalization;
 using Amazon.DynamoDBv2;
+using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
@@ -66,6 +68,38 @@ public class EscrowCronFunction
     private const int OrderEscrowExpiryExtensionHours = 48;
 
     /// <summary>
+    /// ESC-10: order statuses with no trade under way: before payment, funded but not accepted, ended
+    /// (rejected, cancelled, payment_failed) or settled. The auto-release never pays an escrow whose
+    /// order is in one; the refund of an /escrow/initiate escrow then follows its delivery alone.
+    /// </summary>
+    internal static readonly HashSet<string> IdleOrderStatuses = new(StringComparer.Ordinal)
+    {
+        "created", "pending_payment", "payment_submitted", "payment_failed", "funded", "rejected", "cancelled", "settled"
+    };
+
+    /// <summary>
+    /// ESC-10: how the auto-release and the /escrow/initiate refund read an order status. Every status of
+    /// the order state machine has a class (a test enforces it); an unknown status blocks.
+    /// </summary>
+    internal enum OrderTradeClass
+    {
+        Unknown,
+        InFlight,
+        Idle,
+        Disputed,
+        DisputeResolved
+    }
+
+    internal static OrderTradeClass ClassifyOrder(string? status) => status switch
+    {
+        "disputed" => OrderTradeClass.Disputed,
+        "dispute_resolved" => OrderTradeClass.DisputeResolved,
+        not null when ProgressingOrderStatuses.Contains(status) => OrderTradeClass.InFlight,
+        not null when IdleOrderStatuses.Contains(status) => OrderTradeClass.Idle,
+        _ => OrderTradeClass.Unknown
+    };
+
+    /// <summary>
     /// ESC-02: settlements this run found waiting in the manual payout queue (202
     /// ESCROW_034). Not a failure: the gateway cannot pay out and an admin settles them.
     /// Reset at the start of each auto_release_and_refund run; Lambda runs one invocation
@@ -76,6 +110,44 @@ public class EscrowCronFunction
     /// <summary>ESC-06: orders this run put in the admin queue, and overdue lines logged for missing orders.</summary>
     private int _adminQueueEntered;
     private int _adminQueueOverdue;
+
+    /// <summary>
+    /// ESC-10: settlements this run left alone because a gate blocked them (the farmer payout gate, or
+    /// the order and delivery check), disputed trades it froze, pending deliveries it cancelled before a
+    /// refund, and the paged sweeps a budget stopped early.
+    /// </summary>
+    private int _releaseBlocked;
+    private int _refundBlocked;
+    private int _disputesFrozen;
+    private int _pendingDeliveriesCancelled;
+    private readonly List<string> _sweepsTruncated = new();
+
+    /// <summary>ESC-10: started with each invocation; the paged sweeps' time budget counts from it.</summary>
+    private Stopwatch _runClock = new();
+
+    /// <summary>ESC-10: rows per page of a paged sweep (evaluated by the Query, before its filter).</summary>
+    internal int SweepPageSize { get; init; } = 100;
+
+    /// <summary>ESC-10: pages a paged sweep reads at most per run.</summary>
+    internal int SweepMaxPages { get; init; } = 50;
+
+    /// <summary>ESC-10: rows a paged sweep handles at most per run; only rows that needed a read or a write count.</summary>
+    internal int SweepMaxRows { get; init; } = 1000;
+
+    /// <summary>ESC-10: time since the invocation started, checked before each row. Tests replace it; null reads the run clock.</summary>
+    internal Func<TimeSpan>? Elapsed { get; init; }
+
+    /// <summary>
+    /// ESC-10: how far into the run each paged sweep may still start a row. Anchored to the run start, so
+    /// the reports and recovery steps before them count too and the trucker retry (last) keeps its reserve.
+    /// </summary>
+    internal static readonly TimeSpan ReleaseSweepUntil = TimeSpan.FromSeconds(90);
+    internal static readonly TimeSpan RefundSweepUntil = TimeSpan.FromSeconds(135);
+    internal static readonly TimeSpan DisputeSweepUntil = TimeSpan.FromSeconds(165);
+    internal static readonly TimeSpan ReconciliationSweepUntil = TimeSpan.FromSeconds(180);
+
+    /// <summary>ESC-10: no paged sweep starts a row with less Lambda time left than the trucker reserve plus this.</summary>
+    internal static readonly TimeSpan SweepRemainingMargin = TimeSpan.FromSeconds(30);
 
     /// <summary>ESC-02: page size and page cap of the hourly overdue-payout report.</summary>
     private const int ManualPayoutReportPageSize = 50;
@@ -208,6 +280,7 @@ public class EscrowCronFunction
         ILambdaContext context)
     {
         context.Logger.LogInformation("EscrowCronFunction invoked.");
+        _runClock = Stopwatch.StartNew();
 
         // Parse action from request body
         string? action = null;
@@ -277,6 +350,11 @@ public class EscrowCronFunction
         _manualPayoutsWaiting = 0;
         _adminQueueEntered = 0;
         _adminQueueOverdue = 0;
+        _releaseBlocked = 0;
+        _refundBlocked = 0;
+        _disputesFrozen = 0;
+        _pendingDeliveriesCancelled = 0;
+        _sweepsTruncated.Clear();
         // First and self-contained, so a failing sweep below can never skip the overdue alarm lines.
         var overdueCount = await ReportOverdueManualPayoutsAsync(context);
         // ESC-06: the admin queue owns the capped order escrows the sweeps no longer see.
@@ -309,6 +387,11 @@ public class EscrowCronFunction
             { "adminQueueEntered", _adminQueueEntered.ToString() },
             { "adminQueueOverdue", (queueOverdue + _adminQueueOverdue).ToString() },
             { "adminQueueCleared", queueCleared.ToString() },
+            { "releaseBlocked", _releaseBlocked.ToString() },
+            { "refundBlocked", _refundBlocked.ToString() },
+            { "disputesFrozen", _disputesFrozen.ToString() },
+            { "pendingDeliveriesCancelled", _pendingDeliveriesCancelled.ToString() },
+            { "sweepsTruncated", _sweepsTruncated.Count == 0 ? "-" : string.Join(",", _sweepsTruncated) },
             { "completedAt", DateTime.UtcNow.ToString("o") }
         };
 
@@ -319,7 +402,9 @@ public class EscrowCronFunction
             + $"{parkedCount} stale settlement locks parked, trucker legs: {trucker.Paid} paid, {trucker.Queued} queued, "
             + $"{trucker.Blocked} blocked, {trucker.Failed} failed, {trucker.Deferred} deferred, {trucker.Overdue} overdue, "
             + $"{_adminQueueEntered} orders entered the admin queue, "
-            + $"{queueOverdue + _adminQueueOverdue} admin queue entries overdue, {queueCleared} cleared.");
+            + $"{queueOverdue + _adminQueueOverdue} admin queue entries overdue, {queueCleared} cleared, "
+            + $"{_releaseBlocked} releases and {_refundBlocked} refunds blocked, {_disputesFrozen} disputed trades frozen, "
+            + $"{_pendingDeliveriesCancelled} pending deliveries cancelled before a refund.");
 
         return new APIGatewayProxyResponse
         {
@@ -337,34 +422,28 @@ public class EscrowCronFunction
     /// first). The verdict endpoint refuses anything else since ESC-03; a legacy row with
     /// another value (partial_refund) is left for a manual admin release/refund. Money
     /// moves only here and on the admin settlement routes, never in the admin Lambda itself.
+    /// ESC-10: the sweep pages through the whole partition, so legacy verdicts and blocked settlements
+    /// never hide the verdicts behind them. A failed page logs <c>sweep_failed</c> (<c>dispute_query</c>):
+    /// no gateway call happened, so the outcome is a definite failure (ESC-13; the verdicts wait).
     /// </summary>
     private async Task<(int released, int refunded)> SettleResolvedDisputesAsync(ILambdaContext context)
     {
-        List<Dictionary<string, object>> escrows;
-        try
-        {
-            escrows = await _escrowRepo.QueryByStatusForCronAsync("dispute_resolved") ?? [];
-        }
-        catch (Exception ex)
-        {
-            context.Logger.LogError($"Dispute settlement: query failed [{ex.GetType().Name}]; skipping this run.");
-            // ESC-13: no gateway call happened, so the outcome is a definite failure (verdicts wait).
-            context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
-                null, "sweep_failed", MoneyAlarmLog.OutcomeFailed, $"dispute_query:{ex.GetType().Name}"));
-            return (0, 0);
-        }
-
+        var sweep = new SweepRun("dispute_query", new CronSweepQuery("dispute_resolved", ExcludeLocked: true), DisputeSweepUntil);
         var released = 0;
         var refunded = 0;
         var hourBucket = DateTime.UtcNow.ToString("yyyyMMddHH");
 
-        foreach (var escrow in escrows)
+        await foreach (var escrow in SweepRowsAsync(context, sweep))
         {
             try
             {
                 var escrowId = GetString(escrow, "escrowId");
                 var deliveryId = GetStringOrNull(escrow, "deliveryId") ?? "";
                 var resolution = GetStringOrNull(escrow, "disputeResolution");
+                if (resolution is "farmer_wins" or "buyer_wins")
+                {
+                    sweep.CountRow();
+                }
 
                 switch (resolution)
                 {
@@ -386,6 +465,10 @@ public class EscrowCronFunction
                             else if (IsManualPayoutWaiting(result.Error))
                             {
                                 NoteManualPayoutWaiting(context, escrowId, "dispute release");
+                            }
+                            else if (IsPayoutBlocked(result.Error))
+                            {
+                                NoteReleaseBlocked(context, escrowId, "dispute release");
                             }
                             else
                             {
@@ -442,14 +525,17 @@ public class EscrowCronFunction
 
     /// <summary>
     /// Auto-release: query "escrowed" items where delivery is confirmed and dispute window has passed.
+    /// ESC-10: the query keeps confirmed, unlocked rows and pages through the whole partition; before the
+    /// money moves the delivery and order must agree (<see cref="CheckReleaseTradeAsync"/>, FUP-28).
     /// </summary>
     private async Task<int> AutoReleaseAsync(ILambdaContext context)
     {
         var now = DateTime.UtcNow;
-        var escrows = await QuerySweepAsync(context, "release_query", () => _escrowRepo.QueryByStatusForCronAsync("escrowed"));
+        var sweep = new SweepRun("release_query",
+            new CronSweepQuery("escrowed", DeliveryConfirmed: true, ExcludeLocked: true), ReleaseSweepUntil);
 
         var releaseCount = 0;
-        foreach (var escrow in escrows)
+        await foreach (var escrow in SweepRowsAsync(context, sweep))
         {
             // Per-item isolation: a single poison escrow (throttle, transient error) must not
             // abort the whole batch and starve every other releasable escrow.
@@ -474,8 +560,16 @@ public class EscrowCronFunction
                     continue; // dispute window still open
                 }
 
+                sweep.CountRow();
                 var escrowId = GetString(escrow, "escrowId");
                 var deliveryId = GetString(escrow, "deliveryId");
+
+                // ESC-10: never pay a trade whose delivery is not delivered or whose order disagrees.
+                if (await CheckReleaseTradeAsync(escrow, context) != TradeCheck.Proceed)
+                {
+                    continue;
+                }
+
                 // Hourly-bucketed idempotency key allows a crashed run to safely re-drive the next
                 // hour; Telebirr dedupes on the stable per-escrow transactionRef (release:{id}), so
                 // re-driving never double-pays. (Review C1/C2: the rotating key no longer risks a
@@ -502,6 +596,10 @@ public class EscrowCronFunction
                 {
                     NoteManualPayoutWaiting(context, escrowId, "auto-release");
                 }
+                else if (IsPayoutBlocked(result.Error))
+                {
+                    NoteReleaseBlocked(context, escrowId, "auto-release");
+                }
                 else
                 {
                     context.Logger.LogError(
@@ -524,6 +622,9 @@ public class EscrowCronFunction
 
     /// <summary>
     /// Auto-refund: query "escrowed" items where expiresAt has passed (7-day timeout).
+    /// ESC-10: the query keeps unconfirmed, unlocked rows and pages through the whole partition. An
+    /// /escrow/initiate escrow follows its delivery and order (<see cref="CheckInitiateRefundAsync"/>) and
+    /// is never refunded while its goods move; order escrows follow their order (ESC-06).
     /// </summary>
     private async Task<int> AutoRefundAsync(ILambdaContext context)
     {
@@ -531,11 +632,12 @@ public class EscrowCronFunction
         var nowIso = now.ToString("o");
 
         // Query escrowed items with expiresAt <= now
-        var escrows = await QuerySweepAsync(context, "refund_query",
-            () => _escrowRepo.QueryByStatusForCronAsync("escrowed", expiresAtBefore: nowIso));
+        var sweep = new SweepRun("refund_query",
+            new CronSweepQuery("escrowed", ExpiresAtBefore: nowIso, DeliveryConfirmed: false, ExcludeLocked: true),
+            RefundSweepUntil);
 
         var refundCount = 0;
-        foreach (var escrow in escrows)
+        await foreach (var escrow in SweepRowsAsync(context, sweep))
         {
             // Per-item isolation: one failing refund must not abort the whole batch.
             try
@@ -567,6 +669,8 @@ public class EscrowCronFunction
                     continue;
                 }
 
+                sweep.CountRow();
+
                 // ESC-05: the index copy can lag the base row (an admin release that just took the
                 // lock, a queue write, a status move, a delivery confirmation). One strongly
                 // consistent read decides before any side effect below.
@@ -579,12 +683,20 @@ public class EscrowCronFunction
                     continue;
                 }
 
+                // ESC-10: an /escrow/initiate escrow (no source) pays for its delivery: never refunded
+                // while its goods move, and a pending delivery is cancelled first.
+                var isInitiateEscrow = !string.Equals(GetStringOrNull(escrow, "source"), "order", StringComparison.Ordinal);
+                if (isInitiateEscrow && await CheckInitiateRefundAsync(baseRow!, now, context) != TradeCheck.Proceed)
+                {
+                    continue;
+                }
+
                 // Safety net: never refund a buyer whose delivery was actually
                 // confirmed. If deliveryConfirmedAt was never stamped (e.g. the
                 // inline stamp during confirmation failed transiently), verify the
                 // delivery's real status. If it is "delivered", stamp the escrow now
                 // so the auto-release cron pays the farmer, and skip the refund.
-                if (_deliveryRepo != null
+                if (!isInitiateEscrow && _deliveryRepo != null
                     && await IsDeliveryConfirmedAndStampAsync(escrow, context))
                 {
                     continue;
@@ -817,6 +929,16 @@ public class EscrowCronFunction
     private static bool IsManualPayoutWaiting(EscrowResultError? error)
         => error != null && error.HttpStatus == 202 && error.Code == "ESCROW_034";
 
+    /// <summary>ESC-10: the farmer payout gate blocked the release (<c>ESCROW_029</c>); the service audits it once per reason.</summary>
+    private static bool IsPayoutBlocked(EscrowResultError? error) => error is { Code: "ESCROW_029" };
+
+    /// <summary>ESC-10: a release the payout gate blocks waits for the farmer to verify: counted, logged at Information, not an error.</summary>
+    private void NoteReleaseBlocked(ILambdaContext context, string escrowId, string sweep)
+    {
+        _releaseBlocked++;
+        context.Logger.LogInformation($"ESCROW_RELEASE_BLOCKED escrowId={MoneyAlarmLog.LogId(escrowId)} code=ESCROW_029 sweep={sweep}");
+    }
+
     /// <summary>
     /// Logged at Information with a stable token, never as an error: the gateway cannot pay
     /// out and the admin queue owns the settlement. No alarm counts it; the overdue report
@@ -1000,7 +1122,9 @@ public class EscrowCronFunction
     /// <c>holdCapReachedAt</c> LAST: the stamp takes it out of the sweep windows, so it is written only
     /// once the queue owns the order. A missing order has no row to queue: its escrow is not stamped,
     /// stays in the windows and logs <c>ADMIN_QUEUE_OVERDUE ... reason=order_missing</c> every run
-    /// once the cap is 24 hours old.
+    /// once the cap is 24 hours old. ESC-10: an /escrow/initiate escrow with an order comes here too;
+    /// an order has one entry, so an escrow is stamped and audited only for an entry it owns
+    /// (<c>adminQueueEscrowId</c>, else the order escrow's id).
     /// </summary>
     private async Task EnterHoldCapQueueAsync(
         Dictionary<string, object> escrow, Dictionary<string, object>? order, string orderId,
@@ -1039,7 +1163,10 @@ public class EscrowCronFunction
             // since it was read: then the next run decides again.
             var current = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
             queuedAt = current == null ? null : GetStringOrNull(current, AdminQueueFields.QueuedAt);
-            if (queuedAt == null)
+            // ESC-10: one entry per order. An entry another escrow of the order owns does not stamp
+            // this one, which would leave the sweep windows with no queue entry of its own.
+            if (queuedAt == null
+                || (GetStringOrNull(current!, AdminQueueFields.EscrowId) ?? $"escrow-order-{orderId}") != escrowId)
             {
                 return;
             }
@@ -1579,18 +1706,24 @@ public class EscrowCronFunction
     /// <summary>
     /// Reconcile stuck "initiated" escrows by checking Telebirr transaction status.
     /// Items older than 30 minutes in "initiated" state are considered stale.
+    /// ESC-10: pages through the whole partition within a time budget. A cancel that lost to the webhook
+    /// is a quiet skip and any other failed cancel alarms, so one row no longer stops the others. A failed
+    /// page query still fails the run (500, <c>sweep_failed</c>).
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleReconciliationAsync(ILambdaContext context)
     {
         var now = DateTime.UtcNow;
-        var escrows = await _escrowRepo.QueryByStatusForCronAsync("initiated");
+        _sweepsTruncated.Clear();
+        var sweep = new SweepRun("reconciliation", new CronSweepQuery("initiated"), ReconciliationSweepUntil);
 
         var reconciledToEscrowed = 0;
         var reconciledToCancelled = 0;
         var skipped = 0;
+        var total = 0;
 
-        foreach (var escrow in escrows)
+        await foreach (var escrow in SweepRowsAsync(context, sweep, rethrowQueryFailure: true))
         {
+            total++;
             var createdAtStr = GetString(escrow, "createdAt");
             if (!DateTime.TryParse(createdAtStr, CultureInfo.InvariantCulture,
                     DateTimeStyles.RoundtripKind, out var createdAt))
@@ -1621,20 +1754,51 @@ public class EscrowCronFunction
                     continue;
                 }
 
+                sweep.CountRow();
                 context.Logger.LogInformation(
                     $"Reconciliation: cancelling {MoneyAlarmLog.LogId(escrowId)} (no Telebirr ref, payment window elapsed).");
 
-                await _escrowRepo.UpdateStatusAsync(escrowId, createdAtStr, "cancelled", "initiated",
-                    new Dictionary<string, object> { { "cancelledAt", now.ToString("o") } });
-
-                await AppendAuditAsync(escrowId, "reconcile_cancel", "initiated", "cancelled",
-                    "system", metadata: "No Telebirr reference; payment window elapsed with no completion.");
+                try
+                {
+                    await _escrowRepo.UpdateStatusAsync(escrowId, createdAtStr, "cancelled", "initiated",
+                        new Dictionary<string, object> { { "cancelledAt", now.ToString("o") } });
+                }
+                catch (ConditionalCheckFailedException)
+                {
+                    // ESC-10: the webhook moved it meanwhile (paid): nothing to reconcile.
+                    context.Logger.LogInformation($"Reconciliation: {MoneyAlarmLog.LogId(escrowId)} is no longer initiated; skipped.");
+                    skipped++;
+                    continue;
+                }
+                catch (Exception ex)
+                {
+                    context.Logger.LogError($"Reconciliation: cancel failed for {MoneyAlarmLog.LogId(escrowId)}: [{ex.GetType().Name}]");
+                    context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                        escrowId, "reconciliation_exception", MoneyAlarmLog.OutcomeFailed, ex.GetType().Name));
+                    skipped++;
+                    continue;
+                }
 
                 reconciledToCancelled++;
+                try
+                {
+                    await AppendAuditAsync(escrowId, "reconcile_cancel", "initiated", "cancelled",
+                        "system", metadata: "No Telebirr reference; payment window elapsed with no completion.");
+                }
+                catch (Exception ex)
+                {
+                    // ESC-10: the cancel landed; only its audit row is missing, and the other rows go on.
+                    context.Logger.LogError(
+                        $"Reconciliation: {MoneyAlarmLog.LogId(escrowId)} cancelled but its audit row failed: [{ex.GetType().Name}]");
+                    context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                        escrowId, "reconciliation_exception", MoneyAlarmLog.OutcomeFailed, $"audit:{ex.GetType().Name}"));
+                }
+
                 continue;
             }
 
             // Query Telebirr for the transaction status
+            sweep.CountRow();
             context.Logger.LogInformation($"Reconciliation: checking Telebirr status for {MoneyAlarmLog.LogId(escrowId)}.");
 
             try
@@ -1672,6 +1836,12 @@ public class EscrowCronFunction
                     skipped++;
                 }
             }
+            catch (ConditionalCheckFailedException)
+            {
+                // ESC-10: the webhook moved it meanwhile; nothing to reconcile.
+                context.Logger.LogInformation($"Reconciliation: {MoneyAlarmLog.LogId(escrowId)} is no longer initiated; skipped.");
+                skipped++;
+            }
             catch (Exception ex)
             {
                 context.Logger.LogError(
@@ -1686,12 +1856,13 @@ public class EscrowCronFunction
             { "reconciledToEscrowed", reconciledToEscrowed.ToString() },
             { "reconciledToCancelled", reconciledToCancelled.ToString() },
             { "skipped", skipped.ToString() },
-            { "total", escrows.Count.ToString() },
+            { "total", total.ToString() },
+            { "sweepsTruncated", _sweepsTruncated.Count == 0 ? "-" : string.Join(",", _sweepsTruncated) },
             { "completedAt", DateTime.UtcNow.ToString("o") }
         };
 
         context.Logger.LogInformation(
-            $"Reconciliation complete: {reconciledToEscrowed} escrowed, {reconciledToCancelled} cancelled, {skipped} skipped out of {escrows.Count}.");
+            $"Reconciliation complete: {reconciledToEscrowed} escrowed, {reconciledToCancelled} cancelled, {skipped} skipped out of {total}.");
 
         return new APIGatewayProxyResponse
         {
@@ -1699,6 +1870,505 @@ public class EscrowCronFunction
             Body = JsonSerializer.Serialize(summary, AppJsonContext.Default.DictionaryStringString),
             Headers = new Dictionary<string, string> { { "Content-Type", "application/json" } }
         };
+    }
+
+    // ──────────────────────────────────────────────
+    // ESC-10: paged sweeps, and the order and delivery behind a settlement
+    // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// ESC-10: one paged sweep's query and budget. The sweep calls <see cref="CountRow"/> once a row needs a
+    /// read or a write, so rows it skips on their own attributes never use up <see cref="SweepMaxRows"/>.
+    /// </summary>
+    private sealed class SweepRun(string code, CronSweepQuery query, TimeSpan until)
+    {
+        public string Code { get; } = code;
+        public CronSweepQuery Query { get; } = query;
+        public TimeSpan Until { get; } = until;
+        public int Rows { get; private set; }
+
+        public void CountRow() => Rows++;
+    }
+
+    /// <summary>
+    /// ESC-10: the rows of one status partition of <c>StatusExpiresIndex</c>, page by page, so a row the sweep
+    /// cannot act on no longer hides the rows behind it. Ends at the end of the partition or, logging
+    /// <c>sweep_truncated</c> (<c>code=&lt;code&gt;:&lt;pages|rows|time&gt;</c>), after <see cref="SweepMaxPages"/>
+    /// pages, after <see cref="SweepMaxRows"/> counted rows, once the run is <see cref="SweepRun.Until"/> old, or
+    /// with less Lambda time left than the trucker retry's reserve plus <see cref="SweepRemainingMargin"/>. A
+    /// failed page query logs <c>sweep_failed</c> with the sweep's code and ends the sweep; with
+    /// <paramref name="rethrowQueryFailure"/> it fails the run instead.
+    /// </summary>
+    private async IAsyncEnumerable<Dictionary<string, object>> SweepRowsAsync(
+        ILambdaContext context, SweepRun sweep, bool rethrowQueryFailure = false)
+    {
+        Dictionary<string, AttributeValue>? startKey = null;
+        var pages = 0;
+        string? stop = null;
+        do
+        {
+            if (pages >= SweepMaxPages)
+            {
+                stop = "pages";
+                break;
+            }
+
+            List<Dictionary<string, object>>? items = null;
+            Dictionary<string, AttributeValue>? lastKey = null;
+            var failed = false;
+            try
+            {
+                (items, lastKey) = await _escrowRepo.QueryCronPageAsync(sweep.Query with { PageSize = SweepPageSize }, startKey);
+            }
+            catch (Exception ex) when (!rethrowQueryFailure)
+            {
+                context.Logger.LogError($"Sweep query {sweep.Code} failed [{ex.GetType().Name}]; skipping the rest of this sweep for this run.");
+                context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                    null, "sweep_failed", MoneyAlarmLog.OutcomeFailed, $"{sweep.Code}:{ex.GetType().Name}"));
+                failed = true;
+            }
+
+            if (failed)
+            {
+                yield break;
+            }
+
+            pages++;
+            foreach (var row in items ?? [])
+            {
+                if (SweepOutOfTime(context, sweep.Until))
+                {
+                    stop = "time";
+                    break;
+                }
+
+                if (sweep.Rows >= SweepMaxRows)
+                {
+                    stop = "rows";
+                    break;
+                }
+
+                yield return row;
+            }
+
+            startKey = lastKey;
+        } while (stop == null && startKey != null);
+
+        if (stop != null)
+        {
+            _sweepsTruncated.Add(sweep.Code);
+            context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                null, "sweep_truncated", MoneyAlarmLog.OutcomeFailed, $"{sweep.Code}:{stop}"));
+            context.Logger.LogWarning(
+                $"Sweep {sweep.Code} stopped ({stop}) after {pages} pages and {sweep.Rows} rows; the rest waits for a later run.");
+        }
+    }
+
+    /// <summary>
+    /// ESC-10: the one place the paged sweeps ask the run budget, before each row: the time since the
+    /// invocation started (<see cref="Elapsed"/>, else the run clock) against the sweep's limit, and the
+    /// Lambda time left. Nothing else in the pager reads a clock.
+    /// </summary>
+    private bool SweepOutOfTime(ILambdaContext context, TimeSpan until)
+        => (Elapsed?.Invoke() ?? _runClock.Elapsed) >= until
+           || (context.RemainingTime > TimeSpan.Zero
+               && context.RemainingTime < TruckerRetryTimeReserve + SweepRemainingMargin);
+
+    /// <summary>What a sweep's order and delivery check decided for one escrow (ESC-10).</summary>
+    private enum TradeCheck
+    {
+        /// <summary>The settlement may go ahead.</summary>
+        Proceed,
+
+        /// <summary>Blocked for a reason a person must look at; audited once.</summary>
+        Blocked,
+
+        /// <summary>The trade was disputed: the escrow is frozen now and the dispute flow owns it.</summary>
+        Frozen,
+
+        /// <summary>Nothing to settle this run (held while the trade is live, stamped, or raced): the next run decides again.</summary>
+        Deferred
+    }
+
+    /// <summary>The delivery and order behind an escrow, read strongly consistent (ESC-10).</summary>
+    private sealed record TradeRows(
+        Dictionary<string, object>? Delivery, Dictionary<string, object>? Order, string? DeliveryStatus, string? OrderStatus);
+
+    private async Task<TradeRows> ReadTradeAsync(string? deliveryId, string? orderId)
+    {
+        var delivery = string.IsNullOrEmpty(deliveryId)
+            ? null
+            : await _deliveryRepo!.GetByIdAsync(deliveryId, consistentRead: true);
+        var order = string.IsNullOrEmpty(orderId)
+            ? null
+            : await _orderRepo!.GetByIdAsync(orderId, consistentRead: true);
+        return new TradeRows(delivery, order,
+            delivery == null ? null : GetStringOrNull(delivery, "status"),
+            order == null ? null : GetStringOrNull(order, "status"));
+    }
+
+    /// <summary>A dispute an admin already decided: the order says so, or the disputed delivery carries the verdict.</summary>
+    private static bool IsResolvedDispute(TradeRows trade)
+        => trade.OrderStatus == "dispute_resolved"
+           || (trade.DeliveryStatus == "disputed" && trade.Delivery != null
+               && !string.IsNullOrEmpty(GetStringOrNull(trade.Delivery, "disputeResolution")));
+
+    /// <summary>Escrow statuses that hold a trade's money or paid it out, for the double-escrow check.</summary>
+    private static readonly HashSet<string> MoneyHoldingEscrowStatuses = new(StringComparer.Ordinal)
+    {
+        "initiated", "escrowed", "released", "disputed", "dispute_resolved"
+    };
+
+    /// <summary>
+    /// ESC-10: the escrow names an order whose own escrow (<c>escrow-order-{orderId}</c>) also holds the
+    /// trade's money or paid it out: two payments for one trade, so neither sweep settles this one (a person
+    /// decides). Checked before any other read, and before a freeze, which would land on the order's escrow.
+    /// </summary>
+    private async Task<bool> IsDoubleEscrowAsync(Dictionary<string, object> escrow)
+    {
+        var orderId = GetStringOrNull(escrow, "orderId");
+        if (string.IsNullOrEmpty(orderId) || $"escrow-order-{orderId}" == GetString(escrow, "escrowId"))
+        {
+            return false;
+        }
+
+        var orderEscrow = await _escrowRepo.GetByIdAsync($"escrow-order-{orderId}", consistentRead: true);
+        return orderEscrow != null && MoneyHoldingEscrowStatuses.Contains(GetString(orderEscrow, "status"));
+    }
+
+    /// <summary>
+    /// ESC-10 (FUP-28): the auto-release pays only a delivery that is <c>delivered</c>, behind an order
+    /// that is in flight (<c>accepted</c> to <c>disbursing</c>: the order may lag the delivery) or none.
+    /// Both are read strongly consistent; a read that throws fails the row (its alarm line), nothing
+    /// paid. A double escrow blocks first; a disputed trade is frozen (<see cref="FreezeDisputedTradeAsync"/>);
+    /// a resolved dispute, any other mismatch and a missing repository block, audited once with one alarm line.
+    /// </summary>
+    private async Task<TradeCheck> CheckReleaseTradeAsync(Dictionary<string, object> escrow, ILambdaContext context)
+    {
+        var deliveryId = GetStringOrNull(escrow, "deliveryId");
+        var orderId = GetStringOrNull(escrow, "orderId");
+        if (_deliveryRepo == null || (!string.IsNullOrEmpty(orderId) && _orderRepo == null))
+        {
+            return await BlockSettlementAsync(escrow, "release", "repo_unavailable", null, context);
+        }
+
+        if (await IsDoubleEscrowAsync(escrow))
+        {
+            return await BlockSettlementAsync(escrow, "release", "double_escrow", null, context);
+        }
+
+        if (string.IsNullOrEmpty(deliveryId))
+        {
+            return await BlockSettlementAsync(escrow, "release", "no_delivery", null, context);
+        }
+
+        var trade = await ReadTradeAsync(deliveryId, orderId);
+        if (trade.Delivery == null)
+        {
+            return await BlockSettlementAsync(escrow, "release", "delivery_missing", trade, context);
+        }
+
+        if (IsResolvedDispute(trade))
+        {
+            return await BlockSettlementAsync(escrow, "release", "dispute_resolved", trade, context);
+        }
+
+        if (trade.DeliveryStatus == "disputed" || trade.OrderStatus == "disputed")
+        {
+            return await FreezeDisputedTradeAsync(escrow, trade, "release", context);
+        }
+
+        if (trade.DeliveryStatus != "delivered")
+        {
+            return await BlockSettlementAsync(
+                escrow, "release", $"delivery_{StatusToken(trade.DeliveryStatus)}", trade, context);
+        }
+
+        if (!string.IsNullOrEmpty(orderId))
+        {
+            if (trade.Order == null)
+            {
+                return await BlockSettlementAsync(escrow, "release", "order_missing", trade, context);
+            }
+
+            if (ClassifyOrder(trade.OrderStatus) != OrderTradeClass.InFlight)
+            {
+                return await BlockSettlementAsync(
+                    escrow, "release", $"order_{StatusToken(trade.OrderStatus)}", trade, context);
+            }
+        }
+
+        await _escrowService.ClearSettlementBlockAsync(escrow, "release", SettlementBlockFields.GateTrade);
+        return TradeCheck.Proceed;
+    }
+
+    /// <summary>
+    /// ESC-10: may the 7-day refund of an expired /escrow/initiate escrow (no <c>source</c>) go ahead? It
+    /// pays for its delivery, so the delivery decides, and the order (when there is one) says whether the
+    /// trade is still live (<c>accepted</c> to <c>disbursing</c>). Both read strongly consistent; a read
+    /// that throws fails the row. In order:
+    /// <list type="bullet">
+    /// <item>no repository: blocked <c>repo_unavailable</c>; the order's own escrow
+    /// (<c>escrow-order-{orderId}</c>) holds or paid the money too: blocked <c>double_escrow</c>;</item>
+    /// <item>order missing: ESC-06's rule (skipped; from the cap <c>ADMIN_QUEUE_OVERDUE reason=order_missing</c>);</item>
+    /// <item>a resolved dispute: blocked; a disputed delivery or order: frozen; no delivery row: blocked;
+    /// an order status without a class: blocked;</item>
+    /// <item><c>delivered</c>: stamped for the release sweep; <c>pickedUp</c> or <c>inTransit</c>: held
+    /// (<see cref="HoldLiveTradeAsync"/>) unless the order ended (blocked <c>delivery_moving</c>);
+    /// <c>pending</c> or <c>cancelled</c> behind a live order: held; <c>pending</c> otherwise: the delivery is
+    /// cancelled first (a lost race defers), then refunded; <c>cancelled</c> otherwise: refunded.</item>
+    /// </list>
+    /// </summary>
+    private async Task<TradeCheck> CheckInitiateRefundAsync(
+        Dictionary<string, object> escrow, DateTime now, ILambdaContext context)
+    {
+        var escrowId = GetString(escrow, "escrowId");
+        var deliveryId = GetStringOrNull(escrow, "deliveryId");
+        var orderId = GetStringOrNull(escrow, "orderId");
+        if (_deliveryRepo == null || (!string.IsNullOrEmpty(orderId) && _orderRepo == null))
+        {
+            return await BlockSettlementAsync(escrow, "refund", "repo_unavailable", null, context);
+        }
+
+        if (await IsDoubleEscrowAsync(escrow))
+        {
+            return await BlockSettlementAsync(escrow, "refund", "double_escrow", null, context);
+        }
+
+        var trade = await ReadTradeAsync(deliveryId, orderId);
+        if (!string.IsNullOrEmpty(orderId) && trade.Order == null)
+        {
+            var capAt = HoldCapAt(GetString(escrow, "createdAt"));
+            if (capAt == null || now >= capAt.Value)
+            {
+                await EnterHoldCapQueueAsync(escrow, null, orderId, now, capAt, context);
+            }
+
+            context.Logger.LogWarning(
+                $"Escrow {MoneyAlarmLog.LogId(escrowId)} expired but its order {MoneyAlarmLog.LogId(orderId)} is missing, "
+                + "skipping refund; needs reconciliation.");
+            return TradeCheck.Deferred;
+        }
+
+        if (IsResolvedDispute(trade))
+        {
+            return await BlockSettlementAsync(escrow, "refund", "dispute_resolved", trade, context);
+        }
+
+        if (trade.DeliveryStatus == "disputed" || trade.OrderStatus == "disputed")
+        {
+            return await FreezeDisputedTradeAsync(escrow, trade, "refund", context);
+        }
+
+        if (trade.Delivery == null)
+        {
+            return await BlockSettlementAsync(escrow, "refund", "delivery_missing", trade, context);
+        }
+
+        var orderClass = trade.Order == null ? OrderTradeClass.Unknown : ClassifyOrder(trade.OrderStatus);
+        if (trade.Order != null && orderClass == OrderTradeClass.Unknown)
+        {
+            return await BlockSettlementAsync(escrow, "refund", $"order_{StatusToken(trade.OrderStatus)}", trade, context);
+        }
+
+        var live = orderClass == OrderTradeClass.InFlight;
+        switch (trade.DeliveryStatus)
+        {
+            case "delivered":
+                // The release sweep pays it once the escrow carries the confirmation.
+                await StampIfDeliveredAsync(escrow, trade.Delivery, context);
+                return TradeCheck.Deferred;
+            case "pickedUp" or "inTransit":
+                return live || trade.Order == null
+                    ? await HoldLiveTradeAsync(escrow, trade.Order, orderId, now, context)
+                    : await BlockSettlementAsync(escrow, "refund", "delivery_moving", trade, context);
+            case "pending":
+                if (live)
+                {
+                    return await HoldLiveTradeAsync(escrow, trade.Order, orderId, now, context);
+                }
+
+                // D3: a pickup after the refund would move goods nobody pays for, so the delivery goes first.
+                if (!await _deliveryRepo.TryCancelPendingAsync(deliveryId!))
+                {
+                    context.Logger.LogInformation(
+                        $"ESCROW_REFUND_DELIVERY_CANCEL_LOST escrowId={MoneyAlarmLog.LogId(escrowId)} deliveryId={MoneyAlarmLog.LogId(deliveryId)}; the next run decides again.");
+                    return TradeCheck.Deferred;
+                }
+
+                _pendingDeliveriesCancelled++;
+                await TransactionAuditWriter.EmitAsync(
+                    _transactionAuditRepo, context, string.IsNullOrEmpty(orderId) ? escrowId : orderId, "delivery", deliveryId!,
+                    "delivery_cancelled", "pending", "cancelled", AuditContext.ForSystem(),
+                    metadata: $"reason=escrow_expired;escrowId={escrowId}");
+                context.Logger.LogInformation(
+                    $"ESCROW_REFUND_DELIVERY_CANCELLED escrowId={MoneyAlarmLog.LogId(escrowId)} deliveryId={MoneyAlarmLog.LogId(deliveryId)}");
+                break;
+            case "cancelled":
+                if (live)
+                {
+                    return await HoldLiveTradeAsync(escrow, trade.Order, orderId, now, context);
+                }
+
+                break;
+            default:
+                return await BlockSettlementAsync(
+                    escrow, "refund", $"delivery_{StatusToken(trade.DeliveryStatus)}", trade, context);
+        }
+
+        await _escrowService.ClearSettlementBlockAsync(escrow, "refund", SettlementBlockFields.GateTrade);
+        return TradeCheck.Proceed;
+    }
+
+    /// <summary>
+    /// ESC-10: an /escrow/initiate escrow whose trade is still live keeps its money held like an order
+    /// escrow (ESC-06): its expiry is pushed to <c>min(now + 48h, createdAt + 21 days)</c>, written only while it
+    /// is a plain hold. At the cap its order enters the admin queue. Without an order there is no queue: from
+    /// the cap plus 24 hours every run logs <c>ADMIN_QUEUE_OVERDUE orderId=- reason=no_order ageHours=..
+    /// escrowId=..</c> (ESC-06's missing-order rule), and the block <c>hold_cap_no_order</c> is audited once.
+    /// </summary>
+    private async Task<TradeCheck> HoldLiveTradeAsync(
+        Dictionary<string, object> escrow, Dictionary<string, object>? order, string? orderId, DateTime now,
+        ILambdaContext context)
+    {
+        var escrowId = GetString(escrow, "escrowId");
+        var createdAt = GetString(escrow, "createdAt");
+        var capAt = HoldCapAt(createdAt);
+        if (capAt == null || now >= capAt.Value)
+        {
+            if (order != null && !string.IsNullOrEmpty(orderId))
+            {
+                await EnterHoldCapQueueAsync(escrow, order, orderId, now, capAt, context);
+                return TradeCheck.Deferred;
+            }
+
+            var overdueFor = capAt == null ? MoneyAlarmLog.QueueAlarmAfter : now - capAt.Value;
+            if (overdueFor >= MoneyAlarmLog.QueueAlarmAfter)
+            {
+                context.Logger.LogWarning(MoneyAlarmLog.AdminQueueOverdue(
+                    null, AdminQueueFields.ReasonNoOrder, (int)overdueFor.TotalHours, escrowId));
+                _adminQueueOverdue++;
+            }
+
+            return await BlockSettlementAsync(escrow, "refund", "hold_cap_no_order", null, context, alarm: false);
+        }
+
+        var extendTo = now.AddHours(OrderEscrowExpiryExtensionHours);
+        await _escrowRepo.TryExtendExpiryAsync(
+            escrowId, createdAt, (extendTo < capAt.Value ? extendTo : capAt.Value).ToString("o"));
+        context.Logger.LogInformation($"ESCROW_REFUND_HELD escrowId={MoneyAlarmLog.LogId(escrowId)} reason=trade_live");
+        return TradeCheck.Deferred;
+    }
+
+    /// <summary>ESC-10: freeze refusals a later run cannot change, so the freeze is not asked again.</summary>
+    private static readonly HashSet<string> PermanentFreezeRefusals = new(StringComparer.Ordinal)
+    {
+        "freeze_other_escrow", "freeze_other_delivery", "freeze_not_held", "freeze_no_escrow"
+    };
+
+    /// <summary>
+    /// ESC-10: a sweep found the delivery or the order disputed while the escrow is still <c>escrowed</c>
+    /// (rows left from before ESC-07). The money is frozen through the ESC-07 delivery dispute path, and
+    /// only when that path freezes this very escrow (it prefers <c>escrow-order-{orderId}</c>); then the
+    /// delivery and order follow (<see cref="EscrowService.MirrorDisputeAsync"/>), like every dispute path.
+    /// A lock or queue entry that appeared since the read defers; any other outcome blocks
+    /// (<c>freeze_&lt;outcome&gt;</c>, audited once with one alarm line), and a refusal that cannot change is
+    /// not asked again.
+    /// </summary>
+    private async Task<TradeCheck> FreezeDisputedTradeAsync(
+        Dictionary<string, object> escrow, TradeRows trade, string op, ILambdaContext context)
+    {
+        var escrowId = GetString(escrow, "escrowId");
+        var deliveryId = GetStringOrNull(escrow, "deliveryId");
+        var orderId = GetStringOrNull(escrow, "orderId");
+        if (string.IsNullOrEmpty(deliveryId))
+        {
+            return await BlockSettlementAsync(escrow, op, "order_disputed", trade, context);
+        }
+
+        var prefix = SettlementBlockFields.Prefix(op, SettlementBlockFields.GateTrade);
+        var stored = GetStringOrNull(escrow, SettlementBlockFields.Reason);
+        if (stored != null && stored.StartsWith(prefix, StringComparison.Ordinal)
+            && PermanentFreezeRefusals.Contains(stored[prefix.Length..]))
+        {
+            return await BlockSettlementAsync(escrow, op, stored[prefix.Length..], trade, context);
+        }
+
+        var disputedBy = (trade.Delivery == null ? null : GetStringOrNull(trade.Delivery, "disputedBy"))
+                         ?? (trade.Order == null ? null : GetStringOrNull(trade.Order, "disputedBy"))
+                         ?? EscrowService.SystemActor;
+        var result = await _escrowService.FreezeForDeliveryDisputeAsync(deliveryId, orderId, disputedBy,
+            "Frozen by the hourly sweep: the delivery or order was already disputed.");
+        if (result.EscrowId == escrowId && result.MayMirror)
+        {
+            await _escrowService.MirrorDisputeAsync(escrowId, orderId, deliveryId, disputedBy,
+                (trade.Delivery == null ? null : GetStringOrNull(trade.Delivery, "disputeReason")) ?? "other",
+                markDelivery: true);
+            _disputesFrozen++;
+            context.Logger.LogWarning($"ESCROW_SWEEP_DISPUTE_FROZEN escrowId={MoneyAlarmLog.LogId(escrowId)} op={op}");
+            return TradeCheck.Frozen;
+        }
+
+        if (result.EscrowId == escrowId
+            && result.Outcome is DeliveryDisputeFreeze.RefusedManualPayout or DeliveryDisputeFreeze.RefusedSettlementInFlight)
+        {
+            context.Logger.LogInformation(
+                $"ESCROW_SWEEP_FREEZE_DEFERRED escrowId={MoneyAlarmLog.LogId(escrowId)} outcome={result.Outcome}");
+            return TradeCheck.Deferred;
+        }
+
+        var reason = result.EscrowId != null && result.EscrowId != escrowId
+            ? "freeze_other_escrow"
+            : result.Outcome switch
+            {
+                DeliveryDisputeFreeze.RefusedOtherDelivery => "freeze_other_delivery",
+                DeliveryDisputeFreeze.RefusedNotHeld => "freeze_not_held",
+                DeliveryDisputeFreeze.NoEscrow => "freeze_no_escrow",
+                _ => "freeze_refused"
+            };
+        return await BlockSettlementAsync(escrow, op, reason, trade, context);
+    }
+
+    /// <summary>
+    /// ESC-10: the order and delivery check blocks this settlement. Logged every run
+    /// (<c>ESCROW_SETTLEMENT_BLOCKED</c>, not an alarm token), stored and audited once per reason
+    /// (<c>auto_release_blocked</c>, <c>auto_refund_blocked</c>), and with <paramref name="alarm"/> one
+    /// <c>ESCROW_SETTLEMENT_FAILED</c> line when the reason is first stored.
+    /// </summary>
+    private async Task<TradeCheck> BlockSettlementAsync(
+        Dictionary<string, object> escrow, string op, string reason, TradeRows? trade, ILambdaContext context,
+        bool alarm = true)
+    {
+        var escrowId = GetString(escrow, "escrowId");
+        var action = op == "release" ? "auto_release_blocked" : "auto_refund_blocked";
+        if (op == "release")
+        {
+            _releaseBlocked++;
+        }
+        else
+        {
+            _refundBlocked++;
+        }
+
+        context.Logger.LogWarning(
+            $"ESCROW_SETTLEMENT_BLOCKED escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} reason={reason}");
+        await _escrowService.NoteSettlementBlockedAsync(escrow, "escrowed",
+            SettlementBlockFields.Value(op, SettlementBlockFields.GateTrade, reason), action,
+            $"reason={reason};orderStatus={StatusToken(trade?.OrderStatus)};deliveryStatus={StatusToken(trade?.DeliveryStatus)}",
+            alarm ? action : null);
+        return TradeCheck.Blocked;
+    }
+
+    /// <summary>A status inside a reason code or a log line: letters, digits and <c>_</c>, at most 32; <c>-</c> when there is none.</summary>
+    private static string StatusToken(string? status)
+    {
+        if (status == null)
+        {
+            return "-";
+        }
+
+        var token = new string(status.Where(c => char.IsAsciiLetterOrDigit(c) || c == '_').Take(32).ToArray());
+        return token.Length == 0 ? "unknown" : token;
     }
 
     // ──────────────────────────────────────────────
@@ -1757,16 +2427,26 @@ public class EscrowCronFunction
             return false;
         }
 
-        var delivery = await _deliveryRepo.GetByIdAsync(deliveryId);
+        return await StampIfDeliveredAsync(escrow, await _deliveryRepo.GetByIdAsync(deliveryId), context);
+    }
+
+    /// <summary>
+    /// The stamp of <see cref="IsDeliveryConfirmedAndStampAsync"/> for a delivery already read (ESC-10:
+    /// the /escrow/initiate refund check reads it strongly consistent). True when it is delivered.
+    /// </summary>
+    private async Task<bool> StampIfDeliveredAsync(
+        Dictionary<string, object> escrow, Dictionary<string, object>? delivery, ILambdaContext context)
+    {
         var deliveryStatus = delivery != null && delivery.TryGetValue("status", out var ds)
             ? ds?.ToString()
             : null;
         if (deliveryStatus != "delivered")
         {
-            return false; // not confirmed — a real timeout, let the refund proceed
+            return false; // not confirmed: a real timeout, let the refund proceed
         }
 
         var escrowId = GetString(escrow, "escrowId");
+        var deliveryId = GetStringOrNull(escrow, "deliveryId");
         try
         {
             var confirmedAt = (delivery!.TryGetValue("confirmedAt", out var ca) ? ca?.ToString() : null)

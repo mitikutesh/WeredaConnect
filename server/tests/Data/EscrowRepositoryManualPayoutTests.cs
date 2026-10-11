@@ -146,8 +146,9 @@ public class EscrowRepositoryManualPayoutTests
         _update.ExpressionAttributeValues[":released"].S.Should().Be("released");
         _update.ExpressionAttributeValues[":newStatus"].S.Should().Be("released");
         // ESC-04: once a release closes no trucker leg is owed, so its pending attributes go too.
+        // ESC-10: nor is the settlement blocked any more.
         _update.UpdateExpression.Should().Contain("#status = :newStatus")
-            .And.Contain("REMOVE #marker, #tPending, #tBlock, #tBlockAt, #tLockId, #tLockAt")
+            .And.Contain("REMOVE #marker, #blockReason, #blockReasonAt, #tPending, #tBlock, #tBlockAt, #tLockId, #tLockAt")
             .And.Contain("ADD #version :one");
         Name(_update, "#tPending").Should().Be("truckerPayoutPending");
         Name(_update, "#tBlock").Should().Be("truckerPayoutBlockReason");
@@ -177,13 +178,15 @@ public class EscrowRepositoryManualPayoutTests
     }
 
     [Fact]
-    public async Task Close_Refund_RemovesOnlyTheMarker()
+    public async Task Close_Refund_RemovesTheMarkerAndTheBlockReasonOnly()
     {
         await _repo.TryCloseManualPayoutAsync(
             EscrowId, CreatedAt, "refund", "buyer", "TB-REF-0009", "admin-1", "2026-10-02T10:05:00Z",
             Array.Empty<string>(), "refunded", new Dictionary<string, object> { { "telebirrRefundRef", "TB-REF-0009" } });
 
-        _update!.UpdateExpression.Should().Contain("REMOVE #marker ADD #version :one");
+        _update!.UpdateExpression.Should().Contain("REMOVE #marker, #blockReason, #blockReasonAt ADD #version :one");
+        Name(_update, "#blockReason").Should().Be("settlementBlockReason");
+        Name(_update, "#blockReasonAt").Should().Be("settlementBlockReasonAt");
         _update.ExpressionAttributeNames.Should().NotContainKey("#tPending");
     }
 

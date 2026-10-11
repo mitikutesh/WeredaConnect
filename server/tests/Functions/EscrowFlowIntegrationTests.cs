@@ -38,6 +38,8 @@ public class EscrowFlowIntegrationTests
     private readonly IEscrowAuditRepository _mockAuditRepo;
     private readonly IEscrowIdempotencyRepository _mockIdempotencyRepo;
     private readonly ITelebirrGateway _mockTelebirrGateway;
+    private readonly IDeliveryRepository _mockDeliveryRepo;
+    private readonly IOrderRepository _mockOrderRepo;
     private readonly EscrowFunction _function;
     private readonly EscrowCronFunction _cronFunction;
     private readonly TestLambdaContext _context;
@@ -90,7 +92,19 @@ public class EscrowFlowIntegrationTests
         var service = new EscrowService(
             _mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway, mockUserRepo);
         _function = new EscrowFunction(service);
-        _cronFunction = new EscrowCronFunction(service, _mockEscrowRepo, _mockAuditRepo, _mockTelebirrGateway);
+        // ESC-10: the cron reads each escrow's delivery strongly consistent before money moves.
+        _mockDeliveryRepo = Substitute.For<IDeliveryRepository>();
+        _mockDeliveryRepo.GetByIdAsync(Arg.Any<string>(), true).Returns(ci => new Dictionary<string, object>
+        {
+            { "deliveryId", ci.ArgAt<string>(0) }, { "status", "delivered" }
+        });
+        _mockOrderRepo = Substitute.For<IOrderRepository>();
+        _mockOrderRepo.GetByIdAsync(Arg.Any<string>(), true).Returns(ci => new Dictionary<string, object>
+        {
+            { "orderId", ci.ArgAt<string>(0) }, { "status", "delivered" }
+        });
+        _cronFunction = new EscrowCronFunction(service, _mockEscrowRepo, _mockAuditRepo, _mockTelebirrGateway,
+            _mockDeliveryRepo, _mockOrderRepo);
         _context = new TestLambdaContext();
     }
 
@@ -845,9 +859,7 @@ public class EscrowFlowIntegrationTests
             { "version", 2 }
         };
 
-        _mockEscrowRepo
-            .QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
-            .Returns(new List<Dictionary<string, object>> { escrow });
+        var swept = _mockEscrowRepo.StubSweep("escrowed", escrow);
         _mockEscrowRepo.GetByIdAsync(escrowId).Returns(escrow);
 
         var response = await _cronFunction.FunctionHandler(
@@ -859,6 +871,7 @@ public class EscrowFlowIntegrationTests
 
         await _mockTelebirrGateway.Received(1).ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
         await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        swept.AssertServed();
     }
 
     // ──────────────────────────────────────────────
@@ -904,9 +917,7 @@ public class EscrowFlowIntegrationTests
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>(),
                 Arg.Any<Dictionary<string, object>>())
             .Returns(true);
-        _mockEscrowRepo
-            .QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
-            .Returns(new List<Dictionary<string, object>> { escrow });
+        _mockEscrowRepo.StubSweep("escrowed", escrow);
         _mockEscrowRepo.GetByIdAsync(escrowId).Returns(escrow);
 
         // Sweep 1: the gateway refuses, the escrow is queued, nothing settles.
@@ -931,8 +942,7 @@ public class EscrowFlowIntegrationTests
             [ManualPayoutFields.QueuedAt] = DateTime.UtcNow.ToString("o"),
             [ManualPayoutFields.StatusAttr("farmer")] = "pending"
         };
-        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
-            .Returns(new List<Dictionary<string, object>> { queued });
+        var swept = _mockEscrowRepo.StubSweep("escrowed", queued);
         _mockEscrowRepo.GetByIdAsync(escrowId).Returns(queued);
         _mockTelebirrGateway.ClearReceivedCalls();
         _mockAuditRepo.ClearReceivedCalls();
@@ -957,6 +967,7 @@ public class EscrowFlowIntegrationTests
         await _mockEscrowRepo.Received(1).UpdateStatusAsync(escrowId, Arg.Any<string>(), "completed", "released",
             Arg.Any<Dictionary<string, object>>());
         await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        swept.AssertServed();
     }
 
     private static IUserRepository MakeUserRepoForPayout()
@@ -999,17 +1010,19 @@ public class EscrowFlowIntegrationTests
         };
 
         // Auto-release query: no eligible escrows (no confirmed delivery + expired window)
-        _mockEscrowRepo
-            .QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
-            .Returns(new List<Dictionary<string, object>>());
+        _mockEscrowRepo.StubSweep("escrowed");
 
         // Auto-refund query (expiresAtBefore): returns the expired escrow
-        _mockEscrowRepo
-            .QueryByStatusForCronAsync("escrowed", expiresAtBefore: Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>())
-            .Returns(new List<Dictionary<string, object>> { escrow });
+        var swept = _mockEscrowRepo.StubRefundSweep(escrow);
 
         _mockEscrowRepo.GetByIdAsync(escrowId).Returns(escrow);
         _mockEscrowRepo.GetByIdAsync(escrowId, true).Returns(escrow);
+        // ESC-10: the delivery never left the farm; the sweep cancels it before the refund (D3).
+        _mockDeliveryRepo.GetByIdAsync($"del-{escrowId}", true).Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", $"del-{escrowId}" }, { "status", "pending" }
+        });
+        _mockDeliveryRepo.TryCancelPendingAsync($"del-{escrowId}").Returns(true);
 
         var response = await _cronFunction.FunctionHandler(
             MakeCronRequest("auto_release_and_refund"), _context);
@@ -1017,9 +1030,16 @@ public class EscrowFlowIntegrationTests
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("\"refunded\":\"1\"", response.Body);
         Assert.Contains("\"released\":\"0\"", response.Body);
+        Assert.Contains("\"pendingDeliveriesCancelled\":\"1\"", response.Body);
 
+        Received.InOrder(() =>
+        {
+            _mockDeliveryRepo.TryCancelPendingAsync($"del-{escrowId}");
+            _mockTelebirrGateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        });
         await _mockTelebirrGateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
         await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        swept.AssertServed();
     }
 
     // ──────────────────────────────────────────────
@@ -1333,9 +1353,7 @@ public class EscrowFlowIntegrationTests
             { "version", 1 }
         };
 
-        _mockEscrowRepo
-            .QueryByStatusForCronAsync("initiated", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
-            .Returns(new List<Dictionary<string, object>> { stuckEscrow });
+        _mockEscrowRepo.StubSweep("initiated", stuckEscrow);
 
         _mockTelebirrGateway.GetTransactionStatusAsync("TBR-INT-REF-001")
             .Returns(new TransactionStatusResponse
@@ -1386,9 +1404,7 @@ public class EscrowFlowIntegrationTests
             { "version", 1 }
         };
 
-        _mockEscrowRepo
-            .QueryByStatusForCronAsync("initiated", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
-            .Returns(new List<Dictionary<string, object>> { stuckEscrow });
+        _mockEscrowRepo.StubSweep("initiated", stuckEscrow);
 
         var response = await _cronFunction.FunctionHandler(
             MakeCronRequest("reconciliation"), _context);

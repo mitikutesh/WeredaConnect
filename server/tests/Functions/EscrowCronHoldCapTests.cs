@@ -43,6 +43,7 @@ public class EscrowCronHoldCapTests
             .Returns(true);
         _escrows.QueryByStatusForCronAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
             .Returns(new List<Dictionary<string, object>>());
+        _escrows.StubEmptySweeps();
         _escrows.QueryOpenManualPayoutsAsync(Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
             .Returns((new List<Dictionary<string, object>>(), (Dictionary<string, AttributeValue>?)null));
         _orders.QueryAdminQueueAsync(Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
@@ -98,6 +99,7 @@ public class EscrowCronHoldCapTests
         await _orders.DidNotReceive().TryEnterAdminQueueAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
         await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        _swept!.AssertServed();
     }
 
     [Theory]
@@ -124,6 +126,7 @@ public class EscrowCronHoldCapTests
         _txRows.Should().ContainSingle(r => (string)r["action"] == "admin_queue_entered");
         summary["adminQueueEntered"].Should().Be("1");
         Logs.Should().Contain($"ORDER_ESCROW_HOLD_CAPPED orderId=ord-1 escrowId=escrow-order-ord-1");
+        _swept!.AssertServed();
     }
 
     [Fact]
@@ -157,6 +160,7 @@ public class EscrowCronHoldCapTests
         await _escrows.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
         await _audit.DidNotReceive().AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>());
+        _swept!.AssertServed();
     }
 
     [Theory]
@@ -185,6 +189,7 @@ public class EscrowCronHoldCapTests
         await _orders.DidNotReceive().TryEnterAdminQueueAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
         Logs.Should().Contain("needs reconciliation");
+        _swept!.AssertServed();
     }
 
     [Fact]
@@ -201,6 +206,7 @@ public class EscrowCronHoldCapTests
 
         await _escrows.DidNotReceive().TryExtendExpiryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
         await _orders.Received(1).TryEnterAdminQueueAsync(OrderId, "hold_cap", EscrowId, Arg.Any<string>(), "accepted");
+        _swept!.AssertServed();
     }
 
     [Fact]
@@ -214,6 +220,7 @@ public class EscrowCronHoldCapTests
         summary["adminQueueOverdue"].Should().Be("1");
         await _escrows.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        _swept!.AssertServed();
     }
 
     [Fact]
@@ -270,6 +277,7 @@ public class EscrowCronHoldCapTests
 
         await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
         Logs.Should().Contain("ORDER_STOCK_RESTORE_FAILED orderId=ord-1 listingId=listing-1");
+        _swept!.AssertServed();
     }
 
     [Fact]
@@ -282,6 +290,7 @@ public class EscrowCronHoldCapTests
 
         await _crops.DidNotReceive().RestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
         await _gateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        _swept!.AssertServed();
     }
 
     [Fact]
@@ -294,6 +303,7 @@ public class EscrowCronHoldCapTests
 
         await _crops.DidNotReceive().RestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
         await _gateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        _swept!.AssertServed();
     }
 
     // ===== The admin queue report =====
@@ -510,10 +520,12 @@ public class EscrowCronHoldCapTests
 
     private static DateTime Min(DateTime a, DateTime b) => a < b ? a : b;
 
+    /// <summary>ESC-10: the refund sweep's stub, so a test that expects nothing to happen proves the row was read.</summary>
+    private SweepStub? _swept;
+
     private void SweepFinds(Dictionary<string, object> escrow)
     {
-        _escrows.QueryByStatusForCronAsync("escrowed", expiresAtBefore: Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>())
-            .Returns(new List<Dictionary<string, object>> { escrow });
+        _swept = _escrows.StubRefundSweep(escrow);
         EscrowRowIs(escrow);
     }
 

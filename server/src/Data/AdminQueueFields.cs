@@ -33,6 +33,12 @@ internal static class AdminQueueFields
     /// <summary>A capped order escrow names an order that does not exist; logged only (no row to mark).</summary>
     public const string ReasonOrderMissing = "order_missing";
 
+    /// <summary>
+    /// ESC-10: an /escrow/initiate escrow with no order reached the cap while its trade was still live;
+    /// logged only (no order row to mark), with the escrow id on the line.
+    /// </summary>
+    public const string ReasonNoOrder = "no_order";
+
     /// <summary>Escrow attribute stamped last when its order entered the queue at the hold cap.</summary>
     public const string HoldCapReachedAt = "holdCapReachedAt";
 
