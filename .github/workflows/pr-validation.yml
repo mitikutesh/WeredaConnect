@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0  # Fetch all history for accurate change detection
 
@@ -89,7 +89,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # The runner image ships several GB of toolchains this job never uses. With
       # Flutter, .NET, Java, the Android SDK/NDK, Gradle caches and a LocalStack
@@ -206,7 +206,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -224,7 +224,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Lint — legacyPlaintextAllowed flag (S1-04)
         run: bash scripts/check_legacy_plaintext_flag.sh
