@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using Amazon.DynamoDBv2;
@@ -11,18 +12,43 @@ namespace WeredaConnect.Server.Functions;
 
 /// <summary>
 /// Handles asynchronous Telebirr payment notifications: POST /webhooks/telebirr
-/// (no JWT — Telebirr can't send one). Security layers: signature verification
-/// (primary), timestamp freshness, nonce/replay rejection, amount match. On a
-/// verified "Completed" it transitions the escrow initiated → escrowed; on
-/// "Failed" it cancels. ESC-01: a notification for an order checkout
+/// (no JWT: Telebirr can't send one). Security layers: signature verification over the one
+/// field map that is read (primary), notify_time freshness, merchant match, replay rejection,
+/// amount match. On a verified "Completed" it transitions the escrow initiated → escrowed; on a
+/// documented failure it cancels. ESC-01: a notification for an order checkout
 /// (POST /escrow/order-checkout) funds the order instead, exactly once.
-/// ALWAYS returns 200 OK so failures leak nothing to the caller; internal
-/// failures are logged.
+/// ESC-45 answers: 200 for everything before verification and for every final outcome; 500
+/// (no detail) when a verified notification is not yet durably recorded or applied for a reason a
+/// retry can fix, so Telebirr sends it again. Order payments are written to an inbox row first;
+/// the same Lambda, invoked by an EventBridge schedule, replays inbox rows left pending.
 /// AOT-safe: System.Text.Json source-gen + System.Security.Cryptography only.
 /// </summary>
 public class TelebirrWebhookFunction
 {
     private const int MaxTimestampSkewSeconds = 300;
+
+    /// <summary>
+    /// ESC-45 (D3): a verified order notification older than 300 s is still processed up to this
+    /// age, because Telebirr may resend the original notify_time; the inbox key, the conditional
+    /// funding write and the attempt binding make a replay harmless. Below the 30-day inbox TTL.
+    /// </summary>
+    internal static readonly TimeSpan LateWindow = TimeSpan.FromHours(48);
+
+    /// <summary>ESC-45 (D6): no apply starts with less than this left; the 500 makes Telebirr (or the sweep) retry.</summary>
+    internal static readonly TimeSpan ApplyReserve = TimeSpan.FromSeconds(4);
+
+    /// <summary>ESC-45: the sweep claims no row with less than this left.</summary>
+    internal static readonly TimeSpan SweepClaimReserve = TimeSpan.FromSeconds(5);
+
+    /// <summary>ESC-45: the sweep's budget when the remaining time is unknown (test contexts).</summary>
+    private static readonly TimeSpan SweepUnknownBudget = TimeSpan.FromSeconds(10);
+
+    private const int SweepPageSize = 25;
+    private const int SweepMaxRows = 100;
+
+    /// <summary>The action the EventBridge schedule sends; only a direct invocation can carry it.</summary>
+    internal const string ReplayAction = "webhook_inbox_replay";
+
     private const string TelebirrActor = "telebirr";
     private const string OrderEscrowPrefix = "escrow-order-";
     private const string UnmatchedToken = "ORDER_PAYMENT_UNMATCHED";
@@ -34,6 +60,21 @@ public class TelebirrWebhookFunction
     /// deliberately outside the order-payment-problems alarm).
     /// </summary>
     private const string BookkeepingToken = "ORDER_PAYMENT_BOOKKEEPING_FAILED";
+
+    /// <summary>
+    /// ESC-45 (D5): a verified order payment that is recorded in the inbox but not applied yet.
+    /// Not alarmed: the sweep (or a redelivery) applies it; the page comes only at give-up.
+    /// </summary>
+    private const string ReplayPendingToken = "ORDER_PAYMENT_REPLAY_PENDING";
+
+    /// <summary>ESC-45 (D8): the order hold could not be written (the sweep writes it again).</summary>
+    private const string HoldFailedToken = "ORDER_PAYMENT_HOLD_FAILED";
+
+    /// <summary>ESC-45 (D5): one line per sweep run, the heartbeat the stalled alarm watches.</summary>
+    internal const string ReplayRunToken = "TELEBIRR_INBOX_REPLAY_RUN";
+
+    private const string SuccessBody = "{\"code\":\"0\",\"msg\":\"success\"}";
+    private const string ErrorBody = "{\"code\":\"1\",\"msg\":\"error\"}";
 
     /// <summary>
     /// Order statuses in which a redelivered payment must not repair side effects: the order is
@@ -58,6 +99,11 @@ public class TelebirrWebhookFunction
     private readonly IOrderRepository? _orderRepo;
     private readonly OrderFundingService? _orderFunding;
     private readonly ITransactionAuditRepository? _txAuditRepo;
+
+    // ESC-45: the inbox of verified order notifications, and the clock the freshness and replay
+    // rules read (a test clock in tests).
+    private readonly IWebhookInboxRepository? _inboxRepo;
+    private readonly TimeProvider _clock;
 
     /// <summary>Default constructor for the Lambda runtime.</summary>
     public TelebirrWebhookFunction()
@@ -101,6 +147,9 @@ public class TelebirrWebhookFunction
 
         var txAuditTable = Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE");
         _txAuditRepo = string.IsNullOrEmpty(txAuditTable) ? null : new TransactionAuditRepository(dynamoDb, txAuditTable);
+
+        _inboxRepo = new WebhookInboxRepository(dynamoDb, idempotencyTable);
+        _clock = TimeProvider.System;
     }
 
     /// <summary>Constructor for testing.</summary>
@@ -116,7 +165,9 @@ public class TelebirrWebhookFunction
         IOrderCheckoutRepository? orderCheckoutRepo = null,
         IOrderRepository? orderRepo = null,
         OrderFundingService? orderFunding = null,
-        ITransactionAuditRepository? txAuditRepo = null)
+        ITransactionAuditRepository? txAuditRepo = null,
+        IWebhookInboxRepository? inboxRepo = null,
+        TimeProvider? clock = null)
     {
         _escrowRepo = escrowRepo;
         _auditRepo = auditRepo;
@@ -130,25 +181,52 @@ public class TelebirrWebhookFunction
         _orderRepo = orderRepo;
         _orderFunding = orderFunding;
         _txAuditRepo = txAuditRepo;
+        _inboxRepo = inboxRepo;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
         APIGatewayProxyRequest request, ILambdaContext context)
     {
+        // ESC-45: the EventBridge schedule invokes this Lambda directly. API Gateway always sets
+        // requestContext, so the public route can never reach the sweep (and the sweep takes no
+        // input from its event anyway).
+        if (IsReplayInvocation(request))
+        {
+            return await ReplayInboxAsync(context);
+        }
+
+        Ack ack;
         try
         {
-            await ProcessAsync(request, context);
+            ack = await ProcessAsync(request, context);
         }
         catch (Exception ex)
         {
-            // Never surface internal errors to the caller (SEC-07).
+            // Before verification nothing is retried (SEC-07: nothing leaks to the caller).
             context.Logger.LogError($"Telebirr webhook: internal error [{ex.GetType().Name}].");
+            ack = Ack.Done;
         }
 
-        return Ok();
+        return ack == Ack.RetryLater ? Respond(500, ErrorBody) : Respond(200, SuccessBody);
     }
 
-    private async Task ProcessAsync(APIGatewayProxyRequest request, ILambdaContext context)
+    /// <summary>What the webhook answers: 200, or 500 so Telebirr sends the notification again.</summary>
+    private enum Ack
+    {
+        Done,
+        RetryLater
+    }
+
+    /// <summary>How old a verified notification is (D3).</summary>
+    private enum Timing
+    {
+        Fresh,
+        Late,
+        OutOfWindow
+    }
+
+    private async Task<Ack> ProcessAsync(APIGatewayProxyRequest request, ILambdaContext context)
     {
         // Layer 1 (optional): source IP allow-list. Skipped when unconfigured (local).
         if (_allowedSourceIps.Count > 0)
@@ -157,60 +235,88 @@ public class TelebirrWebhookFunction
             if (ip == null || !_allowedSourceIps.Contains(ip))
             {
                 context.Logger.LogWarning("Telebirr webhook: source IP not allow-listed.");
-                return;
+                return Ack.Done;
             }
         }
 
         if (string.IsNullOrEmpty(request.Body))
         {
-            return;
+            return Ack.Done;
         }
 
-        TelebirrWebhookNotification? n;
-        try
+        // ESC-45 (D0): Telebirr's notify is a flat body; one map is both verified and read.
+        if (!TelebirrNotifyParser.TryParse(request.Body, out var parsed, out var parseError))
         {
-            n = JsonSerializer.Deserialize(request.Body, AppJsonContext.Default.TelebirrWebhookNotification);
-        }
-        catch (JsonException)
-        {
-            context.Logger.LogWarning("Telebirr webhook: unparseable body.");
-            return;
+            context.Logger.LogWarning($"Telebirr webhook: body refused ({parseError}).");
+            return Ack.Done;
         }
 
-        if (n?.BizContent?.MerchOrderId is not { Length: > 0 } merchOrderId || string.IsNullOrEmpty(n.Sign))
+        if (parsed!.Fields.GetValueOrDefault("merch_order_id") is not { Length: > 0 } || string.IsNullOrEmpty(parsed.Sign))
         {
             context.Logger.LogWarning("Telebirr webhook: missing merch_order_id or sign.");
-            return;
+            return Ack.Done;
         }
 
-        // Layer 2 (primary): verify the signature with Telebirr's public key.
-        if (!_signer.VerifyObject(ToSignable(n), n.Sign))
+        // Layer 2 (primary): verify the signature with Telebirr's public key, over exactly the
+        // fields read below. Telebirr signs the transaction id as trans_id but has been seen
+        // sending transId; that rename is tried only when trans_id itself is absent.
+        var fields = parsed.Fields;
+        if (!_signer.VerifyFlat(fields, parsed.Sign, out var padding))
         {
-            context.Logger.LogWarning("Telebirr webhook: signature verification failed.");
-            return;
+            var renamed = TelebirrNotifyParser.WithTransIdAlias(fields);
+            if (renamed == null || !_signer.VerifyFlat(renamed, parsed.Sign, out padding))
+            {
+                context.Logger.LogWarning($"Telebirr webhook: signature verification failed. fields={DescribeFields(fields)}");
+                return Ack.Done;
+            }
+
+            fields = renamed;
         }
 
-        // Layer 3: timestamp freshness. Fail closed: a notification without a
-        // parseable timestamp is treated like a stale one (replay defence).
-        if (!long.TryParse(n.Timestamp, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tsMs))
+        var n = TelebirrNotifyParser.ToBiz(fields);
+
+        // Layer 3: freshness of notify_time (seconds or milliseconds by digit range). Fail closed:
+        // a notification without a parseable time is treated like a stale one (replay defence).
+        if (TelebirrNotifyParser.SentAt(fields) is not { } sentAt)
         {
-            context.Logger.LogWarning("Telebirr webhook: missing or unparseable timestamp.");
-            return;
+            context.Logger.LogWarning("Telebirr webhook: missing or unparseable notify_time.");
+            return Ack.Done;
         }
-        var skewSec = Math.Abs(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - tsMs) / 1000.0;
-        if (skewSec > MaxTimestampSkewSeconds)
-        {
-            context.Logger.LogWarning($"Telebirr webhook: stale timestamp (skew {skewSec:F0}s).");
-            return;
-        }
+
+        var age = _clock.GetUtcNow() - sentAt;
+        var timing = Math.Abs(age.TotalSeconds) <= MaxTimestampSkewSeconds ? Timing.Fresh
+            : age > TimeSpan.Zero && age <= LateWindow ? Timing.Late
+            : Timing.OutOfWindow;
 
         // Layer 3b: the notification must be for our merchant account.
         if (!string.IsNullOrEmpty(_merchantCode)
-            && !string.Equals(n.BizContent.MerchCode, _merchantCode, StringComparison.Ordinal))
+            && !string.Equals(n.MerchCode, _merchantCode, StringComparison.Ordinal))
         {
             context.Logger.LogWarning("Telebirr webhook: merch_code does not match this merchant.");
-            return;
+            return Ack.Done;
         }
+
+        context.Logger.LogInformation(
+            $"Telebirr webhook: verified (padding={padding.ToString().ToLowerInvariant()}, "
+            + $"late={(timing == Timing.Fresh ? "false" : "true")}, age={age.TotalSeconds:F0}s).");
+
+        // Verified from here on: a failure a retry can fix answers 500 (D1).
+        try
+        {
+            return await HandleVerifiedAsync(n, timing, context);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(
+                $"Telebirr webhook: verified notification not processed, answered 500 for a retry "
+                + $"merchOrderId={SafeLogId(n.MerchOrderId)} paymentOrderId={SafeLogId(n.PaymentOrderId)} reason={ex.GetType().Name}");
+            return Ack.RetryLater;
+        }
+    }
+
+    private async Task<Ack> HandleVerifiedAsync(TelebirrWebhookBiz n, Timing timing, ILambdaContext context)
+    {
+        var merchOrderId = n.MerchOrderId!;
 
         // ESC-01: an order checkout (server-generated merch_order_id) funds the order itself.
         // A failed lookup must never drop a verified payment silently: it is logged with the
@@ -222,20 +328,47 @@ public class TelebirrWebhookFunction
             {
                 checkout = await _orderCheckoutRepo.GetMappingAsync(merchOrderId);
             }
+            catch (InvalidDataException)
+            {
+                // A malformed mapping row: a retry cannot fix it.
+                context.Logger.LogError(
+                    $"{UnprocessedToken} merchOrderId={SafeLogId(merchOrderId)} "
+                    + $"paymentOrderId={SafeLogId(n.PaymentOrderId)} reason=mapping_invalid");
+                return Ack.Done;
+            }
             catch (Exception ex)
             {
                 context.Logger.LogError(
                     $"{UnprocessedToken} merchOrderId={SafeLogId(merchOrderId)} "
-                    + $"paymentOrderId={SafeLogId(n.BizContent.PaymentOrderId)} reason=mapping_lookup_{ex.GetType().Name}");
-                return;
+                    + $"paymentOrderId={SafeLogId(n.PaymentOrderId)} reason=mapping_lookup_{ex.GetType().Name}");
+                return Ack.RetryLater;
             }
         }
 
         if (checkout != null)
         {
-            await ProcessOrderPaymentAsync(n.BizContent, checkout, context);
-            return;
+            return await ProcessOrderPaymentAsync(n, checkout, timing, context);
         }
+
+        // The /escrow/initiate path has no inbox: only a fresh notification is processed (300 s).
+        if (timing != Timing.Fresh)
+        {
+            context.Logger.LogWarning("Telebirr webhook: stale notify_time for an escrow payment.");
+            return Ack.Done;
+        }
+
+        return await ProcessEscrowPaymentAsync(n, context);
+    }
+
+    /// <summary>
+    /// The <c>/escrow/initiate</c> path (not usable with live Telebirr: its merch_order_id is the
+    /// client idempotency key, which breaks the documented <c>^[A-Za-z0-9]+$</c>; ESC-45). Any
+    /// exception escapes and answers 500: the path writes its dedupe key only after the escrow CAS
+    /// commits, so a retry is safe.
+    /// </summary>
+    private async Task<Ack> ProcessEscrowPaymentAsync(TelebirrWebhookBiz n, ILambdaContext context)
+    {
+        var merchOrderId = n.MerchOrderId!;
 
         // Resolve escrow via the idempotency map (merch_order_id == initiate idempotency key).
         var idem = await _idempotencyRepo.GetAsync(merchOrderId);
@@ -243,14 +376,14 @@ public class TelebirrWebhookFunction
         if (string.IsNullOrEmpty(escrowId))
         {
             context.Logger.LogWarning("Telebirr webhook: no escrow for merch_order_id.");
-            return;
+            return Ack.Done;
         }
 
         var escrow = await _escrowRepo.GetByIdAsync(escrowId);
         if (escrow == null)
         {
             context.Logger.LogWarning("Telebirr webhook: escrow record not found.");
-            return;
+            return Ack.Done;
         }
 
         // Layer 4: replay rejection (composite of order + telebirr ref + status).
@@ -259,9 +392,19 @@ public class TelebirrWebhookFunction
         // redelivery if the escrow update failed transiently, stranding a paid
         // payment in 'initiated'. The escrow CAS (expectedVersion 'initiated') is
         // the primary idempotency guard against concurrent duplicate deliveries.
-        var replayKey = $"webhook:{merchOrderId}:{n.BizContent.PaymentOrderId}:{n.BizContent.TradeStatus}";
+        var replayKey = $"webhook:{merchOrderId}:{n.PaymentOrderId}:{n.TradeStatus}";
 
-        var isSuccess = string.Equals(n.BizContent.TradeStatus, "Completed", StringComparison.OrdinalIgnoreCase);
+        var isSuccess = string.Equals(n.TradeStatus, "Completed", StringComparison.OrdinalIgnoreCase);
+
+        // Only a documented failure cancels the escrow. Pending ("payment completed, awaiting order
+        // synchronization") or Paying must not: the Completed that follows would then no-op on the
+        // CAS and strand a paid escrow (ESC-45).
+        if (!isSuccess && !IsFailedStatus(n.TradeStatus))
+        {
+            context.Logger.LogInformation(
+                $"Telebirr webhook: status {SafeLogId(n.TradeStatus)} for an escrow payment; nothing to do.");
+            return Ack.Done;
+        }
         var createdAt = GetString(escrow, "createdAt");
 
         // Payer binding: the wallet that paid should be the buyer's registered phone.
@@ -270,22 +413,22 @@ public class TelebirrWebhookFunction
         // is on (the field must be confirmed in Telebirr's live payload first);
         // otherwise a mismatch is recorded for the fraud review queue.
         if (isSuccess && !await PayerMatchesBuyerAsync(
-                GetString(escrow, "buyerId"), escrowId, n.BizContent.Msisdn, "initiated", context))
+                GetString(escrow, "buyerId"), escrowId, n.Msisdn, "initiated", context))
         {
-            return;
+            return Ack.Done;
         }
 
         // Amount integrity: a forged/replayed notification must not carry a different amount.
         if (isSuccess)
         {
             var escrowAmount = GetDecimal(escrow, "amount");
-            if (!decimal.TryParse(n.BizContent.TotalAmount, NumberStyles.Number, CultureInfo.InvariantCulture, out var notified)
+            if (!decimal.TryParse(n.TotalAmount, NumberStyles.Number, CultureInfo.InvariantCulture, out var notified)
                 || Math.Abs(escrowAmount - notified) > 0.01m)
             {
                 context.Logger.LogWarning("Telebirr webhook: amount mismatch — rejecting.");
                 await AppendAuditAsync(escrowId, "webhook_amount_mismatch", "initiated", "initiated",
-                    metadata: $"escrow={escrowAmount},webhook={n.BizContent.TotalAmount}");
-                return;
+                    metadata: $"escrow={escrowAmount},webhook={n.TotalAmount}");
+                return Ack.Done;
             }
         }
 
@@ -293,7 +436,7 @@ public class TelebirrWebhookFunction
         {
             if (isSuccess)
             {
-                var telebirrRef = n.BizContent.PaymentOrderId ?? "";
+                var telebirrRef = n.PaymentOrderId ?? "";
                 await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "escrowed", "initiated",
                     new Dictionary<string, object>
                     {
@@ -308,7 +451,7 @@ public class TelebirrWebhookFunction
             {
                 await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "cancelled", "initiated");
                 await AppendAuditAsync(escrowId, "webhook_hold_failed", "initiated", "cancelled",
-                    metadata: n.BizContent.TradeStatus);
+                    metadata: n.TradeStatus);
             }
 
             // The transition committed: only now record the replay/dedupe key so any
@@ -325,37 +468,23 @@ public class TelebirrWebhookFunction
             // processed this payment. Treat as an idempotent no-op.
             context.Logger.LogInformation("Telebirr webhook: escrow not in 'initiated'; no-op.");
         }
+
+        return Ack.Done;
     }
 
-    /// <summary>Reconstruct the signed view of the notification (sign excluded by the signer).</summary>
-    private static Dictionary<string, object?> ToSignable(TelebirrWebhookNotification n)
-    {
-        var biz = n.BizContent;
-        var bizContent = new Dictionary<string, object?>
-        {
-            ["merch_order_id"] = biz?.MerchOrderId,
-            ["payment_order_id"] = biz?.PaymentOrderId,
-            ["total_amount"] = biz?.TotalAmount,
-            ["trans_currency"] = biz?.TransCurrency,
-            ["trade_status"] = biz?.TradeStatus,
-            ["merch_code"] = biz?.MerchCode,
-            ["trans_id"] = biz?.TransId,
-        };
-        if (biz?.Msisdn != null)
-        {
-            bizContent["msisdn"] = biz.Msisdn;
-        }
+    /// <summary>A status Telebirr documents as a failed payment (Failure) or that our earlier simulator sent (Failed), or an expired one.</summary>
+    private static bool IsFailedStatus(string? tradeStatus)
+        => tradeStatus is not null
+           && (tradeStatus.Equals("Failed", StringComparison.OrdinalIgnoreCase)
+               || tradeStatus.Equals("Failure", StringComparison.OrdinalIgnoreCase)
+               || tradeStatus.Equals("Expired", StringComparison.OrdinalIgnoreCase));
 
-        return new Dictionary<string, object?>
-        {
-            ["method"] = n.Method,
-            ["nonce_str"] = n.NonceStr,
-            ["timestamp"] = n.Timestamp,
-            ["notify_time"] = n.NotifyTime,
-            ["sign_type"] = n.SignType,
-            ["biz_content"] = bizContent,
-        };
-    }
+    /// <summary>
+    /// The field names of a body that did not verify, for diagnosis: at most 20, each through
+    /// <see cref="MoneyAlarmLog.LogId"/>, so an unverified body can never spell an alarm token.
+    /// </summary>
+    private static string DescribeFields(IReadOnlyDictionary<string, string> fields)
+        => string.Join(",", fields.Keys.Order(StringComparer.Ordinal).Take(20).Select(SafeLogId));
 
     /// <summary>
     /// False when the notification must be rejected. Records a mismatch (or a
@@ -401,48 +530,212 @@ public class TelebirrWebhookFunction
     private sealed record OrderPayment(
         OrderCheckoutMapping Checkout, string PaymentOrderId, string? TransId, string TradeStatus, string EscrowId);
 
+    /// <summary>What applying an order payment came to: the inbox status, and whether a retry can change it.</summary>
+    private readonly record struct ApplyOutcome(string Status, bool IsFinal, bool Transient)
+    {
+        public static ApplyOutcome Final(string status) => new(status, true, false);
+    }
+
     /// <summary>
-    /// ESC-01: a verified notification whose merch_order_id is an order checkout. It is
-    /// recorded first (an inbox row keyed by checkout, payment and status, kept 30 days), then
-    /// the order is funded exactly once, or the reason it was not is logged with an alarmable
-    /// token and written to the escrow audit trail. Any payment that is not applied stays with
-    /// the platform for a manual refund, and a redelivery of it keeps that verdict.
+    /// ESC-01, ESC-45: a verified notification whose merch_order_id is an order checkout. Its inbox
+    /// row is read first: an earlier refusal keeps its verdict, and a late redelivery of a
+    /// notification already handled changes nothing (no apply, no hold, no alarm). A verified
+    /// <c>Completed</c> holds the order out of the 24 h <c>payment_failed</c> (D8), the notification is
+    /// recorded as a pending inbox row, then the order is funded exactly once, or the reason it was
+    /// not is recorded. Anything a retry can fix answers 500 and stays pending for the sweep.
     /// </summary>
-    private async Task ProcessOrderPaymentAsync(
-        TelebirrWebhookBiz biz, OrderCheckoutMapping checkout, ILambdaContext context)
+    private async Task<Ack> ProcessOrderPaymentAsync(
+        TelebirrWebhookBiz biz, OrderCheckoutMapping checkout, Timing timing, ILambdaContext context)
     {
         var payment = new OrderPayment(
             checkout, biz.PaymentOrderId ?? "", biz.TransId, biz.TradeStatus ?? "",
             OrderEscrowPrefix + checkout.OrderId);
-        var inboxKey = $"webhook-inbox:{checkout.MerchOrderId}:{payment.PaymentOrderId}:{payment.TradeStatus}";
+        var inboxKey = WebhookInboxRepository.KeyOf(checkout.MerchOrderId, payment.PaymentOrderId, payment.TradeStatus);
 
-        string outcome;
+        if (_inboxRepo == null)
+        {
+            context.Logger.LogError($"{UnprocessedToken} {Describe(payment)} reason=inbox_not_configured");
+            return Ack.Done;
+        }
+
+        WebhookInboxRow? existing;
         try
         {
-            var firstDelivery = await _idempotencyRepo.StoreAsync(
-                inboxKey, payment.EscrowId, "received", checkout.MerchOrderId);
+            existing = await _inboxRepo.GetAsync(inboxKey);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError($"{UnprocessedToken} {Describe(payment)} reason=inbox_read_{ex.GetType().Name}");
+            return Ack.RetryLater;
+        }
 
-            // A payment already judged unmatched or duplicate keeps that verdict: it is being
-            // refunded by hand, so a redelivery must never fund the order with it later.
-            if (!firstDelivery && await EarlierRefusalAsync(inboxKey) is { } earlier)
+        if (KeepsEarlierVerdict(existing, timing, payment, context))
+        {
+            return Ack.Done;
+        }
+
+        if (timing == Timing.OutOfWindow)
+        {
+            if (existing != null)
             {
-                context.Logger.LogInformation(
-                    $"Telebirr redelivery of an order payment already judged {SafeLogId(earlier)}; verdict kept: {Describe(payment)}.");
-                return;
+                context.Logger.LogInformation(existing.Marker == WebhookInbox.Exhausted
+                    ? $"Telebirr out-of-window redelivery of an order payment the inbox gave up on (replay_exhausted already alarmed; requeue it to apply): {Describe(payment)}."
+                    : $"Telebirr out-of-window redelivery of an order payment pending in the inbox (the sweep applies it): {Describe(payment)}.");
+                return Ack.Done;
             }
 
+            if (!IsCompleted(payment.TradeStatus))
+            {
+                // No money behind it: nothing to alarm.
+                context.Logger.LogInformation(
+                    $"Telebirr out-of-window {SafeLogId(payment.TradeStatus)} notification ignored: {Describe(payment)}.");
+                return Ack.Done;
+            }
+
+            // Too old (or from the future) to process, and never seen: a verified payment is not
+            // dropped silently.
+            context.Logger.LogError($"{UnprocessedToken} {Describe(payment)} reason=stale_notify_time");
+            await TryRecordUnprocessedAsync(payment, "stale_notify_time", context);
+            return Ack.Done;
+        }
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        if (IsCompleted(payment.TradeStatus))
+        {
+            await TryHoldOrderAsync(payment, now + WebhookInbox.ReplayHorizon, context);
+        }
+
+        if (existing == null)
+        {
+            bool recorded;
+            try
+            {
+                recorded = await _inboxRepo.RecordAsync(
+                    inboxKey, payment.EscrowId, checkout.OrderId, checkout.MerchOrderId, biz, now);
+            }
+            catch (Exception ex)
+            {
+                // Nothing durable holds this payment yet: alarm now, and let Telebirr send it again.
+                context.Logger.LogError($"{UnprocessedToken} {Describe(payment)} reason=inbox_write_{ex.GetType().Name}");
+                await TryRecordUnprocessedAsync(payment, ex.GetType().Name, context);
+                return Ack.RetryLater;
+            }
+
+            if (!recorded)
+            {
+                // A concurrent delivery recorded it first: decide by what it holds now.
+                existing = await _inboxRepo.GetAsync(inboxKey);
+                if (KeepsEarlierVerdict(existing, timing, payment, context))
+                {
+                    return Ack.Done;
+                }
+            }
+        }
+
+        // D6: never start applying with too little time left; the row stays pending.
+        if (context.RemainingTime > TimeSpan.Zero && context.RemainingTime < ApplyReserve)
+        {
+            context.Logger.LogWarning($"{ReplayPendingToken} {Describe(payment)} reason=low_time");
+            return Ack.RetryLater;
+        }
+
+        ApplyOutcome outcome;
+        try
+        {
             outcome = await ApplyOrderPaymentAsync(biz, payment, context);
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"{UnprocessedToken} {Describe(payment)} reason={ex.GetType().Name}");
-            await TryRecordUnprocessedAsync(payment, ex, context);
+            context.Logger.LogWarning($"{ReplayPendingToken} {Describe(payment)} reason={ex.GetType().Name}");
+            return Ack.RetryLater;
+        }
+
+        if (!outcome.IsFinal)
+        {
+            await TryMarkUnprocessedAsync(inboxKey, payment, context);
+            return outcome.Transient ? Ack.RetryLater : Ack.Done;
+        }
+
+        await FinalizeInboxAsync(inboxKey, outcome.Status, payment,
+            existing?.Marker == WebhookInbox.Exhausted || existing?.ExhaustedAt != null, context);
+        return Ack.Done;
+    }
+
+    /// <summary>
+    /// True when this delivery must change nothing: the payment was refused before (it may be
+    /// refunded by hand already), or it is a late redelivery of a notification already handled.
+    /// </summary>
+    private static bool KeepsEarlierVerdict(
+        WebhookInboxRow? existing, Timing timing, OrderPayment payment, ILambdaContext context)
+    {
+        if (existing is not { IsFinal: true })
+        {
+            return false;
+        }
+
+        if (existing.IsRefusal)
+        {
+            context.Logger.LogInformation(
+                $"Telebirr redelivery of an order payment already judged {SafeLogId(existing.Status)}; verdict kept: {Describe(payment)}.");
+            return true;
+        }
+
+        if (timing != Timing.Fresh)
+        {
+            context.Logger.LogInformation(
+                $"Telebirr late redelivery of an order payment already handled ({SafeLogId(existing.Status)}); nothing to do: {Describe(payment)}.");
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsCompleted(string? tradeStatus)
+        => string.Equals(tradeStatus, "Completed", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// D8: hold the order out of the order cron's 24 h <c>payment_failed</c> until
+    /// <paramref name="holdUntilUtc"/>, for this payment attempt only. Best effort: the sweep writes
+    /// it again at its next claim.
+    /// </summary>
+    private async Task TryHoldOrderAsync(OrderPayment payment, DateTime holdUntilUtc, ILambdaContext context)
+    {
+        if (_orderRepo == null)
+        {
             return;
         }
 
         try
         {
-            await _idempotencyRepo.UpdateAsync(inboxKey, outcome);
+            await _orderRepo.TryHoldForPaymentAsync(
+                payment.Checkout.OrderId, WebhookInbox.Iso(holdUntilUtc), payment.Checkout.PaymentSubmittedAt);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning($"{HoldFailedToken} {Describe(payment)} reason={ex.GetType().Name}");
+        }
+    }
+
+    private async Task TryMarkUnprocessedAsync(string inboxKey, OrderPayment payment, ILambdaContext context)
+    {
+        try
+        {
+            await _inboxRepo!.MarkUnprocessedAsync(inboxKey);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"{BookkeepingToken} {Describe(payment)} step=inbox_unprocessed reason={ex.GetType().Name}");
+        }
+    }
+
+    /// <summary>Write a final outcome to the inbox row; a failure leaves it pending, and the sweep finishes it.</summary>
+    private async Task FinalizeInboxAsync(
+        string inboxKey, string outcome, OrderPayment payment, bool wasExhausted, ILambdaContext context)
+    {
+        try
+        {
+            await _inboxRepo!.FinalizeAsync(inboxKey, outcome);
         }
         catch (Exception ex)
         {
@@ -450,26 +743,33 @@ public class TelebirrWebhookFunction
             context.Logger.LogWarning(
                 $"{BookkeepingToken} {Describe(payment)} step=inbox outcome={outcome} reason={ex.GetType().Name}");
         }
+
+        if (wasExhausted && outcome is "applied" or "applied_again")
+        {
+            context.Logger.LogWarning(
+                $"Telebirr payment applied after its inbox row was given up; stop any manual refund: {Describe(payment)}.");
+        }
     }
 
     /// <summary>Apply an order payment notification; returns the inbox outcome.</summary>
-    private async Task<string> ApplyOrderPaymentAsync(
+    private async Task<ApplyOutcome> ApplyOrderPaymentAsync(
         TelebirrWebhookBiz biz, OrderPayment payment, ILambdaContext context)
     {
         if (_orderRepo == null || _orderFunding == null)
         {
+            // A deployment fault: alarmed now, and a retry cannot fix it.
             context.Logger.LogError($"{UnprocessedToken} {Describe(payment)} reason=orders_not_configured");
-            return "unprocessed";
+            return new ApplyOutcome(WebhookInbox.Unprocessed, IsFinal: false, Transient: false);
         }
 
-        if (!string.Equals(payment.TradeStatus, "Completed", StringComparison.OrdinalIgnoreCase))
+        if (!IsCompleted(payment.TradeStatus))
         {
-            return await RecordNotCompletedAsync(payment);
+            return ApplyOutcome.Final(await RecordNotCompletedAsync(payment));
         }
 
         if (payment.PaymentOrderId.Length == 0)
         {
-            return await RecordUnappliedAsync(payment, UnmatchedToken, "no_payment_order_id", context);
+            return ApplyOutcome.Final(await RecordUnappliedAsync(payment, UnmatchedToken, "no_payment_order_id", context));
         }
 
         // Classify against the order's current state. A lost race (the order changed between
@@ -481,12 +781,13 @@ public class TelebirrWebhookFunction
             var verdict = await TryApplyToOrderAsync(order, biz, payment, context);
             if (verdict != null)
             {
-                return verdict;
+                return ApplyOutcome.Final(verdict);
             }
         }
 
-        context.Logger.LogError($"{UnprocessedToken} {Describe(payment)} reason=funding_conflict");
-        return "unprocessed";
+        // Transient: the sweep or a redelivery classifies it again (D5: no page here).
+        context.Logger.LogWarning($"{ReplayPendingToken} {Describe(payment)} reason=funding_conflict");
+        return new ApplyOutcome(WebhookInbox.Unprocessed, IsFinal: false, Transient: true);
     }
 
     /// <summary>
@@ -598,29 +899,19 @@ public class TelebirrWebhookFunction
         return null;
     }
 
-    /// <summary>The earlier inbox outcome of this notification when it refused the payment (unmatched or duplicate), else null.</summary>
-    private async Task<string?> EarlierRefusalAsync(string inboxKey)
-    {
-        var row = await _idempotencyRepo.GetAsync(inboxKey);
-        var status = row != null && row.TryGetValue("status", out var value) ? value?.ToString() : null;
-        return status != null && (status.StartsWith("unmatched:", StringComparison.Ordinal) || status == "duplicate")
-            ? status
-            : null;
-    }
-
     /// <summary>
     /// A durable escrow-audit row for a payment that could not be processed, next to its log
     /// line. Best effort: the same outage can stop this write too, and then the log line is the
     /// only record.
     /// </summary>
-    private async Task TryRecordUnprocessedAsync(OrderPayment payment, Exception cause, ILambdaContext context)
+    private async Task TryRecordUnprocessedAsync(OrderPayment payment, string reason, ILambdaContext context)
     {
         try
         {
             await AppendAuditAsync(payment.EscrowId, "order_payment_unprocessed", "", "",
                 telebirrRef: payment.PaymentOrderId.Length > 0 ? payment.PaymentOrderId : null,
                 metadata: $"orderId={payment.Checkout.OrderId},merchOrderId={payment.Checkout.MerchOrderId},"
-                          + $"amount={payment.Checkout.Amount},reason={cause.GetType().Name}");
+                          + $"amount={payment.Checkout.Amount},reason={reason}");
         }
         catch (Exception ex)
         {
@@ -676,7 +967,8 @@ public class TelebirrWebhookFunction
     /// </summary>
     private async Task<string> RecordNotCompletedAsync(OrderPayment payment)
     {
-        var failed = string.Equals(payment.TradeStatus, "Failed", StringComparison.OrdinalIgnoreCase);
+        var failed = string.Equals(payment.TradeStatus, "Failed", StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(payment.TradeStatus, "Failure", StringComparison.OrdinalIgnoreCase);
         await AppendAuditAsync(payment.EscrowId, failed ? "order_payment_failed" : "order_payment_status_ignored",
             "payment_submitted", "payment_submitted",
             metadata: $"orderId={payment.Checkout.OrderId},merchOrderId={payment.Checkout.MerchOrderId},"
@@ -699,6 +991,268 @@ public class TelebirrWebhookFunction
                       + $"amount={payment.Checkout.Amount},reason={reason}");
         return token == DuplicateToken ? "duplicate" : $"unmatched:{reason}";
     }
+
+    // ─── ESC-45: inbox replay sweep ──────────────────────────────────────
+
+    /// <summary>
+    /// A direct invocation by the EventBridge schedule: no API Gateway request context (API Gateway
+    /// always sets one) and exactly the replay action in the body.
+    /// </summary>
+    private static bool IsReplayInvocation(APIGatewayProxyRequest request)
+    {
+        if (request.RequestContext != null || string.IsNullOrEmpty(request.Body) || request.Body.Length > 200)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(request.Body);
+            return doc.RootElement.ValueKind == JsonValueKind.Object
+                   && doc.RootElement.TryGetProperty("action", out var action)
+                   && action.ValueKind == JsonValueKind.String
+                   && action.GetString() == ReplayAction;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>What one sweep run did, for its heartbeat line.</summary>
+    private sealed class ReplayCounts
+    {
+        public int Due;
+        public int Claimed;
+        public int Applied;
+        public int Pending;
+        public int Exhausted;
+    }
+
+    /// <summary>
+    /// ESC-45 (D4): replay inbox rows left pending (a failure or a cut-off run after the row was
+    /// written). Due rows only, oldest first, at most <see cref="SweepMaxRows"/> per run, each
+    /// claimed with a conditional write before it is processed, and no claim with less than
+    /// <see cref="SweepClaimReserve"/> left. One heartbeat line per run, unless the index could not
+    /// be read (then the stalled alarm fires).
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> ReplayInboxAsync(ILambdaContext context)
+    {
+        var counts = new ReplayCounts();
+        if (_inboxRepo == null || _orderCheckoutRepo == null)
+        {
+            context.Logger.LogError("Telebirr inbox replay: inbox or checkouts not configured.");
+            return Respond(200, SuccessBody);
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        var queryFailed = false;
+        try
+        {
+            Dictionary<string, AttributeValue>? startKey = null;
+            var budgetLeft = true;
+            do
+            {
+                var (rows, next) = await _inboxRepo.QueryDueAsync(_clock.GetUtcNow().UtcDateTime, SweepPageSize, startKey);
+                foreach (var row in rows)
+                {
+                    if (counts.Due >= SweepMaxRows || !SweepHasTime(context, stopwatch))
+                    {
+                        budgetLeft = false;
+                        break;
+                    }
+
+                    counts.Due++;
+                    try
+                    {
+                        await ReplayRowAsync(row, counts, context);
+                    }
+                    catch (Exception ex)
+                    {
+                        // The row keeps its claim time and comes back on a later run.
+                        context.Logger.LogWarning(
+                            $"Telebirr inbox replay: row not finished {DescribeRow(row, null)} reason={ex.GetType().Name}");
+                    }
+                }
+
+                startKey = next;
+            }
+            while (startKey != null && budgetLeft);
+        }
+        catch (Exception ex)
+        {
+            queryFailed = true;
+            context.Logger.LogError($"Telebirr inbox replay: the inbox index could not be read [{ex.GetType().Name}].");
+        }
+        finally
+        {
+            if (!queryFailed)
+            {
+                context.Logger.LogInformation(
+                    $"{ReplayRunToken} due={counts.Due} claimed={counts.Claimed} applied={counts.Applied} "
+                    + $"pending={counts.Pending} exhausted={counts.Exhausted}");
+            }
+        }
+
+        return Respond(200, SuccessBody);
+    }
+
+    private static bool SweepHasTime(ILambdaContext context, Stopwatch stopwatch)
+        => context.RemainingTime > TimeSpan.Zero
+            ? context.RemainingTime > SweepClaimReserve
+            : stopwatch.Elapsed < SweepUnknownBudget;
+
+    /// <summary>Claim one due row, replay it like a redelivery, and record what came of it.</summary>
+    private async Task ReplayRowAsync(WebhookInboxRow row, ReplayCounts counts, ILambdaContext context)
+    {
+        var inbox = _inboxRepo!;
+
+        // A run that died during the last attempt left the row due with every attempt used.
+        if (row.Attempts >= WebhookInbox.MaxAttempts)
+        {
+            await GiveUpAsync(row, row.Attempts, "attempts_used", null, counts, context);
+            return;
+        }
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var nextReplay = now + WebhookInbox.Backoff(row.Attempts);
+        if (row.ReplayAt == null || !await inbox.TryClaimAsync(row.Key, row.ReplayAt, row.Attempts, nextReplay, now))
+        {
+            return;
+        }
+
+        counts.Claimed++;
+        var attempts = row.Attempts + 1;
+        if (row.Biz is not { MerchOrderId: { Length: > 0 } merchOrderId } biz)
+        {
+            await GiveUpAsync(row, attempts, "stored_notification_unreadable", null, counts, context);
+            return;
+        }
+
+        OrderCheckoutMapping? checkout;
+        try
+        {
+            checkout = await _orderCheckoutRepo!.GetMappingAsync(merchOrderId);
+        }
+        catch (InvalidDataException)
+        {
+            await GiveUpAsync(row, attempts, "mapping_invalid", null, counts, context);
+            return;
+        }
+        catch (Exception ex)
+        {
+            await ReplayLaterAsync(row, attempts, $"mapping_lookup_{ex.GetType().Name}", null, counts, context);
+            return;
+        }
+
+        if (checkout == null)
+        {
+            await GiveUpAsync(row, attempts, "mapping_missing", null, counts, context);
+            return;
+        }
+
+        var payment = new OrderPayment(
+            checkout, biz.PaymentOrderId ?? "", biz.TransId, biz.TradeStatus ?? "", OrderEscrowPrefix + checkout.OrderId);
+        if (IsCompleted(payment.TradeStatus))
+        {
+            // D8: keep the order held while replays remain (also after a requeue).
+            var receivedAt = ParseUtcOrNull(row.CreatedAt) ?? now;
+            var holdUntil = receivedAt + WebhookInbox.ReplayHorizon;
+            var afterNext = nextReplay + TimeSpan.FromMinutes(15);
+            await TryHoldOrderAsync(payment, holdUntil > afterNext ? holdUntil : afterNext, context);
+        }
+
+        ApplyOutcome outcome;
+        try
+        {
+            outcome = await ApplyOrderPaymentAsync(biz, payment, context);
+        }
+        catch (Exception ex)
+        {
+            await ReplayLaterAsync(row, attempts, ex.GetType().Name, payment, counts, context);
+            return;
+        }
+
+        if (!outcome.IsFinal)
+        {
+            await ReplayLaterAsync(row, attempts, outcome.Status, payment, counts, context);
+            return;
+        }
+
+        // A requeued row (exhaustedAt kept) that applies now: an admin may have started a refund.
+        await FinalizeInboxAsync(row.Key, outcome.Status, payment, wasExhausted: row.ExhaustedAt != null, context);
+        if (outcome.Status is "applied" or "applied_again")
+        {
+            counts.Applied++;
+        }
+
+        context.Logger.LogInformation(
+            $"Telebirr inbox replay: {SafeLogId(outcome.Status)} on attempt {attempts}: {Describe(payment)}.");
+    }
+
+    /// <summary>A replay that did not finish: pending for the next attempt, or given up after the last.</summary>
+    private async Task ReplayLaterAsync(
+        WebhookInboxRow row, int attempts, string reason, OrderPayment? payment, ReplayCounts counts, ILambdaContext context)
+    {
+        if (attempts >= WebhookInbox.MaxAttempts)
+        {
+            await GiveUpAsync(row, attempts, reason, payment, counts, context);
+            return;
+        }
+
+        if (!await _inboxRepo!.MarkUnprocessedAsync(row.Key))
+        {
+            // A redelivery wrote a final outcome meanwhile.
+            context.Logger.LogInformation($"Telebirr inbox replay: row finished elsewhere: {DescribeRow(row, payment)}.");
+            return;
+        }
+
+        counts.Pending++;
+        context.Logger.LogWarning(
+            $"{ReplayPendingToken} {DescribeRow(row, payment)} attempt={attempts}/{WebhookInbox.MaxAttempts} reason={SafeLogId(reason)}");
+    }
+
+    /// <summary>
+    /// Give a row up: only while it is still pending with <paramref name="seenAttempts"/> (a finalize
+    /// that won the race is never undone), and only then the alarm line and the durable audit row
+    /// that make it a refund case for an admin.
+    /// </summary>
+    private async Task GiveUpAsync(
+        WebhookInboxRow row, int seenAttempts, string reason, OrderPayment? payment, ReplayCounts counts, ILambdaContext context)
+    {
+        if (!await _inboxRepo!.ExhaustAsync(row.Key, seenAttempts))
+        {
+            context.Logger.LogInformation($"Telebirr inbox replay: row moved on before it was given up: {DescribeRow(row, payment)}.");
+            return;
+        }
+
+        counts.Exhausted++;
+        context.Logger.LogError(
+            $"{UnprocessedToken} {DescribeRow(row, payment)} reason=replay_exhausted cause={SafeLogId(reason)} attempts={seenAttempts}");
+        try
+        {
+            await AppendAuditAsync(row.EscrowId, "order_payment_unprocessed", "", "",
+                telebirrRef: row.Biz?.PaymentOrderId is { Length: > 0 } paymentOrderId ? paymentOrderId : null,
+                metadata: $"orderId={row.OrderId},merchOrderId={row.MerchOrderId},reason=replay_exhausted:{reason},attempts={seenAttempts}");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Audit row for an exhausted order payment not written: {DescribeRow(row, payment)} reason={ex.GetType().Name}");
+        }
+    }
+
+    private static string DescribeRow(WebhookInboxRow row, OrderPayment? payment)
+        => payment != null
+            ? Describe(payment)
+            : $"orderId={SafeLogId(row.OrderId)} merchOrderId={SafeLogId(row.MerchOrderId)} "
+              + $"paymentOrderId={SafeLogId(row.Biz?.PaymentOrderId)}";
+
+    private static DateTime? ParseUtcOrNull(string? value)
+        => DateTime.TryParse(value, CultureInfo.InvariantCulture,
+            DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsed)
+            ? parsed
+            : null;
 
     /// <summary>The ids of an order payment for a log line, sanitized.</summary>
     private static string Describe(OrderPayment payment)
@@ -729,15 +1283,27 @@ public class TelebirrWebhookFunction
             { "actor", "telebirr" },
             { "timestamp", DateTime.UtcNow.ToString("o") },
         };
-        if (telebirrRef != null) entry["telebirrRef"] = telebirrRef;
-        if (metadata != null) entry["metadata"] = metadata;
+        if (telebirrRef != null)
+        {
+            entry["telebirrRef"] = telebirrRef;
+        }
+
+        if (metadata != null)
+        {
+            entry["metadata"] = metadata;
+        }
+
         await _auditRepo.AppendAsync(entry);
     }
 
-    private static APIGatewayProxyResponse Ok() => new()
+    /// <summary>
+    /// D2: a small valid JSON body (Telebirr's own success envelope); the 500 body says nothing
+    /// about the cause (SEC-07).
+    /// </summary>
+    private static APIGatewayProxyResponse Respond(int status, string body) => new()
     {
-        StatusCode = 200,
-        Body = "",
+        StatusCode = status,
+        Body = body,
         Headers = new Dictionary<string, string> { { "Content-Type", "application/json" } },
     };
 
@@ -746,7 +1312,11 @@ public class TelebirrWebhookFunction
 
     private static decimal GetDecimal(Dictionary<string, object> item, string key)
     {
-        if (!item.TryGetValue(key, out var v)) return 0m;
+        if (!item.TryGetValue(key, out var v))
+        {
+            return 0m;
+        }
+
         return v switch
         {
             decimal d => d,

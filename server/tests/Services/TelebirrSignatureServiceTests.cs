@@ -144,4 +144,92 @@ public class TelebirrSignatureServiceTests
         };
         svc.BuildCanonicalString(payload).Should().Be("a=1&b=2&blank=&flag=1&off=0");
     }
+
+    // ===== ESC-45: flat notify verification =====
+
+    [Fact]
+    public void Flat_canonical_sorts_ordinally_and_drops_the_excluded_keys()
+    {
+        var svc = new TelebirrSignatureService(null, null);
+        var fields = new Dictionary<string, string>
+        {
+            ["trans_id"] = "T1",
+            ["Zeta"] = "z",
+            ["amount"] = "1.00",
+            ["sign"] = "x",
+            ["sign_type"] = "SHA256WithRSA",
+            ["wallet_reference_data"] = "w",
+            ["blank"] = "",
+        };
+
+        svc.BuildFlatCanonicalString(fields).Should().Be("Zeta=z&amount=1.00&blank=&trans_id=T1");
+    }
+
+    [Theory]
+    [InlineData(TelebirrSignaturePadding.Pss, TelebirrSignaturePadding.Pss)]
+    [InlineData(TelebirrSignaturePadding.Pss, TelebirrSignaturePadding.Pkcs1)]
+    [InlineData(TelebirrSignaturePadding.Pkcs1, TelebirrSignaturePadding.Pss)]
+    [InlineData(TelebirrSignaturePadding.Pkcs1, TelebirrSignaturePadding.Pkcs1)]
+    public void VerifyFlat_accepts_either_padding_and_reports_the_one_that_matched(
+        TelebirrSignaturePadding configured, TelebirrSignaturePadding signedWith)
+    {
+        var fields = new Dictionary<string, string> { ["merch_order_id"] = "WCO1", ["trade_status"] = "Completed" };
+        var signer = new TelebirrSignatureService(FixturePrivateKeyPem, null, signedWith);
+        var sign = signer.Sign(signer.BuildFlatCanonicalString(fields));
+
+        var verifier = new TelebirrSignatureService(null, FixturePublicKeyPem, configured);
+
+        verifier.VerifyFlat(fields, sign, out var matched).Should().BeTrue();
+        matched.Should().Be(signedWith);
+    }
+
+    [Fact]
+    public void VerifyFlat_refuses_a_changed_field_and_another_key_under_both_paddings()
+    {
+        var fields = new Dictionary<string, string> { ["merch_order_id"] = "WCO1", ["trade_status"] = "Failed" };
+        var signer = new TelebirrSignatureService(FixturePrivateKeyPem, null, TelebirrSignaturePadding.Pss);
+        var sign = signer.Sign(signer.BuildFlatCanonicalString(fields));
+        var verifier = new TelebirrSignatureService(null, FixturePublicKeyPem);
+
+        var relabelled = new Dictionary<string, string>(fields) { ["trade_status"] = "Completed" };
+        verifier.VerifyFlat(relabelled, sign, out _).Should().BeFalse();
+
+        using var other = System.Security.Cryptography.RSA.Create(2048);
+        var otherSigner = new TelebirrSignatureService(other.ExportPkcs8PrivateKeyPem(), null, TelebirrSignaturePadding.Pkcs1);
+        verifier.VerifyFlat(fields, otherSigner.Sign(otherSigner.BuildFlatCanonicalString(fields)), out _).Should().BeFalse();
+        verifier.VerifyFlat(fields, "not-base64!", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void VerifyFlat_refuses_a_map_with_a_separator_even_when_it_is_signed()
+    {
+        // ESC-45 review: such a map shares its signed string with a different map.
+        var fields = new Dictionary<string, string>
+        {
+            ["notify_url"] = "https://x/notify&payment_order_id=TB1",
+            ["trade_status"] = "Completed",
+        };
+        var signer = new TelebirrSignatureService(FixturePrivateKeyPem, null, TelebirrSignaturePadding.Pss);
+        var sign = signer.Sign(signer.BuildFlatCanonicalString(fields));
+
+        new TelebirrSignatureService(null, FixturePublicKeyPem).VerifyFlat(fields, sign, out _).Should().BeFalse();
+        new TelebirrSignatureService(null, FixturePublicKeyPem)
+            .VerifyFlat(new Dictionary<string, string> { ["a=b"] = "c" }, sign, out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Signing_refuses_a_key_that_appears_twice_after_flattening()
+    {
+        // ESC-45 review: one value would silently replace the other in the signed string.
+        var svc = new TelebirrSignatureService(FixturePrivateKeyPem, null);
+        var payload = new Dictionary<string, object?>
+        {
+            ["timestamp"] = "1755866911",
+            ["biz_content"] = new Dictionary<string, object?> { ["timestamp"] = "1" },
+        };
+
+        var act = () => svc.SignObject(payload);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*appears twice*");
+    }
 }

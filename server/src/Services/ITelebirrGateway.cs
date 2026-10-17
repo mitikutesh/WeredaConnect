@@ -72,4 +72,18 @@ public static class TelebirrGatewayErrors
 
     /// <summary>No answer, or an answer that could not be read: Telebirr may have acted on it.</summary>
     public const string Network = "TELEBIRR_NETWORK";
+
+    /// <summary>
+    /// ESC-45: the fabric token could not be obtained, so the payment request was never sent. A
+    /// definite failure: nothing was created at Telebirr.
+    /// </summary>
+    public const string TokenFailed = "TELEBIRR_TOKEN";
+
+    /// <summary>
+    /// ESC-45 (D6): the invocation had too little time left, so no request was sent. A definite
+    /// failure (Telebirr saw nothing), retried by the caller or the next sweep, never an unknown
+    /// outcome. Every HTTP call a gateway makes, including a future payout call, must stop at the
+    /// invocation's deadline: a call cut there is a <see cref="Timeout"/> (unknown outcome).
+    /// </summary>
+    public const string NoTime = "TELEBIRR_NO_TIME";
 }

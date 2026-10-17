@@ -21,8 +21,14 @@ public class OrderCronFunction
     // Optional: unified transaction-audit trail. Auto-cancel is a system-driven
     // order transition that would otherwise be invisible in the monitor.
     private readonly ITransactionAuditRepository? _transactionAuditRepo;
+    // ESC-45: the Telebirr webhook inbox; an order whose verified payment is still pending there is
+    // never failed. Absent env: only the order's payment hold protects it.
+    private readonly IWebhookInboxRepository? _inboxRepo;
 
     private const int ExpirationHours = 24;
+
+    /// <summary>ESC-45: pending inbox rows read per run (pages of 100); past it the payment-failed step waits a run.</summary>
+    private const int MaxPendingInboxPages = 20;
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -39,15 +45,24 @@ public class OrderCronFunction
         _transactionAuditRepo = txAuditTable != null
             ? new TransactionAuditRepository(dynamoDb, txAuditTable)
             : null;
+
+        var idempotencyTable = Environment.GetEnvironmentVariable("ESCROW_IDEMPOTENCY_TABLE");
+        _inboxRepo = !string.IsNullOrEmpty(idempotencyTable)
+            ? new WebhookInboxRepository(dynamoDb, idempotencyTable)
+            : null;
     }
 
     /// <summary>
     /// Constructor for testing with mocked dependencies.
     /// </summary>
-    public OrderCronFunction(IOrderRepository orderRepo, ITransactionAuditRepository? transactionAuditRepo = null)
+    public OrderCronFunction(
+        IOrderRepository orderRepo,
+        ITransactionAuditRepository? transactionAuditRepo = null,
+        IWebhookInboxRepository? inboxRepo = null)
     {
         _orderRepo = orderRepo ?? throw new ArgumentNullException(nameof(orderRepo));
         _transactionAuditRepo = transactionAuditRepo;
+        _inboxRepo = inboxRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -190,10 +205,37 @@ public class OrderCronFunction
     /// ESC-01: move <c>payment_submitted</c> orders whose payment clock (<c>paymentSubmittedAt</c>,
     /// or <c>createdAt</c> for orders from before it was stamped) passed 24 hours to
     /// <c>payment_failed</c>, version-checked so a concurrent funding wins.
+    /// ESC-45 (D8): never while a verified Telebirr payment for the order is pending in the webhook
+    /// inbox (its replay may still fund it): such orders are skipped, both by the inbox's pending
+    /// partition and by the order's own <c>paymentHoldUntil</c>, and the write itself is
+    /// conditional on the hold. If the inbox cannot be read, the step waits for the next run.
     /// </summary>
     private async Task<int> FailStalePaymentsAsync(DateTime now, ILambdaContext context)
     {
         var threshold = now.AddHours(-ExpirationHours);
+        var nowIso = WebhookInbox.Iso(now);
+
+        HashSet<string>? pendingPaymentOrders = null;
+        if (_inboxRepo != null)
+        {
+            try
+            {
+                pendingPaymentOrders = await PendingPaymentOrdersAsync();
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogError(
+                    $"Payment-failed sweep skipped this run: the webhook inbox could not be read [{ex.GetType().Name}].");
+                return 0;
+            }
+
+            if (pendingPaymentOrders == null)
+            {
+                context.Logger.LogError(
+                    $"Payment-failed sweep skipped this run: more than {MaxPendingInboxPages * 100} pending inbox rows.");
+                return 0;
+            }
+        }
 
         // createdAt is never later than paymentSubmittedAt, so it is a safe pre-filter.
         var orders = await _orderRepo.QueryByStatusForCronAsync("payment_submitted", threshold.ToString("o"))
@@ -210,10 +252,23 @@ public class OrderCronFunction
             }
 
             var orderId = GetString(order, "orderId");
-            var result = await _orderRepo.UpdateAsync(
-                orderId, new Dictionary<string, object> { { "status", "payment_failed" } }, GetInt(order, "version"));
+            if (pendingPaymentOrders?.Contains(orderId) == true)
+            {
+                context.Logger.LogInformation(
+                    $"Payment-failed sweep: order {MoneyAlarmLog.LogId(orderId)} has a verified payment pending in the webhook inbox.");
+                continue;
+            }
 
-            if (result.IsSuccess)
+            if (DateTime.TryParse(GetString(order, PaymentHoldFields.HoldUntil), CultureInfo.InvariantCulture,
+                    DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var holdUntil)
+                && holdUntil > now)
+            {
+                context.Logger.LogInformation(
+                    $"Payment-failed sweep: order {MoneyAlarmLog.LogId(orderId)} held for a pending payment until {WebhookInbox.Iso(holdUntil)}.");
+                continue;
+            }
+
+            if (await _orderRepo.TryMarkPaymentFailedAsync(orderId, GetInt(order, "version"), nowIso))
             {
                 failedCount++;
                 await TransactionAuditWriter.EmitAsync(
@@ -224,13 +279,44 @@ public class OrderCronFunction
             }
             else
             {
-                // Most often a funding that landed in the meantime (version moved): nothing to do.
+                // Most often a funding that landed in the meantime (version moved) or a payment hold
+                // written after the read: nothing to do.
                 context.Logger.LogWarning(
-                    $"Payment-failed sweep skipped order {orderId}: {result.Error?.Code} - {result.Error?.Message}");
+                    $"Payment-failed sweep skipped order {MoneyAlarmLog.LogId(orderId)}: changed, funded or held since it was read.");
             }
         }
 
         return failedCount;
+    }
+
+    /// <summary>
+    /// ESC-45: the orders of every pending row in the webhook inbox, or null when there are more
+    /// rows than one run reads (then nothing is failed this run).
+    /// </summary>
+    private async Task<HashSet<string>?> PendingPaymentOrdersAsync()
+    {
+        var orders = new HashSet<string>(StringComparer.Ordinal);
+        Dictionary<string, Amazon.DynamoDBv2.Model.AttributeValue>? startKey = null;
+        for (var page = 0; page < MaxPendingInboxPages; page++)
+        {
+            var (rows, next) = await _inboxRepo!.QueryPendingAsync(100, startKey);
+            foreach (var row in rows)
+            {
+                if (!string.IsNullOrEmpty(row.OrderId))
+                {
+                    orders.Add(row.OrderId);
+                }
+            }
+
+            if (next == null)
+            {
+                return orders;
+            }
+
+            startKey = next;
+        }
+
+        return null;
     }
 
     private static string GetString(Dictionary<string, object> item, string key)
@@ -238,7 +324,11 @@ public class OrderCronFunction
 
     private static int GetInt(Dictionary<string, object> item, string key)
     {
-        if (!item.TryGetValue(key, out var value)) return 0;
+        if (!item.TryGetValue(key, out var value))
+        {
+            return 0;
+        }
+
         return value switch
         {
             int i => i,

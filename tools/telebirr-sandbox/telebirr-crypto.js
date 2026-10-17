@@ -8,7 +8,8 @@
  *
  * Canonical string (what gets signed / verified):
  *   1. Flatten top-level fields AND the nested `biz_content` object into one map.
- *   2. Drop excluded keys: sign, sign_type, header, refund_info, openType, raw_request.
+ *   2. Drop excluded keys: sign, sign_type, header, refund_info, openType, raw_request,
+ *      wallet_reference_data (Ethio Telecom's demo list).
  *   3. Drop null/undefined values; keep empty strings; booleans -> "1"/"0".
  *   4. Sort keys ascending (string sort).
  *   5. Join as `key=value&key2=value2` (NO url-encoding).
@@ -30,6 +31,7 @@ const EXCLUDED_KEYS = new Set([
   "refund_info",
   "openType",
   "raw_request",
+  "wallet_reference_data",
 ]);
 
 /** Flatten top-level + biz_content into a single flat map of string values. */

@@ -23,10 +23,10 @@ Both are git-ignored.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/apply/fabric-token` | Returns a fabric token (checks `X-APP-Key`) |
+| POST | `/payment/v1/token` | Returns a fabric token (checks `X-APP-Key`); `/apply/fabric-token` is an alias |
 | POST | `/payment/v1/merchant/preOrder` | Verifies our `SHA256WithRSA` sign, returns `prepay_id` |
 | GET | `/payment/web/paygate` | Buyer "pay page" with **Pay**/**Fail** buttons |
-| POST | `/simulate/complete` | Fires the RSA-signed webhook to `notify_url` |
+| POST | `/simulate/complete` | Fires the RSA-signed webhook to `notify_url` in the documented flat shape |
 | GET | `/health`, `/` | status / help |
 
 ## Self-test
@@ -43,6 +43,15 @@ npm run selftest          # drives the full flow, verifies webhook signature
 | `PORT` | `8790` | listen port |
 | `TELEBIRR_SIGN_PADDING` | `pss` | `pss` (real Telebirr) or `pkcs1` |
 | `TELEBIRR_RETURN_URL` | `weredaconnect://payment/complete` | app deep link |
+| `TELEBIRR_SIM_TRANS_ID_FIELD` | `transId` | wire name of the transaction id; it is always signed as `trans_id` |
+
+## Notify shape (ESC-45)
+
+The webhook is one flat JSON object, as Ethio Telecom documents it (Notify_Callback):
+`notify_url, appid, notify_time (epoch ms), merch_code, merch_order_id, payment_order_id,
+total_amount, transId, trans_currency, trade_status (Completed or Failure), trans_end_time,
+callback_info, sign, sign_type`. The signature covers every field except `sign` and `sign_type`,
+with the transaction id named `trans_id` (live Telebirr has been seen sending it as `transId`).
 
 ## How the server consumes it
 
@@ -63,7 +72,7 @@ holds in AWS.
 
 `telebirr-crypto.js` is the single source of truth for canonicalization:
 recursively flatten top-level + `biz_content`, drop `sign/sign_type/header/
-refund_info/openType/raw_request`, drop nulls (keep empty strings), booleans →
+refund_info/openType/raw_request/wallet_reference_data`, drop nulls (keep empty strings), booleans →
 `"1"/"0"`, sort keys, join `key=value&…` (no URL-encoding), sign RSA-SHA256
 (PSS salt 32 by default), base64. The C# `TelebirrSignatureService` implements
 the identical rule.

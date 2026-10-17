@@ -8,17 +8,17 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
+using WeredaConnect.Server.Models;
 using WeredaConnect.Server.Services;
 using Xunit;
-using WeredaConnect.Server.Models;
 
 namespace WeredaConnect.Server.Tests.Functions;
 
 /// <summary>
 /// Verifies the Telebirr webhook handler: a valid signed "Completed" moves the
 /// escrow initiated→escrowed; "Failed" cancels it; and each security layer
-/// (bad signature, stale timestamp, replay, amount mismatch) blocks the
-/// transition. All responses are 200 OK.
+/// (bad signature, stale notify_time, replay, amount mismatch) blocks the
+/// transition. Notifications use the documented flat body (ESC-45).
 /// </summary>
 public class TelebirrWebhookFunctionTests
 {
@@ -57,63 +57,68 @@ public class TelebirrWebhookFunctionTests
             new TelebirrSignatureService(null, PublicKeyPem, TelebirrSignaturePadding.Pkcs1),
             merchantCode: merchantCode, userRepo: userRepo, requirePayerMatch: requirePayerMatch);
 
+    /// <summary>
+    /// The notify Telebirr documents (Notify_Callback, "Step 7"): one flat object, signed over every
+    /// field but sign and sign_type (ESC-45). <paramref name="transIdOnWire"/> sends the transaction
+    /// id as transId while it is signed as trans_id, as live Telebirr has been seen to do.
+    /// </summary>
     private static string SignedBody(string tradeStatus, string totalAmount = "15000.00", bool tamper = false,
-        long? timestampMs = null, string? rawTimestamp = null, string? msisdn = null,
+        long? notifyTimeMs = null, string? rawNotifyTime = null, string? msisdn = null,
+        string merchOrderId = MerchOrderId, string paymentOrderId = "TB123", string transCurrency = "ETB",
+        bool transIdOnWire = false, TelebirrSignaturePadding padding = TelebirrSignaturePadding.Pkcs1)
+    {
+        var fields = SignedFields(tradeStatus, totalAmount, notifyTimeMs, rawNotifyTime, msisdn,
+            merchOrderId, paymentOrderId, transCurrency);
+        var sign = Sign(fields, padding);
+        if (tamper)
+        {
+            sign = "AAAA" + sign[4..];
+        }
+
+        var body = fields.ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+        if (transIdOnWire)
+        {
+            body["transId"] = body["trans_id"];
+            body.Remove("trans_id");
+        }
+
+        body["sign"] = sign;
+        body["sign_type"] = "SHA256WithRSA";
+        return JsonSerializer.Serialize(body);
+    }
+
+    private static Dictionary<string, string> SignedFields(string tradeStatus, string totalAmount = "15000.00",
+        long? notifyTimeMs = null, string? rawNotifyTime = null, string? msisdn = null,
         string merchOrderId = MerchOrderId, string paymentOrderId = "TB123", string transCurrency = "ETB")
     {
-        var ts = rawTimestamp ?? (timestampMs ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).ToString();
-        var signable = new Dictionary<string, object?>
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var fields = new Dictionary<string, string>
         {
-            ["method"] = "payment.notify",
-            ["nonce_str"] = "n-123",
-            ["timestamp"] = ts,
-            ["notify_time"] = "2026-07-07T10:05:00Z",
-            ["sign_type"] = "SHA256WithRSA",
-            ["biz_content"] = new Dictionary<string, object?>
-            {
-                ["merch_order_id"] = merchOrderId,
-                ["payment_order_id"] = paymentOrderId,
-                ["total_amount"] = totalAmount,
-                ["trans_currency"] = transCurrency,
-                ["trade_status"] = tradeStatus,
-                ["merch_code"] = "220100",
-                ["trans_id"] = "TXN9",
-            },
-        };
-        var bizSignable = (Dictionary<string, object?>)signable["biz_content"]!;
-        if (msisdn != null)
-        {
-            bizSignable["msisdn"] = msisdn;
-        }
-        var signer = new TelebirrSignatureService(PrivateKeyPem, null, TelebirrSignaturePadding.Pkcs1);
-        var sign = tamper ? "AAAA" + signer.SignObject(signable)[4..] : signer.SignObject(signable);
-
-        var bizContent = new Dictionary<string, object?>
-        {
+            ["notify_url"] = "https://api.example/webhooks/telebirr",
+            ["appid"] = "853694808089634",
+            ["notify_time"] = rawNotifyTime ?? (notifyTimeMs ?? now).ToString(),
+            ["merch_code"] = "220100",
             ["merch_order_id"] = merchOrderId,
             ["payment_order_id"] = paymentOrderId,
             ["total_amount"] = totalAmount,
+            ["trans_id"] = "TXN9",
             ["trans_currency"] = transCurrency,
             ["trade_status"] = tradeStatus,
-            ["merch_code"] = "220100",
-            ["trans_id"] = "TXN9",
+            ["trans_end_time"] = now.ToString(),
         };
         if (msisdn != null)
         {
-            bizContent["msisdn"] = msisdn;
+            fields["msisdn"] = msisdn;
         }
-        var notification = new Dictionary<string, object?>
-        {
-            ["method"] = "payment.notify",
-            ["nonce_str"] = "n-123",
-            ["timestamp"] = ts,
-            ["notify_time"] = "2026-07-07T10:05:00Z",
-            ["sign_type"] = "SHA256WithRSA",
-            ["sign"] = sign,
-            ["biz_content"] = bizContent,
-        };
-        // Keys are serialized as-is (snake_case exactly as Telebirr sends them).
-        return JsonSerializer.Serialize(notification);
+
+        return fields;
+    }
+
+    private static string Sign(IReadOnlyDictionary<string, string> fields,
+        TelebirrSignaturePadding padding = TelebirrSignaturePadding.Pkcs1)
+    {
+        var signer = new TelebirrSignatureService(PrivateKeyPem, null, padding);
+        return signer.Sign(signer.BuildFlatCanonicalString(fields));
     }
 
     private static IUserRepository BuyerWithPhone(string phone)
@@ -182,7 +187,7 @@ public class TelebirrWebhookFunctionTests
     public async Task Stale_timestamp_does_not_transition()
     {
         var stale = DateTimeOffset.UtcNow.AddMinutes(-10).ToUnixTimeMilliseconds();
-        var resp = await NewFunction().FunctionHandler(Req(SignedBody("Completed", timestampMs: stale)), _ctx);
+        var resp = await NewFunction().FunctionHandler(Req(SignedBody("Completed", notifyTimeMs: stale)), _ctx);
 
         resp.StatusCode.Should().Be(200);
         await _escrowRepo.DidNotReceive().UpdateStatusAsync(
@@ -212,7 +217,7 @@ public class TelebirrWebhookFunctionTests
     [Fact]
     public async Task Unparseable_timestamp_does_not_transition()
     {
-        await NewFunction().FunctionHandler(Req(SignedBody("Completed", rawTimestamp: "not-a-number")), _ctx);
+        await NewFunction().FunctionHandler(Req(SignedBody("Completed", rawNotifyTime: "not-a-number")), _ctx);
 
         await _escrowRepo.DidNotReceive().UpdateStatusAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>());
@@ -221,7 +226,7 @@ public class TelebirrWebhookFunctionTests
     [Fact]
     public async Task Empty_timestamp_does_not_transition()
     {
-        await NewFunction().FunctionHandler(Req(SignedBody("Completed", rawTimestamp: "")), _ctx);
+        await NewFunction().FunctionHandler(Req(SignedBody("Completed", rawNotifyTime: "")), _ctx);
 
         await _escrowRepo.DidNotReceive().UpdateStatusAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>());
@@ -324,12 +329,18 @@ public class TelebirrWebhookFunctionTests
     private readonly IOrderRepository _orderRepo = Substitute.For<IOrderRepository>();
     private readonly ICropRepository _cropRepo = Substitute.For<ICropRepository>();
     private readonly ITransactionAuditRepository _txAuditRepo = Substitute.For<ITransactionAuditRepository>();
+    private readonly IWebhookInboxRepository _inboxRepo = Substitute.For<IWebhookInboxRepository>();
 
     private TelebirrWebhookFunction NewOrderFunction(
         bool wireOrders = true, IUserRepository? userRepo = null, bool requirePayerMatch = false)
     {
         _checkoutRepo.GetMappingAsync(OrderMerchOrderId)
             .Returns(new OrderCheckoutMapping(OrderMerchOrderId, OrderId, "buyer-1", 15000m));
+        _inboxRepo.RecordAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<TelebirrWebhookBiz>(), Arg.Any<DateTime>()).Returns(true);
+        _inboxRepo.FinalizeAsync(Arg.Any<string>(), Arg.Any<string>()).Returns(true);
+        _inboxRepo.MarkUnprocessedAsync(Arg.Any<string>()).Returns(true);
+        _ctx.RemainingTime = TimeSpan.FromSeconds(15);
         var escrowService = new EscrowService(_escrowRepo, _auditRepo, null, null, orderRepo: _orderRepo);
         return new TelebirrWebhookFunction(_escrowRepo, _auditRepo, _idemRepo,
             new TelebirrSignatureService(null, PublicKeyPem, TelebirrSignaturePadding.Pkcs1),
@@ -337,7 +348,20 @@ public class TelebirrWebhookFunctionTests
             orderCheckoutRepo: _checkoutRepo,
             orderRepo: wireOrders ? _orderRepo : null,
             orderFunding: wireOrders ? new OrderFundingService(_orderRepo, _cropRepo, escrowService) : null,
-            txAuditRepo: _txAuditRepo);
+            txAuditRepo: _txAuditRepo,
+            inboxRepo: _inboxRepo,
+            clock: _clock);
+    }
+
+    private readonly TestClock _clock = new(DateTimeOffset.UtcNow);
+
+    /// <summary>A clock the sweep and freshness rules read; advanced by the replay tests.</summary>
+    private sealed class TestClock : TimeProvider
+    {
+        private DateTimeOffset _now;
+        public TestClock(DateTimeOffset now) => _now = now;
+        public override DateTimeOffset GetUtcNow() => _now;
+        public void Advance(TimeSpan by) => _now += by;
     }
 
     private static Dictionary<string, object> StoredOrder(string status, string? paymentOrderId = null)
@@ -402,17 +426,21 @@ public class TelebirrWebhookFunctionTests
     {
         var calls = new List<string>();
         var inboxKey = $"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed";
+        var fn = NewOrderFunction();
         _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
-        _idemRepo.StoreAsync(inboxKey, OrderEscrowId, "received", OrderMerchOrderId)
+        _orderRepo.TryHoldForPaymentAsync(OrderId, Arg.Any<string>(), Arg.Any<string?>())
+            .Returns(_ => { calls.Add("hold"); return true; });
+        _inboxRepo.RecordAsync(inboxKey, OrderEscrowId, OrderId, OrderMerchOrderId,
+                Arg.Any<TelebirrWebhookBiz>(), Arg.Any<DateTime>())
             .Returns(_ => { calls.Add("inbox"); return true; });
         _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
             .Returns(_ => { calls.Add("fund"); return StoredOrder("funded", OrderPaymentId); });
-        _idemRepo.When(r => r.UpdateAsync(inboxKey, "applied", Arg.Any<string?>()))
-            .Do(_ => calls.Add("applied"));
+        _inboxRepo.FinalizeAsync(inboxKey, "applied").Returns(_ => { calls.Add("applied"); return true; });
 
-        await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+        await fn.FunctionHandler(Req(OrderBody()), _ctx);
 
-        calls.Should().Equal("inbox", "fund", "applied");
+        // ESC-45 (D8): the hold lands before the inbox row, so the cron cannot strike in between.
+        calls.Should().Equal("hold", "inbox", "fund", "applied");
     }
 
     [Fact]
@@ -431,8 +459,7 @@ public class TelebirrWebhookFunctionTests
         await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
         await _cropRepo.Received(1).TryDecrementStockAsync("listing-1", OrderId, 5.0);
         await _escrowRepo.DidNotReceive().CreateAsync(Arg.Any<Dictionary<string, object>>());
-        await _idemRepo.Received(1).UpdateAsync(
-            $"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed", "applied_again", Arg.Any<string?>());
+        await _inboxRepo.Received(1).FinalizeAsync($"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed", "applied_again");
     }
 
     [Fact]
@@ -457,8 +484,7 @@ public class TelebirrWebhookFunctionTests
 
         await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
         await AuditRecorded("order_payment_duplicate");
-        await _idemRepo.Received(1).UpdateAsync(
-            $"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed", "duplicate", Arg.Any<string?>());
+        await _inboxRepo.Received(1).FinalizeAsync($"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed", "duplicate");
     }
 
     [Fact]
@@ -470,8 +496,7 @@ public class TelebirrWebhookFunctionTests
 
         await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
         await AuditRecorded("order_payment_unmatched");
-        await _idemRepo.Received(1).UpdateAsync(
-            $"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed", "unmatched:status_cancelled", Arg.Any<string?>());
+        await _inboxRepo.Received(1).FinalizeAsync($"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed", "unmatched:status_cancelled");
     }
 
     [Fact]
@@ -522,8 +547,7 @@ public class TelebirrWebhookFunctionTests
         await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
 
         await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>());
-        await _idemRepo.Received(1).UpdateAsync(
-            $"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed", "applied_again", Arg.Any<string?>());
+        await _inboxRepo.Received(1).FinalizeAsync($"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed", "applied_again");
     }
 
     [Fact]
@@ -535,12 +559,12 @@ public class TelebirrWebhookFunctionTests
 
         resp.StatusCode.Should().Be(200);
         await AuditRecorded("order_payment_failed");
-        await _idemRepo.Received(1).UpdateAsync(
-            $"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Failed", "payment_failed", Arg.Any<string?>());
+        await _inboxRepo.Received(1).FinalizeAsync($"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Failed", "payment_failed");
         await _checkoutRepo.DidNotReceive().CloseSlotForMerchOrderAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
         await _idemRepo.DidNotReceive().UpdateAsync(OrderMerchOrderId, Arg.Any<string>(), Arg.Any<string?>());
         await _orderRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+        await _orderRepo.DidNotReceive().TryHoldForPaymentAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
         await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
         await _orderRepo.DidNotReceive().UpdateAsync(
             Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
@@ -567,8 +591,7 @@ public class TelebirrWebhookFunctionTests
         await NewOrderFunction().FunctionHandler(Req(OrderBody(tradeStatus: "Pending")), _ctx);
 
         await AuditRecorded("order_payment_status_ignored");
-        await _idemRepo.Received(1).UpdateAsync(
-            $"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Pending", "ignored", Arg.Any<string?>());
+        await _inboxRepo.Received(1).FinalizeAsync($"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Pending", "ignored");
         await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
 
@@ -580,9 +603,10 @@ public class TelebirrWebhookFunctionTests
 
         var resp = await fn.FunctionHandler(Req(OrderBody()), _ctx);
 
-        resp.StatusCode.Should().Be(200);
+        // ESC-45 (D1): verified but nothing durable yet: 500 so Telebirr sends it again.
+        resp.StatusCode.Should().Be(500);
         Logs.Should().Contain($"ORDER_PAYMENT_UNPROCESSED merchOrderId={OrderMerchOrderId} paymentOrderId={OrderPaymentId}");
-        await _idemRepo.DidNotReceive().GetAsync(Arg.Any<string>());
+        await _inboxRepo.DidNotReceive().GetAsync(Arg.Any<string>());
         await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
 
@@ -595,7 +619,7 @@ public class TelebirrWebhookFunctionTests
 
         Logs.Should().Contain("ORDER_PAYMENT_UNMATCHED");
         await AuditRecorded("order_payment_unmatched");
-        await _idemRepo.Received(1).UpdateAsync(OrderInboxKey, "unmatched:order_missing", Arg.Any<string?>());
+        await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "unmatched:order_missing");
         await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
 
@@ -608,7 +632,7 @@ public class TelebirrWebhookFunctionTests
 
         await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
 
-        await _idemRepo.Received(1).UpdateAsync(OrderInboxKey, "unmatched:order_changed", Arg.Any<string?>());
+        await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "unmatched:order_changed");
         await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
 
@@ -619,8 +643,7 @@ public class TelebirrWebhookFunctionTests
 
         await NewOrderFunction().FunctionHandler(Req(OrderBody(paymentOrderId: "")), _ctx);
 
-        await _idemRepo.Received(1).UpdateAsync(
-            $"webhook-inbox:{OrderMerchOrderId}::Completed", "unmatched:no_payment_order_id", Arg.Any<string?>());
+        await _inboxRepo.Received(1).FinalizeAsync($"webhook-inbox:{OrderMerchOrderId}::Completed", "unmatched:no_payment_order_id");
         await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
 
@@ -636,7 +659,7 @@ public class TelebirrWebhookFunctionTests
 
         await AuditRecorded("webhook_payer_mismatch");
         await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>());
-        await _idemRepo.Received(1).UpdateAsync(OrderInboxKey, "applied", Arg.Any<string?>());
+        await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "applied");
     }
 
     [Theory]
@@ -656,7 +679,7 @@ public class TelebirrWebhookFunctionTests
         await _escrowRepo.DidNotReceive().CreateAsync(Arg.Any<Dictionary<string, object>>());
         await _checkoutRepo.DidNotReceive().CloseSlotForMerchOrderAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
-        await _idemRepo.Received(1).UpdateAsync(OrderInboxKey, "applied_again", Arg.Any<string?>());
+        await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "applied_again");
         Logs.Should().NotContain("ORDER_PAYMENT_UNMATCHED").And.NotContain("ORDER_PAYMENT_DUPLICATE");
     }
 
@@ -673,7 +696,7 @@ public class TelebirrWebhookFunctionTests
 
         Logs.Should().Contain("ORDER_PAYMENT_BOOKKEEPING_FAILED").And.Contain("step=after_funding");
         Logs.Should().NotContain("ORDER_PAYMENT_UNPROCESSED");
-        await _idemRepo.Received(1).UpdateAsync(OrderInboxKey, "applied", Arg.Any<string?>());
+        await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "applied");
     }
 
     [Fact]
@@ -701,13 +724,13 @@ public class TelebirrWebhookFunctionTests
     [Fact]
     public async Task Order_payment_inbox_update_failure_is_not_a_refund_alarm()
     {
+        var fn = NewOrderFunction();
         _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
         _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
             .Returns(StoredOrder("funded", OrderPaymentId));
-        _idemRepo.UpdateAsync(OrderInboxKey, "applied", Arg.Any<string?>())
-            .ThrowsAsync(new AmazonDynamoDBException("throttled"));
+        _inboxRepo.FinalizeAsync(OrderInboxKey, "applied").ThrowsAsync(new AmazonDynamoDBException("throttled"));
 
-        await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+        await fn.FunctionHandler(Req(OrderBody()), _ctx);
 
         Logs.Should().Contain("ORDER_PAYMENT_BOOKKEEPING_FAILED").And.Contain("step=inbox");
         Logs.Should().NotContain("ORDER_PAYMENT_UNPROCESSED");
@@ -719,10 +742,11 @@ public class TelebirrWebhookFunctionTests
     {
         var resp = await NewOrderFunction(wireOrders: false).FunctionHandler(Req(OrderBody()), _ctx);
 
+        // A deployment fault: alarmed now, 200 (a retry cannot fix it), the row stays pending.
         resp.StatusCode.Should().Be(200);
+        Logs.Should().Contain("ORDER_PAYMENT_UNPROCESSED").And.Contain("reason=orders_not_configured");
         await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
-        await _idemRepo.Received(1).UpdateAsync(
-            $"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed", "unprocessed", Arg.Any<string?>());
+        await _inboxRepo.Received(1).MarkUnprocessedAsync($"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed");
     }
 
     [Fact]
@@ -738,13 +762,25 @@ public class TelebirrWebhookFunctionTests
         await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
 
+    private static WebhookInboxRow InboxRow(string status, string? marker = null, int attempts = 0)
+        => new(OrderInboxKey, OrderEscrowId, status, OrderId, OrderMerchOrderId, marker,
+            marker == null ? null : WebhookInbox.Iso(DateTime.UtcNow.AddMinutes(-1)), attempts,
+            WebhookInbox.Iso(DateTime.UtcNow.AddMinutes(-10)),
+            new TelebirrWebhookBiz
+            {
+                MerchOrderId = OrderMerchOrderId,
+                PaymentOrderId = OrderPaymentId,
+                TotalAmount = "15000.00",
+                TransCurrency = "ETB",
+                TradeStatus = "Completed",
+                MerchCode = "220100",
+                TransId = "TXN9",
+            });
+
     private void InboxAlreadyHolds(string status)
     {
-        _idemRepo.StoreAsync(OrderInboxKey, OrderEscrowId, "received", OrderMerchOrderId).Returns(false);
-        _idemRepo.GetAsync(OrderInboxKey).Returns(new Dictionary<string, object>
-        {
-            { "idempotencyKey", OrderInboxKey }, { "escrowId", OrderEscrowId }, { "status", status }
-        });
+        var pending = status is "received" or "unprocessed";
+        _inboxRepo.GetAsync(OrderInboxKey).Returns(InboxRow(status, pending ? WebhookInbox.Pending : null));
     }
 
     [Theory]
@@ -763,7 +799,7 @@ public class TelebirrWebhookFunctionTests
         await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
 
         await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
-        await _idemRepo.DidNotReceive().UpdateAsync(OrderInboxKey, Arg.Any<string>(), Arg.Any<string?>());
+        await _inboxRepo.DidNotReceive().FinalizeAsync(OrderInboxKey, Arg.Any<string>());
         Logs.Should().Contain("verdict kept");
     }
 
@@ -780,7 +816,7 @@ public class TelebirrWebhookFunctionTests
         await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
 
         await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>());
-        await _idemRepo.Received(1).UpdateAsync(OrderInboxKey, "applied", Arg.Any<string?>());
+        await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "applied");
     }
 
     [Fact]
@@ -798,7 +834,7 @@ public class TelebirrWebhookFunctionTests
 
         await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
         await AuditRecorded("order_payment_unmatched");
-        await _idemRepo.Received(1).UpdateAsync(OrderInboxKey, "unmatched:stale_checkout", Arg.Any<string?>());
+        await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "unmatched:stale_checkout");
     }
 
     [Fact]
@@ -819,14 +855,879 @@ public class TelebirrWebhookFunctionTests
     }
 
     [Fact]
-    public async Task Order_payment_that_cannot_be_processed_leaves_an_audit_row()
+    public async Task Order_payment_whose_apply_fails_answers_500_and_stays_pending()
     {
+        // ESC-45 (D1, D5): recorded in the inbox, not applied: 500 for a redelivery, the sweep as the
+        // backstop, and no page (the page comes only if the sweep gives up).
         _orderRepo.GetByIdAsync(OrderId, true).ThrowsAsync(new AmazonDynamoDBException("throttled"));
 
-        await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+        var resp = await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
 
-        Logs.Should().Contain("ORDER_PAYMENT_UNPROCESSED");
+        resp.StatusCode.Should().Be(500);
+        Logs.Should().Contain("ORDER_PAYMENT_REPLAY_PENDING").And.NotContain("ORDER_PAYMENT_UNPROCESSED");
+        await _inboxRepo.Received(1).RecordAsync(OrderInboxKey, OrderEscrowId, OrderId, OrderMerchOrderId,
+            Arg.Any<TelebirrWebhookBiz>(), Arg.Any<DateTime>());
+        await _inboxRepo.DidNotReceive().FinalizeAsync(Arg.Any<string>(), Arg.Any<string>());
+        await _auditRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(
+            e => e.Values.Any(v => v != null && v.ToString() == "order_payment_unprocessed")));
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    // ===== ESC-45 D0: the documented notify dialect =====
+
+    private Task EscrowNotMoved()
+        => _escrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>());
+
+    private Task EscrowMovedTo(string status)
+        => _escrowRepo.Received(1).UpdateStatusAsync(
+            EscrowId, Arg.Any<string>(), status, "initiated", Arg.Any<Dictionary<string, object>?>());
+
+    private static string Json(Dictionary<string, object?> body) => JsonSerializer.Serialize(body);
+
+    private static Dictionary<string, object?> Signed(Dictionary<string, string> fields)
+    {
+        var body = fields.ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+        body["sign"] = Sign(fields);
+        body["sign_type"] = "SHA256WithRSA";
+        return body;
+    }
+
+    [Fact]
+    public async Task A_notification_wrapped_in_a_data_envelope_is_read_from_the_envelope()
+    {
+        var envelope = new Dictionary<string, object?> { ["data"] = Signed(SignedFields("Completed")) };
+
+        await NewFunction().FunctionHandler(Req(Json(envelope)), _ctx);
+
+        await EscrowMovedTo("escrowed");
+    }
+
+    [Fact]
+    public async Task An_envelope_cannot_relabel_a_captured_notification()
+    {
+        // Validator item 1: a captured Failed notify, its fields put in data with Completed, Failed and
+        // the original signature at the top. The verified map must be the read map.
+        var captured = SignedFields("Failed");
+        var sign = Sign(captured);
+        var relabelled = captured.ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+        relabelled["trade_status"] = "Completed";
+        var attack = new Dictionary<string, object?>
+        {
+            ["data"] = relabelled,
+            ["trade_status"] = "Failed",
+            ["sign"] = sign,
+            ["sign_type"] = "SHA256WithRSA",
+        };
+
+        await NewFunction().FunctionHandler(Req(Json(attack)), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Fact]
+    public async Task A_nested_object_next_to_the_signed_fields_refuses_the_body()
+    {
+        var body = Signed(SignedFields("Failed"));
+        body["data"] = Signed(SignedFields("Completed"));
+
+        await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Fact]
+    public async Task A_duplicate_key_refuses_the_body()
+    {
+        // The signed view says Failed; a second trade_status says Completed.
+        var signedJson = Json(Signed(SignedFields("Failed")));
+        var withDuplicate = signedJson[..^1] + ",\"trade_status\":\"Completed\"}";
+
+        await NewFunction().FunctionHandler(Req(withDuplicate), _ctx);
+
+        await EscrowNotMoved();
+        Logs.Should().Contain("duplicate_key");
+    }
+
+    [Fact]
+    public async Task An_array_value_refuses_the_body()
+    {
+        var body = Signed(SignedFields("Completed"));
+        body["extra"] = new[] { "a" };
+
+        await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Fact]
+    public async Task A_null_field_is_absent()
+    {
+        var body = Signed(SignedFields("Completed"));
+        body["callback_info"] = null;
+
+        await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+
+        await EscrowMovedTo("escrowed");
+    }
+
+    [Fact]
+    public async Task A_transaction_id_sent_as_transId_verifies_as_trans_id()
+    {
+        await NewFunction().FunctionHandler(Req(SignedBody("Completed", transIdOnWire: true)), _ctx);
+
+        await EscrowMovedTo("escrowed");
+    }
+
+    [Fact]
+    public async Task An_unsigned_trans_id_next_to_a_signed_transId_is_refused()
+    {
+        // Validator item 2: the alias applies only when trans_id itself is absent.
+        var fields = SignedFields("Completed");
+        var body = Signed(fields);
+        body["transId"] = body["trans_id"];
+        body["trans_id"] = "FORGED";
+
+        await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Fact]
+    public async Task The_transId_alias_feeds_the_order_its_transaction_id()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
+        _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
+            .Returns(StoredOrder("funded", OrderPaymentId));
+
+        await NewOrderFunction().FunctionHandler(Req(SignedBody("Completed", merchOrderId: OrderMerchOrderId,
+            paymentOrderId: OrderPaymentId, transIdOnWire: true)), _ctx);
+
+        await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Is<Dictionary<string, object>>(f =>
+            (string)f["telebirrTransId"] == "TXN9"));
+    }
+
+    [Theory]
+    [InlineData(TelebirrSignaturePadding.Pss, TelebirrSignaturePadding.Pkcs1)]
+    [InlineData(TelebirrSignaturePadding.Pkcs1, TelebirrSignaturePadding.Pss)]
+    public async Task Either_padding_verifies_whatever_is_configured(
+        TelebirrSignaturePadding configured, TelebirrSignaturePadding signedWith)
+    {
+        var fn = new TelebirrWebhookFunction(_escrowRepo, _auditRepo, _idemRepo,
+            new TelebirrSignatureService(null, PublicKeyPem, configured));
+
+        await fn.FunctionHandler(Req(SignedBody("Completed", padding: signedWith)), _ctx);
+
+        await EscrowMovedTo("escrowed");
+        Logs.Should().Contain($"padding={signedWith.ToString().ToLowerInvariant()}");
+    }
+
+    [Fact]
+    public async Task A_body_signed_by_another_key_is_refused_under_both_paddings()
+    {
+        using var other = System.Security.Cryptography.RSA.Create(2048);
+        var otherSigner = new TelebirrSignatureService(other.ExportPkcs8PrivateKeyPem(), null, TelebirrSignaturePadding.Pss);
+        var fields = SignedFields("Completed");
+        var body = fields.ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+        body["sign"] = otherSigner.Sign(otherSigner.BuildFlatCanonicalString(fields));
+
+        await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Fact]
+    public async Task A_notify_time_in_seconds_is_fresh()
+    {
+        var seconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+
+        await NewFunction().FunctionHandler(Req(SignedBody("Completed", rawNotifyTime: seconds)), _ctx);
+
+        await EscrowMovedTo("escrowed");
+    }
+
+    [Theory]
+    [InlineData("12345678")]
+    [InlineData("123456789012345")]
+    [InlineData("-1700000000000")]
+    [InlineData("2026-10-10T10:00:00Z")]
+    public async Task A_notify_time_outside_the_epoch_digit_ranges_is_refused(string raw)
+    {
+        await NewFunction().FunctionHandler(Req(SignedBody("Completed", rawNotifyTime: raw)), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Fact]
+    public async Task A_stale_notify_time_in_seconds_is_refused()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-10).ToUnixTimeSeconds().ToString();
+
+        await NewFunction().FunctionHandler(Req(SignedBody("Completed", rawNotifyTime: stale)), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Fact]
+    public async Task The_earlier_nested_shape_still_verifies_through_its_timestamp()
+    {
+        // Our earlier simulator: biz_content nested, notify_time an ISO string, timestamp in ms.
+        var fields = SignedFields("Completed");
+        fields["notify_time"] = "2026-07-07T10:05:00Z";
+        fields["timestamp"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+        var bizKeys = new[] { "merch_order_id", "payment_order_id", "total_amount", "trans_currency", "trade_status", "merch_code", "trans_id" };
+        var body = fields.Where(kv => !bizKeys.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+        body["biz_content"] = fields.Where(kv => bizKeys.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
+        body["sign"] = Sign(fields);
+
+        await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+
+        await EscrowMovedTo("escrowed");
+    }
+
+    [Fact]
+    public async Task A_biz_content_key_that_repeats_a_top_level_key_refuses_the_body()
+    {
+        var fields = SignedFields("Failed");
+        var body = Signed(fields);
+        body["biz_content"] = new Dictionary<string, string> { ["trade_status"] = "Completed" };
+
+        await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Theory]
+    [InlineData("Pending")]
+    [InlineData("Paying")]
+    public async Task An_in_progress_status_never_cancels_an_escrow(string status)
+    {
+        // Validator item 7: Pending means "payment completed, awaiting order synchronization".
+        await NewFunction().FunctionHandler(Req(SignedBody(status)), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Theory]
+    [InlineData("Failure")]
+    [InlineData("Expired")]
+    [InlineData("Failed")]
+    public async Task A_documented_failure_cancels_an_escrow(string status)
+    {
+        await NewFunction().FunctionHandler(Req(SignedBody(status)), _ctx);
+
+        await EscrowMovedTo("cancelled");
+    }
+
+    [Fact]
+    public async Task A_Failure_order_notification_is_recorded_as_a_failed_try()
+    {
+        await NewOrderFunction().FunctionHandler(Req(OrderBody(tradeStatus: "Failure")), _ctx);
+
+        await AuditRecorded("order_payment_failed");
+    }
+
+    [Fact]
+    public async Task A_refused_body_cannot_spell_an_alarm_token_in_the_log()
+    {
+        // Validator item 3: field names of an unverified body reach the log only defanged.
+        var body = Signed(SignedFields("Completed"));
+        foreach (var token in WeredaConnect.Server.Tests.Helpers.MoneyAlarmLogTests.AlarmTokens)
+        {
+            body[token] = "x";
+        }
+
+        await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+
+        await EscrowNotMoved();
+        WeredaConnect.Server.Tests.Helpers.MoneyAlarmLogTests.AlarmTokens.Where(Logs.Contains).Should().BeEmpty();
+    }
+
+    // ===== ESC-45: answers (D1, D2), late window (D3), hold (D8) =====
+
+    private void OrderFundsCleanly()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
+        _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
+            .Returns(StoredOrder("funded", OrderPaymentId));
+    }
+
+    private static string OrderBodyAt(DateTimeOffset sentAt, string tradeStatus = "Completed")
+        => SignedBody(tradeStatus, merchOrderId: OrderMerchOrderId, paymentOrderId: OrderPaymentId,
+            notifyTimeMs: sentAt.ToUnixTimeMilliseconds());
+
+    [Fact]
+    public async Task A_final_answer_carries_a_small_json_body()
+    {
+        var fn = NewOrderFunction();
+        OrderFundsCleanly();
+
+        var resp = await fn.FunctionHandler(Req(OrderBody()), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        resp.Body.Should().Be("{\"code\":\"0\",\"msg\":\"success\"}");
+    }
+
+    [Fact]
+    public async Task An_inbox_write_failure_answers_500_and_alarms()
+    {
+        var fn = NewOrderFunction();
+        OrderFundsCleanly();
+        _inboxRepo.RecordAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<TelebirrWebhookBiz>(), Arg.Any<DateTime>()).ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        var resp = await fn.FunctionHandler(Req(OrderBody()), _ctx);
+
+        resp.StatusCode.Should().Be(500);
+        resp.Body.Should().Be("{\"code\":\"1\",\"msg\":\"error\"}");
+        Logs.Should().Contain("ORDER_PAYMENT_UNPROCESSED").And.Contain("reason=inbox_write_");
         await AuditRecorded("order_payment_unprocessed");
         await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task An_inbox_read_failure_answers_500()
+    {
+        var fn = NewOrderFunction();
+        _inboxRepo.GetAsync(OrderInboxKey).ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        var resp = await fn.FunctionHandler(Req(OrderBody()), _ctx);
+
+        resp.StatusCode.Should().Be(500);
+        await _orderRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+    }
+
+    [Fact]
+    public async Task A_bad_signature_answers_200_without_touching_the_inbox()
+    {
+        var fn = NewOrderFunction();
+        _inboxRepo.GetAsync(Arg.Any<string>()).ThrowsAsync(new AmazonDynamoDBException("down"));
+
+        var resp = await fn.FunctionHandler(Req(SignedBody("Completed", merchOrderId: OrderMerchOrderId, tamper: true)), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        await _inboxRepo.DidNotReceive().GetAsync(Arg.Any<string>());
+        await _checkoutRepo.DidNotReceive().GetMappingAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task A_malformed_mapping_answers_200_with_the_alarm()
+    {
+        var fn = NewOrderFunction();
+        _checkoutRepo.GetMappingAsync(OrderMerchOrderId).ThrowsAsync(new InvalidDataException("no amount"));
+
+        var resp = await fn.FunctionHandler(Req(OrderBody()), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        Logs.Should().Contain("ORDER_PAYMENT_UNPROCESSED").And.Contain("reason=mapping_invalid");
+    }
+
+    [Fact]
+    public async Task A_funding_conflict_answers_500_without_a_page()
+    {
+        var fn = NewOrderFunction();
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
+        _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
+            .Returns((Dictionary<string, object>?)null);
+
+        var resp = await fn.FunctionHandler(Req(OrderBody()), _ctx);
+
+        resp.StatusCode.Should().Be(500);
+        Logs.Should().Contain("ORDER_PAYMENT_REPLAY_PENDING").And.Contain("reason=funding_conflict");
+        Logs.Should().NotContain("ORDER_PAYMENT_UNPROCESSED");
+        await _inboxRepo.Received(1).MarkUnprocessedAsync(OrderInboxKey);
+    }
+
+    [Fact]
+    public async Task Too_little_time_left_after_the_inbox_write_answers_500_before_any_order_read()
+    {
+        var fn = NewOrderFunction();
+        OrderFundsCleanly();
+        _ctx.RemainingTime = TimeSpan.FromSeconds(2);
+
+        var resp = await fn.FunctionHandler(Req(OrderBody()), _ctx);
+
+        resp.StatusCode.Should().Be(500);
+        await _inboxRepo.Received(1).RecordAsync(OrderInboxKey, OrderEscrowId, OrderId, OrderMerchOrderId,
+            Arg.Any<TelebirrWebhookBiz>(), Arg.Any<DateTime>());
+        await _orderRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+        Logs.Should().Contain("reason=low_time");
+    }
+
+    [Fact]
+    public async Task An_escrow_path_failure_after_verification_answers_500()
+    {
+        _idemRepo.GetAsync(MerchOrderId).ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        var resp = await NewFunction().FunctionHandler(Req(SignedBody("Completed")), _ctx);
+
+        resp.StatusCode.Should().Be(500);
+    }
+
+    [Fact]
+    public async Task A_completed_payment_holds_its_order_for_the_replay_horizon_in_its_attempt()
+    {
+        var fn = NewOrderFunction();
+        _checkoutRepo.GetMappingAsync(OrderMerchOrderId).Returns(new OrderCheckoutMapping(
+            OrderMerchOrderId, OrderId, "buyer-1", 15000m, "2026-09-29T09:30:00.0000000Z"));
+        OrderFundsCleanly();
+
+        await fn.FunctionHandler(Req(OrderBody()), _ctx);
+
+        var expected = _clock.GetUtcNow().UtcDateTime + WebhookInbox.ReplayHorizon;
+        await _orderRepo.Received(1).TryHoldForPaymentAsync(OrderId,
+            Arg.Is<string>(h => Math.Abs((DateTime.Parse(h, null, System.Globalization.DateTimeStyles.AdjustToUniversal) - expected).TotalSeconds) < 2),
+            "2026-09-29T09:30:00.0000000Z");
+    }
+
+    [Fact]
+    public async Task A_hold_failure_is_logged_and_the_payment_still_funds()
+    {
+        var fn = NewOrderFunction();
+        OrderFundsCleanly();
+        _orderRepo.TryHoldForPaymentAsync(OrderId, Arg.Any<string>(), Arg.Any<string?>())
+            .ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        await fn.FunctionHandler(Req(OrderBody()), _ctx);
+
+        Logs.Should().Contain("ORDER_PAYMENT_HOLD_FAILED");
+        await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task A_late_order_notification_is_still_applied()
+    {
+        // D3: Telebirr may resend the original notify_time after our 500.
+        var fn = NewOrderFunction();
+        OrderFundsCleanly();
+
+        await fn.FunctionHandler(Req(OrderBodyAt(_clock.GetUtcNow().AddHours(-5))), _ctx);
+
+        await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>());
+        Logs.Should().Contain("late=true");
+    }
+
+    [Fact]
+    public async Task A_late_escrow_notification_is_still_refused()
+    {
+        await NewFunction().FunctionHandler(Req(SignedBody("Completed",
+            notifyTimeMs: DateTimeOffset.UtcNow.AddMinutes(-10).ToUnixTimeMilliseconds())), _ctx);
+
+        await EscrowNotMoved();
+    }
+
+    [Fact]
+    public async Task A_late_redelivery_of_a_handled_payment_changes_nothing()
+    {
+        // Validator item 4: no re-apply, no hold, no alarm line for a replayed captured notify.
+        var fn = NewOrderFunction();
+        OrderFundsCleanly();
+        InboxAlreadyHolds("applied");
+
+        var resp = await fn.FunctionHandler(Req(OrderBodyAt(_clock.GetUtcNow().AddHours(-30))), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        await _orderRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+        await _orderRepo.DidNotReceive().TryHoldForPaymentAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+        await _inboxRepo.DidNotReceive().FinalizeAsync(Arg.Any<string>(), Arg.Any<string>());
+        Logs.Should().NotContain("ORDER_PAYMENT_");
+    }
+
+    [Theory]
+    [InlineData(-49 * 60)]  // older than the late window
+    [InlineData(10)]        // ten minutes in the future
+    public async Task An_out_of_window_notification_never_handled_is_alarmed_not_applied(int minutesOld)
+    {
+        var fn = NewOrderFunction();
+        OrderFundsCleanly();
+
+        var resp = await fn.FunctionHandler(Req(OrderBodyAt(_clock.GetUtcNow().AddMinutes(minutesOld))), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        Logs.Should().Contain("ORDER_PAYMENT_UNPROCESSED").And.Contain("reason=stale_notify_time");
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        await _inboxRepo.DidNotReceive().RecordAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<TelebirrWebhookBiz>(), Arg.Any<DateTime>());
+    }
+
+    [Fact]
+    public async Task An_out_of_window_failure_notification_is_not_alarmed()
+    {
+        var fn = NewOrderFunction();
+
+        await fn.FunctionHandler(Req(OrderBodyAt(_clock.GetUtcNow().AddHours(-60), "Failure")), _ctx);
+
+        Logs.Should().NotContain("ORDER_PAYMENT_UNPROCESSED");
+        await _auditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task An_out_of_window_redelivery_of_a_handled_payment_is_not_alarmed()
+    {
+        var fn = NewOrderFunction();
+        InboxAlreadyHolds("applied");
+
+        await fn.FunctionHandler(Req(OrderBodyAt(_clock.GetUtcNow().AddHours(-60))), _ctx);
+
+        Logs.Should().NotContain("ORDER_PAYMENT_UNPROCESSED");
+    }
+
+    [Fact]
+    public async Task An_out_of_window_redelivery_of_a_pending_payment_is_left_to_the_sweep()
+    {
+        var fn = NewOrderFunction();
+        InboxAlreadyHolds("received");
+
+        await fn.FunctionHandler(Req(OrderBodyAt(_clock.GetUtcNow().AddHours(-60))), _ctx);
+
+        Logs.Should().NotContain("ORDER_PAYMENT_UNPROCESSED");
+        await _orderRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+    }
+
+    [Fact]
+    public async Task A_payment_applied_after_its_row_was_given_up_says_so()
+    {
+        var fn = NewOrderFunction();
+        OrderFundsCleanly();
+        _inboxRepo.GetAsync(OrderInboxKey).Returns(InboxRow(WebhookInbox.Unprocessed, WebhookInbox.Exhausted, 8));
+
+        await fn.FunctionHandler(Req(OrderBody()), _ctx);
+
+        await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "applied");
+        Logs.Should().Contain("stop any manual refund");
+    }
+
+    [Fact]
+    public void The_late_window_stays_inside_the_inbox_ttl()
+    {
+        // D3 relies on the inbox row (30-day TTL) to recognise a redelivery.
+        TelebirrWebhookFunction.LateWindow.Should().BeLessThan(TimeSpan.FromDays(30));
+    }
+
+    // ===== ESC-45: inbox replay sweep (D4) =====
+
+    private static APIGatewayProxyRequest ReplayRequest()
+        => new() { Body = "{\"action\":\"webhook_inbox_replay\"}" };
+
+    private void DueRows(params WebhookInboxRow[] rows)
+        => _inboxRepo.QueryDueAsync(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((rows, (Dictionary<string, AttributeValue>?)null));
+
+    private void ClaimSucceeds()
+        => _inboxRepo.TryClaimAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<DateTime>())
+            .Returns(true);
+
+    [Fact]
+    public async Task The_sweep_replays_a_due_row_and_funds_the_order()
+    {
+        var fn = NewOrderFunction();
+        OrderFundsCleanly();
+        DueRows(InboxRow(WebhookInbox.Received, WebhookInbox.Pending));
+        ClaimSucceeds();
+
+        var resp = await fn.FunctionHandler(ReplayRequest(), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        await _inboxRepo.Received(1).TryClaimAsync(OrderInboxKey, Arg.Any<string>(), 0, Arg.Any<DateTime>(), Arg.Any<DateTime>());
+        await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>());
+        await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "applied");
+        await _orderRepo.Received(1).TryHoldForPaymentAsync(OrderId, Arg.Any<string>(), Arg.Any<string?>());
+        Logs.Should().Contain("TELEBIRR_INBOX_REPLAY_RUN due=1 claimed=1 applied=1 pending=0 exhausted=0");
+    }
+
+    [Fact]
+    public async Task The_sweep_skips_a_row_whose_claim_it_lost()
+    {
+        var fn = NewOrderFunction();
+        DueRows(InboxRow(WebhookInbox.Received, WebhookInbox.Pending));
+
+        await fn.FunctionHandler(ReplayRequest(), _ctx);
+
+        await _orderRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+        Logs.Should().Contain("claimed=0");
+    }
+
+    [Fact]
+    public async Task A_replay_that_fails_before_the_last_attempt_stays_pending_without_a_page()
+    {
+        var fn = NewOrderFunction();
+        _orderRepo.GetByIdAsync(OrderId, true).ThrowsAsync(new AmazonDynamoDBException("throttled"));
+        DueRows(InboxRow(WebhookInbox.Received, WebhookInbox.Pending, attempts: 2));
+        ClaimSucceeds();
+
+        await fn.FunctionHandler(ReplayRequest(), _ctx);
+
+        await _inboxRepo.Received(1).MarkUnprocessedAsync(OrderInboxKey);
+        await _inboxRepo.DidNotReceive().ExhaustAsync(Arg.Any<string>(), Arg.Any<int>());
+        Logs.Should().Contain("ORDER_PAYMENT_REPLAY_PENDING").And.Contain("attempt=3/8");
+        Logs.Should().NotContain("ORDER_PAYMENT_UNPROCESSED");
+    }
+
+    [Fact]
+    public async Task The_last_failed_replay_gives_the_row_up_with_the_alarm_and_an_audit_row()
+    {
+        var fn = NewOrderFunction();
+        _orderRepo.GetByIdAsync(OrderId, true).ThrowsAsync(new AmazonDynamoDBException("throttled"));
+        DueRows(InboxRow(WebhookInbox.Unprocessed, WebhookInbox.Pending, attempts: 7));
+        ClaimSucceeds();
+        _inboxRepo.ExhaustAsync(OrderInboxKey, 8).Returns(true);
+
+        await fn.FunctionHandler(ReplayRequest(), _ctx);
+
+        Logs.Should().Contain("ORDER_PAYMENT_UNPROCESSED").And.Contain("reason=replay_exhausted").And.Contain("attempts=8");
+        await AuditRecorded("order_payment_unprocessed");
+        Logs.Should().Contain("exhausted=1");
+    }
+
+    [Fact]
+    public async Task A_give_up_that_loses_to_a_finalize_raises_nothing()
+    {
+        // Validator item 5: the exhaust is conditional, and the alarm and audit row follow it.
+        var fn = NewOrderFunction();
+        _orderRepo.GetByIdAsync(OrderId, true).ThrowsAsync(new AmazonDynamoDBException("throttled"));
+        DueRows(InboxRow(WebhookInbox.Unprocessed, WebhookInbox.Pending, attempts: 7));
+        ClaimSucceeds();
+        _inboxRepo.ExhaustAsync(OrderInboxKey, 8).Returns(false);
+
+        await fn.FunctionHandler(ReplayRequest(), _ctx);
+
+        Logs.Should().NotContain("ORDER_PAYMENT_UNPROCESSED");
+        await _auditRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(
+            e => e.Values.Any(v => v != null && v.ToString() == "order_payment_unprocessed")));
+    }
+
+    [Fact]
+    public async Task A_row_with_every_attempt_used_is_given_up_without_a_replay()
+    {
+        // A run that died during the 8th attempt.
+        var fn = NewOrderFunction();
+        DueRows(InboxRow(WebhookInbox.Unprocessed, WebhookInbox.Pending, attempts: 8));
+        _inboxRepo.ExhaustAsync(OrderInboxKey, 8).Returns(true);
+
+        await fn.FunctionHandler(ReplayRequest(), _ctx);
+
+        await _inboxRepo.DidNotReceive().TryClaimAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<DateTime>());
+        await _orderRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+        Logs.Should().Contain("reason=replay_exhausted");
+    }
+
+    [Fact]
+    public async Task A_malformed_mapping_on_replay_is_given_up_at_once()
+    {
+        var fn = NewOrderFunction();
+        _checkoutRepo.GetMappingAsync(OrderMerchOrderId).ThrowsAsync(new InvalidDataException("no amount"));
+        DueRows(InboxRow(WebhookInbox.Received, WebhookInbox.Pending, attempts: 0));
+        ClaimSucceeds();
+        _inboxRepo.ExhaustAsync(OrderInboxKey, 1).Returns(true);
+
+        await fn.FunctionHandler(ReplayRequest(), _ctx);
+
+        await _inboxRepo.Received(1).ExhaustAsync(OrderInboxKey, 1);
+        Logs.Should().Contain("cause=mapping-invalid");
+    }
+
+    [Fact]
+    public async Task A_failed_index_query_logs_no_heartbeat()
+    {
+        var fn = NewOrderFunction();
+        _inboxRepo.QueryDueAsync(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .ThrowsAsync(new AmazonDynamoDBException("index missing"));
+
+        await fn.FunctionHandler(ReplayRequest(), _ctx);
+
+        Logs.Should().NotContain("TELEBIRR_INBOX_REPLAY_RUN").And.Contain("could not be read");
+    }
+
+    [Fact]
+    public async Task The_sweep_runs_before_the_ip_allow_list()
+    {
+        _inboxRepo.QueryDueAsync(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((Array.Empty<WebhookInboxRow>(), (Dictionary<string, AttributeValue>?)null));
+        var fn = new TelebirrWebhookFunction(_escrowRepo, _auditRepo, _idemRepo,
+            new TelebirrSignatureService(null, PublicKeyPem, TelebirrSignaturePadding.Pkcs1),
+            allowedSourceIps: new[] { "196.188.0.1" }, orderCheckoutRepo: _checkoutRepo, inboxRepo: _inboxRepo);
+
+        await fn.FunctionHandler(ReplayRequest(), _ctx);
+
+        Logs.Should().Contain("TELEBIRR_INBOX_REPLAY_RUN due=0");
+    }
+
+    [Fact]
+    public async Task The_public_route_can_never_reach_the_sweep()
+    {
+        var fn = NewOrderFunction();
+        var request = ReplayRequest();
+        request.RequestContext = new APIGatewayProxyRequest.ProxyRequestContext();
+
+        var resp = await fn.FunctionHandler(request, _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        await _inboxRepo.DidNotReceive().QueryDueAsync(Arg.Any<DateTime>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    // ===== ESC-45 review: separators cannot re-split a captured notification =====
+
+    /// <summary>
+    /// A captured, genuinely signed notification re-split into a different map with the same signed
+    /// string: <paramref name="moveKey"/>'s pair is appended to <paramref name="intoKey"/>'s value (its
+    /// neighbour in the sorted string) and the key itself is dropped.
+    /// </summary>
+    private static string ReSplit(Dictionary<string, string> captured, string intoKey, string moveKey)
+    {
+        var body = captured.ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+        body[intoKey] = $"{captured[intoKey]}&{moveKey}={captured[moveKey]}";
+        body.Remove(moveKey);
+        body["sign"] = Sign(captured);
+        body["sign_type"] = "SHA256WithRSA";
+        return JsonSerializer.Serialize(body);
+    }
+
+    [Fact]
+    public async Task A_payment_reference_moved_into_notify_url_is_refused_before_any_state()
+    {
+        // Variant (a): verified before the fix; the reader got no payment_order_id and a new inbox key.
+        var fn = NewOrderFunction();
+        var captured = SignedFields("Completed", merchOrderId: OrderMerchOrderId, paymentOrderId: OrderPaymentId);
+        var signer = new TelebirrSignatureService(PrivateKeyPem, null, TelebirrSignaturePadding.Pkcs1);
+        signer.BuildFlatCanonicalString(new Dictionary<string, string>(captured) { ["notify_url"] = captured["notify_url"] + "&payment_order_id=" + OrderPaymentId }
+                .Where(kv => kv.Key != "payment_order_id").ToDictionary(kv => kv.Key, kv => kv.Value))
+            .Should().Be(signer.BuildFlatCanonicalString(captured), "the attack relies on an identical signed string");
+
+        var resp = await fn.FunctionHandler(Req(ReSplit(captured, "notify_url", "payment_order_id")), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        Logs.Should().Contain("separator_in_field").And.NotContain("ORDER_PAYMENT_");
+        await _checkoutRepo.DidNotReceive().GetMappingAsync(Arg.Any<string>());
+        await _inboxRepo.DidNotReceive().GetAsync(Arg.Any<string>());
+        await _auditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task An_amount_moved_into_the_payment_reference_is_refused_before_any_state()
+    {
+        // Variant (b): on an order funded by this payment it logged a DUPLICATE refund case.
+        var fn = NewOrderFunction();
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("funded", OrderPaymentId));
+        var captured = SignedFields("Completed", merchOrderId: OrderMerchOrderId, paymentOrderId: OrderPaymentId);
+
+        var resp = await fn.FunctionHandler(Req(ReSplit(captured, "payment_order_id", "total_amount")), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        Logs.Should().Contain("separator_in_field").And.NotContain("ORDER_PAYMENT_");
+        await _checkoutRepo.DidNotReceive().GetMappingAsync(Arg.Any<string>());
+        await _auditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task A_key_with_a_separator_is_refused()
+    {
+        var body = Signed(SignedFields("Completed"));
+        body["trade_status=Completed"] = "x";
+
+        await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+
+        await EscrowNotMoved();
+        Logs.Should().Contain("separator_in_field");
+    }
+
+    [Fact]
+    public async Task An_equals_sign_inside_a_value_still_verifies()
+    {
+        // '=' cannot re-split once keys may not contain it: a query string in notify_url is fine.
+        var fields = SignedFields("Completed");
+        fields["notify_url"] = "https://api.example/webhooks/telebirr?src=telebirr";
+
+        await NewFunction().FunctionHandler(Req(Json(Signed(fields))), _ctx);
+
+        await EscrowMovedTo("escrowed");
+    }
+
+    // ===== ESC-45 review: a payment that applies after its row was given up says so =====
+
+    [Fact]
+    public async Task A_requeued_row_that_the_sweep_applies_says_stop_any_manual_refund()
+    {
+        var fn = NewOrderFunction();
+        OrderFundsCleanly();
+        DueRows(InboxRow(WebhookInbox.Unprocessed, WebhookInbox.Pending) with { ExhaustedAt = WebhookInbox.Iso(DateTime.UtcNow.AddHours(-2)) });
+        ClaimSucceeds();
+
+        await fn.FunctionHandler(ReplayRequest(), _ctx);
+
+        await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "applied");
+        Logs.Should().Contain("stop any manual refund");
+    }
+
+    [Fact]
+    public async Task A_redelivery_of_a_requeued_row_that_applies_says_stop_any_manual_refund()
+    {
+        var fn = NewOrderFunction();
+        OrderFundsCleanly();
+        _inboxRepo.GetAsync(OrderInboxKey).Returns(
+            InboxRow(WebhookInbox.Unprocessed, WebhookInbox.Pending) with { ExhaustedAt = WebhookInbox.Iso(DateTime.UtcNow.AddHours(-2)) });
+
+        await fn.FunctionHandler(Req(OrderBody()), _ctx);
+
+        Logs.Should().Contain("stop any manual refund");
+    }
+
+    [Fact]
+    public async Task An_out_of_window_redelivery_of_a_given_up_row_points_at_the_requeue()
+    {
+        var fn = NewOrderFunction();
+        _inboxRepo.GetAsync(OrderInboxKey).Returns(InboxRow(WebhookInbox.Unprocessed, WebhookInbox.Exhausted, 8));
+
+        await fn.FunctionHandler(Req(OrderBodyAt(_clock.GetUtcNow().AddHours(-60))), _ctx);
+
+        Logs.Should().Contain("gave up on").And.Contain("requeue it to apply").And.NotContain("the sweep applies it");
+        Logs.Should().NotContain("ORDER_PAYMENT_UNPROCESSED");
+    }
+
+    [Fact]
+    public async Task A_real_notify_with_a_query_string_in_raw_request_still_funds()
+    {
+        // ESC-45 review: unsigned transport keys are exempt from the separator rule.
+        var fn = NewOrderFunction();
+        OrderFundsCleanly();
+        var body = Signed(SignedFields("Completed", merchOrderId: OrderMerchOrderId, paymentOrderId: OrderPaymentId));
+        body["raw_request"] = "appid=853694808089634&merch_code=220100&prepay_id=P1&sign=x";
+        body["header"] = new Dictionary<string, string> { ["requestId"] = "r1&r2" };
+
+        var resp = await fn.FunctionHandler(Req(Json(body)), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>());
+        Logs.Should().NotContain("separator_in_field");
+    }
+
+    [Fact]
+    public async Task No_re_split_of_a_captured_notification_verifies()
+    {
+        // Every way to keep the signed string while moving a signed pair into its neighbour's value
+        // (sorted order), with and without an unsigned raw_request beside it: all refused. Without the
+        // separator rule each one verifies and the Failed notification cancels the escrow.
+        var captured = SignedFields("Failed");
+        var keys = captured.Keys.Order(StringComparer.Ordinal).ToList();
+        var attempts = 0;
+        foreach (var withRawRequest in new[] { false, true })
+        {
+            for (var i = 0; i + 1 < keys.Count; i++)
+            {
+                var body = captured.ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+                body[keys[i]] = $"{captured[keys[i]]}&{keys[i + 1]}={captured[keys[i + 1]]}";
+                body.Remove(keys[i + 1]);
+                body["sign"] = Sign(captured);
+                if (withRawRequest)
+                {
+                    body["raw_request"] = $"a=1&{keys[i + 1]}={captured[keys[i + 1]]}";
+                }
+
+                await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+                attempts++;
+            }
+        }
+
+        attempts.Should().Be(2 * (keys.Count - 1));
+        await EscrowNotMoved();
     }
 }

@@ -21,15 +21,22 @@ public enum TelebirrSignaturePadding
 public sealed class TelebirrSignatureService : ITelebirrSignatureService
 {
     // Keys never included in the signed string (they carry the signature itself,
-    // transport headers, or fields Telebirr appends after signing).
+    // transport headers, or fields Telebirr appends after signing). The list is Ethio
+    // Telecom's demo list (ESC-45, F11).
     private static readonly HashSet<string> ExcludedKeys = new(StringComparer.Ordinal)
     {
-        "sign", "sign_type", "header", "refund_info", "openType", "raw_request"
+        "sign", "sign_type", "header", "refund_info", "openType", "raw_request", "wallet_reference_data"
     };
 
     private readonly string? _privateKeyPem;
     private readonly string? _publicKeyPem;
     private readonly TelebirrSignaturePadding _padding;
+
+    /// <summary>
+    /// True for a key that is never part of the signed string (the signature, its type, transport
+    /// fields). The notify parser ignores such keys apart from <c>sign</c> and <c>sign_type</c>.
+    /// </summary>
+    public static bool IsExcludedFromSigning(string key) => ExcludedKeys.Contains(key);
 
     public TelebirrSignatureService(
         string? merchantPrivateKeyPem,
@@ -67,6 +74,22 @@ public sealed class TelebirrSignatureService : ITelebirrSignatureService
         return sb.ToString();
     }
 
+    public string BuildFlatCanonicalString(IReadOnlyDictionary<string, string> fields)
+    {
+        var sb = new StringBuilder();
+        foreach (var key in fields.Keys.Where(k => !ExcludedKeys.Contains(k)).Order(StringComparer.Ordinal))
+        {
+            if (sb.Length > 0)
+            {
+                sb.Append('&');
+            }
+
+            sb.Append(key).Append('=').Append(fields[key]);
+        }
+
+        return sb.ToString();
+    }
+
     public string SignObject(IReadOnlyDictionary<string, object?> payload)
         => Sign(BuildCanonicalString(payload));
 
@@ -89,6 +112,35 @@ public sealed class TelebirrSignatureService : ITelebirrSignatureService
         => Verify(BuildCanonicalString(payload), base64Signature);
 
     public bool Verify(string canonical, string base64Signature)
+        => Verify(canonical, base64Signature, _padding);
+
+    public bool VerifyFlat(
+        IReadOnlyDictionary<string, string> fields, string base64Signature, out TelebirrSignaturePadding matched)
+    {
+        // The signed string escapes nothing: a separator inside a field would make it match a
+        // different map (ESC-45). The parser refuses such bodies first; this keeps the rule here too.
+        matched = _padding;
+        if (fields.Any(kv => !ExcludedKeys.Contains(kv.Key)
+                             && (kv.Key.AsSpan().IndexOfAny('&', '=') >= 0 || kv.Value.Contains('&'))))
+        {
+            return false;
+        }
+
+        var canonical = BuildFlatCanonicalString(fields);
+        var other = _padding == TelebirrSignaturePadding.Pss ? TelebirrSignaturePadding.Pkcs1 : TelebirrSignaturePadding.Pss;
+        foreach (var padding in new[] { _padding, other })
+        {
+            if (Verify(canonical, base64Signature, padding))
+            {
+                matched = padding;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool Verify(string canonical, string base64Signature, TelebirrSignaturePadding padding)
     {
         if (string.IsNullOrEmpty(_publicKeyPem))
         {
@@ -102,7 +154,7 @@ public sealed class TelebirrSignatureService : ITelebirrSignatureService
             rsa.ImportFromPem(_publicKeyPem);
             var data = Encoding.UTF8.GetBytes(canonical);
             var sig = Convert.FromBase64String(base64Signature);
-            return rsa.VerifyData(data, sig, HashAlgorithmName.SHA256, PaddingFor(_padding));
+            return rsa.VerifyData(data, sig, HashAlgorithmName.SHA256, PaddingFor(padding));
         }
         catch (Exception ex) when (ex is FormatException or CryptographicException)
         {
@@ -137,6 +189,13 @@ public sealed class TelebirrSignatureService : ITelebirrSignatureService
         if (ExcludedKeys.Contains(key))
         {
             return;
+        }
+
+        // ESC-45: a key that appears twice once biz_content is merged up would let one value
+        // silently replace the other in the signed string.
+        if (value is not IReadOnlyDictionary<string, object?> and not IDictionary<string, object?> && outMap.ContainsKey(key))
+        {
+            throw new InvalidOperationException($"Telebirr signing: the key '{key}' appears twice after flattening.");
         }
 
         switch (value)

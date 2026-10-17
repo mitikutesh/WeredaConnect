@@ -281,6 +281,8 @@ public class EscrowCronFunction
     {
         context.Logger.LogInformation("EscrowCronFunction invoked.");
         _runClock = Stopwatch.StartNew();
+        // ESC-45 (D6): Telebirr calls end 30 s before the run does (settlement writes, parking).
+        using var gatewayDeadline = GatewayDeadline.Begin(context, TimeSpan.FromSeconds(30));
 
         // Parse action from request body
         string? action = null;

@@ -569,7 +569,8 @@ unknown-outcomes alarm once, and the overdue alarm after 24 hours.
 |----------|----------|---------|
 | EscrowCronFunction | Hourly | Auto-release confirmed escrows, auto-refund expired escrows |
 | EscrowCronFunction | Every 6 hours | Reconciliation with Telebirr |
-| OrderCronFunction | Hourly | Auto-cancel unpaid expired orders |
+| OrderCronFunction | Hourly | Auto-cancel unpaid expired orders; never fails an order whose verified Telebirr payment is pending in the webhook inbox (ESC-45) |
+| TelebirrWebhookFunction (live gateway only) | Every 5 minutes | Replay webhook inbox rows left pending (`{"action":"webhook_inbox_replay"}`, ESC-45) |
 
 ---
 
@@ -735,6 +736,34 @@ ESC-10 lines on these alarms (escrow-cron log group; `specs/contracts/escrow-pro
   queue entry. Open the escrow by id; a dispute and its verdict, or a confirmed delivery, end it.
 - `ESCROW_RELEASE_BLOCKED escrowId=<id> code=ESCROW_029` (Information, no alarm): the farmer must verify (phone or
   Fayda); the next hourly run pays once they have. Audited once per reason (`release_blocked_kyc`).
+
+Live Telebirr webhook (ESC-45; only with `enableTelebirrLive`; contract `escrow-protocol.md` "Additions in 1.16.0",
+decision record `specs/decisions/telebirr-webhook-delivery-and-recovery.md`):
+
+| Alarm | Meaning | First action |
+|---|---|---|
+| `<prefix>-order-payment-problems` with `reason=replay_exhausted` | a verified order payment was replayed 8 times (about 4 h 20 min) and never applied; its inbox row is in the `exhausted` partition of `InboxReplayIndex` and the order hold lapses within about 75 minutes, after which the hourly order cron can fail the order | read the line's `cause=`, fix it (permissions, throttling, a bad row), then requeue the row (below) before the hold lapses. To refund instead, first read the order: if its `telebirrPaymentOrderId` is this payment it is funded, never refund it; refund only once the order has left that payment attempt |
+| `<prefix>-telebirr-inbox-replay-stalled` | no `TELEBIRR_INBOX_REPLAY_RUN` line in the webhook log group for 30 minutes: the 5-minute rule is disabled, the Lambda fails, or the `InboxReplayIndex` query fails | check the rule `<prefix>-telebirr-inbox-replay`, the webhook log group ("inbox index could not be read") and the index; pending payments are not applied until it runs again |
+
+The API-wide `<prefix>-high-api-5xx-rate` alarm can also fire when the webhook answers `500` (a verified
+payment not yet applied, so Telebirr sends it again) at low traffic: check the webhook log group for
+`ORDER_PAYMENT_REPLAY_PENDING` before anything else; the inbox sweep applies those payments.
+
+```bash
+P=wereda-connect-dev   # or -staging, -prod
+
+# Rows given up by the sweep (oldest first)
+aws dynamodb query --table-name "$P-escrow-idempotency" --index-name InboxReplayIndex \
+  --key-condition-expression "inboxReplay = :x" \
+  --expression-attribute-values '{":x":{"S":"exhausted"}}'
+
+# Requeue one row after fixing the cause (the next 5-minute run replays it and holds the order again)
+aws dynamodb update-item --table-name "$P-escrow-idempotency" \
+  --key '{"idempotencyKey":{"S":"webhook-inbox:<merchOrderId>:<paymentOrderId>:Completed"}}' \
+  --update-expression "SET inboxReplay = :p, replayAttempts = :z, inboxReplayAt = :now" \
+  --condition-expression "inboxReplay = :x" \
+  --expression-attribute-values "{\":p\":{\"S\":\"pending\"},\":z\":{\"N\":\"0\"},\":x\":{\"S\":\"exhausted\"},\":now\":{\"S\":\"$(date -u +%Y-%m-%dT%H:%M:%S.0000000Z)\"}}"
+```
 
 The settlement-failure, the unknown-outcome, the verdict-mismatch, the trucker-payouts and the two queue alarms evaluate 5 periods of 15 minutes, so an
 hourly producer keeps them in ALARM without flapping; they clear by themselves 75 to 90

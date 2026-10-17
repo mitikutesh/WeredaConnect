@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.15.0
+1.16.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -252,6 +252,13 @@ With the real Telebirr gateway, fund collection is **asynchronous** (C2B H5 chec
    signature + timestamp + replay + amount checks — transitions the escrow
    `initiated → escrowed` and stamps the real `telebirrRef`.
 4. The client polls `GET /escrow/{id}` until `status` is `escrowed`.
+
+Since 1.16.0 this `/escrow/initiate` path is **not usable with live Telebirr**: its merch_order_id
+is the client idempotency key (`{userId}:{entityType}:{entityId}:{action}:{timestamp}`), which breaks
+Telebirr's documented `^[A-Za-z0-9]+$` (ESC-45, follow-up filed). Live payments use the order
+checkout (§Additions in 1.5.0). The webhook still serves this path: only `Failed`, `Failure` or
+`Expired` cancel the escrow (a `Pending` or `Paying` notification changes nothing), and only a
+notification at most 300 s old is processed.
 
 If the buyer never completes payment, the escrow stays `initiated` and the
 reconciliation cron cancels it only **after** the Telebirr payment window
@@ -1310,12 +1317,15 @@ admin).
 A blocked release leaves the escrow untouched for an admin.
 
 ### Webhook hardening
-A notification with a missing or unparseable `timestamp` is rejected. `biz_content.merch_code`
-must equal the configured merchant code. When the notification carries the paying wallet's
-phone (`biz_content.msisdn`, field name to be confirmed on the live payload) it is compared
-with the buyer's registered phone: a mismatch is audited as `webhook_payer_mismatch` and,
-with `TELEBIRR_REQUIRE_PAYER_MATCH=true`, rejected; a missing payer while a match is
-required is audited as `webhook_payer_unbound` and rejected.
+Since 1.16.0 (ESC-45) the notification is read in the shape Ethio Telecom documents: one flat
+JSON object (`notify_url, appid, notify_time, merch_code, merch_order_id, payment_order_id,
+total_amount, trans_id, trans_currency, trade_status, trans_end_time, callback_info, sign,
+sign_type`), see §Additions in 1.16.0. A notification with a missing or unparseable
+`notify_time` is rejected. `merch_code` must equal the configured merchant code. The documented
+notify carries **no payer phone**, so `TELEBIRR_REQUIRE_PAYER_MATCH` must stay off; if a payer
+field (`msisdn`) ever appears it is compared with the buyer's registered phone: a mismatch is
+audited as `webhook_payer_mismatch` and, with `TELEBIRR_REQUIRE_PAYER_MATCH=true`, rejected; a
+missing payer while a match is required is audited as `webhook_payer_unbound` and rejected.
 
 ---
 
@@ -1440,7 +1450,7 @@ reused:
 |---|---|---|
 | `order-checkout:{orderId}` | slot | attempt, merch_order_id, amount, buyer, `outcome`, `openUntil`, `prepayId` |
 | the merch_order_id | mapping | `escrowId = escrow-order-{orderId}`, orderId, buyerId, amount, `paymentSubmittedAt` (the order's payment attempt; absent for orders from before it was stamped), `status` |
-| `webhook-inbox:{merchOrderId}:{paymentOrderId}:{tradeStatus}` | inbox | one verified notification and what became of it (30-day TTL) |
+| `webhook-inbox:{merchOrderId}:{paymentOrderId}:{tradeStatus}` | inbox | one verified notification and what became of it (30-day TTL); since 1.16.0 also `orderId`, and while not final the replay queue (`inboxReplay`, `inboxReplayAt`, `replayAttempts`) and the verified payment fields (`notificationBiz`), see §Additions in 1.16.0 |
 
 Slot outcomes: `opening` (written, Telebirr not answered yet), `url_issued`, `unknown`
 (timeout, network error, or a non-success HTTP status: the payment may exist), `failed`
@@ -1506,12 +1516,12 @@ closing the slot, marking the mapping, updating the inbox row) logs
 `ORDER_PAYMENT_BOOKKEEPING_FAILED` instead. It is outside the alarm on purpose: refunding a
 funded order would be wrong. A redelivery finishes the stock and escrow steps.
 
-The webhook still answers `200` to every request. Telebirr's redelivery rules (retry policy,
-whether a retry keeps the original timestamp, a query API) are not confirmed yet (ESC-45).
-Until they are, the lasting record of a payment that was not applied is its escrow-audit row
-(`order_payment_unmatched`, `order_payment_duplicate`, `order_payment_unprocessed`); the
-inbox row expires after 30 days, and a payment whose mapping could not be read has only its
-log line.
+Since 1.16.0 the webhook answers `500` when a verified notification is not durably recorded or
+not applied for a reason a retry can fix, and replays inbox rows left pending (§Additions in
+1.16.0). The lasting record of a payment that was not applied is its escrow-audit row
+(`order_payment_unmatched`, `order_payment_duplicate`, `order_payment_unprocessed`); the inbox
+row expires after 30 days, and a payment whose mapping or inbox row could not be read has only
+its log line (and was answered `500`).
 
 ---
 
@@ -2811,11 +2821,106 @@ Legacy `/escrow/initiate` escrows whose order is `created` or `pending_payment` 
 
 ---
 
+## Additions in 1.16.0 (Telebirr live dialect, webhook answers and inbox replay, ESC-45)
+
+Decision record: `specs/decisions/telebirr-webhook-delivery-and-recovery.md` (sources, findings,
+sandbox checklist).
+
+### Reading a notification
+- **One map is verified and read.** The body is read into one flat map of strings: the top level,
+  or its `data` object when the top level has no `merch_order_id` and no `biz_content` but `data`
+  has one (then only `data` is read; `sign` from it, or from the top level when it has none). A
+  `biz_content` object is flattened one level (the earlier simulator shape). Any other object or
+  array value, and any key seen twice, refuses the body; JSON null is absent. Numbers keep their
+  raw text, booleans become `1`/`0`. A key containing `&` or `=`, or a value containing `&`, refuses
+  the body (`separator_in_field`, `200`, nothing written): the signed string escapes nothing, so such
+  a field could re-split a captured notification into a different map with the same signed string.
+  Keys that are never signed (`header`, `refund_info`, `openType`, `raw_request`,
+  `wallet_reference_data`) are ignored whatever they hold and are exempt from that rule (a URL query
+  in `raw_request` must not refuse a real notification); nothing reads them.
+  Outbound, an order title drops `&` and `=`, and a key that appears twice once `biz_content` is
+  merged up refuses to sign.
+- **Signature** over every field of that map except `sign`, `sign_type`, `header`, `refund_info`,
+  `openType`, `raw_request`, `wallet_reference_data`, sorted, `key=value&...`, SHA-256 with RSA-PSS
+  or PKCS#1 v1.5 (both checked against Telebirr's public key; the log names the padding that
+  verified). When the map has `transId` and no `trans_id`, a copy with the key renamed `trans_id` is
+  verified and then read (Telebirr signs `trans_id`, and has been seen sending `transId`).
+- **Freshness** on `notify_time` (else `timestamp`): 10 to 11 digits are epoch seconds, 13 to 14
+  milliseconds, anything else is refused. Fresh is `|now - notify_time| <= 300 s`. On the order
+  path a verified notification up to **48 hours** old is still processed (a retry may keep its
+  original `notify_time`); a late redelivery of a notification whose inbox row is final changes
+  nothing; older than 48 h, or more than 300 s in the future, is refused, and alarmed
+  (`ORDER_PAYMENT_UNPROCESSED reason=stale_notify_time`, plus an `order_payment_unprocessed` audit
+  row) only when it is a `Completed` payment the inbox has never seen. The `/escrow/initiate` path keeps 300 s.
+- **Statuses**: only `Completed` funds; `Failed` and `Failure` are a failed try
+  (`order_payment_failed`); others are `order_payment_status_ignored`.
+- Field names of a body that did not verify are logged at most 20, each defanged (`MoneyAlarmLog.LogId`).
+
+### Answers
+| Case | Answer |
+|---|---|
+| Before verification (IP, empty or refused body, bad signature, bad `notify_time`, foreign merchant) | `200` |
+| Mapping read fails; inbox read or write fails | `500`, `ORDER_PAYMENT_UNPROCESSED` |
+| Malformed mapping; orders not configured | `200`, `ORDER_PAYMENT_UNPROCESSED` |
+| Less than 4 s left after the inbox write; apply throws; funding conflict | `500`, `ORDER_PAYMENT_REPLAY_PENDING` (not alarmed), row pending |
+| A final verdict, an earlier refusal kept, a late redelivery of a handled payment | `200` |
+| `/escrow/initiate` path, an exception after verification | `500` |
+
+Bodies: `200` `{"code":"0","msg":"success"}`, `500` `{"code":"1","msg":"error"}`.
+
+### Inbox row and replay
+- An order notification is written as a pending row before it is applied: status `received`,
+  `orderId`, `notificationBiz` (the verified payment fields), `inboxReplay = pending`,
+  `inboxReplayAt` = receipt + 2 minutes, `replayAttempts = 0`. A final outcome (`applied`,
+  `applied_again`, `duplicate`, `unmatched:*`, `payment_failed`, `ignored`) removes `inboxReplay`,
+  `inboxReplayAt` and `notificationBiz`. A non-final outcome sets `unprocessed` and keeps the row
+  pending. Sparse GSI `InboxReplayIndex` (PK `inboxReplay`, SK `inboxReplayAt`) on the escrow
+  idempotency table; all times one ISO-8601 UTC form.
+- **Sweep**: the webhook Lambda invoked by EventBridge every 5 minutes with
+  `{"action":"webhook_inbox_replay"}` (only without an API Gateway request context, so never from the
+  public route). Per run at most 100 due rows, oldest first, no claim with less than 5 s left. A row is
+  claimed with one conditional write (still pending with the replay time and attempt count read), which
+  counts the attempt and sets the next replay 5, 10, 20, 40, then 60 minutes later, and is then replayed
+  like a redelivery (the funding write is the fence against a redelivery at the same moment).
+- **Give-up**: after the 8th failed attempt, or for a due row with every attempt used, the row moves to
+  `inboxReplay = exhausted` (status `unprocessed`, stored fields kept, `exhaustedAt` stamped and never
+  removed), conditional on still pending with the attempt count read; only then `ORDER_PAYMENT_UNPROCESSED ... reason=replay_exhausted cause=<why>
+  attempts=<n>` and an `order_payment_unprocessed` escrow-audit row. A malformed or missing mapping or an
+  unreadable stored notification is given up at once. A row with `exhaustedAt` that later applies (a
+  redelivery, or the sweep after a requeue) logs "applied after its inbox row was given up; stop any
+  manual refund".
+- One `TELEBIRR_INBOX_REPLAY_RUN due= claimed= applied= pending= exhausted=` line per run, none when the
+  index query failed; alarm `{prefix}-telebirr-inbox-replay-stalled` after 30 minutes without one.
+- The rule in §Webhook: order payments about not refunding an `ORDER_PAYMENT_UNPROCESSED` payment while
+  its order is in the same attempt now means: the sweep applies it; refund only after
+  `replay_exhausted` and only once the order has left that attempt (or after a requeue, per the runbook).
+
+### Order hold (order-lifecycle.md 1.16.0)
+Before the inbox write of a verified `Completed`, the webhook sets the server-only order field
+`paymentHoldUntil` to now + 4 h 47 min (the replay horizon): only while the order is
+`payment_submitted` in the mapping's payment attempt, extend-only, without changing `version` or
+`updatedAt`. Each sweep claim extends it to the next replay + 15 minutes. The order cron does not move
+an order to `payment_failed` while its hold is in the future or while its payment is pending in the
+inbox.
+
+### Gateway calls
+Every live Telebirr HTTP call ends at the invocation's deadline: the escrow Lambda's remaining time minus
+5 s, escrow-cron's minus 30 s. With less than 2 s left no request is sent and the call fails with
+`TELEBIRR_NO_TIME` (definite: a checkout slot becomes `failed` and the buyer can retry at once); a call cut
+at the deadline is `TELEBIRR_TIMEOUT` (unknown, as in 1.10.0). A failed fabric-token call is the definite
+`TELEBIRR_TOKEN` (no payment request was sent). The token is requested at `/payment/v1/token`; request
+and checkout-URL timestamps are epoch seconds. Release and refund still make no HTTP call; a future
+payout call must keep the same deadline rule.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.16.0 | 2026-10-10 | Telebirr live dialect, webhook answers and inbox replay (ESC-45): the flat documented notify (one map verified and read, `data` envelope, nested `biz_content`, `transId` alias only without `trans_id`, duplicate keys and nested values refused), PSS or PKCS#1 accepted inbound, `notify_time` freshness by digit range with a 48 h late window on the order path only; `500` for verified notifications not recorded or not applied for a retryable reason, small JSON bodies; inbox rows carry `orderId`, the stored payment fields and a replay queue (sparse `InboxReplayIndex`); a 5-minute sweep replays them with claim, backoff and a conditional give-up after 8 attempts (`replay_exhausted`), heartbeat and stalled alarm; `ORDER_PAYMENT_REPLAY_PENDING` not alarmed; order `paymentHoldUntil` (order-lifecycle 1.16.0); every gateway call bounded by the run's deadline (`TELEBIRR_NO_TIME`, `TELEBIRR_TOKEN` definite); token path `/payment/v1/token`, timestamps in seconds; `/escrow/initiate` not usable live and cancels only on `Failed`, `Failure`, `Expired`; no payer field in the documented notify |
 | 1.15.0 | 2026-10-10 | Sweep hygiene (ESC-10): the auto-release, auto-refund, dispute-settlement and reconciliation sweeps page through their whole partition (pages of 100) within a budget per sweep (50 pages, 1,000 rows that needed I/O, a time limit counted from the run start, the trucker reserve kept), with confirmation and lock skips in the filter and `sweep_truncated` when a limit stops one; a blocked settlement stores `settlementBlockReason`/`settlementBlockReasonAt` by compare-and-set and is audited once per reason (`release_blocked_kyc` from the sweeps, metadata `code=ESCROW_029;reason=<reason>`; admin attempts each time; new `auto_release_blocked`, `auto_refund_blocked` with one alarm line when first stored); the released and refunded writes clear it; the auto-release reads the delivery and order first (FUP-28): delivered and an order in flight or none pays, a disputed trade is frozen through the 1.12.0 path (this escrow only) and its delivery and order follow, a resolved dispute and every mismatch block; an expired `/escrow/initiate` escrow follows its delivery and order: goods moving or an order in flight hold it (extended to the 21-day cap, then the admin queue, or `ADMIN_QUEUE_OVERDUE reason=no_order` without an order), a pending delivery is cancelled before the refund, a double escrow or missing row blocks; an admin queue entry stamps only the escrow it owns; reconciliation rows are isolated; new run summary keys; no client change |
+| 1.14.0 | 2026-10-17 | Not released: number reserved for ESC-09 and left unused when the merge order changed; ESC-09 is 1.17.0. |
 | 1.13.0 | 2026-10-10 | 21-day hold cap and the admin stuck-order queue (ESC-06): the auto-refund sweep never extends an order escrow past funding + 21 days, and the extension is conditional (no `refundReason`, lock or manual payout); at the cap the order enters the admin queue (`adminQueue`, sparse `AdminQueueIndex` on orders, not versioned), audited `admin_queue_entered` and `hold_cap_reached`, and the escrow is stamped `holdCapReachedAt` last; capped escrows leave both sweep windows until a refund is scheduled or the delivery is confirmed; the hourly report produces `ADMIN_QUEUE_OVERDUE` (due from the queue time, or the pickup deadline of an accepted order; `ageHours` since due), clears an entry on escrow evidence only and re-arms a lost refund or delivery stamp; a capped escrow with a missing order logs `reason=order_missing`; `refundPending` stays false on a capped hold; the refund of a transport-failure cancel restores the listing stock first (fail closed) |
 | 1.12.0 | 2026-10-10 | Disputes always freeze money (ESC-07): the client order dispute is gone (`order-lifecycle.md` 1.14.0); a delivery dispute through sync freezes the escrow before the delivery or order is written (order escrow by its deterministic id, else the `DeliveryIndex`, decided on a consistent base row; manual payout, lock, any status but `escrowed`/`disputed`, another delivery: refused with `DELIVERY_DISPUTE_REFUSED` and nothing written; undecided: `DELIVERY_DISPUTE_RETRY`; no escrow for a funded order: refused and alarmed `DISPUTE_NO_ESCROW`); one dispute mirror for both paths (consistent reads, a lagging order advanced first, one transaction-audit row per hop, the delivery version added to); `POST /escrow/dispute` answers every lost race (`ESCROW_020`, `ESCROW_038`, `ESCROW_INVALID_TRANSITION`) and frees its key, never a `500`; new audit actions `dispute_refused_not_held`, `dispute_refused_other_delivery`; dispute rows at a deterministic key (repaired by a retry), refusal rows once a day per escrow, delivery and reason; the disputed write adds to the version; a dispute on an escrow already `disputed` answers `409 ESCROW_020` (was `422`) |
 | 1.11.0 | 2026-10-10 | Trucker leg retry (ESC-04): an escrow is `completed` only once every leg is paid (the repository refuses `completed` while `truckerPayoutPending` or `manualPayout` is set); a release with a pending trucker leg stays `released` and answers `status: released`; a gate-blocked trucker is audited `trucker_release_blocked_kyc` with its reason (no money alarm) and the reason is stored once per value (compare-and-set); new row attributes `truckerPayoutPendingSince`, `truckerPayoutBlockReason`, `truckerPayoutLockId`, `truckerPayoutLockAt`, `truckerPaidAt`; hourly trucker retry last in the run (after the crash recovery) under its own lock, only with time left (90 s) and up to 25 gateway calls, with the stable reference `release:<id>:trucker`: paid completes in one fenced write (deterministic `trucker_release` and `complete` rows), not supported, no reference or unknown queues the leg on the released row, a definite refusal releases the lock for the next run, a stale trucker lock is parked as `GATEWAY_OUTCOME_UNKNOWN`; truckerId backfilled from the order only when the delivery names the same trucker (`trucker_mismatch` otherwise), also when an admin records the leg; Manual Payouts closes a trucker leg on a released escrow straight to `completed` without touching the release; pre-1.11.0 trucker legs (no pending time) are parked in the queue as `GATEWAY_OUTCOME_UNKNOWN`, never retried: released ones by the hourly retry, completed ones by `park_legacy_trucker_legs`, which the server deploy invokes (with retries) until a marker says two clean runs found nothing; the block reason's audit row sits at `truckerPayoutBlockReasonAt` and is re-ensured; new token `TRUCKER_PAYOUT_OVERDUE` and alarm `trucker-payouts-overdue`; `sweep_truncated`, `trucker_retry_exception`, `legacy_trucker_parked` and `legacy_trucker_park_failed` lines; the crash recovery and the cron status queries skip pending trucker legs; no client change |

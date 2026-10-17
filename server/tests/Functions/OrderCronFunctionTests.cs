@@ -1,6 +1,9 @@
+using Amazon.DynamoDBv2;
+using Amazon.DynamoDBv2.Model;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Services;
@@ -130,12 +133,7 @@ public class OrderCronFunctionTests
             .Returns(orders.ToList());
 
     private void StubUpdateSucceeds(string orderId, int version)
-        => _mockOrderRepo.UpdateAsync(orderId, Arg.Any<Dictionary<string, object>>(), version)
-            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
-            {
-                { "orderId", orderId },
-                { "status", "payment_failed" }
-            }));
+        => _mockOrderRepo.TryMarkPaymentFailedAsync(orderId, version, Arg.Any<string>()).Returns(true);
 
     [Fact]
     public async Task HandleAutoCancelExpired_PaymentSubmittedOver24HoursAgo_FailsThePayment()
@@ -150,8 +148,7 @@ public class OrderCronFunctionTests
 
         Assert.Equal(200, actual.StatusCode);
         Assert.Contains("\"paymentFailed\":\"1\"", actual.Body);
-        await _mockOrderRepo.Received(1).UpdateAsync("order-stale",
-            Arg.Is<Dictionary<string, object>>(d => d.Count == 1 && (string)d["status"] == "payment_failed"), 3);
+        await _mockOrderRepo.Received(1).TryMarkPaymentFailedAsync("order-stale", 3, Arg.Any<string>());
         await txAuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
             (string)e["entityId"] == "order-stale" && (string)e["fromState"] == "payment_submitted"
             && (string)e["toState"] == "payment_failed"));
@@ -166,8 +163,7 @@ public class OrderCronFunctionTests
         var actual = await _function.FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
 
         Assert.Contains("\"paymentFailed\":\"0\"", actual.Body);
-        await _mockOrderRepo.DidNotReceive().UpdateAsync(
-            "order-retried", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await _mockOrderRepo.DidNotReceive().TryMarkPaymentFailedAsync("order-retried", Arg.Any<int>(), Arg.Any<string>());
     }
 
     [Fact]
@@ -188,8 +184,7 @@ public class OrderCronFunctionTests
         var sut = new OrderCronFunction(_mockOrderRepo, txAuditRepo);
         var now = DateTime.UtcNow;
         StubSubmittedOrders(SubmittedOrder("order-funded", now.AddHours(-30), now.AddHours(-25)));
-        _mockOrderRepo.UpdateAsync("order-funded", Arg.Any<Dictionary<string, object>>(), 3)
-            .Returns(AuthResult<Dictionary<string, object>>.Failure(409, "VERSION_CONFLICT", "Version mismatch."));
+        _mockOrderRepo.TryMarkPaymentFailedAsync("order-funded", 3, Arg.Any<string>()).Returns(false);
 
         var actual = await sut.FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
 
@@ -197,6 +192,77 @@ public class OrderCronFunctionTests
         Assert.Contains("\"paymentFailed\":\"0\"", actual.Body);
         await txAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
     }
+
+    // ===== ESC-45 (D8): never fail an order whose verified payment is pending =====
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_OrderHeldForAPendingPayment_IsSkippedWithoutAWrite()
+    {
+        var now = DateTime.UtcNow;
+        var order = SubmittedOrder("order-held", now.AddHours(-30), now.AddHours(-25));
+        order[PaymentHoldFields.HoldUntil] = WebhookInbox.Iso(now.AddHours(2));
+        StubSubmittedOrders(order);
+
+        var actual = await _function.FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        Assert.Contains("\"paymentFailed\":\"0\"", actual.Body);
+        await _mockOrderRepo.DidNotReceive().TryMarkPaymentFailedAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_OrderWhoseHoldEnded_IsFailed()
+    {
+        var now = DateTime.UtcNow;
+        var order = SubmittedOrder("order-was-held", now.AddHours(-30), now.AddHours(-25));
+        order[PaymentHoldFields.HoldUntil] = WebhookInbox.Iso(now.AddMinutes(-5));
+        StubSubmittedOrders(order);
+        StubUpdateSucceeds("order-was-held", 3);
+
+        var actual = await _function.FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        Assert.Contains("\"paymentFailed\":\"1\"", actual.Body);
+    }
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_OrderWithAPendingInboxRow_IsSkipped()
+    {
+        var inbox = Substitute.For<IWebhookInboxRepository>();
+        inbox.QueryPendingAsync(Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new[] { PendingRow("order-pending") }, (Dictionary<string, AttributeValue>?)null));
+        var sut = new OrderCronFunction(_mockOrderRepo, inboxRepo: inbox);
+        var now = DateTime.UtcNow;
+        StubSubmittedOrders(
+            SubmittedOrder("order-pending", now.AddHours(-30), now.AddHours(-25)),
+            SubmittedOrder("order-unpaid", now.AddHours(-30), now.AddHours(-25)));
+        StubUpdateSucceeds("order-unpaid", 3);
+
+        var actual = await sut.FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        Assert.Contains("\"paymentFailed\":\"1\"", actual.Body);
+        await _mockOrderRepo.DidNotReceive().TryMarkPaymentFailedAsync("order-pending", Arg.Any<int>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_UnreadableInbox_SkipsThePaymentFailedStepThisRun()
+    {
+        var inbox = Substitute.For<IWebhookInboxRepository>();
+        inbox.QueryPendingAsync(Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .ThrowsAsync(new AmazonDynamoDBException("throttled"));
+        var sut = new OrderCronFunction(_mockOrderRepo, inboxRepo: inbox);
+        var now = DateTime.UtcNow;
+        StubSubmittedOrders(SubmittedOrder("order-unpaid", now.AddHours(-30), now.AddHours(-25)));
+        StubUpdateSucceeds("order-unpaid", 3);
+
+        var actual = await sut.FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        Assert.Equal(200, actual.StatusCode);
+        Assert.Contains("\"paymentFailed\":\"0\"", actual.Body);
+        await _mockOrderRepo.DidNotReceive().TryMarkPaymentFailedAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string>());
+    }
+
+    private static WebhookInboxRow PendingRow(string orderId)
+        => new($"webhook-inbox:WCO1:TB1:Completed", $"escrow-order-{orderId}", WebhookInbox.Received, orderId,
+            "WCO1", WebhookInbox.Pending, WebhookInbox.Iso(DateTime.UtcNow), 1, WebhookInbox.Iso(DateTime.UtcNow), null);
 
     [Fact]
     public async Task HandleAutoCancelExpired_QueriesSubmittedPaymentsCreatedBeforeTheThreshold()

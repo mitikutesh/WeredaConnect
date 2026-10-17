@@ -661,8 +661,34 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "AttributeName": "idempotencyKey",
             "AttributeType": "S",
           },
+          {
+            "AttributeName": "inboxReplay",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "inboxReplayAt",
+            "AttributeType": "S",
+          },
         ],
         "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "InboxReplayIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "inboxReplay",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "inboxReplayAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
         "KeySchema": [
           {
             "AttributeName": "idempotencyKey",

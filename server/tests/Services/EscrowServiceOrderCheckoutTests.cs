@@ -419,11 +419,14 @@ public class EscrowServiceOrderCheckoutTests
             OrderId, 1, OrderCheckoutOutcome.Unknown, null, Arg.Is<DateTime?>(d => d != null));
     }
 
-    [Fact]
-    public async Task CreateOrderCheckout_DefiniteGatewayRefusal_FreesTheSlot()
+    [Theory]
+    [InlineData("TELEBIRR_ERR_AMOUNT")]
+    [InlineData(TelebirrGatewayErrors.TokenFailed)] // ESC-45: no token, so preOrder was never sent
+    [InlineData(TelebirrGatewayErrors.NoTime)] // ESC-45: too little time left, nothing was sent
+    public async Task CreateOrderCheckout_DefiniteGatewayRefusal_FreesTheSlot(string errorCode)
     {
         _gateway.HoldFundsAsync(Arg.Any<HoldFundsRequest>())
-            .Returns(new HoldFundsResponse { Success = false, ErrorCode = "TELEBIRR_ERR_AMOUNT" });
+            .Returns(new HoldFundsResponse { Success = false, ErrorCode = errorCode });
         var merchOrderId = EscrowService.BuildOrderMerchOrderId(OrderId, 1);
 
         var actual = await _sut.CreateOrderCheckoutAsync(OrderId, BuyerId);
@@ -446,7 +449,10 @@ public class EscrowServiceOrderCheckoutTests
         {
             Assert.Equal(30, id.Length);
             Assert.True(id.All(char.IsAsciiLetterOrDigit));
+            // ESC-45 (F6): Telebirr's documented limit for merch_order_id.
+            Assert.Matches("^[A-Za-z0-9]{1,64}$", id);
         });
+        Assert.Matches("^[A-Za-z0-9]{1,64}$", EscrowService.BuildOrderMerchOrderId(OrderId, 1000));
     }
 
     [Theory]

@@ -57,8 +57,11 @@ RETRY_DELAY="${SEED_RETRY_DELAY:-5}"
 # requires is non-empty, so TelebirrConfig.FromJson parses cleanly and the
 # escrow/webhook Lambdas cold-start; signing fails cleanly until real
 # credentials are set via `aws ssm put-parameter --overwrite`
-# (see .ai/telebirr-testing.md).
-TELEBIRR_PLACEHOLDER_JSON='{"fabricAppId":"PLACEHOLDER","appSecret":"PLACEHOLDER","merchantAppId":"PLACEHOLDER","merchantCode":"PLACEHOLDER","shortCode":"PLACEHOLDER","baseUrl":"https://developerportal.ethiotelebirr.et:38443/apiaccess/payment/gateway","webUrl":"https://developerportal.ethiotelebirr.et:38443/payment/web/paygate","merchantPrivateKeyPem":"PLACEHOLDER","telebirrPublicKeyPem":"PLACEHOLDER","returnUrl":"weredaconnect://payment/complete","signPadding":"pkcs1","httpProxy":""}'
+# (see .ai/telebirr-testing.md). One deliberate difference: signPadding is "pss"
+# here (Ethio Telecom's samples sign with PSS, ESC-45); the api-stack.ts template
+# keeps "pkcs1" because editing a prod generateSecretString template can
+# regenerate the secret. An existing parameter is never overwritten (below).
+TELEBIRR_PLACEHOLDER_JSON='{"fabricAppId":"PLACEHOLDER","appSecret":"PLACEHOLDER","merchantAppId":"PLACEHOLDER","merchantCode":"PLACEHOLDER","shortCode":"PLACEHOLDER","baseUrl":"https://developerportal.ethiotelebirr.et:38443/apiaccess/payment/gateway","webUrl":"https://developerportal.ethiotelebirr.et:38443/payment/web/paygate","merchantPrivateKeyPem":"PLACEHOLDER","telebirrPublicKeyPem":"PLACEHOLDER","returnUrl":"weredaconnect://payment/complete","signPadding":"pss","httpProxy":""}'
 
 is_transient() {
   grep -Eq "AccessDenied|Throttling|Rate exceeded|ExpiredToken" "$1"

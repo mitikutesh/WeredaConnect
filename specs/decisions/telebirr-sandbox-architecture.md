@@ -1693,11 +1693,11 @@ This section maps each security review finding to its resolution in this archite
 | 3 | What is the exact RSA encryption scheme? (Hybrid RSA+AES, PKCS#1 v1.5 chunked, or field-level?) | **Critical** (SEC-09) | Telebirr dev docs |
 | 4 | Does Telebirr sandbox require IP whitelisting? | If not, NAT Gateway can be deferred | Telebirr support |
 | 5 | Does Telebirr sandbox send real webhook notifications? | Affects testing strategy | Sandbox testing |
-| 6 | Does Telebirr webhook payload include a timestamp or nonce? | Affects replay protection (SEC-04) | Telebirr dev docs |
+| 6 | Does Telebirr webhook payload include a timestamp or nonce? | Affects replay protection (SEC-04) | Answered (ESC-45): no `timestamp` or nonce, only `notify_time`; see `telebirr-webhook-delivery-and-recovery.md` F0 to F3 |
 | 7 | Is Telebirr B2B API available in sandbox? | Affects Phase 2 timeline | Telebirr support |
 | 8 | Ethiopian regulatory requirements for holding buyer funds? | Legal risk | Legal review |
-| 9 | Telebirr's webhook retry policy? | Affects reconciliation design | Telebirr dev docs |
-| 10 | Is the `toPayUrl` a one-time-use URL? | Determines residual SEC-05 risk | Telebirr dev docs |
+| 9 | Telebirr's webhook retry policy? | Affects reconciliation design | Not documented (ESC-45, F1); the inbox replay sweep does not rely on it; sandbox check in `telebirr-webhook-delivery-and-recovery.md` section 5 |
+| 10 | Is the `toPayUrl` a one-time-use URL? | Determines residual SEC-05 risk | Not documented (ESC-45, F8); sandbox check in `telebirr-webhook-delivery-and-recovery.md` section 5 |
 
 ---
 

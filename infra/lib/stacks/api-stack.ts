@@ -911,6 +911,9 @@ export class ApiStack extends cdk.Stack {
             merchantPrivateKeyPem: "PLACEHOLDER",
             telebirrPublicKeyPem: "PLACEHOLDER",
             returnUrl: "weredaconnect://payment/complete",
+            // ESC-45: left as is (editing this prod template can regenerate the
+            // secret). Populate the real value as "pss" (.ai/telebirr-testing.md); the
+            // webhook accepts a PSS or a PKCS#1 signature from Telebirr either way.
             signPadding: "pkcs1",
             // Optional Ethiopian egress proxy for OUTBOUND Telebirr calls
             // (http[s]://[user:pass@]host:port). Empty = direct. Telebirr's
@@ -1189,6 +1192,24 @@ export class ApiStack extends cdk.Stack {
       props.ordersTable.grantReadWriteData(telebirrWebhookFn.function);
       props.cropsTable.grantReadWriteData(telebirrWebhookFn.function);
       props.transactionAuditTable.grantWriteData(telebirrWebhookFn.function);
+
+      // ESC-45: replay inbox rows left pending (a failure or a cut-off run after the
+      // row was written). The same Lambda, invoked directly with the replay action;
+      // API Gateway always sets requestContext, so the public route never reaches it.
+      // The idempotency grant above covers the InboxReplayIndex query.
+      new events.Rule(this, "TelebirrInboxReplay", {
+        ruleName: `${prefix}-telebirr-inbox-replay`,
+        description: "Replay Telebirr webhook inbox rows left pending (ESC-45)",
+        schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
+        targets: [
+          new targets.LambdaFunction(telebirrWebhookFn.function, {
+            // Wrapped as `body` so it lands in APIGatewayProxyRequest.Body (Review C3).
+            event: events.RuleTargetInput.fromObject({
+              body: JSON.stringify({ action: "webhook_inbox_replay" }),
+            }),
+          }),
+        ],
+      });
     }
 
     // ─── Order Function ──────────────────────────────────────────────
@@ -1252,6 +1273,9 @@ export class ApiStack extends cdk.Stack {
       environment: {
         ORDERS_TABLE: props.ordersTable.tableName,
         TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
+        // ESC-45: the payment-failed step skips orders whose verified Telebirr
+        // payment is still pending in the webhook inbox.
+        ESCROW_IDEMPOTENCY_TABLE: props.escrowIdempotencyTable.tableName,
       },
       timeout: cdk.Duration.minutes(5),
       memorySize: 256,
@@ -1260,6 +1284,15 @@ export class ApiStack extends cdk.Stack {
     props.ordersTable.grantReadWriteData(orderCronFn.function);
     // Auto-cancel writes an order lifecycle event to the audit trail.
     props.transactionAuditTable.grantWriteData(orderCronFn.function);
+    // ESC-45: Query on the inbox replay index only, nothing else in that table.
+    orderCronFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [
+          `${props.escrowIdempotencyTable.tableArn}/index/InboxReplayIndex`,
+        ],
+      }),
+    );
 
     // EventBridge: auto-cancel expired orders every hour
     new events.Rule(this, "OrderCronHourly", {

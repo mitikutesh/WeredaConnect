@@ -264,8 +264,12 @@ Their answers → drop their public key + `signPadding` into the secret; set
    Provisions the VPC + t4g.nano NAT instance (bound to your EIP) + public webhook
    route + credentials secret; escrow/cron switch off the mock. Confirm the
    `TelebirrNatEipOut` output matches the IP you gave Telebirr.
-4. **Populate the secret** with real values (JSON shape below). Use `pkcs1` for
-   `signPadding` — real Telebirr's `SHA256WithRSA` is PKCS#1, not the code default PSS.
+4. **Populate the secret** with real values (JSON shape below). Use `pss` for
+   `signPadding`: Ethio Telecom's JS, Java, PHP and C# samples all sign with RSA-PSS
+   (only the Python sample uses PKCS#1), and live notifications observed by third
+   parties were PSS (ESC-45, `specs/decisions/telebirr-webhook-delivery-and-recovery.md`).
+   `signPadding` only picks the padding of OUR requests; the webhook accepts a PSS or
+   a PKCS#1 signature from Telebirr either way and logs which one verified.
 
    **dev/staging** (SSM Parameter Store — where non-prod secrets live):
    ```bash
@@ -296,7 +300,7 @@ Their answers → drop their public key + `signPadding` into the secret; set
      "merchantPrivateKeyPem": "<your merchant private key, PKCS#8 PEM, newlines as \\n>",
      "telebirrPublicKeyPem":  "<Telebirr's sandbox public key, PEM, newlines as \\n>",
      "returnUrl": "weredaconnect://payment/complete",
-     "signPadding": "pkcs1",
+     "signPadding": "pss",
      "httpProxy": "http://user:pass@et-proxy.example:8080"
    }
    ```
@@ -307,9 +311,11 @@ Their answers → drop their public key + `signPadding` into the secret; set
    URL), so it need not be in the secret. Set `TELEBIRR_ALLOWED_IPS` (env config
    `telebirrAllowedIps`) to Telebirr's notification IPs to enable the webhook
    IP allow-list (signature verification is enforced regardless).
-5. **Confirm the exact wire details** against the `Demo_Project` sample and the
-   portal docs — the fabric-token/preOrder **paths** and any field-casing quirks.
-   Flip `signPadding` back to `pss` only if the portal rejects PKCS#1.
+5. **Confirm the exact wire details** with the ESC-45 sandbox checklist
+   (`specs/decisions/telebirr-webhook-delivery-and-recovery.md`): the token at
+   `/payment/v1/token`, request timestamps in seconds, the flat notify body (`data`
+   envelope, `transId` vs `trans_id`, `notify_time` unit) and the padding. Set
+   `signPadding` to `pkcs1` only if preOrder answers "verify sign failed" with PSS.
 6. **Build the app live** for that environment: set the GitHub environment
    variable `TELEBIRR_LIVE=true` on the environment (dev or staging, never at
    repo level) and redeploy the webapp (`deploy-webapp.yml`); for a manual web

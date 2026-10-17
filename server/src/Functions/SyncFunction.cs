@@ -242,7 +242,9 @@ public partial class SyncFunction
         // ESC-06: the pickup deadline is stamped at the farmer's accept; cancelNote keeps the
         // buyer's text of a transport-failure cancel; the admin queue is written by escrow-cron.
         PickupDeadline.Field, "cancelNote",
-        AdminQueueFields.Marker, AdminQueueFields.QueuedAt, AdminQueueFields.Reason, AdminQueueFields.EscrowId
+        AdminQueueFields.Marker, AdminQueueFields.QueuedAt, AdminQueueFields.Reason, AdminQueueFields.EscrowId,
+        // ESC-45: the webhook holds an order whose verified payment is still pending in its inbox.
+        PaymentHoldFields.HoldUntil
     };
 
     /// <summary>

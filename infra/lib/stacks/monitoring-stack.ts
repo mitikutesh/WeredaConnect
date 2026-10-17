@@ -1039,7 +1039,10 @@ export class MonitoringStack extends cdk.Stack {
             '_unprocessed) or the webhook-inbox rows of the escrow idempotency table. ' +
             'Before refunding, read the order: if its telebirrPaymentOrderId is this ' +
             'payment, the payment funded the order and must not be refunded. Refund ' +
-            'an _UNPROCESSED payment only once its order has left that payment attempt.',
+            'an _UNPROCESSED payment only once its order has left that payment attempt. ' +
+            'ESC-45: a payment recorded in the inbox is replayed every 5 minutes and pages ' +
+            'only as reason=replay_exhausted (the row is then in the exhausted partition of ' +
+            'InboxReplayIndex; fix the cause and requeue it, or refund it, per .ai/deployment.md).',
           metric: new cloudwatch.Metric({
             namespace: metricNamespace,
             metricName: 'OrderPaymentProblems',
@@ -1056,6 +1059,43 @@ export class MonitoringStack extends cdk.Stack {
       );
       orderPaymentProblemsAlarm.addAlarmAction(snsAction);
       orderPaymentProblemsAlarm.addOkAction(snsAction);
+
+      // ESC-45: the inbox replay sweep logs one TELEBIRR_INBOX_REPLAY_RUN line per run
+      // (every 5 minutes, none when its index query failed). No line for 30 minutes means
+      // pending payments are not being replayed.
+      new logs.MetricFilter(this, 'TelebirrInboxReplayRunsFilter', {
+        logGroup: webhookLogGroup,
+        filterPattern: logs.FilterPattern.literal('"TELEBIRR_INBOX_REPLAY_RUN"'),
+        metricNamespace,
+        metricName: 'TelebirrInboxReplayRuns',
+        metricValue: '1',
+        defaultValue: 0,
+      });
+      const inboxReplayStalledAlarm = new cloudwatch.Alarm(
+        this,
+        'TelebirrInboxReplayStalled',
+        {
+          alarmName: `${prefix}-telebirr-inbox-replay-stalled`,
+          alarmDescription:
+            'The Telebirr webhook inbox replay sweep (EventBridge every 5 minutes) logged no ' +
+            'TELEBIRR_INBOX_REPLAY_RUN line for 30 minutes: the rule is disabled, the Lambda ' +
+            'fails, or the InboxReplayIndex query fails. Verified order payments that failed ' +
+            'once are not being applied. Check the webhook log group and the rule.',
+          metric: new cloudwatch.Metric({
+            namespace: metricNamespace,
+            metricName: 'TelebirrInboxReplayRuns',
+            statistic: 'Sum',
+            period: cdk.Duration.minutes(10),
+            label: 'Telebirr Inbox Replay Runs',
+          }),
+          threshold: 1,
+          evaluationPeriods: 3,
+          comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+          treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+        },
+      );
+      inboxReplayStalledAlarm.addAlarmAction(snsAction);
+      inboxReplayStalledAlarm.addOkAction(snsAction);
     }
 
     // Alarm 7: Order Cron Errors — the scheduled unpaid-order auto-cancel must never

@@ -3609,6 +3609,8 @@ public class SyncFunctionTests
                 { "telebirrPaymentOrderId", "TB-PLANTED" },
                 { "telebirrMerchOrderId", "WCO-PLANTED" },
                 { "telebirrTransId", "TXN-PLANTED" },
+                // ESC-45: the webhook's payment hold is server-only too.
+                { "paymentHoldUntil", "2099-01-01T00:00:00.0000000Z" },
                 { "version", 1 }
             }
         };
@@ -3621,6 +3623,7 @@ public class SyncFunctionTests
         Assert.False(_updatedOrderData.ContainsKey("telebirrPaymentOrderId"));
         Assert.False(_updatedOrderData.ContainsKey("telebirrMerchOrderId"));
         Assert.False(_updatedOrderData.ContainsKey("telebirrTransId"));
+        Assert.False(_updatedOrderData.ContainsKey("paymentHoldUntil"));
     }
 
     // --- SIM-06: order update allow-list and immutability ---
