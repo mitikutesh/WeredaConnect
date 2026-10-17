@@ -797,7 +797,8 @@ password (`AUTH_040`).
 A `/sync` delivery dispute is sized by its order's `orderTotal`, rounded to the cent as the
 escrow amount is (2.8.0, FUP-26). The check never fails open: when the order is missing, or its
 total is missing, unreadable, zero or negative, the fresh password is needed at any amount; a
-legacy delivery without an `orderId` is sized by the escrow on its `DeliveryIndex` (none: no
+legacy delivery without an `orderId` is sized by the escrow on its `DeliveryIndex`, rounded and
+with the same rule for an amount that is missing, unreadable, zero or negative (none: no
 step-up, nothing is frozen). When the order or that escrow cannot be read, the operation answers
 `DELIVERY_DISPUTE_RETRY: ...` before the escrow freeze, and nothing is written.
 

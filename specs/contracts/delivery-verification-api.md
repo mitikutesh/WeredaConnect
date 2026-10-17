@@ -145,7 +145,7 @@ and the freeze:
 | Step-up amount | Answer |
 |---|---|
 | the order (or the legacy delivery's escrow) cannot be read | `DELIVERY_DISPUTE_RETRY: ...` (transient; nothing frozen or written) |
-| order missing, or its total missing, unreadable, zero or negative | `AUTH_040` unless the session is fresh, then the freeze decides as above |
+| order missing, or its total missing, unreadable, zero or negative (the same for a legacy delivery's indexed escrow amount) | `AUTH_040` unless the session is fresh, then the freeze decides as above |
 | legacy delivery without an `orderId` and no indexed escrow | no step-up (nothing to freeze) |
 
 The admin's dispute verdict (`POST /admin/disputes/{id}/resolve`, `escrow-protocol.md` 1.9.0)
