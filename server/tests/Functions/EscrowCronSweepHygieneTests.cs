@@ -91,7 +91,8 @@ public class EscrowCronSweepHygieneTests
         {
             SweepMaxRows = maxRows,
             SweepMaxPages = maxPages,
-            Elapsed = elapsed
+            // The run budget is ESC-09's CronRunBudget; a test clock replaces its stopwatch.
+            BudgetFactory = elapsed == null ? CronRunBudget.StartNew : () => new CronRunBudget(elapsed)
         };
     }
 
@@ -1058,6 +1059,13 @@ public class EscrowCronSweepHygieneTests
         EscrowCronFunction.ClassifyOrder("disbursing").Should().Be(EscrowCronFunction.OrderTradeClass.InFlight);
         EscrowCronFunction.ClassifyOrder("settled").Should().Be(EscrowCronFunction.OrderTradeClass.Idle);
         EscrowCronFunction.ClassifyOrder(null).Should().Be(EscrowCronFunction.OrderTradeClass.Unknown);
+
+        // ESC-09: the order-money sweep reads only partitions whose money may still move.
+        foreach (var status in EscrowCronFunction.OrderMoneySweepStatuses)
+        {
+            EscrowCronFunction.ClassifyOrder(status).Should().BeOneOf(
+                EscrowCronFunction.OrderTradeClass.InFlight, EscrowCronFunction.OrderTradeClass.Disputed);
+        }
     }
 
     // ===== Reconciliation: one row never stops the others =====

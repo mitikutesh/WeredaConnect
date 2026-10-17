@@ -118,6 +118,43 @@ public sealed class EscrowIdempotencyRepository : IEscrowIdempotencyRepository
     }
 
     /// <inheritdoc />
+    public async Task<bool> TryUpdateExistingAsync(string idempotencyKey, string status, string result)
+    {
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "idempotencyKey", new AttributeValue { S = idempotencyKey } }
+            },
+            UpdateExpression = "SET #status = :status, #updated = :updated, #result = :result",
+            ConditionExpression = "attribute_exists(idempotencyKey)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" },
+                { "#updated", "updatedAt" },
+                { "#result", "result" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":status", new AttributeValue { S = status } },
+                { ":updated", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
+                { ":result", new AttributeValue { S = result } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task DeleteAsync(string idempotencyKey)
     {
         var request = new DeleteItemRequest

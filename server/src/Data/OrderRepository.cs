@@ -673,6 +673,127 @@ public sealed class OrderRepository : IOrderRepository
         }
     }
 
+    /// <inheritdoc />
+    public async Task<Dictionary<string, object>?> TryAdvanceStatusAsync(string orderId, string fromStatus, string toStatus)
+    {
+        var existing = await GetItemAsync(orderId, consistentRead: true);
+        if (existing == null)
+        {
+            return null;
+        }
+
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = OrderKey(orderId, existing["createdAt"].S),
+            UpdateExpression = "SET #status = :to, #updated = :updated ADD #v :one",
+            ConditionExpression = "attribute_exists(orderId) AND #status = :from",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" },
+                { "#updated", "updatedAt" },
+                { "#v", "version" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":to", new AttributeValue { S = toStatus } },
+                { ":from", new AttributeValue { S = fromStatus } },
+                { ":updated", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
+                { ":one", new AttributeValue { N = "1" } }
+            },
+            ReturnValues = ReturnValue.ALL_NEW
+        };
+
+        try
+        {
+            var response = await _dynamoDb.UpdateItemAsync(request);
+            return DynamoDbHelper.FromItem(response.Attributes);
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return null;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryMoneySweepPageAsync(
+        string status, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey)
+    {
+        if (limit < 1 || limit > 100)
+        {
+            limit = 100;
+        }
+
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = "StatusCreatedAtIndex",
+            KeyConditionExpression = "#status = :status",
+            // A filter may not name the index's key (status), so the marker is compared with the
+            // partition's own value, which every row of the page carries.
+            FilterExpression = "attribute_not_exists(#skip) OR #skip <> :status",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" },
+                { "#skip", OrderMoneyFields.SweepSkip }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":status", new AttributeValue { S = status } }
+            },
+            Limit = limit,
+            ScanIndexForward = true // oldest first
+        };
+
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
+        }
+
+        var response = await _dynamoDb.QueryAsync(request);
+        var items = response.Items.Select(DynamoDbHelper.FromItem).ToList();
+        return (items, response.LastEvaluatedKey?.Count > 0 ? response.LastEvaluatedKey : null);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryMarkMoneySweepSkipAsync(string orderId, string status, string markedAt)
+    {
+        var existing = await GetItemAsync(orderId);
+        if (existing == null)
+        {
+            return false;
+        }
+
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = OrderKey(orderId, existing["createdAt"].S),
+            UpdateExpression = "SET #skip = :status, #skipAt = :at",
+            ConditionExpression = "attribute_exists(orderId) AND #status = :status",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#skip", OrderMoneyFields.SweepSkip },
+                { "#skipAt", OrderMoneyFields.SweepSkipAt },
+                { "#status", "status" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":status", new AttributeValue { S = status } },
+                { ":at", new AttributeValue { S = markedAt } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
     private static Dictionary<string, AttributeValue> OrderKey(string orderId, string createdAt) => new()
     {
         { "orderId", new AttributeValue { S = orderId } },

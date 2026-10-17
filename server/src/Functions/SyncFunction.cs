@@ -267,7 +267,11 @@ public partial class SyncFunction
         "orderId", "updatedAt", "version"
     };
 
-    // Internal for ESC-10's test that every order status has a class in the escrow sweeps.
+    /// <summary>
+    /// The order status map clients are held to. Internal so tests can check that every order status
+    /// has a class in the escrow sweeps (ESC-10) and that the system writes (ESC-09's money hops) stay
+    /// edges of it.
+    /// </summary>
     internal static readonly Dictionary<string, HashSet<string>> OrderTransitions = new()
     {
         // Buyers pay immediately after placing an order, so allow the direct
@@ -1319,14 +1323,16 @@ public partial class SyncFunction
             };
         }
 
+        // ESC-09: a delivered order is rateable while its money is paid out (disbursing, which with the
+        // live gateway can last days in the manual payout queue) and after (settled).
         var orderStatus = order.TryGetValue("status", out var sObj) ? sObj?.ToString() : null;
-        if (orderStatus != "delivered" && orderStatus != "settled")
+        if (orderStatus is not ("delivered" or "disbursing" or "settled"))
         {
             return new SyncOperationResult
             {
                 OperationId = operation.OperationId,
                 Status = "error",
-                Message = "RATING_FORBIDDEN: You can only rate after the order is delivered."
+                Message = "RATING_FORBIDDEN: You can only rate a delivered order (delivered, disbursing or settled)."
             };
         }
 

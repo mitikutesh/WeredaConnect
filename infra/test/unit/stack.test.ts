@@ -1199,6 +1199,55 @@ describe('MonitoringStack', () => {
     });
   });
 
+  test('ESC-09: an order the money passed and the sweep could not fix is counted on escrow-cron, and only there', () => {
+    const template = monitoringTemplate(false);
+    const filter = metricFilter(template, ESCROW_CRON_LG, 'OrderMoneyMismatch');
+    expect(filter.Properties.MetricTransformations[0].MetricValue).toBe('1');
+    // One positive per reason, bare and with the runtime prefix.
+    for (const reason of ['write_failed', 'cannot_follow', 'order_ahead', 'sweep_truncated', 'sweep_failed']) {
+      const line =
+        `ORDER_MONEY_MISMATCH orderId=ord-1 escrowId=escrow-order-ord-1 orderStatus=delivered escrowStatus=refunded reason=${reason}`;
+      expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, true]);
+      const prefixed = `2026-10-10T10:00:00.000Z\t4f1c7a2e-req\terror\t${line}`;
+      expect([prefixed, cloudWatchTermsMatch(filter.Properties.FilterPattern, prefixed)]).toEqual([prefixed, true]);
+    }
+    // Negatives: the inline follow's info line, the verdict mismatch line and every other money token.
+    for (const line of [
+      'ORDER_MONEY_FOLLOW_DEFERRED escrowId=escrow-order-ord-1 orderId=ord-1 source=release reason=conflict',
+      MISMATCH_LINE,
+      BLOCKED_LINE,
+      SETTLEMENT_LINE,
+      PAYOUT_LINE,
+      QUEUE_LINE,
+      TRUCKER_LINE,
+      ...QUEUED_PAYOUT_LINES,
+    ]) {
+      expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, false]);
+    }
+    // And no other money filter counts the order-money line.
+    const orderMoneyLine =
+      'ORDER_MONEY_MISMATCH orderId=- escrowId=- orderStatus=- escrowStatus=- reason=sweep_truncated';
+    for (const [lg, metric] of [
+      [ESCROW_CRON_LG, 'EscrowSettlementFailures'],
+      [ESCROW_CRON_LG, 'DisputeVerdictOrderMismatch'],
+      [ESCROW_CRON_LG, 'ManualPayoutsOverdue'],
+      [ESCROW_CRON_LG, 'AdminQueueOverdue'],
+      [ESCROW_CRON_LG, 'TruckerPayoutsOverdue'],
+    ]) {
+      expect(cloudWatchTermsMatch(metricFilter(template, lg, metric).Properties.FilterPattern, orderMoneyLine)).toBe(false);
+    }
+    expect(() => metricFilter(template, ESCROW_LG, 'OrderMoneyMismatch')).toThrow();
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-order-money-mismatch',
+      Metrics: [customMetric('OrderMoneyMismatch', 900)],
+      Threshold: 0,
+      ComparisonOperator: 'GreaterThanThreshold',
+      EvaluationPeriods: 5,
+      DatapointsToAlarm: 1,
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
   test('ESC-03: a settlement blocked in three of four hourly periods alarms (escrow-cron only)', () => {
     const template = monitoringTemplate(false);
     const filter = metricFilter(template, ESCROW_CRON_LG, 'DisputeVerdictSettlementBlocked');

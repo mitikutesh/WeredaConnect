@@ -1,6 +1,7 @@
 using System.Globalization;
 using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
+using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 
@@ -26,6 +27,9 @@ public sealed class EscrowService
     // ESC-03: moves the order and delivery to a dispute verdict before it is settled.
     private readonly DisputeVerdictMirror _verdictMirror;
     private readonly ITransactionAuditRepository? _transactionAuditRepo;
+
+    // ESC-09: moves the order after the money (disbursing, settled).
+    private readonly OrderMoneyMirror _orderMoneyMirror;
 
     // Money-moving entry points (initiate/release/dispute/refund) require the
     // Telebirr + idempotency wiring. The order-funded escrow paths
@@ -205,6 +209,7 @@ public sealed class EscrowService
         _orderCheckoutRepo = orderCheckoutRepo;
         _transactionAuditRepo = transactionAuditRepo;
         _verdictMirror = new DisputeVerdictMirror(orderRepo, deliveryRepo, transactionAuditRepo, cropRepo);
+        _orderMoneyMirror = new OrderMoneyMirror(orderRepo, deliveryRepo, transactionAuditRepo, _verdictMirror);
     }
 
     // ──────────────────────────────────────────────
@@ -1583,6 +1588,14 @@ public sealed class EscrowService
             return EscrowResult<ReleaseEscrowResponse>.Failure(block.HttpStatus, block.Code, block.Message);
         }
 
+        // 4a3. ESC-09 Part B: an admin release of a plain escrowed escrow pays only an order that is
+        //      delivered (a lagging one is first advanced), so the order can follow the money.
+        if (currentStatus == "escrowed" && authenticatedUserId != SystemActor
+            && await CheckAdminReleaseOrderAsync(escrowItem, authenticatedUserId) is { } releaseBlock)
+        {
+            return EscrowResult<ReleaseEscrowResponse>.Failure(releaseBlock.HttpStatus, releaseBlock.Code, releaseBlock.Message);
+        }
+
         var farmerPayout = GetDecimal(escrowItem, "farmerPayout");
         var commission = GetDecimal(escrowItem, "commission");
         var holdRef = GetStringOrNull(escrowItem, "telebirrHoldRef") ?? "";
@@ -1719,6 +1732,8 @@ public sealed class EscrowService
                     nothingMoved ? 1 : MaxSettlementWriteAttempts))
             {
                 await UpdateIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId, "manual_payout");
+                // ESC-09: the release is committed (the queue owns it), so the order is disbursing.
+                await FollowMoneyAsync(request.EscrowId, "release");
                 return farmerOutcomeUnknown
                     ? OutcomeUnknownWaiting<ReleaseEscrowResponse>()
                     : ManualPayoutWaiting<ReleaseEscrowResponse>();
@@ -1814,6 +1829,7 @@ public sealed class EscrowService
                             truckerManualReason, currentStatus, legs, authenticatedUserId, MaxSettlementWriteAttempts))
                     {
                         await UpdateIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId, "manual_payout");
+                        await FollowMoneyAsync(request.EscrowId, "release");
                         return truckerOutcomeUnknown
                             ? OutcomeUnknownWaiting<ReleaseEscrowResponse>()
                             : ManualPayoutWaiting<ReleaseEscrowResponse>();
@@ -1908,6 +1924,8 @@ public sealed class EscrowService
             await UpdateIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId, "completed");
             Console.WriteLine(
                 $"ESCROW_TRUCKER_PAYOUT_PENDING escrowId={MoneyAlarmLog.LogId(request.EscrowId)} reason={truckerBlockReason ?? "gateway_refused"}");
+            // ESC-09: the escrow stays released while a leg is owed, so the order is disbursing.
+            await FollowMoneyAsync(request.EscrowId, "release");
             return EscrowResult<ReleaseEscrowResponse>.Success(new ReleaseEscrowResponse
             {
                 EscrowId = request.EscrowId,
@@ -1934,6 +1952,9 @@ public sealed class EscrowService
         await AppendAuditAsync(request.EscrowId, "complete", "released", "completed", "system");
 
         await UpdateIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId, "completed");
+
+        // ESC-09: every leg is paid, so the order is settled (through disbursing).
+        await FollowMoneyAsync(request.EscrowId, "release");
 
         // 10. Return ReleaseEscrowResponse
         return EscrowResult<ReleaseEscrowResponse>.Success(new ReleaseEscrowResponse
@@ -2949,6 +2970,14 @@ public sealed class EscrowService
             return EscrowResult<RefundEscrowResponse>.Failure(block.HttpStatus, block.Code, block.Message);
         }
 
+        // 4a3. ESC-09 Part B: an admin refund of a plain escrowed escrow ends an order that never got
+        //      going first and refuses goods on the move unless overridden, so the order follows the money.
+        if (currentStatus == "escrowed" && authenticatedUserId != SystemActor
+            && await PrepareAdminRefundOrderAsync(escrowItem, authenticatedUserId, overrideReason) is { } refundBlock)
+        {
+            return EscrowResult<RefundEscrowResponse>.Failure(refundBlock.HttpStatus, refundBlock.Code, refundBlock.Message);
+        }
+
         var amount = GetDecimal(escrowItem, "amount");
         var holdRef = GetStringOrNull(escrowItem, "telebirrHoldRef") ?? "";
         var createdAt = GetString(escrowItem, "createdAt");
@@ -3466,6 +3495,8 @@ public sealed class EscrowService
                       + $";disputeResolution={GetStringOrNull(escrow, "disputeResolution") ?? "-"}");
         await EnsureAuditAsync(escrowId, queuedAt, "manual_payout_queued", status, status, SystemActor,
             metadata: $"op={op};legs={legNames};reason={ManualPayoutFields.ReasonGatewayOutcomeUnknown}");
+        // ESC-09: a parked release is committed (the queue owns it), so its order is disbursing.
+        await FollowMoneyAsync(escrowId, "stale_lock");
         return StaleSettlementOutcome.Parked;
     }
 
@@ -3766,6 +3797,8 @@ public sealed class EscrowService
         await EnsureAuditAsync(escrowId, completedAt, "complete", "released", "completed", SystemActor,
             metadata: "trucker_retry");
         Console.WriteLine($"ESCROW_TRUCKER_PAYOUT_PAID escrowId={MoneyAlarmLog.LogId(escrowId)} source=retry");
+        // ESC-09: the last leg is paid, so the order is settled.
+        await FollowMoneyAsync(escrowId, "trucker_retry");
         return new(TruckerRetryOutcome.Paid, null);
     }
 
@@ -3930,6 +3963,7 @@ public sealed class EscrowService
             metadata: $"legacy=true;fromStatus={status};completedAt={completedAt ?? "-"}");
         await EnsureAuditAsync(escrowId, queuedAt, "manual_payout_queued", "released", "released", SystemActor,
             metadata: $"op=release;legs=farmer,trucker;reason={ManualPayoutFields.ReasonGatewayOutcomeUnknown}");
+        await FollowMoneyAsync(escrowId, "legacy_park");
         return true;
     }
 
@@ -4075,6 +4109,569 @@ public sealed class EscrowService
     }
 
     // ──────────────────────────────────────────────
+    // The order follows the money (ESC-09)
+    // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// ESC-09: an order whose money moved more than this long ago and that still cannot be written
+    /// alarms (<c>write_failed</c>): the inline call and at least one earlier sweep had their chance.
+    /// </summary>
+    internal static readonly TimeSpan OrderMoneyWriteFailedAlarmAfter = TimeSpan.FromHours(2);
+
+    /// <summary>
+    /// ESC-09: after a money write, move the escrow's order to where the money says
+    /// (<see cref="OrderMoneyMirror"/>), from a strongly consistent read of the escrow. Best-effort and
+    /// never throws: the settlement's answer never depends on it. A follow that did not get there
+    /// logs <c>ORDER_MONEY_FOLLOW_DEFERRED</c> (not an alarm token); the hourly order-money sweep
+    /// repairs it and alarms when it cannot.
+    /// </summary>
+    internal async Task<OrderMoneyResult?> FollowMoneyAsync(string escrowId, string source, ILambdaContext? context = null)
+    {
+        if (_orderRepo == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var escrow = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
+            if (escrow == null)
+            {
+                return null;
+            }
+
+            var result = await _orderMoneyMirror.FollowAsync(escrow, source, context: context);
+            if (result.Outcome is OrderMoneyOutcome.Failed or OrderMoneyOutcome.Mismatch)
+            {
+                Console.WriteLine(
+                    $"ORDER_MONEY_FOLLOW_DEFERRED escrowId={MoneyAlarmLog.LogId(escrowId)} orderId={MoneyAlarmLog.LogId(result.OrderId)} "
+                    + $"source={source} reason={MoneyAlarmLog.LogText(result.Reason)}");
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(
+                $"ORDER_MONEY_FOLLOW_DEFERRED escrowId={MoneyAlarmLog.LogId(escrowId)} source={source} reason=[{ex.GetType().Name}]");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// ESC-09, one order from the hourly order-money sweep (<c>EscrowCronFunction</c>): find the escrow
+    /// that holds or held its money and move the order where that money says.
+    /// <list type="bullet">
+    /// <item>Moved, or still waiting for its money (held, in a dispute, a verdict not yet settled): no mark.</item>
+    /// <item>No escrow at all, a flagged override or another consistent end: the order is marked as decided
+    /// at its status (<see cref="OrderMoneyFields.SweepSkip"/>), so later runs skip it until it moves.</item>
+    /// <item>Mismatch (the order cannot follow money that moved, or is ahead of money that did not): an
+    /// escrow-audit row at a deterministic key decides "first time"; only then the
+    /// <c>ORDER_MONEY_MISMATCH</c> line and a transaction-audit row; then the mark.</item>
+    /// <item>Failed: the alarm line (<c>write_failed</c>) once the money moved more than
+    /// <see cref="OrderMoneyWriteFailedAlarmAfter"/> ago, an info line before; no mark.</item>
+    /// </list>
+    /// </summary>
+    internal async Task<OrderMoneySweepOutcome> ReconcileOrderMoneyAsync(
+        Dictionary<string, object> order, DateTime now, ILambdaContext? context = null)
+    {
+        var orderId = GetString(order, "orderId");
+        var indexStatus = GetString(order, "status");
+        var escrow = await FindMoneyEscrowForOrderAsync(orderId, GetStringOrNull(order, "activeDeliveryId"));
+        if (escrow == null)
+        {
+            // An order still before delivery may get its escrow later (linkage self-heals a record the
+            // funding could not write), so only an order past delivery is marked.
+            if (!LogisticsOrderStatuses.Contains(indexStatus))
+            {
+                await MarkMoneySweepSkipAsync(orderId, indexStatus, now);
+            }
+
+            return OrderMoneySweepOutcome.NoEscrow;
+        }
+
+        var escrowId = GetString(escrow, "escrowId");
+        var result = await _orderMoneyMirror.FollowAsync(escrow, "sweep", indexStatus, context);
+        if (result.Outcome == OrderMoneyOutcome.Mismatch
+            && await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true) is { } fresh)
+        {
+            // The escrow was read before the order: a payout closed in between (and its own follow moved
+            // the order) would look like an order ahead of the money. Decide again on a fresh read.
+            escrow = fresh;
+            result = await _orderMoneyMirror.FollowAsync(escrow, "sweep", indexStatus, context);
+        }
+
+        var escrowStatus = GetString(escrow, "status");
+        switch (result.Outcome)
+        {
+            case OrderMoneyOutcome.Moved:
+                return result.OrderStatus == "settled" ? OrderMoneySweepOutcome.Settled : OrderMoneySweepOutcome.Moved;
+
+            case OrderMoneyOutcome.Consistent:
+                await MarkMoneySweepSkipAsync(orderId, result.OrderStatus ?? indexStatus, now);
+                return OrderMoneySweepOutcome.Consistent;
+
+            case OrderMoneyOutcome.Mismatch:
+                await ReportOrderMoneyMismatchOnceAsync(escrow, orderId, result, context);
+                // An order before delivery can still be fixed by its delivery (a confirmation whose order
+                // advance failed): it stays in the sweep, read every run, alarmed once. Past delivery only
+                // a status change can, so it is marked.
+                if (!LogisticsOrderStatuses.Contains(result.OrderStatus ?? indexStatus))
+                {
+                    await MarkMoneySweepSkipAsync(orderId, result.OrderStatus ?? indexStatus, now);
+                }
+
+                return OrderMoneySweepOutcome.Mismatch;
+
+            case OrderMoneyOutcome.Failed:
+                var movedAt = ParseUtcTimeOrNull(GetStringOrNull(escrow, "completedAt"))
+                              ?? ParseUtcTimeOrNull(GetStringOrNull(escrow, "releasedAt"))
+                              ?? ParseUtcTimeOrNull(GetStringOrNull(escrow, "refundedAt"))
+                              ?? ParseUtcTimeOrNull(GetStringOrNull(escrow, ManualPayoutFields.QueuedAt))
+                              ?? ParseUtcTimeOrNull(GetStringOrNull(escrow, "updatedAt"));
+                if (movedAt == null || now - movedAt.Value >= OrderMoneyWriteFailedAlarmAfter)
+                {
+                    AlarmLog(MoneyAlarmLog.OrderMoneyMismatch(
+                        orderId, escrowId, result.OrderStatus ?? indexStatus, escrowStatus, "write_failed"));
+                }
+                else
+                {
+                    Console.WriteLine(
+                        $"ORDER_MONEY_FOLLOW_DEFERRED escrowId={MoneyAlarmLog.LogId(escrowId)} orderId={MoneyAlarmLog.LogId(orderId)} "
+                        + $"source=sweep reason={MoneyAlarmLog.LogText(result.Reason)}");
+                }
+
+                return OrderMoneySweepOutcome.Failed;
+
+            default:
+                return OrderMoneySweepOutcome.Waiting;
+        }
+    }
+
+    /// <summary>
+    /// The escrow that holds or held the order's money, strongly consistent: the order escrow
+    /// (<c>escrow-order-{orderId}</c>), and when it is missing or inert, any other escrow the order index
+    /// or the active delivery names (a legacy <c>/escrow/initiate</c> escrow). The one furthest along wins.
+    /// </summary>
+    private async Task<Dictionary<string, object>?> FindMoneyEscrowForOrderAsync(string orderId, string? activeDeliveryId)
+    {
+        var orderEscrowId = $"escrow-order-{orderId}";
+        var candidates = new List<Dictionary<string, object>>();
+        var own = await _escrowRepo.GetByIdAsync(orderEscrowId, consistentRead: true);
+        if (own != null)
+        {
+            candidates.Add(own);
+        }
+
+        if (own == null || GetString(own, "status") is "refunded" or "cancelled")
+        {
+            var ids = new List<string>();
+            foreach (var row in await _escrowRepo.QueryByOrderIdAsync(orderId) ?? new List<Dictionary<string, object>>())
+            {
+                var id = GetString(row, "escrowId");
+                if (id.Length > 0 && id != orderEscrowId && !ids.Contains(id))
+                {
+                    ids.Add(id);
+                }
+            }
+
+            if (ids.Count == 0 && own == null && !string.IsNullOrEmpty(activeDeliveryId))
+            {
+                var byDelivery = await _escrowRepo.GetByDeliveryIdAsync(activeDeliveryId);
+                var id = byDelivery != null ? GetString(byDelivery, "escrowId") : "";
+                if (id.Length > 0)
+                {
+                    ids.Add(id);
+                }
+            }
+
+            foreach (var id in ids)
+            {
+                if (await _escrowRepo.GetByIdAsync(id, consistentRead: true) is { } current)
+                {
+                    candidates.Add(current);
+                }
+            }
+        }
+
+        return candidates.OrderByDescending(MoneyProgress).FirstOrDefault();
+    }
+
+    /// <summary>How far an escrow's money got, to pick between an order's escrows.</summary>
+    private static int MoneyProgress(Dictionary<string, object> escrow) => GetString(escrow, "status") switch
+    {
+        "completed" => 6,
+        "released" => 5,
+        _ when IsManualPayoutOpen(escrow) && GetStringOrNull(escrow, ManualPayoutFields.Op) == ManualPayoutFields.OpRelease => 4,
+        "refunded" => 3,
+        "dispute_resolved" => 2,
+        "escrowed" or "disputed" or "held" => 1,
+        _ => 0
+    };
+
+    /// <summary>
+    /// Once per escrow (an escrow-audit row at its <c>createdAt</c> plus 7 ticks, or 8 for an order
+    /// ahead of the money; see the tick registry on <see cref="OrderMoneyMirror"/>): the alarm line and a
+    /// transaction-audit row on the order. A failed audit write still alarms (fail loud).
+    /// </summary>
+    private async Task ReportOrderMoneyMismatchOnceAsync(
+        Dictionary<string, object> escrow, string orderId, OrderMoneyResult result, ILambdaContext? context)
+    {
+        var escrowId = GetString(escrow, "escrowId");
+        var escrowStatus = GetString(escrow, "status");
+        var ahead = result.Reason == "order_ahead";
+        var action = ahead ? OrderMoneyMirror.AheadAuditAction : OrderMoneyMirror.MismatchAuditAction;
+        var reason = ahead ? "order_ahead" : "cannot_follow";
+        var orderStatus = result.OrderStatus ?? "";
+        bool first;
+        try
+        {
+            first = await _auditRepo.AppendIfAbsentAsync(BuildAuditEntry(
+                EscrowAuditRepository.DeterministicAuditId(action, OrderMoneyAuditTimestamp(escrow, ahead)),
+                OrderMoneyAuditTimestamp(escrow, ahead), escrowId, action, escrowStatus, escrowStatus, SystemActor,
+                null, $"orderId={orderId};orderStatus={orderStatus};reason={result.Reason}"));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ORDER_MONEY_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
+            first = true;
+        }
+
+        if (!first)
+        {
+            return;
+        }
+
+        AlarmLog(MoneyAlarmLog.OrderMoneyMismatch(orderId, escrowId, orderStatus, escrowStatus, reason));
+        await TransactionAuditWriter.EmitAsync(_transactionAuditRepo, context, orderId, "order", orderId,
+            action, orderStatus, orderStatus, AuditContext.ForSystem(),
+            metadata: $"escrowId={escrowId};escrowStatus={escrowStatus};reason={result.Reason}");
+    }
+
+    /// <summary>The escrow's <c>createdAt</c> plus 7 ticks (mismatch) or 8 (ahead); the start of today when it cannot be read.</summary>
+    internal static string OrderMoneyAuditTimestamp(Dictionary<string, object> escrow, bool ahead)
+    {
+        var at = ParseUtcTimeOrNull(GetStringOrNull(escrow, "createdAt")) ?? DateTime.UtcNow.Date;
+        return at.AddTicks(ahead ? 8 : 7).ToString("o");
+    }
+
+    private async Task MarkMoneySweepSkipAsync(string orderId, string status, DateTime now)
+    {
+        try
+        {
+            await _orderRepo!.TryMarkMoneySweepSkipAsync(orderId, status, now.ToString("o"));
+        }
+        catch (Exception ex)
+        {
+            // The next run decides again (the mark only saves reads).
+            Console.WriteLine($"ORDER_MONEY_SKIP_MARK_FAILED orderId={MoneyAlarmLog.LogId(orderId)} error={ex.GetType().Name}");
+        }
+    }
+
+    /// <summary>
+    /// ESC-09 Part B: before an admin (not the system sweep) releases a plain <c>escrowed</c> escrow, its
+    /// order must be <c>delivered</c> or <c>disbursing</c>; an order at <c>accepted</c>,
+    /// <c>pickup_confirmed</c> or <c>in_transit</c> behind a delivered delivery is advanced to
+    /// <c>delivered</c> first (in flight in ESC-10's <see cref="EscrowCronFunction.ClassifyOrder"/>, as the
+    /// sweeps read it). Anything else is refused (422, no override): the farmer is never paid for goods the
+    /// order does not show delivered. A read or a lost race refuses with 503 (nothing moved). No order
+    /// behind the escrow: no check.
+    /// </summary>
+    private async Task<SettlementBlock?> CheckAdminReleaseOrderAsync(Dictionary<string, object> escrow, string actor)
+    {
+        if (_orderRepo == null)
+        {
+            return null;
+        }
+
+        var escrowId = GetString(escrow, "escrowId");
+        try
+        {
+            var orderId = await ResolveEscrowOrderIdAsync(escrow);
+            if (string.IsNullOrEmpty(orderId))
+            {
+                return null;
+            }
+
+            var order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+            if (order == null)
+            {
+                return await RefuseAdminSettlementAsync(escrowId, actor, "release", orderId, "missing", overridable: false);
+            }
+
+            var status = GetString(order, "status");
+            if (status is "delivered" or "disbursing")
+            {
+                return null;
+            }
+
+            if (EscrowCronFunction.ClassifyOrder(status) == EscrowCronFunction.OrderTradeClass.InFlight
+                && await ActiveDeliveryStatusAsync(order, escrow) == "delivered")
+            {
+                if (await _orderRepo.TryAdvanceStatusAsync(orderId, status, "delivered") != null)
+                {
+                    await TransactionAuditWriter.EmitAsync(_transactionAuditRepo, null, orderId, "order", orderId,
+                        "order_updated", status, "delivered", AuditContext.ForSystem(),
+                        metadata: $"escrowId={escrowId};source=admin_release");
+                    return null;
+                }
+
+                var latest = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+                return latest != null && GetString(latest, "status") is "delivered" or "disbursing"
+                    ? null
+                    : new SettlementBlock(503, "ESCROW_012", "The order changed while the release was checked. Nothing moved; try again.");
+            }
+
+            return await RefuseAdminSettlementAsync(escrowId, actor, "release", orderId, status, overridable: false);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ESCROW_ADMIN_SETTLEMENT_ORDER_UNREAD escrowId={MoneyAlarmLog.LogId(escrowId)} op=release error={ex.GetType().Name}");
+            return new SettlementBlock(503, "ESCROW_012", "The order behind this escrow could not be read. Nothing moved; try again.");
+        }
+    }
+
+    /// <summary>
+    /// ESC-09 Part B: before an admin (not the system sweep) refunds a plain <c>escrowed</c> escrow:
+    /// <list type="bullet">
+    /// <item><c>rejected</c>: refund as is. <c>cancelled</c>: as is, after the stock is given back first
+    /// when the cancel was the refund's own or a transport failure (fail closed, 503).</item>
+    /// <item><c>funded</c>, or <c>accepted</c> with no delivery or a pending one: cancelled first through the
+    /// ESC-03 cancel-before-pickup path (pending delivery, order <c>cancelReason: escrow_refunded</c>, slot,
+    /// stock), and the refund scheduled on the escrow (<c>expiresAt = now</c>, <c>refundReason:
+    /// admin_refund</c>) so a gateway refusal leaves it armed for the hourly sweep. A cancel or restock
+    /// that does not land refuses with 503.</item>
+    /// <item>goods moving (<c>pickup_confirmed</c>, <c>in_transit</c>, <c>accepted</c> with a picked-up
+    /// delivery) or <c>delivered</c>: 422 unless <c>overrideOrderMismatch</c> (admin group, a reason):
+    /// then refunded, the order flagged (<c>refundOverride*</c>) and its status left.</item>
+    /// <item>anything else (<c>disputed</c>, <c>disbursing</c>, <c>settled</c>, <c>dispute_resolved</c>,
+    /// a payment status, a missing order): 422, no override.</item>
+    /// </list>
+    /// </summary>
+    private async Task<SettlementBlock?> PrepareAdminRefundOrderAsync(
+        Dictionary<string, object> escrow, string actor, string? overrideReason)
+    {
+        if (_orderRepo == null)
+        {
+            return null;
+        }
+
+        var escrowId = GetString(escrow, "escrowId");
+        string? orderId;
+        Dictionary<string, object>? order;
+        try
+        {
+            orderId = await ResolveEscrowOrderIdAsync(escrow);
+            if (string.IsNullOrEmpty(orderId))
+            {
+                return null;
+            }
+
+            order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ESCROW_ADMIN_SETTLEMENT_ORDER_UNREAD escrowId={MoneyAlarmLog.LogId(escrowId)} op=refund error={ex.GetType().Name}");
+            return new SettlementBlock(503, "ESCROW_012", "The order behind this escrow could not be read. Nothing moved; try again.");
+        }
+
+        if (order == null)
+        {
+            return await RefuseAdminSettlementAsync(escrowId, actor, "refund", orderId, "missing", overridable: false);
+        }
+
+        var status = GetString(order, "status");
+        switch (status)
+        {
+            case "rejected":
+                return null;
+
+            case "cancelled":
+                return await EnsureRefundRestockAsync(order, escrowId);
+
+            case "funded" or "accepted":
+                var cancel = await _verdictMirror.CancelBeforeRefundAsync(escrow);
+                if (cancel.Order is VerdictLegOutcome.Cancelled or VerdictLegOutcome.Closed)
+                {
+                    // Closed: a concurrent cancel won the race (the buyer's transport-failure cancel, say),
+                    // whose own restock may not have landed. Its stock goes back first, as for any order
+                    // found cancelled.
+                    if (cancel.Order == VerdictLegOutcome.Closed && cancel.OrderItem != null
+                        && await EnsureRefundRestockAsync(cancel.OrderItem, escrowId) is { } restockBlock)
+                    {
+                        return restockBlock;
+                    }
+
+                    await ScheduleAdminRefundAsync(escrow, actor);
+                    return null;
+                }
+
+                if (cancel.Order is VerdictLegOutcome.Blocked or VerdictLegOutcome.Unknown
+                    || cancel.Delivery == VerdictLegOutcome.Unknown)
+                {
+                    return new SettlementBlock(503, "ESCROW_012",
+                        $"The order could not be cancelled or restocked before the refund ({cancel.FailedLegs}). Nothing moved; try again.");
+                }
+
+                // The goods left the farm (or the order moved on) since it was read: decide on the latest status.
+                var latestStatus = cancel.OrderItem != null ? GetString(cancel.OrderItem, "status") : "missing";
+                return latestStatus switch
+                {
+                    "rejected" => null,
+                    "cancelled" => await EnsureRefundRestockAsync(cancel.OrderItem!, escrowId),
+                    "accepted" or "pickup_confirmed" or "in_transit" or "delivered"
+                        => await GoodsMovingRefundAsync(escrowId, actor, orderId, latestStatus, overrideReason),
+                    _ => await RefuseAdminSettlementAsync(escrowId, actor, "refund", orderId, latestStatus, overridable: false)
+                };
+
+            case "pickup_confirmed" or "in_transit" or "delivered":
+                return await GoodsMovingRefundAsync(escrowId, actor, orderId, status, overrideReason);
+
+            default:
+                return await RefuseAdminSettlementAsync(escrowId, actor, "refund", orderId, status, overridable: false);
+        }
+    }
+
+    /// <summary>A cancelled order whose own cancel promised the stock back gets it back before the refund (fail closed).</summary>
+    private async Task<SettlementBlock?> EnsureRefundRestockAsync(Dictionary<string, object> order, string escrowId)
+    {
+        if (GetStringOrNull(order, "cancelReason") is not ("escrow_refunded" or PickupDeadline.CancelReason))
+        {
+            return null;
+        }
+
+        var restock = await _verdictMirror.EnsureStockRestoredAsync(order);
+        return restock == null
+            ? null
+            : new SettlementBlock(503, "ESCROW_012",
+                $"The cancelled order's stock could not be given back first ({restock}). Nothing was refunded; try again.");
+    }
+
+    /// <summary>The goods are moving: refused unless the admin overrides with a reason (audited before the money).</summary>
+    private async Task<SettlementBlock?> GoodsMovingRefundAsync(
+        string escrowId, string actor, string orderId, string orderStatus, string? overrideReason)
+    {
+        if (overrideReason == null)
+        {
+            return await RefuseAdminSettlementAsync(escrowId, actor, "refund", orderId, orderStatus, overridable: true);
+        }
+
+        var metadata = $"orderId={orderId};orderStatus={orderStatus};reason={overrideReason}";
+        try
+        {
+            await AppendAuditAsync(escrowId, "refund_order_mismatch_overridden", "escrowed", "escrowed", actor, metadata: metadata);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ESCROW_REFUND_OVERRIDE_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
+            return new SettlementBlock(503, "ESCROW_012", "The override could not be recorded. Nothing was refunded; try again.");
+        }
+
+        Console.WriteLine(
+            $"ESCROW_REFUND_ORDER_MISMATCH_OVERRIDDEN escrowId={MoneyAlarmLog.LogId(escrowId)} admin={MoneyAlarmLog.LogId(actor)} orderStatus={orderStatus}");
+        await TransactionAuditWriter.EmitAsync(_transactionAuditRepo, null, orderId, "escrow", escrowId,
+            "refund_mismatch_override", "escrowed", "escrowed",
+            _auditContext ?? new AuditContext { Actor = actor, ActorRole = "admin" }, metadata: metadata);
+
+        if (!await _verdictMirror.FlagOrderAsync(orderId, new Dictionary<string, object>
+            {
+                { OrderMoneyFields.RefundOverrideAt, DateTime.UtcNow.ToString("o") },
+                { OrderMoneyFields.RefundOverrideBy, actor },
+                { OrderMoneyFields.RefundOverrideReason, overrideReason },
+                { OrderMoneyFields.RefundOverrideEscrowId, escrowId }
+            }))
+        {
+            Console.WriteLine(
+                $"ESCROW_REFUND_OVERRIDE_FLAG_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} orderId={MoneyAlarmLog.LogId(orderId)}");
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The refund is armed on the escrow before the lock (as <see cref="ScheduleRefundForOrderAsync"/> does),
+    /// so a gateway refusal leaves it for the hourly sweep. Best-effort: the order is already cancelled and
+    /// the refund this call makes goes ahead either way.
+    /// </summary>
+    private async Task ScheduleAdminRefundAsync(Dictionary<string, object> escrow, string actor)
+    {
+        var escrowId = GetString(escrow, "escrowId");
+        try
+        {
+            await _escrowRepo.UpdateStatusAsync(escrowId, GetString(escrow, "createdAt"), "escrowed", "escrowed",
+                new Dictionary<string, object>
+                {
+                    { "expiresAt", DateTime.UtcNow.ToString("o") },
+                    { "refundReason", "admin_refund" }
+                });
+            await AppendAuditAsync(escrowId, "refund_scheduled", "escrowed", "escrowed", actor, metadata: "admin_refund");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ESCROW_ADMIN_REFUND_SCHEDULE_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
+        }
+    }
+
+    /// <summary>An admin release or refund the order cannot follow: audited per attempt, answered 422.</summary>
+    private async Task<SettlementBlock> RefuseAdminSettlementAsync(
+        string escrowId, string actor, string op, string orderId, string orderStatus, bool overridable)
+    {
+        try
+        {
+            await AppendAuditAsync(escrowId, "admin_settlement_order_refused", "escrowed", "escrowed", actor,
+                metadata: $"op={op};orderId={orderId};orderStatus={orderStatus}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ESCROW_ADMIN_SETTLEMENT_REFUSAL_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
+        }
+
+        var message = op == "release"
+            ? $"The order behind this escrow is '{orderStatus}', not delivered. Nothing was paid: confirm the delivery first, or use the dispute path."
+            : $"The order behind this escrow is '{orderStatus}' and cannot follow a refund. Nothing was refunded"
+              + (overridable ? ": overrideOrderMismatch with a reason refunds it anyway, leaving the order flagged." : ".");
+        return new SettlementBlock(422, "ESCROW_INVALID_TRANSITION", message);
+    }
+
+    /// <summary>The escrow's order: its own <c>orderId</c>, else its delivery's.</summary>
+    private async Task<string?> ResolveEscrowOrderIdAsync(Dictionary<string, object> escrow)
+    {
+        var orderId = GetStringOrNull(escrow, "orderId");
+        if (!string.IsNullOrEmpty(orderId))
+        {
+            return orderId;
+        }
+
+        var deliveryId = GetStringOrNull(escrow, "deliveryId");
+        if (_deliveryRepo == null || string.IsNullOrEmpty(deliveryId))
+        {
+            return null;
+        }
+
+        var delivery = await _deliveryRepo.GetByIdAsync(deliveryId, consistentRead: true);
+        return delivery != null ? GetStringOrNull(delivery, "orderId") : null;
+    }
+
+    /// <summary>The status of the order's active delivery (else the escrow's), null when there is none.</summary>
+    private async Task<string?> ActiveDeliveryStatusAsync(Dictionary<string, object> order, Dictionary<string, object> escrow)
+    {
+        var deliveryId = GetStringOrNull(order, "activeDeliveryId") ?? GetStringOrNull(escrow, "deliveryId");
+        if (_deliveryRepo == null || string.IsNullOrEmpty(deliveryId))
+        {
+            return null;
+        }
+
+        var delivery = await _deliveryRepo.GetByIdAsync(deliveryId, consistentRead: true);
+        return delivery != null ? GetStringOrNull(delivery, "status") : null;
+    }
+
+    private static DateTime? ParseUtcTimeOrNull(string? value)
+        => DateTime.TryParse(value, CultureInfo.InvariantCulture,
+            DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsed)
+            ? parsed
+            : null;
+
+    // ──────────────────────────────────────────────
     // Manual payout queue (ESC-02)
     // ──────────────────────────────────────────────
 
@@ -4207,6 +4804,8 @@ public sealed class EscrowService
                 // A crash after the money write may have left the audit rows or the final
                 // status behind: re-ensure them (deterministic keys, never written twice).
                 currentStatus = await EnsureManualPayoutRecordedAsync(escrow, op, leg, currentStatus);
+                // ESC-09: a replay also repairs an order the first close could not move.
+                await FollowMoneyAsync(escrowId, "manual_payout");
 
                 return EscrowResult<CompleteManualPayoutResponse>.Success(BuildCompleteResponse(
                     escrow, leg, reference, GetStringOrNull(escrow, ManualPayoutFields.PaidAtAttr(leg)) ?? "",
@@ -4365,6 +4964,10 @@ public sealed class EscrowService
                     ? await FinishManualReleaseAsync(escrowId, createdAt, actorUserId)
                     : newStatus;
             }
+
+            // ESC-09: the order follows the recorded money (disbursing while a leg waits, settled once
+            // the escrow is completed; a refund only checks that the order is closed).
+            await FollowMoneyAsync(escrowId, "manual_payout");
 
             return EscrowResult<CompleteManualPayoutResponse>.Success(BuildCompleteResponse(
                 escrow, leg, reference, now, finalStatus, pendingOthers,
@@ -5540,4 +6143,29 @@ public enum OrderEscrowCancelReadiness
 
     /// <summary>No record could be found or created right now: nothing may be written; the client retries.</summary>
     Unavailable
+}
+
+/// <summary>What <see cref="EscrowService.ReconcileOrderMoneyAsync"/> did with one order (ESC-09).</summary>
+public enum OrderMoneySweepOutcome
+{
+    /// <summary>Nothing to do now: the money has not moved yet, or the order already shows it.</summary>
+    Waiting,
+
+    /// <summary>The order was moved (to delivered or disbursing).</summary>
+    Moved,
+
+    /// <summary>The order was moved to settled.</summary>
+    Settled,
+
+    /// <summary>The order agrees with the money without showing it (a flagged override, a closed order); marked.</summary>
+    Consistent,
+
+    /// <summary>The order cannot follow the money, or is ahead of it; alarmed once, marked.</summary>
+    Mismatch,
+
+    /// <summary>No escrow for the order; marked.</summary>
+    NoEscrow,
+
+    /// <summary>The order could follow but a read or write failed; retried next run.</summary>
+    Failed
 }

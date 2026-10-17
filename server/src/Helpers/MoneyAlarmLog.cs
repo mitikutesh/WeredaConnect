@@ -19,7 +19,16 @@ namespace WeredaConnect.Server.Helpers;
 /// DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=&lt;id&gt; op=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// TRUCKER_PAYOUT_OVERDUE escrowId=&lt;id&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
 /// DISPUTE_NO_ESCROW orderId=&lt;id&gt; deliveryId=&lt;id&gt;
+/// ORDER_MONEY_MISMATCH orderId=&lt;id&gt; escrowId=&lt;id&gt; orderStatus=&lt;s&gt; escrowStatus=&lt;s&gt; reason=&lt;reason&gt;
 /// </code>
+/// <para>
+/// The order-money line (ESC-09) is logged by escrow-cron's hourly order-money sweep when the order
+/// does not show what its escrow's money says: <c>write_failed</c> (it could follow but the writes keep
+/// failing, every run once the money moved more than two hours ago), <c>cannot_follow</c> and
+/// <c>order_ahead</c> (once per escrow, decided by an escrow-audit row), <c>sweep_truncated</c> (a sweep
+/// cycle, resumed run after run from a cursor, is unfinished 24 hours after it started) and
+/// <c>sweep_failed</c> (a page query failed); ids are <c>-</c> for the last two.
+/// </para>
 /// <para>
 /// The trucker line (ESC-04) is logged by escrow-cron's trucker retry, once per hourly run for
 /// each released escrow whose trucker leg is still owed and not queued after
@@ -89,6 +98,7 @@ public static class MoneyAlarmLog
     public const string DisputeVerdictSettlementBlockedToken = "DISPUTE_VERDICT_SETTLEMENT_BLOCKED";
     public const string TruckerPayoutOverdueToken = "TRUCKER_PAYOUT_OVERDUE";
     public const string DisputeNoEscrowToken = "DISPUTE_NO_ESCROW";
+    public const string OrderMoneyMismatchToken = "ORDER_MONEY_MISMATCH";
 
     /// <summary>The gateway definitely refused the settlement; no money moved.</summary>
     public const string OutcomeFailed = "failed";
@@ -162,6 +172,12 @@ public static class MoneyAlarmLog
     /// </summary>
     public static string DisputeNoEscrow(string? orderId, string? deliveryId)
         => $"{DisputeNoEscrowToken} orderId={LogId(orderId)} deliveryId={LogId(deliveryId)}";
+
+    /// <summary>ESC-09: an order does not show what its escrow's money says (see the remarks for the reasons).</summary>
+    public static string OrderMoneyMismatch(
+        string? orderId, string? escrowId, string? orderStatus, string? escrowStatus, string? reason)
+        => $"{OrderMoneyMismatchToken} orderId={LogId(orderId)} escrowId={LogId(escrowId)} "
+           + $"orderStatus={Safe(orderStatus)} escrowStatus={Safe(escrowStatus)} reason={Safe(reason)}";
 
     /// <summary>
     /// A client-chosen or client-influenced id (entity id, path parameter, header, an escrow id

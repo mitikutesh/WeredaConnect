@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.12.0
+1.13.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -143,7 +143,10 @@ reaches the delivery too (v1.8.0, ESC-03): a delivery still `delivered` is marke
 `disputeResolvedAt`, once. Its status stays `disputed`; clients cannot set these fields. A
 `buyer_wins` refund before pickup cancels a delivery that is still `pending` (`status: cancelled`,
 version incremented; since 1.9.0 no `deletedAt`, audited `delivery_cancelled`), as a system actor,
-before the order is cancelled.
+before the order is cancelled. Since 1.13.0 (ESC-09) an admin refund of a plain `escrowed` order
+escrow does the same for an order that was never picked up (audit metadata `source=admin_refund`), and
+an admin release first advances an order left behind a `delivered` delivery; the delivery itself is
+not written by a release.
 
 The hourly refund sweep does the same system cancel (v1.12.0, ESC-10, `escrow-protocol.md` 1.15.0):
 before it refunds an expired escrow paid through `POST /escrow/initiate` whose delivery is still
@@ -1002,9 +1005,10 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.8.0 | 2026-10-09 | Dispute verdict (ESC-03): the admin's verdict marks a still `delivered` delivery `disputed` and stamps the server-only `disputeResolution` and `disputeResolvedAt` on the disputed delivery (status unchanged, one stamp per delivery, version incremented); a `buyer_wins` refund before pickup cancels a `pending` delivery (system soft delete); system writes audited in transaction-audit. |
 | 1.10.0 | 2026-10-10 | Dispute freezes first (ESC-07): a `disputed` transition freezes the order's escrow before the delivery is written (version checked on a consistent read first); a refused freeze writes nothing and answers `DELIVERY_DISPUTE_REFUSED` (manual payout, settlement in flight, escrow not holding the money, linked to another delivery, or no escrow for the order, alarmed `DISPUTE_NO_ESCROW`); an undecided freeze answers `DELIVERY_DISPUTE_RETRY`; a conflict after the freeze still marks the delivery and order; the delivery hop is audited `dispute`; the escrow mirror adds to the delivery version; status and transition text say any participant may dispute, as the authorization sections already did. |
 | 1.12.0 | 2026-10-10 | Refund sweep (ESC-10): an expired `/escrow/initiate` escrow with a `pending` delivery and no order in flight has the delivery cancelled by the system first (conditional on `pending`, audited `delivery_cancelled`, `reason=escrow_expired`), then is refunded; one whose delivery is `pickedUp` or `inTransit` is never refunded by the sweep. No client change. |
+| 1.13.0 | 2026-10-10 | The order follows the money (ESC-09): an admin refund of a plain escrowed order escrow cancels the order's `pending` delivery first (system actor, no `deletedAt`, audited `delivery_cancelled` with `source=admin_refund`), as the `buyer_wins` refund does; the delivery is otherwise unchanged (the order moves to `disbursing` and `settled` after the money, `order-lifecycle.md` 1.17.0). |
 
 ---
 
 **Last Updated**: 2026-10-10
-**Version**: 1.12.0
+**Version**: 1.13.0
 **Status**: Draft (Phase R4.2)

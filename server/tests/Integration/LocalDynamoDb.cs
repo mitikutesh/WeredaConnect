@@ -51,6 +51,16 @@ public sealed class LocalDynamoDbCollection : ICollectionFixture<LocalDynamoDbFi
 }
 
 /// <summary>
+/// ESC-09: its own set of tables for the order-money sweep tests, which read whole order status
+/// partitions: rows the other classes seed never reach them, and theirs never reach the others.
+/// </summary>
+[CollectionDefinition(Name)]
+public sealed class OrderMoneyDynamoDbCollection : ICollectionFixture<LocalDynamoDbFixture>
+{
+    public const string Name = "OrderMoneyDynamoDb";
+}
+
+/// <summary>
 /// One set of tables for the collection, with the deployed key schemas and indexes
 /// (<c>infra/lib/stacks/database-stack.ts</c>), uniquely named per run and deleted afterwards.
 /// </summary>

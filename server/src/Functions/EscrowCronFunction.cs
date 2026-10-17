@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
@@ -78,8 +77,10 @@ public class EscrowCronFunction
     };
 
     /// <summary>
-    /// ESC-10: how the auto-release and the /escrow/initiate refund read an order status. Every status of
-    /// the order state machine has a class (a test enforces it); an unknown status blocks.
+    /// ESC-10: how the auto-release and the /escrow/initiate refund read an order status; ESC-09's admin
+    /// release reads it the same way (<c>disbursing</c> is in flight: a release may wait in the manual
+    /// payout queue; <c>settled</c> is idle and never paid again). Every status of the order state machine
+    /// has a class (a test enforces it); an unknown status blocks.
     /// </summary>
     internal enum OrderTradeClass
     {
@@ -122,8 +123,11 @@ public class EscrowCronFunction
     private int _pendingDeliveriesCancelled;
     private readonly List<string> _sweepsTruncated = new();
 
-    /// <summary>ESC-10: started with each invocation; the paged sweeps' time budget counts from it.</summary>
-    private Stopwatch _runClock = new();
+    /// <summary>
+    /// The run budget (ESC-09), started with each invocation from <see cref="BudgetFactory"/>. Every sweep
+    /// that stops on time takes a slice of it: ESC-10's paged sweeps and the order-money sweep.
+    /// </summary>
+    private CronRunBudget _runBudget = CronRunBudget.StartNew();
 
     /// <summary>ESC-10: rows per page of a paged sweep (evaluated by the Query, before its filter).</summary>
     internal int SweepPageSize { get; init; } = 100;
@@ -134,12 +138,10 @@ public class EscrowCronFunction
     /// <summary>ESC-10: rows a paged sweep handles at most per run; only rows that needed a read or a write count.</summary>
     internal int SweepMaxRows { get; init; } = 1000;
 
-    /// <summary>ESC-10: time since the invocation started, checked before each row. Tests replace it; null reads the run clock.</summary>
-    internal Func<TimeSpan>? Elapsed { get; init; }
-
     /// <summary>
-    /// ESC-10: how far into the run each paged sweep may still start a row. Anchored to the run start, so
-    /// the reports and recovery steps before them count too and the trucker retry (last) keeps its reserve.
+    /// ESC-10: how far into the run each paged sweep may still start a row
+    /// (<see cref="CronRunBudget.SliceUntil"/>). Anchored to the run start, so the reports and recovery
+    /// steps before them count too and the trucker retry (last) keeps its reserve.
     /// </summary>
     internal static readonly TimeSpan ReleaseSweepUntil = TimeSpan.FromSeconds(90);
     internal static readonly TimeSpan RefundSweepUntil = TimeSpan.FromSeconds(135);
@@ -148,6 +150,29 @@ public class EscrowCronFunction
 
     /// <summary>ESC-10: no paged sweep starts a row with less Lambda time left than the trucker reserve plus this.</summary>
     internal static readonly TimeSpan SweepRemainingMargin = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// ESC-10: the Lambda reserve of a paged sweep (120 seconds). A property, not a field, so it never
+    /// reads <see cref="TruckerRetryTimeReserve"/> before that field is initialised.
+    /// </summary>
+    internal static TimeSpan SweepReserve => TruckerRetryTimeReserve + SweepRemainingMargin;
+
+    /// <summary>ESC-09: makes the run budget at handler entry (tests inject a hand-driven clock).</summary>
+    internal Func<CronRunBudget> BudgetFactory { get; init; } = CronRunBudget.StartNew;
+
+    /// <summary>
+    /// ESC-09: order partitions the order-money sweep reads, in this order: where money moves first
+    /// (delivered, disbursing, disputed), then the logistics statuses a lagging order may sit in.
+    /// </summary>
+    internal static readonly string[] OrderMoneySweepStatuses =
+    {
+        "delivered", "disbursing", "disputed", "accepted", "pickup_confirmed", "in_transit"
+    };
+
+    /// <summary>ESC-09: the order-money sweep's share of the run, its row cap and its page size.</summary>
+    internal TimeSpan OrderMoneySweepSlice { get; init; } = TimeSpan.FromSeconds(30);
+    internal int OrderMoneySweepMaxRows { get; init; } = 2000;
+    private const int OrderMoneySweepPageSize = 100;
 
     /// <summary>ESC-02: page size and page cap of the hourly overdue-payout report.</summary>
     private const int ManualPayoutReportPageSize = 50;
@@ -280,7 +305,8 @@ public class EscrowCronFunction
         ILambdaContext context)
     {
         context.Logger.LogInformation("EscrowCronFunction invoked.");
-        _runClock = Stopwatch.StartNew();
+        // ESC-09: the run's time budget starts with the handler; every timed sweep takes a slice of it.
+        _runBudget = BudgetFactory();
         // ESC-45 (D6): Telebirr calls end 30 s before the run does (settlement writes, parking).
         using var gatewayDeadline = GatewayDeadline.Begin(context, TimeSpan.FromSeconds(30));
 
@@ -369,6 +395,8 @@ public class EscrowCronFunction
         var completedCount = await CompleteReleasedAsync(context);
         // ESC-04: last, so the money sweeps above keep their share of the 5 minute run.
         var trucker = await RetryPendingTruckerLegsAsync(context, runStart);
+        // ESC-09: after every money sweep (it moves no money): orders follow where the money went.
+        var orders = await FollowMoneySweepAsync(context);
 
         var summary = new Dictionary<string, string>
         {
@@ -394,6 +422,11 @@ public class EscrowCronFunction
             { "disputesFrozen", _disputesFrozen.ToString() },
             { "pendingDeliveriesCancelled", _pendingDeliveriesCancelled.ToString() },
             { "sweepsTruncated", _sweepsTruncated.Count == 0 ? "-" : string.Join(",", _sweepsTruncated) },
+            { "ordersMoved", orders.Moved.ToString() },
+            { "ordersSettled", orders.Settled.ToString() },
+            { "orderMoneyMismatches", orders.Mismatches.ToString() },
+            { "orderMoneyFailed", orders.Failed.ToString() },
+            { "ordersWithoutEscrow", orders.WithoutEscrow.ToString() },
             { "completedAt", DateTime.UtcNow.ToString("o") }
         };
 
@@ -406,7 +439,8 @@ public class EscrowCronFunction
             + $"{_adminQueueEntered} orders entered the admin queue, "
             + $"{queueOverdue + _adminQueueOverdue} admin queue entries overdue, {queueCleared} cleared, "
             + $"{_releaseBlocked} releases and {_refundBlocked} refunds blocked, {_disputesFrozen} disputed trades frozen, "
-            + $"{_pendingDeliveriesCancelled} pending deliveries cancelled before a refund.");
+            + $"{_pendingDeliveriesCancelled} pending deliveries cancelled before a refund, "
+            + $"orders: {orders.Moved} moved, {orders.Settled} settled, {orders.Mismatches} mismatched, {orders.Failed} failed.");
 
         return new APIGatewayProxyResponse
         {
@@ -430,7 +464,7 @@ public class EscrowCronFunction
     /// </summary>
     private async Task<(int released, int refunded)> SettleResolvedDisputesAsync(ILambdaContext context)
     {
-        var sweep = new SweepRun("dispute_query", new CronSweepQuery("dispute_resolved", ExcludeLocked: true), DisputeSweepUntil);
+        var sweep = new SweepRun("dispute_query", new CronSweepQuery("dispute_resolved", ExcludeLocked: true), SweepSlice(DisputeSweepUntil));
         var released = 0;
         var refunded = 0;
         var hourBucket = DateTime.UtcNow.ToString("yyyyMMddHH");
@@ -534,7 +568,7 @@ public class EscrowCronFunction
     {
         var now = DateTime.UtcNow;
         var sweep = new SweepRun("release_query",
-            new CronSweepQuery("escrowed", DeliveryConfirmed: true, ExcludeLocked: true), ReleaseSweepUntil);
+            new CronSweepQuery("escrowed", DeliveryConfirmed: true, ExcludeLocked: true), SweepSlice(ReleaseSweepUntil));
 
         var releaseCount = 0;
         await foreach (var escrow in SweepRowsAsync(context, sweep))
@@ -636,7 +670,7 @@ public class EscrowCronFunction
         // Query escrowed items with expiresAt <= now
         var sweep = new SweepRun("refund_query",
             new CronSweepQuery("escrowed", ExpiresAtBefore: nowIso, DeliveryConfirmed: false, ExcludeLocked: true),
-            RefundSweepUntil);
+            SweepSlice(RefundSweepUntil));
 
         var refundCount = 0;
         await foreach (var escrow in SweepRowsAsync(context, sweep))
@@ -1451,6 +1485,9 @@ public class EscrowCronFunction
                 });
 
                 completedCount++;
+
+                // ESC-09: every leg is paid now, so the order is settled.
+                await _escrowService.FollowMoneyAsync(escrowId, "crash_recovery", context);
             }
             catch (Exception ex)
             {
@@ -1569,6 +1606,228 @@ public class EscrowCronFunction
 
         return counts;
     }
+
+    /// <summary>What the order-money sweep did this run (ESC-09).</summary>
+    private sealed class OrderMoneySweepCounts
+    {
+        public int Rows { get; set; }
+        public int Moved { get; set; }
+        public int Settled { get; set; }
+        public int Mismatches { get; set; }
+        public int Failed { get; set; }
+        public int WithoutEscrow { get; set; }
+    }
+
+    /// <summary>
+    /// ESC-09: where the order-money sweep goes on next run, in the escrow idempotency table (30-day TTL):
+    /// <c>result</c> holds the partition and the key of the last order it decided, <c>createdAt</c> the
+    /// start of the current cycle. Deleted once a cycle has read every partition.
+    /// </summary>
+    internal const string OrderMoneyCursorKey = "cursor:esc-09:order_money_sweep";
+
+    /// <summary>ESC-09: a cycle still unfinished this long after it started alarms (<c>sweep_truncated</c>).</summary>
+    internal static readonly TimeSpan OrderMoneyCycleAlarmAfter = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// ESC-09 order-money sweep, last in the run: the self-heal and the backfill of the order mirror.
+    /// Pages the orders <c>StatusCreatedAtIndex</c> partitions in <see cref="OrderMoneySweepStatuses"/>,
+    /// oldest first, without rows already decided at their status (the skip marker), and moves each order
+    /// where its escrow's money says (<see cref="EscrowService.ReconcileOrderMoneyAsync"/>). Bounded by its
+    /// slice of the run budget and a row cap. A run that stops early saves a cursor
+    /// (<see cref="OrderMoneyCursorKey"/>) at the last order it decided, and the next run goes on from
+    /// there, so every order is read once per cycle however many runs a cycle takes; the cursor is
+    /// removed when the cycle ends. A cycle unfinished after <see cref="OrderMoneyCycleAlarmAfter"/> logs
+    /// <c>ORDER_MONEY_MISMATCH orderId=- ... reason=sweep_truncated</c>, a failed page query
+    /// <c>reason=sweep_failed</c>. Never throws.
+    /// </summary>
+    private async Task<OrderMoneySweepCounts> FollowMoneySweepAsync(ILambdaContext context)
+    {
+        var counts = new OrderMoneySweepCounts();
+        if (_orderRepo == null)
+        {
+            return counts;
+        }
+
+        // Last in the run: it keeps only the default reserve for the summary.
+        var slice = _runBudget.Slice(OrderMoneySweepSlice, CronRunBudget.DefaultReserve);
+        var now = DateTime.UtcNow;
+        var cursor = await ReadOrderMoneyCursorAsync(context);
+        var first = cursor?.Status is { } cursorStatus ? Math.Max(0, Array.IndexOf(OrderMoneySweepStatuses, cursorStatus)) : 0;
+        Dictionary<string, string>? last = null;
+
+        for (var index = first; index < OrderMoneySweepStatuses.Length; index++)
+        {
+            var status = OrderMoneySweepStatuses[index];
+            var startKey = index == first && cursor?.Key != null ? StartKey(cursor.Key) : null;
+            do
+            {
+                if (!slice.MayStartRow(context) || counts.Rows >= OrderMoneySweepMaxRows)
+                {
+                    await PauseOrderMoneySweepAsync(cursor, last ?? (cursor?.Status == status ? cursor.Key : null), status, now, context,
+                        counts.Rows >= OrderMoneySweepMaxRows ? "rows" : slice.StopReason);
+                    return counts;
+                }
+
+                List<Dictionary<string, object>> items;
+                try
+                {
+                    var page = await _orderRepo.QueryMoneySweepPageAsync(status, OrderMoneySweepPageSize, startKey);
+                    items = page.Items ?? new List<Dictionary<string, object>>();
+                    startKey = page.LastEvaluatedKey;
+                }
+                catch (Exception ex)
+                {
+                    context.Logger.LogError(
+                        $"Order-money sweep: query for {status} failed [{ex.GetType().Name}]; going on with the next status.");
+                    context.Logger.LogError(MoneyAlarmLog.OrderMoneyMismatch(null, null, status, null, "sweep_failed"));
+                    break;
+                }
+
+                foreach (var order in items)
+                {
+                    if (!slice.MayStartRow(context) || counts.Rows >= OrderMoneySweepMaxRows)
+                    {
+                        await PauseOrderMoneySweepAsync(cursor, last ?? (cursor?.Status == status ? cursor.Key : null), status, now, context,
+                            counts.Rows >= OrderMoneySweepMaxRows ? "rows" : slice.StopReason);
+                        return counts;
+                    }
+
+                    counts.Rows++;
+                    try
+                    {
+                        switch (await _escrowService.ReconcileOrderMoneyAsync(order, now, context))
+                        {
+                            case OrderMoneySweepOutcome.Moved:
+                                counts.Moved++;
+                                break;
+                            case OrderMoneySweepOutcome.Settled:
+                                counts.Settled++;
+                                break;
+                            case OrderMoneySweepOutcome.Mismatch:
+                                counts.Mismatches++;
+                                break;
+                            case OrderMoneySweepOutcome.Failed:
+                                counts.Failed++;
+                                break;
+                            case OrderMoneySweepOutcome.NoEscrow:
+                                counts.WithoutEscrow++;
+                                break;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // A read failed before anything was decided: the next cycle tries again.
+                        counts.Failed++;
+                        context.Logger.LogWarning(
+                            $"Order-money sweep: order {MoneyAlarmLog.LogId(GetStringOrNull(order, "orderId"))} not checked: [{ex.GetType().Name}]");
+                    }
+
+                    last = new Dictionary<string, string>
+                    {
+                        { "status", status },
+                        { "orderId", GetString(order, "orderId") },
+                        { "createdAt", GetString(order, "createdAt") }
+                    };
+                }
+            }
+            while (startKey != null);
+        }
+
+        // Every partition was read: the cycle is over.
+        if (cursor != null && _idempotencyRepo != null)
+        {
+            try
+            {
+                await _idempotencyRepo.DeleteAsync(OrderMoneyCursorKey);
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogWarning($"Order-money sweep: cursor delete failed [{ex.GetType().Name}].");
+            }
+        }
+
+        return counts;
+    }
+
+    /// <summary>The saved cursor: the cycle's start, the partition and the key of the last order decided.</summary>
+    private sealed record OrderMoneyCursor(DateTime? CycleStartedAt, string? Status, Dictionary<string, string>? Key);
+
+    private async Task<OrderMoneyCursor?> ReadOrderMoneyCursorAsync(ILambdaContext context)
+    {
+        if (_idempotencyRepo == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var row = await _idempotencyRepo.GetAsync(OrderMoneyCursorKey);
+            if (row == null)
+            {
+                return null;
+            }
+
+            var json = GetStringOrNull(row, "result");
+            var key = string.IsNullOrEmpty(json)
+                ? null
+                : JsonSerializer.Deserialize(json, AppJsonContext.Default.DictionaryStringString);
+            var status = key != null && key.TryGetValue("status", out var s) ? s : null;
+            var position = key != null && key.ContainsKey("orderId") && key.ContainsKey("createdAt") ? key : null;
+            return new OrderMoneyCursor(ParseUtc(GetStringOrNull(row, "createdAt")), status, position);
+        }
+        catch (Exception ex)
+        {
+            // An unreadable cursor starts a new cycle: every order is still read, only later.
+            context.Logger.LogWarning($"Order-money sweep: cursor read failed [{ex.GetType().Name}]; starting a new cycle.");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The run stops early: save where the next run goes on (a new cycle starts its clock now) and alarm
+    /// only a cycle older than <see cref="OrderMoneyCycleAlarmAfter"/>.
+    /// </summary>
+    private async Task PauseOrderMoneySweepAsync(
+        OrderMoneyCursor? cursor, Dictionary<string, string>? position, string status, DateTime now,
+        ILambdaContext context, string? why)
+    {
+        var saved = position ?? new Dictionary<string, string> { { "status", status } };
+        if (_idempotencyRepo != null)
+        {
+            try
+            {
+                var json = JsonSerializer.Serialize(saved, AppJsonContext.Default.DictionaryStringString);
+                // Update only an existing cursor, so a row another run deleted at its cycle end never comes
+                // back without its cycle start and TTL; a missing one starts a new cycle.
+                var updated = cursor != null
+                              && await _idempotencyRepo.TryUpdateExistingAsync(OrderMoneyCursorKey, "open", json);
+                if (!updated && !await _idempotencyRepo.StoreAsync(OrderMoneyCursorKey, "-", "open", json))
+                {
+                    await _idempotencyRepo.TryUpdateExistingAsync(OrderMoneyCursorKey, "open", json);
+                }
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogWarning($"Order-money sweep: cursor write failed [{ex.GetType().Name}]; the next run starts over.");
+            }
+        }
+
+        var cycleAge = now - (cursor?.CycleStartedAt ?? now);
+        context.Logger.LogInformation(
+            $"ORDER_MONEY_SWEEP_PAUSED status={status} reason={why} cycleAgeHours={(int)cycleAge.TotalHours}");
+        if (cycleAge >= OrderMoneyCycleAlarmAfter || _idempotencyRepo == null)
+        {
+            context.Logger.LogError(MoneyAlarmLog.OrderMoneyMismatch(null, null, null, null, "sweep_truncated"));
+        }
+    }
+
+    /// <summary>The page start of a saved position: the index key (status, createdAt) and the table key (orderId, createdAt).</summary>
+    private static Dictionary<string, Amazon.DynamoDBv2.Model.AttributeValue> StartKey(Dictionary<string, string> position) => new()
+    {
+        { "orderId", new Amazon.DynamoDBv2.Model.AttributeValue { S = position["orderId"] } },
+        { "createdAt", new Amazon.DynamoDBv2.Model.AttributeValue { S = position["createdAt"] } },
+        { "status", new Amazon.DynamoDBv2.Model.AttributeValue { S = position["status"] } }
+    };
 
     /// <summary>
     /// ESC-04 legacy action (<c>park_legacy_trucker_legs</c>, invoked by the server deploy, never
@@ -1716,7 +1975,7 @@ public class EscrowCronFunction
     {
         var now = DateTime.UtcNow;
         _sweepsTruncated.Clear();
-        var sweep = new SweepRun("reconciliation", new CronSweepQuery("initiated"), ReconciliationSweepUntil);
+        var sweep = new SweepRun("reconciliation", new CronSweepQuery("initiated"), SweepSlice(ReconciliationSweepUntil));
 
         var reconciledToEscrowed = 0;
         var reconciledToCancelled = 0;
@@ -1882,11 +2141,11 @@ public class EscrowCronFunction
     /// ESC-10: one paged sweep's query and budget. The sweep calls <see cref="CountRow"/> once a row needs a
     /// read or a write, so rows it skips on their own attributes never use up <see cref="SweepMaxRows"/>.
     /// </summary>
-    private sealed class SweepRun(string code, CronSweepQuery query, TimeSpan until)
+    private sealed class SweepRun(string code, CronSweepQuery query, CronRunSlice budget)
     {
         public string Code { get; } = code;
         public CronSweepQuery Query { get; } = query;
-        public TimeSpan Until { get; } = until;
+        public CronRunSlice Budget { get; } = budget;
         public int Rows { get; private set; }
 
         public void CountRow() => Rows++;
@@ -1896,8 +2155,8 @@ public class EscrowCronFunction
     /// ESC-10: the rows of one status partition of <c>StatusExpiresIndex</c>, page by page, so a row the sweep
     /// cannot act on no longer hides the rows behind it. Ends at the end of the partition or, logging
     /// <c>sweep_truncated</c> (<c>code=&lt;code&gt;:&lt;pages|rows|time&gt;</c>), after <see cref="SweepMaxPages"/>
-    /// pages, after <see cref="SweepMaxRows"/> counted rows, once the run is <see cref="SweepRun.Until"/> old, or
-    /// with less Lambda time left than the trucker retry's reserve plus <see cref="SweepRemainingMargin"/>. A
+    /// pages, after <see cref="SweepMaxRows"/> counted rows, or once its <see cref="SweepRun.Budget"/> says no:
+    /// the run reached the sweep's limit, or the Lambda has less than <see cref="SweepReserve"/> left. A
     /// failed page query logs <c>sweep_failed</c> with the sweep's code and ends the sweep; with
     /// <paramref name="rethrowQueryFailure"/> it fails the run instead.
     /// </summary>
@@ -1938,7 +2197,8 @@ public class EscrowCronFunction
             pages++;
             foreach (var row in items ?? [])
             {
-                if (SweepOutOfTime(context, sweep.Until))
+                // Both budget stops log "time", as before the budget was shared.
+                if (!sweep.Budget.MayStartRow(context))
                 {
                     stop = "time";
                     break;
@@ -1967,14 +2227,11 @@ public class EscrowCronFunction
     }
 
     /// <summary>
-    /// ESC-10: the one place the paged sweeps ask the run budget, before each row: the time since the
-    /// invocation started (<see cref="Elapsed"/>, else the run clock) against the sweep's limit, and the
-    /// Lambda time left. Nothing else in the pager reads a clock.
+    /// ESC-10: a paged sweep's share of the run budget: no new row once the run is <paramref name="until"/>
+    /// old (counted from the run start) or the Lambda has less than <see cref="SweepReserve"/> left. The
+    /// pager asks it before each row; nothing else in the pager reads a clock.
     /// </summary>
-    private bool SweepOutOfTime(ILambdaContext context, TimeSpan until)
-        => (Elapsed?.Invoke() ?? _runClock.Elapsed) >= until
-           || (context.RemainingTime > TimeSpan.Zero
-               && context.RemainingTime < TruckerRetryTimeReserve + SweepRemainingMargin);
+    private CronRunSlice SweepSlice(TimeSpan until) => _runBudget.SliceUntil(until, SweepReserve);
 
     /// <summary>What a sweep's order and delivery check decided for one escrow (ESC-10).</summary>
     private enum TradeCheck

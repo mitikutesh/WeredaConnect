@@ -23,6 +23,12 @@ public interface IEscrowIdempotencyRepository
     Task UpdateAsync(string idempotencyKey, string status, string? result = null);
 
     /// <summary>
+    /// ESC-09: update the record's status and result only while it exists (never creates a row without
+    /// its <c>createdAt</c> and TTL, as <see cref="UpdateAsync"/> would). Returns false when it is gone.
+    /// </summary>
+    Task<bool> TryUpdateExistingAsync(string idempotencyKey, string status, string result);
+
+    /// <summary>
     /// Delete an idempotency record. Used to allow clean retries after transient failures.
     /// </summary>
     Task DeleteAsync(string idempotencyKey);

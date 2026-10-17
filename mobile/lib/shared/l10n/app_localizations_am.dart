@@ -2111,10 +2111,12 @@ class AppLocalizationsAm extends AppLocalizations {
       'ርክክብ በገዢው ተረጋግጧል። አደራው (ኤስክሮ) ክፍያውን ለገበሬው ይለቃል።';
 
   @override
-  String get statusDisbursingInfo => 'ገንዘቡ ከአደራ (ኤስክሮ) ወደ ገበሬው በመለቀቅ ላይ ነው።';
+  String get statusDisbursingInfo =>
+      'ገንዘቡ ከአደራ (ኤስክሮ) በመውጣት ላይ ነው፤ ለገበሬው እና ካለ ለጭነት መኪና ሹፌሩ እየተከፈለ ነው።';
 
   @override
-  String get statusSettledInfo => 'ገበሬው ገንዘቡን ተቀብሏል። ትዕዛዙ ተጠናቅቋል።';
+  String get statusSettledInfo =>
+      'ሁሉም ተከፍሏል፤ ገበሬው እና ካለ የጭነት መኪና ሹፌሩ። ትዕዛዙ ተጠናቅቋል።';
 
   @override
   String get orderCancelledInfo =>

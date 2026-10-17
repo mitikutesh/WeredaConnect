@@ -309,6 +309,19 @@ export class MonitoringStack extends cdk.Stack {
       metricValue: '1',
       defaultValue: 0,
     });
+    // ESC-09: the hourly order-money sweep logs one line when an order does not show what its
+    // escrow's money says and it cannot fix it: write_failed (every run once the money moved
+    // more than two hours ago), cannot_follow and order_ahead (once per escrow), sweep_truncated
+    // (a cycle unfinished after 24 hours) and sweep_failed. escrow-cron only: the inline follow after each payout logs
+    // ORDER_MONEY_FOLLOW_DEFERRED (not counted) and the sweep repairs it.
+    new logs.MetricFilter(this, 'OrderMoneyMismatchFilter', {
+      logGroup: escrowCronLogGroup,
+      filterPattern: logs.FilterPattern.literal('"ORDER_MONEY_MISMATCH"'),
+      metricNamespace,
+      metricName: 'OrderMoneyMismatch',
+      metricValue: '1',
+      defaultValue: 0,
+    });
 
     // ─── CloudWatch Dashboard ────────────────────────────────────────
     const dashboard = new cloudwatch.Dashboard(this, 'Dashboard', {
@@ -949,6 +962,23 @@ export class MonitoringStack extends cdk.Stack {
         'verdict can follow, or settle the case by hand, then the next sweep settles it (ESC-03).',
     );
 
+    const orderMoneyMismatchAlarm = moneyLogAlarm(
+      'OrderMoneyMismatch',
+      'order-money-mismatch',
+      'OrderMoneyMismatch',
+      'Order Money Mismatch',
+      'An order does not show what its escrow\'s money says and the hourly order-money sweep ' +
+        'could not fix it (ORDER_MONEY_MISMATCH in the escrow-cron log group: orderId, escrowId, ' +
+        'orderStatus, escrowStatus, reason; ESC-09). write_failed: the order could follow but its ' +
+        'writes keep failing (throttling, IAM); fix the cause, the next run retries. cannot_follow: ' +
+        'money moved that the order cannot show (a refund behind a delivered order, a payout before ' +
+        'delivery). order_ahead: the order is disbursing or settled over money that did not move. ' +
+        'Both are logged once per escrow (escrow-audit order_money_mismatch or order_money_ahead, ' +
+        'and a row on the order timeline): read them, never edit rows by hand, escalate (FUP-16). ' +
+        'sweep_truncated: a sweep cycle, resumed from a cursor, is unfinished 24 hours after it ' +
+        'started; check escrow-cron duration and throttles. sweep_failed: a page query failed.',
+    );
+
     // Persistence alarm: one blocked run is a transient retry, a block in three of four hourly
     // periods is a stuck refund or payout. Three of four, not three of three: EscrowCronHourly is
     // rate(1 hour), so jitter near the top of the hour can leave one clock-hour with no line and
@@ -1193,6 +1223,7 @@ export class MonitoringStack extends cdk.Stack {
           adminQueueOverdueAlarm,
           disputeVerdictMismatchAlarm,
           disputeSettlementBlockedAlarm,
+          orderMoneyMismatchAlarm,
           ...(orderPaymentProblemsAlarm ? [orderPaymentProblemsAlarm] : []),
         ],
         width: 24,

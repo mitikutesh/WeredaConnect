@@ -1722,7 +1722,7 @@ class _RecentActivityListState extends State<_RecentActivityList> {
                 o.status,
               ),
               timestamp: o.createdAt,
-              type: o.status == OrderStatus.delivered
+              type: isDeliveredOrderActivity(o.status)
                   ? _ActivityType.success
                   : _ActivityType.pending,
             ),
@@ -1832,7 +1832,7 @@ class _RecentActivityListState extends State<_RecentActivityList> {
               description: orderActivityDescription(l10n, cropType, status),
               timestamp: DateTime.tryParse(m['createdAt'] as String? ?? '') ??
                   DateTime.now(),
-              type: status == OrderStatus.delivered
+              type: isDeliveredOrderActivity(status)
                   ? _ActivityType.success
                   : _ActivityType.pending,
             ),
@@ -1967,6 +1967,13 @@ DeliveryStatus deliveryStatusFromApi(String? raw) {
     orElse: () => DeliveryStatus.pending,
   );
 }
+
+/// Whether a recent-activity order line shows the success mark: the goods
+/// arrived. ESC-09: after delivered the order follows its money to disbursing
+/// and settled, which are done trades too.
+@visibleForTesting
+bool isDeliveredOrderActivity(OrderStatus status) =>
+    deliveredOrderStatuses.contains(status);
 
 /// Recent-activity line for an order, with the status in the user's language.
 @visibleForTesting

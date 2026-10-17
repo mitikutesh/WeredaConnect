@@ -123,6 +123,29 @@ public interface IOrderRepository
     /// when any condition failed or the order is missing.
     /// </summary>
     Task<bool> TryMarkPaymentFailedAsync(string orderId, int expectedVersion, string nowIso);
+
+    /// <summary>
+    /// ESC-09: move the order from <paramref name="fromStatus"/> to <paramref name="toStatus"/> in one
+    /// write conditioned on the status (not on the caller's version), with <c>ADD version 1</c> and a
+    /// new <c>updatedAt</c>, like <see cref="TryMarkFundedAsync"/>. Returns the updated order, or null
+    /// when the order is missing or no longer <paramref name="fromStatus"/> (never creates a row).
+    /// </summary>
+    Task<Dictionary<string, object>?> TryAdvanceStatusAsync(string orderId, string fromStatus, string toStatus);
+
+    /// <summary>
+    /// ESC-09: one page of the <c>StatusCreatedAtIndex</c> partition for <paramref name="status"/>,
+    /// oldest first, without the rows the money sweep marked as decided at that status
+    /// (<see cref="OrderMoneyFields.SweepSkip"/>). <paramref name="limit"/> is the evaluation limit.
+    /// </summary>
+    Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryMoneySweepPageAsync(
+        string status, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey);
+
+    /// <summary>
+    /// ESC-09: mark the order as decided by the money sweep while it is still <paramref name="status"/>
+    /// (<see cref="OrderMoneyFields.SweepSkip"/>), without bumping <c>version</c> or <c>updatedAt</c>.
+    /// Returns false when the order is missing or its status moved on.
+    /// </summary>
+    Task<bool> TryMarkMoneySweepSkipAsync(string orderId, string status, string markedAt);
 }
 
 /// <summary>ESC-45 (D8): the server-only order field that holds an order for a pending payment.</summary>

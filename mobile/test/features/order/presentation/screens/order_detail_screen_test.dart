@@ -21,6 +21,8 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart'
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/order_detail_screen.dart';
+import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
+import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 class MockOrderBloc extends Mock implements OrderBloc {}
@@ -30,6 +32,10 @@ class MockAuthBloc extends Mock implements AuthBloc {}
 class MockDeliveryBloc extends Mock implements DeliveryBloc {}
 
 class MockDeliveryRepository extends Mock implements BaseDeliveryRepository {}
+
+class MockRatingBloc extends Mock implements RatingBloc {}
+
+class MockRatingRepository extends Mock implements BaseRatingRepository {}
 
 class FakeOrderEvent extends Fake implements OrderEvent {}
 
@@ -115,6 +121,7 @@ void main() {
   late MockDeliveryRepository deliveryRepo;
   late StreamController<DeliveryState> deliveryStream;
   late Delivery? activeDelivery;
+  late MockRatingBloc ratingBloc;
 
   setUpAll(() {
     registerFallbackValue(FakeOrderEvent());
@@ -126,6 +133,18 @@ void main() {
   });
 
   setUp(() {
+    // The buyer's rate section reads what was already rated (nothing yet).
+    ratingBloc = MockRatingBloc();
+    final ratingRepo = MockRatingRepository();
+    when(() => ratingBloc.repository).thenReturn(ratingRepo);
+    when(() => ratingBloc.stream).thenAnswer((_) => const Stream.empty());
+    when(
+      () => ratingRepo.hasRated(
+        orderId: any(named: 'orderId'),
+        rateeId: any(named: 'rateeId'),
+      ),
+    ).thenAnswer((_) async => false);
+
     orderBloc = MockOrderBloc();
     authBloc = MockAuthBloc();
     deliveryBloc = MockDeliveryBloc();
@@ -183,6 +202,7 @@ void main() {
         BlocProvider<OrderBloc>.value(value: orderBloc),
         BlocProvider<AuthBloc>.value(value: authBloc),
         BlocProvider<DeliveryBloc>.value(value: deliveryBloc),
+        BlocProvider<RatingBloc>.value(value: ratingBloc),
       ],
       child: const MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -639,6 +659,60 @@ void main() {
 
       expect(find.text('Cancel Order'), findsOneWidget);
       expect(find.text('Collect by'), findsNothing);
+    });
+  });
+
+  group('OrderDetailScreen rating (ESC-09)', () {
+    // The order follows its money after delivery; disbursing can last days
+    // while a manual payout waits, so the buyer may rate during it.
+    // Tall enough that the whole detail list is built (it is lazy).
+    void tallView(WidgetTester tester) {
+      tester.view.physicalSize = const Size(1000, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+    }
+
+    for (final status in [
+      OrderStatus.delivered,
+      OrderStatus.disbursing,
+      OrderStatus.settled,
+    ]) {
+      testWidgets('buyer can rate the farmer on a ${status.name} order',
+          (tester) async {
+        tallView(tester);
+        stubAuth(UserRole.buyer, _buyerId);
+        await tester.pumpWidget(buildScreen(_makeOrder(status: status)));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Rate Farmer'), findsOneWidget);
+      });
+    }
+
+    for (final status in [
+      OrderStatus.inTransit,
+      OrderStatus.disputed,
+      OrderStatus.disputeResolved,
+    ]) {
+      testWidgets('buyer cannot rate a ${status.name} order', (tester) async {
+        tallView(tester);
+        stubAuth(UserRole.buyer, _buyerId);
+        await tester.pumpWidget(buildScreen(_makeOrder(status: status)));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Rate Farmer'), findsNothing);
+      });
+    }
+
+    testWidgets('the farmer never sees the rate section on a disbursing order',
+        (tester) async {
+      tallView(tester);
+      stubAuth(UserRole.farmer, _farmerId);
+      await tester.pumpWidget(
+        buildScreen(_makeOrder(status: OrderStatus.disbursing)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Rate Farmer'), findsNothing);
     });
   });
 }

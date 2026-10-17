@@ -2188,11 +2188,11 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get statusDisbursingInfo =>
-      'Maallaqni eskiroo irraa gara qonnaan bulaatti gadhiifamaa jira.';
+      'Maallaqni eskiroo irraa ba\'aa jira: qonnaan bulaa fi, yoo jiraate, konkolaataa fe\'aatiif kaffalamaa jira.';
 
   @override
   String get statusSettledInfo =>
-      'Qonnaan bulaan maallaqa fudhateera. Ajajni xumurameera.';
+      'Hundi kaffalameera: qonnaan bulaa fi, yoo jiraate, konkolaataa fe\'aa. Ajajni xumurameera.';
 
   @override
   String get orderCancelledInfo =>

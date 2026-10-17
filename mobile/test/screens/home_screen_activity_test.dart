@@ -57,6 +57,15 @@ void main() {
     });
   });
 
+  group('delivered activity mark (ESC-09)', () {
+    test('delivered, disbursing and settled orders show the success mark', () {
+      expect(
+        OrderStatus.values.where(isDeliveredOrderActivity).toSet(),
+        {OrderStatus.delivered, OrderStatus.disbursing, OrderStatus.settled},
+      );
+    });
+  });
+
   group('activity descriptions (SIM-58)', () {
     final en = lookupAppLocalizations(const Locale('en'));
     final am = lookupAppLocalizations(const Locale('am'));

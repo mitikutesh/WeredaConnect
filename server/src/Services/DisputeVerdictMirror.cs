@@ -199,6 +199,114 @@ public sealed class DisputeVerdictMirror
         bool cancelBeforePickup = false)
     {
         var escrowId = Str(escrow, "escrowId") ?? "";
+        var (orderId, deliveryId, order, delivery, readError) = await ReadLegsAsync(escrow);
+        if (readError != null)
+        {
+            // Nothing is known about the order: the caller must not settle on this run.
+            return Result(VerdictLegOutcome.Unknown, readError, VerdictLegOutcome.Unknown, readError, orderId, deliveryId, null);
+        }
+
+        // Decide both legs before any write.
+        var cancelAllowed = cancelBeforePickup && resolution == "buyer_wins";
+        // A delivery the escrow or order names but that could not be read counts as unknown, never as "none".
+        var deliveryStatus = delivery != null ? Str(delivery, "status") : string.IsNullOrEmpty(deliveryId) ? null : "unknown";
+        var (orderPlan, orderReason) = PlanOrder(order, orderId, deliveryStatus, resolution, cancelAllowed);
+        var (deliveryPlan, deliveryReason) = PlanDelivery(delivery, deliveryId, resolution, orderPlan, cancelAllowed);
+        if (IsRefusal(orderPlan) || IsRefusal(deliveryPlan))
+        {
+            return Result(
+                IsWritePlan(orderPlan) ? VerdictLegOutcome.Skipped : orderPlan, orderReason,
+                IsWritePlan(deliveryPlan) ? VerdictLegOutcome.Skipped : deliveryPlan, deliveryReason,
+                orderId, deliveryId, order);
+        }
+
+        var transactionId = string.IsNullOrEmpty(orderId) ? escrowId : orderId;
+        if (orderPlan == VerdictLegOutcome.Cancelled || deliveryPlan == VerdictLegOutcome.Cancelled
+            || (orderPlan == VerdictLegOutcome.Closed && cancelAllowed))
+        {
+            return await CancelBeforePickupAsync(
+                order, orderId, orderPlan, delivery, deliveryId, deliveryPlan, transactionId, context, VerdictAuditTag);
+        }
+
+        var (orderOutcome, orderFailure) = orderPlan == VerdictLegOutcome.Resolved
+            ? await MoveOrderAsync(order!, orderId!, deliveryStatus, resolution, context)
+            : (orderPlan, null);
+        var (deliveryOutcome, deliveryFailure) = deliveryPlan == VerdictLegOutcome.Resolved
+            ? await MoveDeliveryAsync(delivery!, deliveryId!, escrow, resolution, resolvedAt, orderPlan, transactionId, context)
+            : (deliveryPlan, null);
+
+        return Result(orderOutcome, orderFailure, deliveryOutcome, deliveryFailure, orderId, deliveryId, order);
+    }
+
+    /// <summary>
+    /// ESC-09 Part B: before an admin refunds a plain <c>escrowed</c> order escrow, end an order that never
+    /// got going, as a <c>buyer_wins</c> refund does: an order <c>funded</c>, or <c>accepted</c> with no
+    /// delivery or a <c>pending</c> one, has its pending delivery cancelled first, then the order
+    /// (<c>cancelReason: escrow_refunded</c>), its slot freed and its stock restored. Returns the order leg
+    /// as <see cref="VerdictLegOutcome.Cancelled"/>, <see cref="VerdictLegOutcome.Blocked"/> (a write the
+    /// refund depends on did not land), <see cref="VerdictLegOutcome.Unknown"/> (a read failed),
+    /// <see cref="VerdictLegOutcome.Mismatch"/> (the goods are moving or the order is anything else) or
+    /// <see cref="VerdictLegOutcome.None"/> (no order). Never moves an order toward a dispute. Never throws.
+    /// </summary>
+    public async Task<DisputeVerdictMirrorResult> CancelBeforeRefundAsync(
+        Dictionary<string, object> escrow, ILambdaContext? context = null)
+    {
+        var escrowId = Str(escrow, "escrowId") ?? "";
+        var (orderId, deliveryId, order, delivery, readError) = await ReadLegsAsync(escrow);
+        if (readError != null)
+        {
+            return Result(VerdictLegOutcome.Unknown, readError, VerdictLegOutcome.Unknown, readError, orderId, deliveryId, null);
+        }
+
+        if (_orderRepo == null || string.IsNullOrEmpty(orderId))
+        {
+            return Result(VerdictLegOutcome.None, null, VerdictLegOutcome.None, null, orderId, deliveryId, null);
+        }
+
+        if (order == null)
+        {
+            return Result(VerdictLegOutcome.Missing, "missing", VerdictLegOutcome.None, null, orderId, deliveryId, null);
+        }
+
+        var status = Str(order, "status") ?? "";
+        var deliveryStatus = delivery != null ? Str(delivery, "status") : string.IsNullOrEmpty(deliveryId) ? null : "unknown";
+        if (!(status == "funded" || (status == "accepted" && deliveryStatus is null or "pending" or "cancelled")))
+        {
+            return Result(VerdictLegOutcome.Mismatch, $"mismatch:{status}", VerdictLegOutcome.None, null, orderId, deliveryId, order);
+        }
+
+        var (deliveryPlan, deliveryReason) = PlanDelivery(delivery, deliveryId, "buyer_wins", VerdictLegOutcome.Cancelled, cancelAllowed: true);
+        if (IsRefusal(deliveryPlan))
+        {
+            return Result(VerdictLegOutcome.Skipped, null, deliveryPlan, deliveryReason, orderId, deliveryId, order);
+        }
+
+        var transactionId = string.IsNullOrEmpty(orderId) ? escrowId : orderId;
+        return await CancelBeforePickupAsync(order, orderId, VerdictLegOutcome.Cancelled, delivery, deliveryId, deliveryPlan,
+            transactionId, context, AdminRefundAuditTag);
+    }
+
+    /// <summary>
+    /// ESC-09 Part B: give a cancelled order's quintals back before its refund (idempotent per order).
+    /// Null when the stock is back or there is nothing to give back, else the reason it is not.
+    /// </summary>
+    public async Task<string?> EnsureStockRestoredAsync(Dictionary<string, object> order)
+        => await RestoreStockAsync(order, Str(order, "orderId") ?? "");
+
+    /// <summary>The audit tag of the cancels a verdict makes (ESC-03).</summary>
+    private const string VerdictAuditTag = "resolution=buyer_wins";
+
+    /// <summary>The audit tag of the cancels an admin refund makes (ESC-09 Part B).</summary>
+    private const string AdminRefundAuditTag = "source=admin_refund";
+
+    /// <summary>
+    /// The escrow's order and delivery, strongly consistent: the order from the escrow (or its delivery),
+    /// and the order's active delivery, which wins over an earlier delivery the escrow may still name.
+    /// A read that throws gives the reason and nothing else is decided.
+    /// </summary>
+    private async Task<(string? OrderId, string? DeliveryId, Dictionary<string, object>? Order, Dictionary<string, object>? Delivery, string? Error)>
+        ReadLegsAsync(Dictionary<string, object> escrow)
+    {
         var orderId = Str(escrow, "orderId");
         var deliveryId = Str(escrow, "deliveryId");
         Dictionary<string, object>? order = null;
@@ -233,41 +341,10 @@ public sealed class DisputeVerdictMirror
         }
         catch (Exception ex)
         {
-            // Nothing is known about the order: the caller must not settle on this run.
-            var reason = $"read:[{ex.GetType().Name}]";
-            return Result(VerdictLegOutcome.Unknown, reason, VerdictLegOutcome.Unknown, reason, orderId, deliveryId, null);
+            return (orderId, deliveryId, null, null, $"read:[{ex.GetType().Name}]");
         }
 
-        // Decide both legs before any write.
-        var cancelAllowed = cancelBeforePickup && resolution == "buyer_wins";
-        // A delivery the escrow or order names but that could not be read counts as unknown, never as "none".
-        var deliveryStatus = delivery != null ? Str(delivery, "status") : string.IsNullOrEmpty(deliveryId) ? null : "unknown";
-        var (orderPlan, orderReason) = PlanOrder(order, orderId, deliveryStatus, resolution, cancelAllowed);
-        var (deliveryPlan, deliveryReason) = PlanDelivery(delivery, deliveryId, resolution, orderPlan, cancelAllowed);
-        if (IsRefusal(orderPlan) || IsRefusal(deliveryPlan))
-        {
-            return Result(
-                IsWritePlan(orderPlan) ? VerdictLegOutcome.Skipped : orderPlan, orderReason,
-                IsWritePlan(deliveryPlan) ? VerdictLegOutcome.Skipped : deliveryPlan, deliveryReason,
-                orderId, deliveryId, order);
-        }
-
-        var transactionId = string.IsNullOrEmpty(orderId) ? escrowId : orderId;
-        if (orderPlan == VerdictLegOutcome.Cancelled || deliveryPlan == VerdictLegOutcome.Cancelled
-            || (orderPlan == VerdictLegOutcome.Closed && cancelAllowed))
-        {
-            return await CancelBeforePickupAsync(
-                order, orderId, orderPlan, delivery, deliveryId, deliveryPlan, transactionId, context);
-        }
-
-        var (orderOutcome, orderFailure) = orderPlan == VerdictLegOutcome.Resolved
-            ? await MoveOrderAsync(order!, orderId!, deliveryStatus, resolution, context)
-            : (orderPlan, null);
-        var (deliveryOutcome, deliveryFailure) = deliveryPlan == VerdictLegOutcome.Resolved
-            ? await MoveDeliveryAsync(delivery!, deliveryId!, escrow, resolution, resolvedAt, orderPlan, transactionId, context)
-            : (deliveryPlan, null);
-
-        return Result(orderOutcome, orderFailure, deliveryOutcome, deliveryFailure, orderId, deliveryId, order);
+        return (orderId, deliveryId, order, delivery, null);
     }
 
     /// <summary>
@@ -502,7 +579,7 @@ public sealed class DisputeVerdictMirror
     private async Task<DisputeVerdictMirrorResult> CancelBeforePickupAsync(
         Dictionary<string, object>? order, string? orderId, VerdictLegOutcome orderPlan,
         Dictionary<string, object>? delivery, string? deliveryId, VerdictLegOutcome deliveryPlan,
-        string transactionId, ILambdaContext? context)
+        string transactionId, ILambdaContext? context, string auditTag)
     {
         var deliveryOutcome = deliveryPlan;
         string? deliveryReason = null;
@@ -514,7 +591,7 @@ public sealed class DisputeVerdictMirror
                 {
                     await TransactionAuditWriter.EmitAsync(_txAuditRepo, context, transactionId, "delivery", deliveryId!,
                         "delivery_cancelled", "pending", "cancelled", AuditContext.ForSystem(),
-                        metadata: "resolution=buyer_wins;reason=escrow_refunded");
+                        metadata: $"{auditTag};reason=escrow_refunded");
                 }
                 else
                 {
@@ -555,12 +632,12 @@ public sealed class DisputeVerdictMirror
             return Result(orderPlan, null, deliveryOutcome, deliveryReason, orderId, deliveryId, order);
         }
 
-        var (orderOutcome, orderReason, cancelled) = await CancelOrderAsync(order!, orderId!, deliveryId, context);
+        var (orderOutcome, orderReason, cancelled) = await CancelOrderAsync(order!, orderId!, deliveryId, context, auditTag);
         return Result(orderOutcome, orderReason, deliveryOutcome, deliveryReason, orderId, deliveryId, cancelled ?? order);
     }
 
     private async Task<(VerdictLegOutcome, string?, Dictionary<string, object>?)> CancelOrderAsync(
-        Dictionary<string, object> order, string orderId, string? cancelledDeliveryId, ILambdaContext? context)
+        Dictionary<string, object> order, string orderId, string? cancelledDeliveryId, ILambdaContext? context, string auditTag)
     {
         try
         {
@@ -588,7 +665,7 @@ public sealed class DisputeVerdictMirror
                 {
                     await TransactionAuditWriter.EmitAsync(_txAuditRepo, context, orderId, "order", orderId,
                         "order_cancelled", status, "cancelled", AuditContext.ForSystem(),
-                        metadata: "resolution=buyer_wins;cancelReason=escrow_refunded");
+                        metadata: $"{auditTag};cancelReason=escrow_refunded");
                     await ReleaseDeliverySlotAsync(orderId, cancelledDeliveryId);
 
                     // The order is cancelled; a stock restore that did not land blocks this run's

@@ -2177,11 +2177,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get statusDisbursingInfo =>
-      'The money is being released from escrow to the farmer.';
+      'The money is leaving escrow: the farmer, and the trucker if there is one, are being paid.';
 
   @override
   String get statusSettledInfo =>
-      'The farmer has received the money. The order is complete.';
+      'Everyone has been paid: the farmer, and the trucker if there is one. The order is complete.';
 
   @override
   String get orderCancelledInfo =>
