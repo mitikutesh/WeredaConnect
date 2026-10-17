@@ -157,15 +157,43 @@ void main() {
     expect(find.text('+251911000002'), findsOneWidget);
   });
 
-  testWidgets('a cancelled order thread is read-only', (tester) async {
-    resolver.order = _order(OrderStatus.cancelled);
+  const acceptNote = 'Contact opens once the farmer accepts the order.';
+  const closedNote = 'Contact is closed for this conversation.';
+
+  // The note says when contact opens, or that it will not open again.
+  for (final (status, expected) in [
+    (OrderStatus.created, note),
+    (OrderStatus.paymentFailed, note),
+    (OrderStatus.funded, acceptNote),
+    (OrderStatus.cancelled, closedNote),
+    (OrderStatus.rejected, closedNote),
+    (OrderStatus.disputeResolved, closedNote),
+  ]) {
+    testWidgets('a ${status.name} order thread is read-only with its note',
+        (tester) async {
+      resolver.order = _order(status);
+
+      await tester.pumpWidget(buildScreen('order', 'order-1'));
+      await tester.pumpAndSettle();
+
+      expect(find.text(expected), findsOneWidget);
+      for (final other in {note, acceptNote, closedNote}..remove(expected)) {
+        expect(find.text(other), findsNothing, reason: other);
+      }
+      expect(find.byType(TextField), findsNothing);
+      expect(find.byIcon(Icons.call_outlined), findsNothing);
+    });
+  }
+
+  testWidgets('an open status refunded by an admin override says closed',
+      (tester) async {
+    resolver.order = _order(OrderStatus.delivered)..contactOpen = false;
 
     await tester.pumpWidget(buildScreen('order', 'order-1'));
     await tester.pumpAndSettle();
 
-    expect(find.text(note), findsOneWidget);
+    expect(find.text(closedNote), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
-    expect(find.byIcon(Icons.call_outlined), findsNothing);
   });
 
   testWidgets('an order not on the device keeps the composer, no Call',

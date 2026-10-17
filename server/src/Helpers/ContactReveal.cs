@@ -35,7 +35,7 @@ public static class ContactReveal
     /// Fraud signal written when a buyer cancels after a transport failure an order whose contact
     /// had opened (the parties could have met and agreed to trade off the platform).
     /// </summary>
-    public const string TransportCancelSignal = "contact_then_transport_cancel";
+    public const string TransportCancelSignal = "CONTACT_THEN_TRANSPORT_CANCEL";
 
     /// <summary>Whether the parties of this order row may see each other's phone and message each other.</summary>
     public static bool IsOpen(IReadOnlyDictionary<string, object> order)

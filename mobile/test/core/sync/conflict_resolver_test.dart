@@ -87,15 +87,18 @@ void main() {
         expect(order.version, 5);
       });
 
-      // ESC-48: /sync rows carry no contact flag; a closed status drops the
-      // phones the last pull left on the device.
-      for (final (status, keepsPhones) in [
-        ('cancelled', false),
-        ('in_transit', true),
+      // ESC-48: /sync rows carry no contact flag; a closed status, or an
+      // admin override refund on an open status, drops the phones the last
+      // pull left on the device.
+      for (final (status, overrideFlag, keepsPhones) in [
+        ('cancelled', null, false),
+        ('in_transit', null, true),
+        ('in_transit', 'refundOverrideAt', false),
+        ('in_transit', 'disputeOverrideAt', false),
       ]) {
         test(
-            'a $status server row ${keepsPhones ? 'keeps' : 'drops'} the '
-            'phones', () async {
+            'a $status server row${overrideFlag == null ? '' : ' with $overrideFlag'} '
+            '${keepsPhones ? 'keeps' : 'drops'} the phones', () async {
           await isar.writeTxn(() async {
             await isar.orders.put(
               Order()
@@ -143,6 +146,7 @@ void main() {
               'totalPrice': 22750,
               'status': status,
               'createdAt': '2026-10-01T08:00:00Z',
+              if (overrideFlag != null) overrideFlag: '2026-10-16T08:00:00Z',
             },
             serverVersion: 6,
           );
@@ -151,7 +155,9 @@ void main() {
               .filter()
               .orderIdEqualTo('order-002')
               .findFirst();
-          expect(order!.contactOpen, isNull);
+          // An override refund closes contact for good; otherwise the next
+          // pull decides (null: the status set rules until then).
+          expect(order!.contactOpen, overrideFlag == null ? isNull : isFalse);
           expect(order.farmerPhone, keepsPhones ? '+251911000002' : isNull);
           expect(order.buyerPhone, keepsPhones ? '+251911000001' : isNull);
         });

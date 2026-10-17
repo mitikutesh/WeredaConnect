@@ -179,7 +179,7 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.deliveryDisputeRefused => l10n.deliveryErrorDisputeRefused,
     AppErrorCode.deliveryDisputeExpired => l10n.deliveryErrorDisputeExpired,
     AppErrorCode.orderCancelNotAllowed => l10n.errorOrderCancelNotAllowed,
-    AppErrorCode.contactLocked => l10n.contactAfterEscrowNote,
+    AppErrorCode.contactLocked => l10n.contactClosedNote,
     AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||

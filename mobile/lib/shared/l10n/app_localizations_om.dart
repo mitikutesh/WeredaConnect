@@ -2671,6 +2671,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get contactTrucker => 'Konkolaachisaa Quunnamuu';
 
   @override
+  String get contactClosedNote => 'Quunnamtiin haasaa kanaaf cufameera.';
+
+  @override
   String get newMessage => 'Ergaa haaraa';
 
   @override

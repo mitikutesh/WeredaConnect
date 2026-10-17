@@ -4918,6 +4918,12 @@ abstract class AppLocalizations {
   /// **'Contact Trucker'**
   String get contactTrucker;
 
+  /// ESC-48: shown in a chat thread whose order was cancelled, rejected or refunded, and when a message is refused because contact is not open
+  ///
+  /// In en, this message translates to:
+  /// **'Contact is closed for this conversation.'**
+  String get contactClosedNote;
+
   /// Title of the in-app banner shown when a chat message arrives
   ///
   /// In en, this message translates to:

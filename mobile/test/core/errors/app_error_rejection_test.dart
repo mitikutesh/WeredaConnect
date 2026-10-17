@@ -338,12 +338,14 @@ void main() {
       );
     });
 
-    test('reads like the note on the screens, in all three languages',
-        () async {
+    test(
+        'says contact is closed (the refusal does not say why) in all three '
+        'languages', () async {
       for (final locale in ['en', 'am', 'om']) {
         final l10n = await AppLocalizations.delegate.load(Locale(locale));
         final text = localizeErrorCode(AppErrorCode.contactLocked, l10n);
-        expect(text, l10n.contactAfterEscrowNote, reason: locale);
+        expect(text, l10n.contactClosedNote, reason: locale);
+        expect(text, isNot(l10n.contactAfterEscrowNote), reason: locale);
         expect(text, isNot(l10n.errorChangeNotSaved), reason: locale);
       }
     });

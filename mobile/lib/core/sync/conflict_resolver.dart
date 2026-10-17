@@ -330,6 +330,10 @@ class ConflictResolver {
     }
   }
 
+  /// Whether a `/sync` row field holds a value (a non-empty string).
+  static bool _hasValue(Object? value) =>
+      value != null && value.toString().isNotEmpty;
+
   /// Resolve an Order conflict by accepting server version.
   Future<Map<String, dynamic>> _resolveOrder(
     SyncOperation operation,
@@ -409,10 +413,16 @@ class ConflictResolver {
             (serverData['commissionAmount'] as num?)?.toDouble();
         order!.orderTotal = (serverData['orderTotal'] as num?)?.toDouble();
 
-        // ESC-48: /sync rows carry no contact flag or phones. The status set
-        // decides until the next pull, and a closed status drops the phones.
-        order!.contactOpen = serverData['contactOpen'] as bool?;
-        if (!contactOpenOrderStatuses.contains(order!.status)) {
+        // ESC-48: /sync rows carry no contact flag or phones. An admin override
+        // refund leaves the order in an open status but flags the row, which
+        // closes contact; otherwise the status set decides until the next pull.
+        // A closed order drops the phones.
+        final refundedByOverride = _hasValue(serverData['refundOverrideAt']) ||
+            _hasValue(serverData['disputeOverrideAt']);
+        order!.contactOpen =
+            refundedByOverride ? false : serverData['contactOpen'] as bool?;
+        if (refundedByOverride ||
+            !contactOpenOrderStatuses.contains(order!.status)) {
           order!
             ..buyerPhone = null
             ..farmerPhone = null

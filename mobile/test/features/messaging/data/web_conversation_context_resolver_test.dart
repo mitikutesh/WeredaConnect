@@ -5,6 +5,7 @@ import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/messaging/data/web_conversation_context_resolver.dart';
+import 'package:wereda_connect/features/messaging/domain/conversation_context_resolver.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
 
@@ -199,6 +200,7 @@ void main() {
             await resolver.resolveContact('order', 'order-1', 'buyer-1');
         expect(contact.open, isFalse);
         expect(contact.phone, isNull);
+        expect(contact.closedReason, ContactClosedReason.closed);
       });
 
       test('a delivery thread reads its order', () async {

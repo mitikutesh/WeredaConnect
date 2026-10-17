@@ -2495,6 +2495,7 @@
   "contactAfterAcceptNote": "ገበሬው ትዕዛዙን ከተቀበለ በኋላ መገናኘት ይቻላል።",
   "contactBuyer": "ገዢውን አግኝ",
   "contactTrucker": "አሽከርካሪውን አግኝ",
+  "contactClosedNote": "ለዚህ ውይይት መገናኘት ተዘግቷል።",
   "newMessage": "አዲስ መልእክት",
   "newMessagesCount": "{count} አዲስ መልእክቶች",
   "messageContextCrop": "ሰብል",

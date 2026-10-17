@@ -2488,6 +2488,7 @@
   "contactAfterAcceptNote": "Quunnamtiin kan banamu erga qonnaan bulaan ajaja fudhatee booda.",
   "contactBuyer": "Bitaa Quunnamuu",
   "contactTrucker": "Konkolaachisaa Quunnamuu",
+  "contactClosedNote": "Quunnamtiin haasaa kanaaf cufameera.",
   "newMessage": "Ergaa haaraa",
   "newMessagesCount": "Ergaawwan haaraa {count}",
   "messageContextCrop": "Midhaan",

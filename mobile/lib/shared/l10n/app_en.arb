@@ -3336,6 +3336,10 @@
   "@contactTrucker": {
     "description": "ESC-48: order detail button that opens Call, Copy and Message for the order's trucker"
   },
+  "contactClosedNote": "Contact is closed for this conversation.",
+  "@contactClosedNote": {
+    "description": "ESC-48: shown in a chat thread whose order was cancelled, rejected or refunded, and when a message is refused because contact is not open"
+  },
   "newMessage": "New message",
   "@newMessage": {
     "description": "Title of the in-app banner shown when a chat message arrives"

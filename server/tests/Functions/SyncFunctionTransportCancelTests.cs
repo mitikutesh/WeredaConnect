@@ -276,7 +276,7 @@ public class SyncFunctionTransportCancelTests
 
         result.GetProperty("status").GetString().Should().Be("success");
         await _fraud.Received(1).RecordFraudSignalAsync(
-            BuyerId, "contact_then_transport_cancel", OrderId, "order",
+            BuyerId, "CONTACT_THEN_TRANSPORT_CANCEL", OrderId, "order",
             Arg.Is<string?>(d => d != null && d.Contains(FarmerId) && !d.Contains("+251")));
     }
 

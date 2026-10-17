@@ -2576,6 +2576,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get contactTrucker => 'አሽከርካሪውን አግኝ';
 
   @override
+  String get contactClosedNote => 'ለዚህ ውይይት መገናኘት ተዘግቷል።';
+
+  @override
   String get newMessage => 'አዲስ መልእክት';
 
   @override

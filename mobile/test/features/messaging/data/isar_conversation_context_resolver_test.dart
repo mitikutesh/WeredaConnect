@@ -8,6 +8,7 @@ import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/order.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/features/messaging/data/isar_conversation_context_resolver.dart';
+import 'package:wereda_connect/features/messaging/domain/conversation_context_resolver.dart';
 
 void main() {
   group('IsarConversationContextResolver', () {
@@ -183,10 +184,10 @@ void main() {
             ..truckerPhone = '+251911000003';
 
       test('crop and trip threads are closed', () async {
-        expect(
-          (await resolver.resolveContact('crop', 'crop-1', 'farmer-1')).open,
-          isFalse,
-        );
+        final crop =
+            await resolver.resolveContact('crop', 'crop-1', 'farmer-1');
+        expect(crop.open, isFalse);
+        expect(crop.closedReason, ContactClosedReason.beforePayment);
         expect(
           (await resolver.resolveContact('trip', 'trip-1', 'trucker-1')).open,
           isFalse,
@@ -211,6 +212,35 @@ void main() {
             await resolver.resolveContact('order', 'order-1', 'farmer-1');
         expect(contact.open, isFalse);
         expect(contact.phone, isNull);
+        expect(contact.closedReason, ContactClosedReason.closed);
+      });
+
+      test('a funded order waits for the accept, an unpaid one for payment',
+          () async {
+        await isar.writeTxn(
+          () async => isar.orders.put(order(status: OrderStatus.funded)),
+        );
+        expect(
+          (await resolver.resolveContact('order', 'order-1', 'farmer-1'))
+              .closedReason,
+          ContactClosedReason.beforeAccept,
+        );
+
+        await isar.writeTxn(
+          () async => isar.orders.put(
+            order(status: OrderStatus.created)
+              ..id = (await isar.orders
+                      .filter()
+                      .orderIdEqualTo('order-1')
+                      .findFirst())!
+                  .id,
+          ),
+        );
+        expect(
+          (await resolver.resolveContact('order', 'order-1', 'farmer-1'))
+              .closedReason,
+          ContactClosedReason.beforePayment,
+        );
       });
 
       test('a delivery thread follows the delivery\'s order', () async {

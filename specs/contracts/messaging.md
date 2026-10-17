@@ -168,10 +168,14 @@ Contact (1.2.0, ESC-48): the conversation screen asks the context resolver for
 the contact of the thread (uncached, the order status changes): crop and trip
 threads are closed; an order thread follows the order's `contactOpen` (falling
 back to its status when the order row has none); a delivery thread follows the
-delivery's order. A closed thread is read-only with a short note ("Contact
-opens after payment is held in escrow"); the Call action shows only when the
-contact is open and the order carries the counterpart's phone. An unresolvable
-context keeps the composer (the server decides).
+delivery's order. A closed thread is read-only with a short note that says when
+contact opens or that it stays closed: "Contact opens after payment is held in
+escrow" (crop and trip threads, an unpaid order), "Contact opens once the farmer
+accepts the order" (a funded order), "Contact is closed for this conversation"
+(cancelled, rejected, a decided dispute, an admin override refund). The Call
+action shows only when the contact is open and the order carries the
+counterpart's phone. An unresolvable context keeps the composer (the server
+decides).
 
 ## Known limitations / deferrals
 

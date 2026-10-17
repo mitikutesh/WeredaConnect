@@ -95,6 +95,7 @@ public class SyncFunctionDeliveryRulesTests
 
         result.GetProperty("status").GetString().Should().Be("success");
         result.GetProperty("serverVersion").GetInt32().Should().Be(4);
+        NoPhones(result.GetProperty("serverData"));
         await _dynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
             r.TableName == DeliveriesTable
             && r.Key["tripId"].S == TripId
@@ -160,6 +161,7 @@ public class SyncFunctionDeliveryRulesTests
         result.GetProperty("status").GetString().Should().Be("conflict");
         result.GetProperty("serverVersion").GetInt32().Should().Be(5);
         result.GetProperty("serverData").GetProperty("status").GetString().Should().Be("cancelled");
+        NoPhones(result.GetProperty("serverData"));
         await NothingChanged();
     }
 
@@ -261,6 +263,7 @@ public class SyncFunctionDeliveryRulesTests
         {
             result.GetProperty("serverVersion").GetInt32().Should().Be(3);
             result.GetProperty("serverData").GetProperty("status").GetString().Should().Be(freshStatus);
+            NoPhones(result.GetProperty("serverData"));
         }
 
         await _orders.DidNotReceive().ReleaseDeliverySlotAsync(Arg.Any<string>(), Arg.Any<string>());
@@ -337,8 +340,11 @@ public class SyncFunctionDeliveryRulesTests
         await _orders.Received(1).TryCreateDeliveryWithSlotAsync(
             OrderId, DeliveriesTable,
             Arg.Is<Dictionary<string, AttributeValue>>(item =>
-                item["deliveryId"].S == DeliveryId && item["tripId"].S == TripId && item["status"].S == "pending"),
+                item["deliveryId"].S == DeliveryId && item["tripId"].S == TripId && item["status"].S == "pending"
+                && item["buyerPhone"].S == "+251900100000"),
             Arg.Is<DeliverySlotHolder?>(h => h == null));
+        // ESC-48: the phones are stored for the admin view, never echoed to the creator.
+        NoPhones(result.GetProperty("serverData"));
     }
 
     [Fact]
@@ -425,6 +431,7 @@ public class SyncFunctionDeliveryRulesTests
 
         result.GetProperty("status").GetString().Should().Be("conflict");
         result.GetProperty("serverData").GetProperty("deliveryId").GetString().Should().Be(DeliveryId);
+        NoPhones(result.GetProperty("serverData"));
     }
 
     [Fact]
@@ -574,8 +581,11 @@ public class SyncFunctionDeliveryRulesTests
         { "orderId", new AttributeValue { S = OrderId } },
         { "listingId", new AttributeValue { S = ListingId } },
         { "farmerId", new AttributeValue { S = FarmerId } },
+        { "farmerPhone", new AttributeValue { S = "+251911111111" } },
         { "truckerId", new AttributeValue { S = TruckerId } },
+        { "truckerPhone", new AttributeValue { S = "+251922222222" } },
         { "buyerId", new AttributeValue { S = BuyerId } },
+        { "buyerPhone", new AttributeValue { S = "+251933333333" } },
         { "status", new AttributeValue { S = status } },
         { "createdAt", new AttributeValue { S = "2026-10-09T08:00:00Z" } },
         { "version", new AttributeValue { N = version.ToString() } }
@@ -754,6 +764,16 @@ public class SyncFunctionDeliveryRulesTests
         var response = await _function.FunctionHandler(request, _context);
         response.StatusCode.Should().Be(200, response.Body);
         return JsonDocument.Parse(response.Body).RootElement.GetProperty("results")[0].Clone();
+    }
+
+    /// <summary>ESC-48: a delivery row in /sync data carries no party's phone.</summary>
+    private static void NoPhones(JsonElement serverData)
+    {
+        serverData.ValueKind.Should().Be(JsonValueKind.Object);
+        foreach (var field in new[] { "farmerPhone", "truckerPhone", "buyerPhone" })
+        {
+            serverData.TryGetProperty(field, out _).Should().BeFalse(field);
+        }
     }
 
     private async Task NothingChanged()

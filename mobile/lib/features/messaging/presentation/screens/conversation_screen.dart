@@ -282,7 +282,14 @@ class _ConversationViewState extends State<_ConversationView> {
               top: false,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                child: ContactLockedNote(text: l10n.contactAfterEscrowNote),
+                child: ContactLockedNote(
+                  text: switch (_contact.closedReason) {
+                    ContactClosedReason.beforeAccept =>
+                      l10n.contactAfterAcceptNote,
+                    ContactClosedReason.closed => l10n.contactClosedNote,
+                    _ => l10n.contactAfterEscrowNote,
+                  },
+                ),
               ),
             )
           else

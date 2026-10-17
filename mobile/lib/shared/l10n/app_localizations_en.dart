@@ -2653,6 +2653,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get contactTrucker => 'Contact Trucker';
 
   @override
+  String get contactClosedNote => 'Contact is closed for this conversation.';
+
+  @override
   String get newMessage => 'New message';
 
   @override

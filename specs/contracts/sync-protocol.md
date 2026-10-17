@@ -422,7 +422,7 @@ answers `duplicate` instead.
 
 | Server answer | Mobile client (sync queue) | Web client |
 |---|---|---|
-| `MESSAGE_CONTACT_LOCKED:` | Permanent: mark the operation rejected (never resent), remove the local copy of the message (the server never stored it), explain it in en, am and om with the same note the screens show ("Contact opens after payment is held in escrow."). Counted as failed like other non-order rejections. | Failure with the same message; nothing is cached. |
+| `MESSAGE_CONTACT_LOCKED:` | Permanent: mark the operation rejected (never resent), remove the local copy of the message (the server never stored it), explain it in en, am and om ("Contact is closed for this conversation.": the refusal does not say why, so the text does not guess). Counted as failed like other non-order rejections. | Failure with the same message; nothing is cached. |
 | unprefixed error (the order could not be read) | Retried. | Failure (generic message). |
 
 Clients from before 1.15.0 do not know the code: they retry it like any other error (up to three

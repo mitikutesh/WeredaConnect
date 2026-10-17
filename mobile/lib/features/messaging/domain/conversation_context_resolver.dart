@@ -100,15 +100,27 @@ abstract class ConversationContextResolver {
     String counterpartId,
   ) async {
     if (contextType == 'crop' || contextType == 'trip') {
-      return ConversationContact.closed;
+      return const ConversationContact(
+        open: false,
+        closedReason: ContactClosedReason.beforePayment,
+      );
     }
     try {
       final order = await lookupContactOrder(contextType, contextId);
       if (order == null) return ConversationContact.unknown;
-      final open = isOrderContactOpen(order);
+      if (isOrderContactOpen(order)) {
+        return ConversationContact(
+          open: true,
+          phone: orderPartyPhone(order, counterpartId),
+        );
+      }
       return ConversationContact(
-        open: open,
-        phone: open ? orderPartyPhone(order, counterpartId) : null,
+        open: false,
+        closedReason: order.status == OrderStatus.funded
+            ? ContactClosedReason.beforeAccept
+            : contactNotYetOpenOrderStatuses.contains(order.status)
+                ? ContactClosedReason.beforePayment
+                : ContactClosedReason.closed,
       );
     } on Object {
       return ConversationContact.unknown;
@@ -118,6 +130,19 @@ abstract class ConversationContextResolver {
   /// The order behind an `order` or `delivery` thread, or null when it is not
   /// reachable (not synced, offline on web). May throw.
   Future<Order?> lookupContactOrder(String contextType, String contextId);
+}
+
+/// ESC-48: why a conversation takes no new messages, so the screen can say
+/// when (or whether) contact opens.
+enum ContactClosedReason {
+  /// Before any order is paid (every crop and trip thread, an unpaid order).
+  beforePayment,
+
+  /// The order is paid but the farmer has not accepted it yet.
+  beforeAccept,
+
+  /// The money went back or the dispute was decided: contact stays closed.
+  closed,
 }
 
 /// ESC-48: the contact state of a conversation.
@@ -130,8 +155,14 @@ class ConversationContact {
   /// The counterpart's number, only on an open order that carries it.
   final String? phone;
 
-  const ConversationContact({required this.open, this.phone});
+  /// Why the thread is closed; null unless [open] is false.
+  final ContactClosedReason? closedReason;
+
+  const ConversationContact({
+    required this.open,
+    this.phone,
+    this.closedReason,
+  });
 
   static const unknown = ConversationContact(open: null);
-  static const closed = ConversationContact(open: false);
 }
