@@ -1,7 +1,7 @@
 # Authentication API Contract
 
 ## Version
-2.7.0
+2.8.0
 
 ## Parties
 - **Mobile** (client) -- registers users, authenticates online/offline, manages cached tokens
@@ -794,6 +794,14 @@ row, never returned to clients).
 **Disputes** on escrows at or above `STEP_UP_THRESHOLD_ETB` (default 10,000) need a fresh
 password (`AUTH_040`).
 
+A `/sync` delivery dispute is sized by its order's `orderTotal`, rounded to the cent as the
+escrow amount is (2.8.0, FUP-26). The check never fails open: when the order is missing, or its
+total is missing, unreadable, zero or negative, the fresh password is needed at any amount; a
+legacy delivery without an `orderId` is sized by the escrow on its `DeliveryIndex`, rounded and
+with the same rule for an amount that is missing, unreadable, zero or negative (none: no
+step-up, nothing is frozen). When the order or that escrow cannot be read, the operation answers
+`DELIVERY_DISPUTE_RETRY: ...` before the escrow freeze, and nothing is written.
+
 | Where | Response |
 |-------|----------|
 | `POST /escrow/initiate` (payment tiers) | `403 {error:{code:"AUTH_040"}}` or `403 {error:{code:"AUTH_041"}}` |
@@ -885,6 +893,7 @@ so a failed or refused verification leaves the payment blocked.
 |---------|------|--------|
 | 1.0.0 | 2026-02-12 | Initial contract: registration, OTP, login, refresh, logout, offline auth, rate limits |
 | 2.0.0 | 2026-03-02 | Replace SMS OTP with Fayda OIDC: add `POST /auth/fayda-verify`, remove `POST /auth/verify-otp`, registration returns tokens directly, add FAYDA_001-004 error codes, remove AUTH_009-012 |
+| 2.8.0 | 2026-10-17 | The `/sync` delivery dispute step-up fails closed (FUP-26): an order (or a legacy delivery's escrow) that cannot be read answers `DELIVERY_DISPUTE_RETRY` and nothing is written, where the step-up was skipped before; a missing order, or a missing, unreadable, zero or negative total, needs the fresh password at any amount; a legacy delivery without an `orderId` is sized by its `DeliveryIndex` escrow; the total is rounded to the cent like the escrow amount |
 | 2.7.0 | 2026-10-06 | Logout is bound to the caller (SIM-60): the refresh token's owner is resolved with `InitiateAuth REFRESH_TOKEN_AUTH` and must equal the bearer's `sub`, else `403 AUTH_026` and nothing is revoked; an inactive token answers `200` without a revoke; `503 AUTH_008` when Cognito is unavailable. The `/auth/logout` integration moved to payload 1.0 so the handler sees the claims |
 | 2.6.0 | 2026-10-06 | Risk tier step-up (planned FRD-04): `AUTH_040` at any amount for MEDIUM, `AUTH_041` then `AUTH_040` at any amount for HIGH, new `FRAUD_ACCOUNT_HELD` (403) for CRITICAL on payments and on crop, trip and order create; `AUTH_041` text amount-neutral; header version corrected (it read 2.3.0 while the footer read 2.4.0) |
 | 2.4.0 | 2026-09-29 | Payment step-up is tiered: up to 10,000 ETB a fresh password (`AUTH_040`, now on every payment, not only large ones); above 10,000 ETB a fresh Fayda login instead (`AUTH_041`), recorded by each successful `POST /user/fayda-link`. Disputes unchanged |
@@ -894,5 +903,5 @@ so a failed or refused verification leaves the payment blocked.
 
 ---
 
-**Last Updated**: 2026-10-06
-**Version**: 2.7.0
+**Last Updated**: 2026-10-17
+**Version**: 2.8.0

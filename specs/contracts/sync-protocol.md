@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.13.0
+1.14.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -256,7 +256,7 @@ yours" and drops the operation.
 
 | Message prefix | Meaning | Client action |
 |----------------|---------|---------------|
-| `AUTH_040:` | fresh password needed (order `payment_submitted` up to 10,000 ETB, delivery `disputed` on large orders) | keep the operation pending, re-authenticate, sync again |
+| `AUTH_040:` | fresh password needed (order `payment_submitted` up to 10,000 ETB, delivery `disputed` on large orders, or with the order or a usable total missing, since 1.14.0) | keep the operation pending, re-authenticate, sync again |
 | `AUTH_041:` | fresh Fayda login needed (order `payment_submitted` above 10,000 ETB; 1.6.0) | keep the operation pending, run the Fayda link flow, sync again |
 | `ORDER_KYC_REQUIRED:` | phone or Fayda verification missing for this payment | revert the local order status; see the reason below |
 
@@ -372,7 +372,7 @@ it, and clients since 1.10.0 revert it like any `ORDER_*` refusal.
 | `success` | Synced. | Done. |
 | `DELIVERY_DISPUTE_REFUSED:` (the payment is queued for an admin payout, being settled or no longer held, the order's payment belongs to another delivery, or no payment is on record for the order) | Permanent: mark the operation rejected and revert the local delivery exactly as for `DELIVERY_CANCEL_NOT_ALLOWED` (re-read `GET /deliveries/{id}`, server wins; else the lowest sent version). Explained in en, am and om with one neutral text for every reason ("This dispute can't be opened right now. Contact support."). | Shows the same message. |
 | `DELIVERY_DISPUTE_EXPIRED:` (after the 48-hour window) | Permanent since 1.12.0, reverted the same way, explained with the existing "Dispute window has expired" text. Before 1.12.0 it was retried and the local row stayed `disputed`. | Shows the same message. |
-| `DELIVERY_DISPUTE_RETRY:` (the freeze could not be decided) | Transient: marked failed and retried, nothing was written. | Failure (generic message); the user can try again. |
+| `DELIVERY_DISPUTE_RETRY:` (the order or escrow the step-up is sized by could not be read, since 1.14.0, or the freeze could not be decided) | Transient: marked failed and retried, nothing was written. | Failure (generic message); the user can try again. |
 | `conflict` with the row | Server wins, as for any conflict. The row may already show `disputed`: when the delivery changed after the version check but the payment was frozen, or the delivery was already disputed (a retry after the server stopped between the delivery and the order write, or the other party's dispute), the server finishes the freeze and the order and answers `conflict` with the disputed row; nothing is written to the delivery again. | The row in the answer decides: `disputed` means the dispute is done, anything else is a failure; an answer without a row falls back to a re-read. |
 | error after a successful freeze (for example a throttled delivery write) | Retried; the retry finds the payment already frozen and finishes the delivery and order. | Failure; the user's next try finishes it the same way. |
 
@@ -414,6 +414,7 @@ Clients older than 1.13.0 never send an `accepted -> cancelled` change.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.14.0 | 2026-10-17 | Delivery dispute step-up fails closed (FUP-26): when the order (or a legacy delivery's `DeliveryIndex` escrow) that sizes the step-up cannot be read, the dispute answers `DELIVERY_DISPUTE_RETRY` before the freeze and nothing is written (it was let through without the step-up); a missing order, or a total that is missing, unreadable, zero or negative, answers `AUTH_040` to a stale session at any amount; clients unchanged (`DELIVERY_DISPUTE_RETRY` retried, `AUTH_040` kept pending) |
 | 1.13.0 | 2026-10-10 | Order cancel refusal (ESC-06): `ORDER_CANCEL_NOT_ALLOWED` is sent for a buyer cancel of an `accepted` order before its pickup deadline, after pickup or while its money is being settled; permanent (server-clock dependent, never resent), its own localized message on mobile and web; the cancel's read and write failures are unprefixed and retried; a delivery create on an order that no longer takes one is refused with `DELIVERY_VALIDATION`; order rows carry `pickupDeadlineAt` |
 | 1.12.0 | 2026-10-10 | Delivery dispute (ESC-07): the server freezes the escrow before it writes a disputed delivery; new `DELIVERY_DISPUTE_REFUSED` (permanent, the mobile client reverts the delivery like a refused cancel and explains it in en, am and om with one neutral text) and `DELIVERY_DISPUTE_RETRY` (transient); `DELIVERY_DISPUTE_EXPIRED` becomes permanent and reverted; a conflict after a successful freeze, and a dispute for a delivery already disputed, carry the row already `disputed` (the order is finished first; web: the answer's row decides, else a re-read); a client order update to `disputed` is `ORDER_UNAUTHORIZED`; older clients resend a refusal on every reconnect, audited once a day |
 | 1.11.0 | 2026-10-09 | Delivery cancel (ESC-08): sent as `update {status, version}` by every party; `delete` still accepted under the same rules (old queued operations are not rewritten); `DELIVERY_CANCEL_NOT_ALLOWED` is permanent, the mobile client reverts the delivery (read-back, else the lowest sent version) and explains it in en, am and om; a cancel of a cancelled delivery answers `conflict` with the row (web: done when a re-read shows `cancelled`) |
@@ -430,5 +431,5 @@ Clients older than 1.13.0 never send an `accepted -> cancelled` change.
 
 ---
 
-**Last Updated**: 2026-10-10
-**Version**: 1.13.0
+**Last Updated**: 2026-10-17
+**Version**: 1.14.0

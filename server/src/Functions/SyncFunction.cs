@@ -4238,8 +4238,10 @@ public partial class SyncFunction
 
                                 // A dispute freezes the order's money: above the step-up
                                 // threshold it needs a fresh password (AUTH_040), like the
-                                // escrow dispute endpoint.
-                                var disputeStepUp = await CheckDeliveryDisputeStepUpAsync(existing);
+                                // escrow dispute endpoint. Decided before the freeze, so a
+                                // read failure (FUP-26) freezes and writes nothing.
+                                var disputeStepUp = await CheckDeliveryDisputeStepUpAsync(
+                                    existing, operation.EntityId, context);
                                 if (disputeStepUp != null)
                                 {
                                     return new SyncOperationResult
@@ -5976,6 +5978,10 @@ public partial class SyncFunction
     /// <summary>Sync error prefix for a delivery dispute whose freeze could not be decided (ESC-07): nothing was written, send it again.</summary>
     internal const string DeliveryDisputeRetryCode = "DELIVERY_DISPUTE_RETRY";
 
+    /// <summary>The whole retry answer: the freeze (ESC-07) or the step-up's reads (FUP-26) could not be decided.</summary>
+    private const string DeliveryDisputeRetryMessage =
+        $"{DeliveryDisputeRetryCode}: The dispute could not be recorded right now. It will be sent again.";
+
     /// <summary>
     /// ESC-07: the freeze a delivery dispute needs before its delivery write. Returns the result to
     /// answer with instead of writing (a stale version, a refused or undecided freeze), or the
@@ -6036,8 +6042,7 @@ public partial class SyncFunction
 
             context.Logger.LogError(
                 $"Dispute on delivery {MoneyAlarmLog.LogId(deliveryId)} not recorded: no escrow service is configured.");
-            return (DeliveryDisputeError(operation,
-                $"{DeliveryDisputeRetryCode}: The dispute could not be recorded right now. It will be sent again."), null);
+            return (DeliveryDisputeError(operation, DeliveryDisputeRetryMessage), null);
         }
 
         DeliveryDisputeFreezeResult freeze;
@@ -6049,8 +6054,7 @@ public partial class SyncFunction
         {
             context.Logger.LogWarning(
                 $"Freeze for disputed delivery {MoneyAlarmLog.LogId(deliveryId)} undecided, nothing written: [{ex.GetType().Name}] {MoneyAlarmLog.LogText(ex.Message)}");
-            return (DeliveryDisputeError(operation,
-                $"{DeliveryDisputeRetryCode}: The dispute could not be recorded right now. It will be sent again."), null);
+            return (DeliveryDisputeError(operation, DeliveryDisputeRetryMessage), null);
         }
 
         context.Logger.LogInformation(
@@ -6115,8 +6119,7 @@ public partial class SyncFunction
             {
                 context.Logger.LogWarning(
                     $"Freeze for disputed delivery {MoneyAlarmLog.LogId(deliveryId)} undecided on a repeat: [{ex.GetType().Name}] {MoneyAlarmLog.LogText(ex.Message)}");
-                return DeliveryDisputeError(operation,
-                    $"{DeliveryDisputeRetryCode}: The dispute could not be recorded right now. It will be sent again.");
+                return DeliveryDisputeError(operation, DeliveryDisputeRetryMessage);
             }
 
             context.Logger.LogInformation(
@@ -7025,28 +7028,52 @@ public partial class SyncFunction
     }
 
     /// <summary>
-    /// Step-up check for a delivery dispute, sized by the linked order's total. A
-    /// delivery without a resolvable order carries no amount and needs no step-up.
+    /// Step-up check for a delivery dispute, sized by the linked order's total (rounded as the
+    /// escrow amount is). Null when the dispute may go on, else the sync error message. Fails
+    /// closed (FUP-26): an order or escrow that cannot be read answers <c>DELIVERY_DISPUTE_RETRY</c>
+    /// before anything is frozen or written, and a missing order or one without a readable total is
+    /// sized at the threshold. A legacy delivery without an order is sized by the escrow the freeze
+    /// would take from the <c>DeliveryIndex</c>; without one there is nothing to freeze and no step-up.
     /// </summary>
-    private async Task<string?> CheckDeliveryDisputeStepUpAsync(Dictionary<string, AttributeValue> delivery)
+    private async Task<string?> CheckDeliveryDisputeStepUpAsync(
+        Dictionary<string, AttributeValue> delivery, string deliveryId, ILambdaContext context)
     {
         var orderId = delivery.TryGetValue("orderId", out var oid) ? oid.S : null;
-        if (string.IsNullOrEmpty(orderId))
-        {
-            return null;
-        }
-
-        Dictionary<string, object>? order;
+        decimal amount;
         try
         {
-            order = await _orderRepo.GetByIdAsync(orderId);
+            if (!string.IsNullOrEmpty(orderId))
+            {
+                var order = await _orderRepo.GetByIdAsync(orderId);
+                if (order == null)
+                {
+                    context.Logger.LogWarning(
+                        $"Dispute step-up for delivery {MoneyAlarmLog.LogId(deliveryId)}: order {MoneyAlarmLog.LogId(orderId)} not found, sized at the threshold.");
+                }
+
+                amount = order == null ? 0m : ReadDecimal(order, "orderTotal");
+            }
+            else
+            {
+                var escrow = _escrowRepo == null ? null : await _escrowRepo.GetByDeliveryIdAsync(deliveryId);
+                if (escrow == null)
+                {
+                    return null;
+                }
+
+                amount = ReadDecimal(escrow, "amount");
+            }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            order = null;
+            context.Logger.LogWarning(
+                $"Dispute step-up for delivery {MoneyAlarmLog.LogId(deliveryId)} undecided, nothing written: [{ex.GetType().Name}] {MoneyAlarmLog.LogText(ex.Message)}");
+            return DeliveryDisputeRetryMessage;
         }
 
-        return order == null ? null : StepUpPolicy.Check(_requestAuthTime, ReadDecimal(order, "orderTotal"));
+        // An amount that cannot be read (missing, unparseable, zero or negative) needs the fresh password.
+        var rounded = Math.Round(amount, 2, MidpointRounding.AwayFromZero);
+        return StepUpPolicy.Check(_requestAuthTime, rounded > 0m ? rounded : StepUpPolicy.ThresholdEtb);
     }
 
     /// <summary>True when the caller's id equals any of the named id fields.</summary>
