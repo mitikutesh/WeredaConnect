@@ -5139,12 +5139,13 @@ public class SyncFunctionTests
     }
 
     private Task<APIGatewayProxyResponse> SendDeliveryDisputeAsync(
-        SyncFunction function, int version = 1, string userId = "buyer-001", string role = "buyer")
+        SyncFunction function, int version = 1, string userId = "buyer-001", string role = "buyer",
+        long? authTime = null)
         => function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
             {
                 { "status", "disputed" }, { "disputeReason", "wet bags" }, { "version", version }
-            })), userId, role), _context);
+            })), userId, role, authTime), _context);
 
     private Task<UpdateItemResponse> DidNotWriteTheDelivery()
         => _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Is<UpdateItemRequest>(r => r.TableName == "test-deliveries-table"));
@@ -5411,7 +5412,8 @@ public class SyncFunctionTests
         var response = await SendDeliveryDisputeAsync(rig.Function);
 
         Assert.Contains("success", response.Body);
-        await rig.EscrowRepo.Received(1).GetByDeliveryIdAsync("del-001");
+        // Read twice: the step-up sizes the dispute by it (FUP-26), then the freeze looks for it.
+        await rig.EscrowRepo.Received(2).GetByDeliveryIdAsync("del-001");
         await DidNotWriteTheEscrow(rig.EscrowRepo);
         await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r => r.TableName == "test-deliveries-table"));
         await DidNotWriteTheOrder();
@@ -6630,6 +6632,197 @@ public class SyncFunctionTests
         Assert.DoesNotContain("AUTH_040", response.Body);
         await escrowRepo.Received(1).UpdateStatusAsync(
             "escrow-order-order-small", Arg.Any<string>(), "disputed", "escrowed", Arg.Any<Dictionary<string, object>?>());
+        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r => r.TableName == "test-deliveries-table"));
+    }
+
+    // --- FUP-26: the dispute step-up fails closed when its amount cannot be read ---
+
+    private static long StaleAuth() => DateTimeOffset.UtcNow.AddHours(-2).ToUnixTimeSeconds();
+
+    private static long FreshAuth() => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+    private static (string Status, string Message) SingleResult(APIGatewayProxyResponse response)
+    {
+        var result = JsonDocument.Parse(response.Body).RootElement.GetProperty("results")[0];
+        return (result.GetProperty("status").GetString()!,
+            result.TryGetProperty("message", out var message) ? message.GetString() ?? "" : "");
+    }
+
+    /// <summary>Order-001's total as the step-up reads it; null leaves the field out.</summary>
+    private void SetupStepUpOrderTotal(object? total)
+    {
+        var order = new Dictionary<string, object>(SetupExistingOrder(status: "delivered"));
+        if (total == null)
+        {
+            order.Remove("orderTotal");
+        }
+        else
+        {
+            order["orderTotal"] = total;
+        }
+
+        _mockOrderRepo.GetByIdAsync("order-001").Returns(order);
+    }
+
+    /// <summary>A delivered delivery from before orderId was required, paid through /escrow/initiate.</summary>
+    private void SetupLegacyDeliveryWithIndexedEscrow(DisputeRig rig, decimal amount)
+    {
+        var legacy = DeliveryItemForOrder(status: "delivered", confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o"));
+        legacy.Remove("orderId");
+        SetupDeliveryQuery(legacy);
+        Dictionary<string, object> Row() => new()
+        {
+            { "escrowId", "escrow-legacy" }, { "deliveryId", "del-001" }, { "amount", amount },
+            { "createdAt", "2026-02-17T10:00:00.0000000Z" }, { "status", "escrowed" }, { "version", 1 }
+        };
+        rig.EscrowRepo.GetByDeliveryIdAsync("del-001").Returns(Row());
+        rig.EscrowRepo.GetByIdAsync("escrow-legacy", true).Returns(Row());
+    }
+
+    /// <summary>The freeze never started and no table was written, the idempotency key included.</summary>
+    private async Task AssertTheDisputeWroteNothing(DisputeRig rig)
+    {
+        await rig.EscrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+        await DidNotWriteTheEscrow(rig.EscrowRepo);
+        Assert.Empty(rig.AuditRepo.ReceivedCalls());
+        Assert.Empty(rig.TxRepo.ReceivedCalls());
+        await DidNotWriteTheDelivery();
+        await DidNotWriteTheOrder();
+        await _mockSyncMeta.DidNotReceive().StoreIdempotencyKeyAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Theory]
+    [InlineData("buyer-001", "buyer")]
+    [InlineData("farmer-001", "farmer")]
+    [InlineData("trucker-001", "trucker")]
+    public async Task DeliveryDispute_OrderReadFails_AsksForARetry_AndWritesNothing(string userId, string role)
+    {
+        // Before FUP-26 the failed read counted as "no order", so a stale session froze a large
+        // order's escrow without the step-up.
+        var rig = DisputeFunction(OrderEscrowRow());
+        SetupStepUpOrderTotal(15_000m);
+        _mockOrderRepo.GetByIdAsync("order-001").ThrowsAsync(new ProvisionedThroughputExceededException("slow down"));
+
+        var response = await SendDeliveryDisputeAsync(rig.Function, userId: userId, role: role, authTime: StaleAuth());
+
+        var (status, message) = SingleResult(response);
+        Assert.Equal("error", status);
+        Assert.StartsWith("DELIVERY_DISPUTE_RETRY: ", message);
+        await AssertTheDisputeWroteNothing(rig);
+    }
+
+    [Fact]
+    public async Task DeliveryDispute_OrderReadFails_WithFreshAuth_StillAsksForARetry()
+    {
+        var rig = DisputeFunction(OrderEscrowRow());
+        _mockOrderRepo.GetByIdAsync("order-001").ThrowsAsync(new ProvisionedThroughputExceededException("slow down"));
+
+        var response = await SendDeliveryDisputeAsync(rig.Function, authTime: FreshAuth());
+
+        var (status, message) = SingleResult(response);
+        Assert.Equal("error", status);
+        Assert.StartsWith("DELIVERY_DISPUTE_RETRY: ", message);
+        await AssertTheDisputeWroteNothing(rig);
+    }
+
+    [Fact]
+    public async Task DeliveryDispute_OrderMissing_StaleAuth_RequiresStepUp()
+    {
+        var rig = DisputeFunction(OrderEscrowRow());
+        _mockOrderRepo.GetByIdAsync("order-001").Returns((Dictionary<string, object>?)null);
+
+        var response = await SendDeliveryDisputeAsync(rig.Function, authTime: StaleAuth());
+
+        var (status, message) = SingleResult(response);
+        Assert.Equal("error", status);
+        Assert.StartsWith("AUTH_040: ", message);
+        await AssertTheDisputeWroteNothing(rig);
+    }
+
+    [Fact]
+    public async Task DeliveryDispute_OrderMissing_FreshAuth_GoesOnToTheFreeze()
+    {
+        // The gate is not a dead end: with a fresh password the freeze decides as before.
+        var rig = DisputeFunction(OrderEscrowRow());
+        _mockOrderRepo.GetByIdAsync("order-001").Returns((Dictionary<string, object>?)null);
+
+        var response = await SendDeliveryDisputeAsync(rig.Function, authTime: FreshAuth());
+
+        Assert.Equal("success", SingleResult(response).Status);
+        await rig.EscrowRepo.Received(1).UpdateStatusAsync(
+            OrderEscrowId, Arg.Any<string>(), "disputed", "escrowed", Arg.Any<Dictionary<string, object>?>());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("n/a")]
+    [InlineData("0")]
+    [InlineData("-15000")]
+    [InlineData("9999.995")]
+    public async Task DeliveryDispute_OrderTotalUnreadableOrAtTheThreshold_StaleAuth_RequiresStepUp(string? total)
+    {
+        // Missing, unparseable, zero and negative totals are sized at the threshold; 9,999.995
+        // rounds to 10,000.00, as the escrow amount /escrow/dispute checks does.
+        var rig = DisputeFunction(OrderEscrowRow());
+        SetupStepUpOrderTotal(total);
+
+        var response = await SendDeliveryDisputeAsync(rig.Function, authTime: StaleAuth());
+
+        var (status, message) = SingleResult(response);
+        Assert.Equal("error", status);
+        Assert.StartsWith("AUTH_040: ", message);
+        await AssertTheDisputeWroteNothing(rig);
+    }
+
+    [Fact]
+    public async Task DeliveryDispute_LegacyDeliveryWithLargeIndexedEscrow_StaleAuth_RequiresStepUp()
+    {
+        // POST /escrow/dispute asks the step-up for this escrow; sync no longer skips it.
+        var rig = DisputeFunction(null);
+        SetupLegacyDeliveryWithIndexedEscrow(rig, 15_000m);
+
+        var response = await SendDeliveryDisputeAsync(rig.Function, authTime: StaleAuth());
+
+        var (status, message) = SingleResult(response);
+        Assert.Equal("error", status);
+        Assert.StartsWith("AUTH_040: ", message);
+        await rig.EscrowRepo.Received(1).GetByDeliveryIdAsync("del-001");
+        await AssertTheDisputeWroteNothing(rig);
+    }
+
+    [Fact]
+    public async Task DeliveryDispute_LegacyDeliveryEscrowReadFails_AsksForARetry_AndWritesNothing()
+    {
+        var rig = DisputeFunction(null);
+        SetupLegacyDeliveryWithIndexedEscrow(rig, 15_000m);
+        rig.EscrowRepo.GetByDeliveryIdAsync("del-001").ThrowsAsync(new ProvisionedThroughputExceededException("slow down"));
+
+        var response = await SendDeliveryDisputeAsync(rig.Function, authTime: FreshAuth());
+
+        var (status, message) = SingleResult(response);
+        Assert.Equal("error", status);
+        Assert.StartsWith("DELIVERY_DISPUTE_RETRY: ", message);
+        // Only the step-up's read: the freeze, which would read the index again, never started.
+        await rig.EscrowRepo.Received(1).GetByDeliveryIdAsync("del-001");
+        await AssertTheDisputeWroteNothing(rig);
+    }
+
+    [Theory]
+    [InlineData(15_000, true)]
+    [InlineData(800, false)]
+    public async Task DeliveryDispute_LegacyDeliveryWithIndexedEscrow_PassingTheStepUp_IsFrozenAndWritten(
+        int amount, bool fresh)
+    {
+        // Sized by the escrow's own amount: a large one with a fresh password, a small one without.
+        var rig = DisputeFunction(null);
+        SetupLegacyDeliveryWithIndexedEscrow(rig, amount);
+
+        var response = await SendDeliveryDisputeAsync(rig.Function, authTime: fresh ? FreshAuth() : StaleAuth());
+
+        Assert.Equal("success", SingleResult(response).Status);
+        await rig.EscrowRepo.Received(1).UpdateStatusAsync(
+            "escrow-legacy", Arg.Any<string>(), "disputed", "escrowed", Arg.Any<Dictionary<string, object>?>());
         await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r => r.TableName == "test-deliveries-table"));
     }
 }
