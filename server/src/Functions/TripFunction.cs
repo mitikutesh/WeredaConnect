@@ -208,11 +208,12 @@ public class TripFunction
                     .ToList();
             }
 
-            // Determine if the request is authenticated
-            var isAuthenticated = IsAuthenticated(request);
-
-            // Map to DTOs (hide phone for unauthenticated users)
-            var trips = items.Select(i => MapToTripDto(i, isAuthenticated)).ToList();
+            // ESC-48: the phone goes only to the trip's trucker and admins. A buyer browsing
+            // could otherwise call the trucker and agree to trade off the platform.
+            var isAdmin = AdminAuthHelper.IsAdmin(request);
+            var trips = items
+                .Select(i => MapToTripDto(i, includePhone: isAdmin || IsOwner(i, authenticatedUserId)))
+                .ToList();
 
             // Encode nextToken if more results available
             string? nextTokenResponse = null;
@@ -291,8 +292,8 @@ public class TripFunction
                     "Only buyers and administrators can view trip listings.");
             }
 
-            var isAuthenticated = IsAuthenticated(request);
-            var tripDto = MapToTripDto(trip, isAuthenticated);
+            var tripDto = MapToTripDto(trip,
+                includePhone: AdminAuthHelper.IsAdmin(request) || IsOwner(trip, AuthHelper.GetUserId(request)));
             var response = new GetTripResponse { Trip = tripDto };
 
             return LambdaResponse.Ok(response, AppJsonContext.Default.GetTripResponse);
@@ -312,11 +313,16 @@ public class TripFunction
         => (item.TryGetValue("deletedAt", out var deletedAt) && deletedAt != null)
            || (item.TryGetValue("status", out var status) && status?.ToString() == "cancelled");
 
+    /// <summary>Whether the caller is the trucker who owns this trip.</summary>
+    private static bool IsOwner(Dictionary<string, object> item, string? userId)
+        => !string.IsNullOrEmpty(userId) && GetStringOrNull(item, "truckerId") == userId;
+
     /// <summary>
     /// Map a DynamoDB item dictionary to a TripDto.
     /// Handles type conversions from string/number representations.
+    /// <paramref name="includePhone"/> is true only for the owning trucker and admins (ESC-48).
     /// </summary>
-    internal static TripDto MapToTripDto(Dictionary<string, object> item, bool includePhone = true)
+    internal static TripDto MapToTripDto(Dictionary<string, object> item, bool includePhone)
     {
         return new TripDto
         {
@@ -339,14 +345,6 @@ public class TripFunction
             Version = GetInt(item, "version")
         };
     }
-
-    /// <summary>
-    /// Check if the request is authenticated by verifying JWT authorizer claims
-    /// in the request context (set by API Gateway after JWT validation).
-    /// Raw Authorization headers are NOT trusted — they can be spoofed.
-    /// </summary>
-    private static bool IsAuthenticated(APIGatewayProxyRequest request)
-        => AuthHelper.IsAuthenticated(request);
 
     /// <summary>
     /// Get a required string value from the item dictionary.

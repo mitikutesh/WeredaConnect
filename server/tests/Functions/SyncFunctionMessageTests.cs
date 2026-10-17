@@ -4,6 +4,7 @@ using Amazon.DynamoDBv2.Model;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Models;
@@ -66,16 +67,21 @@ public class SyncFunctionMessageTests
             { "farmerId", farmerId },
         });
 
-    private void OrderWith(string buyerId = "buyer-1", string farmerId = "farmer-1", string? truckerId = "trucker-1")
+    /// <summary>The order every thread test talks about; open for contact unless told otherwise.</summary>
+    private Dictionary<string, object> OrderWith(
+        string status = "accepted", string? truckerId = "trucker-1", string? overrideFlag = null)
     {
         var order = new Dictionary<string, object>
         {
             { "orderId", "order-1" },
-            { "buyerId", buyerId },
-            { "farmerId", farmerId },
+            { "buyerId", "buyer-1" },
+            { "farmerId", "farmer-1" },
+            { "status", status },
         };
         if (truckerId != null) order["truckerId"] = truckerId;
+        if (overrideFlag != null) order[overrideFlag] = "2026-10-10T10:00:00Z";
         _orders.GetByIdAsync("order-1").Returns(order);
+        return order;
     }
 
     private void TripOwnedBy(string truckerId = "trucker-1")
@@ -92,21 +98,19 @@ public class SyncFunctionMessageTests
                 }
             });
 
-    private void DeliveryWith(string buyerId = "buyer-1", string farmerId = "farmer-1", string truckerId = "trucker-1")
-        => _ddb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "deliveries"))
-            .Returns(new QueryResponse
-            {
-                Items = new List<Dictionary<string, AttributeValue>>
-                {
-                    new()
-                    {
-                        { "deliveryId", new AttributeValue { S = "delivery-1" } },
-                        { "buyerId", new AttributeValue { S = buyerId } },
-                        { "farmerId", new AttributeValue { S = farmerId } },
-                        { "truckerId", new AttributeValue { S = truckerId } },
-                    }
-                }
-            });
+    private void DeliveryWith(string? orderId = "order-1")
+    {
+        var delivery = new Dictionary<string, AttributeValue>
+        {
+            { "deliveryId", new AttributeValue { S = "delivery-1" } },
+            { "buyerId", new AttributeValue { S = "buyer-1" } },
+            { "farmerId", new AttributeValue { S = "farmer-1" } },
+            { "truckerId", new AttributeValue { S = "trucker-1" } },
+        };
+        if (orderId != null) delivery["orderId"] = new AttributeValue { S = orderId };
+        _ddb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "deliveries"))
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { delivery } });
+    }
 
     private static string ConversationId(string contextType, string contextId, string a, string b)
     {
@@ -134,12 +138,12 @@ public class SyncFunctionMessageTests
     }
 
     private static SyncOperationRequest MessageOp(
-        string contextType = "crop",
-        string contextId = "crop-1",
+        string contextType = "order",
+        string contextId = "order-1",
         string senderId = "buyer-1",
         string recipientId = "farmer-1",
         string messageId = "msg-1",
-        string body = "Hello, is this still available?",
+        string body = "Hello, when can you load?",
         string action = "create",
         Dictionary<string, object>? extraData = null)
     {
@@ -171,117 +175,251 @@ public class SyncFunctionMessageTests
         };
     }
 
-    [Fact]
-    public async Task BuyerMessagesFarmerAboutCrop_Succeeds()
+    private static SyncOperationResult Result(APIGatewayProxyResponse response)
     {
-        CropOwnedBy();
-
-        var response = await _fn.FunctionHandler(Req(MessageOp(), "buyer-1", "buyer"), _ctx);
-
         Assert.Equal(200, response.StatusCode);
-        Assert.Contains("success", response.Body);
-        await _messages.Received(1).CreateAsync("msg-1", Arg.Any<Dictionary<string, object>>());
+        var sync = JsonSerializer.Deserialize<SyncResponse>(response.Body, Json)!;
+        return Assert.Single(sync.Results);
     }
 
-    [Fact]
-    public async Task FarmerRepliesToBuyerAboutCrop_Succeeds()
-    {
-        CropOwnedBy();
+    private async Task<SyncOperationResult> Send(SyncOperationRequest op, string userId, string role)
+        => Result(await _fn.FunctionHandler(Req(op, userId, role), _ctx));
 
-        var response = await _fn.FunctionHandler(
-            Req(MessageOp(senderId: "farmer-1", recipientId: "buyer-1"), "farmer-1", "farmer"), _ctx);
+    private Task AssertNothingStored()
+        => _messages.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
 
-        Assert.Equal(200, response.StatusCode);
-        Assert.Contains("success", response.Body);
-    }
+    // --- ESC-48: order and delivery threads, only while the order's contact is open ---
 
-    [Fact]
-    public async Task BuyerMessagesTruckerAboutTrip_Succeeds()
-    {
-        TripOwnedBy();
-
-        var response = await _fn.FunctionHandler(
-            Req(MessageOp(contextType: "trip", contextId: "trip-1",
-                senderId: "buyer-1", recipientId: "trucker-1"), "buyer-1", "buyer"), _ctx);
-
-        Assert.Equal(200, response.StatusCode);
-        Assert.Contains("success", response.Body);
-    }
-
-    [Fact]
-    public async Task BuyerMessagesTruckerAboutOrder_Succeeds()
+    [Theory]
+    [InlineData("buyer-1", "buyer", "farmer-1")]
+    [InlineData("farmer-1", "farmer", "buyer-1")]
+    [InlineData("buyer-1", "buyer", "trucker-1")]
+    [InlineData("trucker-1", "trucker", "buyer-1")]
+    [InlineData("farmer-1", "farmer", "trucker-1")]
+    [InlineData("trucker-1", "trucker", "farmer-1")]
+    public async Task OpenOrder_AnyTwoParties_MayMessage(string sender, string role, string recipient)
     {
         OrderWith();
 
-        var response = await _fn.FunctionHandler(
-            Req(MessageOp(contextType: "order", contextId: "order-1",
-                senderId: "buyer-1", recipientId: "trucker-1"), "buyer-1", "buyer"), _ctx);
+        var result = await Send(MessageOp(senderId: sender, recipientId: recipient), sender, role);
 
-        Assert.Equal(200, response.StatusCode);
-        Assert.Contains("success", response.Body);
+        Assert.Equal("success", result.Status);
+        await _messages.Received(1).CreateAsync("msg-1", Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Theory]
+    [InlineData("accepted")]
+    [InlineData("pickup_confirmed")]
+    [InlineData("in_transit")]
+    [InlineData("delivered")]
+    [InlineData("disbursing")]
+    [InlineData("settled")]
+    [InlineData("disputed")]
+    public async Task OrderThread_OpenStatus_Succeeds(string status)
+    {
+        OrderWith(status);
+
+        var result = await Send(MessageOp(), "buyer-1", "buyer");
+
+        Assert.Equal("success", result.Status);
+    }
+
+    [Theory]
+    [InlineData("created")]
+    [InlineData("pending_payment")]
+    [InlineData("payment_submitted")]
+    [InlineData("payment_failed")]
+    [InlineData("funded")]
+    [InlineData("cancelled")]
+    [InlineData("rejected")]
+    [InlineData("dispute_resolved")]
+    public async Task OrderThread_ClosedStatus_IsLocked(string status)
+    {
+        OrderWith(status);
+
+        var result = await Send(MessageOp(senderId: "farmer-1", recipientId: "buyer-1"), "farmer-1", "farmer");
+
+        Assert.Equal("error", result.Status);
+        Assert.StartsWith("MESSAGE_CONTACT_LOCKED:", result.Message);
+        await AssertNothingStored();
+    }
+
+    [Theory]
+    [InlineData("refundOverrideAt")]
+    [InlineData("disputeOverrideAt")]
+    public async Task OrderThread_RefundedByAdminOverride_IsLocked(string flag)
+    {
+        // An admin refund over goods on the move leaves the order in its status but flagged.
+        OrderWith("in_transit", overrideFlag: flag);
+
+        var result = await Send(MessageOp(), "buyer-1", "buyer");
+
+        Assert.StartsWith("MESSAGE_CONTACT_LOCKED:", result.Message);
+        await AssertNothingStored();
     }
 
     [Fact]
-    public async Task FarmerMessagesTruckerAboutDelivery_Succeeds()
+    public async Task DeliveryThread_OrderOpen_Succeeds()
     {
+        OrderWith("pickup_confirmed");
         DeliveryWith();
 
-        var response = await _fn.FunctionHandler(
-            Req(MessageOp(contextType: "delivery", contextId: "delivery-1",
-                senderId: "farmer-1", recipientId: "trucker-1"), "farmer-1", "farmer"), _ctx);
+        var result = await Send(MessageOp(contextType: "delivery", contextId: "delivery-1",
+            senderId: "farmer-1", recipientId: "trucker-1"), "farmer-1", "farmer");
 
-        Assert.Equal(200, response.StatusCode);
-        Assert.Contains("success", response.Body);
+        Assert.Equal("success", result.Status);
     }
+
+    [Fact]
+    public async Task DeliveryThread_OrderCancelled_IsLocked()
+    {
+        OrderWith("cancelled");
+        DeliveryWith();
+
+        var result = await Send(MessageOp(contextType: "delivery", contextId: "delivery-1",
+            senderId: "buyer-1", recipientId: "trucker-1"), "buyer-1", "buyer");
+
+        Assert.StartsWith("MESSAGE_CONTACT_LOCKED:", result.Message);
+        await AssertNothingStored();
+    }
+
+    [Fact]
+    public async Task DeliveryThread_WithoutOrder_IsLocked()
+    {
+        DeliveryWith(orderId: null);
+
+        var result = await Send(MessageOp(contextType: "delivery", contextId: "delivery-1",
+            senderId: "buyer-1", recipientId: "farmer-1"), "buyer-1", "buyer");
+
+        Assert.StartsWith("MESSAGE_CONTACT_LOCKED:", result.Message);
+        await _orders.DidNotReceive().GetByIdAsync(Arg.Any<string>());
+        await AssertNothingStored();
+    }
+
+    [Fact]
+    public async Task DeliveryThread_OrderGone_IsLocked()
+    {
+        DeliveryWith(orderId: "order-gone");
+
+        var result = await Send(MessageOp(contextType: "delivery", contextId: "delivery-1",
+            senderId: "buyer-1", recipientId: "farmer-1"), "buyer-1", "buyer");
+
+        Assert.StartsWith("MESSAGE_CONTACT_LOCKED:", result.Message);
+        await AssertNothingStored();
+    }
+
+    [Fact]
+    public async Task DeliveryThread_OrderReadFails_IsATransientError()
+    {
+        DeliveryWith();
+        _orders.GetByIdAsync("order-1").ThrowsAsync(new AmazonDynamoDBException("down"));
+
+        var result = await Send(MessageOp(contextType: "delivery", contextId: "delivery-1",
+            senderId: "buyer-1", recipientId: "farmer-1"), "buyer-1", "buyer");
+
+        // Unprefixed: the client retries; nothing is stored or refused for good.
+        Assert.Equal("error", result.Status);
+        Assert.DoesNotContain("MESSAGE_", result.Message);
+        await AssertNothingStored();
+    }
+
+    // --- ESC-48: crop and trip threads (before any order) take no new message from anyone ---
+
+    [Theory]
+    [InlineData("buyer-1", "buyer", "farmer-1")]
+    [InlineData("farmer-1", "farmer", "buyer-1")]
+    public async Task CropThread_IsLocked_ForBuyerAndOwner(string sender, string role, string recipient)
+    {
+        CropOwnedBy();
+
+        var result = await Send(MessageOp(contextType: "crop", contextId: "crop-1",
+            senderId: sender, recipientId: recipient), sender, role);
+
+        Assert.Equal("error", result.Status);
+        Assert.StartsWith("MESSAGE_CONTACT_LOCKED:", result.Message);
+        await AssertNothingStored();
+    }
+
+    [Theory]
+    [InlineData("buyer-1", "buyer", "trucker-1")]
+    [InlineData("trucker-1", "trucker", "buyer-1")]
+    public async Task TripThread_IsLocked_ForBuyerAndOwner(string sender, string role, string recipient)
+    {
+        TripOwnedBy();
+
+        var result = await Send(MessageOp(contextType: "trip", contextId: "trip-1",
+            senderId: sender, recipientId: recipient), sender, role);
+
+        Assert.StartsWith("MESSAGE_CONTACT_LOCKED:", result.Message);
+        await AssertNothingStored();
+    }
+
+    [Fact]
+    public async Task LockedResend_OfAMessageThisSenderAlreadyStored_IsADuplicate()
+    {
+        // A crop message stored before ESC-48 whose answer was lost: its resend must not be
+        // refused (the client would delete a message the server keeps).
+        _messages.GetByIdAsync("msg-1").Returns(new Dictionary<string, object>
+        {
+            { "messageId", "msg-1" },
+            { "senderId", "buyer-1" },
+        });
+
+        var result = await Send(MessageOp(contextType: "crop", contextId: "crop-1"), "buyer-1", "buyer");
+
+        Assert.Equal("duplicate", result.Status);
+        await AssertNothingStored();
+    }
+
+    [Fact]
+    public async Task LockedMessage_WhoseIdBelongsToAnotherSender_IsStillLocked()
+    {
+        _messages.GetByIdAsync("msg-1").Returns(new Dictionary<string, object>
+        {
+            { "messageId", "msg-1" },
+            { "senderId", "farmer-1" },
+        });
+
+        var result = await Send(MessageOp(contextType: "crop", contextId: "crop-1"), "buyer-1", "buyer");
+
+        Assert.StartsWith("MESSAGE_CONTACT_LOCKED:", result.Message);
+    }
+
+    // --- Participants, identity, validation ---
 
     [Fact]
     public async Task ThirdPartyMessagingOthersOrder_IsRejected()
     {
-        OrderWith(); // participants: buyer-1, farmer-1, trucker-1 — stranger-9 is not one.
+        OrderWith(); // participants: buyer-1, farmer-1, trucker-1; stranger-9 is not one.
 
-        var response = await _fn.FunctionHandler(
-            Req(MessageOp(contextType: "order", contextId: "order-1",
-                senderId: "stranger-9", recipientId: "farmer-1"), "stranger-9", "buyer"), _ctx);
+        var result = await Send(MessageOp(senderId: "stranger-9", recipientId: "farmer-1"), "stranger-9", "buyer");
 
-        Assert.Contains("MESSAGE_FORBIDDEN", response.Body);
-        await _messages.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
-    }
-
-    [Fact]
-    public async Task MessagingAboutCropYouDoNotOwn_WithNonBuyerCounterpart_IsRejected()
-    {
-        // Two truckers cannot chat about a crop: exactly one side must own the
-        // crop and the other must be a buyer.
-        CropOwnedBy(farmerId: "farmer-1");
-
-        var response = await _fn.FunctionHandler(
-            Req(MessageOp(senderId: "trucker-1", recipientId: "stranger-9"), "trucker-1", "trucker"), _ctx);
-
-        Assert.Contains("MESSAGE_FORBIDDEN", response.Body);
-        await _messages.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        Assert.StartsWith("MESSAGE_FORBIDDEN", result.Message);
+        await AssertNothingStored();
     }
 
     [Fact]
     public async Task SenderNotAuthenticatedUser_IsRejected()
     {
-        CropOwnedBy();
+        OrderWith();
 
         // Authenticated as farmer-1 but claims to send as buyer-1.
-        var response = await _fn.FunctionHandler(Req(MessageOp(), "farmer-1", "farmer"), _ctx);
+        var result = await Send(MessageOp(), "farmer-1", "farmer");
 
-        Assert.Contains("MESSAGE_UNAUTHORIZED", response.Body);
-        await _messages.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        Assert.StartsWith("MESSAGE_UNAUTHORIZED", result.Message);
+        await AssertNothingStored();
     }
 
     [Fact]
-    public async Task ClientSuppliedPhone_IsStrippedAndServerDenormalized()
+    public async Task StoredMessage_HasServerNames_AndNoPhones()
     {
-        CropOwnedBy();
+        OrderWith();
 
         var op = MessageOp(extraData: new Dictionary<string, object>
         {
-            // A spoofing client tries to inject its own phone/name.
+            // A spoofing client tries to inject phones and a name.
             { "senderPhone", "+251999999999" },
+            { "recipientPhone", "+251999999998" },
             { "recipientName", "Not The Farmer" },
         });
 
@@ -290,48 +428,48 @@ public class SyncFunctionMessageTests
             .Returns(AuthResult<Dictionary<string, object>>.Success(
                 new Dictionary<string, object> { { "messageId", "msg-1" }, { "version", "1" } }));
 
-        var response = await _fn.FunctionHandler(Req(op, "buyer-1", "buyer"), _ctx);
+        var result = await Send(op, "buyer-1", "buyer");
 
-        Assert.Equal(200, response.StatusCode);
+        Assert.Equal("success", result.Status);
         Assert.NotNull(captured);
-        // Server overwrote with the authoritative users-table values.
-        Assert.Equal("+251900000001", captured!["senderPhone"]);
-        Assert.Equal("+251900000002", captured["recipientPhone"]);
+        // Names come from the users table; ESC-48: phones are never stored on a message.
+        Assert.Equal("Buyer One", captured!["senderName"]);
         Assert.Equal("Farmer One", captured["recipientName"]);
+        Assert.False(captured.ContainsKey("senderPhone"));
+        Assert.False(captured.ContainsKey("recipientPhone"));
     }
 
     [Fact]
     public async Task UpdateAction_IsRejected_MessagesAreImmutable()
     {
-        CropOwnedBy();
-        var op = MessageOp(action: "update");
+        OrderWith();
 
-        var response = await _fn.FunctionHandler(Req(op, "buyer-1", "buyer"), _ctx);
+        var result = await Send(MessageOp(action: "update"), "buyer-1", "buyer");
 
-        Assert.Contains("MESSAGE_VALIDATION", response.Body);
-        await _messages.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        Assert.StartsWith("MESSAGE_VALIDATION", result.Message);
+        await AssertNothingStored();
     }
 
     [Fact]
     public async Task MismatchedConversationId_IsRejected()
     {
-        CropOwnedBy();
+        OrderWith();
         var op = MessageOp();
-        op.Data!["conversationId"] = "crop:crop-1:someone:else";
+        op.Data!["conversationId"] = "order:order-1:someone:else";
 
-        var response = await _fn.FunctionHandler(Req(op, "buyer-1", "buyer"), _ctx);
+        var result = await Send(op, "buyer-1", "buyer");
 
-        Assert.Contains("MESSAGE_VALIDATION", response.Body);
-        await _messages.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        Assert.StartsWith("MESSAGE_VALIDATION", result.Message);
+        await AssertNothingStored();
     }
 
     [Fact]
     public async Task EmptyBody_IsRejected()
     {
-        CropOwnedBy();
+        OrderWith();
 
-        var response = await _fn.FunctionHandler(Req(MessageOp(body: "   "), "buyer-1", "buyer"), _ctx);
+        var result = await Send(MessageOp(body: "   "), "buyer-1", "buyer");
 
-        Assert.Contains("MESSAGE_VALIDATION", response.Body);
+        Assert.StartsWith("MESSAGE_VALIDATION", result.Message);
     }
 }

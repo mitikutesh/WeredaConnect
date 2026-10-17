@@ -167,7 +167,6 @@ class _MessageArrivalListenerState extends State<MessageArrivalListener>
             contextId: m.contextId,
             counterpartId: m.senderId,
             counterpartName: m.senderName,
-            counterpartPhone: m.senderPhone,
           ),
         ),
       );

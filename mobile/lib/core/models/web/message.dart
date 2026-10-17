@@ -12,8 +12,12 @@ class Message {
   late String senderId;
   late String recipientId;
   String? senderName;
+
+  /// No longer set (ESC-48): the order holds the numbers while its contact is open.
   String? senderPhone;
   String? recipientName;
+
+  /// No longer set (ESC-48), see [senderPhone].
   String? recipientPhone;
   late String body;
   late DateTime createdAt;

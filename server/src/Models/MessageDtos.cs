@@ -52,14 +52,8 @@ public sealed record MessageDto
     /// <summary>Sender display name (server-denormalized).</summary>
     public string? SenderName { get; init; }
 
-    /// <summary>Sender phone in E.164 (server-denormalized, for Call/Copy).</summary>
-    public string? SenderPhone { get; init; }
-
     /// <summary>Recipient display name (server-denormalized).</summary>
     public string? RecipientName { get; init; }
-
-    /// <summary>Recipient phone in E.164 (server-denormalized, for Call/Copy).</summary>
-    public string? RecipientPhone { get; init; }
 
     /// <summary>Message text.</summary>
     public required string Body { get; init; }

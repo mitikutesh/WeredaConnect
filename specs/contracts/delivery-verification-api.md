@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.14.0
+1.15.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -382,13 +382,10 @@ GET /deliveries/del-101
   "listingId": "crop-456",
   "farmerId": "farmer-123",
   "farmerName": "Alemayehu Bekele",
-  "farmerPhone": "+251911123456",
   "truckerId": "trucker-789",
   "truckerName": "Tadesse Worku",
-  "truckerPhone": "+251912345678",
   "buyerId": "buyer-555",
   "buyerName": "Fatuma Ahmed",
-  "buyerPhone": "+251913456789",
   "qrToken": "eyJkZWxpdmVyeUlkIjoiZGVsLTEwMSIs...",
   "status": "pickedUp",
   "gpsPickup": {
@@ -407,7 +404,7 @@ GET /deliveries/del-101
 }
 ```
 
-**Note**: Phone numbers are included because only delivery participants can access this endpoint. Access is restricted to the farmerId, truckerId, or buyerId matching the authenticated user's JWT `sub` claim.
+**Note**: Access is restricted to the farmerId, truckerId, or buyerId matching the authenticated user's JWT `sub` claim. Since 1.15.0 (ESC-48) no phone number is returned, to any party: the parties take each other's number from the order, only while its contact is open (`order-lifecycle.md` 1.18.0). Admins still see the stored phones in the transaction view (`GET /admin/transactions/{orderId}`).
 
 **Error Codes**:
 - `401 Unauthorized` -- Authentication required
@@ -484,13 +481,13 @@ server refused the whole confirmation (`DELIVERY_INVALID_FIELD`).
 | `listingId` | string (UUID) | Yes | -- | Associated crop listing (links to CropListing.listingId) |
 | `farmerId` | string (UUID) | Yes | -- | Farmer who posted the crop |
 | `farmerName` | string | Yes | 1-100 chars | Farmer's display name. Server-stamped on create from the farmer's profile (order row as fallback); client value ignored (v1.6.1, SIM-46) |
-| `farmerPhone` | string | Server | E.164 | Farmer's phone, server-stamped on create from the users table (v1.6.1); returned on detail to participants only, never on list |
+| `farmerPhone` | string | Server | E.164 | Farmer's phone, server-stamped on create from the users table (v1.6.1); never returned to clients since 1.15.0 (ESC-48); shown to admins in the transaction view |
 | `truckerId` | string (UUID) | Yes | -- | Trucker transporting the crop |
 | `truckerName` | string | Yes | 1-100 chars | Trucker's display name. Server-stamped on create from the caller's profile; absent on self-pickup (v1.6.1) |
-| `truckerPhone` | string | Server | E.164 | Trucker's phone, server-stamped on create; absent on self-pickup; detail only, participants only (v1.6.1) |
+| `truckerPhone` | string | Server | E.164 | Trucker's phone, server-stamped on create; absent on self-pickup; never returned to clients since 1.15.0, admin view only |
 | `buyerId` | string (UUID) | Yes | -- | Buyer receiving the crop |
 | `buyerName` | string | Yes | 1-100 chars | Buyer's display name. Server-stamped on create from the buyer's profile (order row as fallback); client value ignored (v1.6.1) |
-| `buyerPhone` | string | Server | E.164 | Buyer's phone, server-stamped on create from the users table (v1.6.1); detail only, participants only |
+| `buyerPhone` | string | Server | E.164 | Buyer's phone, server-stamped on create from the users table (v1.6.1); never returned to clients since 1.15.0, admin view only |
 | `qrToken` | string | Yes | Base64-encoded, <500 bytes | HMAC-signed QR verification token |
 | `status` | enum | Yes | See Status Types | Delivery lifecycle status |
 | `gpsPickup` | LatLng | No | -- | GPS coordinates at pickup (null until picked up) |
@@ -905,7 +902,7 @@ Rural Ethiopian markets follow weekly schedules (different woredas have differen
 
 ### Data Privacy
 - Delivery details visible only to participants (farmer, trucker, buyer)
-- Phone numbers included in single-delivery view (participants need to contact each other)
+- No phone numbers in any client read of a delivery (detail, list, `/sync` data) since 1.15.0; contact goes through the order (ESC-48)
 - GPS coordinates are sensitive -- only stored for verification, not displayed to other platform users
 - Photo evidence accessible only via pre-signed S3 URLs with 15-minute expiry
 
@@ -1018,9 +1015,10 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.12.0 | 2026-10-10 | Refund sweep (ESC-10): an expired `/escrow/initiate` escrow with a `pending` delivery and no order in flight has the delivery cancelled by the system first (conditional on `pending`, audited `delivery_cancelled`, `reason=escrow_expired`), then is refunded; one whose delivery is `pickedUp` or `inTransit` is never refunded by the sweep. No client change. |
 | 1.13.0 | 2026-10-10 | The order follows the money (ESC-09): an admin refund of a plain escrowed order escrow cancels the order's `pending` delivery first (system actor, no `deletedAt`, audited `delivery_cancelled` with `source=admin_refund`), as the `buyer_wins` refund does; the delivery is otherwise unchanged (the order moves to `disbursing` and `settled` after the money, `order-lifecycle.md` 1.17.0). |
 | 1.14.0 | 2026-10-17 | The dispute step-up fails closed (FUP-26): it is decided before the freeze; an order (or a legacy delivery's `DeliveryIndex` escrow) that cannot be read answers `DELIVERY_DISPUTE_RETRY` and nothing is frozen or written, where the step-up was skipped before; a missing order, or a total that is missing, unreadable, zero or negative, needs a fresh password (`AUTH_040`); a legacy delivery without an `orderId` is sized by its indexed escrow (`auth-api.md` 2.8.0). |
+| 1.15.0 | 2026-10-17 | Contact only after the money is held (ESC-48): `GET /deliveries/{id}` and every delivery row in `/sync` data (create, update, conflict, cancel, dispute) carry no `farmerPhone`, `truckerPhone` or `buyerPhone`; the server still stamps them at create for the admin transaction view. No shipped client reads them. |
 
 ---
 
 **Last Updated**: 2026-10-17
-**Version**: 1.14.0
+**Version**: 1.15.0
 **Status**: Draft (Phase R4.2)

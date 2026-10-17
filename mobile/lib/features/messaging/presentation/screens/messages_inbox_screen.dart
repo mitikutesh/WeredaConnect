@@ -78,7 +78,6 @@ class _MessagesInboxScreenState extends State<MessagesInboxScreen> {
                           contextId: c.contextId,
                           counterpartId: c.counterpartId,
                           counterpartName: c.counterpartName,
-                          counterpartPhone: c.counterpartPhone,
                         ),
                       ),
                     ),

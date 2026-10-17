@@ -4,7 +4,7 @@
 Application step (see `.ai/push-notifications-setup.md`) for push delivery.
 
 ## Version
-1.1.0
+1.2.0
 
 Offline-first, asynchronous chat between the two legitimate parties of a
 marketplace context. There is **no real-time transport**: messages are created
@@ -34,10 +34,12 @@ no-op (`attribute_not_exists(messageId)`).
 
 ### Server-injected fields (client MUST NOT send; stripped if present)
 
-`senderName`, `senderPhone`, `recipientName`, `recipientPhone` — denormalized
-authoritatively from the users table (`GetUserByIdAsync`) so neither party can
-spoof identity/phone and either side can Call/Copy the other's number. Plus
-`version = 1`.
+`senderName`, `recipientName`: denormalized authoritatively from the users
+table (`GetUserByIdAsync`) so neither party can spoof identity. Plus
+`version = 1`. `senderPhone` and `recipientPhone` are stripped from the client
+data and, since 1.2.0 (ESC-48), never stored or returned: rows written before
+still hold them, and no read answers them. Call/Copy takes the number from the
+order (`order-lifecycle.md` 1.18.0), only while its contact is open.
 
 ### Deterministic conversation id
 
@@ -56,14 +58,17 @@ grouping** of messages by this id — there is no mutable server conversation ro
 
 1. `senderId == authenticatedUserId`, else `MESSAGE_UNAUTHORIZED`.
 2. `conversationId` must equal the deterministic value for the context + pair.
-3. Load the context and require both parties are legitimate:
-   - **crop**: exactly one of {sender, recipient} is `crop.farmerId`; the other has role `buyer`.
-   - **trip**: exactly one is `trip.truckerId`; the other has role `buyer`.
-   - **order**: sender and recipient are two distinct members of `{buyerId, farmerId, truckerId}`.
-   - **delivery**: sender and recipient are two distinct members of `{buyerId, farmerId, truckerId}`.
+3. Load the context and require both parties are legitimate, and the contact open (1.2.0, ESC-48):
+   - **crop**, **trip**: closed to new messages from anyone, the owner included: `MESSAGE_CONTACT_LOCKED`. A thread before any order would let a buyer and a farmer or trucker agree to trade off the platform. Old threads stay readable.
+   - **order**: sender and recipient are two distinct members of `{buyerId, farmerId, truckerId}`, and the order's contact is open: `accepted`, `pickup_confirmed`, `in_transit`, `delivered`, `disbursing`, `settled` or `disputed`, with no admin override refund flag. Otherwise `MESSAGE_CONTACT_LOCKED`.
+   - **delivery**: sender and recipient are two distinct members of the delivery's `{buyerId, farmerId, truckerId}`, and the delivery's order (`orderId`) is open as above. A delivery without an order, or whose order is missing, is `MESSAGE_CONTACT_LOCKED`. An order read that fails is an unprefixed error (the client retries).
+4. A refused create whose `messageId` this sender already stored (a resend after a lost answer, for example a crop message from before 1.2.0) answers `duplicate` instead, so the client keeps it.
 
 A third party posting into someone else's conversation is rejected
-(`MESSAGE_FORBIDDEN`). Read access (`GET /messages`) only returns messages the
+(`MESSAGE_FORBIDDEN`, checked before the contact). `MESSAGE_CONTACT_LOCKED` is
+permanent: the mobile client marks the operation rejected, removes its local
+copy of the message and says why (`sync-protocol.md` 1.15.0); web shows the
+same text when the send is refused. Read access (`GET /messages`) only returns messages the
 caller sent or received.
 
 ---
@@ -159,13 +164,27 @@ the full entity through `getListingById` / `getTripById` (added to the crop and
 trip repositories on both platforms). Unreachable entities show a "details not
 available" snackbar. Order/delivery tags stay label-only.
 
+Contact (1.2.0, ESC-48): the conversation screen asks the context resolver for
+the contact of the thread (uncached, the order status changes): crop and trip
+threads are closed; an order thread follows the order's `contactOpen` (falling
+back to its status when the order row has none); a delivery thread follows the
+delivery's order. A closed thread is read-only with a short note that says when
+contact opens or that it stays closed: "Contact opens after payment is held in
+escrow" (crop and trip threads, an unpaid order), "Contact opens once the farmer
+accepts the order" (a funded order), "Contact is closed for this conversation"
+(cancelled, rejected, a decided dispute, an admin override refund). The Call
+action shows only when the contact is open and the order carries the
+counterpart's phone. An unresolvable context keeps the composer (the server
+decides).
+
 ## Known limitations / deferrals
 
 - Foreground arrival is push-instant on native once FCM is configured (falls back to the 60 s poll on non-GMS devices); web has no push — its floor is the 60 s poll plus the instant resume/tab-refocus catch-up.
 - Cross-device / web sent-message history relies on the `SenderIdCreatedAtIndex` pull.
 - Tap-to-thread deep-linking from a push is deferred (no global navigator key yet); the notification still delivers and the inbox badge updates.
-- Order/delivery-scoped chat is reachable from the inbox once started; dedicated "Message" buttons on the order/delivery detail screens are a follow-up (crop→farmer and trip→trucker entry points ship now).
+- Order detail has a Contact section since 1.2.0 (ESC-48): each counterparty of an open order with Call, Copy and Message (order thread). Crop and trip detail no longer offer contact. Delivery detail has no contact entry; delivery threads started before stay reachable from the inbox.
 
 ## Changelog
+- **1.2.0** (2026-10-17): Contact only after the money is held (ESC-48): crop and trip threads take no new message (`MESSAGE_CONTACT_LOCKED`, owners too); order and delivery threads only while the order's contact is open; a refused resend of a stored message is a `duplicate`; `senderPhone`/`recipientPhone` are no longer stored nor returned by any read; clients take the number from the order; order detail gets the Contact entry.
 - **1.1.0** (2026-10-01): `GET /messages?since=` is validated. A value that is not empty, a `yyyy-MM-dd` date or a UTC `...Z` timestamp now gets `400 MESSAGE_VALIDATION` instead of a 200 with the wrong window (SIM-34). Both shipped clients already send `toUtc().toIso8601String()` or an empty cursor, so their pulls are unchanged.
 - **1.0.0** (2026-07-09): Initial contract: create-only `message` entity over `/sync`, `GET /messages` reads, FCM push.

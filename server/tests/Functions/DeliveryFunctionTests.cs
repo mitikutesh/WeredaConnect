@@ -748,62 +748,29 @@ public class DeliveryFunctionTests
 
     // --- Participant Access Tests ---
 
-    [Fact]
-    public async Task HandleGetDeliveryById_FarmerIsParticipant_ShowsPhones()
+    // ESC-48: no party gets a phone number from the delivery; contact comes from the order,
+    // only while its contact is open. Admins still see them in the transaction view.
+    [Theory]
+    [InlineData("farmer-123")]
+    [InlineData("trucker-789")]
+    [InlineData("buyer-456")]
+    public async Task HandleGetDeliveryById_Participant_GetsTheDeliveryWithoutPhones(string userId)
     {
         var delivery = CreateDeliveryItem("del-001");
         _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
 
         var pathParams = new Dictionary<string, string> { { "id", "del-001" } };
-        var request = MakeAuthenticatedRequest("farmer-123", "/deliveries/del-001", pathParams: pathParams);
+        var request = MakeAuthenticatedRequest(userId, "/deliveries/del-001", pathParams: pathParams);
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
-        // System.Text.Json escapes '+' as \u002B
-        Assert.Contains("farmerPhone", response.Body);
-        Assert.Contains("truckerPhone", response.Body);
-        Assert.Contains("buyerPhone", response.Body);
-        Assert.Contains("251911111111", response.Body);
-        Assert.Contains("251922222222", response.Body);
-        Assert.Contains("251933333333", response.Body);
-    }
-
-    [Fact]
-    public async Task HandleGetDeliveryById_TruckerIsParticipant_ShowsPhones()
-    {
-        var delivery = CreateDeliveryItem("del-001");
-        _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
-
-        var pathParams = new Dictionary<string, string> { { "id", "del-001" } };
-        var request = MakeAuthenticatedRequest("trucker-789", "/deliveries/del-001", pathParams: pathParams);
-        var response = await _function.FunctionHandler(request, _context);
-
-        Assert.Equal(200, response.StatusCode);
-        Assert.Contains("farmerPhone", response.Body);
-        Assert.Contains("truckerPhone", response.Body);
-        Assert.Contains("buyerPhone", response.Body);
-        Assert.Contains("251911111111", response.Body);
-        Assert.Contains("251922222222", response.Body);
-        Assert.Contains("251933333333", response.Body);
-    }
-
-    [Fact]
-    public async Task HandleGetDeliveryById_BuyerIsParticipant_ShowsPhones()
-    {
-        var delivery = CreateDeliveryItem("del-001");
-        _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
-
-        var pathParams = new Dictionary<string, string> { { "id", "del-001" } };
-        var request = MakeAuthenticatedRequest("buyer-456", "/deliveries/del-001", pathParams: pathParams);
-        var response = await _function.FunctionHandler(request, _context);
-
-        Assert.Equal(200, response.StatusCode);
-        Assert.Contains("farmerPhone", response.Body);
-        Assert.Contains("truckerPhone", response.Body);
-        Assert.Contains("buyerPhone", response.Body);
-        Assert.Contains("251911111111", response.Body);
-        Assert.Contains("251922222222", response.Body);
-        Assert.Contains("251933333333", response.Body);
+        Assert.Contains("del-001", response.Body);
+        Assert.DoesNotContain("farmerPhone", response.Body);
+        Assert.DoesNotContain("truckerPhone", response.Body);
+        Assert.DoesNotContain("buyerPhone", response.Body);
+        Assert.DoesNotContain("251911111111", response.Body);
+        Assert.DoesNotContain("251922222222", response.Body);
+        Assert.DoesNotContain("251933333333", response.Body);
     }
 
     [Fact]

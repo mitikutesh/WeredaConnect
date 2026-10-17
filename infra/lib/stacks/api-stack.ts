@@ -1220,6 +1220,8 @@ export class ApiStack extends cdk.Stack {
       handlerName: "OrderFunction",
       environment: {
         ORDERS_TABLE: props.ordersTable.tableName,
+        // ESC-48: the parties' phone numbers of an order whose contact is open, read at request time.
+        USERS_TABLE: props.usersTable.tableName,
         PAGINATION_SECRET_ARN: paginationSecret.reference,
       },
       timeout: cdk.Duration.seconds(10),
@@ -1227,6 +1229,7 @@ export class ApiStack extends cdk.Stack {
       reservedConcurrentExecutions: 10,
     });
     props.ordersTable.grantReadData(orderFn.function);
+    props.usersTable.grantReadData(orderFn.function);
     paginationSecret.grantRead(orderFn.function);
 
     // ─── Rating Function ─────────────────────────────────────────────

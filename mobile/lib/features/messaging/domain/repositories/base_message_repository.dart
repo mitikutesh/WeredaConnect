@@ -1,7 +1,8 @@
 import 'package:wereda_connect/core/models/message.dart';
 
-/// A conversation as shown in the inbox: the latest message plus the
-/// counterpart's contact details (for the Call/Copy actions) and unread count.
+/// A conversation as shown in the inbox: the latest message, the counterpart
+/// and the unread count. No phone number: ESC-48 moved Call/Copy to the order,
+/// only while its contact is open.
 class ConversationSummary {
   final String conversationId;
   final String contextType;
@@ -10,7 +11,6 @@ class ConversationSummary {
   /// The other participant (never the current user).
   final String counterpartId;
   final String? counterpartName;
-  final String? counterpartPhone;
 
   /// Preview + timing of the most recent message in the conversation.
   final String lastMessageBody;
@@ -26,7 +26,6 @@ class ConversationSummary {
     required this.contextId,
     required this.counterpartId,
     required this.counterpartName,
-    required this.counterpartPhone,
     required this.lastMessageBody,
     required this.lastMessageAt,
     required this.lastMessageFromMe,
@@ -54,8 +53,9 @@ abstract class BaseMessageRepository {
   }
 
   /// Send a message. Writes locally first (offline-first) then enqueues a
-  /// `message` sync op. Name/phone are stored locally for display but NOT sent —
-  /// the server denormalizes them authoritatively.
+  /// `message` sync op. Names are stored locally for display but NOT sent:
+  /// the server denormalizes them authoritatively. No phone number is stored
+  /// (ESC-48).
   Future<Message> sendMessage({
     required String contextType,
     required String contextId,
@@ -63,9 +63,7 @@ abstract class BaseMessageRepository {
     required String recipientId,
     required String body,
     String? senderName,
-    String? senderPhone,
     String? recipientName,
-    String? recipientPhone,
   });
 
   /// All messages in a conversation, oldest first (best-effort; may be empty

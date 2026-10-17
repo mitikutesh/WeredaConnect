@@ -5,8 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
-import 'package:wereda_connect/features/messaging/presentation/screens/conversation_screen.dart';
-import 'package:wereda_connect/shared/widgets/contact_actions_sheet.dart';
+import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
@@ -118,54 +117,29 @@ class TripDetailScreen extends StatelessWidget {
                         label: l10n.truckerName,
                         value: trip.truckerName,
                       ),
-                      const SizedBox(height: 12),
-                      _InfoRow(
-                        icon: Icons.phone,
-                        label: l10n.truckerPhone,
-                        value: trip.truckerPhone,
-                      ),
-                      // Contact/Message the trucker (buyers only — the trip
-                      // owner sees their own management actions instead).
+                      // ESC-48: only the trip's own trucker sees the phone
+                      // here. A buyer reaches the trucker from the order once
+                      // the farmer accepted it, never before any order.
                       Builder(
                         builder: (context) {
                           final authState = context.read<AuthBloc>().state;
                           final me = authState is AuthAuthenticated
                               ? authState.userId
                               : '';
-                          if (me.isEmpty || me == trip.truckerId) {
-                            return const SizedBox.shrink();
+                          if (me.isNotEmpty && me == trip.truckerId) {
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 12),
+                              child: _InfoRow(
+                                icon: Icons.phone,
+                                label: l10n.truckerPhone,
+                                value: trip.truckerPhone,
+                              ),
+                            );
                           }
                           return Padding(
                             padding: const EdgeInsets.only(top: 16),
-                            child: SizedBox(
-                              width: double.infinity,
-                              child: OutlinedButton.icon(
-                                onPressed: () {
-                                  final navigator = Navigator.of(context);
-                                  showContactActionsSheet(
-                                    context,
-                                    name: trip.truckerName,
-                                    roleLabel: l10n.trucker,
-                                    phone: trip.truckerPhone,
-                                    onMessage: () => navigator.push(
-                                      MaterialPageRoute<void>(
-                                        builder: (_) => ConversationScreen(
-                                          contextType: 'trip',
-                                          contextId: trip.tripId,
-                                          counterpartId: trip.truckerId,
-                                          counterpartName: trip.truckerName,
-                                          counterpartPhone: trip.truckerPhone,
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                                icon: const Icon(Icons.chat_outlined),
-                                label: Text(l10n.messageTrucker),
-                                style: OutlinedButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(48),
-                                ),
-                              ),
+                            child: ContactLockedNote(
+                              text: l10n.contactAfterEscrowNote,
                             ),
                           );
                         },

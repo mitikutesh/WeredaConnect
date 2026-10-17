@@ -256,7 +256,11 @@ public partial class MessageFunction
         }
     }
 
-    /// <summary>Map a DynamoDB item dictionary to a MessageDto.</summary>
+    /// <summary>
+    /// Map a DynamoDB item dictionary to a MessageDto. Phone numbers are never returned
+    /// (ESC-48): rows written before it still hold them, and the parties take a number from
+    /// the order only while its contact is open.
+    /// </summary>
     internal static MessageDto MapToMessageDto(Dictionary<string, object> item)
     {
         return new MessageDto
@@ -268,9 +272,7 @@ public partial class MessageFunction
             SenderId = GetString(item, "senderId"),
             RecipientId = GetString(item, "recipientId"),
             SenderName = GetStringOrNull(item, "senderName"),
-            SenderPhone = GetStringOrNull(item, "senderPhone"),
             RecipientName = GetStringOrNull(item, "recipientName"),
-            RecipientPhone = GetStringOrNull(item, "recipientPhone"),
             Body = GetString(item, "body"),
             CreatedAt = GetString(item, "createdAt"),
             Version = GetInt(item, "version")

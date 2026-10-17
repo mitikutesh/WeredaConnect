@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -36,6 +38,8 @@ class MockDeliveryRepository extends Mock implements BaseDeliveryRepository {}
 class MockRatingBloc extends Mock implements RatingBloc {}
 
 class MockRatingRepository extends Mock implements BaseRatingRepository {}
+
+class MockMarketplaceSync extends Mock implements MarketplaceSync {}
 
 class FakeOrderEvent extends Fake implements OrderEvent {}
 
@@ -713,6 +717,221 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Rate Farmer'), findsNothing);
+    });
+  });
+
+  // ESC-48: the parties reach each other here once the farmer accepted the
+  // paid order, never before and never after the money went back.
+  group('OrderDetailScreen contact (ESC-48)', () {
+    void tallView(WidgetTester tester) {
+      tester.view.physicalSize = const Size(1000, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+    }
+
+    Order openOrder({
+      OrderStatus status = OrderStatus.accepted,
+      bool? contactOpen = true,
+      bool withTrucker = true,
+      bool withPhones = true,
+    }) {
+      final order = _makeOrder(
+        status: status,
+        tripId: withTrucker ? _tripId : null,
+        truckerId: withTrucker ? _truckerId : null,
+        truckerName: withTrucker ? 'Trucker Tesfaye' : null,
+      )..contactOpen = contactOpen;
+      if (withPhones) {
+        order
+          ..buyerPhone = '+251911000001'
+          ..farmerPhone = '+251911000002'
+          ..truckerPhone = withTrucker ? '+251911000003' : null;
+      }
+      return order;
+    }
+
+    const allButtons = ['Contact Buyer', 'Contact Farmer', 'Contact Trucker'];
+    const escrowNote = 'Contact opens after payment is held in escrow.';
+    const acceptNote = 'Contact opens once the farmer accepts the order.';
+
+    for (final (role, userId, expected) in [
+      (UserRole.buyer, _buyerId, ['Contact Farmer', 'Contact Trucker']),
+      (UserRole.farmer, _farmerId, ['Contact Buyer', 'Contact Trucker']),
+      (UserRole.trucker, _truckerId, ['Contact Buyer', 'Contact Farmer']),
+    ]) {
+      testWidgets('${role.name} sees the other two parties on an open order',
+          (tester) async {
+        tallView(tester);
+        stubAuth(role, userId);
+        await tester.pumpWidget(buildScreen(openOrder()));
+        await tester.pumpAndSettle();
+
+        for (final label in allButtons) {
+          expect(
+            find.text(label),
+            expected.contains(label) ? findsOneWidget : findsNothing,
+            reason: label,
+          );
+        }
+        expect(find.text(escrowNote), findsNothing);
+      });
+    }
+
+    testWidgets('the sheet offers Call with the number and Message',
+        (tester) async {
+      tallView(tester);
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(
+        buildScreen(openOrder(status: OrderStatus.inTransit)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Contact Farmer'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('+251911000002'), findsOneWidget);
+      expect(find.text('Call'), findsOneWidget);
+      expect(find.text('Send a message'), findsOneWidget);
+    });
+
+    testWidgets('open but no number on the device yet: Message only',
+        (tester) async {
+      tallView(tester);
+      stubAuth(UserRole.farmer, _farmerId);
+      await tester.pumpWidget(
+        buildScreen(openOrder(contactOpen: null, withPhones: false)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Contact Buyer'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Phone number not available'), findsOneWidget);
+      expect(find.text('Call'), findsNothing);
+      expect(find.text('Send a message'), findsOneWidget);
+    });
+
+    testWidgets('a self-pickup order has no trucker to contact',
+        (tester) async {
+      tallView(tester);
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(buildScreen(openOrder(withTrucker: false)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Contact Farmer'), findsOneWidget);
+      expect(find.text('Contact Trucker'), findsNothing);
+    });
+
+    for (final (status, note) in [
+      (OrderStatus.created, escrowNote),
+      (OrderStatus.pendingPayment, escrowNote),
+      (OrderStatus.paymentSubmitted, escrowNote),
+      (OrderStatus.paymentFailed, escrowNote),
+      (OrderStatus.funded, acceptNote),
+    ]) {
+      testWidgets('a ${status.name} order shows the note, no contact',
+          (tester) async {
+        tallView(tester);
+        stubAuth(UserRole.farmer, _farmerId);
+        // Even numbers left on the device stay hidden before the accept.
+        await tester.pumpWidget(
+          buildScreen(openOrder(status: status, contactOpen: null)),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text(note), findsOneWidget);
+        for (final label in allButtons) {
+          expect(find.text(label), findsNothing, reason: label);
+        }
+      });
+    }
+
+    for (final status in [
+      OrderStatus.cancelled,
+      OrderStatus.rejected,
+      OrderStatus.disputeResolved,
+    ]) {
+      testWidgets('a ${status.name} order shows no contact and no note',
+          (tester) async {
+        tallView(tester);
+        stubAuth(UserRole.buyer, _buyerId);
+        await tester.pumpWidget(
+          buildScreen(openOrder(status: status, contactOpen: null)),
+        );
+        await tester.pumpAndSettle();
+
+        for (final label in allButtons) {
+          expect(find.text(label), findsNothing, reason: label);
+        }
+        expect(find.text(escrowNote), findsNothing);
+        expect(find.text(acceptNote), findsNothing);
+      });
+    }
+
+    testWidgets(
+        'an open order without numbers on the device is read once from the '
+        'server, then reloaded', (tester) async {
+      tallView(tester);
+      stubAuth(UserRole.buyer, _buyerId);
+      final order = openOrder(contactOpen: null, withPhones: false);
+      final sync = MockMarketplaceSync();
+      when(() => sync.pullOrder('order-001'))
+          .thenAnswer((_) async => openOrder());
+      final states = StreamController<OrderState>.broadcast();
+      addTearDown(states.close);
+      when(() => orderBloc.stream).thenAnswer((_) => states.stream);
+      when(() => orderBloc.isClosed).thenReturn(false);
+
+      await tester.pumpWidget(
+        Provider<MarketplaceSync?>.value(
+          value: sync,
+          child: buildScreen(order),
+        ),
+      );
+      states.add(SingleOrderLoaded(order: order));
+      await tester.pumpAndSettle();
+      states.add(SingleOrderLoaded(order: order));
+      await tester.pumpAndSettle();
+
+      verify(() => sync.pullOrder('order-001')).called(1);
+      // initState's load, then the reload after the pull.
+      verify(() => orderBloc.add(any(that: isA<LoadOrderById>()))).called(2);
+    });
+
+    testWidgets('an open order with its numbers is not read again',
+        (tester) async {
+      tallView(tester);
+      stubAuth(UserRole.buyer, _buyerId);
+      final sync = MockMarketplaceSync();
+      final states = StreamController<OrderState>.broadcast();
+      addTearDown(states.close);
+      when(() => orderBloc.stream).thenAnswer((_) => states.stream);
+
+      await tester.pumpWidget(
+        Provider<MarketplaceSync?>.value(
+          value: sync,
+          child: buildScreen(openOrder()),
+        ),
+      );
+      states.add(SingleOrderLoaded(order: openOrder()));
+      await tester.pumpAndSettle();
+
+      verifyNever(() => sync.pullOrder(any()));
+    });
+
+    testWidgets('an admin override refund closes an open status',
+        (tester) async {
+      tallView(tester);
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(
+        buildScreen(
+          openOrder(status: OrderStatus.inTransit, contactOpen: false),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Contact Farmer'), findsNothing);
+      expect(find.textContaining('911000002'), findsNothing);
     });
   });
 }

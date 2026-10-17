@@ -159,4 +159,20 @@ public sealed record OrderDto
 
     /// <summary>ESC-06: ISO 8601 UTC time the order entered the admin queue.</summary>
     public string? AdminQueuedAt { get; init; }
+
+    /// <summary>
+    /// ESC-48: whether the parties may reach each other on this order (call, copy, message): the
+    /// farmer accepted the paid order and the money has not gone back to the buyer
+    /// (<c>ContactReveal</c>). Computed by the server on every read.
+    /// </summary>
+    public bool ContactOpen { get; init; }
+
+    /// <summary>ESC-48: the buyer's phone (E.164), only to a party of an order whose contact is open.</summary>
+    public string? BuyerPhone { get; init; }
+
+    /// <summary>ESC-48: the farmer's phone (E.164), only to a party of an order whose contact is open.</summary>
+    public string? FarmerPhone { get; init; }
+
+    /// <summary>ESC-48: the trucker's phone (E.164), only to a party of an open order that has a trucker.</summary>
+    public string? TruckerPhone { get; init; }
 }

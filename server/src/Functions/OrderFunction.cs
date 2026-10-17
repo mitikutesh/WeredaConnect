@@ -19,10 +19,17 @@ namespace WeredaConnect.Server.Functions;
 /// - 400: ORDER_VALIDATION - Invalid query parameters
 /// - 404: ORDER_NOT_FOUND - Order does not exist
 /// - 500: ORDER_SERVER_ERROR - Unexpected server failure
+///
+/// ESC-48: every order carries <c>contactOpen</c>, and a party of an order whose contact is open
+/// also gets the parties' phone numbers, read from the users table at request time (orders store
+/// none). A failed phone read leaves the numbers out; it never fails the order read.
 /// </summary>
 public class OrderFunction
 {
     private readonly IOrderRepository _orderRepo;
+    private readonly IUserRepository? _userRepo;
+
+    private static readonly IReadOnlyDictionary<string, string> NoPhones = new Dictionary<string, string>();
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -35,14 +42,19 @@ public class OrderFunction
 
         var dynamoDb = new AmazonDynamoDBClient();
         _orderRepo = new OrderRepository(dynamoDb, ordersTable);
+
+        // Without the users table no phone is ever returned (fail closed), and orders still load.
+        var usersTable = Environment.GetEnvironmentVariable("USERS_TABLE");
+        _userRepo = string.IsNullOrEmpty(usersTable) ? null : new UserRepository(dynamoDb, usersTable);
     }
 
     /// <summary>
     /// Constructor for testing with mocked dependencies.
     /// </summary>
-    public OrderFunction(IOrderRepository orderRepo)
+    public OrderFunction(IOrderRepository orderRepo, IUserRepository? userRepo = null)
     {
         _orderRepo = orderRepo ?? throw new ArgumentNullException(nameof(orderRepo));
+        _userRepo = userRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -149,7 +161,10 @@ public class OrderFunction
             var queryResult = await _orderRepo.QueryOrdersAsync(
                 buyerId, farmerId, truckerId, status, listingId, limit, exclusiveStartKey);
 
-            var orders = queryResult.Items.Select(MapToOrderDto).ToList();
+            var phones = await ReadPartyPhonesAsync(queryResult.Items, authenticatedUserId, context);
+            var orders = queryResult.Items
+                .Select(i => MapToOrderDto(i, IsParty(i, authenticatedUserId) ? phones : null))
+                .ToList();
 
             string? nextTokenResponse = null;
             if (queryResult.LastEvaluatedKey != null)
@@ -212,7 +227,8 @@ public class OrderFunction
                     "You are not authorized to view this order.");
             }
 
-            var orderDto = MapToOrderDto(order);
+            var phones = await ReadPartyPhonesAsync(new[] { order }, authenticatedUserId, context);
+            var orderDto = MapToOrderDto(order, phones);
             var response = new GetOrderResponse { Order = orderDto };
 
             return LambdaResponse.Ok(response, AppJsonContext.Default.GetOrderResponse);
@@ -224,11 +240,69 @@ public class OrderFunction
         }
     }
 
+    private static bool IsParty(Dictionary<string, object> order, string userId)
+        => GetStringOrNull(order, "buyerId") == userId
+           || GetStringOrNull(order, "farmerId") == userId
+           || GetStringOrNull(order, "truckerId") == userId;
+
     /// <summary>
-    /// Map a DynamoDB item dictionary to an OrderDto.
+    /// ESC-48: the phone numbers of the parties of the caller's orders whose contact is open, in one
+    /// batched read. Empty when there is none, when the users table is not configured, or when the
+    /// read fails (logged without any number).
     /// </summary>
-    internal static OrderDto MapToOrderDto(Dictionary<string, object> item)
+    private async Task<IReadOnlyDictionary<string, string>> ReadPartyPhonesAsync(
+        IEnumerable<Dictionary<string, object>> orders, string callerId, ILambdaContext context)
     {
+        if (_userRepo == null)
+        {
+            return NoPhones;
+        }
+
+        var userIds = orders
+            .Where(o => ContactReveal.IsOpen(o) && IsParty(o, callerId))
+            .SelectMany(o => new[]
+            {
+                GetStringOrNull(o, "buyerId"), GetStringOrNull(o, "farmerId"), GetStringOrNull(o, "truckerId")
+            })
+            .OfType<string>()
+            .Where(id => id.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (userIds.Count == 0)
+        {
+            return NoPhones;
+        }
+
+        try
+        {
+            return await _userRepo.GetPhoneNumbersAsync(userIds);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning($"Order contact phones could not be read: [{ex.GetType().Name}]");
+            return NoPhones;
+        }
+    }
+
+    /// <summary>
+    /// Map a DynamoDB item dictionary to an OrderDto, without phone numbers (the admin transaction view).
+    /// </summary>
+    internal static OrderDto MapToOrderDto(Dictionary<string, object> item) => MapToOrderDto(item, null);
+
+    /// <summary>
+    /// Map a DynamoDB item dictionary to an OrderDto. <paramref name="phones"/> (user id to phone) fills
+    /// the parties' numbers only when the order's contact is open; pass null for a caller who is not a party.
+    /// </summary>
+    internal static OrderDto MapToOrderDto(Dictionary<string, object> item, IReadOnlyDictionary<string, string>? phones)
+    {
+        var contactOpen = ContactReveal.IsOpen(item);
+        string? PhoneOf(string idKey)
+            => contactOpen && phones != null
+               && GetStringOrNull(item, idKey) is { Length: > 0 } id
+               && phones.TryGetValue(id, out var phone)
+                ? phone
+                : null;
+
         return new OrderDto
         {
             OrderId = GetString(item, "orderId"),
@@ -261,7 +335,11 @@ public class OrderFunction
             CancelReason = GetStringOrNull(item, "cancelReason"),
             PickupDeadlineAt = GetStringOrNull(item, PickupDeadline.Field),
             AdminQueueReason = GetStringOrNull(item, AdminQueueFields.Reason),
-            AdminQueuedAt = GetStringOrNull(item, AdminQueueFields.QueuedAt)
+            AdminQueuedAt = GetStringOrNull(item, AdminQueueFields.QueuedAt),
+            ContactOpen = contactOpen,
+            BuyerPhone = PhoneOf("buyerId"),
+            FarmerPhone = PhoneOf("farmerId"),
+            TruckerPhone = PhoneOf("truckerId")
         };
     }
 

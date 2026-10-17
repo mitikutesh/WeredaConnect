@@ -197,8 +197,10 @@ void main() {
       expect(find.byIcon(Icons.local_shipping), findsOneWidget);
     });
 
-    testWidgets('buyer role shows Contact Farmer button', (tester) async {
-      final listing = _makeListing();
+    testWidgets(
+        'buyer role gets no contact before an order, only the escrow note '
+        '(ESC-48)', (tester) async {
+      final listing = _makeListing()..farmerPhone = '+251911000111';
 
       await tester.pumpWidget(
         _buildScreen(
@@ -208,9 +210,13 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // OutlinedButton.icon renders the label and icon
-      expect(find.text('Contact Farmer'), findsOneWidget);
-      expect(find.byIcon(Icons.chat_outlined), findsOneWidget);
+      expect(find.text('Contact Farmer'), findsNothing);
+      expect(find.byIcon(Icons.chat_outlined), findsNothing);
+      expect(find.textContaining('911000111'), findsNothing);
+      expect(
+        find.text('Contact opens after payment is held in escrow.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('farmer role shows no action buttons', (tester) async {
@@ -225,6 +231,10 @@ void main() {
 
       expect(find.text('Create Delivery'), findsNothing);
       expect(find.text('Contact Farmer'), findsNothing);
+      expect(
+        find.text('Contact opens after payment is held in escrow.'),
+        findsNothing,
+      );
     });
   });
 }

@@ -85,7 +85,7 @@ void main() {
         'tripId': tripId,
         'truckerId': 't1',
         'truckerName': 'Trucker',
-        'truckerPhone': '+251900000000',
+        // ESC-48: GET /trips sends a buyer no truckerPhone.
         'fromWoreda': fromWoreda,
         'toWoreda': toWoreda,
         'departureDate': DateTime.now()
@@ -213,6 +213,8 @@ void main() {
       ['trip-typed'],
       reason: 'same place across spellings; raw substring is not a match',
     );
+    // ESC-48: no number reaches a buyer before an order; the field stays empty.
+    expect(results.single.suggestedTrips.single.truckerPhone, isEmpty);
   });
 
   test('refreshMatchCounts persists the eligible candidate count', () async {

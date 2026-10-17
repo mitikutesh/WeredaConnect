@@ -17,19 +17,18 @@ import 'package:wereda_connect/features/buyer/presentation/widgets/suggested_tri
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/create_delivery_screen.dart';
 import 'package:wereda_connect/features/order/presentation/screens/place_order_screen.dart';
-import 'package:wereda_connect/features/messaging/presentation/screens/conversation_screen.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/features/rating/presentation/widgets/star_rating.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
-import 'package:wereda_connect/shared/widgets/contact_actions_sheet.dart';
+import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
 
 /// Full detail view for a single crop listing.
 ///
 /// Displays crop info (type, quantity, price, location, description, date)
-/// and role-based action buttons (trucker → Create Delivery, buyer → Contact
-/// Farmer). Follows the same SafeArea + SingleChildScrollView layout used by
+/// and role-based action buttons (trucker → Create Delivery, buyer → Place
+/// Order; contact opens on the order, ESC-48). Follows the same SafeArea + SingleChildScrollView layout used by
 /// [DeliveryDetailScreen] and [CreateCropListingScreen].
 class CropListingDetailScreen extends StatefulWidget {
   final CropListing listing;
@@ -403,42 +402,9 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
           ),
         );
         widgets.add(const SizedBox(height: 12));
-        // Contact Farmer
-        widgets.add(
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: () async {
-                final farmerName =
-                    await _lookupFarmerName(widget.listing.farmerId);
-                if (!context.mounted) return;
-                final navigator = Navigator.of(context);
-                await showContactActionsSheet(
-                  context,
-                  name: farmerName,
-                  roleLabel: l10n.farmer,
-                  phone: widget.listing.farmerPhone,
-                  onMessage: () => navigator.push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => ConversationScreen(
-                        contextType: 'crop',
-                        contextId: widget.listing.listingId,
-                        counterpartId: widget.listing.farmerId,
-                        counterpartName: farmerName,
-                        counterpartPhone: widget.listing.farmerPhone,
-                      ),
-                    ),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.chat_outlined),
-              label: Text(l10n.contactFarmer),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
-              ),
-            ),
-          ),
-        );
+        // ESC-48: no contact before the money is held. The buyer reaches the
+        // farmer from the order once the farmer accepted it.
+        widgets.add(ContactLockedNote(text: l10n.contactAfterEscrowNote));
     }
 
     return widgets;

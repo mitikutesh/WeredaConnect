@@ -455,6 +455,32 @@ describe('ApiStack', () => {
       expect([name, (fn!.Properties.Timeout ?? 3) <= 300]).toEqual([name, true]);
     }
   });
+
+  test('ESC-48: the orders Lambda reads the users table for the phones of an open order, and only reads it', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-orders',
+      Environment: {
+        Variables: Match.objectLike({ USERS_TABLE: Match.anyValue() }),
+      },
+    });
+
+    const policies = template.findResources('AWS::IAM::Policy');
+    const actions = Object.keys(policies)
+      .filter((key) => key.startsWith('OrderFunctionServiceRole'))
+      .flatMap(
+        (id) =>
+          policies[id].Properties.PolicyDocument.Statement as Array<{
+            Action: string | string[];
+            Resource: unknown;
+          }>,
+      )
+      .filter((s) => JSON.stringify(s.Resource).includes('UsersTable'))
+      .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+    expect(actions).toContain('dynamodb:BatchGetItem');
+    expect(actions).not.toContain('dynamodb:PutItem');
+    expect(actions).not.toContain('dynamodb:UpdateItem');
+    expect(actions).not.toContain('dynamodb:DeleteItem');
+  });
 });
 
 describe('ApiStack (Telebirr live gateway, gated)', () => {

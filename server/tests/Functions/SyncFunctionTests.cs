@@ -1242,6 +1242,7 @@ public class SyncFunctionTests
             { "tripId", new AttributeValue { S = tripId } },
             { "truckerId", new AttributeValue { S = "trucker-001" } },
             { "truckerName", new AttributeValue { S = "Tadesse Worku" } },
+            { "truckerPhone", new AttributeValue { S = "+251912345678" } },
             { "fromWoreda", new AttributeValue { S = "Bishoftu" } },
             { "toWoreda", new AttributeValue { S = "Addis Ababa" } },
             { "createdAt", new AttributeValue { S = "2026-02-16T10:00:00Z" } },
@@ -1834,12 +1835,15 @@ public class SyncFunctionTests
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("success", response.Body);
         Assert.Contains("\"serverVersion\":2", response.Body);
+        // ESC-48 strips phones from delivery rows only: the owner's own trip keeps truckerPhone,
+        // which shipped clients read as a required field.
+        Assert.Contains("251912345678", response.Body);
     }
 
     [Fact]
     public async Task TripUpdate_VersionConflict_ReturnsConflictWithServerData()
     {
-        SetupExistingTrip("trip-001", "trucker-001", "open", 3);
+        SetupExistingTrip("trip-001", "trucker-001", "open", 3, truckerPhone: "+251912345678");
         _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>())
             .ThrowsAsync(new ConditionalCheckFailedException("Version mismatch"));
 
@@ -1862,6 +1866,8 @@ public class SyncFunctionTests
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("conflict", response.Body);
         Assert.Contains("\"serverVersion\":3", response.Body);
+        // The owner's conflict data keeps their own truckerPhone (ESC-48 scrubs delivery rows only).
+        Assert.Contains("251912345678", response.Body);
     }
 
     [Fact]
@@ -2962,6 +2968,21 @@ public class SyncFunctionTests
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("success", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_Success_ServerDataCarriesNoPhones()
+    {
+        // ESC-48: the create stamps all three phones from the users table; the echo to the
+        // creator carries none of them.
+        SetupTruckOrder();
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        Assert.Contains("\"serverData\"", response.Body);
+        AssertNoDeliveryPhones(response.Body);
     }
 
     [Fact]
@@ -4330,11 +4351,13 @@ public class SyncFunctionTests
             { "listingId", new AttributeValue { S = "listing-001" } },
             { "farmerId", new AttributeValue { S = "farmer-001" } },
             { "farmerName", new AttributeValue { S = "Abebe" } },
+            { "farmerPhone", new AttributeValue { S = "+251911111111" } },
             { "truckerId", new AttributeValue { S = "trucker-001" } },
             { "truckerName", new AttributeValue { S = "Tadesse" } },
             { "truckerPhone", new AttributeValue { S = "+251922222222" } },
             { "buyerId", new AttributeValue { S = "buyer-001" } },
             { "buyerName", new AttributeValue { S = "Mekonnen" } },
+            { "buyerPhone", new AttributeValue { S = "+251933333333" } },
             { "qrToken", new AttributeValue { S = "qr-token-abc123" } },
             { "status", new AttributeValue { S = status } },
             { "createdAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
@@ -5345,6 +5368,8 @@ public class SyncFunctionTests
         var response = await SendDeliveryDisputeAsync(rig.Function, version: 1);
 
         Assert.Contains("conflict", response.Body);
+        Assert.Contains("\"serverData\"", response.Body);
+        AssertNoDeliveryPhones(response.Body);
         await rig.EscrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
         await DidNotWriteTheEscrow(rig.EscrowRepo);
         await DidNotWriteTheDelivery();
@@ -5432,6 +5457,8 @@ public class SyncFunctionTests
 
         Assert.Contains("conflict", response.Body);
         Assert.Contains("already disputed", response.Body);
+        Assert.Contains("\"serverData\"", response.Body);
+        AssertNoDeliveryPhones(response.Body);
         await DidNotWriteTheDelivery();
         await DidNotWriteTheEscrow(rig.EscrowRepo);
         await _mockOrderRepo.Received(1).UpdateAsync("order-001",
@@ -5959,6 +5986,7 @@ public class SyncFunctionTests
         Assert.Contains("\"status\":\"success\"", response.Body);
         Assert.Contains("\"serverVersion\":3", response.Body);
         Assert.DoesNotContain("nonce-1", response.Body);
+        AssertNoDeliveryPhones(response.Body);
         await mockSecret.Received(1).PutNonceAsync("del-001", "nonce-1");
         // The scanner's queued confirm at version 3 must still match.
         await _mockDynamoDb.DidNotReceive().UpdateItemAsync(
@@ -6020,6 +6048,66 @@ public class SyncFunctionTests
         // The scanner triggered a conflict; the echoed server item must NOT carry the secret.
         Assert.DoesNotContain("secret-nonce-999", response.Body);
         Assert.DoesNotContain("qrNonce", response.Body);
+        // ESC-48: nor any party's phone number.
+        AssertNoDeliveryPhones(response.Body);
+    }
+
+    private static void AssertNoDeliveryPhones(string body)
+    {
+        Assert.DoesNotContain("farmerPhone", body);
+        Assert.DoesNotContain("truckerPhone", body);
+        Assert.DoesNotContain("buyerPhone", body);
+        Assert.DoesNotContain("251911111111", body);
+        Assert.DoesNotContain("251922222222", body);
+        Assert.DoesNotContain("251933333333", body);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Success_ServerDataCarriesNoPhones()
+    {
+        // ESC-48: the parties reach each other from the order, never from the delivery.
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pickedUp", 1, "secret-nonce-1");
+
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-transit",
+            IdempotencyKey = "trucker-001:delivery:del-001:update:transit",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object> { { "status", "inTransit" }, { "version", 1 } }
+        };
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker"), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        Assert.Contains("del-001", response.Body);
+        AssertNoDeliveryPhones(response.Body);
+    }
+
+    [Fact]
+    public async Task TripConflict_OwnerKeepsOwnTruckerPhone()
+    {
+        // ESC-48 strips phones from delivery rows only: shipped clients read an owner trip's
+        // truckerPhone from conflict data as a required field.
+        SetupExistingTrip("trip-001", "trucker-001", "open", 3, truckerPhone: "+251912345678");
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>())
+            .ThrowsAsync(new ConditionalCheckFailedException("Version mismatch"));
+
+        var deleteOp = new SyncOperationRequest
+        {
+            OperationId = "op-trip-delete",
+            IdempotencyKey = "user:trip:trip-001:delete:esc48",
+            EntityType = "trip",
+            EntityId = "trip-001",
+            Action = "delete",
+            Data = new Dictionary<string, object> { { "version", 1 } }
+        };
+        var response = await _function.FunctionHandler(MakeAuthenticatedRequest(MakeSyncRequest(deleteOp)), _context);
+
+        Assert.Contains("conflict", response.Body);
+        Assert.Contains("251912345678", response.Body);
     }
 
     // ===== Payment gates: KYC (ORDER_KYC_REQUIRED) and step-up (AUTH_040 password / AUTH_041 Fayda) =====

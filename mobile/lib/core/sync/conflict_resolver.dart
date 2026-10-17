@@ -3,6 +3,7 @@ import 'package:isar/isar.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/sync_operation.dart';
@@ -329,6 +330,10 @@ class ConflictResolver {
     }
   }
 
+  /// Whether a `/sync` row field holds a value (a non-empty string).
+  static bool _hasValue(Object? value) =>
+      value != null && value.toString().isNotEmpty;
+
   /// Resolve an Order conflict by accepting server version.
   Future<Map<String, dynamic>> _resolveOrder(
     SyncOperation operation,
@@ -407,6 +412,22 @@ class ConflictResolver {
         order!.commissionAmount =
             (serverData['commissionAmount'] as num?)?.toDouble();
         order!.orderTotal = (serverData['orderTotal'] as num?)?.toDouble();
+
+        // ESC-48: /sync rows carry no contact flag or phones. An admin override
+        // refund leaves the order in an open status but flags the row, which
+        // closes contact; otherwise the status set decides until the next pull.
+        // A closed order drops the phones.
+        final refundedByOverride = _hasValue(serverData['refundOverrideAt']) ||
+            _hasValue(serverData['disputeOverrideAt']);
+        order!.contactOpen =
+            refundedByOverride ? false : serverData['contactOpen'] as bool?;
+        if (refundedByOverride ||
+            !contactOpenOrderStatuses.contains(order!.status)) {
+          order!
+            ..buyerPhone = null
+            ..farmerPhone = null
+            ..truckerPhone = null;
+        }
 
         // CRITICAL: Update version to server version
         order!.version = serverVersion;

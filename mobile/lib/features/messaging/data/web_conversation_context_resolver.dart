@@ -1,3 +1,5 @@
+import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/features/messaging/domain/conversation_context_resolver.dart';
@@ -85,6 +87,44 @@ class WebConversationContextResolver extends ConversationContextResolver {
       quantityKg: (crop['quantity'] as num?)?.toDouble() ??
           (crop['quantityKg'] as num?)?.toDouble(),
     );
+  }
+
+  @override
+  Future<Order?> lookupContactOrder(
+    String contextType,
+    String contextId,
+  ) async {
+    var orderId = contextId;
+    if (contextType == 'delivery') {
+      final data =
+          await _api.get<Map<String, dynamic>>('/deliveries/$contextId');
+      final deliveryOrderId = _unwrap(data, 'delivery')?['orderId'] as String?;
+      if (deliveryOrderId == null || deliveryOrderId.isEmpty) return null;
+      orderId = deliveryOrderId;
+    } else if (contextType != 'order') {
+      return null;
+    }
+    final order = _unwrap(
+      await _api.get<Map<String, dynamic>>('/orders/$orderId'),
+      'order',
+    );
+    if (order == null) return null;
+    // Only what the contact rule reads (ESC-48): parties, status, flag, phones.
+    final wire = order['status'] as String?;
+    final statusName = wire == null ? null : orderStatusFromWire(wire);
+    return Order()
+      ..orderId = order['orderId'] as String? ?? orderId
+      ..buyerId = order['buyerId'] as String? ?? ''
+      ..farmerId = order['farmerId'] as String? ?? ''
+      ..truckerId = order['truckerId'] as String?
+      ..status = OrderStatus.values.firstWhere(
+        (e) => e.name == statusName,
+        orElse: () => OrderStatus.created,
+      )
+      ..contactOpen = order['contactOpen'] as bool?
+      ..buyerPhone = order['buyerPhone'] as String?
+      ..farmerPhone = order['farmerPhone'] as String?
+      ..truckerPhone = order['truckerPhone'] as String?;
   }
 
   /// Server single-GET responses wrap the entity as {"crop": {...}} /

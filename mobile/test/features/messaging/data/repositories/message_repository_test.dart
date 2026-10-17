@@ -71,7 +71,6 @@ void main() {
         body: 'Is this still available?',
         senderName: 'Buyer One',
         recipientName: 'Farmer One',
-        recipientPhone: '+251900000002',
       );
 
       expect(message.conversationId, 'crop:crop-1:buyer-1:farmer-1');
@@ -83,6 +82,9 @@ void main() {
           .findFirst();
       expect(fromDb, isNotNull);
       expect(fromDb!.body, 'Is this still available?');
+      // ESC-48: no phone number is kept on a message.
+      expect(fromDb.senderPhone, isNull);
+      expect(fromDb.recipientPhone, isNull);
 
       final pending = await syncQueue.getPendingOperations();
       expect(pending.length, 1);

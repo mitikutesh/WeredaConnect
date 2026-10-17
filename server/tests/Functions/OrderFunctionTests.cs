@@ -1,3 +1,5 @@
+using System.Text.Json;
+using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
@@ -422,5 +424,221 @@ public class OrderFunctionTests
         Assert.Equal("2026-10-12T08:00:00.0000000Z", dto.PickupDeadlineAt);
         Assert.Equal("hold_cap", dto.AdminQueueReason);
         Assert.Equal("2026-10-30T08:00:00.0000000Z", dto.AdminQueuedAt);
+    }
+
+    // --- ESC-48: contactOpen and the parties' phones ---
+
+    private const string BuyerPhone = "+251911000001";
+    private const string FarmerPhone = "+251911000002";
+    private const string TruckerPhone = "+251911000003";
+
+    private readonly IUserRepository _users = Substitute.For<IUserRepository>();
+
+    private OrderFunction FunctionWithUsers()
+    {
+        _users.GetPhoneNumbersAsync(Arg.Any<IReadOnlyCollection<string>>())
+            .Returns(call => (IReadOnlyDictionary<string, string>)call.Arg<IReadOnlyCollection<string>>()
+                .Select(id => (id, phone: id switch
+                {
+                    "buyer-001" => BuyerPhone,
+                    "farmer-001" => FarmerPhone,
+                    "trucker-001" => TruckerPhone,
+                    _ => null
+                }))
+                .Where(p => p.phone != null)
+                .ToDictionary(p => p.id, p => p.phone!));
+        return new OrderFunction(_mockOrderRepo, _users);
+    }
+
+    private static Dictionary<string, object> TripOrder(string status, string? overrideFlag = null)
+    {
+        var order = CreateOrderItem(status: status);
+        order["truckerId"] = "trucker-001";
+        order["tripId"] = "trip-001";
+        if (overrideFlag != null)
+        {
+            order[overrideFlag] = "2026-10-10T10:00:00Z";
+        }
+
+        return order;
+    }
+
+    private void ReturnsList(params Dictionary<string, object>[] orders)
+        => _mockOrderRepo.QueryOrdersAsync(
+                Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+                Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((orders.ToList(), (Dictionary<string, AttributeValue>?)null));
+
+    private static APIGatewayProxyRequest DetailRequest(string userId)
+        => MakeGetRequest(
+            path: "/orders/order-001",
+            pathParams: new Dictionary<string, string> { { "id", "order-001" } },
+            userId: userId);
+
+    private static JsonElement OrderOf(string body)
+    {
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+        var order = root.TryGetProperty("order", out var single) ? single : root.GetProperty("orders")[0];
+        return order.Clone();
+    }
+
+    private static string? PhoneOf(JsonElement order, string field)
+        => order.TryGetProperty(field, out var value) ? value.GetString() : null;
+
+    [Theory]
+    [InlineData("accepted")]
+    [InlineData("pickup_confirmed")]
+    [InlineData("in_transit")]
+    [InlineData("delivered")]
+    [InlineData("disbursing")]
+    [InlineData("settled")]
+    [InlineData("disputed")]
+    public async Task GetOrderById_OpenOrder_EveryPartyGetsThePartiesPhones(string status)
+    {
+        _mockOrderRepo.GetByIdAsync("order-001").Returns(TripOrder(status));
+        var fn = FunctionWithUsers();
+
+        foreach (var caller in new[] { "buyer-001", "farmer-001", "trucker-001" })
+        {
+            var response = await fn.FunctionHandler(DetailRequest(caller), _context);
+
+            Assert.Equal(200, response.StatusCode);
+            var order = OrderOf(response.Body);
+            Assert.True(order.GetProperty("contactOpen").GetBoolean());
+            Assert.Equal(BuyerPhone, PhoneOf(order, "buyerPhone"));
+            Assert.Equal(FarmerPhone, PhoneOf(order, "farmerPhone"));
+            Assert.Equal(TruckerPhone, PhoneOf(order, "truckerPhone"));
+        }
+    }
+
+    [Theory]
+    [InlineData("created")]
+    [InlineData("pending_payment")]
+    [InlineData("payment_submitted")]
+    [InlineData("payment_failed")]
+    [InlineData("funded")]
+    [InlineData("cancelled")]
+    [InlineData("rejected")]
+    [InlineData("dispute_resolved")]
+    public async Task GetOrderById_ClosedOrder_NoPhonesForAnyParty(string status)
+    {
+        _mockOrderRepo.GetByIdAsync("order-001").Returns(TripOrder(status));
+        var fn = FunctionWithUsers();
+
+        foreach (var caller in new[] { "buyer-001", "farmer-001", "trucker-001" })
+        {
+            var response = await fn.FunctionHandler(DetailRequest(caller), _context);
+
+            Assert.Equal(200, response.StatusCode);
+            var order = OrderOf(response.Body);
+            Assert.False(order.GetProperty("contactOpen").GetBoolean());
+            Assert.Null(PhoneOf(order, "buyerPhone"));
+            Assert.Null(PhoneOf(order, "farmerPhone"));
+            Assert.Null(PhoneOf(order, "truckerPhone"));
+        }
+
+        await _users.DidNotReceive().GetPhoneNumbersAsync(Arg.Any<IReadOnlyCollection<string>>());
+    }
+
+    [Theory]
+    [InlineData("refundOverrideAt")]
+    [InlineData("disputeOverrideAt")]
+    public async Task GetOrderById_RefundedByAdminOverride_IsClosed(string flag)
+    {
+        // An admin refund over goods on the move leaves the order in its status but flagged.
+        _mockOrderRepo.GetByIdAsync("order-001").Returns(TripOrder("in_transit", flag));
+
+        var response = await FunctionWithUsers().FunctionHandler(DetailRequest("buyer-001"), _context);
+
+        var order = OrderOf(response.Body);
+        Assert.False(order.GetProperty("contactOpen").GetBoolean());
+        Assert.Null(PhoneOf(order, "farmerPhone"));
+    }
+
+    [Fact]
+    public async Task GetOrders_List_PhonesOnlyOnOpenOrders()
+    {
+        var open = TripOrder("accepted");
+        var closed = TripOrder("funded");
+        closed["orderId"] = "order-002";
+        ReturnsList(open, closed);
+
+        var response = await FunctionWithUsers().FunctionHandler(MakeGetRequest(userId: "buyer-001", role: "buyer"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        using var doc = JsonDocument.Parse(response.Body);
+        var orders = doc.RootElement.GetProperty("orders");
+        Assert.True(orders[0].GetProperty("contactOpen").GetBoolean());
+        Assert.Equal(FarmerPhone, PhoneOf(orders[0], "farmerPhone"));
+        Assert.Equal(TruckerPhone, PhoneOf(orders[0], "truckerPhone"));
+        Assert.False(orders[1].GetProperty("contactOpen").GetBoolean());
+        Assert.Null(PhoneOf(orders[1], "farmerPhone"));
+        // One batched read, for the open order's parties only.
+        await _users.Received(1).GetPhoneNumbersAsync(Arg.Is<IReadOnlyCollection<string>>(ids =>
+            ids.Count == 3 && ids.Contains("buyer-001") && ids.Contains("farmer-001") && ids.Contains("trucker-001")));
+    }
+
+    [Fact]
+    public async Task GetOrderById_SelfPickup_HasNoTruckerPhone()
+    {
+        _mockOrderRepo.GetByIdAsync("order-001").Returns(CreateOrderItem(status: "accepted"));
+
+        var response = await FunctionWithUsers().FunctionHandler(DetailRequest("farmer-001"), _context);
+
+        var order = OrderOf(response.Body);
+        Assert.True(order.GetProperty("contactOpen").GetBoolean());
+        Assert.Equal(BuyerPhone, PhoneOf(order, "buyerPhone"));
+        Assert.Null(PhoneOf(order, "truckerPhone"));
+    }
+
+    [Fact]
+    public async Task GetOrderById_PhoneReadFails_StillReturnsTheOrderWithoutPhones()
+    {
+        _mockOrderRepo.GetByIdAsync("order-001").Returns(TripOrder("accepted"));
+        _users.GetPhoneNumbersAsync(Arg.Any<IReadOnlyCollection<string>>())
+            .ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        var response = await new OrderFunction(_mockOrderRepo, _users).FunctionHandler(DetailRequest("buyer-001"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        var order = OrderOf(response.Body);
+        Assert.True(order.GetProperty("contactOpen").GetBoolean());
+        Assert.Null(PhoneOf(order, "farmerPhone"));
+        var log = ((TestLambdaLogger)_context.Logger).Buffer.ToString();
+        Assert.Contains("AmazonDynamoDBException", log);
+        Assert.DoesNotContain("throttled", log);
+    }
+
+    [Fact]
+    public async Task GetOrderById_NoUsersTable_ContactOpenButNoPhones()
+    {
+        _mockOrderRepo.GetByIdAsync("order-001").Returns(TripOrder("accepted"));
+
+        var response = await _function.FunctionHandler(DetailRequest("buyer-001"), _context);
+
+        var order = OrderOf(response.Body);
+        Assert.True(order.GetProperty("contactOpen").GetBoolean());
+        Assert.Null(PhoneOf(order, "farmerPhone"));
+    }
+
+    [Fact]
+    public async Task GetOrderById_NonParty_StillForbidden()
+    {
+        _mockOrderRepo.GetByIdAsync("order-001").Returns(TripOrder("accepted"));
+
+        var response = await FunctionWithUsers().FunctionHandler(DetailRequest("stranger-001"), _context);
+
+        Assert.Equal(403, response.StatusCode);
+        await _users.DidNotReceive().GetPhoneNumbersAsync(Arg.Any<IReadOnlyCollection<string>>());
+    }
+
+    [Fact]
+    public void MapToOrderDto_WithoutPhones_StillComputesContactOpen()
+    {
+        // The admin transaction view maps orders without phones.
+        Assert.True(OrderFunction.MapToOrderDto(TripOrder("delivered")).ContactOpen);
+        Assert.False(OrderFunction.MapToOrderDto(TripOrder("funded")).ContactOpen);
+        Assert.Null(OrderFunction.MapToOrderDto(TripOrder("delivered")).FarmerPhone);
     }
 }

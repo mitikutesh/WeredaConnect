@@ -1,7 +1,7 @@
 # Fraud Detection System Architecture (F-14)
 
 ## Version
-3.0.0 | 2026-10-06
+3.1.0 | 2026-10-17
 
 ## Status
 Rules 1 to 4 and signal persistence implemented. Risk engine (sections 14 to 23) specified, not built (EPIC FRD).
@@ -405,8 +405,20 @@ chosen verb (`approve`/`reject`/`whitelist`) in `resolution`, plus
 operation) at three sites: listing creation in `SyncFunction` (hard rejects
 `FRAUD_VELOCITY_EXCEEDED`/`FRAUD_DUPLICATE_LISTING` and the soft
 `PRICE_ANOMALY` flag), delivery GPS checks in `SyncFunction` (`GPS_ANOMALY`),
-and escrow initiation velocity rejections in `EscrowFunction`
-(`FRAUD_VELOCITY_EXCEEDED`).
+escrow initiation velocity rejections in `EscrowFunction`
+(`FRAUD_VELOCITY_EXCEEDED`), and since ESC-48 a buyer's transport-failure cancel
+in `SyncFunction` (`CONTACT_THEN_TRANSPORT_CANCEL`, next paragraph).
+
+**`CONTACT_THEN_TRANSPORT_CANCEL` (ESC-48, order-lifecycle.md 1.18.0)**: the
+parties of an order may reach each other once the farmer accepted the paid
+order. A buyer who then cancels after a transport failure (no pickup by the
+pickup deadline) gets a full refund, which is also how a trade agreed off the
+platform would end. Each such cancel of an order whose contact had opened writes
+one signal on the buyer (`entityType: order`, `entityId` the order id, the
+farmer id in the description, never a phone number), with the default weight
+10. One cancel is not fraud; a buyer who repeats it, or one farmer who appears
+in many of them, is what the review is for. The weight stays the default until
+the risk engine (section 14) is built and tuned.
 
 **Why a separate table instead of an attribute on UsersTable**: Individual fraud signals need a time-series query pattern (PK=userId, SK=timestamp) that doesn't fit the UsersTable schema (PK=userId, no SK). Storing signals as a list attribute would require read-modify-write which is not atomic. A separate table allows clean TTL-based expiry and efficient range queries.
 
@@ -1309,6 +1321,7 @@ FRD-07 adds a sparse GSI on `status` (partition `status`, sort `createdAt`) so t
 | escrow `held` | status | new | FRD-03 (server, infra; behind `FRAUD_HOLD_ENABLED`); triggers from FRD-04 (tier) and FRD-05 (reject) | FRD-06 tolerant parser and badge (must ship before the flag is on); admin vocabulary with FRD-03 (next row); held queue FRD-07 | escrow-protocol 1.7.0, order-lifecycle 1.9.0 |
 | escrow `held` in the admin app (`admin/src/lib/transaction.ts` `escrowStatusVariant`, `admin/src/pages/EscrowsPage.tsx` `statusVariant`, i18n en, am, om: `escrows.held`, a new `transactions.escrow_held`, `action_fraud_hold`, `action_fraud_hold_release`, `action_fraud_hold_refund`) | admin UI | new | FRD-03 (the admin app is where held escrows are resolved, so it ships with the status) | FRD-07 adds the held queue and a dashboard held count | none |
 | `FRAUD_DUPLICATE_LISTING`, `FRAUD_VELOCITY_EXCEEDED`, `ESCROW_011` | rejection | F-14 | live | live | sync-protocol, escrow-protocol |
+| `CONTACT_THEN_TRANSPORT_CANCEL` | signal (weight 10, default) | ESC-48 | `SyncFunction.ProcessTransportFailureCancelAsync` (live, best-effort) | admin Fraud Review (live, raw type); the risk score of section 14 when built | order-lifecycle 1.18.0 |
 | `RISK_SCORE_UNAVAILABLE`, `RISK_SCORE_TRUNCATED`, `RISK_SETTLEMENT_SKIPPED` (`reason=flag_off`, `score_unavailable` or `user_read_failed`), `RISK_TABLE_UNCONFIGURED`, `RISK_HOLD_ORDER_MISMATCH` | log alarm tokens | new | FRD-02 (first two), FRD-03 (the sweep and hold-exit tokens) | FRD-16 metrics and alarms; `RISK_TABLE_UNCONFIGURED` and `RISK_SETTLEMENT_SKIPPED` alarm from the day `FRAUD_HOLD_ENABLED` is turned on | this document only |
 
 Contract numbers are the ones taken by FRD-01 and may be renumbered by the lead in merge order. Ordering: FRD-02 first; FRD-03 merges with the flag off; FRD-06 ships on web and in both stores; then the flag is turned on (section 18.7).
@@ -1346,6 +1359,7 @@ Ties to EPIC ESC: ESC-33 writes `NO_SHOW` and `DELIVERY_OVERDUE` signals and re-
 
 | Version | Date | Change |
 |---------|------|--------|
+| 3.1.0 | 2026-10-17 | New signal `CONTACT_THEN_TRANSPORT_CANCEL` (ESC-48): a buyer's transport-failure cancel of an order whose contact had opened, best-effort, default weight; listed with the producers and in section 22 |
 | 3.0.0 | 2026-10-06 | Risk engine specified (sections 14 to 23): score formula with hourly dedup, bounded newest-first read that fails closed, tiers LOW 0-29, MEDIUM 30-59, HIGH 60-99, CRITICAL 100+, enforcement matrix and gate order per money action, escrow `held` (`holdReason`, `heldAt`, `heldBy`, `heldFromStatus`, `heldFor`; settlement-only entry, admin-only exits, `FRAUD_HOLD_ENABLED`), decay credits and whitelist rows, AI advisory boundary, codes and owners table, implementation map. Corrections: payment velocity is 5 per hour and returned as `ESCROW_011`; Rule 5 and `GetUserRiskScoreAsync` marked not built; current `RecordFraudSignalAsync` signature; status header |
 | 2.0.0 | 2026-02-23 | Full architecture: 5 rules, risk scoring, FraudSignalsTable, mobile integration, testing strategy |
 | 1.0.0 | 2026-02-21 | Initial design: 4 rules, interface + DTO |

@@ -6,7 +6,8 @@ import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/messaging/domain/conversation_context_resolver.dart';
 
-/// Native resolver: reads the linked crop/trip from the local Isar store.
+/// Native resolver: reads the linked crop/trip from the local Isar store, and
+/// the order behind an order or delivery thread for its contact (ESC-48).
 /// Works fully offline — the entities a user chats about are the ones they
 /// created or browsed, so they're normally already synced locally.
 class IsarConversationContextResolver extends ConversationContextResolver {
@@ -72,5 +73,25 @@ class IsarConversationContextResolver extends ConversationContextResolver {
       default:
         return null;
     }
+  }
+
+  @override
+  Future<Order?> lookupContactOrder(
+    String contextType,
+    String contextId,
+  ) async {
+    var orderId = contextId;
+    if (contextType == 'delivery') {
+      final delivery = await _isar.deliverys
+          .filter()
+          .deliveryIdEqualTo(contextId)
+          .findFirst();
+      final deliveryOrderId = delivery?.orderId;
+      if (deliveryOrderId == null || deliveryOrderId.isEmpty) return null;
+      orderId = deliveryOrderId;
+    } else if (contextType != 'order') {
+      return null;
+    }
+    return _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
   }
 }

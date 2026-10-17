@@ -5,6 +5,7 @@ import 'package:isar/isar.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/message.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/models/trip.dart';
@@ -184,11 +185,23 @@ class IsarMarketplaceSync implements MarketplaceSync {
   /// Every path clears the order pull stamp so that pull is not throttled.
   /// A delivery cancel refused after pickup (ESC-08) and a refused or late
   /// delivery dispute (ESC-07) are undone the same way from
-  /// `GET /deliveries/{id}`, never removing the delivery. Other entity types
-  /// are left alone.
+  /// `GET /deliveries/{id}`, never removing the delivery. A message refused
+  /// because its thread's contact is not open (ESC-48) was never stored, so
+  /// its local copy is removed. Other entity types are left alone.
   Future<void> revertRejected(SyncOperation operation, String message) async {
     if (operation.entityType == 'delivery') {
       await _revertRejectedDelivery(operation);
+      return;
+    }
+    if (operation.entityType == 'message') {
+      if (isContactLockedMessage(message)) {
+        await _isar.writeTxn(() async {
+          await _isar.messages
+              .filter()
+              .messageIdEqualTo(operation.entityId)
+              .deleteAll();
+        });
+      }
       return;
     }
     if (operation.entityType != 'order') return;
@@ -685,7 +698,12 @@ class IsarMarketplaceSync implements MarketplaceSync {
       ..cancelReason = m['cancelReason'] as String?
       ..updatedAt = DateTime.tryParse(m['updatedAt'] as String? ?? '')
       ..pickupDeadlineAt =
-          DateTime.tryParse(m['pickupDeadlineAt'] as String? ?? '')?.toUtc();
+          DateTime.tryParse(m['pickupDeadlineAt'] as String? ?? '')?.toUtc()
+      // ESC-48: contact flag and the parties' phones (open orders only).
+      ..contactOpen = m['contactOpen'] as bool?
+      ..buyerPhone = m['buyerPhone'] as String?
+      ..farmerPhone = m['farmerPhone'] as String?
+      ..truckerPhone = m['truckerPhone'] as String?;
   }
 
   OrderStatus _parseOrderStatus(String? s) {

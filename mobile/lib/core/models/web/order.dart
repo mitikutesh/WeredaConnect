@@ -34,6 +34,14 @@ class Order {
 
   /// ESC-06: the buyer may cancel an accepted order nobody picked up after this (UTC).
   DateTime? pickupDeadlineAt;
+
+  /// ESC-48: whether the parties may reach each other on this order; null when unknown.
+  bool? contactOpen;
+
+  /// ESC-48: the parties' phones, only on an order whose contact is open.
+  String? buyerPhone;
+  String? farmerPhone;
+  String? truckerPhone;
 }
 
 /// Status of an order in its lifecycle.

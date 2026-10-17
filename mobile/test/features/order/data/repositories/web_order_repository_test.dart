@@ -66,6 +66,39 @@ void main() {
       expect(order!.pickupDeadlineAt, DateTime.utc(2026, 10, 12, 8));
     });
 
+    test('parses the contact flag and the parties\' phones (ESC-48)', () async {
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-c')).thenAnswer(
+        (_) async => {
+          'order': orderDto(orderId: 'ord-c', status: 'accepted')
+            ..['contactOpen'] = true
+            ..['buyerPhone'] = '+251911000001'
+            ..['farmerPhone'] = '+251911000002'
+            ..['truckerPhone'] = '+251911000003',
+        },
+      );
+
+      final order = await repo.getOrderById('ord-c');
+
+      expect(order!.contactOpen, isTrue);
+      expect(order.buyerPhone, '+251911000001');
+      expect(order.farmerPhone, '+251911000002');
+      expect(order.truckerPhone, '+251911000003');
+    });
+
+    test('a closed order carries no phones (ESC-48)', () async {
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-f')).thenAnswer(
+        (_) async => {
+          'order': orderDto(orderId: 'ord-f', status: 'funded')
+            ..['contactOpen'] = false,
+        },
+      );
+
+      final order = await repo.getOrderById('ord-f');
+
+      expect(order!.contactOpen, isFalse);
+      expect(order.farmerPhone, isNull);
+    });
+
     test('still accepts the legacy {"item": {...}} envelope', () async {
       when(() => api.get<Map<String, dynamic>>('/orders/ord-2'))
           .thenAnswer((_) async => {'item': orderDto(orderId: 'ord-2')});

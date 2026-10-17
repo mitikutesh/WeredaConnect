@@ -1,3 +1,5 @@
+import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 
 /// What a conversation is about — the crop or trip the thread is linked to,
@@ -86,4 +88,81 @@ abstract class ConversationContextResolver {
     String contextType,
     String contextId,
   );
+
+  /// ESC-48: whether the thread takes new messages, and the counterpart's
+  /// number for Call/Copy. Crop and trip threads are closed; an order thread
+  /// follows its order, a delivery thread the delivery's order
+  /// (order-lifecycle.md 1.18.0). Never cached, the order's status moves.
+  /// Never throws: an unreachable order is [ConversationContact.unknown].
+  Future<ConversationContact> resolveContact(
+    String contextType,
+    String contextId,
+    String counterpartId,
+  ) async {
+    if (contextType == 'crop' || contextType == 'trip') {
+      return const ConversationContact(
+        open: false,
+        closedReason: ContactClosedReason.beforePayment,
+      );
+    }
+    try {
+      final order = await lookupContactOrder(contextType, contextId);
+      if (order == null) return ConversationContact.unknown;
+      if (isOrderContactOpen(order)) {
+        return ConversationContact(
+          open: true,
+          phone: orderPartyPhone(order, counterpartId),
+        );
+      }
+      return ConversationContact(
+        open: false,
+        closedReason: order.status == OrderStatus.funded
+            ? ContactClosedReason.beforeAccept
+            : contactNotYetOpenOrderStatuses.contains(order.status)
+                ? ContactClosedReason.beforePayment
+                : ContactClosedReason.closed,
+      );
+    } on Object {
+      return ConversationContact.unknown;
+    }
+  }
+
+  /// The order behind an `order` or `delivery` thread, or null when it is not
+  /// reachable (not synced, offline on web). May throw.
+  Future<Order?> lookupContactOrder(String contextType, String contextId);
+}
+
+/// ESC-48: why a conversation takes no new messages, so the screen can say
+/// when (or whether) contact opens.
+enum ContactClosedReason {
+  /// Before any order is paid (every crop and trip thread, an unpaid order).
+  beforePayment,
+
+  /// The order is paid but the farmer has not accepted it yet.
+  beforeAccept,
+
+  /// The money went back or the dispute was decided: contact stays closed.
+  closed,
+}
+
+/// ESC-48: the contact state of a conversation.
+class ConversationContact {
+  /// True when the thread takes new messages, false when it is known closed,
+  /// null when it could not be resolved (the composer stays, the server
+  /// decides).
+  final bool? open;
+
+  /// The counterpart's number, only on an open order that carries it.
+  final String? phone;
+
+  /// Why the thread is closed; null unless [open] is false.
+  final ContactClosedReason? closedReason;
+
+  const ConversationContact({
+    required this.open,
+    this.phone,
+    this.closedReason,
+  });
+
+  static const unknown = ConversationContact(open: null);
 }

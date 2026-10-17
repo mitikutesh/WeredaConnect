@@ -28,8 +28,6 @@ List<ConversationSummary> buildConversationSummaries(
 
     final counterpartId = lastFromMe ? last.recipientId : last.senderId;
     final counterpartName = lastFromMe ? last.recipientName : last.senderName;
-    final counterpartPhone =
-        lastFromMe ? last.recipientPhone : last.senderPhone;
 
     int unread;
     if (lastRead == null) {
@@ -50,7 +48,6 @@ List<ConversationSummary> buildConversationSummaries(
         contextId: last.contextId,
         counterpartId: counterpartId,
         counterpartName: counterpartName,
-        counterpartPhone: counterpartPhone,
         lastMessageBody: last.body,
         lastMessageAt: last.createdAt,
         lastMessageFromMe: lastFromMe,
@@ -63,7 +60,8 @@ List<ConversationSummary> buildConversationSummaries(
   return summaries;
 }
 
-/// Parse a `/messages` API item map into a [Message].
+/// Parse a `/messages` API item map into a [Message]. Phone numbers are never
+/// kept, even from a server that still sends them (ESC-48).
 Message parseMessage(Map<String, dynamic> m) {
   return Message()
     ..messageId = m['messageId'] as String? ?? ''
@@ -73,9 +71,7 @@ Message parseMessage(Map<String, dynamic> m) {
     ..senderId = m['senderId'] as String? ?? ''
     ..recipientId = m['recipientId'] as String? ?? ''
     ..senderName = m['senderName'] as String?
-    ..senderPhone = m['senderPhone'] as String?
     ..recipientName = m['recipientName'] as String?
-    ..recipientPhone = m['recipientPhone'] as String?
     ..body = m['body'] as String? ?? ''
     ..createdAt = DateTime.tryParse(m['createdAt'] as String? ?? '')?.toUtc() ??
         DateTime.now().toUtc()

@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.1.1
+1.3.0
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -222,7 +222,7 @@ GET /crops/crop-456
 }
 ```
 
-**Note**: `farmerPhone` is only included if the requester is authenticated (to prevent spam).
+**Note**: `farmerPhone` is only included for the listing's own farmer and for admins (1.3.0, ESC-48). A buyer never gets it: contact opens on the order once the farmer accepted the paid order (`order-lifecycle.md` 1.18.0).
 
 **Error Codes**:
 - `404 Not Found` — Crop listing not found or deleted
@@ -239,7 +239,7 @@ GET /crops/crop-456
 | `id` | string (UUID) | Yes | — | Unique crop listing identifier |
 | `farmerId` | string (UUID) | Yes | — | Farmer who created the listing |
 | `farmerName` | string | Yes | 1-100 chars | Farmer's display name |
-| `farmerPhone` | string | Yes | E.164 format | Contact number (hidden from unauthenticated users) |
+| `farmerPhone` | string | Yes | E.164 format | Farmer's number, server-stamped at create; returned only to the owning farmer and admins (1.3.0) |
 | `cropType` | enum | Yes | See Crop Types | Type of crop |
 | `quantity` | number | Yes | 0.01-10,000 | Quantity available |
 | `unit` | string | Yes | Fixed: "quintals" | Unit of measurement (100kg) |
@@ -391,7 +391,7 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 ### Authentication
 - **POST /sync**: Requires JWT token (Cognito)
 - **GET /crops**: Public (no auth required for browsing)
-- **GET /crops/{id}**: Public, but `farmerPhone` only shown to authenticated users
+- **GET /crops/{id}**: Public, but `farmerPhone` only shown to the owning farmer and admins (1.3.0)
 
 ### Authorization
 - Farmers can only create/update/delete their own listings
@@ -404,7 +404,7 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 - **GET /crops**: 200 requests/second per IP (CloudFront caching reduces load)
 
 ### Data Privacy
-- Phone numbers hidden from unauthenticated users (prevent spam)
+- Phone numbers returned only to the owning farmer and admins, never to buyers (1.3.0, ESC-48: no contact before the money is held, so a buyer and a farmer cannot agree to trade off the platform)
 - GPS coordinates optional (farmers may not want exact farm location public)
 
 ---
@@ -433,9 +433,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 | 1.1.0 | 2026-09-25 | Update: `farmerId`/`farmerName`/`farmerPhone` are immutable after create (SIM-02); a changed value is rejected with `CROP_VALIDATION`, an echoed value is stripped |
 | 1.1.1 | 2026-09-25 | Geo/date rules on update as on create (SIM-17): `latitude`/`longitude` must be inside the Ethiopia bounding box when present (null tolerated), `createdAt` must be ISO 8601 and not in the future (24h skew); both `CROP_VALIDATION` |
 | 1.2.0 | 2026-09-28 | Create: `farmerName`/`farmerPhone` come from the farmer's profile, client values ignored (SIM-40) |
+| 1.3.0 | 2026-10-17 | `GET /crops` and `GET /crops/{id}` return `farmerPhone` only to the listing's farmer and admins; buyers get none (ESC-48). Clients read `farmerPhone ?? ''`, so shipped apps keep working and their browse cache loses the numbers at the next pull |
 
 ---
 
-**Last Updated**: 2026-09-28
-**Version**: 1.2.0
+**Last Updated**: 2026-10-17
+**Version**: 1.3.0
 **Status**: Implemented (Phase R3)

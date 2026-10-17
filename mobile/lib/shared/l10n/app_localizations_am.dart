@@ -2564,6 +2564,21 @@ class AppLocalizationsAm extends AppLocalizations {
   String get contact => 'አግኝ';
 
   @override
+  String get contactAfterEscrowNote => 'ክፍያው በኢስክሮ ከተያዘ በኋላ መገናኘት ይቻላል።';
+
+  @override
+  String get contactAfterAcceptNote => 'ገበሬው ትዕዛዙን ከተቀበለ በኋላ መገናኘት ይቻላል።';
+
+  @override
+  String get contactBuyer => 'ገዢውን አግኝ';
+
+  @override
+  String get contactTrucker => 'አሽከርካሪውን አግኝ';
+
+  @override
+  String get contactClosedNote => 'ለዚህ ውይይት መገናኘት ተዘግቷል።';
+
+  @override
   String get newMessage => 'አዲስ መልእክት';
 
   @override

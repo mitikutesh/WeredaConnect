@@ -747,7 +747,7 @@ public class TripFunctionTests
             { "version", "2" }
         };
 
-        var dto = TripFunction.MapToTripDto(trip);
+        var dto = TripFunction.MapToTripDto(trip, includePhone: true);
 
         Assert.Equal("trip-001", dto.TripId);
         Assert.Equal(2, dto.MatchedListings.Count);
@@ -775,7 +775,7 @@ public class TripFunctionTests
             { "version", "1" }
         };
 
-        var dto = TripFunction.MapToTripDto(trip);
+        var dto = TripFunction.MapToTripDto(trip, includePhone: true);
 
         Assert.Empty(dto.MatchedListings);
     }
@@ -802,7 +802,7 @@ public class TripFunctionTests
         Assert.Equal("application/json", response.Headers["Content-Type"]);
     }
 
-    // --- Phone Number Visibility Tests (Contract: truckerPhone hidden for unauthenticated) ---
+    // --- Phone Number Visibility Tests (ESC-48: truckerPhone only for the owner and admins) ---
 
     [Fact]
     public async Task HandleGetTripById_Unauthenticated_Forbidden()
@@ -849,7 +849,7 @@ public class TripFunctionTests
         trip["toWoreda"] = "አዲስ አበባ";
         trip["truckerName"] = "ታደሰ ወርቁ";
 
-        var dto = TripFunction.MapToTripDto(trip);
+        var dto = TripFunction.MapToTripDto(trip, includePhone: true);
 
         Assert.Equal("ቢሾፍቱ", dto.FromWoreda);
         Assert.Equal("አዲስ አበባ", dto.ToWoreda);
@@ -864,7 +864,7 @@ public class TripFunctionTests
         var trip = CreateTripItem("trip-min-cap");
         trip["capacity"] = "0.1";
 
-        var dto = TripFunction.MapToTripDto(trip);
+        var dto = TripFunction.MapToTripDto(trip, includePhone: true);
 
         Assert.Equal(0.1, dto.Capacity, precision: 3);
     }
@@ -875,7 +875,7 @@ public class TripFunctionTests
         var trip = CreateTripItem("trip-max-cap");
         trip["capacity"] = "1000";
 
-        var dto = TripFunction.MapToTripDto(trip);
+        var dto = TripFunction.MapToTripDto(trip, includePhone: true);
 
         Assert.Equal(1000.0, dto.Capacity);
     }
@@ -886,7 +886,7 @@ public class TripFunctionTests
         var trip = CreateTripItem("trip-dec-cap");
         trip["capacity"] = "150.75";
 
-        var dto = TripFunction.MapToTripDto(trip);
+        var dto = TripFunction.MapToTripDto(trip, includePhone: true);
 
         Assert.Equal(150.75, dto.Capacity, precision: 2);
     }
@@ -899,7 +899,7 @@ public class TripFunctionTests
         var trip = CreateTripItem("trip-min-price");
         trip["pricePerQuintal"] = "0.01";
 
-        var dto = TripFunction.MapToTripDto(trip);
+        var dto = TripFunction.MapToTripDto(trip, includePhone: true);
 
         Assert.Equal(0.01, dto.PricePerQuintal, precision: 3);
     }
@@ -910,7 +910,7 @@ public class TripFunctionTests
         var trip = CreateTripItem("trip-max-price");
         trip["pricePerQuintal"] = "10000";
 
-        var dto = TripFunction.MapToTripDto(trip);
+        var dto = TripFunction.MapToTripDto(trip, includePhone: true);
 
         Assert.Equal(10000.0, dto.PricePerQuintal);
     }
@@ -927,7 +927,7 @@ public class TripFunctionTests
     {
         var trip = CreateTripItem("trip-status-test", status);
 
-        var dto = TripFunction.MapToTripDto(trip);
+        var dto = TripFunction.MapToTripDto(trip, includePhone: true);
 
         Assert.Equal(status, dto.Status);
     }
@@ -940,7 +940,7 @@ public class TripFunctionTests
         var trip = CreateTripItem("trip-ver");
         trip["version"] = "5";
 
-        var dto = TripFunction.MapToTripDto(trip);
+        var dto = TripFunction.MapToTripDto(trip, includePhone: true);
 
         Assert.Equal(5, dto.Version);
     }
@@ -951,7 +951,7 @@ public class TripFunctionTests
         var trip = CreateTripItem("trip-no-ver");
         trip.Remove("version");
 
-        var dto = TripFunction.MapToTripDto(trip);
+        var dto = TripFunction.MapToTripDto(trip, includePhone: true);
 
         Assert.Equal(0, dto.Version);
     }
@@ -1033,7 +1033,7 @@ public class TripFunctionTests
     }
 
     [Fact]
-    public async Task HandleGetTrips_ValidBuyerClaims_ShowsPhoneNumber()
+    public async Task HandleGetTrips_ValidBuyerClaims_BrowsesWithoutPhoneNumber()
     {
         var trips = new List<Dictionary<string, object>>
         {
@@ -1048,14 +1048,70 @@ public class TripFunctionTests
             Arg.Any<Dictionary<string, AttributeValue>?>())
             .Returns((trips, null));
 
-        // F-36: an authenticated buyer may browse all trips and sees trucker phone.
+        // F-36: an authenticated buyer may browse all trips; ESC-48: without the trucker's phone,
+        // so the two cannot agree to trade off the platform before any order.
         var request = MakeAuthenticatedGetRequest("buyer-001", "buyer");
 
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
-        // Phone should be visible for authenticated buyers
-        Assert.Contains("251912345678", response.Body);
+        Assert.Contains("trip-001", response.Body);
+        Assert.DoesNotContain("251912345678", response.Body);
+        Assert.DoesNotContain("truckerPhone", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_OwnerTrucker_SeesOwnPhoneNumber()
+    {
+        _mockTripRepo.QueryTripsByTruckerAsync(
+            "trucker-789",
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { CreateTripItem() }, null));
+
+        var response = await _function.FunctionHandler(MakeAuthenticatedGetRequest("trucker-789", "trucker"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        using var doc = JsonDocument.Parse(response.Body);
+        Assert.Equal("+251912345678", doc.RootElement.GetProperty("trips")[0].GetProperty("truckerPhone").GetString());
+    }
+
+    [Theory]
+    [InlineData("buyer-001", "buyer", false)]
+    [InlineData("trucker-789", "trucker", true)]
+    [InlineData("admin-001", "admin", true)]
+    public async Task HandleGetTripById_TruckerPhone_OnlyForTheOwnerAndAdmins(string userId, string role, bool expected)
+    {
+        _mockTripRepo.GetByIdAsync("trip-001").Returns(CreateTripItem("trip-001"));
+
+        var pathParams = new Dictionary<string, string> { { "id", "trip-001" } };
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedGetRequest(userId, role, "/trips/trip-001", pathParams: pathParams), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        using var doc = JsonDocument.Parse(response.Body);
+        var trip = doc.RootElement.GetProperty("trip");
+        var phone = trip.TryGetProperty("truckerPhone", out var p) ? p.GetString() : null;
+        Assert.Equal(expected ? "+251912345678" : null, phone);
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_Admin_SeesPhoneNumber()
+    {
+        _mockTripRepo.QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { CreateTripItem("trip-001") }, null));
+
+        var response = await _function.FunctionHandler(MakeAuthenticatedGetRequest("admin-001", "admin"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        using var doc = JsonDocument.Parse(response.Body);
+        Assert.Equal("+251912345678", doc.RootElement.GetProperty("trips")[0].GetProperty("truckerPhone").GetString());
     }
 
     // --- Role-Based Visibility Tests ---

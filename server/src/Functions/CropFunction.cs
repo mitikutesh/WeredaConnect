@@ -138,8 +138,12 @@ public class CropFunction
             var items = queryResult.Items;
             var lastEvaluatedKey = queryResult.LastEvaluatedKey;
 
-            // Map to DTOs
-            var crops = items.Select(MapToCropDto).ToList();
+            // ESC-48: the phone goes only to the listing's farmer and admins. A buyer browsing
+            // could otherwise call the farmer and agree to trade off the platform.
+            var isAdmin = AdminAuthHelper.IsAdmin(request);
+            var crops = items
+                .Select(i => MapToCropDto(i, includePhone: isAdmin || IsOwner(i, authenticatedUserId)))
+                .ToList();
 
             // Encode nextToken if more results available
             string? nextTokenResponse = null;
@@ -214,7 +218,8 @@ public class CropFunction
                     "Only buyers and administrators can view crop listings.");
             }
 
-            var cropDto = MapToCropDto(crop);
+            var cropDto = MapToCropDto(crop,
+                includePhone: AdminAuthHelper.IsAdmin(request) || IsOwner(crop, AuthHelper.GetUserId(request)));
             var response = new GetCropResponse { Crop = cropDto };
 
             return LambdaResponse.Ok(response, AppJsonContext.Default.GetCropResponse);
@@ -226,18 +231,23 @@ public class CropFunction
         }
     }
 
+    /// <summary>Whether the caller is the farmer who owns this listing.</summary>
+    private static bool IsOwner(Dictionary<string, object> item, string? userId)
+        => !string.IsNullOrEmpty(userId) && GetStringOrNull(item, "farmerId") == userId;
+
     /// <summary>
     /// Map a DynamoDB item dictionary to a CropDto.
     /// Handles type conversions from string/number representations.
+    /// <paramref name="includePhone"/> is true only for the owning farmer and admins (ESC-48).
     /// </summary>
-    private static CropDto MapToCropDto(Dictionary<string, object> item)
+    private static CropDto MapToCropDto(Dictionary<string, object> item, bool includePhone)
     {
         return new CropDto
         {
             CropId = GetString(item, "cropId"),
             FarmerId = GetString(item, "farmerId"),
             FarmerName = GetStringOrNull(item, "farmerName"),
-            FarmerPhone = GetStringOrNull(item, "farmerPhone"),
+            FarmerPhone = includePhone ? GetStringOrNull(item, "farmerPhone") : null,
             CropType = GetString(item, "cropType"),
             Woreda = GetString(item, "woreda"),
             QuantityKg = GetDecimal(item, "quantity"),

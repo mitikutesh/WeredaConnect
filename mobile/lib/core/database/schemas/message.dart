@@ -42,13 +42,15 @@ class Message {
   /// Sender display name (denormalized).
   String? senderName;
 
-  /// Sender phone in E.164 (denormalized, for Call/Copy).
+  /// No longer written (ESC-48): Call/Copy takes the number from the order,
+  /// only while its contact is open. Kept so the schema does not change;
+  /// values cached by earlier versions are cleared by `ContactPhonePurge`.
   String? senderPhone;
 
   /// Recipient display name (denormalized).
   String? recipientName;
 
-  /// Recipient phone in E.164 (denormalized, for Call/Copy).
+  /// No longer written (ESC-48), see [senderPhone].
   String? recipientPhone;
 
   /// Message text.

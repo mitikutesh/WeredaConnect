@@ -1,7 +1,7 @@
 # Trip Listing API Contract
 
 ## Version
-1.3.0
+1.4.0
 
 ## Parties
 - **Mobile** (client) — truckers creating and browsing trip listings
@@ -201,7 +201,7 @@ GET /trips/trip-101
 }
 ```
 
-**Note**: `truckerPhone` is only included if the requester is authenticated (to prevent spam).
+**Note**: `truckerPhone` is only included for the trip's own trucker and for admins (1.4.0, ESC-48). A buyer never gets it: contact opens on the order once the farmer accepted the paid order (`order-lifecycle.md` 1.18.0).
 
 **Error Codes**:
 - `404 Not Found` — Trip not found or cancelled
@@ -218,7 +218,7 @@ GET /trips/trip-101
 | `tripId` | string (UUID) | Yes | — | Unique trip identifier |
 | `truckerId` | string (UUID) | Yes | — | Trucker who posted the trip |
 | `truckerName` | string | Yes | 1-100 chars | Trucker's display name |
-| `truckerPhone` | string | Yes | E.164 format | Contact number (hidden from unauthenticated users) |
+| `truckerPhone` | string | Yes | E.164 format | Trucker's number, server-stamped at create; returned only to the owning trucker and admins (1.4.0) |
 | `fromWoreda` | string | Yes | 1-100 chars | Origin district (Ethiopian woreda) |
 | `toWoreda` | string | Yes | 1-100 chars | Destination district (Ethiopian woreda) |
 | `departureDate` | string (ISO 8601) | Yes | — | Scheduled departure date and time (UTC) |
@@ -386,7 +386,7 @@ Common route patterns:
 ### Authentication
 - **POST /sync**: Requires JWT token (Cognito)
 - **GET /trips**: Public (no auth required for browsing)
-- **GET /trips/{id}**: Public, but `truckerPhone` only shown to authenticated users
+- **GET /trips/{id}**: Public, but `truckerPhone` only shown to the owning trucker and admins (1.4.0)
 
 ### Authorization
 - Truckers can only create/update/delete their own trips
@@ -399,7 +399,7 @@ Common route patterns:
 - **GET /trips**: 200 requests/second per IP (CloudFront caching reduces load)
 
 ### Data Privacy
-- Phone numbers hidden from unauthenticated users (prevent spam)
+- Phone numbers returned only to the owning trucker and admins, never to buyers (1.4.0, ESC-48: no contact before the money is held)
 - Trucker identity visible only through name (not phone) in browse results
 
 ---
@@ -430,9 +430,10 @@ Common route patterns:
 | 1.2.0 | 2026-09-28 | Create: `truckerName`/`truckerPhone` come from the trucker's profile, client values ignored (SIM-40) |
 | 1.2.1 | 2026-10-01 | Browse: cancelled trips (status update or soft delete) are never listed, matching the detail 404; `status=cancelled` returns an empty page (SIM-31) |
 | 1.3.0 | 2026-10-06 | Update: a changed `departureDate` must be in the future and within 30 days like on create (SIM-60); an unchanged echo of the stored date is accepted. Create and update: `departureDate` must be ISO 8601 date and time (`Z`, an offset, or no zone read as UTC); blank or any other shape is refused; it is stored as UTC with milliseconds |
+| 1.4.0 | 2026-10-17 | `GET /trips` and `GET /trips/{id}` return `truckerPhone` only to the trip's trucker and admins; buyers get none (ESC-48). `/sync` conflict data for the owner still carries it (shipped clients read it as required). Clients read `truckerPhone ?? ''` |
 
 ---
 
-**Last Updated**: 2026-10-06
-**Version**: 1.3.0
+**Last Updated**: 2026-10-17
+**Version**: 1.4.0
 **Status**: Draft (Phase R4.1)
