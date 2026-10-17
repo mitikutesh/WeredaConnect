@@ -11,6 +11,9 @@
 #   ./scripts/setup-gh-secrets.sh              # auto-detect from CDK outputs
 #   ./scripts/setup-gh-secrets.sh --env dev    # specify environment
 #   ./scripts/setup-gh-secrets.sh --manual     # prompt for every value
+#
+# The secrets are repo-wide and every deploy on a push to main is a dev deploy,
+# so a non-dev --env also needs --force (see the check below).
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -22,6 +25,7 @@ NC='\033[0m'
 
 ENV="dev"
 MANUAL=false
+FORCE=false
 REPO=""
 AWS_REGION="eu-north-1"
 
@@ -30,14 +34,28 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --env)     ENV="$2"; shift 2 ;;
     --manual)  MANUAL=true; shift ;;
+    --force)   FORCE=true; shift ;;
     --repo)    REPO="$2"; shift 2 ;;
     --region)  AWS_REGION="$2"; shift 2 ;;
     -h|--help)
-      echo "Usage: $0 [--env dev|staging|prod] [--manual] [--repo owner/repo] [--region aws-region]"
+      echo "Usage: $0 [--env dev|staging|prod] [--force] [--manual] [--repo owner/repo] [--region aws-region]"
       exit 0 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
+
+# FUP-31: each deploy role trusts only main-branch jobs that name its own
+# environment, and AWS_DEPLOY_ROLE_ARN is one repo-wide secret (environment
+# secrets need GitHub Pro on a private repo). Writing the staging or prod role
+# into it locks every dev deploy out of AWS.
+if [[ "$ENV" != "dev" ]]; then
+  if [[ "$FORCE" != true ]]; then
+    echo -e "${RED}Error: --env ${ENV} overwrites the repo-wide secrets that the dev deploys use, AWS_DEPLOY_ROLE_ARN included.${NC}"
+    echo -e "${RED}Every dev deploy would then fail at 'Configure AWS credentials'. Add --force only if that is intended.${NC}"
+    exit 1
+  fi
+  echo -e "${YELLOW}Warning: --force: the repo-wide secrets will point at ${ENV}; dev deploys fail until you re-run with --env dev.${NC}"
+fi
 
 PREFIX="wereda-connect-${ENV}"
 
@@ -156,7 +174,8 @@ else
       echo -e "${GREEN}  ✓ OIDC provider already exists${NC}"
     fi
 
-    # Create the trust policy
+    # Create the trust policy: only a job on main that names this environment
+    # (same condition as infra/lib/stacks/github-actions-stack.ts, FUP-31)
     TRUST_POLICY=$(cat <<POLICY
 {
   "Version": "2012-10-17",
@@ -169,10 +188,8 @@ else
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
         "StringEquals": {
-          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
-        },
-        "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:${GITHUB_ORG}/${GITHUB_REPO_NAME}:*"
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": "repo:${GITHUB_ORG}/${GITHUB_REPO_NAME}:environment:${ENV}:ref:refs/heads/main"
         }
       }
     }
@@ -374,8 +391,11 @@ echo -e "${GREEN}═════════════════════
 echo ""
 echo "  Next steps:"
 echo "    1. Verify secrets:   gh secret list --repo $REPO"
-echo "    2. Trigger deploys:"
-echo "       gh workflow run 'Deploy Admin Dashboard (Vite)' --field environment=${ENV}"
-echo "       gh workflow run 'Deploy Webapp (Flutter Web)' --field environment=${ENV}"
-echo "       gh workflow run 'Deploy Website (Astro)' --field environment=${ENV}"
+echo "    2. Trigger deploys (from main only: the role trusts main-branch jobs that name environment ${ENV}):"
+echo "       gh workflow run 'Deploy Admin Dashboard (Vite)' --ref main --field environment=${ENV}"
+echo "       gh workflow run 'Deploy Webapp (Flutter Web)' --ref main --field environment=${ENV}"
+echo "       gh workflow run 'Deploy Website (Astro)' --ref main --field environment=${ENV}"
+if [[ "$ENV" != "dev" ]]; then
+  echo -e "    ${YELLOW}3. Pushes to main deploy dev and now fail: re-run this script with --env dev afterwards.${NC}"
+fi
 echo ""

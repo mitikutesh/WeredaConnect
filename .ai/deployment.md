@@ -595,7 +595,7 @@ Set via `./scripts/setup-gh-secrets.sh --env <env>`:
 
 | Secret | Source |
 |--------|--------|
-| `AWS_DEPLOY_ROLE_ARN` | IAM OIDC role (auto-created by script) |
+| `AWS_DEPLOY_ROLE_ARN` | IAM OIDC role (auto-created by script); repo-wide, holds the dev role (see "CI deploy role trust (FUP-31)") |
 | `API_BASE_URL` | CDK ApiStack `ApiUrl` output |
 | `COGNITO_USER_POOL_ID` | CDK ApiStack `UserPoolId` output |
 | `COGNITO_CLIENT_ID` | CDK ApiStack `UserPoolClientId` output |
@@ -642,6 +642,102 @@ Dev-only flags (blocked in prod by CDK guard):
 | `pr-validation.yml` | PRs | Linting, type checks |
 
 Auth: GitHub OIDC → AWS STS AssumeRoleWithWebIdentity (no stored credentials).
+
+### CI deploy role trust (FUP-31)
+
+The deploy role `wereda-connect-<env>-github-deploy` (`infra/lib/stacks/github-actions-stack.ts`)
+trusts one OIDC subject (with `aud` = `sts.amazonaws.com`):
+
+```
+repo:mitikutesh/WeredaConnect:environment:<env>:ref:refs/heads/main
+```
+
+Only a job that runs on `main` (push to main, or a dispatch from main) and sets `environment: <env>`
+can assume it. A dispatch from another branch, a job without `environment:`, or a job that names
+another environment fails at "Configure AWS credentials" with
+`Not authorized to perform sts:AssumeRoleWithWebIdentity`.
+
+The main-only rule is only as strong as write control on main. main has no branch protection on
+GitHub Free, so a job on any branch that holds `contents: write` and `actions: write` can push to main
+and dispatch `deploy-server.yml` there. That is not a regression (the old trust let any branch in
+directly); closing it needs branch protection on main, which needs GitHub Pro (open follow-up).
+
+This depends on a repo setting, the OIDC subject template, set on 2026-10-17. GitHub environment
+branch rules would do the same job, but on a private repo they need GitHub Pro.
+
+```bash
+export GH_TOKEN=$(gh auth token --user mitikutesh) && gh api repos/mitikutesh/WeredaConnect/actions/oidc/customization/sub
+# expected:
+# {"use_default":false,"use_immutable_subject":false,"include_claim_keys":["repo","context","ref"],"sub_claim_prefix":"repo:mitikutesh/WeredaConnect"}
+# PUT body that set it (PUT repos/mitikutesh/WeredaConnect/actions/oidc/customization/sub):
+# {"use_default": false, "use_immutable_subject": false, "include_claim_keys": ["repo", "context", "ref"]}
+```
+
+Rules:
+- Change the trust of every deploy role BEFORE you reset the template to default, opt in to immutable
+  subject claims or edit `include_claim_keys`. Otherwise CI cannot assume the role, so it cannot deploy
+  the fix either (recovery below).
+- Renaming or transferring the repo: GitHub docs say renames and transfers after 2026-07-15 move the repo
+  to the immutable subject format (`repo:OWNER@OWNER-ID/REPO@REPO-ID:...`), which cuts CI off. Update the
+  trust (and `githubRepo` in `infra/bin/wereda-connect.ts`) first.
+- Only `push` and `workflow_dispatch` jobs may get `id-token: write`. Every other event that runs on the
+  default branch (`pull_request_target`, `workflow_run`, `schedule`, `issue_comment`, `repository_dispatch`,
+  `issues`, `discussion`, `check_suite`, `delete` and so on) runs with ref `refs/heads/main`, so with
+  `environment: <env>` such a job matches the trust while handling input from outside.
+- `AWS_DEPLOY_ROLE_ARN` is one repo-wide secret and holds the dev role (environment secrets need GitHub
+  Pro on a private repo). A dispatch with `environment=staging` or `prod` presents that environment to the
+  dev role and fails. CI deploys to staging/prod need their own role ARN first.
+- CI only redeploys the dev role. A staging or prod role (or any other role that trusts
+  `token.actions.githubusercontent.com`) gets the trust by hand, in CloudShell:
+
+```bash
+aws iam list-roles --query "Roles[?contains(to_string(AssumeRolePolicyDocument), 'token.actions.githubusercontent.com')].RoleName" --output text
+for e in staging prod; do
+  aws iam get-role --role-name "wereda-connect-$e-github-deploy" --query 'Role.AssumeRolePolicyDocument' --output json || echo "$e: no role"
+done
+e=prod   # repeat for each role that exists
+cat > "/tmp/trust-$e.json" <<JSON
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow",
+ "Principal":{"Federated":"arn:aws:iam::471112574693:oidc-provider/token.actions.githubusercontent.com"},
+ "Action":"sts:AssumeRoleWithWebIdentity",
+ "Condition":{"StringEquals":{"token.actions.githubusercontent.com:aud":"sts.amazonaws.com",
+   "token.actions.githubusercontent.com:sub":"repo:mitikutesh/WeredaConnect:environment:$e:ref:refs/heads/main"}}}]}
+JSON
+aws iam update-assume-role-policy --role-name "wereda-connect-$e-github-deploy" --policy-document "file:///tmp/trust-$e.json"
+```
+
+  If the role belongs to a CloudFormation stack (`wereda-connect-<env>-github-actions`), that is drift
+  until the stack is next deployed from main, which writes the same trust.
+
+Which subject GitHub really sent (CloudTrail, CloudShell, region of the job):
+
+```bash
+aws cloudtrail lookup-events --region eu-north-1 \
+  --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
+  --max-results 5 --output json | jq -r '.Events[].CloudTrailEvent | fromjson | .userIdentity.userName'
+```
+
+Rollback and recovery:
+- Undo the template change: safe ONLY while every deploy role still has the old wildcard trust
+  (`repo:mitikutesh/WeredaConnect:*`), that is before the FUP-31 trust was deployed anywhere.
+  `export GH_TOKEN=$(gh auth token --user mitikutesh) && gh api -X PUT repos/mitikutesh/WeredaConnect/actions/oidc/customization/sub --input - <<<'{"use_default": true}'`
+- Main can no longer assume the dev role (the exact trust is deployed): put the subject from CloudTrail into
+  `/tmp/trust-dev.json` (same JSON as above with `dev`) and run `aws iam update-assume-role-policy` for
+  `wereda-connect-dev-github-deploy`, then merge the matching change to `github-actions-stack.ts`.
+  Otherwise the next deploy writes the stack's condition back.
+- Last resort, when the right subject cannot be found: restore the old wildcard trust on the dev role. This
+  reopens the any-branch hole until the exact trust is back, so fix forward right after.
+
+```bash
+cat > /tmp/trust-dev-wildcard.json <<'JSON'
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow",
+ "Principal":{"Federated":"arn:aws:iam::471112574693:oidc-provider/token.actions.githubusercontent.com"},
+ "Action":"sts:AssumeRoleWithWebIdentity",
+ "Condition":{"StringEquals":{"token.actions.githubusercontent.com:aud":"sts.amazonaws.com"},
+   "StringLike":{"token.actions.githubusercontent.com:sub":"repo:mitikutesh/WeredaConnect:*"}}}]}
+JSON
+aws iam update-assume-role-policy --role-name wereda-connect-dev-github-deploy --policy-document file:///tmp/trust-dev-wildcard.json
+```
 
 ---
 
@@ -793,6 +889,7 @@ scripts/money_alarms_synthetic.sh --env dev --fire --wait-clear
 | Insufficient permissions | Verify `aws sts get-caller-identity`; need CF/Lambda/APIGW/DDB/S3/IAM:PassRole |
 | Lambda not updating | Force: `aws lambda update-function-code --function-name <name> ...` |
 | GitHub Actions "Credentials could not be loaded" | Run `./scripts/setup-gh-secrets.sh` |
+| "Not authorized to perform sts:AssumeRoleWithWebIdentity" | Run from `main`, the job must set `environment:` (dev only while the ARN secret is the dev role), check the OIDC subject template: see "CI deploy role trust (FUP-31)" |
 | Webapp "App setup incomplete" | `API_BASE_URL` / `COGNITO_*` secrets are empty |
 | Admin loads without login | `VITE_COGNITO_*` secrets missing |
 | CloudFront stale content | `aws cloudfront create-invalidation --distribution-id <ID> --paths "/*"` |

@@ -62,7 +62,7 @@ gh secret list
 ### GitHub OIDC IAM Role
 
 The setup script automatically creates an IAM role (`wereda-connect-{env}-github-deploy`) with:
-- **Trust policy**: GitHub Actions OIDC provider for this repository
+- **Trust policy**: GitHub Actions OIDC, only jobs on `main` that set `environment: {env}` (sub `repo:<owner>/<repo>:environment:{env}:ref:refs/heads/main`; needs the repo's OIDC subject template, see `.ai/deployment.md` "CI deploy role trust (FUP-31)")
 - **Permissions**: S3 put/get/delete + CloudFront cache invalidation
 
 If you prefer to create the role manually, see [AWS docs on GitHub OIDC](https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services).

@@ -1487,25 +1487,60 @@ describe('GithubActionsStack', () => {
     });
   });
 
-  test('role trust policy uses GitHub OIDC provider', () => {
+  test('FUP-31: the GitHub OIDC provider can assume the role only for a job on main that names the environment', () => {
     template.hasResourceProperties('AWS::IAM::Role', {
       AssumeRolePolicyDocument: {
         Statement: [
           {
             Action: 'sts:AssumeRoleWithWebIdentity',
-            Condition: {
+            Principal: {
+              Federated: 'arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com',
+            },
+            Condition: Match.objectEquals({
               StringEquals: {
                 'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+                'token.actions.githubusercontent.com:sub':
+                  'repo:mitikutesh/WeredaConnect:environment:dev:ref:refs/heads/main',
               },
-              StringLike: {
-                'token.actions.githubusercontent.com:sub': 'repo:mitikutesh/WeredaConnect:*',
-              },
-            },
+            }),
           },
         ],
       },
     });
   });
+
+  test.each(['dev', 'staging', 'prod'])(
+    'FUP-31: the %s role trusts only its own environment on main, with no wildcard',
+    (envName) => {
+      const envConfig = environments[envName];
+      const app = new cdk.App();
+      const stack = new GithubActionsStack(app, `TrustGithubActionsStack-${envName}`, {
+        env: { account: '123456789012', region: envConfig.region },
+        envConfig,
+        githubRepo: 'mitikutesh/WeredaConnect',
+        websiteBucketName: `wereda-connect-${envName}-${envConfig.region}-website`,
+        webappBucketName: `wereda-connect-${envName}-${envConfig.region}-webapp`,
+        adminBucketName: `wereda-connect-${envName}-${envConfig.region}-admin`,
+        websiteDistributionId: 'ETRUST01',
+        webappDistributionId: 'ETRUST02',
+        adminDistributionId: 'ETRUST03',
+      });
+      const envTemplate = Template.fromStack(stack);
+      const roles = Object.values(envTemplate.findResources('AWS::IAM::Role'));
+      expect(roles).toHaveLength(1);
+      const statements = roles[0].Properties.AssumeRolePolicyDocument.Statement;
+      expect(statements).toHaveLength(1);
+      expect(statements[0].Condition).toEqual({
+        StringEquals: {
+          'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+          'token.actions.githubusercontent.com:sub': `repo:mitikutesh/WeredaConnect:environment:${envName}:ref:refs/heads/main`,
+        },
+      });
+      const json = JSON.stringify(envTemplate.toJSON());
+      expect(json).not.toContain('StringLike');
+      expect(json).not.toContain('WeredaConnect:*');
+    },
+  );
 
   test('policy grants s3:ListBucket on bucket ARNs (not on /*)', () => {
     template.hasResourceProperties('AWS::IAM::Policy', {
