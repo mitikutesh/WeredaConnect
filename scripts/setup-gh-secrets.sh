@@ -156,7 +156,8 @@ else
       echo -e "${GREEN}  ✓ OIDC provider already exists${NC}"
     fi
 
-    # Create the trust policy
+    # Create the trust policy: only a job on main that names this environment
+    # (same condition as infra/lib/stacks/github-actions-stack.ts, FUP-31)
     TRUST_POLICY=$(cat <<POLICY
 {
   "Version": "2012-10-17",
@@ -169,10 +170,8 @@ else
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
         "StringEquals": {
-          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
-        },
-        "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:${GITHUB_ORG}/${GITHUB_REPO_NAME}:*"
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": "repo:${GITHUB_ORG}/${GITHUB_REPO_NAME}:environment:${ENV}:ref:refs/heads/main"
         }
       }
     }

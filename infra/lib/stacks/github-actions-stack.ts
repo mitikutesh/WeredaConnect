@@ -28,6 +28,7 @@ export interface GithubActionsStackProps extends cdk.StackProps {
  * GitHub Actions OIDC deploy role for WeredaConnect CI/CD.
  *
  * Creates an IAM role that GitHub Actions can assume via OIDC (no long-lived keys).
+ * Only jobs that run on main and name this GitHub environment can assume it.
  * The role is scoped to the specific S3 buckets and CloudFront distributions for
  * this environment.
  *
@@ -80,10 +81,11 @@ export class GithubActionsStack extends cdk.Stack {
         {
           StringEquals: {
             "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          },
-          StringLike: {
-            // Scoped to all branches/tags/PRs in this repo
-            "token.actions.githubusercontent.com:sub": `repo:${githubRepo}:*`,
+            // FUP-31: only a job on main that names this GitHub environment. The repo's
+            // OIDC subject template is ["repo", "context", "ref"] (.ai/deployment.md),
+            // because environment branch rules need GitHub Pro on a private repo. A job
+            // on another ref, or without `environment:`, gets a different sub.
+            "token.actions.githubusercontent.com:sub": `repo:${githubRepo}:environment:${envConfig.name}:ref:refs/heads/main`,
           },
         },
       ),
@@ -234,7 +236,7 @@ export class GithubActionsStack extends cdk.Stack {
     new cdk.CfnOutput(this, "DeployRoleArn", {
       value: deployRole.roleArn,
       description:
-        "GitHub Actions deploy role ARN — set as AWS_DEPLOY_ROLE_ARN in each GitHub environment",
+        "GitHub Actions deploy role ARN. CI reads it from the repo-wide secret AWS_DEPLOY_ROLE_ARN, which holds the dev role",
     });
   }
 }
