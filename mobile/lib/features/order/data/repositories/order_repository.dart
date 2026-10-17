@@ -365,6 +365,7 @@ class OrderRepository extends BaseOrderRepository {
         o.cancelReason = reason;
         o.updatedAt = now;
         o.version = baseVersion + 1;
+        _closeContact(o);
       },
       () => _syncQueue.enqueue(
         userId: userId,
@@ -402,6 +403,9 @@ class OrderRepository extends BaseOrderRepository {
         o.respondedAt = now;
         o.updatedAt = now;
         o.version = baseVersion + 1;
+        // ESC-48: contact opens at the accept; the server's flag and the
+        // parties' phones arrive with the next pull, the status decides until then.
+        o.contactOpen = null;
       },
       () => _syncQueue.enqueue(
         userId: farmerId,
@@ -443,6 +447,7 @@ class OrderRepository extends BaseOrderRepository {
         o.rejectionReason = reason;
         o.updatedAt = now;
         o.version = baseVersion + 1;
+        _closeContact(o);
       },
       () => _syncQueue.enqueue(
         userId: farmerId,
@@ -460,6 +465,16 @@ class OrderRepository extends BaseOrderRepository {
         operationId: _uuid.v4(),
       ),
     );
+  }
+
+  /// ESC-48: a cancelled or rejected order closes contact at once, offline
+  /// too: the parties' phones leave the device with the change.
+  static void _closeContact(Order order) {
+    order
+      ..contactOpen = false
+      ..buyerPhone = null
+      ..farmerPhone = null
+      ..truckerPhone = null;
   }
 
   Future<Order> _findOrder(String orderId) async {
@@ -507,6 +522,10 @@ class OrderRepository extends BaseOrderRepository {
       paymentMethod: order.paymentMethod,
       updatedAt: order.updatedAt,
       version: order.version,
+      contactOpen: order.contactOpen,
+      buyerPhone: order.buyerPhone,
+      farmerPhone: order.farmerPhone,
+      truckerPhone: order.truckerPhone,
     );
     await _isar.writeTxn(() async {
       change(order);
@@ -525,7 +544,11 @@ class OrderRepository extends BaseOrderRepository {
           ..cbeTransactionId = before.cbeTransactionId
           ..paymentMethod = before.paymentMethod
           ..updatedAt = before.updatedAt
-          ..version = before.version;
+          ..version = before.version
+          ..contactOpen = before.contactOpen
+          ..buyerPhone = before.buyerPhone
+          ..farmerPhone = before.farmerPhone
+          ..truckerPhone = before.truckerPhone;
         await _isar.orders.put(order);
       });
       rethrow;

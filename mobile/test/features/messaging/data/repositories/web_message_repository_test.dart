@@ -2,8 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/message.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/messaging/data/repositories/web_message_repository.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
@@ -178,6 +180,60 @@ void main() {
       expect(await repository.pullMessages('buyer-1'), 1);
       await Future<void>.delayed(Duration.zero);
       expect(arrivals, isEmpty);
+    });
+    // ESC-48: no phone number is kept on a message, sent or pulled.
+    test('a pulled message keeps no phone even if the server sent one',
+        () async {
+      stubMessages([
+        wireMessage('in-1', DateTime.utc(2026, 7, 9, 10))
+          ..['senderPhone'] = '+251911000002'
+          ..['recipientPhone'] = '+251911000001',
+      ]);
+
+      await repository.pullMessages('buyer-1');
+      final thread =
+          await repository.loadThread('crop:crop-1:buyer-1:farmer-1');
+
+      expect(thread.single.senderPhone, isNull);
+      expect(thread.single.recipientPhone, isNull);
+    });
+
+    test('a send refused because contact is not open is not cached', () async {
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'results': [
+            {
+              'operationId': 'op',
+              'status': 'error',
+              'message': 'MESSAGE_CONTACT_LOCKED: Contact opens after payment '
+                  'is held in escrow and the farmer accepts the order.',
+            },
+          ],
+        },
+      );
+      stubMessages([]);
+
+      final error = await repository
+          .sendMessage(
+            contextType: 'crop',
+            contextId: 'crop-1',
+            senderId: 'buyer-1',
+            recipientId: 'farmer-1',
+            body: 'hello',
+          )
+          .then<Object?>((_) => null, onError: (Object e) => e);
+
+      expect(error, isA<SyncRejectedException>());
+      expect(mapErrorToCode(error!), AppErrorCode.contactLocked);
+      expect(
+        await repository.loadThread('crop:crop-1:buyer-1:farmer-1'),
+        isEmpty,
+      );
     });
   });
 }

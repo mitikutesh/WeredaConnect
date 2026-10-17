@@ -65,6 +65,10 @@ enum AppErrorCode {
   /// failure (`ORDER_CANCEL_NOT_ALLOWED`, or the local guard); nothing changed.
   orderCancelNotAllowed,
 
+  /// ESC-48: a message went into a thread whose contact is not open
+  /// (`MESSAGE_CONTACT_LOCKED`); it was not sent.
+  contactLocked,
+
   /// The server refused a queued change (not an order) for good, so it was
   /// never saved there.
   changeNotSaved,
@@ -131,6 +135,9 @@ AppErrorCode mapErrorToCode(Object error) {
     SyncRejectedException(:final message)
         when isDeliveryDisputeExpiredMessage(message) =>
       AppErrorCode.deliveryDisputeExpired,
+    SyncRejectedException(:final message)
+        when isContactLockedMessage(message) =>
+      AppErrorCode.contactLocked,
     OrderCancelNotAllowedException() => AppErrorCode.orderCancelNotAllowed,
     OrderActionNotAllowedException() => AppErrorCode.orderRefused,
     AlreadyRatedException() => AppErrorCode.alreadyRated,
@@ -172,6 +179,7 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.deliveryDisputeRefused => l10n.deliveryErrorDisputeRefused,
     AppErrorCode.deliveryDisputeExpired => l10n.deliveryErrorDisputeExpired,
     AppErrorCode.orderCancelNotAllowed => l10n.errorOrderCancelNotAllowed,
+    AppErrorCode.contactLocked => l10n.contactAfterEscrowNote,
     AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
@@ -209,6 +217,9 @@ AppErrorCode syncRejectionErrorCode({
   }
   if (isDeliveryDisputeExpiredMessage(message)) {
     return AppErrorCode.deliveryDisputeExpired;
+  }
+  if (isContactLockedMessage(message)) {
+    return AppErrorCode.contactLocked;
   }
   return isRevertableRejectionMessage(message)
       ? AppErrorCode.orderRefused

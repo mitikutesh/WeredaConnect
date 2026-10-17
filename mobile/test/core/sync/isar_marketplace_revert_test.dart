@@ -5,6 +5,7 @@ import 'package:isar/isar.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/schemas/message.dart';
 import 'package:wereda_connect/core/database/schemas/order.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
@@ -55,7 +56,7 @@ void main() {
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('marketplace_revert_test_');
     isar = await Isar.open(
-      [OrderSchema, DeliverySchema, SyncOperationSchema],
+      [OrderSchema, DeliverySchema, SyncOperationSchema, MessageSchema],
       directory: tempDir.path,
       name: 'marketplace_revert_${DateTime.now().microsecondsSinceEpoch}',
     );
@@ -538,6 +539,135 @@ void main() {
         sync.pullOrder('order-1'),
         throwsA(isA<NotFoundException>()),
       );
+    });
+  });
+
+  // ESC-48: the parties' phones travel on the order, only while it is open.
+  group('order contact (ESC-48)', () {
+    Map<String, dynamic> openOrder({
+      String status = 'accepted',
+      int version = 4,
+    }) =>
+        _serverOrder(status: status, version: version)
+          ..['truckerId'] = 'trucker-1'
+          ..['contactOpen'] = status == 'accepted'
+          ..addAll(
+            status == 'accepted'
+                ? {
+                    'buyerPhone': '+251911000001',
+                    'farmerPhone': '+251911000002',
+                    'truckerPhone': '+251911000003',
+                  }
+                : {},
+          );
+
+    test('a pull stores the flag and the phones, a closed pull clears them',
+        () async {
+      await putOrder();
+      answerOrderList([openOrder()]);
+
+      await sync.pullOrders(userId: 'buyer-1', role: 'buyer');
+
+      var local = await load();
+      expect(local!.contactOpen, isTrue);
+      expect(local.farmerPhone, '+251911000002');
+      expect(local.truckerPhone, '+251911000003');
+
+      // The buyer cancelled after a transport failure on another device.
+      answerOrder(
+        () async => {'order': openOrder(status: 'cancelled', version: 5)},
+      );
+      await sync.pullOrder('order-1');
+
+      local = await load();
+      expect(local!.contactOpen, isFalse);
+      expect(local.buyerPhone, isNull);
+      expect(local.farmerPhone, isNull);
+      expect(local.truckerPhone, isNull);
+    });
+
+    Future<void> putOpenOrder() => isar.writeTxn(() async {
+          final order = (await load())!
+            ..contactOpen = true
+            ..buyerPhone = '+251911000001'
+            ..farmerPhone = '+251911000002';
+          await isar.orders.put(order);
+        });
+
+    test('a local reject drops the phones at once, offline', () async {
+      await putOrder();
+      await putOpenOrder();
+
+      await repo.rejectOrder('order-1', 'farmer-1');
+
+      final local = await load();
+      expect(local!.contactOpen, isFalse);
+      expect(local.buyerPhone, isNull);
+      expect(local.farmerPhone, isNull);
+    });
+
+    test('a local accept leaves the flag to the next pull', () async {
+      await putOrder();
+      await isar.writeTxn(() async {
+        await isar.orders.put((await load())!..contactOpen = false);
+      });
+
+      await repo.acceptOrder('order-1', 'farmer-1');
+
+      final local = await load();
+      expect(local!.status, OrderStatus.accepted);
+      expect(local.contactOpen, isNull);
+    });
+  });
+
+  group('revertRejected for a message (ESC-48)', () {
+    Future<SyncOperation> sentMessage() async {
+      await isar.writeTxn(() async {
+        await isar.messages.put(
+          Message()
+            ..messageId = 'msg-1'
+            ..conversationId = 'crop:crop-1:buyer-1:farmer-1'
+            ..contextType = 'crop'
+            ..contextId = 'crop-1'
+            ..senderId = 'buyer-1'
+            ..recipientId = 'farmer-1'
+            ..body = 'hello'
+            ..createdAt = DateTime.utc(2026, 10)
+            ..version = 1,
+        );
+      });
+      return queue.enqueue(
+        userId: 'buyer-1',
+        entityType: 'message',
+        entityId: 'msg-1',
+        action: 'create',
+        data: '{"messageId":"msg-1"}',
+        operationId: 'op-msg',
+      );
+    }
+
+    Future<Message?> loadMessage() =>
+        isar.messages.filter().messageIdEqualTo('msg-1').findFirst();
+
+    test('a message refused because contact is not open is removed', () async {
+      final op = await sentMessage();
+
+      await sync.revertRejected(
+        op,
+        'MESSAGE_CONTACT_LOCKED: Contact opens after payment is held in escrow '
+        'and the farmer accepts the order.',
+      );
+
+      expect(await loadMessage(), isNull);
+      verifyZeroInteractions(api);
+    });
+
+    test('any other message refusal keeps it', () async {
+      final op = await sentMessage();
+
+      await sync.revertRejected(op, 'MESSAGE_FORBIDDEN: no');
+
+      expect(await loadMessage(), isNotNull);
     });
   });
 }

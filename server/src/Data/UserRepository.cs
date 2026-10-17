@@ -174,6 +174,60 @@ public sealed class UserRepository : IUserRepository
             }
         });
 
+    /// <summary>Rounds of BatchGetItem for the keys DynamoDB left unprocessed (throttling, size cap).</summary>
+    private const int MaxPhoneBatchAttempts = 3;
+
+    public async Task<IReadOnlyDictionary<string, string>> GetPhoneNumbersAsync(IReadOnlyCollection<string> userIds)
+    {
+        var phones = new Dictionary<string, string>(StringComparer.Ordinal);
+        var distinct = userIds.Where(id => !string.IsNullOrEmpty(id)).Distinct(StringComparer.Ordinal).ToList();
+
+        // BatchGetItem takes at most 100 keys per request.
+        foreach (var batch in distinct.Chunk(100))
+        {
+            var requestItems = new Dictionary<string, KeysAndAttributes>
+            {
+                [_tableName] = new KeysAndAttributes
+                {
+                    Keys = batch.Select(id => new Dictionary<string, AttributeValue>
+                    {
+                        { "userId", new AttributeValue { S = id } }
+                    }).ToList(),
+                    ProjectionExpression = "userId, phoneNumber"
+                }
+            };
+
+            // The low-level client does not retry UnprocessedKeys by itself.
+            for (var attempt = 0; requestItems.Count > 0 && attempt < MaxPhoneBatchAttempts; attempt++)
+            {
+                if (attempt > 0)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(50 << attempt));
+                }
+
+                var response = await _dynamoDb.BatchGetItemAsync(new BatchGetItemRequest { RequestItems = requestItems });
+                if (response.Responses != null && response.Responses.TryGetValue(_tableName, out var items))
+                {
+                    foreach (var item in items)
+                    {
+                        var id = item.TryGetValue("userId", out var uid) ? uid.S : null;
+                        var phone = item.TryGetValue("phoneNumber", out var pn) ? pn.S : null;
+                        if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(phone))
+                        {
+                            phones[id] = phone;
+                        }
+                    }
+                }
+
+                requestItems = response.UnprocessedKeys is { Count: > 0 }
+                    ? response.UnprocessedKeys
+                    : new Dictionary<string, KeysAndAttributes>();
+            }
+        }
+
+        return phones;
+    }
+
     public async Task<UserDto?> GetUserByFaydaIdAsync(string faydaId)
     {
         // Use FaydaIdIndex GSI — efficient key-based lookup instead of table scan.

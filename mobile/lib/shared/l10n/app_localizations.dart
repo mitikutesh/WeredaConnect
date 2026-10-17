@@ -4894,6 +4894,30 @@ abstract class AppLocalizations {
   /// **'Contact'**
   String get contact;
 
+  /// ESC-48: shown where Call, Copy and Message are hidden because the order's payment is not yet held in escrow (crop and trip detail, closed chat threads, an order before payment)
+  ///
+  /// In en, this message translates to:
+  /// **'Contact opens after payment is held in escrow.'**
+  String get contactAfterEscrowNote;
+
+  /// ESC-48: shown on a funded order before the farmer accepts it, where Call, Copy and Message are still hidden
+  ///
+  /// In en, this message translates to:
+  /// **'Contact opens once the farmer accepts the order.'**
+  String get contactAfterAcceptNote;
+
+  /// ESC-48: order detail button that opens Call, Copy and Message for the order's buyer
+  ///
+  /// In en, this message translates to:
+  /// **'Contact Buyer'**
+  String get contactBuyer;
+
+  /// ESC-48: order detail button that opens Call, Copy and Message for the order's trucker
+  ///
+  /// In en, this message translates to:
+  /// **'Contact Trucker'**
+  String get contactTrucker;
+
   /// Title of the in-app banner shown when a chat message arrives
   ///
   /// In en, this message translates to:

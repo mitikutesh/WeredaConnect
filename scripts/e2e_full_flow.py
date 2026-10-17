@@ -306,22 +306,24 @@ def role_visibility(s: State):
 
 
 def contact_seller(s: State):
-    hdr("PHASE 4 — Contact seller (phone reveal)")
+    hdr("PHASE 4: no contact before the money is held (ESC-48)")
     b0 = USERS["buyer0"]
     if s.crops:
-        # Crops don't carry a phone on the listing; the buyer can view the crop and
-        # reach the farmer once an order/delivery is created. Assert visibility here.
+        # The buyer views the crop to order it, but reaches the farmer only from the
+        # order once the farmer accepted it (order-lifecycle.md 1.18.0).
         cid, farmer, _ = s.crops[0]
         r = api("GET", f"/crops/{cid}", token=b0.token)
         crop = r.json().get("crop", r.json()) if r.status == 200 else {}
-        s.check("buyer can view crop detail (to contact/order)",
+        s.check("buyer can view crop detail (to order)",
                 r.status == 200 and crop.get("farmerName") is not None, crop.get("farmerName", "?"))
+        s.check("buyer gets no farmer phone on crop detail",
+                r.status == 200 and crop.get("farmerPhone") is None, "phone present" if crop.get("farmerPhone") else "")
     if s.trips:
         tid, tr = s.trips[0]
         r = api("GET", f"/trips/{tid}", token=b0.token)
         trip = r.json().get("trip", r.json()) if r.status == 200 else {}
-        s.check("buyer sees trucker phone on trip detail",
-                r.status == 200 and trip.get("truckerPhone") is not None, trip.get("truckerPhone", "?"))
+        s.check("buyer gets no trucker phone on trip detail",
+                r.status == 200 and trip.get("truckerPhone") is None, "phone present" if trip.get("truckerPhone") else "")
 
 
 def intent_and_matching(s: State):
@@ -422,6 +424,10 @@ def delivery_and_escrow(s: State):
     # The server binds the escrow amount to the order's total (ESCROW_028).
     rr = api("GET", f"/orders/{oid}", token=b0.token)
     o = rr.json().get("order", rr.json()) if rr.status == 200 else {}
+    # ESC-48: the farmer accepted, so the parties may reach each other on the order.
+    s.check("accepted order gives the buyer the farmer's and trucker's phones",
+            o.get("contactOpen") is True and o.get("farmerPhone") is not None and o.get("truckerPhone") is not None,
+            f"contactOpen={o.get('contactOpen')}")
     amount = float(o.get("orderTotal") or 0)
     if amount <= 0:
         s.check("escrow initiate", False, f"order {oid[:8]} has no orderTotal to pay")

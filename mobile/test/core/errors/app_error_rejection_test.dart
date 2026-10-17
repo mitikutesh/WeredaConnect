@@ -315,4 +315,37 @@ void main() {
       }
     });
   });
+
+  group('message refused because contact is not open (ESC-48)', () {
+    const message = 'MESSAGE_CONTACT_LOCKED: Contact opens after payment is '
+        'held in escrow and the farmer accepts the order.';
+
+    test('web: the refused send has its own code', () {
+      expect(
+        mapErrorToCode(const SyncRejectedException(message)),
+        AppErrorCode.contactLocked,
+      );
+    });
+
+    test('mobile: the rejection snackbar has its own code', () {
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'message',
+          action: 'create',
+          message: message,
+        ),
+        AppErrorCode.contactLocked,
+      );
+    });
+
+    test('reads like the note on the screens, in all three languages',
+        () async {
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        final text = localizeErrorCode(AppErrorCode.contactLocked, l10n);
+        expect(text, l10n.contactAfterEscrowNote, reason: locale);
+        expect(text, isNot(l10n.errorChangeNotSaved), reason: locale);
+      }
+    });
+  });
 }

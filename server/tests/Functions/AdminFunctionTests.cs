@@ -416,6 +416,7 @@ public class AdminFunctionTests
             ["farmerId"] = S("farmer-1"),
             ["truckerId"] = S("trucker-1"),
             ["truckerName"] = S("Chala"),
+            ["truckerPhone"] = S("+251922000001"),
             ["buyerId"] = S("buyer-1"),
             ["qrToken"] = S("qr"),
             ["status"] = S("inTransit"),
@@ -463,6 +464,7 @@ public class AdminFunctionTests
         response.Body.Should().Contain("picked_up");      // unified delivery event
         response.Body.Should().Contain("order_created");  // synthesised order leg survives
         response.Body.Should().Contain("delivery-1");     // delivery recovered without escrow
+        response.Body.Should().Contain("251922000001");   // ESC-48: admins still see party phones
     }
 
     [Fact]

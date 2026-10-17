@@ -143,16 +143,17 @@ public partial class SyncFunction
         "farmer", "trucker"
     };
 
-    // Client-supplied message fields. Sender/recipient name+phone are NOT here:
-    // the server denormalizes them authoritatively from the users table, so a
-    // client cannot spoof the counterpart's identity or phone number.
+    // Client-supplied message fields. Sender/recipient names are NOT here: the
+    // server denormalizes them authoritatively from the users table, so a client
+    // cannot spoof the counterpart's identity. Phones are stripped, never stored.
     private static readonly HashSet<string> AllowedMessageFields = new()
     {
         "messageId", "conversationId", "contextType", "contextId",
         "senderId", "recipientId", "body", "createdAt"
     };
 
-    // The four context kinds a conversation may be scoped to.
+    // The four context kinds a conversation may be scoped to. Crop and trip threads
+    // are kept for old rows and clients but take no new message (ESC-48).
     private static readonly HashSet<string> AllowedMessageContextTypes = new(StringComparer.Ordinal)
     {
         "crop", "order", "trip", "delivery"
@@ -355,6 +356,21 @@ public partial class SyncFunction
     private static Dictionary<string, object> ScrubSyncSecrets(Dictionary<string, object> item)
     {
         item.Remove("qrNonce");
+        return item;
+    }
+
+    /// <summary>
+    /// A delivery row as a party gets it back from /sync: no QR secret (<see cref="ScrubSyncSecrets"/>)
+    /// and no phone numbers (ESC-48: the parties reach each other from the order, only while its
+    /// contact is open). Delivery rows only: owner trip rows keep their own <c>truckerPhone</c>,
+    /// which shipped clients read as a required field.
+    /// </summary>
+    private static Dictionary<string, object> ScrubDeliveryForClient(Dictionary<string, object> item)
+    {
+        ScrubSyncSecrets(item);
+        item.Remove("farmerPhone");
+        item.Remove("truckerPhone");
+        item.Remove("buyerPhone");
         return item;
     }
 
@@ -1425,9 +1441,9 @@ public partial class SyncFunction
     /// are create-only and immutable. The CRITICAL role/visibility gate lives
     /// here: the sender must be the authenticated user, and both the sender and
     /// recipient must be legitimate participants of the referenced context
-    /// (crop/order/trip/delivery). Sender/recipient name+phone are denormalized
-    /// authoritatively from the users table so neither side can spoof them and
-    /// either party can Call/Copy the other's number.
+    /// (order/delivery), and the order's contact must be open (ESC-48; crop and
+    /// trip threads are closed). Sender/recipient names are denormalized
+    /// authoritatively from the users table so neither side can spoof them.
     /// </summary>
     private async Task<SyncOperationResult> ProcessMessageAsync(
         SyncOperationRequest operation,
@@ -1521,11 +1537,21 @@ public partial class SyncFunction
             contextType, contextId, senderId, recipientId);
         if (contextError != null)
         {
+            // ESC-48: a resend of a message this sender already stored (its answer was lost, and
+            // the context closed since, e.g. a crop thread from before ESC-48) is a duplicate, not
+            // a refusal: the client would otherwise delete a message the server keeps.
+            var stored = await _messageRepo.GetByIdAsync(messageId);
+            if (stored != null && ItemString(stored, "senderId") == senderId)
+            {
+                return MessageError(operation, "duplicate", "Message already exists.");
+            }
+
             return MessageError(operation, "error", contextError);
         }
 
-        // Denormalize both parties' name + phone authoritatively from the users
-        // table (overwrites anything the client might have sent).
+        // Denormalize both parties' names authoritatively from the users table
+        // (overwrites anything the client might have sent). Phone numbers are not
+        // stored on messages (ESC-48): the parties take them from the order.
         var sender = await _userRepo.GetUserByIdAsync(senderId);
         var recipient = await _userRepo.GetUserByIdAsync(recipientId);
         if (sender == null || recipient == null)
@@ -1535,9 +1561,7 @@ public partial class SyncFunction
         }
 
         operation.Data["senderName"] = sender.DisplayName ?? sender.FullName ?? "";
-        operation.Data["senderPhone"] = sender.PhoneNumber;
         operation.Data["recipientName"] = recipient.DisplayName ?? recipient.FullName ?? "";
-        operation.Data["recipientPhone"] = recipient.PhoneNumber;
 
         var createResult = await _messageRepo.CreateAsync(operation.EntityId, operation.Data);
         return createResult.IsSuccess
@@ -1558,7 +1582,12 @@ public partial class SyncFunction
 
     /// <summary>
     /// Verify sender and recipient are the two legitimate parties for the
-    /// referenced context. Returns null when valid, or an error message string.
+    /// referenced context, and that the context is open for contact.
+    /// Returns null when valid, or an error message string.
+    /// ESC-48: crop and trip threads (before any order) take no new messages from anyone,
+    /// and order and delivery threads only while the order's contact is open
+    /// (<see cref="ContactReveal"/>), so no pre-order channel is left for a buyer and a
+    /// farmer or trucker to agree to trade off the platform.
     /// </summary>
     private async Task<string?> VerifyMessageContextAsync(
         string contextType, string contextId, string senderId, string recipientId)
@@ -1566,31 +1595,8 @@ public partial class SyncFunction
         switch (contextType)
         {
             case "crop":
-                {
-                    var crop = await _cropRepo.GetByIdAsync(contextId);
-                    if (crop == null)
-                    {
-                        return "MESSAGE_VALIDATION: Crop not found.";
-                    }
-
-                    var farmerId = ItemString(crop, "farmerId");
-                    // Exactly one party owns the crop (the farmer); the other must be
-                    // a buyer (buyers may message about ANY crop).
-                    return await VerifyOwnerBuyerPairAsync(farmerId, "buyer", senderId, recipientId);
-                }
-
             case "trip":
-                {
-                    var trip = await GetTripItemAsync(contextId);
-                    if (trip == null)
-                    {
-                        return "MESSAGE_VALIDATION: Trip not found.";
-                    }
-
-                    var truckerId = AttrString(trip, "truckerId");
-                    // Exactly one party owns the trip (the trucker); the other buyer.
-                    return await VerifyOwnerBuyerPairAsync(truckerId, "buyer", senderId, recipientId);
-                }
+                return ContactReveal.LockedMessage;
 
             case "order":
                 {
@@ -1604,7 +1610,8 @@ public partial class SyncFunction
                     AddIfPresent(participants, ItemString(order, "buyerId"));
                     AddIfPresent(participants, ItemString(order, "farmerId"));
                     AddIfPresent(participants, ItemString(order, "truckerId"));
-                    return VerifyDistinctParticipants(participants, senderId, recipientId);
+                    return VerifyDistinctParticipants(participants, senderId, recipientId)
+                           ?? (ContactReveal.IsOpen(order) ? null : ContactReveal.LockedMessage);
                 }
 
             case "delivery":
@@ -1619,43 +1626,21 @@ public partial class SyncFunction
                     AddIfPresent(participants, AttrString(delivery, "buyerId"));
                     AddIfPresent(participants, AttrString(delivery, "farmerId"));
                     AddIfPresent(participants, AttrString(delivery, "truckerId"));
-                    return VerifyDistinctParticipants(participants, senderId, recipientId);
+                    var participantError = VerifyDistinctParticipants(participants, senderId, recipientId);
+                    if (participantError != null)
+                    {
+                        return participantError;
+                    }
+
+                    // The delivery's order decides; a delivery without one stays closed.
+                    var orderId = AttrString(delivery, "orderId");
+                    var order = string.IsNullOrEmpty(orderId) ? null : await _orderRepo.GetByIdAsync(orderId);
+                    return order != null && ContactReveal.IsOpen(order) ? null : ContactReveal.LockedMessage;
                 }
 
             default:
                 return "MESSAGE_VALIDATION: Unknown contextType.";
         }
-    }
-
-    /// <summary>
-    /// For crop/trip: exactly one of the two parties must be the record owner,
-    /// and the other party must have <paramref name="otherRole"/> (buyer).
-    /// </summary>
-    private async Task<string?> VerifyOwnerBuyerPairAsync(
-        string ownerId, string otherRole, string senderId, string recipientId)
-    {
-        if (string.IsNullOrEmpty(ownerId))
-        {
-            return "MESSAGE_FORBIDDEN: Context has no owner to message.";
-        }
-
-        var senderIsOwner = senderId == ownerId;
-        var recipientIsOwner = recipientId == ownerId;
-        if (senderIsOwner == recipientIsOwner)
-        {
-            // Neither is the owner, or (impossible: both) — not a valid pair.
-            return "MESSAGE_FORBIDDEN: You are not a participant in this conversation.";
-        }
-
-        var otherPartyId = senderIsOwner ? recipientId : senderId;
-        var otherParty = await _userRepo!.GetUserByIdAsync(otherPartyId);
-        if (otherParty == null
-            || !string.Equals(otherParty.Role, otherRole, StringComparison.OrdinalIgnoreCase))
-        {
-            return "MESSAGE_FORBIDDEN: You are not a participant in this conversation.";
-        }
-
-        return null;
     }
 
     /// <summary>Both parties must be distinct members of the participant set.</summary>
@@ -4019,7 +4004,7 @@ public partial class SyncFunction
                         await TryLinkOrderEscrowAsync(
                             createOrderId!, operation.EntityId, createOrder, context);
 
-                        var result = ScrubSyncSecrets(CropRepository.FromItem(item));
+                        var result = ScrubDeliveryForClient(CropRepository.FromItem(item));
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
@@ -4046,7 +4031,7 @@ public partial class SyncFunction
                             OperationId = operation.OperationId,
                             Status = "conflict",
                             ServerVersion = serverVersion,
-                            ServerData = isParty ? ScrubSyncSecrets(CropRepository.FromItem(existing!)) : null,
+                            ServerData = isParty ? ScrubDeliveryForClient(CropRepository.FromItem(existing!)) : null,
                             Message = "Delivery already exists on server."
                         };
                     }
@@ -4311,7 +4296,7 @@ public partial class SyncFunction
                                     Status = "success",
                                     ServerVersion = existing.TryGetValue("version", out var nonceVer)
                                         && int.TryParse(nonceVer.N, out var nonceVerN) ? nonceVerN : 0,
-                                    ServerData = ScrubSyncSecrets(CropRepository.FromItem(existing))
+                                    ServerData = ScrubDeliveryForClient(CropRepository.FromItem(existing))
                                 };
                             }
                         }
@@ -4886,7 +4871,7 @@ public partial class SyncFunction
                     try
                     {
                         var response = await _dynamoDb.UpdateItemAsync(updateRequest);
-                        var result = ScrubSyncSecrets(CropRepository.FromItem(response.Attributes));
+                        var result = ScrubDeliveryForClient(CropRepository.FromItem(response.Attributes));
 
                         // Audit the delivery transition (who/when; GPS is joined at
                         // read time from the delivery record) for the monitor.
@@ -4968,7 +4953,7 @@ public partial class SyncFunction
                             conflictRow = await GetDeliveryItemAsync(operation.EntityId, consistentRead: true) ?? existing;
                         }
 
-                        var serverData = ScrubSyncSecrets(CropRepository.FromItem(conflictRow));
+                        var serverData = ScrubDeliveryForClient(CropRepository.FromItem(conflictRow));
                         var serverVer = conflictRow.TryGetValue("version", out var sv)
                             ? int.TryParse(sv.N, out var svn) ? svn : 0
                             : 0;
@@ -5111,7 +5096,7 @@ public partial class SyncFunction
                 OperationId = operation.OperationId,
                 Status = "conflict",
                 ServerVersion = VersionOf(fresh),
-                ServerData = ScrubSyncSecrets(CropRepository.FromItem(fresh)),
+                ServerData = ScrubDeliveryForClient(CropRepository.FromItem(fresh)),
                 Message = $"Version conflict: server has version {VersionOf(fresh)}, client expected {clientVersion}."
             };
         }
@@ -5143,7 +5128,7 @@ public partial class SyncFunction
             OperationId = operation.OperationId,
             Status = "success",
             ServerVersion = newVersion,
-            ServerData = ScrubSyncSecrets(CropRepository.FromItem(response.Attributes))
+            ServerData = ScrubDeliveryForClient(CropRepository.FromItem(response.Attributes))
         };
 
         static string StatusOf(Dictionary<string, AttributeValue> row)
@@ -5167,7 +5152,7 @@ public partial class SyncFunction
                     OperationId = operation.OperationId,
                     Status = "conflict",
                     ServerVersion = VersionOf(row),
-                    ServerData = ScrubSyncSecrets(CropRepository.FromItem(row)),
+                    ServerData = ScrubDeliveryForClient(CropRepository.FromItem(row)),
                     Message = "DELIVERY_ALREADY_CANCELLED: The delivery is already cancelled."
                 };
             }
@@ -6028,7 +6013,7 @@ public partial class SyncFunction
                 OperationId = operation.OperationId,
                 Status = "conflict",
                 ServerVersion = currentVersion,
-                ServerData = ScrubSyncSecrets(CropRepository.FromItem(current)),
+                ServerData = ScrubDeliveryForClient(CropRepository.FromItem(current)),
                 Message = $"Version conflict: server has version {currentVersion}, client expected {clientVersion}."
             }, null);
         }
@@ -6137,7 +6122,7 @@ public partial class SyncFunction
             OperationId = operation.OperationId,
             Status = "conflict",
             ServerVersion = version,
-            ServerData = ScrubSyncSecrets(CropRepository.FromItem(row)),
+            ServerData = ScrubDeliveryForClient(CropRepository.FromItem(row)),
             Message = "The delivery is already disputed."
         };
     }
@@ -6668,6 +6653,17 @@ public partial class SyncFunction
         await ReleaseTransportCancelSlotAsync(orderId, cancelledDeliveryId, context);
         await TryRestoreListingStockAsync(order, context);
         await TryScheduleOrderEscrowRefundAsync(orderId, TransportCancelRefundReason, context);
+
+        // ESC-48: the parties could reach each other since the farmer accepted, and this cancel
+        // refunds the buyer in full, which is also how a trade agreed off the platform would end.
+        // Best-effort signal for the admin fraud review; never a phone number in it.
+        if (ContactReveal.IsOpen(order))
+        {
+            await TryRecordFraudSignalAsync(
+                ItemString(order, "buyerId"), ContactReveal.TransportCancelSignal, orderId, "order",
+                $"Buyer cancelled after a transport failure while contact with farmer {ItemString(order, "farmerId")} was open.",
+                context);
+        }
 
         return new SyncOperationResult
         {

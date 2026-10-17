@@ -57,10 +57,8 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
         contextId: event.contextId,
         senderId: event.senderId,
         senderName: event.senderName,
-        senderPhone: event.senderPhone,
         recipientId: event.recipientId,
         recipientName: event.recipientName,
-        recipientPhone: event.recipientPhone,
         body: event.body,
       );
       await _reload(emit);

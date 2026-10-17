@@ -356,6 +356,53 @@ void main() {
     });
   });
 
+  // ESC-48: a message into a thread whose contact is not open was never
+  // stored; it is refused for good, its local copy removed, and explained.
+  group('a message refused because contact is not open', () {
+    const message = 'MESSAGE_CONTACT_LOCKED: Contact opens after payment is '
+        'held in escrow and the farmer accepts the order.';
+
+    test('is permanent, undone and announced', () async {
+      await enqueue(
+        'op-1',
+        entityType: 'message',
+        entityId: 'msg-1',
+        action: 'create',
+        data: '{"messageId":"msg-1","contextType":"crop"}',
+      );
+      replyWith([error('op-1', message)]);
+
+      await executor.executeBatch();
+      await _waitFor(() => rejections().isNotEmpty);
+
+      expect(await isRejected('op-1'), isTrue);
+      expect(await syncQueue.retryFailed(), 0);
+      expect(reverts, hasLength(1));
+      expect(reverts.single.$1.entityType, 'message');
+      expect(reverts.single.$2, message);
+      expect(rejections().single.entityType, 'message');
+      expect(rejections().single.message, message);
+    });
+
+    test('MESSAGE_FORBIDDEN keeps retrying and is not undone', () async {
+      await enqueue(
+        'op-1',
+        entityType: 'message',
+        entityId: 'msg-1',
+        action: 'create',
+        data: '{"messageId":"msg-1"}',
+      );
+      replyWith([error('op-1', 'MESSAGE_FORBIDDEN: not a participant')]);
+
+      await executor.executeBatch();
+
+      final op = await syncQueue.getOperation('op-1');
+      expect(op!.status, SyncStatus.pending);
+      expect(op.retryCount, 1);
+      expect(reverts, isEmpty);
+    });
+  });
+
   test('ORDER_KYC_REQUIRED keeps its own path', () async {
     await enqueue('op-1', data: '{"status":"payment_submitted","version":2}');
     replyWith([error('op-1', 'ORDER_KYC_REQUIRED: buyer_fayda: Verify')]);

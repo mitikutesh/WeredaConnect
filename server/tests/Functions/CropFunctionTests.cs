@@ -800,4 +800,68 @@ public class CropFunctionTests
         Assert.Equal(403, response.StatusCode);
         Assert.Contains("CROP_FORBIDDEN", response.Body);
     }
+
+    // --- ESC-48: the farmer's phone goes only to the listing's farmer and admins ---
+
+    private const string FarmerPhone = "+251911000111";
+
+    private void SetUpListOf(Dictionary<string, object> crop)
+    {
+        _mockCropRepo.QueryCropsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { crop }, null));
+    }
+
+    private static Dictionary<string, object> CropWithPhone()
+    {
+        var crop = CreateCropItem("crop-001");
+        crop["farmerPhone"] = FarmerPhone;
+        return crop;
+    }
+
+    private static string? FarmerPhoneOf(string body, bool list)
+    {
+        using var doc = JsonDocument.Parse(body);
+        var crop = list ? doc.RootElement.GetProperty("crops")[0] : doc.RootElement.GetProperty("crop");
+        return crop.TryGetProperty("farmerPhone", out var phone) ? phone.GetString() : null;
+    }
+
+    [Theory]
+    [InlineData("buyer-001", "buyer", false)]
+    [InlineData("user-001", "farmer", true)]
+    [InlineData("admin-001", "admin", true)]
+    public async Task HandleGetCrops_FarmerPhone_OnlyForTheOwnerAndAdmins(string userId, string role, bool expected)
+    {
+        SetUpListOf(CropWithPhone());
+
+        var response = await _function.FunctionHandler(MakeAuthenticatedGetRequest(userId, role), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(expected ? FarmerPhone : null, FarmerPhoneOf(response.Body, list: true));
+    }
+
+    [Theory]
+    [InlineData("buyer-001", "buyer", false)]
+    [InlineData("user-001", "farmer", true)]
+    [InlineData("admin-001", "admin", true)]
+    public async Task HandleGetCropById_FarmerPhone_OnlyForTheOwnerAndAdmins(string userId, string role, bool expected)
+    {
+        _mockCropRepo.GetByIdAsync("crop-001").Returns(CropWithPhone());
+
+        var pathParams = new Dictionary<string, string> { { "id", "crop-001" } };
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedGetRequest(userId, role, "/crops/crop-001", pathParams: pathParams), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(expected ? FarmerPhone : null, FarmerPhoneOf(response.Body, list: false));
+        if (!expected)
+        {
+            Assert.DoesNotContain("911000111", response.Body);
+        }
+    }
 }

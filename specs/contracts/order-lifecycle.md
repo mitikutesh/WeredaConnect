@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.17.0
+1.18.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -415,7 +415,50 @@ before the version check; it is permanent and the client reverts to the server r
 at `delivered`, `disbursing` and `settled` (`rating-api.md` 1.1.0). The Escrow tile and "In Escrow"
 keep counting only `funded` to `delivered` and `disputed`.
 
+## Contact between the parties (1.18.0, ESC-48)
+
+Before 1.18.0 every buyer saw every farmer's and trucker's phone in browse and could message them
+from crop and trip detail, so a buyer and a farmer or trucker could agree to trade off the platform
+and skip the commission. Now the parties of an order reach each other only through the order, and
+only while its **contact is open** (`ContactReveal`, one rule for the phones and the messages):
+
+| Contact | Order |
+|---|---|
+| **open** | `accepted`, `pickup_confirmed`, `in_transit`, `delivered`, `disbursing`, `settled`, `disputed` |
+| closed (not yet) | `created`, `pending_payment`, `payment_submitted`, `payment_failed`, `funded` |
+| closed again (the money went back, or the verdict decided) | `cancelled`, `rejected`, `dispute_resolved`, and any order flagged by an admin override refund (`refundOverrideAt`, `disputeOverrideAt`) |
+
+Contact opens at the farmer's accept, not at `funded`: a funded order can still be cancelled by the
+buyer or rejected by the farmer for a full refund, which would let either side read the other's
+number and walk away. From `accepted` that takes a transport failure (the pickup deadline, 1.15.0),
+which is friction, not a guarantee: a colluding buyer and farmer can still let the deadline pass.
+That cancel therefore records a fraud signal `contact_then_transport_cancel` on the buyer
+(best-effort, farmer id in the description, never a phone) for the admin fraud review. A buyer can
+name any open trip at order create (there is no trucker consent before ESC-17), so the trucker's
+phone is revealed to the buyer and the farmer at the farmer's accept.
+
+**Reads.** `GET /orders` and `GET /orders/{id}` return `contactOpen` (boolean) on every order, and to
+a party of an open order also `buyerPhone`, `farmerPhone` and `truckerPhone` (the last only when the
+order has a trucker). The numbers are read from the users table at request time, one batched read
+per page (orders store none); a failed read leaves them out and never fails the order read. The
+admin transaction view carries `contactOpen` without phones. Nobody else returns a counterpart's
+phone: crop and trip reads only to their owner (`crop-listing-api.md` 1.3.0, `trip-listing-api.md`
+1.4.0), deliveries never (`delivery-verification-api.md` 1.15.0), messages never (`messaging.md`
+1.2.0).
+
+**Messages.** Order and delivery threads take new messages only while the order is open; crop and
+trip threads never (`MESSAGE_CONTACT_LOCKED`, `sync-protocol.md` 1.15.0).
+
+**Clients.** The order detail shows a Contact section (Call, Copy, Message per counterparty) when
+`contactOpen` is true, a note before (`created` to `funded`), and nothing after a cancel, reject or
+refund. `contactOpen` decides; the client falls back to the open status set only when the row has
+none (a server before 1.18.0, a local change not yet pulled), and a local cancel or reject closes it
+and clears the phones at once. Offline, the last pulled numbers stay on the device until the next
+pull: an order closed on the server while a party is offline keeps its numbers there until then.
+
 ## Changelog
+
+- **1.18.0 (2026-10-17)**: Contact between the parties (ESC-48): `contactOpen` on every order read and the parties' phones to a party of an open order (`accepted` to `settled` and `disputed`, no admin override refund), resolved from the users table at read time; contact closed before the farmer's accept and again after `cancelled`, `rejected` or `dispute_resolved`; a buyer's transport-failure cancel of an order whose contact had opened records the fraud signal `contact_then_transport_cancel`; order detail gets the Contact section.
 
 - **1.17.0 (2026-10-10)**: The order follows the money (ESC-09): `disbursing` when the release is committed (the escrow `released` or its release queued), `settled` only when the escrow is `completed` with no leg owed; a lagging logistics order is advanced to `delivered` first; status-conditioned hops with `ADD version`, one `order_updated` row each, after the escrow write; a verdict escrow keeps its order at `dispute_resolved`; the hourly order-money sweep repairs and backfills, with the server-only skip marker `moneySweepSkip`; an admin refund of a plain escrowed order escrow cancels a pre-pickup order first (refund scheduled, stock restored) and refuses goods on the move unless overridden (`refundOverride*`); an admin release pays only a delivered order; ratings allowed on `disbursing`; a client status change on a mirrored order is a permanent `ORDER_VALIDATION`.
 - **1.16.0 (2026-10-10)**: Pending payments hold the order (ESC-45): the order cron does not move a `payment_submitted` order to `payment_failed` while a verified Telebirr payment for it is pending in the webhook inbox (server-only `paymentHoldUntil`, written extend-only without a version bump, and the inbox's pending partition; the payment-failed write is conditional on the hold; an unreadable inbox skips the step for that run). No client change.

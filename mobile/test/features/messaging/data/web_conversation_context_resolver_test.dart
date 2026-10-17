@@ -149,5 +149,78 @@ void main() {
       expect(info!.fromWoreda, 'Adama');
       expect(info.toWoreda, 'Bishoftu');
     });
+    // ESC-48: a thread's contact follows its order, read from the server.
+    group('resolveContact', () {
+      Map<String, dynamic> serverOrder(
+        String status, {
+        bool contactOpen = true,
+      }) =>
+          {
+            'order': {
+              'orderId': 'order-1',
+              'buyerId': 'buyer-1',
+              'farmerId': 'farmer-1',
+              'truckerId': 'trucker-1',
+              'status': status,
+              'contactOpen': contactOpen,
+              if (contactOpen) 'farmerPhone': '+251911000002',
+              if (contactOpen) 'buyerPhone': '+251911000001',
+            },
+          };
+
+      test('crop and trip threads are closed without a request', () async {
+        expect(
+          (await resolver.resolveContact('crop', 'crop-1', 'farmer-1')).open,
+          isFalse,
+        );
+        expect(
+          (await resolver.resolveContact('trip', 'trip-1', 'trucker-1')).open,
+          isFalse,
+        );
+        verifyZeroInteractions(api);
+      });
+
+      test('an open order gives the counterpart\'s number', () async {
+        stubGet('/orders/order-1', serverOrder('in_transit'));
+
+        final contact =
+            await resolver.resolveContact('order', 'order-1', 'farmer-1');
+        expect(contact.open, isTrue);
+        expect(contact.phone, '+251911000002');
+      });
+
+      test('the server flag closes an open status', () async {
+        stubGet(
+          '/orders/order-1',
+          serverOrder('in_transit', contactOpen: false),
+        );
+
+        final contact =
+            await resolver.resolveContact('order', 'order-1', 'buyer-1');
+        expect(contact.open, isFalse);
+        expect(contact.phone, isNull);
+      });
+
+      test('a delivery thread reads its order', () async {
+        stubGet('/deliveries/delivery-1', {
+          'delivery': {'deliveryId': 'delivery-1', 'orderId': 'order-1'},
+        });
+        stubGet('/orders/order-1', serverOrder('funded', contactOpen: false));
+
+        final contact =
+            await resolver.resolveContact('delivery', 'delivery-1', 'farmer-1');
+        expect(contact.open, isFalse);
+      });
+
+      test('a failed read is unknown, not closed', () async {
+        when(() => api.get<Map<String, dynamic>>('/orders/order-1'))
+            .thenThrow(const NetworkException());
+
+        final contact =
+            await resolver.resolveContact('order', 'order-1', 'farmer-1');
+        expect(contact.open, isNull);
+        expect(contact.phone, isNull);
+      });
+    });
   });
 }

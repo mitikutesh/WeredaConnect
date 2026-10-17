@@ -407,7 +407,12 @@ class WebOrderRepository extends BaseOrderRepository {
       ..cancelReason = m['cancelReason'] as String?
       ..updatedAt = DateTime.tryParse(m['updatedAt'] as String? ?? '')
       ..pickupDeadlineAt =
-          DateTime.tryParse(m['pickupDeadlineAt'] as String? ?? '')?.toUtc();
+          DateTime.tryParse(m['pickupDeadlineAt'] as String? ?? '')?.toUtc()
+      // ESC-48: contact flag and the parties' phones (open orders only).
+      ..contactOpen = m['contactOpen'] as bool?
+      ..buyerPhone = m['buyerPhone'] as String?
+      ..farmerPhone = m['farmerPhone'] as String?
+      ..truckerPhone = m['truckerPhone'] as String?;
   }
 
   OrderStatus _parseOrderStatus(String? s) {

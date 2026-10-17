@@ -86,6 +86,76 @@ void main() {
         expect(order.pickupDeadlineAt!.toUtc(), DateTime.utc(2026, 10, 12, 8));
         expect(order.version, 5);
       });
+
+      // ESC-48: /sync rows carry no contact flag; a closed status drops the
+      // phones the last pull left on the device.
+      for (final (status, keepsPhones) in [
+        ('cancelled', false),
+        ('in_transit', true),
+      ]) {
+        test(
+            'a $status server row ${keepsPhones ? 'keeps' : 'drops'} the '
+            'phones', () async {
+          await isar.writeTxn(() async {
+            await isar.orders.put(
+              Order()
+                ..orderId = 'order-002'
+                ..listingId = 'listing-001'
+                ..buyerId = 'buyer-001'
+                ..farmerId = 'farmer-001'
+                ..buyerName = 'Buyer'
+                ..farmerName = 'Farmer'
+                ..cropType = 'teff'
+                ..quantity = 500
+                ..pricePerUnit = 45.5
+                ..totalPrice = 22750
+                ..status = OrderStatus.accepted
+                ..createdAt = DateTime.utc(2026, 10)
+                ..version = 4
+                ..contactOpen = true
+                ..buyerPhone = '+251911000001'
+                ..farmerPhone = '+251911000002',
+            );
+          });
+          final operation = SyncOperation()
+            ..operationId = 'op-order-2'
+            ..idempotencyKey = 'key-order-2'
+            ..entityType = 'order'
+            ..entityId = 'order-002'
+            ..action = 'update'
+            ..data = '{}'
+            ..status = SyncStatus.syncing
+            ..retryCount = 0
+            ..createdAt = DateTime.now().toUtc();
+
+          await resolver.resolve(
+            operation: operation,
+            serverData: {
+              'orderId': 'order-002',
+              'listingId': 'listing-001',
+              'buyerId': 'buyer-001',
+              'farmerId': 'farmer-001',
+              'buyerName': 'Buyer',
+              'farmerName': 'Farmer',
+              'cropType': 'teff',
+              'quantity': 500,
+              'pricePerUnit': 45.5,
+              'totalPrice': 22750,
+              'status': status,
+              'createdAt': '2026-10-01T08:00:00Z',
+            },
+            serverVersion: 6,
+          );
+
+          final order = await isar.orders
+              .filter()
+              .orderIdEqualTo('order-002')
+              .findFirst();
+          expect(order!.contactOpen, isNull);
+          expect(order.farmerPhone, keepsPhones ? '+251911000002' : isNull);
+          expect(order.buyerPhone, keepsPhones ? '+251911000001' : isNull);
+        });
+      }
     });
 
     group('CropListing conflict resolution', () {

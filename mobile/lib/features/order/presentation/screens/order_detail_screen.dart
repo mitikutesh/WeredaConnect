@@ -7,6 +7,7 @@ import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
@@ -18,6 +19,7 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_detail_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_generate_screen.dart';
+import 'package:wereda_connect/features/messaging/presentation/screens/conversation_screen.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
@@ -27,6 +29,8 @@ import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dar
 import 'package:wereda_connect/features/rating/presentation/widgets/rate_counterparty_dialog.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/contact_actions_sheet.dart';
+import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
 
 /// Full order detail screen with status timeline and role-based actions.
 ///
@@ -43,10 +47,44 @@ class OrderDetailScreen extends StatefulWidget {
 }
 
 class _OrderDetailScreenState extends State<OrderDetailScreen> {
+  /// ESC-48: the order is read from the server at most once per screen to
+  /// fetch the parties' phones of an open order the device has none for.
+  bool _contactPullTried = false;
+
   @override
   void initState() {
     super.initState();
     context.read<OrderBloc>().add(LoadOrderById(orderId: widget.orderId));
+  }
+
+  /// ESC-48: an open order without the parties' phones on this device (the
+  /// farmer accepted on this device, or the last pull predates the accept):
+  /// read it from the server once. Mobile only; web reads the server already.
+  /// Message works meanwhile.
+  Future<void> _pullForContact(Order order) async {
+    if (_contactPullTried) return;
+    if (!isOrderContactOpen(order)) return;
+    if (order.contactOpen != null &&
+        (order.buyerPhone != null || order.farmerPhone != null)) {
+      return;
+    }
+    _contactPullTried = true;
+    final MarketplaceSync? sync;
+    try {
+      sync = context.read<MarketplaceSync?>();
+    } on Object {
+      return;
+    }
+    if (sync == null) return;
+    final bloc = context.read<OrderBloc>();
+    try {
+      final server = await sync.pullOrder(order.orderId);
+      if (server != null && mounted && !bloc.isClosed) {
+        bloc.add(LoadOrderById(orderId: widget.orderId));
+      }
+    } on Object {
+      // Offline: Call and Copy wait for the next pull.
+    }
   }
 
   @override
@@ -76,6 +114,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text(localizeErrorCode(state.code, l10n))),
             );
+          } else if (state is SingleOrderLoaded) {
+            _pullForContact(state.order);
           }
         },
         builder: (context, state) {
@@ -234,6 +274,9 @@ class _OrderDetailBody extends StatelessWidget {
             const SizedBox(height: 12),
             _StatusTimeline(status: order.status, l10n: l10n),
             const SizedBox(height: 24),
+
+            // ── Contact (ESC-48) ─────────────────────────────────
+            _OrderContactSection(order: order, userId: userId),
 
             // ── Role-based actions ───────────────────────────────
             ..._buildActions(
@@ -1115,6 +1158,108 @@ class _StatusTimeline extends StatelessWidget {
         l10n.statusSettledInfo,
       ),
     ];
+  }
+}
+
+/// ESC-48: the parties of an order reach each other here, and only here, once
+/// the farmer accepted the paid order and until the money goes back
+/// (order-lifecycle.md 1.18.0). Each counterparty gets Call and Copy (when the
+/// server sent the number) and Message (an order thread). Before that, a note
+/// says when contact opens; after a cancel, reject or refund nothing shows.
+class _OrderContactSection extends StatelessWidget {
+  final Order order;
+  final String userId;
+
+  const _OrderContactSection({required this.order, required this.userId});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+
+    if (!isOrderContactOpen(order)) {
+      if (!contactNotYetOpenOrderStatuses.contains(order.status)) {
+        return const SizedBox.shrink();
+      }
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 24),
+        child: ContactLockedNote(
+          text: order.status == OrderStatus.funded
+              ? l10n.contactAfterAcceptNote
+              : l10n.contactAfterEscrowNote,
+        ),
+      );
+    }
+
+    final truckerId = order.truckerId ?? '';
+    final parties = <({String id, String name, String role, String label})>[
+      if (order.buyerId != userId)
+        (
+          id: order.buyerId,
+          name: order.buyerName,
+          role: l10n.buyer,
+          label: l10n.contactBuyer,
+        ),
+      if (order.farmerId != userId)
+        (
+          id: order.farmerId,
+          name: order.farmerName,
+          role: l10n.farmer,
+          label: l10n.contactFarmer,
+        ),
+      if (truckerId.isNotEmpty && truckerId != userId)
+        (
+          id: truckerId,
+          name: order.truckerName ?? '',
+          role: l10n.trucker,
+          label: l10n.contactTrucker,
+        ),
+    ];
+    if (parties.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            l10n.contact,
+            style: theme.textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          for (final party in parties) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () {
+                final navigator = Navigator.of(context);
+                final name = party.name.isNotEmpty ? party.name : party.role;
+                showContactActionsSheet(
+                  context,
+                  name: name,
+                  roleLabel: party.role,
+                  phone: orderPartyPhone(order, party.id),
+                  onMessage: () => navigator.push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ConversationScreen(
+                        contextType: 'order',
+                        contextId: order.orderId,
+                        counterpartId: party.id,
+                        counterpartName: party.name,
+                      ),
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.chat_outlined),
+              label: Text(party.label),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 }
 

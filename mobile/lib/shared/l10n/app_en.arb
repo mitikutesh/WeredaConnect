@@ -3320,6 +3320,22 @@
   "@contact": {
     "description": "Generic contact button / sheet title"
   },
+  "contactAfterEscrowNote": "Contact opens after payment is held in escrow.",
+  "@contactAfterEscrowNote": {
+    "description": "ESC-48: shown where Call, Copy and Message are hidden because the order's payment is not yet held in escrow (crop and trip detail, closed chat threads, an order before payment)"
+  },
+  "contactAfterAcceptNote": "Contact opens once the farmer accepts the order.",
+  "@contactAfterAcceptNote": {
+    "description": "ESC-48: shown on a funded order before the farmer accepts it, where Call, Copy and Message are still hidden"
+  },
+  "contactBuyer": "Contact Buyer",
+  "@contactBuyer": {
+    "description": "ESC-48: order detail button that opens Call, Copy and Message for the order's buyer"
+  },
+  "contactTrucker": "Contact Trucker",
+  "@contactTrucker": {
+    "description": "ESC-48: order detail button that opens Call, Copy and Message for the order's trucker"
+  },
   "newMessage": "New message",
   "@newMessage": {
     "description": "Title of the in-app banner shown when a chat message arrives"

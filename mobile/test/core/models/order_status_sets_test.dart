@@ -80,4 +80,74 @@ void main() {
     expect(escrowHeldOrderStatuses.contains(OrderStatus.disbursing), isFalse);
     expect(escrowHeldOrderStatuses.contains(OrderStatus.settled), isFalse);
   });
+
+  // ESC-48: when the parties of an order may reach each other.
+  group('contact', () {
+    Order open({bool? contactOpen = true}) => _order(OrderStatus.accepted, null)
+      ..truckerId = 'trucker-1'
+      ..contactOpen = contactOpen
+      ..buyerPhone = '+251911000001'
+      ..farmerPhone = '+251911000002'
+      ..truckerPhone = '+251911000003';
+
+    test('opens from the accept and closes when the money goes back', () {
+      expect(contactOpenOrderStatuses, {
+        OrderStatus.accepted,
+        OrderStatus.pickupConfirmed,
+        OrderStatus.inTransit,
+        OrderStatus.delivered,
+        OrderStatus.disbursing,
+        OrderStatus.settled,
+        OrderStatus.disputed,
+      });
+      for (final closed in [
+        OrderStatus.created,
+        OrderStatus.pendingPayment,
+        OrderStatus.paymentSubmitted,
+        OrderStatus.paymentFailed,
+        OrderStatus.funded,
+        OrderStatus.cancelled,
+        OrderStatus.rejected,
+        OrderStatus.disputeResolved,
+      ]) {
+        expect(
+          contactOpenOrderStatuses.contains(closed),
+          isFalse,
+          reason: closed.name,
+        );
+      }
+      expect(
+        contactNotYetOpenOrderStatuses.contains(OrderStatus.funded),
+        isTrue,
+      );
+      expect(
+        contactNotYetOpenOrderStatuses.contains(OrderStatus.cancelled),
+        isFalse,
+      );
+    });
+
+    test('the server flag decides on an open status', () {
+      expect(isOrderContactOpen(open()), isTrue);
+      // An admin override refund leaves the status but the server closes it.
+      expect(isOrderContactOpen(open(contactOpen: false)), isFalse);
+      // Not judged yet (old server, local accept): the status decides.
+      expect(isOrderContactOpen(open(contactOpen: null)), isTrue);
+    });
+
+    test('a closed status wins over a stale server flag', () {
+      final cancelledLocally = open()..status = OrderStatus.cancelled;
+      expect(isOrderContactOpen(cancelledLocally), isFalse);
+      expect(orderPartyPhone(cancelledLocally, 'farmer-1'), isNull);
+    });
+
+    test('the phone of each party, only while open', () {
+      final order = open();
+      expect(orderPartyPhone(order, 'buyer-1'), '+251911000001');
+      expect(orderPartyPhone(order, 'farmer-1'), '+251911000002');
+      expect(orderPartyPhone(order, 'trucker-1'), '+251911000003');
+      expect(orderPartyPhone(order, 'stranger'), isNull);
+      expect(orderPartyPhone(open(contactOpen: false), 'farmer-1'), isNull);
+      expect(orderPartyPhone(order..farmerPhone = '  ', 'farmer-1'), isNull);
+    });
+  });
 }

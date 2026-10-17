@@ -112,6 +112,18 @@ class Order {
   /// as a transport failure and its buyer may cancel it for a full refund.
   /// Stamped by the server when the farmer accepts; null before that.
   DateTime? pickupDeadlineAt;
+
+  /// ESC-48: whether the parties may reach each other on this order (call,
+  /// copy, message), as the server computed it on the last read. Null when
+  /// unknown (server before order-lifecycle 1.18.0, a local change not yet
+  /// pulled): the open status set decides then (`isOrderContactOpen`).
+  bool? contactOpen;
+
+  /// ESC-48: the parties' phone numbers (E.164), sent by the server only to a
+  /// party of an order whose contact is open; null otherwise.
+  String? buyerPhone;
+  String? farmerPhone;
+  String? truckerPhone;
 }
 
 /// Status of an order in its lifecycle

@@ -75,8 +75,19 @@ public class MessageFunctionTests
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("msg-1", response.Body);
-        // Counterpart phone is present for Call/Copy (System.Text.Json escapes '+').
-        Assert.Contains("251900000002", response.Body);
+        AssertNoPhones(response.Body);
+    }
+
+    /// <summary>
+    /// ESC-48: rows written before it still hold both phones; no read returns them (the parties
+    /// take a number from the order, only while its contact is open).
+    /// </summary>
+    private static void AssertNoPhones(string body)
+    {
+        Assert.DoesNotContain("senderPhone", body);
+        Assert.DoesNotContain("recipientPhone", body);
+        Assert.DoesNotContain("251900000001", body);
+        Assert.DoesNotContain("251900000002", body);
     }
 
     [Fact]
@@ -115,6 +126,7 @@ public class MessageFunctionTests
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("inbound", response.Body);
         Assert.Contains("outbound", response.Body);
+        AssertNoPhones(response.Body);
     }
 
     [Fact]
@@ -244,6 +256,7 @@ public class MessageFunctionTests
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("msg-1", response.Body);
+        AssertNoPhones(response.Body);
     }
 
     [Fact]

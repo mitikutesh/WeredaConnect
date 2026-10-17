@@ -39,4 +39,11 @@ public interface IUserRepository
     /// (phone never verified); never for confirmed accounts.
     /// </summary>
     Task DeleteUserAsync(string userId);
+
+    /// <summary>
+    /// The phone numbers of these users in one batched read (BatchGetItem, phone attribute only).
+    /// Users with no row or no phone are left out, and so are keys DynamoDB still left unprocessed
+    /// after a few retries: a caller shows no phone rather than failing.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, string>> GetPhoneNumbersAsync(IReadOnlyCollection<string> userIds);
 }

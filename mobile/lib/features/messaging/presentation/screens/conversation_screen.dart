@@ -5,6 +5,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_listing_detail_screen.dart';
+import 'package:wereda_connect/features/messaging/domain/conversation_context_resolver.dart';
 import 'package:wereda_connect/features/messaging/domain/repositories/base_message_repository.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/conversation_bloc.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/conversation_event.dart';
@@ -17,23 +18,27 @@ import 'package:wereda_connect/features/trip_listing/presentation/screens/trip_d
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/contact_actions_sheet.dart';
+import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
 
 /// A single conversation thread, scoped to a marketplace context
 /// (crop / order / trip / delivery). Creates its own [ConversationBloc] from the
 /// shared repository so its state never leaks into sibling screens.
+///
+/// ESC-48: the thread's contact comes from its order (the context resolver):
+/// Call shows only while the order is open and carries the counterpart's
+/// number, and a closed thread (every crop or trip thread, an order before the
+/// farmer accepted it or after the money went back) is read-only with a note.
 class ConversationScreen extends StatelessWidget {
   final String contextType;
   final String contextId;
   final String counterpartId;
   final String? counterpartName;
-  final String? counterpartPhone;
 
   const ConversationScreen({
     required this.contextType,
     required this.contextId,
     required this.counterpartId,
     this.counterpartName,
-    this.counterpartPhone,
     super.key,
   });
 
@@ -42,8 +47,6 @@ class ConversationScreen extends StatelessWidget {
     final authState = context.read<AuthBloc>().state;
     final me = authState is AuthAuthenticated ? authState.userId : '';
     final myName = authState is AuthAuthenticated ? authState.userName : '';
-    final myPhone =
-        authState is AuthAuthenticated ? (authState.phoneNumber ?? '') : '';
 
     final conversationId = BaseMessageRepository.conversationIdFor(
       contextType: contextType,
@@ -62,10 +65,8 @@ class ConversationScreen extends StatelessWidget {
         contextId: contextId,
         me: me,
         myName: myName,
-        myPhone: myPhone,
         counterpartId: counterpartId,
         counterpartName: counterpartName,
-        counterpartPhone: counterpartPhone,
       ),
     );
   }
@@ -77,10 +78,8 @@ class _ConversationView extends StatefulWidget {
   final String contextId;
   final String me;
   final String myName;
-  final String myPhone;
   final String counterpartId;
   final String? counterpartName;
-  final String? counterpartPhone;
 
   const _ConversationView({
     required this.conversationId,
@@ -88,10 +87,8 @@ class _ConversationView extends StatefulWidget {
     required this.contextId,
     required this.me,
     required this.myName,
-    required this.myPhone,
     required this.counterpartId,
     required this.counterpartName,
-    required this.counterpartPhone,
   });
 
   @override
@@ -102,11 +99,27 @@ class _ConversationViewState extends State<_ConversationView> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
 
+  /// ESC-48: unknown until resolved; never cached across screens.
+  ConversationContact _contact = ConversationContact.unknown;
+
   @override
   void initState() {
     super.initState();
     // Suppress arrival banners for the thread the user is looking at.
     ActiveConversation.id = widget.conversationId;
+    _loadContact();
+  }
+
+  Future<void> _loadContact() async {
+    final resolver = context.read<InboxBloc>().contextResolver;
+    if (resolver == null) return;
+    final contact = await resolver.resolveContact(
+      widget.contextType,
+      widget.contextId,
+      widget.counterpartId,
+    );
+    if (!mounted) return;
+    setState(() => _contact = contact);
   }
 
   @override
@@ -177,10 +190,8 @@ class _ConversationViewState extends State<_ConversationView> {
             contextId: widget.contextId,
             senderId: widget.me,
             senderName: widget.myName,
-            senderPhone: widget.myPhone,
             recipientId: widget.counterpartId,
             recipientName: widget.counterpartName,
-            recipientPhone: widget.counterpartPhone,
             body: text,
           ),
         );
@@ -212,16 +223,17 @@ class _ConversationViewState extends State<_ConversationView> {
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.call_outlined),
-            tooltip: l10n.contact,
-            onPressed: () => showContactActionsSheet(
-              context,
-              name: title,
-              roleLabel: l10n.contact,
-              phone: widget.counterpartPhone,
+          if (_contact.open == true && _contact.phone != null)
+            IconButton(
+              icon: const Icon(Icons.call_outlined),
+              tooltip: l10n.contact,
+              onPressed: () => showContactActionsSheet(
+                context,
+                name: title,
+                roleLabel: l10n.contact,
+                phone: _contact.phone,
+              ),
             ),
-          ),
         ],
       ),
       body: Column(
@@ -265,12 +277,21 @@ class _ConversationViewState extends State<_ConversationView> {
               },
             ),
           ),
-          _Composer(
-            controller: _controller,
-            hintText: l10n.typeAMessage,
-            sendLabel: l10n.send,
-            onSend: _send,
-          ),
+          if (_contact.open == false)
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                child: ContactLockedNote(text: l10n.contactAfterEscrowNote),
+              ),
+            )
+          else
+            _Composer(
+              controller: _controller,
+              hintText: l10n.typeAMessage,
+              sendLabel: l10n.send,
+              onSend: _send,
+            ),
         ],
       ),
     );

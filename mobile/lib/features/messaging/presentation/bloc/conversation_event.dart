@@ -29,10 +29,8 @@ class SendMessageRequested extends ConversationEvent {
   final String contextId;
   final String senderId;
   final String? senderName;
-  final String? senderPhone;
   final String recipientId;
   final String? recipientName;
-  final String? recipientPhone;
   final String body;
 
   const SendMessageRequested({
@@ -42,9 +40,7 @@ class SendMessageRequested extends ConversationEvent {
     required this.recipientId,
     required this.body,
     this.senderName,
-    this.senderPhone,
     this.recipientName,
-    this.recipientPhone,
   });
 
   @override

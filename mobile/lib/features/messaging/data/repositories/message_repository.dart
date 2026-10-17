@@ -16,8 +16,9 @@ import 'package:wereda_connect/features/messaging/domain/repositories/base_messa
 /// Offline-first repository for chat messages.
 ///
 /// Writes go to local Isar first (offline-first), then enqueue a `message`
-/// sync operation. Name/phone are stored locally for immediate display but are
-/// NOT synced — the server denormalizes them authoritatively. Inbound messages
+/// sync operation. Names are stored locally for immediate display but are NOT
+/// synced: the server denormalizes them authoritatively. No phone number is
+/// kept on a message (ESC-48: the order holds it while its contact is open). Inbound messages
 /// are pulled from the server into Isar via [pullMessages]; unread state is
 /// tracked per-device in a local [ConversationRead] store.
 class MessageRepository extends BaseMessageRepository {
@@ -48,9 +49,7 @@ class MessageRepository extends BaseMessageRepository {
     required String recipientId,
     required String body,
     String? senderName,
-    String? senderPhone,
     String? recipientName,
-    String? recipientPhone,
   }) async {
     final messageId = _uuid.v4();
     final conversationId = BaseMessageRepository.conversationIdFor(
@@ -70,9 +69,7 @@ class MessageRepository extends BaseMessageRepository {
       ..senderId = senderId
       ..recipientId = recipientId
       ..senderName = senderName
-      ..senderPhone = senderPhone
       ..recipientName = recipientName
-      ..recipientPhone = recipientPhone
       ..body = trimmed
       ..createdAt = now
       ..version = 1;

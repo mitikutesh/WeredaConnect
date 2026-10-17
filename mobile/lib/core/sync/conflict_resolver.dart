@@ -3,6 +3,7 @@ import 'package:isar/isar.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/sync_operation.dart';
@@ -407,6 +408,16 @@ class ConflictResolver {
         order!.commissionAmount =
             (serverData['commissionAmount'] as num?)?.toDouble();
         order!.orderTotal = (serverData['orderTotal'] as num?)?.toDouble();
+
+        // ESC-48: /sync rows carry no contact flag or phones. The status set
+        // decides until the next pull, and a closed status drops the phones.
+        order!.contactOpen = serverData['contactOpen'] as bool?;
+        if (!contactOpenOrderStatuses.contains(order!.status)) {
+          order!
+            ..buyerPhone = null
+            ..farmerPhone = null
+            ..truckerPhone = null;
+        }
 
         // CRITICAL: Update version to server version
         order!.version = serverVersion;

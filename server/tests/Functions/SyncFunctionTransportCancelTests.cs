@@ -257,6 +257,68 @@ public class SyncFunctionTransportCancelTests
         await _orders.Received(1).ReleaseDeliverySlotAsync(OrderId, DeliveryId);
     }
 
+    // ===== ESC-48: a cancel after contact had opened is a fraud signal for admin review =====
+
+    private readonly IFraudDetectionService _fraud = Substitute.For<IFraudDetectionService>();
+
+    private SyncFunction MakeFunctionWithFraud()
+        => new(_syncMeta, _crops, _dynamoDb, TripsTable, DeliveriesTable,
+            fraudService: _fraud, userRepo: _users, orderRepo: _orders, escrowRepo: _escrows,
+            transactionAuditRepo: _txAudit,
+            orderEscrowService: new EscrowService(_escrows, _escrowAudit, idempotencyRepo: null,
+                telebirrGateway: null, userRepo: _users, orderRepo: _orders, deliveryRepo: _deliveries),
+            deliveryRepo: _deliveries);
+
+    [Fact]
+    public async Task Cancel_AfterContactOpened_RecordsAFraudSignalOnTheBuyer()
+    {
+        var result = await CancelAsync(BuyerId, function: MakeFunctionWithFraud());
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        await _fraud.Received(1).RecordFraudSignalAsync(
+            BuyerId, "contact_then_transport_cancel", OrderId, "order",
+            Arg.Is<string?>(d => d != null && d.Contains(FarmerId) && !d.Contains("+251")));
+    }
+
+    [Theory]
+    [InlineData("refundOverrideAt")]
+    [InlineData("disputeOverrideAt")]
+    public async Task Cancel_OfAnOrderWhoseContactWasClosed_RecordsNoSignal(string flag)
+    {
+        _order[flag] = "2026-10-10T10:00:00Z";
+
+        var result = await CancelAsync(BuyerId, function: MakeFunctionWithFraud());
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        await _fraud.DidNotReceive().RecordFraudSignalAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Cancel_Refused_RecordsNoSignal()
+    {
+        _order = Order(status: "accepted", version: 4, pickupDeadlineAt: DateTime.UtcNow.AddHours(5));
+
+        var result = await CancelAsync(BuyerId, function: MakeFunctionWithFraud());
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        await _fraud.DidNotReceive().RecordFraudSignalAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Cancel_SignalWriteFails_TheCancelStillSucceeds()
+    {
+        _fraud.RecordFraudSignalAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>())
+            .ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        var result = await CancelAsync(BuyerId, function: MakeFunctionWithFraud());
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        _written!["status"].Should().Be("cancelled");
+    }
+
     [Fact]
     public async Task Cancel_BeforeTheDeadline_IsRefused_AndNothingIsWritten()
     {

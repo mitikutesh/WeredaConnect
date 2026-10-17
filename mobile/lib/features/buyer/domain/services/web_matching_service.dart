@@ -262,6 +262,8 @@ class WebMatchingService extends BaseMatchingService {
       ..tripId = m['tripId'] as String? ?? ''
       ..truckerId = m['truckerId'] as String? ?? ''
       ..truckerName = m['truckerName'] as String? ?? ''
+      // ESC-48: GET /trips sends a buyer no truckerPhone, so this stays empty;
+      // contact opens on the order.
       ..truckerPhone = m['truckerPhone'] as String? ?? ''
       ..vehiclePlate = m['vehiclePlate'] as String?
       ..vehicleDescription = m['vehicleDescription'] as String?

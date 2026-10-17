@@ -7,6 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
+import 'package:wereda_connect/core/database/contact_phone_purge.dart';
 import 'package:wereda_connect/core/database/isar_service.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/data_usage_auth_binding.dart';
@@ -99,6 +100,16 @@ Future<void> runMobile({
     await syncQueue.migrateBadTripSyncData();
   } on Object catch (e) {
     debugPrint('[SYNC] migration failed (non-fatal): $e');
+  }
+
+  // ESC-48: drop counterpart phone numbers cached by earlier versions.
+  try {
+    await ContactPhonePurge.run(
+      IsarService.instance.db,
+      currentUserId: await secureStorage.read(key: AuthBloc.currentUserIdKey),
+    );
+  } on Object catch (e) {
+    debugPrint('[DB] contact phone purge failed (non-fatal): $e');
   }
 
   // Download side of sync: pulls the shared marketplace (all active crops +

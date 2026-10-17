@@ -2657,6 +2657,20 @@ class AppLocalizationsOm extends AppLocalizations {
   String get contact => 'Quunnamtii';
 
   @override
+  String get contactAfterEscrowNote =>
+      'Quunnamtiin kan banamu erga kaffaltiin Eeskiroo keessatti qabamee booda.';
+
+  @override
+  String get contactAfterAcceptNote =>
+      'Quunnamtiin kan banamu erga qonnaan bulaan ajaja fudhatee booda.';
+
+  @override
+  String get contactBuyer => 'Bitaa Quunnamuu';
+
+  @override
+  String get contactTrucker => 'Konkolaachisaa Quunnamuu';
+
+  @override
   String get newMessage => 'Ergaa haaraa';
 
   @override

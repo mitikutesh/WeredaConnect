@@ -271,7 +271,9 @@ public class DeliveryFunction
                 return LambdaResponse.Error(403, "DELIVERY_UNAUTHORIZED", "You are not a participant in this delivery.");
             }
 
-            var deliveryDto = MapToDeliveryDto(delivery, includePhone: true, includeQrToken: true);
+            // ESC-48: no phone numbers for clients. The parties reach each other from the order,
+            // only while its contact is open (ContactReveal); admins see them in the transaction view.
+            var deliveryDto = MapToDeliveryDto(delivery, includePhone: false, includeQrToken: true);
             var response = new GetDeliveryResponse { Delivery = deliveryDto };
 
             return LambdaResponse.Ok(response, AppJsonContext.Default.GetDeliveryResponse);

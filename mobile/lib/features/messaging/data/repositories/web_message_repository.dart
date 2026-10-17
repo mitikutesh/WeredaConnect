@@ -55,9 +55,7 @@ class WebMessageRepository extends BaseMessageRepository {
     required String recipientId,
     required String body,
     String? senderName,
-    String? senderPhone,
     String? recipientName,
-    String? recipientPhone,
   }) async {
     final messageId = _uuid.v4();
     final conversationId = BaseMessageRepository.conversationIdFor(
@@ -91,7 +89,7 @@ class WebMessageRepository extends BaseMessageRepository {
               'recipientId': recipientId,
               'body': trimmed,
               'createdAt': now.toIso8601String(),
-              // Name/phone intentionally omitted — server denormalizes them.
+              // Names intentionally omitted: the server denormalizes them.
             },
           },
         ],
@@ -107,9 +105,7 @@ class WebMessageRepository extends BaseMessageRepository {
       ..senderId = senderId
       ..recipientId = recipientId
       ..senderName = senderName
-      ..senderPhone = senderPhone
       ..recipientName = recipientName
-      ..recipientPhone = recipientPhone
       ..body = trimmed
       ..createdAt = now
       ..version = 1;

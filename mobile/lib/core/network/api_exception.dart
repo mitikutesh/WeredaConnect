@@ -137,6 +137,18 @@ bool isDeliveryDisputeRefusalMessage(String? message) =>
 bool isDeliveryDisputeExpiredMessage(String? message) =>
     message != null && message.startsWith(deliveryDisputeExpiredCode);
 
+/// Sync rejection prefix when a message goes into a thread whose contact is
+/// not open (ESC-48, sync-protocol.md 1.15.0): any crop or trip thread, or an
+/// order or delivery thread before the farmer accepted the paid order or after
+/// the money went back. The server never stored the message.
+const String contactLockedCode = 'MESSAGE_CONTACT_LOCKED';
+
+/// Whether a /sync per-operation error message refuses a message because the
+/// thread's contact is not open (`MESSAGE_CONTACT_LOCKED: ...`). Permanent:
+/// the client removes its local copy instead of retrying.
+bool isContactLockedMessage(String? message) =>
+    message != null && message.startsWith(contactLockedCode);
+
 /// Whether a /sync per-operation error message refuses a delivery change for
 /// good and the client must put the delivery back from the server: a cancel
 /// after pickup (ESC-08) or a dispute that was refused or too late (ESC-07).

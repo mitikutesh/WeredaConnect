@@ -2639,6 +2639,20 @@ class AppLocalizationsEn extends AppLocalizations {
   String get contact => 'Contact';
 
   @override
+  String get contactAfterEscrowNote =>
+      'Contact opens after payment is held in escrow.';
+
+  @override
+  String get contactAfterAcceptNote =>
+      'Contact opens once the farmer accepts the order.';
+
+  @override
+  String get contactBuyer => 'Contact Buyer';
+
+  @override
+  String get contactTrucker => 'Contact Trucker';
+
+  @override
   String get newMessage => 'New message';
 
   @override

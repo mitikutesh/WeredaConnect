@@ -35,6 +35,54 @@ const Set<OrderStatus> deliveredOrderStatuses = {
   OrderStatus.settled,
 };
 
+/// ESC-48: statuses at which the parties of an order may reach each other
+/// (order-lifecycle.md 1.18.0): from the farmer's accept until the money goes
+/// back. Only the fallback for an order the server has not judged yet
+/// ([Order.contactOpen] null); the server's flag also closes contact after an
+/// admin override refund, which the status alone does not show.
+const Set<OrderStatus> contactOpenOrderStatuses = {
+  OrderStatus.accepted,
+  OrderStatus.pickupConfirmed,
+  OrderStatus.inTransit,
+  OrderStatus.delivered,
+  OrderStatus.disbursing,
+  OrderStatus.settled,
+  OrderStatus.disputed,
+};
+
+/// ESC-48: statuses before contact opens, when the order screens say when it
+/// will open (`funded`: at the farmer's accept; earlier: after payment).
+const Set<OrderStatus> contactNotYetOpenOrderStatuses = {
+  OrderStatus.created,
+  OrderStatus.pendingPayment,
+  OrderStatus.paymentSubmitted,
+  OrderStatus.paymentFailed,
+  OrderStatus.funded,
+};
+
+/// ESC-48: whether the parties of [order] may call, copy and message each
+/// other. The server's [Order.contactOpen] decides; a status outside the open
+/// set always closes (a local cancel or reject not synced yet).
+bool isOrderContactOpen(Order order) {
+  if (!contactOpenOrderStatuses.contains(order.status)) return false;
+  return order.contactOpen ?? true;
+}
+
+/// ESC-48: the phone of the party [userId] of [order], or null when the order
+/// is closed for contact or the server sent no number.
+String? orderPartyPhone(Order order, String userId) {
+  if (!isOrderContactOpen(order)) return null;
+  final phone = userId == order.buyerId
+      ? order.buyerPhone
+      : userId == order.farmerId
+          ? order.farmerPhone
+          : userId == order.truckerId
+              ? order.truckerPhone
+              : null;
+  final trimmed = phone?.trim() ?? '';
+  return trimmed.isEmpty ? null : trimmed;
+}
+
 /// Enum-name forms for O(1) matching of statuses parsed off the wire
 /// (see order_status_wire.dart).
 final Set<String> escrowHeldOrderStatusNames =

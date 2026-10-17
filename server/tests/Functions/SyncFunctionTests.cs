@@ -6020,6 +6020,66 @@ public class SyncFunctionTests
         // The scanner triggered a conflict; the echoed server item must NOT carry the secret.
         Assert.DoesNotContain("secret-nonce-999", response.Body);
         Assert.DoesNotContain("qrNonce", response.Body);
+        // ESC-48: nor any party's phone number.
+        AssertNoDeliveryPhones(response.Body);
+    }
+
+    private static void AssertNoDeliveryPhones(string body)
+    {
+        Assert.DoesNotContain("farmerPhone", body);
+        Assert.DoesNotContain("truckerPhone", body);
+        Assert.DoesNotContain("buyerPhone", body);
+        Assert.DoesNotContain("251911111111", body);
+        Assert.DoesNotContain("251922222222", body);
+        Assert.DoesNotContain("251933333333", body);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Success_ServerDataCarriesNoPhones()
+    {
+        // ESC-48: the parties reach each other from the order, never from the delivery.
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pickedUp", 1, "secret-nonce-1");
+
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-transit",
+            IdempotencyKey = "trucker-001:delivery:del-001:update:transit",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object> { { "status", "inTransit" }, { "version", 1 } }
+        };
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker"), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        Assert.Contains("del-001", response.Body);
+        AssertNoDeliveryPhones(response.Body);
+    }
+
+    [Fact]
+    public async Task TripConflict_OwnerKeepsOwnTruckerPhone()
+    {
+        // ESC-48 strips phones from delivery rows only: shipped clients read an owner trip's
+        // truckerPhone from conflict data as a required field.
+        SetupExistingTrip("trip-001", "trucker-001", "open", 3, truckerPhone: "+251912345678");
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>())
+            .ThrowsAsync(new ConditionalCheckFailedException("Version mismatch"));
+
+        var deleteOp = new SyncOperationRequest
+        {
+            OperationId = "op-trip-delete",
+            IdempotencyKey = "user:trip:trip-001:delete:esc48",
+            EntityType = "trip",
+            EntityId = "trip-001",
+            Action = "delete",
+            Data = new Dictionary<string, object> { { "version", 1 } }
+        };
+        var response = await _function.FunctionHandler(MakeAuthenticatedRequest(MakeSyncRequest(deleteOp)), _context);
+
+        Assert.Contains("conflict", response.Body);
+        Assert.Contains("251912345678", response.Body);
     }
 
     // ===== Payment gates: KYC (ORDER_KYC_REQUIRED) and step-up (AUTH_040 password / AUTH_041 Fayda) =====
