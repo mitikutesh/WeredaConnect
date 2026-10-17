@@ -23,6 +23,10 @@ namespace WeredaConnect.Server.Services;
 /// body. The signed string joins <c>key=value</c> pairs with <c>&amp;</c> and escapes nothing, so
 /// such a field could re-split a captured notification into a different map with the same signed
 /// string (a payment reference moved into another field, for example).</item>
+/// <item>Keys that are never signed (<see cref="TelebirrSignatureService.IsExcludedFromSigning"/>:
+/// <c>raw_request</c>, <c>header</c>, <c>wallet_reference_data</c>, ...) are ignored whatever they
+/// hold, apart from <c>sign</c> and <c>sign_type</c>; nothing reads them, and a URL query in
+/// <c>raw_request</c> must not refuse a real notification.</item>
 /// </list>
 /// AOT-safe: <see cref="JsonDocument"/> only, no serializer metadata.
 /// </summary>
@@ -159,7 +163,14 @@ public static class TelebirrNotifyParser
                 return false;
             }
 
-            if (member.Name.AsSpan().IndexOfAny('&', '=') >= 0)
+            var unsigned = TelebirrSignatureService.IsExcludedFromSigning(member.Name);
+            if (unsigned && member.Name is not ("sign" or "sign_type"))
+            {
+                // Never signed and never read.
+                continue;
+            }
+
+            if (!unsigned && member.Name.AsSpan().IndexOfAny('&', '=') >= 0)
             {
                 error = "separator_in_field";
                 return false;
@@ -172,7 +183,7 @@ public static class TelebirrNotifyParser
                     break;
                 case JsonValueKind.String:
                     var text = value.GetString()!;
-                    if (text.Contains('&'))
+                    if (!unsigned && text.Contains('&'))
                     {
                         error = "separator_in_field";
                         return false;

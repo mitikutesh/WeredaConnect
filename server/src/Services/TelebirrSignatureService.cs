@@ -32,6 +32,12 @@ public sealed class TelebirrSignatureService : ITelebirrSignatureService
     private readonly string? _publicKeyPem;
     private readonly TelebirrSignaturePadding _padding;
 
+    /// <summary>
+    /// True for a key that is never part of the signed string (the signature, its type, transport
+    /// fields). The notify parser ignores such keys apart from <c>sign</c> and <c>sign_type</c>.
+    /// </summary>
+    public static bool IsExcludedFromSigning(string key) => ExcludedKeys.Contains(key);
+
     public TelebirrSignatureService(
         string? merchantPrivateKeyPem,
         string? telebirrPublicKeyPem,
@@ -114,7 +120,8 @@ public sealed class TelebirrSignatureService : ITelebirrSignatureService
         // The signed string escapes nothing: a separator inside a field would make it match a
         // different map (ESC-45). The parser refuses such bodies first; this keeps the rule here too.
         matched = _padding;
-        if (fields.Any(kv => kv.Key.AsSpan().IndexOfAny('&', '=') >= 0 || kv.Value.Contains('&')))
+        if (fields.Any(kv => !ExcludedKeys.Contains(kv.Key)
+                             && (kv.Key.AsSpan().IndexOfAny('&', '=') >= 0 || kv.Value.Contains('&'))))
         {
             return false;
         }

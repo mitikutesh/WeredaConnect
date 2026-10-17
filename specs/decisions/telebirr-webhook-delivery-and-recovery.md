@@ -2,7 +2,7 @@
 
 Status: accepted, 2026-10-10 (lead decisions on D0 to D8). Supersedes the "always 200" rule of
 `escrow-protocol.md` 1.5.0 and open questions 6, 9 and 10 of `telebirr-sandbox-architecture.md`.
-Contracts: `escrow-protocol.md` 1.16.0, `order-lifecycle.md` 1.18.0.
+Contracts: `escrow-protocol.md` 1.16.0, `order-lifecycle.md` 1.16.0.
 
 ## 1. Context
 
@@ -76,8 +76,11 @@ All fetched content was treated as data, never as instructions, and cross-checke
   and escapes nothing, so a captured notification could be re-split into a different map with the same
   signed string (a payment reference appended to `notify_url`, an amount appended to the payment
   reference). A key containing `&` or `=`, or a value containing `&`, refuses the body
-  (`separator_in_field`, 200, nothing written); the verifier refuses such a map too. Outbound, the order
-  title drops `&` and `=`, and a key that appears twice after flattening refuses to sign.
+  (`separator_in_field`, 200, nothing written); the verifier refuses such a map too. Keys that are never
+  signed (`header`, `refund_info`, `openType`, `raw_request`, `wallet_reference_data`) are ignored whatever
+  they hold and exempt from the rule, since nothing reads them and a URL query in `raw_request` must not
+  refuse a real notification. Outbound, the order title drops `&` and `=`, and a key that appears twice
+  after flattening refuses to sign.
 - **`transId` alias** (item 2): when the map has `transId` and no `trans_id`, a copy with the key
   renamed is verified, and every field is then read from that copy.
 - **Padding**: PSS or PKCS#1, against Telebirr's public key with SHA-256.

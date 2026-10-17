@@ -1682,4 +1682,52 @@ public class TelebirrWebhookFunctionTests
         Logs.Should().Contain("gave up on").And.Contain("requeue it to apply").And.NotContain("the sweep applies it");
         Logs.Should().NotContain("ORDER_PAYMENT_UNPROCESSED");
     }
+
+    [Fact]
+    public async Task A_real_notify_with_a_query_string_in_raw_request_still_funds()
+    {
+        // ESC-45 review: unsigned transport keys are exempt from the separator rule.
+        var fn = NewOrderFunction();
+        OrderFundsCleanly();
+        var body = Signed(SignedFields("Completed", merchOrderId: OrderMerchOrderId, paymentOrderId: OrderPaymentId));
+        body["raw_request"] = "appid=853694808089634&merch_code=220100&prepay_id=P1&sign=x";
+        body["header"] = new Dictionary<string, string> { ["requestId"] = "r1&r2" };
+
+        var resp = await fn.FunctionHandler(Req(Json(body)), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>());
+        Logs.Should().NotContain("separator_in_field");
+    }
+
+    [Fact]
+    public async Task No_re_split_of_a_captured_notification_verifies()
+    {
+        // Every way to keep the signed string while moving a signed pair into its neighbour's value
+        // (sorted order), with and without an unsigned raw_request beside it: all refused. Without the
+        // separator rule each one verifies and the Failed notification cancels the escrow.
+        var captured = SignedFields("Failed");
+        var keys = captured.Keys.Order(StringComparer.Ordinal).ToList();
+        var attempts = 0;
+        foreach (var withRawRequest in new[] { false, true })
+        {
+            for (var i = 0; i + 1 < keys.Count; i++)
+            {
+                var body = captured.ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+                body[keys[i]] = $"{captured[keys[i]]}&{keys[i + 1]}={captured[keys[i + 1]]}";
+                body.Remove(keys[i + 1]);
+                body["sign"] = Sign(captured);
+                if (withRawRequest)
+                {
+                    body["raw_request"] = $"a=1&{keys[i + 1]}={captured[keys[i + 1]]}";
+                }
+
+                await NewFunction().FunctionHandler(Req(Json(body)), _ctx);
+                attempts++;
+            }
+        }
+
+        attempts.Should().Be(2 * (keys.Count - 1));
+        await EscrowNotMoved();
+    }
 }
