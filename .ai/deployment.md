@@ -657,6 +657,11 @@ can assume it. A dispatch from another branch, a job without `environment:`, or 
 another environment fails at "Configure AWS credentials" with
 `Not authorized to perform sts:AssumeRoleWithWebIdentity`.
 
+The main-only rule is only as strong as write control on main. main has no branch protection on
+GitHub Free, so a job on any branch that holds `contents: write` and `actions: write` can push to main
+and dispatch `deploy-server.yml` there. That is not a regression (the old trust let any branch in
+directly); closing it needs branch protection on main, which needs GitHub Pro (open follow-up).
+
 This depends on a repo setting, the OIDC subject template, set on 2026-10-17. GitHub environment
 branch rules would do the same job, but on a private repo they need GitHub Pro.
 
@@ -675,9 +680,10 @@ Rules:
 - Renaming or transferring the repo: GitHub docs say renames and transfers after 2026-07-15 move the repo
   to the immutable subject format (`repo:OWNER@OWNER-ID/REPO@REPO-ID:...`), which cuts CI off. Update the
   trust (and `githubRepo` in `infra/bin/wereda-connect.ts`) first.
-- Never give `id-token: write` to a job triggered by `pull_request_target`, `workflow_run`, `schedule` or
-  `issue_comment`. Those run with ref `refs/heads/main`, so with `environment: <env>` they match the trust
-  while handling input from a PR or a comment.
+- Only `push` and `workflow_dispatch` jobs may get `id-token: write`. Every other event that runs on the
+  default branch (`pull_request_target`, `workflow_run`, `schedule`, `issue_comment`, `repository_dispatch`,
+  `issues`, `discussion`, `check_suite`, `delete` and so on) runs with ref `refs/heads/main`, so with
+  `environment: <env>` such a job matches the trust while handling input from outside.
 - `AWS_DEPLOY_ROLE_ARN` is one repo-wide secret and holds the dev role (environment secrets need GitHub
   Pro on a private repo). A dispatch with `environment=staging` or `prod` presents that environment to the
   dev role and fails. CI deploys to staging/prod need their own role ARN first.
@@ -711,10 +717,27 @@ aws cloudtrail lookup-events --region eu-north-1 \
   --max-results 5 --output json | jq -r '.Events[].CloudTrailEvent | fromjson | .userIdentity.userName'
 ```
 
-Recovery when main can no longer assume the dev role: put the subject from CloudTrail into
-`/tmp/trust-dev.json` (same JSON as above with `dev`) and run `aws iam update-assume-role-policy` for
-`wereda-connect-dev-github-deploy`, then merge the matching change to `github-actions-stack.ts`.
-Otherwise the next deploy writes the stack's condition back.
+Rollback and recovery:
+- Undo the template change: safe ONLY while every deploy role still has the old wildcard trust
+  (`repo:mitikutesh/WeredaConnect:*`), that is before the FUP-31 trust was deployed anywhere.
+  `export GH_TOKEN=$(gh auth token --user mitikutesh) && gh api -X PUT repos/mitikutesh/WeredaConnect/actions/oidc/customization/sub --input - <<<'{"use_default": true}'`
+- Main can no longer assume the dev role (the exact trust is deployed): put the subject from CloudTrail into
+  `/tmp/trust-dev.json` (same JSON as above with `dev`) and run `aws iam update-assume-role-policy` for
+  `wereda-connect-dev-github-deploy`, then merge the matching change to `github-actions-stack.ts`.
+  Otherwise the next deploy writes the stack's condition back.
+- Last resort, when the right subject cannot be found: restore the old wildcard trust on the dev role. This
+  reopens the any-branch hole until the exact trust is back, so fix forward right after.
+
+```bash
+cat > /tmp/trust-dev-wildcard.json <<'JSON'
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow",
+ "Principal":{"Federated":"arn:aws:iam::471112574693:oidc-provider/token.actions.githubusercontent.com"},
+ "Action":"sts:AssumeRoleWithWebIdentity",
+ "Condition":{"StringEquals":{"token.actions.githubusercontent.com:aud":"sts.amazonaws.com"},
+   "StringLike":{"token.actions.githubusercontent.com:sub":"repo:mitikutesh/WeredaConnect:*"}}}]}
+JSON
+aws iam update-assume-role-policy --role-name wereda-connect-dev-github-deploy --policy-document file:///tmp/trust-dev-wildcard.json
+```
 
 ---
 
