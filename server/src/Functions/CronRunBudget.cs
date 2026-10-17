@@ -3,12 +3,13 @@ using System.Diagnostics;
 namespace WeredaConnect.Server.Functions;
 
 /// <summary>
-/// ESC-09: the time budget of one cron run, anchored when the handler starts. A sweep takes a
-/// <see cref="Slice"/> of it, with its own share of the run and its own Lambda reserve, and asks
+/// ESC-09: the time budget of one cron run, anchored when the handler starts. A sweep takes a slice
+/// of it, with its own share of the run and its own Lambda reserve, and asks
 /// <see cref="CronRunSlice.MayStartRow"/> before each new row, so it stops at the end of its slice or
-/// when the Lambda is about to run out, whichever comes first. Shared by the escrow-cron sweeps: the
-/// order-money sweep runs last and keeps 30 seconds; a sweep that runs before the trucker retry keeps
-/// that retry's 90 second lock reserve too (ESC-10: 120 seconds).
+/// when the Lambda is about to run out, whichever comes first. The one budget of the escrow-cron
+/// sweeps: ESC-10's paged sweeps take <see cref="SliceUntil"/> (a point in the run, keeping the trucker
+/// retry's 90 second lock reserve plus 30 seconds); the order-money sweep runs last and takes a
+/// <see cref="Slice"/> of 30 seconds with a 30 second reserve.
 /// <list type="bullet">
 /// <item>The elapsed clock is injectable: tests drive it by hand instead of sleeping.</item>
 /// <item>No new row once <c>0 &lt; RemainingTime &lt; reserve</c>. <c>TestLambdaContext</c> reports
@@ -50,6 +51,14 @@ public sealed class CronRunBudget
     /// </summary>
     public CronRunSlice Slice(TimeSpan length, TimeSpan? reserve = null)
         => new(this, Elapsed, length, reserve ?? DefaultReserve);
+
+    /// <summary>
+    /// A slice that ends once the run is <paramref name="until"/> old: it counts from the run start, so
+    /// the steps before the sweep use it up too. It also stops once the Lambda has less than
+    /// <paramref name="reserve"/> left (<see cref="DefaultReserve"/> when not given).
+    /// </summary>
+    public CronRunSlice SliceUntil(TimeSpan until, TimeSpan? reserve = null)
+        => new(this, TimeSpan.Zero, until, reserve ?? DefaultReserve);
 }
 
 /// <summary>One sweep's share of a <see cref="CronRunBudget"/>.</summary>

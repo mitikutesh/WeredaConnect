@@ -2,7 +2,7 @@ namespace WeredaConnect.Server.Data;
 
 /// <summary>
 /// ESC-09: server-only order attributes of the order-follows-the-money mirror
-/// (escrow-protocol.md 1.15.0, order-lifecycle.md 1.17.0). None of them is in a DTO, a client
+/// (escrow-protocol.md 1.17.0, order-lifecycle.md 1.17.0). None of them is in a DTO, a client
 /// may set none of them, and none is written with a <c>version</c> or <c>updatedAt</c> bump.
 /// </summary>
 internal static class OrderMoneyFields

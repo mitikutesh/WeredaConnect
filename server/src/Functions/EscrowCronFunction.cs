@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
@@ -78,8 +77,10 @@ public class EscrowCronFunction
     };
 
     /// <summary>
-    /// ESC-10: how the auto-release and the /escrow/initiate refund read an order status. Every status of
-    /// the order state machine has a class (a test enforces it); an unknown status blocks.
+    /// ESC-10: how the auto-release and the /escrow/initiate refund read an order status; ESC-09's admin
+    /// release reads it the same way (<c>disbursing</c> is in flight: a release may wait in the manual
+    /// payout queue; <c>settled</c> is idle and never paid again). Every status of the order state machine
+    /// has a class (a test enforces it); an unknown status blocks.
     /// </summary>
     internal enum OrderTradeClass
     {
@@ -122,8 +123,11 @@ public class EscrowCronFunction
     private int _pendingDeliveriesCancelled;
     private readonly List<string> _sweepsTruncated = new();
 
-    /// <summary>ESC-10: started with each invocation; the paged sweeps' time budget counts from it.</summary>
-    private Stopwatch _runClock = new();
+    /// <summary>
+    /// The run budget (ESC-09), started with each invocation from <see cref="BudgetFactory"/>. Every sweep
+    /// that stops on time takes a slice of it: ESC-10's paged sweeps and the order-money sweep.
+    /// </summary>
+    private CronRunBudget _runBudget = CronRunBudget.StartNew();
 
     /// <summary>ESC-10: rows per page of a paged sweep (evaluated by the Query, before its filter).</summary>
     internal int SweepPageSize { get; init; } = 100;
@@ -134,12 +138,10 @@ public class EscrowCronFunction
     /// <summary>ESC-10: rows a paged sweep handles at most per run; only rows that needed a read or a write count.</summary>
     internal int SweepMaxRows { get; init; } = 1000;
 
-    /// <summary>ESC-10: time since the invocation started, checked before each row. Tests replace it; null reads the run clock.</summary>
-    internal Func<TimeSpan>? Elapsed { get; init; }
-
     /// <summary>
-    /// ESC-10: how far into the run each paged sweep may still start a row. Anchored to the run start, so
-    /// the reports and recovery steps before them count too and the trucker retry (last) keeps its reserve.
+    /// ESC-10: how far into the run each paged sweep may still start a row
+    /// (<see cref="CronRunBudget.SliceUntil"/>). Anchored to the run start, so the reports and recovery
+    /// steps before them count too and the trucker retry (last) keeps its reserve.
     /// </summary>
     internal static readonly TimeSpan ReleaseSweepUntil = TimeSpan.FromSeconds(90);
     internal static readonly TimeSpan RefundSweepUntil = TimeSpan.FromSeconds(135);
@@ -149,7 +151,13 @@ public class EscrowCronFunction
     /// <summary>ESC-10: no paged sweep starts a row with less Lambda time left than the trucker reserve plus this.</summary>
     internal static readonly TimeSpan SweepRemainingMargin = TimeSpan.FromSeconds(30);
 
-    /// <summary>ESC-09: the run budget, started at handler entry (tests inject a hand-driven clock).</summary>
+    /// <summary>
+    /// ESC-10: the Lambda reserve of a paged sweep (120 seconds). A property, not a field, so it never
+    /// reads <see cref="TruckerRetryTimeReserve"/> before that field is initialised.
+    /// </summary>
+    internal static TimeSpan SweepReserve => TruckerRetryTimeReserve + SweepRemainingMargin;
+
+    /// <summary>ESC-09: makes the run budget at handler entry (tests inject a hand-driven clock).</summary>
     internal Func<CronRunBudget> BudgetFactory { get; init; } = CronRunBudget.StartNew;
 
     /// <summary>
@@ -297,11 +305,10 @@ public class EscrowCronFunction
         ILambdaContext context)
     {
         context.Logger.LogInformation("EscrowCronFunction invoked.");
-        _runClock = Stopwatch.StartNew();
+        // ESC-09: the run's time budget starts with the handler; every timed sweep takes a slice of it.
+        _runBudget = BudgetFactory();
         // ESC-45 (D6): Telebirr calls end 30 s before the run does (settlement writes, parking).
         using var gatewayDeadline = GatewayDeadline.Begin(context, TimeSpan.FromSeconds(30));
-        // ESC-09: the run's time budget starts with the handler.
-        var budget = BudgetFactory();
 
         // Parse action from request body
         string? action = null;
@@ -338,7 +345,7 @@ public class EscrowCronFunction
         {
             return action switch
             {
-                "auto_release_and_refund" => await HandleAutoReleaseAndRefundAsync(context, budget),
+                "auto_release_and_refund" => await HandleAutoReleaseAndRefundAsync(context),
                 "reconciliation" => await HandleReconciliationAsync(context),
                 "park_legacy_trucker_legs" => await HandleParkLegacyTruckerLegsAsync(context),
                 _ => LambdaResponse.Error(400, "ESCROW_CRON_VALIDATION",
@@ -365,7 +372,7 @@ public class EscrowCronFunction
     /// Runs auto-release for confirmed deliveries past the dispute window,
     /// then auto-refund for expired escrows.
     /// </summary>
-    private async Task<APIGatewayProxyResponse> HandleAutoReleaseAndRefundAsync(ILambdaContext context, CronRunBudget budget)
+    private async Task<APIGatewayProxyResponse> HandleAutoReleaseAndRefundAsync(ILambdaContext context)
     {
         var runStart = DateTime.UtcNow;
         _manualPayoutsWaiting = 0;
@@ -389,7 +396,7 @@ public class EscrowCronFunction
         // ESC-04: last, so the money sweeps above keep their share of the 5 minute run.
         var trucker = await RetryPendingTruckerLegsAsync(context, runStart);
         // ESC-09: after every money sweep (it moves no money): orders follow where the money went.
-        var orders = await FollowMoneySweepAsync(context, budget);
+        var orders = await FollowMoneySweepAsync(context);
 
         var summary = new Dictionary<string, string>
         {
@@ -457,7 +464,7 @@ public class EscrowCronFunction
     /// </summary>
     private async Task<(int released, int refunded)> SettleResolvedDisputesAsync(ILambdaContext context)
     {
-        var sweep = new SweepRun("dispute_query", new CronSweepQuery("dispute_resolved", ExcludeLocked: true), DisputeSweepUntil);
+        var sweep = new SweepRun("dispute_query", new CronSweepQuery("dispute_resolved", ExcludeLocked: true), SweepSlice(DisputeSweepUntil));
         var released = 0;
         var refunded = 0;
         var hourBucket = DateTime.UtcNow.ToString("yyyyMMddHH");
@@ -561,7 +568,7 @@ public class EscrowCronFunction
     {
         var now = DateTime.UtcNow;
         var sweep = new SweepRun("release_query",
-            new CronSweepQuery("escrowed", DeliveryConfirmed: true, ExcludeLocked: true), ReleaseSweepUntil);
+            new CronSweepQuery("escrowed", DeliveryConfirmed: true, ExcludeLocked: true), SweepSlice(ReleaseSweepUntil));
 
         var releaseCount = 0;
         await foreach (var escrow in SweepRowsAsync(context, sweep))
@@ -663,7 +670,7 @@ public class EscrowCronFunction
         // Query escrowed items with expiresAt <= now
         var sweep = new SweepRun("refund_query",
             new CronSweepQuery("escrowed", ExpiresAtBefore: nowIso, DeliveryConfirmed: false, ExcludeLocked: true),
-            RefundSweepUntil);
+            SweepSlice(RefundSweepUntil));
 
         var refundCount = 0;
         await foreach (var escrow in SweepRowsAsync(context, sweep))
@@ -1633,7 +1640,7 @@ public class EscrowCronFunction
     /// <c>ORDER_MONEY_MISMATCH orderId=- ... reason=sweep_truncated</c>, a failed page query
     /// <c>reason=sweep_failed</c>. Never throws.
     /// </summary>
-    private async Task<OrderMoneySweepCounts> FollowMoneySweepAsync(ILambdaContext context, CronRunBudget budget)
+    private async Task<OrderMoneySweepCounts> FollowMoneySweepAsync(ILambdaContext context)
     {
         var counts = new OrderMoneySweepCounts();
         if (_orderRepo == null)
@@ -1642,7 +1649,7 @@ public class EscrowCronFunction
         }
 
         // Last in the run: it keeps only the default reserve for the summary.
-        var slice = budget.Slice(OrderMoneySweepSlice, CronRunBudget.DefaultReserve);
+        var slice = _runBudget.Slice(OrderMoneySweepSlice, CronRunBudget.DefaultReserve);
         var now = DateTime.UtcNow;
         var cursor = await ReadOrderMoneyCursorAsync(context);
         var first = cursor?.Status is { } cursorStatus ? Math.Max(0, Array.IndexOf(OrderMoneySweepStatuses, cursorStatus)) : 0;
@@ -1968,7 +1975,7 @@ public class EscrowCronFunction
     {
         var now = DateTime.UtcNow;
         _sweepsTruncated.Clear();
-        var sweep = new SweepRun("reconciliation", new CronSweepQuery("initiated"), ReconciliationSweepUntil);
+        var sweep = new SweepRun("reconciliation", new CronSweepQuery("initiated"), SweepSlice(ReconciliationSweepUntil));
 
         var reconciledToEscrowed = 0;
         var reconciledToCancelled = 0;
@@ -2134,11 +2141,11 @@ public class EscrowCronFunction
     /// ESC-10: one paged sweep's query and budget. The sweep calls <see cref="CountRow"/> once a row needs a
     /// read or a write, so rows it skips on their own attributes never use up <see cref="SweepMaxRows"/>.
     /// </summary>
-    private sealed class SweepRun(string code, CronSweepQuery query, TimeSpan until)
+    private sealed class SweepRun(string code, CronSweepQuery query, CronRunSlice budget)
     {
         public string Code { get; } = code;
         public CronSweepQuery Query { get; } = query;
-        public TimeSpan Until { get; } = until;
+        public CronRunSlice Budget { get; } = budget;
         public int Rows { get; private set; }
 
         public void CountRow() => Rows++;
@@ -2148,8 +2155,8 @@ public class EscrowCronFunction
     /// ESC-10: the rows of one status partition of <c>StatusExpiresIndex</c>, page by page, so a row the sweep
     /// cannot act on no longer hides the rows behind it. Ends at the end of the partition or, logging
     /// <c>sweep_truncated</c> (<c>code=&lt;code&gt;:&lt;pages|rows|time&gt;</c>), after <see cref="SweepMaxPages"/>
-    /// pages, after <see cref="SweepMaxRows"/> counted rows, once the run is <see cref="SweepRun.Until"/> old, or
-    /// with less Lambda time left than the trucker retry's reserve plus <see cref="SweepRemainingMargin"/>. A
+    /// pages, after <see cref="SweepMaxRows"/> counted rows, or once its <see cref="SweepRun.Budget"/> says no:
+    /// the run reached the sweep's limit, or the Lambda has less than <see cref="SweepReserve"/> left. A
     /// failed page query logs <c>sweep_failed</c> with the sweep's code and ends the sweep; with
     /// <paramref name="rethrowQueryFailure"/> it fails the run instead.
     /// </summary>
@@ -2190,7 +2197,8 @@ public class EscrowCronFunction
             pages++;
             foreach (var row in items ?? [])
             {
-                if (SweepOutOfTime(context, sweep.Until))
+                // Both budget stops log "time", as before the budget was shared.
+                if (!sweep.Budget.MayStartRow(context))
                 {
                     stop = "time";
                     break;
@@ -2219,14 +2227,11 @@ public class EscrowCronFunction
     }
 
     /// <summary>
-    /// ESC-10: the one place the paged sweeps ask the run budget, before each row: the time since the
-    /// invocation started (<see cref="Elapsed"/>, else the run clock) against the sweep's limit, and the
-    /// Lambda time left. Nothing else in the pager reads a clock.
+    /// ESC-10: a paged sweep's share of the run budget: no new row once the run is <paramref name="until"/>
+    /// old (counted from the run start) or the Lambda has less than <see cref="SweepReserve"/> left. The
+    /// pager asks it before each row; nothing else in the pager reads a clock.
     /// </summary>
-    private bool SweepOutOfTime(ILambdaContext context, TimeSpan until)
-        => (Elapsed?.Invoke() ?? _runClock.Elapsed) >= until
-           || (context.RemainingTime > TimeSpan.Zero
-               && context.RemainingTime < TruckerRetryTimeReserve + SweepRemainingMargin);
+    private CronRunSlice SweepSlice(TimeSpan until) => _runBudget.SliceUntil(until, SweepReserve);
 
     /// <summary>What a sweep's order and delivery check decided for one escrow (ESC-10).</summary>
     private enum TradeCheck

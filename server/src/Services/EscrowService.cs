@@ -1,6 +1,7 @@
 using System.Globalization;
 using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
+using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 
@@ -4368,22 +4369,13 @@ public sealed class EscrowService
     }
 
     /// <summary>
-    /// ESC-09: order statuses whose escrow may be released (shared with ESC-10's auto-release trade
-    /// check). <c>accepted</c>, <c>pickup_confirmed</c> and <c>in_transit</c> only behind a delivered
-    /// delivery (the order lags it); <c>disbursing</c> while a release waits in the manual payout queue.
-    /// </summary>
-    internal static readonly HashSet<string> ReleasableOrderStatuses = new(StringComparer.Ordinal)
-    {
-        "accepted", "pickup_confirmed", "in_transit", "delivered", "disbursing"
-    };
-
-    /// <summary>
     /// ESC-09 Part B: before an admin (not the system sweep) releases a plain <c>escrowed</c> escrow, its
     /// order must be <c>delivered</c> or <c>disbursing</c>; an order at <c>accepted</c>,
     /// <c>pickup_confirmed</c> or <c>in_transit</c> behind a delivered delivery is advanced to
-    /// <c>delivered</c> first. Anything else is refused (422, no override): the farmer is never paid for
-    /// goods the order does not show delivered. A read or a lost race refuses with 503 (nothing moved).
-    /// No order behind the escrow: no check.
+    /// <c>delivered</c> first (in flight in ESC-10's <see cref="EscrowCronFunction.ClassifyOrder"/>, as the
+    /// sweeps read it). Anything else is refused (422, no override): the farmer is never paid for goods the
+    /// order does not show delivered. A read or a lost race refuses with 503 (nothing moved). No order
+    /// behind the escrow: no check.
     /// </summary>
     private async Task<SettlementBlock?> CheckAdminReleaseOrderAsync(Dictionary<string, object> escrow, string actor)
     {
@@ -4413,7 +4405,8 @@ public sealed class EscrowService
                 return null;
             }
 
-            if (ReleasableOrderStatuses.Contains(status) && await ActiveDeliveryStatusAsync(order, escrow) == "delivered")
+            if (EscrowCronFunction.ClassifyOrder(status) == EscrowCronFunction.OrderTradeClass.InFlight
+                && await ActiveDeliveryStatusAsync(order, escrow) == "delivered")
             {
                 if (await _orderRepo.TryAdvanceStatusAsync(orderId, status, "delivered") != null)
                 {

@@ -10,7 +10,7 @@ using Xunit;
 namespace WeredaConnect.Server.Tests.Services;
 
 /// <summary>
-/// ESC-09: the order status follows the money (order-lifecycle.md 1.16.0, escrow-protocol.md 1.14.0).
+/// ESC-09: the order status follows the money (order-lifecycle.md 1.17.0, escrow-protocol.md 1.17.0).
 /// The target table is total over the escrow states; the order only moves forward, one
 /// status-conditioned hop at a time, and a verdict escrow is never moved to disbursing or settled.
 /// </summary>
@@ -465,6 +465,23 @@ public class CronRunBudgetTests
         _elapsed = TimeSpan.FromSeconds(129);
         slice.MayStartRow(null).Should().BeTrue();
         _elapsed = TimeSpan.FromSeconds(130);
+        slice.MayStartRow(null).Should().BeFalse();
+        slice.StopReason.Should().Be("time");
+    }
+
+    [Fact]
+    public void ASliceUntil_CountsFromTheRunStart_SoTheStepsBeforeTheSweepUseItUp()
+    {
+        // ESC-10's paged sweeps: the release sweep may start no row once the run is 90 s old, however
+        // late it began.
+        var budget = new CronRunBudget(() => _elapsed);
+        _elapsed = TimeSpan.FromSeconds(80);
+        var slice = budget.SliceUntil(EscrowCronFunction.ReleaseSweepUntil, EscrowCronFunction.SweepReserve);
+
+        slice.Reserve.Should().Be(TimeSpan.FromSeconds(120));
+        _elapsed = TimeSpan.FromSeconds(89);
+        slice.MayStartRow(null).Should().BeTrue();
+        _elapsed = TimeSpan.FromSeconds(90);
         slice.MayStartRow(null).Should().BeFalse();
         slice.StopReason.Should().Be("time");
     }

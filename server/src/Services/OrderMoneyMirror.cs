@@ -52,7 +52,7 @@ public sealed record OrderMoneyResult(
     OrderMoneyOutcome Outcome, OrderMoneyTarget Target, string? OrderId, string? OrderStatus, string? Reason = null);
 
 /// <summary>
-/// ESC-09: the order status follows the money (order-lifecycle.md 1.17.0, escrow-protocol.md 1.15.0).
+/// ESC-09: the order status follows the money (order-lifecycle.md 1.17.0, escrow-protocol.md 1.17.0).
 /// Called after every escrow money write (release, trucker leg, manual payout close, crash recovery,
 /// stale lock and legacy parks) and by the hourly order-money sweep. Moves the order forward only:
 /// <c>delivered -> disbursing</c> once the release is committed, <c>disbursing -> settled</c> once the
@@ -138,7 +138,7 @@ public sealed class OrderMoneyMirror
 
     /// <summary>
     /// The order status the escrow's money calls for. Total over the escrow states (escrow-protocol.md
-    /// 1.15.0): a verdict owns its order; <c>completed</c> with no trucker leg owed and nothing queued is
+    /// 1.17.0): a verdict owns its order; <c>completed</c> with no trucker leg owed and nothing queued is
     /// settled; <c>completed</c> still owing (a legacy row before the ESC-04 park), <c>released</c> (with or
     /// without a trucker leg owed or queued) and a release waiting in the manual payout queue are
     /// disbursing; <c>refunded</c> is checked against a closed order; everything else (held, initiated,
