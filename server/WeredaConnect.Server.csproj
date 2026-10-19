@@ -40,11 +40,11 @@
     <PackageReference Include="Amazon.Lambda.DynamoDBEvents" Version="3.1.1" />
 
     <!-- AWS SDK (AOT-Compatible) -->
-    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.400" />
-    <PackageReference Include="AWSSDK.S3" Version="3.7.400" />
-    <PackageReference Include="AWSSDK.SecretsManager" Version="3.7.400" />
-    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.400" />
-    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400" />
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.513.4" />
+    <PackageReference Include="AWSSDK.S3" Version="3.7.511.8" />
+    <PackageReference Include="AWSSDK.SecretsManager" Version="3.7.504.43" />
+    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.505.15" />
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.502.61" />
 
     <!-- Database Access (AOT-Compatible) -->
     <!-- ❌ BANNED: Entity Framework Core -->
@@ -58,7 +58,7 @@
     <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.3.0" />
 
     <!-- AWS Cognito -->
-    <PackageReference Include="AWSSDK.CognitoIdentityProvider" Version="3.7.400" />
+    <PackageReference Include="AWSSDK.CognitoIdentityProvider" Version="3.7.505.13" />
   </ItemGroup>
 
   <ItemGroup>
