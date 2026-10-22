@@ -1527,6 +1527,10 @@
   "@escrowErrorPayoutInProgress": {
     "description": "Error when a dispute is raised on a payment an admin is already paying out by hand (ESCROW_038)"
   },
+  "escrowErrorDeliveryPaymentUnavailable": "Kaffaltiin online geejjibsiisaaf asitti hin argamu. Qooda isaa ajaja kana fuula ajajaa irraa kaffalaa.",
+  "@escrowErrorDeliveryPaymentUnavailable": {
+    "description": "Error when the legacy delivery escrow payment is refused on live Telebirr; the order is paid through its checkout (ESCROW_039)"
+  },
   "escrowErrorInvalidTransition": "Gochi kun haala kaffaltii ammaa keessatti hin hayyamamu.",
   "@escrowErrorInvalidTransition": {
     "description": "Error when escrow state transition is invalid"

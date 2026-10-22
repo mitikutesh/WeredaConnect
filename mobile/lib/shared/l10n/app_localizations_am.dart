@@ -1155,6 +1155,10 @@ class AppLocalizationsAm extends AppLocalizations {
       'ይህ ክፍያ በአስተዳዳሪ እየተከፈለ ስለሆነ ከእንግዲህ ክርክር ማንሳት አይቻልም። ድጋፍ ሰጪን ያግኙ።';
 
   @override
+  String get escrowErrorDeliveryPaymentUnavailable =>
+      'ለማድረሻ የመስመር ላይ ክፍያ እዚህ አይገኝም። በምትኩ ይህን ትዕዛዝ ከትዕዛዙ ገጽ ይክፈሉ።';
+
+  @override
   String get escrowErrorInvalidTransition => 'ይህ ድርጊት በአሁኑ የክፍያ ሁኔታ አይፈቀድም።';
 
   @override

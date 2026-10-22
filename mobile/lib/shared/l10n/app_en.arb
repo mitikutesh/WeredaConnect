@@ -1548,6 +1548,10 @@
   "@escrowErrorPayoutInProgress": {
     "description": "Error when a dispute is raised on a payment an admin is already paying out by hand (ESCROW_038)"
   },
+  "escrowErrorDeliveryPaymentUnavailable": "Online payment for a delivery is not available here. Pay this order from its order page instead.",
+  "@escrowErrorDeliveryPaymentUnavailable": {
+    "description": "Error when the legacy delivery escrow payment is refused on live Telebirr; the order is paid through its checkout (ESCROW_039)"
+  },
   "escrowErrorInvalidTransition": "This action is not allowed in the current payment state.",
   "@escrowErrorInvalidTransition": {
     "description": "Error when escrow state transition is invalid"

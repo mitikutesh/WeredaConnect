@@ -362,6 +362,33 @@ public class EscrowFunctionTests
         await _mockIdempotencyRepo.DidNotReceive().GetAsync(Arg.Any<string>());
     }
 
+    [Fact]
+    public async Task HandleInitiate_LiveTelebirr_Returns422Escrow039_NothingWrittenNothingCounted()
+    {
+        // FUP-36: the refusal is decided before any write, any gateway call and the velocity count.
+        _mockTelebirrGateway.IsLiveTelebirr.Returns(true);
+        var fraud = Substitute.For<IFraudDetectionService>();
+        fraud.CheckPaymentVelocityAsync(BuyerId).Returns(new FraudCheckResult { IsAllowed = true });
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
+        var function = new EscrowFunction(service, fraud);
+        var request = WithAuthTime(
+            MakePostRequest("/escrow/initiate", ValidInitiateBody(), BuyerId),
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+        var response = await function.FunctionHandler(request, _context);
+
+        Assert.Equal(422, response.StatusCode);
+        Assert.Contains("ESCROW_039", response.Body);
+        await _mockTelebirrGateway.DidNotReceive().HoldFundsAsync(Arg.Any<HoldFundsRequest>());
+        await _mockIdempotencyRepo.DidNotReceive().StoreAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+        await _mockEscrowRepo.DidNotReceive().CreateAsync(Arg.Any<Dictionary<string, object>>());
+        await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+        await fraud.DidNotReceive().RecordPaymentInitiatedAsync(Arg.Any<string>());
+        await fraud.DidNotReceive().RecordFraudSignalAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
+    }
+
     private static string ValidInitiateBody() =>
         $$"""{"deliveryId":"del-001","buyerId":"{{BuyerId}}","farmerId":"{{FarmerId}}","amount":5000,"currency":"ETB","idempotencyKey":"{{BuyerId}}:del-001:initiate:1708084800000"}""";
 

@@ -1196,6 +1196,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'This payment is already being paid out by an admin, so it can no longer be disputed. Contact support.';
 
   @override
+  String get escrowErrorDeliveryPaymentUnavailable =>
+      'Online payment for a delivery is not available here. Pay this order from its order page instead.';
+
+  @override
   String get escrowErrorInvalidTransition =>
       'This action is not allowed in the current payment state.';
 

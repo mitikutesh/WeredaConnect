@@ -53,4 +53,21 @@ public class TelebirrConfigTests
     {
         TelebirrConfig.FromJson(Json(",\n  \"httpProxy\": \"   \"")).HttpProxy.Should().BeNull();
     }
+
+    // FUP-36: the legacy delivery initiate is refused on live Telebirr. "Live" is read off the
+    // base URL host, and anything that is not plainly the developer's own machine is live.
+    [Theory]
+    [InlineData("http://127.0.0.1:8790", true)]
+    [InlineData("http://localhost:8790", true)]
+    [InlineData("http://[::1]:8790", true)]
+    [InlineData("http://host.docker.internal:8790", true)]
+    [InlineData("https://developerportal.ethiotelebirr.et:38443/apiaccess/payment/gateway", false)]
+    [InlineData("https://app.ethiotelebirr.et:38443/apiaccess/payment/gateway", false)]
+    [InlineData("https://sim.example.ngrok.io", false)]
+    [InlineData("not a url", false)]
+    public void IsLocalSimulator_is_true_only_for_a_loopback_or_docker_host_base_url(string baseUrl, bool expected)
+    {
+        var cfg = TelebirrConfig.FromJson(Json(null).Replace("https://telebirr.example/gw", baseUrl));
+        cfg.IsLocalSimulator.Should().Be(expected);
+    }
 }

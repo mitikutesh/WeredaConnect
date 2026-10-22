@@ -2296,6 +2296,12 @@ abstract class AppLocalizations {
   /// **'This payment is already being paid out by an admin, so it can no longer be disputed. Contact support.'**
   String get escrowErrorPayoutInProgress;
 
+  /// Error when the legacy delivery escrow payment is refused on live Telebirr; the order is paid through its checkout (ESCROW_039)
+  ///
+  /// In en, this message translates to:
+  /// **'Online payment for a delivery is not available here. Pay this order from its order page instead.'**
+  String get escrowErrorDeliveryPaymentUnavailable;
+
   /// Error when escrow state transition is invalid
   ///
   /// In en, this message translates to:
