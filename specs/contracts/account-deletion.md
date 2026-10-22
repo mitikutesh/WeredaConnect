@@ -1,7 +1,7 @@
 # Account Deletion Contract
 
 ## Version
-1.0.0
+1.1.0
 
 ## Parties
 - **Mobile / Web** (client, ACC-03): Profile > "Delete account" flow, step-up re-auth, local wipe. Mobile and web are a platform pair and ship together.
@@ -172,7 +172,13 @@ Deletion is refused while the user is a party (`buyerId`, `farmerId` or `trucker
 
 ### Payment review (buyer only)
 
-For each of the buyer's orders that has a checkout slot, any escrow-audit row under `escrow-order-{orderId}` with action `order_payment_unmatched`, `order_payment_duplicate` or `order_payment_unprocessed` blocks with type `payment_review` until a later row under the same key records the manual refund. ESC-02 (manual payout queue) defines that resolution row. Until ESC-02 ships, the blocker stays and the client shows "contact support" (see Open Points). This rule catches a captured payment on an order of any status, including one the buyer cancelled first.
+For each of the buyer's orders that has a checkout slot, a captured payment the webhook did not apply blocks with type `payment_review` until its manual refund is recorded. The rule is the one in `escrow-protocol.md` §Additions in 1.20.0, and the server keeps it in one helper (`UnappliedPayments`) that this check must call:
+
+- The payments are the escrow-audit rows under `escrow-order-{orderId}` with action `order_payment_unmatched`, `order_payment_duplicate` or `order_payment_unprocessed`, one payment per payment_order_id (`telebirrRef`), or per merch_order_id for a row without one.
+- A payment is resolved by an `order_payment_refunded_manual` row under the same key that names its payment_order_id (for a nameless payment, its merch_order_id). `POST /admin/payments/{orderId}/refund-manual` writes that row (FUP-02). A refund row lifts only the payment it names: a second payment on the same order keeps the blocker.
+- A payment that funded the order (the order's `telebirrPaymentOrderId`, or for a nameless payment its `telebirrMerchOrderId`) never blocks here: its money is in the order's escrow, which the escrow rule covers.
+
+The buyer cannot lift this blocker alone, so the client shows "contact support": support refunds the payment in the Telebirr portal and records it, and the next attempt passes. This rule catches a captured payment on an order of any status, including one the buyer cancelled first.
 
 ### Why these rules
 
@@ -190,7 +196,7 @@ No table scan except the one in Completion Sweep.
 | Escrows as a party | escrows `BuyerStatusIndex`, `FarmerStatusIndex`, `TruckerStatusIndex` |
 | Deliveries as a party | deliveries `FarmerIdCreatedAtIndex`, `TruckerIdCreatedAtIndex`, `ParticipantIndex` (buyer). Fallback for deliveries created without `participantId`: for each of the buyer's orders, query `ListingIndex` by the order's `listingId` and keep rows whose `buyerId` is the user or whose `orderId` is that order. The same set feeds the blocker check and the anonymization |
 | Checkout slots | escrow-idempotency GetItem `order-checkout:{orderId}`, consistent read |
-| Payment review | escrow-audit Query PK `escrow-order-{orderId}`, only for orders with a slot |
+| Payment review | escrow-audit Query PK `escrow-order-{orderId}`, only for orders with a slot; the order's own consistent read supplies `telebirrPaymentOrderId` and `telebirrMerchOrderId` |
 | Ratings authored (buyer) | ratings GetItem `{orderId}:{farmerId}` and, when the order has a trucker, `{orderId}:{truckerId}`, per buyer order (there is no rater index) |
 | Ratings received (farmer, trucker) | ratings `RateeIdCreatedAtIndex` |
 
@@ -373,7 +379,7 @@ Open for legal review: the retention period for financial records and a purge jo
 - This contract takes precedence over `rating-api.md` invariant 4 (ratings immutable) and the create-only rule in `messaging.md`, only for the system erasure described here.
 - `user-entity.md` 1.1.0 replaces its "deletion not supported" rule with a pointer to this contract and documents `deletionState`, `deletionRequestedAt` and `deletedAt`.
 - When ACC-02 ships, it adds the `ACCOUNT_004` row to `sync-protocol.md` and `auth-api.md`, and the deleted-party refusal to `order-lifecycle.md` and `escrow-protocol.md`, each with a version bump.
-- Depends on ESC-02 for the `payment_review` resolution row.
+- The `payment_review` resolution row, its admin endpoint and the matching rule are in `escrow-protocol.md` 1.20.0 (FUP-02; reserved in 1.8.0 by ESC-02).
 
 ## Open Points
 
@@ -386,9 +392,10 @@ Open for legal review: the retention period for financial records and a purge jo
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.1.0 | 2026-10-23 | `payment_review` resolution defined (FUP-02, `escrow-protocol.md` 1.20.0): one blocker per unapplied payment (by payment_order_id, or merch_order_id for a nameless one), lifted by the `order_payment_refunded_manual` row naming that payment whenever it was written, not by any later row of the order; a payment that funded the order never blocks; the admin endpoint that records the refund exists, so the blocker is no longer permanent and "contact support" now leads to a resolution |
 | 1.0.0 | 2026-10-06 | Initial contract (ACC-01): endpoint, error codes, blocked-while-active rule, deletion steps, sweep, per-table policy for all 20 tables, retention, client and admin obligations |
 
 ---
 
-**Last Updated**: 2026-10-06
-**Version**: 1.0.0
+**Last Updated**: 2026-10-23
+**Version**: 1.1.0

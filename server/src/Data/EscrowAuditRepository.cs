@@ -88,7 +88,11 @@ public sealed class EscrowAuditRepository : IEscrowAuditRepository
     }
 
     /// <inheritdoc />
-    public async Task<List<Dictionary<string, object>>> GetAuditTrailAsync(string escrowId)
+    public Task<List<Dictionary<string, object>>> GetAuditTrailAsync(string escrowId)
+        => GetAuditTrailAsync(escrowId, consistentRead: false);
+
+    /// <inheritdoc />
+    public async Task<List<Dictionary<string, object>>> GetAuditTrailAsync(string escrowId, bool consistentRead)
     {
         var allItems = new List<Dictionary<string, object>>();
         Dictionary<string, AttributeValue>? lastKey = null;
@@ -103,7 +107,8 @@ public sealed class EscrowAuditRepository : IEscrowAuditRepository
                 {
                     { ":escrowId", new AttributeValue { S = escrowId } }
                 },
-                ScanIndexForward = true // oldest first for audit trail
+                ScanIndexForward = true, // oldest first for audit trail
+                ConsistentRead = consistentRead
             };
 
             if (lastKey != null)
@@ -170,6 +175,52 @@ public sealed class EscrowAuditRepository : IEscrowAuditRepository
         }
 
         return limit < items.Count ? items.GetRange(0, limit) : items;
+    }
+
+    /// <inheritdoc />
+    public async Task<EscrowAuditKeyPage> ScanKeysWithActionsAsync(
+        IReadOnlyCollection<string> actions,
+        Dictionary<string, AttributeValue>? exclusiveStartKey,
+        int pageSize)
+    {
+        var values = new Dictionary<string, AttributeValue>();
+        var placeholders = new List<string>();
+        foreach (var action in actions)
+        {
+            var placeholder = $":a{placeholders.Count}";
+            placeholders.Add(placeholder);
+            values[placeholder] = new AttributeValue { S = action };
+        }
+
+        var request = new ScanRequest
+        {
+            TableName = _tableName,
+            // Limit counts rows evaluated before the filter, so it bounds the read cost of a page.
+            Limit = pageSize,
+            FilterExpression = $"#action IN ({string.Join(", ", placeholders)})",
+            ProjectionExpression = "escrowId, #action",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#action", "action" } },
+            ExpressionAttributeValues = values
+        };
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
+        }
+
+        var response = await _dynamoDb.ScanAsync(request);
+        var escrowIds = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in response.Items ?? new List<Dictionary<string, AttributeValue>>())
+        {
+            if (item.TryGetValue("escrowId", out var id) && !string.IsNullOrEmpty(id.S) && seen.Add(id.S))
+            {
+                escrowIds.Add(id.S);
+            }
+        }
+
+        return new EscrowAuditKeyPage(
+            escrowIds,
+            response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null);
     }
 
     private static string GetTimestamp(Dictionary<string, object> item) =>

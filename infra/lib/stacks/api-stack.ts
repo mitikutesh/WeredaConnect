@@ -2019,6 +2019,8 @@ export class ApiStack extends cdk.Stack {
       "/admin/transactions/{orderId}",
       "/admin/audit",
       "/admin/payouts/manual",
+      // FUP-02: captured payments the webhook did not apply (bounded escrow-audit Scan).
+      "/admin/payments/unapplied",
     ];
 
     for (const path of adminGetPaths) {
@@ -2046,6 +2048,9 @@ export class ApiStack extends cdk.Stack {
       "/admin/users/{id}/action",
       // ESC-02: record an admin-paid manual payout leg (admin group checked in the Lambda).
       "/admin/payouts/{escrowId}/{ref}/complete",
+      // FUP-02: record the manual refund of such a payment (admin group checked in the Lambda).
+      // Uses the existing grants: escrow-audit read + write, orders read, transaction-audit write.
+      "/admin/payments/{orderId}/refund-manual",
     ];
 
     for (const path of adminPostPaths) {

@@ -172,8 +172,10 @@ describe('ApiStack', () => {
     // /user/fayda-link and DELETE /device-tokens (auth hardening) → 55,
     // plus POST /escrow/order-checkout (ESC-01, live order payments) → 56,
     // plus GET /admin/payouts/manual and POST /admin/payouts/{escrowId}/{ref}/complete
-    // (ESC-02, manual payout queue) → 58 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 58);
+    // (ESC-02, manual payout queue) → 58,
+    // plus GET /admin/payments/unapplied and POST /admin/payments/{orderId}/refund-manual
+    // (FUP-02, manual refund of an unapplied payment) → 60 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 60);
   });
 
   test('manual payout queue routes sit on the admin authorizer (ESC-02)', () => {
@@ -182,6 +184,20 @@ describe('ApiStack', () => {
       .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
     expect(adminAuthorizerId).toBeDefined();
     for (const routeKey of ['GET /admin/payouts/manual', 'POST /admin/payouts/{escrowId}/{ref}/complete']) {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        RouteKey: routeKey,
+        AuthorizationType: 'JWT',
+        AuthorizerId: { Ref: adminAuthorizerId },
+      });
+    }
+  });
+
+  test('unapplied payment routes sit on the admin authorizer (FUP-02)', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const adminAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
+    expect(adminAuthorizerId).toBeDefined();
+    for (const routeKey of ['GET /admin/payments/unapplied', 'POST /admin/payments/{orderId}/refund-manual']) {
       template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
         RouteKey: routeKey,
         AuthorizationType: 'JWT',
