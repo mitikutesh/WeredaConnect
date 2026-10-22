@@ -638,6 +638,8 @@ void main() {
             'in.',
         'ORDER_DEADLINE_PASSED: too late',
         'ORDER_ACTION_NOT_ALLOWED: no',
+        'ORDER_PAYMENT_METHOD_UNAVAILABLE: Bank transfer (cbe_transfer) is not '
+            'available yet. Pay with Telebirr.',
       ]) {
         expect(isRevertableRejectionMessage(message), isTrue, reason: message);
       }

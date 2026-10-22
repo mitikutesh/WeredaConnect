@@ -42,6 +42,11 @@ enum AppErrorCode {
   /// 500,000 ETB and the order total is outside that (ESC-44).
   paymentTotalOutOfRange,
 
+  /// The live gateway refused the payment method: bank transfer is not
+  /// available yet, only Telebirr is (`ORDER_PAYMENT_METHOD_UNAVAILABLE`,
+  /// FUP-20); nothing was changed.
+  paymentMethodUnavailable,
+
   /// The server refused a queued order create, so the local order was
   /// removed (mobile).
   orderNotPlaced,
@@ -122,6 +127,9 @@ AppErrorCode mapErrorToCode(Object error) {
     SyncRejectedException(:final message)
         when isPaymentTotalOutOfRangeMessage(message) =>
       AppErrorCode.paymentTotalOutOfRange,
+    SyncRejectedException(:final message)
+        when isPaymentMethodUnavailableMessage(message) =>
+      AppErrorCode.paymentMethodUnavailable,
     SyncConflictException() => AppErrorCode.conflict,
     SyncRejectedException(:final message)
         when isOrderCancelNotAllowedMessage(message) =>
@@ -173,6 +181,7 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.kycRequired => l10n.kycRequiredFaydaMessage,
     AppErrorCode.orderRefused => l10n.errorOrderRefused,
     AppErrorCode.paymentTotalOutOfRange => l10n.paymentTotalOutOfRange,
+    AppErrorCode.paymentMethodUnavailable => l10n.paymentMethodUnavailable,
     AppErrorCode.orderNotPlaced => l10n.errorOrderNotPlaced,
     AppErrorCode.alreadyRated => l10n.alreadyRated,
     AppErrorCode.deliveryCancelNotAllowed => l10n.deliveryErrorCancelNotAllowed,
@@ -204,6 +213,9 @@ AppErrorCode syncRejectionErrorCode({
     if (action == 'create') return AppErrorCode.orderNotPlaced;
     if (isOrderCancelNotAllowedMessage(message)) {
       return AppErrorCode.orderCancelNotAllowed;
+    }
+    if (isPaymentMethodUnavailableMessage(message)) {
+      return AppErrorCode.paymentMethodUnavailable;
     }
     return isPaymentTotalOutOfRangeMessage(message)
         ? AppErrorCode.paymentTotalOutOfRange

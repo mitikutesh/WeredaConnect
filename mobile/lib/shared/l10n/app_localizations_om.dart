@@ -2951,6 +2951,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Telebirr kaffaltii tokkoon qarshii 100 hanga 500,000 fudhata. Waliigalli ajaja kanaa kanaan ala waan ta\'eef, Telebirr\'n kaffalamuu hin danda\'u.';
 
   @override
+  String get paymentMethodUnavailable =>
+      'Dabarsi baankii ammaaf hin jiru, kanaaf kaffaltiin kun hin galmoofne. Ajaja kana Telebirr\'n kaffalaa.';
+
+  @override
   String get continuePayment => 'Kaffaltii itti fufaa';
 
   @override

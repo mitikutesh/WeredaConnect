@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.18.0
+1.19.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -184,6 +184,7 @@ leg), so it carries the checks `POST /escrow/initiate` already made:
 | buyer's risk tier MEDIUM and the password not fresh, at any amount; above 10,000 ETB after the Fayda row above (1.9.0, planned FRD-04) | `AUTH_040: ...` |
 | buyer's risk tier HIGH: Fayda login not fresh, then password not fresh, at any amount (1.9.0, planned FRD-04) | `AUTH_041: ...` first, then `AUTH_040: ...` on the retry |
 | live gateway (`TELEBIRR_MOCK` off) and `orderTotal` outside 100 to 500,000 ETB, what one Telebirr payment can take (1.7.0; bank transfers are ESC-46) | `ORDER_VALIDATION: This order total (X ETB) is outside what one Telebirr payment can take (100 to 500000 ETB).` |
+| live gateway (`TELEBIRR_MOCK` off) and the update's `paymentMethod` present and not `telebirr` (1.19.0, FUP-20; checked last, after the total; bank transfers are ESC-46) | `ORDER_PAYMENT_METHOD_UNAVAILABLE: Bank transfer (cbe_transfer) is not available yet. Pay with Telebirr.`; for any other value `ORDER_PAYMENT_METHOD_UNAVAILABLE: Payment method '<value>' is not available yet. Pay with Telebirr.` |
 
 The gates fail closed when the profiles cannot be read. Mock auto-funding (`TELEBIRR_MOCK`)
 runs only after they pass. The client reverts the local order to its previous status on
@@ -195,6 +196,13 @@ farmer-side reason it only explains. On `AUTH_040` it asks for the password and 
 `AUTH_041` it runs the Fayda link flow as the account owner and retries. A buyer who is not
 Fayda-verified yet gets `buyer_fayda` first; that link is also the fresh Fayda login, so the
 resubmitted payment passes both gates.
+
+The payment method gate (1.19.0, FUP-20) reads only the update's own `paymentMethod`, never
+the stored one (the mobile order create writes `cbe_transfer` as a default on every order), so
+an update that carries no method is left to the checkout. It is decided before any write (no
+`paymentSubmittedAt`, no transaction-audit row, no idempotency key) and is permanent under the
+`ORDER_*` rule (`sync-protocol.md` 1.16.0): the client reverts the local order and shows
+`paymentMethodUnavailable`. Mock mode funds every method as before.
 
 ### Payment reference (1.7.1)
 
@@ -222,6 +230,12 @@ and "Pay Now" / "Pay again" on `pending_payment` / `payment_failed`. A retry aft
 `ORDER_VALIDATION: This order total ... is outside what one Telebirr payment can take`
 refusal has its own message in en, am and om (web inline, mobile through the ESC-12
 rejection snackbar).
+
+Since 1.19.0 (FUP-20) the server refuses a live `payment_submitted` whose `paymentMethod` is
+not `telebirr` (`ORDER_PAYMENT_METHOD_UNAVAILABLE`, see Payment gates), so a demo build
+pointed at a live server cannot record a bank transfer that nothing would fund. Its message
+(`paymentMethodUnavailable`, en, am and om) says to pay with Telebirr; the local order is
+reverted like any `ORDER_*` refusal.
 
 Once a delivery exists for an accepted order (a trucker's, or the buyer's self-pickup), the
 order detail screen offers every party "Open delivery" instead of a second create, and the
@@ -282,7 +296,8 @@ in `escrow-protocol.md` 1.7.0. Nothing here is deployed yet.
 Every `ORDER_*` error the server returns for an order operation, except
 `ORDER_KYC_REQUIRED`, is permanent: the same command gets the same answer. That
 includes the transition refusals above (`ORDER_VALIDATION`, `ORDER_UNAUTHORIZED`), the
-held-escrow refusal of an accept and the live payment range check. The mobile client
+held-escrow refusal of an accept, the live payment range check and the live payment method
+refusal (`ORDER_PAYMENT_METHOD_UNAVAILABLE`, 1.19.0). The mobile client
 stops retrying, puts the order back to the server's view (a refused create removes the
 local order) and tells the user, in their language, that the change was not allowed;
 web shows the same message from the refused call. A transient order failure must not
@@ -458,6 +473,7 @@ pull: an order closed on the server while a party is offline keeps its numbers t
 
 ## Changelog
 
+- **1.19.0 (2026-10-22)**: Live payment method refusal (FUP-20): with the live gateway a `payment_submitted` whose `paymentMethod` is present and not `telebirr` is refused with `ORDER_PAYMENT_METHOD_UNAVAILABLE` (naming the method; bank transfers wait for ESC-46), decided after the other payment gates and before any write (no `paymentSubmittedAt`, no transaction-audit row, no idempotency key); only the update's own value is checked and an update without a method is left to the checkout; mock mode still funds every method; permanent under the `ORDER_*` rule, with its own text in en, am and om (`paymentMethodUnavailable`) on mobile and web.
 - **1.18.0 (2026-10-17)**: Contact between the parties (ESC-48): `contactOpen` on every order read and the parties' phones to a party of an open order (`accepted` to `settled` and `disputed`, no admin override refund), resolved from the users table at read time; contact closed before the farmer's accept and again after `cancelled`, `rejected` or `dispute_resolved`; a buyer's transport-failure cancel of an order whose contact had opened records the fraud signal `CONTACT_THEN_TRANSPORT_CANCEL`; order detail gets the Contact section.
 
 - **1.17.0 (2026-10-10)**: The order follows the money (ESC-09): `disbursing` when the release is committed (the escrow `released` or its release queued), `settled` only when the escrow is `completed` with no leg owed; a lagging logistics order is advanced to `delivered` first; status-conditioned hops with `ADD version`, one `order_updated` row each, after the escrow write; a verdict escrow keeps its order at `dispute_resolved`; the hourly order-money sweep repairs and backfills, with the server-only skip marker `moneySweepSkip`; an admin refund of a plain escrowed order escrow cancels a pre-pickup order first (refund scheduled, stock restored) and refuses goods on the move unless overridden (`refundOverride*`); an admin release pays only a delivered order; ratings allowed on `disbursing`; a client status change on a mirrored order is a permanent `ORDER_VALIDATION`.

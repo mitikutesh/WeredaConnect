@@ -3672,6 +3672,10 @@
   "@paymentTotalOutOfRange": {
     "description": "Live payments: the order total is outside what one Telebirr payment takes (ORDER_VALIDATION / ESCROW_001)"
   },
+  "paymentMethodUnavailable": "Bank transfer isn't available yet, so this payment wasn't recorded. Pay this order with Telebirr instead.",
+  "@paymentMethodUnavailable": {
+    "description": "Live payments: the server refused a bank transfer (ORDER_PAYMENT_METHOD_UNAVAILABLE, FUP-20); only Telebirr can fund an order until CBE verification exists"
+  },
   "continuePayment": "Continue payment",
   "@continuePayment": {
     "description": "Order detail button (buyer, payment submitted): open the order's Telebirr checkout"

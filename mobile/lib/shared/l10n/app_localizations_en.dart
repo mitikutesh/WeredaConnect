@@ -2928,6 +2928,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Telebirr takes 100 to 500,000 ETB in one payment. This order\'s total is outside that, so it can\'t be paid with Telebirr.';
 
   @override
+  String get paymentMethodUnavailable =>
+      'Bank transfer isn\'t available yet, so this payment wasn\'t recorded. Pay this order with Telebirr instead.';
+
+  @override
   String get continuePayment => 'Continue payment';
 
   @override
