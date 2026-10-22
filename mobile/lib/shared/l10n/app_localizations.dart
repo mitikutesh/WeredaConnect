@@ -5397,6 +5397,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'This order can\'t be cancelled now. It can be cancelled only when the crops were not collected in time and nothing was picked up.'**
   String get errorOrderCancelNotAllowed;
+
+  /// The server refused an order response because its deadline passed (ORDER_DEADLINE_PASSED); on mobile the local change was undone
+  ///
+  /// In en, this message translates to:
+  /// **'Too late. The time for this step has passed.'**
+  String get errorDeadlinePassed;
+
+  /// The server refused an order because the trip it names can no longer take it (ORDER_TRIP_NOT_ELIGIBLE); the buyer chooses another truck
+  ///
+  /// In en, this message translates to:
+  /// **'That truck is no longer available. Choose again.'**
+  String get errorTripNotEligible;
+
+  /// The server refused a replacement truck because no more may be tried for this order (ORDER_TRANSPORT_ATTEMPTS_EXCEEDED); the buyer collects or cancels
+  ///
+  /// In en, this message translates to:
+  /// **'No more trucks can be tried for this order. Collect the crops yourself or cancel for a full refund.'**
+  String get errorTransportAttemptsExceeded;
+
+  /// The server refused an order because the trip it names is full (TRIP_CAPACITY_EXCEEDED); on mobile the local order was removed
+  ///
+  /// In en, this message translates to:
+  /// **'This truck has no room left for this order. Choose another truck.'**
+  String get errorTripCapacityExceeded;
+
+  /// The server refused a new listing, trip or order accept because the account is restricted for a while (REPUTATION_RESTRICTED); neutral wording, no blame; on mobile the local change was undone
+  ///
+  /// In en, this message translates to:
+  /// **'Your account can\'t do this for now, so this change was not saved. Your current orders continue.'**
+  String get errorReputationRestricted;
+
+  /// The server refused a buyer's order because the listing's farmer or the trip's trucker is restricted (REPUTATION_RESTRICTED on order create); on mobile the local order was removed
+  ///
+  /// In en, this message translates to:
+  /// **'This farmer or trucker can\'t take new orders right now, so the order was not placed. Please choose another.'**
+  String get errorCounterpartyRestricted;
+
+  /// The server refused a trip change because orders are booked on it (TRIP_HAS_BOOKINGS); on mobile the local trip went back to the server's
+  ///
+  /// In en, this message translates to:
+  /// **'This trip has booked orders, so this change can\'t be made.'**
+  String get errorTripHasBookings;
+
+  /// The server refused to remove or reduce a listing that has funded or accepted orders (CROP_HAS_ACTIVE_ORDERS); on mobile the local listing went back to the server's
+  ///
+  /// In en, this message translates to:
+  /// **'This listing has open orders. Handle them first.'**
+  String get errorCropHasActiveOrders;
+
+  /// The server refused a change because this app version is below its minimum (APP_UPDATE_REQUIRED); on mobile the local change was undone
+  ///
+  /// In en, this message translates to:
+  /// **'Please update the app to continue. This change was not saved.'**
+  String get errorAppUpdateRequired;
 }
 
 class _AppLocalizationsDelegate

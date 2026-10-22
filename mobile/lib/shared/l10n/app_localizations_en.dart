@@ -2951,4 +2951,40 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get errorOrderCancelNotAllowed =>
       'This order can\'t be cancelled now. It can be cancelled only when the crops were not collected in time and nothing was picked up.';
+
+  @override
+  String get errorDeadlinePassed =>
+      'Too late. The time for this step has passed.';
+
+  @override
+  String get errorTripNotEligible =>
+      'That truck is no longer available. Choose again.';
+
+  @override
+  String get errorTransportAttemptsExceeded =>
+      'No more trucks can be tried for this order. Collect the crops yourself or cancel for a full refund.';
+
+  @override
+  String get errorTripCapacityExceeded =>
+      'This truck has no room left for this order. Choose another truck.';
+
+  @override
+  String get errorReputationRestricted =>
+      'Your account can\'t do this for now, so this change was not saved. Your current orders continue.';
+
+  @override
+  String get errorCounterpartyRestricted =>
+      'This farmer or trucker can\'t take new orders right now, so the order was not placed. Please choose another.';
+
+  @override
+  String get errorTripHasBookings =>
+      'This trip has booked orders, so this change can\'t be made.';
+
+  @override
+  String get errorCropHasActiveOrders =>
+      'This listing has open orders. Handle them first.';
+
+  @override
+  String get errorAppUpdateRequired =>
+      'Please update the app to continue. This change was not saved.';
 }

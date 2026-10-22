@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:collection';
 
+import 'package:wereda_connect/core/network/api_exception.dart';
+
 /// Something background work cannot settle alone: a prompt the user must
 /// answer before a money action can go through, or a refusal the app must
 /// explain.
@@ -94,9 +96,9 @@ class KycRequired extends SecurityEvent {
 }
 
 /// The server refused a queued operation for good
-/// (specs/contracts/sync-protocol.md 1.10.0): the sync queue stopped
-/// retrying it (and undid the local change of an order), so the user must be
-/// told why.
+/// (specs/contracts/sync-protocol.md 1.10.0, 1.17.0): the sync queue stopped
+/// retrying it (and undid the local change of an order, a delivery, a crop
+/// listing or a trip), so the user must be told why.
 class SyncOperationRejected extends SecurityEvent {
   /// The sync entity type (`order`, ...).
   final String entityType;
@@ -172,9 +174,24 @@ class SecurityEvents {
       StreamController<void>.broadcast();
   final StreamController<String> _paymentResubmitted =
       StreamController<String>.broadcast();
+  final StreamController<void> _appUpdateRequired =
+      StreamController<void>.broadcast();
+  bool _appUpdateRequiredSeen = false;
 
   /// Events the UI should prompt for.
   Stream<SecurityEvent> get events => _events.stream;
+
+  /// True once the server refused a queued change with `APP_UPDATE_REQUIRED`
+  /// (sync-protocol.md 1.17.0): this build is below the server's minimum and
+  /// every further order command would be refused the same way. Set even
+  /// when nobody listens yet and never cleared by logout (the build is still
+  /// old). Kept in memory only: a relaunch starts false until the next such
+  /// refusal. The persistent banner that reads it is ESC-25's.
+  bool get appUpdateRequired => _appUpdateRequiredSeen;
+
+  /// Fires once per refusal that carried `APP_UPDATE_REQUIRED`, for a shell
+  /// that is already mounted when it arrives.
+  Stream<void> get onAppUpdateRequired => _appUpdateRequired.stream;
 
   /// Fires after the user re-authenticated; pending money ops should retry.
   Stream<void> get onStepUpCompleted => _stepUpCompleted.stream;
@@ -195,6 +212,11 @@ class SecurityEvents {
   void emit(SecurityEvent event) {
     if (event is StepUpRequired) _pendingStepUp = event;
     if (event is StepUpRequired && stepUpSuppressed) return;
+    if (event is SyncOperationRejected &&
+        isAppUpdateRequiredMessage(event.message)) {
+      _appUpdateRequiredSeen = true;
+      if (!_appUpdateRequired.isClosed) _appUpdateRequired.add(null);
+    }
     if (_events.isClosed) return;
     if (event is SyncOperationRejected && !_events.hasListener) {
       if (_undeliveredRejections.length >= maxUndeliveredRejections) {

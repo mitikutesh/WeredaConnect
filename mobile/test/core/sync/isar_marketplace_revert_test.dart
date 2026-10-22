@@ -4,16 +4,20 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:isar/isar.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/message.dart';
 import 'package:wereda_connect/core/database/schemas/order.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
+import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/isar_marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
+import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
 import 'package:wereda_connect/features/order/data/repositories/order_repository.dart';
+import 'package:wereda_connect/features/trip_listing/data/repositories/trip_listing_repository.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
 
@@ -56,7 +60,14 @@ void main() {
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('marketplace_revert_test_');
     isar = await Isar.open(
-      [OrderSchema, DeliverySchema, SyncOperationSchema, MessageSchema],
+      [
+        OrderSchema,
+        DeliverySchema,
+        SyncOperationSchema,
+        MessageSchema,
+        CropListingSchema,
+        TripSchema,
+      ],
       directory: tempDir.path,
       name: 'marketplace_revert_${DateTime.now().microsecondsSinceEpoch}',
     );
@@ -267,8 +278,10 @@ void main() {
       verifyNever(() => api.get<Map<String, dynamic>>('/orders/order-1'));
     });
 
-    test('other entity types are left alone', () async {
-      final op = await queue.enqueue(
+    test(
+        'other entity types, and a trip refused by a code that is not its '
+        'own, are left alone', () async {
+      final tripOp = await queue.enqueue(
         userId: 'trucker-1',
         entityType: 'trip',
         entityId: 'trip-1',
@@ -276,8 +289,17 @@ void main() {
         data: '{"version":1}',
         operationId: 'op-trip',
       );
+      final ratingOp = await queue.enqueue(
+        userId: 'buyer-1',
+        entityType: 'rating',
+        entityId: 'rating-1',
+        action: 'create',
+        data: '{"version":1}',
+        operationId: 'op-rating',
+      );
 
-      await sync.revertRejected(op, 'ORDER_VALIDATION: no');
+      await sync.revertRejected(tripOp, 'ORDER_VALIDATION: no');
+      await sync.revertRejected(ratingOp, 'APP_UPDATE_REQUIRED: 2.0.0');
 
       verifyZeroInteractions(api);
     });
@@ -668,6 +690,400 @@ void main() {
       await sync.revertRejected(op, 'MESSAGE_FORBIDDEN: no');
 
       expect(await loadMessage(), isNotNull);
+    });
+  });
+
+  // ESC-12 part B (sync-protocol.md 1.17.0): a crop listing or trip change
+  // refused by reputation, bookings, active orders or the minimum app
+  // version goes back to the server's row, with the order rules.
+  group('revertRejected for a refused crop listing (part B)', () {
+    late CropListingRepository crops;
+
+    setUp(() {
+      crops = CropListingRepository(isar: isar, syncQueue: queue);
+    });
+
+    /// A listing as `GET /crops/{id}` and `GET /crops` return it (flat).
+    Map<String, dynamic> serverCrop({int version = 3}) => {
+          'cropId': 'crop-1',
+          'farmerId': 'farmer-1',
+          'farmerName': 'Farmer',
+          'farmerPhone': '+251900100001',
+          'cropType': 'teff',
+          'woreda': 'Debre Birhan',
+          'quantityKg': 10,
+          'pricePerKg': 45,
+          'status': 'available',
+          'createdAt': '2026-10-01T08:00:00.000Z',
+          'updatedAt': '2026-10-01T08:00:00.000Z',
+          'version': version,
+        };
+
+    Future<CropListing?> loadCrop() =>
+        isar.cropListings.filter().listingIdEqualTo('crop-1').findFirst();
+
+    Future<void> putCrop({int version = 3}) => isar.writeTxn(() async {
+          await isar.cropListings.put(
+            CropListing()
+              ..listingId = 'crop-1'
+              ..farmerId = 'farmer-1'
+              ..cropType = 'teff'
+              ..quantity = 10
+              ..pricePerKg = 45
+              ..location = (LatLng()
+                ..latitude = 9.6
+                ..longitude = 39.5)
+              ..locationName = 'Debre Birhan'
+              ..description = ''
+              ..status = ListingStatus.active
+              ..createdAt = DateTime.utc(2026, 10)
+              ..updatedAt = DateTime.utc(2026, 10)
+              ..version = version,
+          );
+        });
+
+    /// The farmer removes the listing offline (local `expired` at version
+    /// 4, op with base version 3), then the server refuses it for good.
+    Future<SyncOperation> deleteThenReject() async {
+      await putCrop();
+      await crops.deleteListing(listingId: 'crop-1', farmerId: 'farmer-1');
+      final op = (await opsFor('crop-1')).single;
+      await queue.markAsRejected(op.operationId);
+      return op;
+    }
+
+    void answerCrop(Future<Map<String, dynamic>> Function() answer) {
+      when(() => api.get<Map<String, dynamic>>('/crops/crop-1'))
+          .thenAnswer((_) => answer());
+    }
+
+    void answerCropList(List<Map<String, dynamic>> list) {
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/crops',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer((_) async => {'crops': list});
+    }
+
+    for (final message in [
+      'CROP_HAS_ACTIVE_ORDERS: This listing has active orders.',
+      'APP_UPDATE_REQUIRED: minimum 2.0.0',
+    ]) {
+      test(
+          'a refused delete goes back to the server listing and version '
+          '(${message.split(':').first})', () async {
+        final op = await deleteThenReject();
+        expect((await loadCrop())!.status, ListingStatus.expired);
+        answerCrop(() async => {'crop': serverCrop()});
+
+        await sync.revertRejected(op, message);
+
+        final crop = (await loadCrop())!;
+        expect(crop.status, ListingStatus.active);
+        expect(crop.version, 3);
+        expect(await isar.cropListings.count(), 1);
+      });
+    }
+
+    for (final message in [
+      'REPUTATION_RESTRICTED: restricted',
+      'APP_UPDATE_REQUIRED: minimum 2.0.0',
+    ]) {
+      test(
+          'a refused create removes the local listing without a read '
+          '(${message.split(':').first})', () async {
+        await putCrop(version: 1);
+        final op = await queue.enqueue(
+          userId: 'farmer-1',
+          entityType: 'crop_listing',
+          entityId: 'crop-1',
+          action: 'create',
+          data: '{"listingId":"crop-1","version":1}',
+          operationId: 'op-create',
+        );
+        await queue.markAsRejected(op.operationId);
+
+        await sync.revertRejected(op, message);
+
+        expect(await loadCrop(), isNull);
+        verifyZeroInteractions(api);
+      });
+    }
+
+    test('404 (gone) and 403 (not the owner) remove the local listing',
+        () async {
+      for (final error in <Exception>[
+        const NotFoundException('Crop listing has been deleted.'),
+        const AuthException('Forbidden', 403, 'CROP_FORBIDDEN'),
+      ]) {
+        await isar.writeTxn(() => isar.clear());
+        final op = await deleteThenReject();
+        answerCrop(() async => throw error);
+
+        await sync.revertRejected(op, 'CROP_HAS_ACTIVE_ORDERS: x');
+
+        expect(await loadCrop(), isNull, reason: '$error');
+      }
+    });
+
+    test(
+        'a failed read lowers the version, and the next crop pull, not '
+        'throttled, overwrites the row', () async {
+      for (final error in <Exception>[
+        const NetworkException(),
+        const AuthException('Unauthorized'),
+        const ServerException('boom', 500),
+      ]) {
+        await isar.writeTxn(() => isar.clear());
+        sync = IsarMarketplaceSync(api: api, isar: isar);
+        answerCropList([]);
+        // A recent pull would normally throttle the next one for 30s.
+        await sync.pullCrops();
+
+        final op = await deleteThenReject();
+        answerCrop(() async => throw error);
+
+        await sync.revertRejected(op, 'CROP_HAS_ACTIVE_ORDERS: x');
+
+        final kept = (await loadCrop())!;
+        expect(kept.version, 3, reason: '$error');
+
+        answerCropList([serverCrop()]);
+        await sync.pullCrops();
+
+        expect(
+          (await loadCrop())!.status,
+          ListingStatus.active,
+          reason: '$error',
+        );
+      }
+    });
+
+    test('another op still on its way settles the row instead', () async {
+      final op = await deleteThenReject();
+      await queue.enqueue(
+        userId: 'farmer-1',
+        entityType: 'crop_listing',
+        entityId: 'crop-1',
+        action: 'update',
+        data: '{"version":4}',
+        operationId: 'op-later',
+      );
+
+      await sync.revertRejected(op, 'CROP_HAS_ACTIVE_ORDERS: x');
+
+      expect((await loadCrop())!.status, ListingStatus.expired);
+      verifyZeroInteractions(api);
+    });
+
+    test('any other refusal leaves the listing alone', () async {
+      final op = await deleteThenReject();
+
+      for (final message in [
+        'FRAUD_VELOCITY_EXCEEDED: slow down',
+        'CROP_VALIDATION: The farmer profile could not be read.',
+        'TRIP_HAS_BOOKINGS: x',
+        '',
+      ]) {
+        await sync.revertRejected(op, message);
+      }
+
+      expect((await loadCrop())!.status, ListingStatus.expired);
+      verifyZeroInteractions(api);
+    });
+  });
+
+  group('revertRejected for a refused trip (part B)', () {
+    late TripListingRepository trips;
+
+    setUp(() {
+      trips = TripListingRepository(isar: isar, syncQueue: queue);
+    });
+
+    /// A trip as `GET /trips/{id}` and `GET /trips` return it.
+    Map<String, dynamic> serverTrip({int version = 3}) => {
+          'tripId': 'trip-1',
+          'truckerId': 'trucker-1',
+          'truckerName': 'Trucker',
+          'truckerPhone': '+251900100002',
+          'fromWoreda': 'Bishoftu',
+          'toWoreda': 'Addis Ababa',
+          'departureDate': '2026-10-30T06:00:00.000Z',
+          'capacity': 40,
+          'pricePerQuintal': 120,
+          'status': 'open',
+          'matchedListings': <String>[],
+          'createdAt': '2026-10-01T08:00:00.000Z',
+          'updatedAt': '2026-10-01T08:00:00.000Z',
+          'version': version,
+        };
+
+    Future<Trip?> loadTrip() =>
+        isar.trips.filter().tripIdEqualTo('trip-1').findFirst();
+
+    Future<void> putTrip({int version = 3}) => isar.writeTxn(() async {
+          await isar.trips.put(
+            Trip()
+              ..tripId = 'trip-1'
+              ..truckerId = 'trucker-1'
+              ..truckerName = 'Trucker'
+              ..truckerPhone = '+251900100002'
+              ..fromWoreda = 'Bishoftu'
+              ..toWoreda = 'Addis Ababa'
+              ..departureDate = DateTime.utc(2026, 10, 30, 6)
+              ..capacity = 40
+              ..pricePerQuintal = 120
+              ..status = TripStatus.open
+              ..matchedListings = []
+              ..createdAt = DateTime.utc(2026, 10)
+              ..updatedAt = DateTime.utc(2026, 10)
+              ..version = version,
+          );
+        });
+
+    /// The trucker cancels offline (local `cancelled` at version 4, op with
+    /// base version 3), then the server refuses it for good.
+    Future<SyncOperation> cancelThenReject() async {
+      await putTrip();
+      await trips.cancelTrip(tripId: 'trip-1', truckerId: 'trucker-1');
+      final op = (await opsFor('trip-1')).single;
+      await queue.markAsRejected(op.operationId);
+      return op;
+    }
+
+    void answerTrip(Future<Map<String, dynamic>> Function() answer) {
+      when(() => api.get<Map<String, dynamic>>('/trips/trip-1'))
+          .thenAnswer((_) => answer());
+    }
+
+    void answerTripList(List<Map<String, dynamic>> list) {
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/trips',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer((_) async => {'trips': list});
+    }
+
+    for (final message in [
+      'TRIP_HAS_BOOKINGS: This trip has booked orders.',
+      'APP_UPDATE_REQUIRED: minimum 2.0.0',
+    ]) {
+      test(
+          'a refused cancel goes back to the server trip and version '
+          '(${message.split(':').first})', () async {
+        final op = await cancelThenReject();
+        expect((await loadTrip())!.status, TripStatus.cancelled);
+        answerTrip(() async => {'trip': serverTrip()});
+
+        await sync.revertRejected(op, message);
+
+        final trip = (await loadTrip())!;
+        expect(trip.status, TripStatus.open);
+        expect(trip.version, 3);
+        expect(await isar.trips.count(), 1);
+      });
+    }
+
+    for (final message in [
+      'REPUTATION_RESTRICTED: restricted',
+      'APP_UPDATE_REQUIRED: minimum 2.0.0',
+    ]) {
+      test(
+          'a refused create removes the local trip without a read '
+          '(${message.split(':').first})', () async {
+        await putTrip(version: 1);
+        final op = await queue.enqueue(
+          userId: 'trucker-1',
+          entityType: 'trip',
+          entityId: 'trip-1',
+          action: 'create',
+          data: '{"tripId":"trip-1","version":1}',
+          operationId: 'op-create',
+        );
+        await queue.markAsRejected(op.operationId);
+
+        await sync.revertRejected(op, message);
+
+        expect(await loadTrip(), isNull);
+        verifyZeroInteractions(api);
+      });
+    }
+
+    test('404 (cancelled or gone) and 403 (not the owner) remove the trip',
+        () async {
+      for (final error in <Exception>[
+        const NotFoundException('Trip listing has been cancelled.'),
+        const AuthException('Forbidden', 403, 'TRIP_FORBIDDEN'),
+      ]) {
+        await isar.writeTxn(() => isar.clear());
+        final op = await cancelThenReject();
+        answerTrip(() async => throw error);
+
+        await sync.revertRejected(op, 'TRIP_HAS_BOOKINGS: x');
+
+        expect(await loadTrip(), isNull, reason: '$error');
+      }
+    });
+
+    test(
+        'a failed read lowers the version, and the next trip pull, not '
+        'throttled, overwrites the row', () async {
+      for (final error in <Exception>[
+        const NetworkException(),
+        const ServerException('boom', 503),
+      ]) {
+        await isar.writeTxn(() => isar.clear());
+        sync = IsarMarketplaceSync(api: api, isar: isar);
+        answerTripList([]);
+        await sync.pullTrips();
+
+        final op = await cancelThenReject();
+        answerTrip(() async => throw error);
+
+        await sync.revertRejected(op, 'TRIP_HAS_BOOKINGS: x');
+
+        expect((await loadTrip())!.version, 3, reason: '$error');
+
+        answerTripList([serverTrip()]);
+        await sync.pullTrips();
+
+        expect((await loadTrip())!.status, TripStatus.open, reason: '$error');
+      }
+    });
+
+    test('another op still on its way settles the row instead', () async {
+      final op = await cancelThenReject();
+      await queue.enqueue(
+        userId: 'trucker-1',
+        entityType: 'trip',
+        entityId: 'trip-1',
+        action: 'update',
+        data: '{"version":4}',
+        operationId: 'op-later',
+      );
+
+      await sync.revertRejected(op, 'TRIP_HAS_BOOKINGS: x');
+
+      expect((await loadTrip())!.status, TripStatus.cancelled);
+      verifyZeroInteractions(api);
+    });
+
+    test('any other refusal leaves the trip alone', () async {
+      final op = await cancelThenReject();
+
+      for (final message in [
+        'TRIP_VALIDATION: bad',
+        'TRIP_CAPACITY_EXCEEDED: x',
+        'CROP_HAS_ACTIVE_ORDERS: x',
+        'FRAUD_ACCOUNT_HELD: held',
+      ]) {
+        await sync.revertRejected(op, message);
+      }
+
+      expect((await loadTrip())!.status, TripStatus.cancelled);
+      verifyZeroInteractions(api);
     });
   });
 }

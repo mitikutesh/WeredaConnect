@@ -2865,4 +2865,37 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get errorOrderCancelNotAllowed =>
       'ይህ ትዕዛዝ አሁን ሊሰረዝ አይችልም። መሰረዝ የሚቻለው ሰብሉ በጊዜው ካልተነሳና ምንም ካልተወሰደ ብቻ ነው።';
+
+  @override
+  String get errorDeadlinePassed => 'ጊዜው አልፏል። የዚህ እርምጃ ጊዜ አብቅቷል።';
+
+  @override
+  String get errorTripNotEligible => 'ያ የጭነት መኪና ከእንግዲህ አይገኝም። እንደገና ይምረጡ።';
+
+  @override
+  String get errorTransportAttemptsExceeded =>
+      'ለዚህ ትዕዛዝ ሌላ የጭነት መኪና መሞከር አይቻልም። ሰብሉን ራስዎ ይውሰዱ፣ ወይም ትዕዛዙን ሰርዘው የከፈሉትን ገንዘብ በሙሉ መመለስ ይችላሉ።';
+
+  @override
+  String get errorTripCapacityExceeded =>
+      'ይህ የጭነት መኪና ለዚህ ትዕዛዝ ቦታ የለውም። ሌላ የጭነት መኪና ይምረጡ።';
+
+  @override
+  String get errorReputationRestricted =>
+      'መለያዎ ለጊዜው ይህን ማድረግ አይችልም፣ ስለዚህ ይህ ለውጥ አልተቀመጠም። ያሉዎት ትዕዛዞች ይቀጥላሉ።';
+
+  @override
+  String get errorCounterpartyRestricted =>
+      'ይህ ገበሬ ወይም የጭነት መኪና ሹፌር አሁን አዲስ ትዕዛዝ መቀበል አይችልም፣ ስለዚህ ትዕዛዙ አልገባም። እባክዎ ሌላ ይምረጡ።';
+
+  @override
+  String get errorTripHasBookings => 'ይህ ጉዞ የተያዙ ትዕዛዞች ስላሉት ይህ ለውጥ ሊደረግ አይችልም።';
+
+  @override
+  String get errorCropHasActiveOrders =>
+      'ይህ ዝርዝር ክፍት ትዕዛዞች አሉት። መጀመሪያ እነሱን ያስተናግዱ።';
+
+  @override
+  String get errorAppUpdateRequired =>
+      'ለመቀጠል እባክዎ መተግበሪያውን ያዘምኑ። ይህ ለውጥ አልተቀመጠም።';
 }

@@ -282,4 +282,132 @@ void main() {
     await settle(tester);
     expect(find.byType(SnackBar), findsNothing);
   });
+
+  // ESC-12 part B (sync-protocol.md 1.17.0): every spec section 8 code says
+  // what happened and what to do, for the farmer, the trucker and the buyer.
+  group('part B codes (FUP-01)', () {
+    for (final (entityType, action, message, text) in <(
+      String,
+      String,
+      String,
+      String Function(AppLocalizations),
+    )>[
+      // Farmer.
+      (
+        'crop_listing',
+        'create',
+        'REPUTATION_RESTRICTED: restricted',
+        (l) => l.errorReputationRestricted,
+      ),
+      (
+        'crop_listing',
+        'delete',
+        'CROP_HAS_ACTIVE_ORDERS: open orders',
+        (l) => l.errorCropHasActiveOrders,
+      ),
+      (
+        'order',
+        'update',
+        'REPUTATION_RESTRICTED: restricted',
+        (l) => l.errorReputationRestricted,
+      ),
+      (
+        'order',
+        'update',
+        'ORDER_DEADLINE_PASSED: too late',
+        (l) => l.errorDeadlinePassed,
+      ),
+      // Trucker.
+      (
+        'trip',
+        'create',
+        'REPUTATION_RESTRICTED: restricted',
+        (l) => l.errorReputationRestricted,
+      ),
+      (
+        'trip',
+        'delete',
+        'TRIP_HAS_BOOKINGS: booked',
+        (l) => l.errorTripHasBookings,
+      ),
+      // Buyer.
+      (
+        'order',
+        'create',
+        'REPUTATION_RESTRICTED: owner restricted',
+        (l) => l.errorCounterpartyRestricted,
+      ),
+      (
+        'order',
+        'create',
+        'TRIP_CAPACITY_EXCEEDED: full',
+        (l) => l.errorTripCapacityExceeded,
+      ),
+      (
+        'order',
+        'create',
+        'ORDER_TRIP_NOT_ELIGIBLE: route',
+        (l) => l.errorTripNotEligible,
+      ),
+      (
+        'order',
+        'update',
+        'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED: 3 tried',
+        (l) => l.errorTransportAttemptsExceeded,
+      ),
+      // Anyone on an old build.
+      (
+        'crop_listing',
+        'create',
+        'APP_UPDATE_REQUIRED: minimum 2.0.0',
+        (l) => l.errorAppUpdateRequired,
+      ),
+      (
+        'order',
+        'create',
+        'APP_UPDATE_REQUIRED: minimum 2.0.0',
+        (l) => l.errorAppUpdateRequired,
+      ),
+    ]) {
+      testWidgets('$entityType $action ${message.split(':').first}',
+          (tester) async {
+        await tester.pumpWidget(host());
+
+        events.emit(
+          SyncOperationRejected(
+            entityType: entityType,
+            entityId: '$entityType-1',
+            action: action,
+            message: message,
+            userId: 'farmer-1',
+          ),
+        );
+        await settle(tester);
+
+        expect(find.text(text(en)), findsOneWidget);
+        expect(find.text(en.errorChangeNotSaved), findsNothing);
+        expect(find.text(en.errorOrderNotPlaced), findsNothing);
+      });
+    }
+
+    for (final code in ['am', 'om']) {
+      testWidgets('a refused trip change is localized ($code)', (tester) async {
+        await tester.pumpWidget(host(locale: Locale(code)));
+
+        events.emit(
+          const SyncOperationRejected(
+            entityType: 'trip',
+            entityId: 'trip-1',
+            action: 'delete',
+            message: 'TRIP_HAS_BOOKINGS: booked',
+          ),
+        );
+        await settle(tester);
+
+        final text = lookupAppLocalizations(Locale(code)).errorTripHasBookings;
+        expect(text, isNot(en.errorTripHasBookings));
+        expect(find.text(text), findsOneWidget);
+      });
+    }
+  });
 }

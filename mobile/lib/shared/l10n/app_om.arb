@@ -2567,5 +2567,14 @@
   "orderTransportFailedBuyerHint": "Midhaan yeroodhaan hin fudhatamne. Ajaja kana haqxanii maallaqa kaffaltan hunda deebifachuu dandeessu.",
   "orderTransportFailedPartyHint": "Midhaan yeroodhaan hin fudhatamne. Bitataan amma ajaja kana haquu danda'a.",
   "cancelOrderTransportFailedBody": "Kan kaffaltan hundi, baasii geejjibaa fi komishinii waltajjii dabalatee, isinii deebi'a.",
-  "errorOrderCancelNotAllowed": "Ajajni kun amma haqamuu hin danda'u. Kan haqamu midhaan yeroodhaan yoo hin fudhatamin fi wanti tokkollee yoo hin fudhatamin qofa."
+  "errorOrderCancelNotAllowed": "Ajajni kun amma haqamuu hin danda'u. Kan haqamu midhaan yeroodhaan yoo hin fudhatamin fi wanti tokkollee yoo hin fudhatamin qofa.",
+  "errorDeadlinePassed": "Yeroon darbeera. Yeroon tarkaanfii kanaa xumurameera.",
+  "errorTripNotEligible": "Konkolaataan fe'aa sun amma hin argamu. Irra deebi'aa filadhaa.",
+  "errorTransportAttemptsExceeded": "Ajaja kanaaf konkolaataan fe'aa biraa yaalamuu hin danda'u. Midhaan ofiin fudhadhaa, yookiin ajaja haqxanii maallaqa kaffaltan hunda deebifadhaa.",
+  "errorTripCapacityExceeded": "Konkolaataan fe'aa kun ajaja kanaaf iddoo hin qabu. Konkolaataa fe'aa biraa filadhaa.",
+  "errorReputationRestricted": "Herregni keessan yeroo ammaaf kana gochuu hin danda'u, kanaaf jijjiiramni kun hin olkaa'amne. Ajajni keessan kan amma jiran itti fufu.",
+  "errorCounterpartyRestricted": "Qonnaan bultaan yookiin konkolaataan fe'aa kun amma ajaja haaraa fudhachuu hin danda'u, kanaaf ajajni hin galmoofne. Maaloo kan biraa filadhaa.",
+  "errorTripHasBookings": "Imalli kun ajajoota qabame waan qabuuf, jijjiiramni kun hin danda'amu.",
+  "errorCropHasActiveOrders": "Tarreen kun ajajoota banaa qaba. Dura isaan xumuraa.",
+  "errorAppUpdateRequired": "Itti fufuuf maaloo appii haaromsaa. Jijjiiramni kun hin olkaa'amne."
 }

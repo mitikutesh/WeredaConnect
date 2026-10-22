@@ -84,10 +84,7 @@ void main() {
   for (final code in [
     'ORDER_VALIDATION',
     'ORDER_UNAUTHORIZED',
-    'ORDER_DEADLINE_PASSED',
     'ORDER_ACTION_NOT_ALLOWED',
-    'ORDER_TRIP_NOT_ELIGIBLE',
-    'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED',
   ]) {
     group(code, () {
       for (final action in actions.keys) {
@@ -120,6 +117,102 @@ void main() {
         AppErrorCode.orderCancelNotAllowed,
       );
     });
+  });
+
+  // ESC-12 part B (sync-protocol.md 1.17.0): the spec section 8 codes say
+  // what happened instead of the generic refusal (web throws them from /sync).
+  for (final (code, expected) in [
+    ('ORDER_DEADLINE_PASSED', AppErrorCode.deadlinePassed),
+    ('ORDER_TRIP_NOT_ELIGIBLE', AppErrorCode.tripNotEligible),
+    (
+      'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED',
+      AppErrorCode.transportAttemptsExceeded,
+    ),
+    ('TRIP_CAPACITY_EXCEEDED', AppErrorCode.tripCapacityExceeded),
+    ('REPUTATION_RESTRICTED', AppErrorCode.reputationRestricted),
+    ('APP_UPDATE_REQUIRED', AppErrorCode.appUpdateRequired),
+  ]) {
+    group(code, () {
+      for (final action in actions.keys) {
+        test('$action ends in ${expected.name}, never success', () async {
+          final states = await run(
+            action,
+            SyncRejectedException('$code: refused'),
+          );
+          expectError(states, expected);
+        });
+      }
+    });
+  }
+
+  group('a refused create (buyer, web)', () {
+    Future<List<OrderState>> create(Object error) async {
+      when(
+        () => repo.createOrder(
+          listingId: any(named: 'listingId'),
+          buyerId: any(named: 'buyerId'),
+          farmerId: any(named: 'farmerId'),
+          buyerName: any(named: 'buyerName'),
+          farmerName: any(named: 'farmerName'),
+          cropType: any(named: 'cropType'),
+          quantity: any(named: 'quantity'),
+          pricePerUnit: any(named: 'pricePerUnit'),
+          tripId: any(named: 'tripId'),
+          truckerId: any(named: 'truckerId'),
+          truckerName: any(named: 'truckerName'),
+          transportCost: any(named: 'transportCost'),
+          commissionRate: any(named: 'commissionRate'),
+        ),
+      ).thenAnswer((_) async => throw error);
+      final bloc = OrderBloc(repository: repo);
+      final states = <OrderState>[];
+      final sub = bloc.stream.listen(states.add);
+      bloc.add(
+        const CreateOrder(
+          listingId: 'crop-1',
+          buyerId: 'buyer-1',
+          farmerId: 'farmer-1',
+          buyerName: 'Buyer',
+          farmerName: 'Farmer',
+          cropType: 'teff',
+          quantity: 5,
+          pricePerUnit: 60,
+          tripId: 'trip-1',
+          truckerId: 'trucker-1',
+          truckerName: 'Trucker',
+          transportCost: 100,
+        ),
+      );
+      await waitForStates(states, 2);
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      await bloc.close();
+      return states;
+    }
+
+    // Spec A7: on a create the restricted party is the farmer or trucker.
+    test('REPUTATION_RESTRICTED names the owner, not the buyer', () async {
+      expectError(
+        await create(
+          const SyncRejectedException('REPUTATION_RESTRICTED: owner'),
+        ),
+        AppErrorCode.counterpartyRestricted,
+      );
+    });
+
+    for (final (code, expected) in [
+      ('TRIP_CAPACITY_EXCEEDED', AppErrorCode.tripCapacityExceeded),
+      ('ORDER_TRIP_NOT_ELIGIBLE', AppErrorCode.tripNotEligible),
+      ('APP_UPDATE_REQUIRED', AppErrorCode.appUpdateRequired),
+      ('ORDER_VALIDATION', AppErrorCode.orderRefused),
+    ]) {
+      test('$code ends in ${expected.name}, never OrderCreated', () async {
+        expectError(
+          await create(SyncRejectedException('$code: refused')),
+          expected,
+        );
+      });
+    }
   });
 
   group('other refusals', () {

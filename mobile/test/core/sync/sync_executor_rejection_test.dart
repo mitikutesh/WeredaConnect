@@ -684,4 +684,291 @@ void main() {
     expect(again.total, 0);
     expect(syncPosts, 1);
   });
+
+  // ESC-12 part B (sync-protocol.md 1.17.0): the five commitment codes are
+  // permanent; a refused crop listing or trip is reverted and leaves the
+  // "Sync failed" count.
+  group('part B: a refused crop listing is permanent and reverted', () {
+    for (final code in [
+      'REPUTATION_RESTRICTED',
+      'CROP_HAS_ACTIVE_ORDERS',
+      'APP_UPDATE_REQUIRED',
+    ]) {
+      for (final (action, data) in [
+        ('create', '{"listingId":"crop-1","version":1}'),
+        ('delete', '{"listingId":"crop-1","status":"expired","version":2}'),
+      ]) {
+        test('$code on $action', () async {
+          final message = '$code: refused';
+          await enqueue(
+            'op-1',
+            entityType: 'crop_listing',
+            entityId: 'crop-1',
+            action: action,
+            data: data,
+          );
+          replyWith([error('op-1', message)]);
+
+          final result = await executor.executeBatch();
+          await _waitFor(() => rejections().isNotEmpty);
+
+          expect(result.failed, 1);
+          expect(await isRejected('op-1'), isTrue);
+          expect(await syncQueue.retryFailed(), 0);
+          expect(reverts, hasLength(1));
+          expect(reverts.single.$1.operationId, 'op-1');
+          expect(reverts.single.$2, message);
+          expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+          expect(await syncQueue.getFailedCount(), 0);
+          final event = rejections().single;
+          expect(event.entityType, 'crop_listing');
+          expect(event.entityId, 'crop-1');
+          expect(event.action, action);
+          expect(event.message, message);
+        });
+      }
+    }
+  });
+
+  group('part B: a refused trip is permanent and reverted', () {
+    for (final code in [
+      'REPUTATION_RESTRICTED',
+      'TRIP_HAS_BOOKINGS',
+      'APP_UPDATE_REQUIRED',
+    ]) {
+      for (final (action, data) in [
+        ('create', '{"tripId":"trip-1","version":1}'),
+        ('update', '{"status":"cancelled","version":2}'),
+      ]) {
+        test('$code on $action', () async {
+          final message = '$code: refused';
+          await enqueue(
+            'op-1',
+            entityType: 'trip',
+            entityId: 'trip-1',
+            action: action,
+            data: data,
+          );
+          replyWith([error('op-1', message)]);
+
+          final result = await executor.executeBatch();
+          await _waitFor(() => rejections().isNotEmpty);
+
+          expect(result.failed, 1);
+          expect(await isRejected('op-1'), isTrue);
+          expect(await syncQueue.retryFailed(), 0);
+          expect(reverts, hasLength(1));
+          expect(reverts.single.$1.entityType, 'trip');
+          expect(reverts.single.$2, message);
+          expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+          expect(await syncQueue.getFailedCount(), 0);
+          final event = rejections().single;
+          expect(event.entityType, 'trip');
+          expect(event.entityId, 'trip-1');
+          expect(event.action, action);
+          expect(event.message, message);
+        });
+      }
+    }
+  });
+
+  group('part B: a refused order is permanent and reverted', () {
+    for (final (code, action) in [
+      ('REPUTATION_RESTRICTED', 'create'), // the owner is restricted
+      ('REPUTATION_RESTRICTED', 'update'), // the farmer's accept
+      ('TRIP_CAPACITY_EXCEEDED', 'create'),
+      ('TRIP_CAPACITY_EXCEEDED', 'update'), // a replacement truck
+      ('APP_UPDATE_REQUIRED', 'create'),
+      ('APP_UPDATE_REQUIRED', 'update'),
+    ]) {
+      test('$code on $action', () async {
+        final message = '$code: refused';
+        await enqueue('op-1', action: action);
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await _waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        expect(reverts.single.$1.entityType, 'order');
+        expect(reverts.single.$2, message);
+        expect(await syncQueue.getFailedCount(), 0);
+        expect(rejections().single.message, message);
+        expect(kycCalls, isEmpty);
+      });
+    }
+  });
+
+  test(
+      'part B: a refused crop create also rejects and flags the ops queued '
+      'behind it, reverted once', () async {
+    await enqueue(
+      'op-create',
+      entityType: 'crop_listing',
+      entityId: 'crop-1',
+      action: 'create',
+    );
+    await enqueue(
+      'op-delete',
+      entityType: 'crop_listing',
+      entityId: 'crop-1',
+      action: 'delete',
+    );
+    replyWith([
+      error('op-create', 'REPUTATION_RESTRICTED: restricted'),
+      error('op-delete', 'Crop listing not found.'),
+    ]);
+
+    await executor.executeBatch();
+    await _waitFor(() => rejections().isNotEmpty);
+
+    for (final id in ['op-create', 'op-delete']) {
+      expect(await isRejected(id), isTrue, reason: id);
+      expect((await syncQueue.getOperation(id))!.reverted, isTrue, reason: id);
+    }
+    expect(reverts, hasLength(1));
+    expect(reverts.single.$1.action, 'create');
+    expect(await syncQueue.getFailedCount(), 0);
+  });
+
+  group('part B: CROP_* and TRIP_* codes the client cannot trust keep retrying',
+      () {
+    for (final (entityType, entityId, message) in [
+      ('crop_listing', 'crop-1', 'CROP_UNAUTHORIZED: Only farmers can list.'),
+      (
+        'crop_listing',
+        'crop-1',
+        'CROP_VALIDATION: The farmer profile could not be read. Please try '
+            'again later.',
+      ),
+      ('trip', 'trip-1', 'TRIP_UNAUTHORIZED: Only truckers can add trips.'),
+      ('trip', 'trip-1', 'TRIP_VALIDATION: bad'),
+    ]) {
+      test(message.split(':').first, () async {
+        await enqueue(
+          'op-1',
+          entityType: entityType,
+          entityId: entityId,
+          action: 'create',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+
+        final op = await syncQueue.getOperation('op-1');
+        expect(op!.status, SyncStatus.pending);
+        expect(op.retryCount, 1);
+        expect(op.reverted, isFalse);
+        expect(reverts, isEmpty);
+        expect(rejections(), isEmpty);
+      });
+    }
+  });
+
+  group(
+      'part B: a code meant for another entity is permanent but not reverted '
+      'and keeps counting', () {
+    for (final (entityType, entityId, message) in [
+      ('crop_listing', 'crop-1', 'TRIP_HAS_BOOKINGS: x'),
+      ('trip', 'trip-1', 'CROP_HAS_ACTIVE_ORDERS: x'),
+      ('trip', 'trip-1', 'TRIP_CAPACITY_EXCEEDED: x'),
+      ('crop_listing', 'crop-1', 'FRAUD_VELOCITY_EXCEEDED: slow down'),
+    ]) {
+      test('$entityType $message', () async {
+        await enqueue(
+          'op-1',
+          entityType: entityType,
+          entityId: entityId,
+          data: '{"version":2}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await _waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(reverts, isEmpty);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isFalse);
+        expect(await syncQueue.getFailedCount(), 1);
+        expect(rejections().single.message, message);
+      });
+    }
+  });
+
+  group('part B: APP_UPDATE_REQUIRED on other entities', () {
+    for (final (entityType, entityId, action) in [
+      ('delivery', 'del-1', 'update'),
+      ('message', 'msg-1', 'create'),
+      ('rating', 'rating-1', 'create'),
+    ]) {
+      test(
+          '$entityType: permanent, handed to the revert handler, still '
+          'counted', () async {
+        const message = 'APP_UPDATE_REQUIRED: minimum 2.0.0';
+        await enqueue(
+          'op-1',
+          entityType: entityType,
+          entityId: entityId,
+          action: action,
+          data: '{"version":1}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await _waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(reverts.single.$1.entityType, entityType);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isFalse);
+        expect(await syncQueue.getFailedCount(), 1);
+      });
+    }
+  });
+
+  test('part B: APP_UPDATE_REQUIRED raises the app update flag', () async {
+    final updates = <void>[];
+    final flagSub = events.onAppUpdateRequired.listen(updates.add);
+    addTearDown(flagSub.cancel);
+    expect(events.appUpdateRequired, isFalse);
+    await enqueue(
+      'op-1',
+      entityType: 'trip',
+      entityId: 'trip-1',
+      action: 'create',
+    );
+    replyWith([error('op-1', 'APP_UPDATE_REQUIRED: minimum 2.0.0')]);
+
+    await executor.executeBatch();
+    await _waitFor(() => updates.isNotEmpty);
+
+    expect(events.appUpdateRequired, isTrue);
+    expect(updates, hasLength(1));
+  });
+
+  test(
+      'part B: a revert handler that throws leaves the crop op counted as '
+      'failed', () async {
+    executor.dispose();
+    executor = buildExecutor(
+      securityEvents: events,
+      onPermanentRejection: (op, message) async => throw StateError('boom'),
+    );
+    await enqueue(
+      'op-1',
+      entityType: 'crop_listing',
+      entityId: 'crop-1',
+      action: 'delete',
+      data: '{"version":2}',
+    );
+    replyWith([error('op-1', 'CROP_HAS_ACTIVE_ORDERS: open orders')]);
+
+    await executor.executeBatch();
+    await _waitFor(() => rejections().isNotEmpty);
+
+    expect(await isRejected('op-1'), isTrue);
+    expect((await syncQueue.getOperation('op-1'))!.reverted, isFalse);
+    expect(await syncQueue.getFailedCount(), 1);
+    expect(rejections(), hasLength(1));
+  });
 }

@@ -8,16 +8,13 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 /// ESC-12: permanent order rejections, web conflicts and local guard refusals
 /// each get a code the screens can explain in all three languages.
 void main() {
-  // Emitted today, plus the planned ORDER_* codes (spec section 8), which the
-  // prefix rule already covers with the generic text. ORDER_CANCEL_NOT_ALLOWED
-  // has its own text since ESC-06 (below).
+  // Emitted today, plus ORDER_ACTION_NOT_ALLOWED (spec section 8), whose
+  // meaning is the generic text. ORDER_CANCEL_NOT_ALLOWED (ESC-06) and the
+  // part B codes have their own texts (below).
   const orderCodes = [
     'ORDER_VALIDATION',
     'ORDER_UNAUTHORIZED',
-    'ORDER_DEADLINE_PASSED',
     'ORDER_ACTION_NOT_ALLOWED',
-    'ORDER_TRIP_NOT_ELIGIBLE',
-    'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED',
   ];
 
   group('mapErrorToCode', () {
@@ -347,6 +344,255 @@ void main() {
         expect(text, l10n.contactClosedNote, reason: locale);
         expect(text, isNot(l10n.contactAfterEscrowNote), reason: locale);
         expect(text, isNot(l10n.errorChangeNotSaved), reason: locale);
+      }
+    });
+  });
+
+  // ESC-12 part B (sync-protocol.md 1.17.0): every spec section 8 code has a
+  // text that says what happened and what to do.
+  group('part B codes (FUP-01)', () {
+    test('web: each refusal maps to its own code', () {
+      for (final (message, code) in [
+        (
+          'REPUTATION_RESTRICTED: restricted',
+          AppErrorCode.reputationRestricted
+        ),
+        ('TRIP_HAS_BOOKINGS: booked', AppErrorCode.tripHasBookings),
+        ('TRIP_CAPACITY_EXCEEDED: full', AppErrorCode.tripCapacityExceeded),
+        ('CROP_HAS_ACTIVE_ORDERS: open', AppErrorCode.cropHasActiveOrders),
+        ('APP_UPDATE_REQUIRED: 1.0.0', AppErrorCode.appUpdateRequired),
+        ('ORDER_DEADLINE_PASSED: late', AppErrorCode.deadlinePassed),
+        ('ORDER_TRIP_NOT_ELIGIBLE: route', AppErrorCode.tripNotEligible),
+        (
+          'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED: 3',
+          AppErrorCode.transportAttemptsExceeded,
+        ),
+        ('ORDER_ACTION_NOT_ALLOWED: no', AppErrorCode.orderRefused),
+      ]) {
+        expect(
+          mapErrorToCode(SyncRejectedException(message)),
+          code,
+          reason: message,
+        );
+      }
+    });
+
+    test('web: a conflict stays a conflict', () {
+      expect(
+        mapErrorToCode(const SyncConflictException('TRIP_HAS_BOOKINGS: x')),
+        AppErrorCode.conflict,
+      );
+    });
+
+    test('mobile: the snackbar code depends on the entity and action', () {
+      for (final (entityType, action, message, code) in [
+        // The actor is restricted: a new listing, a new trip, an accept.
+        (
+          'crop_listing',
+          'create',
+          'REPUTATION_RESTRICTED: x',
+          AppErrorCode.reputationRestricted,
+        ),
+        (
+          'trip',
+          'create',
+          'REPUTATION_RESTRICTED: x',
+          AppErrorCode.reputationRestricted,
+        ),
+        (
+          'order',
+          'update',
+          'REPUTATION_RESTRICTED: x',
+          AppErrorCode.reputationRestricted,
+        ),
+        // On a buyer's create the owner is restricted (spec A7).
+        (
+          'order',
+          'create',
+          'REPUTATION_RESTRICTED: x',
+          AppErrorCode.counterpartyRestricted,
+        ),
+        (
+          'trip',
+          'update',
+          'TRIP_HAS_BOOKINGS: x',
+          AppErrorCode.tripHasBookings
+        ),
+        (
+          'trip',
+          'delete',
+          'TRIP_HAS_BOOKINGS: x',
+          AppErrorCode.tripHasBookings
+        ),
+        (
+          'order',
+          'create',
+          'TRIP_CAPACITY_EXCEEDED: x',
+          AppErrorCode.tripCapacityExceeded,
+        ),
+        (
+          'order',
+          'update',
+          'TRIP_CAPACITY_EXCEEDED: x',
+          AppErrorCode.tripCapacityExceeded,
+        ),
+        (
+          'crop_listing',
+          'delete',
+          'CROP_HAS_ACTIVE_ORDERS: x',
+          AppErrorCode.cropHasActiveOrders,
+        ),
+        (
+          'order',
+          'update',
+          'ORDER_DEADLINE_PASSED: x',
+          AppErrorCode.deadlinePassed,
+        ),
+        (
+          'order',
+          'create',
+          'ORDER_TRIP_NOT_ELIGIBLE: x',
+          AppErrorCode.tripNotEligible,
+        ),
+        (
+          'order',
+          'update',
+          'ORDER_TRIP_NOT_ELIGIBLE: x',
+          AppErrorCode.tripNotEligible,
+        ),
+        (
+          'order',
+          'update',
+          'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED: x',
+          AppErrorCode.transportAttemptsExceeded,
+        ),
+        (
+          'order',
+          'update',
+          'ORDER_ACTION_NOT_ALLOWED: x',
+          AppErrorCode.orderRefused
+        ),
+        // A deadline on a create says the order was removed.
+        (
+          'order',
+          'create',
+          'ORDER_DEADLINE_PASSED: x',
+          AppErrorCode.orderNotPlaced
+        ),
+      ]) {
+        expect(
+          syncRejectionErrorCode(
+            entityType: entityType,
+            action: action,
+            message: message,
+          ),
+          code,
+          reason: '$entityType $action $message',
+        );
+      }
+    });
+
+    test('mobile: APP_UPDATE_REQUIRED reads the same on every entity', () {
+      for (final (entityType, action) in [
+        ('order', 'create'),
+        ('order', 'update'),
+        ('crop_listing', 'create'),
+        ('crop_listing', 'delete'),
+        ('trip', 'update'),
+        ('delivery', 'update'),
+        ('message', 'create'),
+        ('rating', 'create'),
+      ]) {
+        expect(
+          syncRejectionErrorCode(
+            entityType: entityType,
+            action: action,
+            message: 'APP_UPDATE_REQUIRED: minimum 2.0.0',
+          ),
+          AppErrorCode.appUpdateRequired,
+          reason: '$entityType $action',
+        );
+      }
+    });
+
+    test('only the named codes revert a crop listing or a trip', () {
+      for (final message in [
+        'REPUTATION_RESTRICTED: x',
+        'CROP_HAS_ACTIVE_ORDERS: x',
+        'APP_UPDATE_REQUIRED: x',
+      ]) {
+        expect(isRevertableListingRejectionMessage(message), isTrue);
+      }
+      for (final message in [
+        'REPUTATION_RESTRICTED: x',
+        'TRIP_HAS_BOOKINGS: x',
+        'APP_UPDATE_REQUIRED: x',
+      ]) {
+        expect(isRevertableTripRejectionMessage(message), isTrue);
+      }
+      // CROP_VALIDATION and TRIP_VALIDATION also wrap a failed profile read
+      // on the server, so a prefix alone is not deterministic.
+      for (final message in [
+        null,
+        '',
+        'CROP_VALIDATION: The farmer profile could not be read.',
+        'CROP_UNAUTHORIZED: not yours',
+        'TRIP_VALIDATION: bad',
+        'TRIP_UNAUTHORIZED: not yours',
+        'FRAUD_DUPLICATE_LISTING: dup',
+        'TRIP_CAPACITY_EXCEEDED: x',
+      ]) {
+        expect(
+          isRevertableListingRejectionMessage(message),
+          isFalse,
+          reason: '$message',
+        );
+        expect(
+          isRevertableTripRejectionMessage(message),
+          isFalse,
+          reason: '$message',
+        );
+      }
+      expect(
+        isRevertableListingRejectionMessage('TRIP_HAS_BOOKINGS: x'),
+        isFalse,
+      );
+      expect(
+        isRevertableTripRejectionMessage('CROP_HAS_ACTIVE_ORDERS: x'),
+        isFalse,
+      );
+    });
+
+    test('each code reads its own text in en, am and om', () async {
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        final expected = {
+          AppErrorCode.deadlinePassed: l10n.errorDeadlinePassed,
+          AppErrorCode.tripNotEligible: l10n.errorTripNotEligible,
+          AppErrorCode.transportAttemptsExceeded:
+              l10n.errorTransportAttemptsExceeded,
+          AppErrorCode.tripCapacityExceeded: l10n.errorTripCapacityExceeded,
+          AppErrorCode.reputationRestricted: l10n.errorReputationRestricted,
+          AppErrorCode.counterpartyRestricted: l10n.errorCounterpartyRestricted,
+          AppErrorCode.tripHasBookings: l10n.errorTripHasBookings,
+          AppErrorCode.cropHasActiveOrders: l10n.errorCropHasActiveOrders,
+          AppErrorCode.appUpdateRequired: l10n.errorAppUpdateRequired,
+        };
+        for (final MapEntry(key: code, value: text) in expected.entries) {
+          final localized = localizeErrorCode(code, l10n);
+          expect(localized, text, reason: '$locale $code');
+          expect(localized, isNotEmpty, reason: '$locale $code');
+          for (final generic in [
+            l10n.errorOccurred,
+            l10n.errorOrderRefused,
+            l10n.errorOrderNotPlaced,
+            l10n.errorChangeNotSaved,
+          ]) {
+            expect(localized, isNot(generic), reason: '$locale $code');
+          }
+        }
+        // No two codes share a sentence.
+        expect(expected.values.toSet(), hasLength(expected.length));
       }
     });
   });
