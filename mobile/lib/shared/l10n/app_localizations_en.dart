@@ -2929,7 +2929,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get paymentMethodUnavailable =>
-      'Bank transfer isn\'t available yet, so this payment wasn\'t recorded. Pay this order with Telebirr instead.';
+      'This payment method isn\'t available yet. Pay with Telebirr.';
 
   @override
   String get continuePayment => 'Continue payment';

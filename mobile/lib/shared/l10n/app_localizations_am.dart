@@ -2842,8 +2842,7 @@ class AppLocalizationsAm extends AppLocalizations {
       'ቴሌብር በአንድ ክፍያ ከ100 እስከ 500,000 ብር ይቀበላል። የዚህ ትዕዛዝ ጠቅላላ ዋጋ ከዚህ ውጭ ስለሆነ በቴሌብር ሊከፈል አይችልም።';
 
   @override
-  String get paymentMethodUnavailable =>
-      'የባንክ ዝውውር ገና አይገኝም፣ ስለዚህ ይህ ክፍያ አልተመዘገበም። ይህን ትዕዛዝ በቴሌብር ይክፈሉ።';
+  String get paymentMethodUnavailable => 'ይህ የክፍያ ዘዴ ገና አይገኝም። በቴሌብር ይክፈሉ።';
 
   @override
   String get continuePayment => 'ክፍያውን ይቀጥሉ';

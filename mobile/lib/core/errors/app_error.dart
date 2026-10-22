@@ -42,9 +42,9 @@ enum AppErrorCode {
   /// 500,000 ETB and the order total is outside that (ESC-44).
   paymentTotalOutOfRange,
 
-  /// The live gateway refused the payment method: bank transfer is not
-  /// available yet, only Telebirr is (`ORDER_PAYMENT_METHOD_UNAVAILABLE`,
-  /// FUP-20); nothing was changed.
+  /// The live gateway refused the chosen payment method (a bank transfer, or
+  /// anything but Telebirr): `ORDER_PAYMENT_METHOD_UNAVAILABLE`, FUP-20;
+  /// nothing was changed.
   paymentMethodUnavailable,
 
   /// The server refused a queued order create, so the local order was

@@ -2561,7 +2561,7 @@
   "orderCheckoutNotSent": "Kaffaltiin keessan hin ergamne. Yoo eenyummaa keessan akka mirkaneessitan gaafatamtan, erga mirkaneessitanii booda irra deebi'ee ni ergama; yoo hin taane, irra deebitanii kaffaluuf ajaja banaa.",
   "orderCheckoutCheckingPayment": "Kaffaltii keessan ilaalaa jirra...",
   "paymentTotalOutOfRange": "Telebirr kaffaltii tokkoon qarshii 100 hanga 500,000 fudhata. Waliigalli ajaja kanaa kanaan ala waan ta'eef, Telebirr'n kaffalamuu hin danda'u.",
-  "paymentMethodUnavailable": "Dabarsi baankii ammaaf hin jiru, kanaaf kaffaltiin kun hin galmoofne. Ajaja kana Telebirr'n kaffalaa.",
+  "paymentMethodUnavailable": "Malli kaffaltii kun ammaaf hin jiru. Telebirr'n kaffalaa.",
   "continuePayment": "Kaffaltii itti fufaa",
   "payAgain": "Irra deebi'aa kaffalaa",
   "orderPickupDeadline": "Guyyaa dhumaa fudhannaa",

@@ -2952,7 +2952,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get paymentMethodUnavailable =>
-      'Dabarsi baankii ammaaf hin jiru, kanaaf kaffaltiin kun hin galmoofne. Ajaja kana Telebirr\'n kaffalaa.';
+      'Malli kaffaltii kun ammaaf hin jiru. Telebirr\'n kaffalaa.';
 
   @override
   String get continuePayment => 'Kaffaltii itti fufaa';
