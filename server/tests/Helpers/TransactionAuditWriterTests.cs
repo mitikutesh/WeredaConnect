@@ -78,4 +78,61 @@ public class TransactionAuditWriterTests
 
         await act.Should().NotThrowAsync();
     }
+
+    // ===== ESC-47: one row per event at a deterministic key =====
+
+    [Fact]
+    public async Task EmitOnceAsync_WritesConditionallyAtTheGivenTimestamp_WithADeterministicId()
+    {
+        var repo = Substitute.For<ITransactionAuditRepository>();
+        var captured = new List<Dictionary<string, object>>();
+        repo.AppendIfAbsentAsync(Arg.Do<Dictionary<string, object>>(captured.Add)).Returns(true);
+
+        for (var i = 0; i < 2; i++)
+        {
+            await TransactionAuditWriter.EmitOnceAsync(
+                repo, _context, "order-1", "order", "order-1", "payment_verified", "payment_submitted", "funded",
+                AuditContext.ForSystem("telebirr"), "2026-09-30T09:00:00.0000000Z", metadata: "m");
+        }
+
+        captured.Should().HaveCount(2);
+        captured[0].Should().BeEquivalentTo(captured[1], "two writers of the same event build the same row");
+        var row = captured[0];
+        row["transactionId"].Should().Be("order-1");
+        row["timestamp"].Should().Be("2026-09-30T09:00:00.0000000Z");
+        row["auditId"].Should().Be("txaudit-payment_verified-20260930T0900000000000Z");
+        row["action"].Should().Be("payment_verified");
+        row["fromState"].Should().Be("payment_submitted");
+        row["toState"].Should().Be("funded");
+        row["actor"].Should().Be("telebirr");
+        row["metadata"].Should().Be("m");
+        await repo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task EmitOnceAsync_WithoutRepoOrTimestamp_IsNoOp()
+    {
+        var repo = Substitute.For<ITransactionAuditRepository>();
+
+        await TransactionAuditWriter.EmitOnceAsync(
+            null, _context, "order-1", "order", "order-1", "x", null, null, Ctx(), "2026-09-30T09:00:00.0000000Z");
+        await TransactionAuditWriter.EmitOnceAsync(
+            repo, _context, "order-1", "order", "order-1", "x", null, null, Ctx(), "");
+
+        await repo.DidNotReceive().AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task EmitOnceAsync_RepoThrows_DoesNotPropagate()
+    {
+        var repo = Substitute.For<ITransactionAuditRepository>();
+        repo.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>())
+            .Returns<Task<bool>>(_ => throw new InvalidOperationException("dynamo down"));
+
+        var act = async () => await TransactionAuditWriter.EmitOnceAsync(
+            repo, _context, "order-1", "order", "order-1", "x", null, null, Ctx(), "2026-09-30T09:00:00.0000000Z");
+
+        await act.Should().NotThrowAsync();
+        ((TestLambdaLogger)_context.Logger).Buffer.ToString().Should().Contain("transaction-audit write failed (non-fatal)");
+    }
 }

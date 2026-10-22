@@ -49,6 +49,8 @@ public class TelebirrWebhookFunctionTests
         // First webhook delivery (not a replay).
         _idemRepo.StoreAsync(Arg.Is<string>(k => k.StartsWith("webhook:")), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(true);
+        // An order with no transaction-audit rows yet (a test that needs some stubs it again).
+        _txAuditRepo.GetByTransactionAsync(Arg.Any<string>()).Returns(_ => new List<Dictionary<string, object>>());
     }
 
     private TelebirrWebhookFunction NewFunction(string? merchantCode = null,
@@ -364,6 +366,9 @@ public class TelebirrWebhookFunctionTests
         public void Advance(TimeSpan by) => _now += by;
     }
 
+    /// <summary>The funding time of a paid order in these tests: also the key of its payment_verified row.</summary>
+    private const string VerifiedAt = "2026-09-30T09:00:00.0000000Z";
+
     private static Dictionary<string, object> StoredOrder(string status, string? paymentOrderId = null)
     {
         var order = new Dictionary<string, object>
@@ -375,7 +380,7 @@ public class TelebirrWebhookFunctionTests
         if (paymentOrderId != null)
         {
             order["telebirrPaymentOrderId"] = paymentOrderId;
-            order["paymentVerifiedAt"] = "2026-09-30T09:00:00.0000000Z";
+            order["paymentVerifiedAt"] = VerifiedAt;
         }
 
         return order;
@@ -413,8 +418,12 @@ public class TelebirrWebhookFunctionTests
         await _cropRepo.Received(1).TryDecrementStockAsync("listing-1", OrderId, 5.0);
         await _escrowRepo.Received(1).CreateAsync(Arg.Is<Dictionary<string, object>>(r =>
             (string)r["escrowId"] == OrderEscrowId && (string)r["telebirrRef"] == OrderPaymentId));
-        await _txAuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(
-            e => (string)e["action"] == "payment_verified"));
+        // ESC-47: one conditional write keyed by the funding time, so a redelivery can never add a second row.
+        await _txAuditRepo.Received(1).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(e =>
+            (string)e["action"] == "payment_verified" && (string)e["transactionId"] == OrderId
+            && (string)e["timestamp"] == VerifiedAt && (string)e["actor"] == "telebirr"));
+        await _txAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+        await _txAuditRepo.DidNotReceive().GetByTransactionAsync(Arg.Any<string>());
         await _checkoutRepo.Received(1).CloseSlotForMerchOrderAsync(OrderId, OrderMerchOrderId, OrderCheckoutOutcome.Paid);
         await _idemRepo.Received(1).UpdateAsync(OrderMerchOrderId, "completed", Arg.Any<string?>());
         await _escrowRepo.DidNotReceive().UpdateStatusAsync(
@@ -681,6 +690,122 @@ public class TelebirrWebhookFunctionTests
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
         await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "applied_again");
         Logs.Should().NotContain("ORDER_PAYMENT_UNMATCHED").And.NotContain("ORDER_PAYMENT_DUPLICATE");
+        // ESC-47: the funding happened, so its missing audit row is still written (once, at its time).
+        await _txAuditRepo.Received(1).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(e =>
+            (string)e["action"] == "payment_verified" && (string)e["timestamp"] == VerifiedAt));
+    }
+
+    // ===== ESC-47 (2): the payment_verified row survives a failed write after funding =====
+
+    [Fact]
+    public async Task Order_payment_verified_row_lost_at_funding_is_written_once_by_the_redeliveries()
+    {
+        var fn = NewOrderFunction();
+        // A transaction-audit table that keeps the (transactionId, timestamp) key unique, and whose
+        // first write fails.
+        var rows = new List<Dictionary<string, object>>();
+        var writes = 0;
+        _txAuditRepo.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>()).Returns(call =>
+        {
+            if (++writes == 1)
+            {
+                return Task.FromException<bool>(new AmazonDynamoDBException("throttled"));
+            }
+
+            var entry = call.Arg<Dictionary<string, object>>();
+            if (rows.Any(r => Equals(r["transactionId"], entry["transactionId"]) && Equals(r["timestamp"], entry["timestamp"])))
+            {
+                return Task.FromResult(false);
+            }
+
+            rows.Add(entry);
+            return Task.FromResult(true);
+        });
+        _txAuditRepo.GetByTransactionAsync(OrderId)
+            .Returns(_ => rows.Where(r => Equals(r["transactionId"], OrderId)).ToList());
+        var order = StoredOrder("payment_submitted");
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(_ => order);
+        _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
+            .Returns(_ => StoredOrder("funded", OrderPaymentId));
+
+        // 1st delivery: funds the order; the audit write fails (swallowed, logged).
+        (await fn.FunctionHandler(Req(OrderBody()), _ctx)).StatusCode.Should().Be(200);
+        rows.Should().BeEmpty();
+        Logs.Should().Contain("transaction-audit write failed (non-fatal)");
+
+        // 2nd delivery: the same payment again; the repair writes the missing row.
+        order = StoredOrder("funded", OrderPaymentId);
+        InboxAlreadyHolds("applied");
+        (await fn.FunctionHandler(Req(OrderBody()), _ctx)).StatusCode.Should().Be(200);
+
+        // 3rd delivery: the row is there; nothing new is written.
+        (await fn.FunctionHandler(Req(OrderBody()), _ctx)).StatusCode.Should().Be(200);
+
+        var row = rows.Should().ContainSingle().Subject;
+        row["action"].Should().Be("payment_verified");
+        row["timestamp"].Should().Be(VerifiedAt);
+        row["fromState"].Should().Be("payment_submitted");
+        row["toState"].Should().Be("funded");
+        row["actor"].Should().Be("telebirr");
+        row["metadata"].Should().Be($"merchOrderId={OrderMerchOrderId},paymentOrderId={OrderPaymentId}");
+        writes.Should().Be(2, "the third delivery finds the row and writes nothing");
+        await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>());
+        await _txAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+        await _inboxRepo.Received(2).FinalizeAsync(OrderInboxKey, "applied_again");
+    }
+
+    [Fact]
+    public async Task Order_payment_redelivery_keeps_a_payment_verified_row_written_at_another_time()
+    {
+        // A server before ESC-47 wrote the row at the time of the write, not at paymentVerifiedAt:
+        // the repair finds it by action and adds nothing.
+        var fn = NewOrderFunction();
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("funded", OrderPaymentId));
+        _txAuditRepo.GetByTransactionAsync(OrderId).Returns(new List<Dictionary<string, object>>
+        {
+            new() { { "transactionId", OrderId }, { "timestamp", "2026-09-30T09:00:00.4123456Z" }, { "action", "payment_verified" } }
+        });
+
+        await fn.FunctionHandler(Req(OrderBody()), _ctx);
+
+        await _txAuditRepo.DidNotReceive().AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>());
+        await _txAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+        await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "applied_again");
+    }
+
+    [Fact]
+    public async Task Order_payment_redelivery_with_an_unreadable_audit_trail_writes_no_row_but_still_repairs()
+    {
+        // Writing blind could duplicate a row from before ESC-47; the next redelivery tries again.
+        var fn = NewOrderFunction();
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("funded", OrderPaymentId));
+        _txAuditRepo.GetByTransactionAsync(OrderId).ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        var resp = await fn.FunctionHandler(Req(OrderBody()), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        await _txAuditRepo.DidNotReceive().AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>());
+        Logs.Should().Contain("ORDER_PAYMENT_BOOKKEEPING_FAILED").And.Contain("step=payment_verified_audit");
+        Logs.Should().NotContain("ORDER_PAYMENT_UNPROCESSED");
+        await _escrowRepo.Received(1).CreateAsync(Arg.Is<Dictionary<string, object>>(r =>
+            (string)r["escrowId"] == OrderEscrowId));
+        await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "applied_again");
+    }
+
+    [Fact]
+    public async Task Order_payment_redelivery_of_an_order_without_a_funding_time_writes_no_row()
+    {
+        var fn = NewOrderFunction();
+        var order = StoredOrder("funded", OrderPaymentId);
+        order.Remove("paymentVerifiedAt");
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(order);
+
+        await fn.FunctionHandler(Req(OrderBody()), _ctx);
+
+        // No deterministic key: a row at the time of the write could be written twice.
+        await _txAuditRepo.DidNotReceive().AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>());
+        Logs.Should().Contain("step=payment_verified_audit reason=no_payment_verified_at");
+        await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "applied_again");
     }
 
     [Fact]
