@@ -104,7 +104,29 @@
     "resolvedAt": "Guyyaa Furamee",
     "pending": "Eeggatamaa",
     "resolved": "Furamee",
-    "disputed": "Waldhabdeen Ka'era"
+    "disputed": "Waldhabdeen Ka'era",
+    "tabOpen": "Waldhabdee banaa",
+    "tabAwaiting": "Kaffaltii eegaa jiru",
+    "awaitingHint": "Murtiiwwan ammaaf hin kaffalamne. Adeemsi sa'aatii sa'aatiin hojjetu baay'ee isaanii ni kaffala; murtiin ajajni isaa hordofuu hin dandeenye garuu hanga ati waan ta'u filattutti asitti eega.",
+    "chooseDisposition": "Waan ta'u filadhu",
+    "saved": "Murtiin galmaa'eera.",
+    "verdict_farmer_wins": "Qotee Bulaan Mo'a",
+    "verdict_buyer_wins": "Bitaan Mo'a",
+    "dispositionTitle": "Ajajni haala amma keessa jiruun murtii kana hordofuu hin danda'u",
+    "caseGoodsMoving": "Meeshaan duraanuu karaa irra jira. Bitaan karaa lamaanuu maallaqa isaa guutuun deebifamaaf; meeshaan maal akka ta'u filadhu.",
+    "caseBeforeDelivery": "Ajajni ammallee hin geenye. Qotee bulaan yoom akka kaffalamu filadhu. Amma kaffaluun kan danda'amu erga meeshaan fe'amee booda qofa.",
+    "dispositionLegend": "Maaltu ta'a",
+    "disposition_return_to_farmer": "Meeshaa qotee bulaatti deebisi",
+    "dispositionHint_return_to_farmer": "Geejjibni ni haqama, ajajnis ni cufama. Kuusaan tarreeffamaa hin deebi'u; qotee bulaan waan ammallee gurguramu irra deebi'ee tarreessa. Konkolaachisaan geejjibaa imala sanaaf hin kaffalamu.",
+    "disposition_delivered_anyway": "Bitaan meeshaa ni qabata",
+    "dispositionHint_delivered_anyway": "Geejjibni akka gaheetti lakkaa'ama, ajajnis ni cufama.",
+    "disposition_settle_now": "Qotee bulaa amma kaffali",
+    "dispositionHint_settle_now": "Geejjibni ni haqama, ajajnis ni cufama. Kaffaltiin qotee bulaaf, yoo jiraate immoo qooda konkolaachisaa geejjibaatiif ni kaffalama. Kuusaan hin deebi'u.",
+    "disposition_wait_for_delivery": "Geejjiba eegi",
+    "dispositionHint_wait_for_delivery": "Amma homtuu hin jijjiiramu. Ajajni yeroo gahu qotee bulaan ni kaffalama; hanga sanaatti akeekkachiisni walsimuu dhabuu itti fufa.",
+    "dispositionReason": "Sababa (galmee odiitii keessatti kuufama)",
+    "dispositionReasonHint": "Qubee 10 hanga 500.",
+    "confirmDisposition": "Murtii galmeessi"
   },
   "payouts": {
     "title": "Kaffaltii Harkaan",
@@ -301,7 +323,11 @@
     "action_refund_mismatch_override": "Ajajni jiraatus maallaqni deebi'eera (bulchaa)",
     "action_delivery_updated": "Geejjibni haaromfame",
     "action_delivery_cancelled": "Geejjibni haqame",
-    "action_admin_dispute_resolved": "Waldhabdeen furame (bulchaa)"
+    "action_admin_dispute_resolved": "Waldhabdeen furame (bulchaa)",
+    "action_dispute_resolved_goods_returned": "Waldhabdee: meeshaan qotee bulaatti deebi'e (bulchaa)",
+    "action_dispute_resolved_delivered_anyway": "Waldhabdee: bitaan meeshaa qabate (bulchaa)",
+    "action_dispute_resolved_settled_early": "Waldhabdee: qotee bulaan geejjiba dura kaffalame (bulchaa)",
+    "action_dispute_resolved_waiting_for_delivery": "Waldhabdee: geejjiba eegaa jira (bulchaa)"
   },
   "analytics": {
     "title": "Hanga Daldala",
@@ -403,7 +429,9 @@
     "ESCROW_037": "Eenyummeessaa daldalaa Telebirr galchaa: qubee, lakkoofsa ykn . _ : / - 4 hanga 64",
     "ADMIN_013": "Kaffaltiin eeskiroo kanaa tarree kaffaltii harkaa keessatti eegaa jira. Dura achitti xumuraa.",
     "ADMIN_010": "Waldhabdeen kun amma furamuu hin danda'u: banaa miti, ykn kaffaltiin adeemsa irra jira. Fuula irra deebi'ii fe'i.",
-    "ADMIN_014": "Qotee Bulaan Mo'a ykn Bitaan Mo'a filadhu."
+    "ADMIN_014": "Qotee Bulaan Mo'a ykn Bitaan Mo'a filadhu.",
+    "ADMIN_015": "Ajajni haala amma keessa jiruun murtii kana hordofuu hin danda'u. Waan ta'u filadhu.",
+    "ADMIN_016": "Filannoon kun haala ajajichi amma keessa jiru waliin hin walsimu. Fuula irra deebi'ii fe'iitii ajaja sana mirkaneeffadhu."
   },
   "language": {
     "english": "English",

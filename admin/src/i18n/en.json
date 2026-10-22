@@ -104,7 +104,29 @@
     "resolvedAt": "Resolved At",
     "pending": "Pending",
     "resolved": "Resolved",
-    "disputed": "Disputed"
+    "disputed": "Disputed",
+    "tabOpen": "Open disputes",
+    "tabAwaiting": "Awaiting settlement",
+    "awaitingHint": "Verdicts not settled yet. The hourly sweep settles most of them; a verdict whose order cannot follow it waits here until you choose what happens.",
+    "chooseDisposition": "Choose what happens",
+    "saved": "Verdict saved.",
+    "verdict_farmer_wins": "Farmer wins",
+    "verdict_buyer_wins": "Buyer wins",
+    "dispositionTitle": "The order cannot follow this verdict as it is",
+    "caseGoodsMoving": "The goods are already on the way. The buyer is refunded in full either way; choose what happens to the goods.",
+    "caseBeforeDelivery": "The order is not delivered yet. Choose when the farmer is paid. Paying now is possible only once the goods were picked up.",
+    "dispositionLegend": "What happens",
+    "disposition_return_to_farmer": "Return the goods to the farmer",
+    "dispositionHint_return_to_farmer": "The delivery is cancelled and the order closed. The listing stock is not restored; the farmer relists what is still sellable. The trucker is not paid for the trip.",
+    "disposition_delivered_anyway": "The buyer keeps the goods",
+    "dispositionHint_delivered_anyway": "The delivery counts as delivered and the order is closed.",
+    "disposition_settle_now": "Pay the farmer now",
+    "dispositionHint_settle_now": "The delivery is cancelled and the order closed. The release pays the farmer and, if there is one, the trucker leg. The stock is not restored.",
+    "disposition_wait_for_delivery": "Wait for the delivery",
+    "dispositionHint_wait_for_delivery": "Nothing changes now. The farmer is paid once the order is delivered; until then the mismatch alarm keeps firing.",
+    "dispositionReason": "Reason (kept in the audit trail)",
+    "dispositionReasonHint": "10 to 500 characters.",
+    "confirmDisposition": "Record the verdict"
   },
   "payouts": {
     "title": "Manual Payouts",
@@ -301,7 +323,11 @@
     "action_refund_mismatch_override": "Refund despite order (admin)",
     "action_delivery_updated": "Delivery updated",
     "action_delivery_cancelled": "Delivery cancelled",
-    "action_admin_dispute_resolved": "Dispute resolved (admin)"
+    "action_admin_dispute_resolved": "Dispute resolved (admin)",
+    "action_dispute_resolved_goods_returned": "Dispute: goods back to the farmer (admin)",
+    "action_dispute_resolved_delivered_anyway": "Dispute: buyer keeps the goods (admin)",
+    "action_dispute_resolved_settled_early": "Dispute: farmer paid before delivery (admin)",
+    "action_dispute_resolved_waiting_for_delivery": "Dispute: waiting for delivery (admin)"
   },
   "analytics": {
     "title": "Transaction Volume",
@@ -403,7 +429,9 @@
     "ESCROW_037": "Enter the Telebirr transaction ID: 4 to 64 letters, digits or . _ : / -",
     "ADMIN_013": "A payout for this escrow is waiting in the manual payout queue. Settle it there first.",
     "ADMIN_010": "This dispute can no longer be resolved: it is not open, or a settlement is in progress. Reload the page.",
-    "ADMIN_014": "Choose Farmer Wins or Buyer Wins."
+    "ADMIN_014": "Choose Farmer Wins or Buyer Wins.",
+    "ADMIN_015": "The order cannot follow this verdict as it is. Choose what happens to it.",
+    "ADMIN_016": "That choice does not fit the order's current state. Reload the page and check the order."
   },
   "language": {
     "english": "English",

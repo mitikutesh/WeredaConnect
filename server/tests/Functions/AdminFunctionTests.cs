@@ -968,35 +968,378 @@ public class AdminFunctionTests
             Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task ResolveDispute_OrderThatCannotFollow_KeepsTheVerdict_AndIsAudited()
+    // ===== FUP-16: a verdict the legs cannot follow needs a disposition =====
+
+    private const string Reason = "Truck turned back at Adama with the bags.";
+
+    private static Dictionary<string, AttributeValue> OrderItem(string status, string? activeDeliveryId = null)
     {
-        TableReads(EscrowsTable, DisputedEscrow());
-        TableReads(OrdersTable, new Dictionary<string, AttributeValue>
+        var order = new Dictionary<string, AttributeValue>
         {
             { "orderId", S("order-9") }, { "createdAt", S("2026-09-19T10:00:00Z") },
-            { "status", S("in_transit") }, { "version", Num("3") }
-        });
+            { "status", S(status) }, { "version", Num("3") }
+        };
+        if (activeDeliveryId != null)
+        {
+            order["activeDeliveryId"] = S(activeDeliveryId);
+        }
+
+        return order;
+    }
+
+    private static Dictionary<string, AttributeValue> DeliveryItem(string status) => new()
+    {
+        { "deliveryId", S("delivery-9") }, { "tripId", S("trip-9") }, { "orderId", S("order-9") },
+        { "status", S(status) }, { "version", Num("2") }
+    };
+
+    private void OrderAdvanceReturns(string status)
+        => _dynamoDb.UpdateItemAsync(Arg.Is<UpdateItemRequest>(u => u.TableName == OrdersTable), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse
+            {
+                Attributes = new Dictionary<string, AttributeValue>
+                {
+                    { "orderId", S("order-9") }, { "status", S(status) }, { "version", Num("4") }
+                }
+            });
+
+    private List<T> Calls<T>(string method)
+        => _dynamoDb.ReceivedCalls()
+            .Where(c => c.GetMethodInfo().Name == method)
+            .Select(c => (T)c.GetArguments()[0]!)
+            .ToList();
+
+    private static object DispositionBody(string resolution, string disposition, string? reason = Reason)
+        => new { resolution, action = resolution == "farmer_wins" ? "release" : "refund", disposition, reason };
+
+    [Theory]
+    [InlineData("buyer_wins", "refund", "in_transit", "return_to_farmer or delivered_anyway")]
+    [InlineData("farmer_wins", "release", "pickup_confirmed", "wait_for_delivery or settle_now")]
+    [InlineData("farmer_wins", "release", "accepted", "(wait_for_delivery)")]
+    public async Task ResolveDispute_LegsThatCannotFollow_WithoutDisposition_Returns422Admin015_NothingWritten(
+        string resolution, string action, string orderStatus, string offered)
+    {
+        TableReads(EscrowsTable, DisputedEscrow());
+        TableReads(OrdersTable, OrderItem(orderStatus));
+
+        var response = await WithMirrorTables().FunctionHandler(ResolveRequest(new { resolution, action }), _context);
+
+        response.StatusCode.Should().Be(422);
+        response.Body.Should().Contain("ADMIN_015").And.Contain("\"field\":\"disposition\"").And.Contain(offered);
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+        await _dynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveDispute_ReturnToFarmer_RecordsItWithTheVerdict_AuditsIt_ThenCancelsTheDeliveryBeforeTheOrder()
+    {
+        TableReads(EscrowsTable, DisputedEscrow());
+        TableReads(OrdersTable, OrderItem("in_transit", "delivery-9"));
+        TableReads(DeliveriesTable, DeliveryItem("inTransit"));
+        OrderAdvanceReturns("dispute_resolved");
+        var writes = new List<string>();
+        _dynamoDb.When(d => d.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>()))
+            .Do(c => writes.Add(((UpdateItemRequest)c[0]).TableName));
+
+        var response = await WithMirrorTables().FunctionHandler(
+            ResolveRequest(DispositionBody("buyer_wins", "return_to_farmer")), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        response.Body.Should().Contain("\"disposition\":\"return_to_farmer\"").And.Contain("goods go back to the farmer");
+        writes.Should().Equal(EscrowsTable, DeliveriesTable, OrdersTable);
+
+        var updates = Calls<UpdateItemRequest>(nameof(IAmazonDynamoDB.UpdateItemAsync));
+        var verdict = updates.Single(u => u.TableName == EscrowsTable);
+        verdict.ConditionExpression.Should().Be("#status = :disputed AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#lock)");
+        verdict.ExpressionAttributeValues[":disposition"].S.Should().Be("return_to_farmer");
+        verdict.ExpressionAttributeValues[":dispositionReason"].S.Should().Be(Reason);
+        verdict.ExpressionAttributeNames["#dispositionBy"].Should().Be("disputeDispositionBy");
+        var delivery = updates.Single(u => u.TableName == DeliveriesTable);
+        delivery.ExpressionAttributeValues[":to"].S.Should().Be("cancelled");
+        delivery.ExpressionAttributeValues[":from"].S.Should().Be("inTransit");
+        delivery.ExpressionAttributeValues[":cancelReason"].S.Should().Be("dispute_buyer_wins");
+        delivery.ExpressionAttributeValues[":resolution"].S.Should().Be("buyer_wins");
+        delivery.ConditionExpression.Should().Be("#status = :from AND attribute_not_exists(#resolution)");
+        var order = updates.Single(u => u.TableName == OrdersTable);
+        order.ExpressionAttributeValues[":from"].S.Should().Be("in_transit");
+        order.ExpressionAttributeValues[":to"].S.Should().Be("dispute_resolved");
+
+        var puts = Calls<PutItemRequest>(nameof(IAmazonDynamoDB.PutItemAsync));
+        var verdictRow = puts.Single(p => p.TableName == AuditTable && p.Item["action"].S == "admin_dispute_resolved");
+        var choiceRow = puts.Single(p => p.TableName == AuditTable && p.Item["action"].S == "dispute_resolved_goods_returned");
+        choiceRow.Item["actor"].S.Should().Be("admin-1");
+        choiceRow.Item["metadata"].S.Should().Be(
+            $"disposition=return_to_farmer;reason={Reason};legs=order:mismatch:in_transit,delivery:mismatch:inTransit");
+        choiceRow.Item["timestamp"].S.Should().Be(
+            DisputeVerdictMirror.VerdictAuditTimestamp(verdictRow.Item["timestamp"].S, "dispute_resolved_goods_returned"));
+        choiceRow.ConditionExpression.Should().Be("attribute_not_exists(escrowId)");
+        puts.Should().ContainSingle(p => p.TableName == TxAuditTable && p.Item["entityType"].S == "escrow"
+                                         && p.Item["action"].S == "dispute_resolved_goods_returned"
+                                         && p.Item["actor"].S == "admin-1");
+        puts.Should().ContainSingle(p => p.TableName == TxAuditTable && p.Item["entityType"].S == "delivery"
+                                         && p.Item["action"].S == "delivery_cancelled" && p.Item["actor"].S == "system");
+        puts.Should().ContainSingle(p => p.TableName == TxAuditTable && p.Item["entityType"].S == "order"
+                                         && p.Item["action"].S == "dispute_resolved" && p.Item["actor"].S == "system");
+        puts.Should().NotContain(p => p.Item.ContainsKey("action") && p.Item["action"].S == "dispute_verdict_mismatch");
+    }
+
+    [Fact]
+    public async Task ResolveDispute_HandoffLandsBetweenTheDecisionAndTheApply_FallsBackToThePlainVerdict()
+    {
+        TableReads(EscrowsTable, DisputedEscrow());
+        QueryResponse Rows(Dictionary<string, AttributeValue> item) => new() { Items = [item] };
+        // The decision reads the goods on the way; every later read finds them delivered.
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(q => q.TableName == OrdersTable), Arg.Any<CancellationToken>())
+            .Returns(Rows(OrderItem("in_transit", "delivery-9")), Rows(OrderItem("delivered", "delivery-9")));
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(q => q.TableName == DeliveriesTable), Arg.Any<CancellationToken>())
+            .Returns(Rows(DeliveryItem("inTransit")), Rows(DeliveryItem("delivered")));
+
+        var response = await WithMirrorTables().FunctionHandler(
+            ResolveRequest(DispositionBody("buyer_wins", "return_to_farmer")), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        response.Body.Should().Contain("disposition was not needed");
+        // Never cancelled under the buyer: the plain verdict path disputes the delivered handoff instead.
+        Calls<UpdateItemRequest>(nameof(IAmazonDynamoDB.UpdateItemAsync))
+            .Should().NotContain(u => u.TableName == DeliveriesTable && u.ExpressionAttributeValues.ContainsKey(":cancelReason"));
+    }
+
+    [Fact]
+    public async Task ResolveDispute_QueuedPayout_Answers409Admin013_BeforeAnyDispositionQuestion()
+    {
+        var queued = DisputedEscrow(("manualPayout", "open"), ("manualPayoutOp", "release"));
+        TableReads(EscrowsTable, queued);
+        TableReads(OrdersTable, OrderItem("in_transit"));
+        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("queued"));
 
         var response = await WithMirrorTables().FunctionHandler(
             ResolveRequest(new { resolution = "buyer_wins", action = "refund" }), _context);
 
-        response.StatusCode.Should().Be(200);
+        response.StatusCode.Should().Be(409);
+        response.Body.Should().Contain("ADMIN_013");
+        await _dynamoDb.DidNotReceive().QueryAsync(
+            Arg.Is<QueryRequest>(q => q.TableName == OrdersTable), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("buyer_wins", "keep_the_goods", Reason, "disposition")]
+    [InlineData("buyer_wins", "settle_now", Reason, "disposition")]
+    [InlineData("farmer_wins", "return_to_farmer", Reason, "disposition")]
+    [InlineData("buyer_wins", "return_to_farmer", null, "reason")]
+    [InlineData("buyer_wins", "delivered_anyway", "too short", "reason")]
+    [InlineData("farmer_wins", "wait_for_delivery", "          ", "reason")]
+    public async Task ResolveDispute_InvalidDisposition_Returns400Admin014_NothingRead(
+        string resolution, string disposition, string? reason, string field)
+    {
+        var response = await WithMirrorTables().FunctionHandler(
+            ResolveRequest(DispositionBody(resolution, disposition, reason)), _context);
+
+        response.StatusCode.Should().Be(400);
+        response.Body.Should().Contain("ADMIN_014").And.Contain($"\"field\":\"{field}\"");
+        await _dynamoDb.DidNotReceive().QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>());
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveDispute_ReasonOver500Characters_Returns400Admin014()
+    {
+        var response = await WithMirrorTables().FunctionHandler(
+            ResolveRequest(DispositionBody("farmer_wins", "wait_for_delivery", new string('r', 501))), _context);
+
+        response.StatusCode.Should().Be(400);
+        response.Body.Should().Contain("ADMIN_014").And.Contain("\"field\":\"reason\"");
+    }
+
+    [Fact]
+    public async Task ResolveDispute_DispositionOutsideTheAdminGroup_Returns403()
+    {
+        var authorizer = new APIGatewayCustomAuthorizerContext { { "sub", "admin-1" }, { "role", "admin" } };
+        var request = new APIGatewayProxyRequest
+        {
+            HttpMethod = "POST",
+            Path = "/admin/disputes/escrow-9/resolve",
+            Body = JsonSerializer.Serialize(DispositionBody("buyer_wins", "return_to_farmer")),
+            RequestContext = new APIGatewayProxyRequest.ProxyRequestContext { Authorizer = authorizer },
+        };
+
+        var response = await WithMirrorTables().FunctionHandler(request, _context);
+
+        response.StatusCode.Should().Be(403);
+        response.Body.Should().Contain("ESCROW_015");
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveDispute_SettleNowBeforePickup_Returns422Admin016_NothingWritten()
+    {
+        // The farmer keeps the money only for goods already handed over.
+        TableReads(EscrowsTable, DisputedEscrow());
+        TableReads(OrdersTable, OrderItem("accepted"));
+
+        var response = await WithMirrorTables().FunctionHandler(
+            ResolveRequest(DispositionBody("farmer_wins", "settle_now")), _context);
+
+        response.StatusCode.Should().Be(422);
+        response.Body.Should().Contain("ADMIN_016").And.Contain("wait_for_delivery");
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveDispute_NoDispositionFits_Returns422Admin016_NothingWritten()
+    {
+        TableReads(EscrowsTable, DisputedEscrow());
+        TableReads(OrdersTable, OrderItem("cancelled"));
+
+        var response = await WithMirrorTables().FunctionHandler(
+            ResolveRequest(new { resolution = "farmer_wins", action = "release" }), _context);
+
+        response.StatusCode.Should().Be(422);
+        response.Body.Should().Contain("ADMIN_016").And.Contain("order:mismatch:cancelled");
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveDispute_ADispositionTheLegsDoNotNeed_IsNotRecorded()
+    {
+        TableReads(EscrowsTable, DisputedEscrow());
+        TableReads(OrdersTable, OrderItem("disputed"));
+        OrderAdvanceReturns("dispute_resolved");
+
+        var response = await WithMirrorTables().FunctionHandler(
+            ResolveRequest(DispositionBody("buyer_wins", "delivered_anyway")), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        response.Body.Should().Contain("No disposition was needed");
+        var verdict = Calls<UpdateItemRequest>(nameof(IAmazonDynamoDB.UpdateItemAsync)).Single(u => u.TableName == EscrowsTable);
+        verdict.ExpressionAttributeValues.Should().NotContainKey(":disposition");
+        Calls<PutItemRequest>(nameof(IAmazonDynamoDB.PutItemAsync))
+            .Should().NotContain(p => p.Item.ContainsKey("action") && p.Item["action"].S == "dispute_resolved_delivered_anyway");
+    }
+
+    [Fact]
+    public async Task ResolveDispute_LegsUnreadable_Returns503_NothingRecorded()
+    {
+        TableReads(EscrowsTable, DisputedEscrow());
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(q => q.TableName == OrdersTable), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AmazonDynamoDBException("orders down"));
+
+        var response = await WithMirrorTables().FunctionHandler(
+            ResolveRequest(new { resolution = "buyer_wins", action = "refund" }), _context);
+
+        response.StatusCode.Should().Be(503);
+        response.Body.Should().Contain("ESCROW_012");
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    private static Dictionary<string, AttributeValue> RecordedVerdict(string resolution, params (string Key, string Value)[] extra)
+    {
+        var escrow = DisputedEscrow(("status", "dispute_resolved"), ("disputeResolution", resolution),
+            ("disputeResolvedAt", "2026-09-21T08:00:00.0000000Z"));
+        foreach (var (key, value) in extra)
+        {
+            escrow[key] = S(value);
+        }
+
+        return escrow;
+    }
+
+    private void TheVerdictWriteFindsItDecided()
+        => _dynamoDb.UpdateItemAsync(
+                Arg.Is<UpdateItemRequest>(u => u.TableName == EscrowsTable && u.ConditionExpression.StartsWith("#status = :disputed")),
+                Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("decided"));
+
+    [Fact]
+    public async Task ResolveDispute_ReplayOfAStuckVerdict_WithoutDisposition_Returns422Admin015()
+    {
+        // A verdict recorded before 1.21.0 whose goods are moving: the admin is asked to choose.
+        TableReads(EscrowsTable, RecordedVerdict("buyer_wins"));
+        TableReads(OrdersTable, OrderItem("in_transit"));
+        TheVerdictWriteFindsItDecided();
+
+        var response = await WithMirrorTables().FunctionHandler(
+            ResolveRequest(new { resolution = "buyer_wins", action = "refund" }), _context);
+
+        response.StatusCode.Should().Be(422);
+        response.Body.Should().Contain("ADMIN_015");
+        await _dynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveDispute_ReplayTurnsAWaitIntoSettleNow_RecordsTheNewChoiceFirst()
+    {
+        TableReads(EscrowsTable, RecordedVerdict("farmer_wins",
+            ("disputeDisposition", "wait_for_delivery"), ("disputeDispositionAt", "2026-09-21T08:00:00.0000000Z")));
+        TableReads(OrdersTable, OrderItem("in_transit", "delivery-9"));
+        TableReads(DeliveriesTable, DeliveryItem("inTransit"));
+        TheVerdictWriteFindsItDecided();
+        OrderAdvanceReturns("dispute_resolved");
+
+        var response = await WithMirrorTables().FunctionHandler(
+            ResolveRequest(DispositionBody("farmer_wins", "settle_now")), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        response.Body.Should().Contain("\"disposition\":\"settle_now\"").And.Contain("\"status\":\"dispute_resolved\"");
+        var updates = Calls<UpdateItemRequest>(nameof(IAmazonDynamoDB.UpdateItemAsync));
+        var choice = updates.Single(u => u.TableName == EscrowsTable && u.ConditionExpression.StartsWith("#status = :resolved"));
+        choice.ConditionExpression.Should().Contain("attribute_not_exists(#lock)").And.Contain("attribute_not_exists(#manualPayout)");
+        choice.ExpressionAttributeValues[":disposition"].S.Should().Be("settle_now");
+        choice.ExpressionAttributeValues[":resolution"].S.Should().Be("farmer_wins");
+        updates.Single(u => u.TableName == DeliveriesTable).ExpressionAttributeValues[":cancelReason"].S
+            .Should().Be("dispute_farmer_wins");
+        updates.Single(u => u.TableName == OrdersTable).ExpressionAttributeValues[":to"].S.Should().Be("dispute_resolved");
+        Calls<PutItemRequest>(nameof(IAmazonDynamoDB.PutItemAsync))
+            .Should().ContainSingle(p => p.TableName == AuditTable && p.Item["action"].S == "dispute_resolved_settled_early");
+    }
+
+    [Fact]
+    public async Task ResolveDispute_ReplayWithADispositionWhileASettlementRuns_Returns409Admin010()
+    {
+        TableReads(EscrowsTable, RecordedVerdict("farmer_wins"));
+        TableReads(OrdersTable, OrderItem("in_transit"));
+        TheVerdictWriteFindsItDecided();
+        _dynamoDb.UpdateItemAsync(
+                Arg.Is<UpdateItemRequest>(u => u.TableName == EscrowsTable && u.ConditionExpression.StartsWith("#status = :resolved")),
+                Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("locked"));
+
+        var response = await WithMirrorTables().FunctionHandler(
+            ResolveRequest(DispositionBody("farmer_wins", "settle_now")), _context);
+
+        response.StatusCode.Should().Be(409);
+        response.Body.Should().Contain("ADMIN_010");
         await _dynamoDb.DidNotReceive().UpdateItemAsync(
-            Arg.Is<UpdateItemRequest>(u => u.TableName == OrdersTable), Arg.Any<CancellationToken>());
-        // One mismatch row per escrow: a deterministic key (the verdict time plus one tick, so it
-        // sorts right after the verdict's own row) and a conditional put, shared with the settlement.
-        var auditPuts = _dynamoDb.ReceivedCalls()
-            .Where(c => c.GetMethodInfo().Name == nameof(IAmazonDynamoDB.PutItemAsync))
-            .Select(c => (PutItemRequest)c.GetArguments()[0]!)
-            .Where(p => p.TableName == AuditTable)
-            .ToList();
-        var verdictRow = auditPuts.Single(p => p.Item["action"].S == "admin_dispute_resolved");
-        var mismatchRow = auditPuts.Single(p => p.Item["action"].S == "dispute_verdict_mismatch");
-        mismatchRow.Item["timestamp"].S.Should().Be(
-            DisputeVerdictMirror.VerdictAuditTimestamp(verdictRow.Item["timestamp"].S, DisputeVerdictMirror.MismatchAuditAction));
-        mismatchRow.ConditionExpression.Should().Be("attribute_not_exists(escrowId)");
-        mismatchRow.Item["metadata"].S.Should().StartWith("legs=order:mismatch:in_transit;at=");
+            Arg.Is<UpdateItemRequest>(u => u.TableName == OrdersTable || u.TableName == DeliveriesTable), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveDispute_ReplayOfTheSameDisposition_FinishesTheLegs_WithoutASecondChoiceRow()
+    {
+        // The first run recorded the choice and cancelled the delivery, then the order write failed.
+        TableReads(EscrowsTable, RecordedVerdict("buyer_wins",
+            ("disputeDisposition", "return_to_farmer"), ("disputeDispositionReason", Reason),
+            ("disputeDispositionAt", "2026-09-21T08:00:00.0000000Z")));
+        TableReads(OrdersTable, OrderItem("in_transit", "delivery-9"));
+        var cancelled = DeliveryItem("cancelled");
+        cancelled["disputeResolution"] = S("buyer_wins");
+        TableReads(DeliveriesTable, cancelled);
+        TheVerdictWriteFindsItDecided();
+        OrderAdvanceReturns("dispute_resolved");
+
+        var response = await WithMirrorTables().FunctionHandler(
+            ResolveRequest(new { resolution = "buyer_wins", action = "refund" }), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var updates = Calls<UpdateItemRequest>(nameof(IAmazonDynamoDB.UpdateItemAsync));
+        updates.Should().NotContain(u => u.TableName == DeliveriesTable);
+        updates.Should().NotContain(u => u.TableName == EscrowsTable && u.ConditionExpression.StartsWith("#status = :resolved"));
+        updates.Single(u => u.TableName == OrdersTable).ExpressionAttributeValues[":to"].S.Should().Be("dispute_resolved");
+        // The choice row is re-ensured at its deterministic key: a conditional put, never a second row.
+        var choiceRow = Calls<PutItemRequest>(nameof(IAmazonDynamoDB.PutItemAsync))
+            .Single(p => p.TableName == AuditTable && p.Item["action"].S == "dispute_resolved_goods_returned");
+        choiceRow.Item["timestamp"].S.Should().Be("2026-09-21T08:00:00.0000004Z");
+        choiceRow.ConditionExpression.Should().Be("attribute_not_exists(escrowId)");
     }
 
     // ──────────────────────────────────────────────

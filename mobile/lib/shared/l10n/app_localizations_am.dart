@@ -1155,6 +1155,10 @@ class AppLocalizationsAm extends AppLocalizations {
       'ይህ ክፍያ በአስተዳዳሪ እየተከፈለ ስለሆነ ከእንግዲህ ክርክር ማንሳት አይቻልም። ድጋፍ ሰጪን ያግኙ።';
 
   @override
+  String get escrowErrorDisputeBeforePickup =>
+      'ክርክር ማንሳት የሚቻለው እቃው ከተጫነ በኋላ ብቻ ነው። ከዚያ በፊት ትዕዛዙን ይሰርዙ ወይም ድጋፍ ሰጪን ያግኙ።';
+
+  @override
   String get escrowErrorInvalidTransition => 'ይህ ድርጊት በአሁኑ የክፍያ ሁኔታ አይፈቀድም።';
 
   @override

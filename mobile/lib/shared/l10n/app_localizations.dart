@@ -2296,6 +2296,12 @@ abstract class AppLocalizations {
   /// **'This payment is already being paid out by an admin, so it can no longer be disputed. Contact support.'**
   String get escrowErrorPayoutInProgress;
 
+  /// Error when a dispute is raised before the goods are picked up (ESCROW_041)
+  ///
+  /// In en, this message translates to:
+  /// **'A dispute can be opened only after the goods are picked up. Before pickup, cancel the order instead, or contact support.'**
+  String get escrowErrorDisputeBeforePickup;
+
   /// Error when escrow state transition is invalid
   ///
   /// In en, this message translates to:

@@ -1527,6 +1527,10 @@
   "@escrowErrorPayoutInProgress": {
     "description": "Error when a dispute is raised on a payment an admin is already paying out by hand (ESCROW_038)"
   },
+  "escrowErrorDisputeBeforePickup": "Komiin kan ka'uu danda'u erga meeshaan fe'amee booda qofa. Sana dura ajaja haqaa, ykn deeggarsa qunnamaa.",
+  "@escrowErrorDisputeBeforePickup": {
+    "description": "Error when a dispute is raised before the goods are picked up (ESCROW_041)"
+  },
   "escrowErrorInvalidTransition": "Gochi kun haala kaffaltii ammaa keessatti hin hayyamamu.",
   "@escrowErrorInvalidTransition": {
     "description": "Error when escrow state transition is invalid"

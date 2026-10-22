@@ -104,7 +104,29 @@
     "resolvedAt": "የተፈታበት",
     "pending": "በመጠባበቅ ላይ",
     "resolved": "ተፈትቷል",
-    "disputed": "ክርክር ተነስቷል"
+    "disputed": "ክርክር ተነስቷል",
+    "tabOpen": "ክፍት ክርክሮች",
+    "tabAwaiting": "ክፍያ በመጠባበቅ ላይ",
+    "awaitingHint": "ገና ያልተከፈሉ ውሳኔዎች። አብዛኞቹን በየሰዓቱ የሚሰራው ሂደት ይከፍላቸዋል፤ ትዕዛዙ ሊከተለው የማይችለው ውሳኔ ግን ምን እንደሚሆን እስኪመርጡ ድረስ እዚህ ይቆያል።",
+    "chooseDisposition": "ምን እንደሚሆን ይምረጡ",
+    "saved": "ውሳኔው ተመዝግቧል።",
+    "verdict_farmer_wins": "ገበሬው አሸናፊ",
+    "verdict_buyer_wins": "ገዥው አሸናፊ",
+    "dispositionTitle": "ትዕዛዙ ይህንን ውሳኔ አሁን ባለበት ሁኔታ መከተል አይችልም",
+    "caseGoodsMoving": "እቃው አስቀድሞ በመንገድ ላይ ነው። ገዥው በሁለቱም ሁኔታ ሙሉ ገንዘቡ ይመለስለታል፤ እቃው ምን እንደሚሆን ይምረጡ።",
+    "caseBeforeDelivery": "ትዕዛዙ ገና አልደረሰም። ገበሬው መቼ እንደሚከፈለው ይምረጡ። አሁን መክፈል የሚቻለው እቃው ከተጫነ በኋላ ብቻ ነው።",
+    "dispositionLegend": "ምን ይሆናል",
+    "disposition_return_to_farmer": "እቃውን ለገበሬው መልስ",
+    "dispositionHint_return_to_farmer": "ማድረሱ ይሰረዛል፣ ትዕዛዙም ይዘጋል። የዝርዝሩ ክምችት አይመለስም፤ ገበሬው አሁንም የሚሸጠውን እንደገና ይዘረዝራል። የጭነት አሽከርካሪው ለጉዞው አይከፈለውም።",
+    "disposition_delivered_anyway": "ገዥው እቃውን ይይዛል",
+    "dispositionHint_delivered_anyway": "ማድረሱ እንደደረሰ ይቆጠራል፣ ትዕዛዙም ይዘጋል።",
+    "disposition_settle_now": "ገበሬውን አሁን ክፈል",
+    "dispositionHint_settle_now": "ማድረሱ ይሰረዛል፣ ትዕዛዙም ይዘጋል። ክፍያው ለገበሬው፣ ካለም ለጭነት አሽከርካሪው ድርሻ ይከፈላል። ክምችቱ አይመለስም።",
+    "disposition_wait_for_delivery": "ማድረሱን ጠብቅ",
+    "dispositionHint_wait_for_delivery": "አሁን ምንም አይቀየርም። ትዕዛዙ ሲደርስ ገበሬው ይከፈለዋል፤ እስከዚያ ድረስ የአለመጣጣም ማንቂያው ይቀጥላል።",
+    "dispositionReason": "ምክንያት (በኦዲት መዝገብ ውስጥ ይቀመጣል)",
+    "dispositionReasonHint": "ከ10 እስከ 500 ፊደላት።",
+    "confirmDisposition": "ውሳኔውን መዝግብ"
   },
   "payouts": {
     "title": "በእጅ የሚከፈሉ ክፍያዎች",
@@ -301,7 +323,11 @@
     "action_refund_mismatch_override": "ትዕዛዙ ቢኖርም ተመላሽ ተደርጓል (አስተዳዳሪ)",
     "action_delivery_updated": "ማድረስ ተዘምኗል",
     "action_delivery_cancelled": "ማድረስ ተሰርዟል",
-    "action_admin_dispute_resolved": "ክርክር ተፈትቷል (አስተዳዳሪ)"
+    "action_admin_dispute_resolved": "ክርክር ተፈትቷል (አስተዳዳሪ)",
+    "action_dispute_resolved_goods_returned": "ክርክር፦ እቃው ለገበሬው ተመልሷል (አስተዳዳሪ)",
+    "action_dispute_resolved_delivered_anyway": "ክርክር፦ ገዥው እቃውን ይዟል (አስተዳዳሪ)",
+    "action_dispute_resolved_settled_early": "ክርክር፦ ገበሬው ከማድረስ በፊት ተከፍሏል (አስተዳዳሪ)",
+    "action_dispute_resolved_waiting_for_delivery": "ክርክር፦ ማድረሱን በመጠባበቅ ላይ (አስተዳዳሪ)"
   },
   "analytics": {
     "title": "የግብይት መጠን",
@@ -403,7 +429,9 @@
     "ESCROW_037": "የቴሌብር ግብይት መለያውን ያስገቡ፦ ከ4 እስከ 64 ፊደላት፣ አሃዞች ወይም . _ : / -",
     "ADMIN_013": "የዚህ ኢስክሮ ክፍያ በእጅ በሚከፈሉ ክፍያዎች ሰልፍ ውስጥ በመጠበቅ ላይ ነው። መጀመሪያ እዚያ ያጠናቅቁት።",
     "ADMIN_010": "ይህ ክርክር ከአሁን በኋላ ሊፈታ አይችልም፤ ክፍት አይደለም ወይም ክፍያ በሂደት ላይ ነው። ገጹን እንደገና ይጫኑ።",
-    "ADMIN_014": "ገበሬው አሸናፊ ወይም ገዥው አሸናፊ ይምረጡ።"
+    "ADMIN_014": "ገበሬው አሸናፊ ወይም ገዥው አሸናፊ ይምረጡ።",
+    "ADMIN_015": "ትዕዛዙ ይህንን ውሳኔ አሁን ባለበት ሁኔታ መከተል አይችልም። ምን እንደሚሆን ይምረጡ።",
+    "ADMIN_016": "ይህ ምርጫ ትዕዛዙ አሁን ካለበት ሁኔታ ጋር አይስማማም። ገጹን እንደገና ይጫኑ እና ትዕዛዙን ያረጋግጡ።"
   },
   "language": {
     "english": "English",

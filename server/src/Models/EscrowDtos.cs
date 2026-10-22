@@ -207,7 +207,9 @@ public sealed record RefundEscrowRequest
     /// <summary>
     /// ESC-03, admin group only: refund a <c>buyer_wins</c> verdict although its order cannot
     /// follow it (the goods are already moving). Needs a <see cref="Reason"/>; audited with the
-    /// admin and the reason, and the order is flagged. The sweep never sets it.
+    /// admin and the reason, and the order is flagged. The sweep never sets it. Deprecated for
+    /// verdicts since escrow-protocol 1.21.0 (FUP-16): a disposition on the verdict moves the order
+    /// and delivery instead. Still the tool for an ESC-09 Part B refund of a plain escrowed escrow.
     /// </summary>
     public bool OverrideOrderMismatch { get; init; }
 }

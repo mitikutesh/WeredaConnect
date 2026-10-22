@@ -1196,6 +1196,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'This payment is already being paid out by an admin, so it can no longer be disputed. Contact support.';
 
   @override
+  String get escrowErrorDisputeBeforePickup =>
+      'A dispute can be opened only after the goods are picked up. Before pickup, cancel the order instead, or contact support.';
+
+  @override
   String get escrowErrorInvalidTransition =>
       'This action is not allowed in the current payment state.';
 
