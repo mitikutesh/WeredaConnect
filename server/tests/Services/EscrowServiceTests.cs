@@ -217,6 +217,9 @@ public class EscrowServiceTests
         Assert.False(result.IsSuccess);
         Assert.Equal(422, result.Error!.HttpStatus);
         Assert.Equal("ESCROW_039", result.Error.Code);
+        // Before any read as well: a replayed idempotency key gets the 422, never the cached 200.
+        await _mockIdempotencyRepo.DidNotReceive().GetAsync(Arg.Any<string>());
+        await _mockEscrowRepo.DidNotReceive().GetByDeliveryIdAsync(Arg.Any<string>());
         await _mockIdempotencyRepo.DidNotReceive().StoreAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
         await _mockEscrowRepo.DidNotReceive().CreateAsync(Arg.Any<Dictionary<string, object>>());

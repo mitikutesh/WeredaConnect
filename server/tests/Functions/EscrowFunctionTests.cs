@@ -384,6 +384,8 @@ public class EscrowFunctionTests
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
         await _mockEscrowRepo.DidNotReceive().CreateAsync(Arg.Any<Dictionary<string, object>>());
         await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+        // The velocity gate in front of the service still runs; only the count after a success does not.
+        await fraud.Received(1).CheckPaymentVelocityAsync(BuyerId);
         await fraud.DidNotReceive().RecordPaymentInitiatedAsync(Arg.Any<string>());
         await fraud.DidNotReceive().RecordFraudSignalAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
