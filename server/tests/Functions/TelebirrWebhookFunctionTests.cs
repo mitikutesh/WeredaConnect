@@ -49,9 +49,19 @@ public class TelebirrWebhookFunctionTests
         // First webhook delivery (not a replay).
         _idemRepo.StoreAsync(Arg.Is<string>(k => k.StartsWith("webhook:")), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(true);
-        // An order with no transaction-audit rows yet (a test that needs some stubs it again).
-        _txAuditRepo.GetByTransactionAsync(Arg.Any<string>()).Returns(_ => new List<Dictionary<string, object>>());
+        // A real order trail: created and submitted for payment, no payment_verified row yet (a test
+        // that needs another trail stubs it again).
+        _txAuditRepo.GetByTransactionAsync(Arg.Any<string>()).Returns(_ => OrderTrailBeforeFunding());
     }
+
+    /// <summary>The rows sync writes for every order before it is paid: order_created and order_updated.</summary>
+    private static List<Dictionary<string, object>> OrderTrailBeforeFunding() => new()
+    {
+        new() { { "transactionId", "order-1" }, { "timestamp", "2026-09-30T08:00:00.0000000Z" },
+            { "action", "order_created" }, { "toState", "created" } },
+        new() { { "transactionId", "order-1" }, { "timestamp", "2026-09-30T08:30:00.0000000Z" },
+            { "action", "order_updated" }, { "fromState", "created" }, { "toState", "payment_submitted" } },
+    };
 
     private TelebirrWebhookFunction NewFunction(string? merchantCode = null,
         IUserRepository? userRepo = null, bool requirePayerMatch = false)
@@ -701,9 +711,9 @@ public class TelebirrWebhookFunctionTests
     public async Task Order_payment_verified_row_lost_at_funding_is_written_once_by_the_redeliveries()
     {
         var fn = NewOrderFunction();
-        // A transaction-audit table that keeps the (transactionId, timestamp) key unique, and whose
-        // first write fails.
-        var rows = new List<Dictionary<string, object>>();
+        // A transaction-audit table that keeps the (transactionId, timestamp) key unique, holds the
+        // order's earlier rows, and whose first write fails.
+        var rows = OrderTrailBeforeFunding();
         var writes = 0;
         _txAuditRepo.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>()).Returns(call =>
         {
@@ -728,10 +738,12 @@ public class TelebirrWebhookFunctionTests
         _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
             .Returns(_ => StoredOrder("funded", OrderPaymentId));
 
-        // 1st delivery: funds the order; the audit write fails (swallowed, logged).
+        // 1st delivery: funds the order; the audit write fails (swallowed, logged with the order).
         (await fn.FunctionHandler(Req(OrderBody()), _ctx)).StatusCode.Should().Be(200);
-        rows.Should().BeEmpty();
+        rows.Should().NotContain(r => (string)r["action"] == "payment_verified");
         Logs.Should().Contain("transaction-audit write failed (non-fatal)");
+        Logs.Should().Contain($"ORDER_PAYMENT_BOOKKEEPING_FAILED orderId={OrderId}")
+            .And.Contain("step=payment_verified_audit reason=write_failed");
 
         // 2nd delivery: the same payment again; the repair writes the missing row.
         order = StoredOrder("funded", OrderPaymentId);
@@ -741,8 +753,9 @@ public class TelebirrWebhookFunctionTests
         // 3rd delivery: the row is there; nothing new is written.
         (await fn.FunctionHandler(Req(OrderBody()), _ctx)).StatusCode.Should().Be(200);
 
-        var row = rows.Should().ContainSingle().Subject;
-        row["action"].Should().Be("payment_verified");
+        // The order's earlier rows did not stop the repair: it looks for payment_verified only.
+        rows.Select(r => (string)r["action"]).Should().Equal("order_created", "order_updated", "payment_verified");
+        var row = rows.Single(r => (string)r["action"] == "payment_verified");
         row["timestamp"].Should().Be(VerifiedAt);
         row["fromState"].Should().Be("payment_submitted");
         row["toState"].Should().Be("funded");
@@ -752,6 +765,27 @@ public class TelebirrWebhookFunctionTests
         await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>());
         await _txAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
         await _inboxRepo.Received(2).FinalizeAsync(OrderInboxKey, "applied_again");
+    }
+
+    [Fact]
+    public async Task Order_payment_redelivery_repairs_stock_and_escrow_before_the_audit_row()
+    {
+        // A slow or throttled audit table must not use up the time the money repair needs.
+        var calls = new List<string>();
+        var fn = NewOrderFunction();
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("funded", OrderPaymentId));
+        _cropRepo.TryDecrementStockAsync("listing-1", OrderId, 5.0)
+            .Returns(_ => { calls.Add("stock"); return StockDecrementResult.AlreadyApplied; });
+        _escrowRepo.CreateAsync(Arg.Any<Dictionary<string, object>>())
+            .Returns(_ => { calls.Add("escrow"); return Task.CompletedTask; });
+        _txAuditRepo.GetByTransactionAsync(OrderId)
+            .Returns(_ => { calls.Add("audit_read"); return OrderTrailBeforeFunding(); });
+        _txAuditRepo.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>())
+            .Returns(_ => { calls.Add("audit_write"); return true; });
+
+        await fn.FunctionHandler(Req(OrderBody()), _ctx);
+
+        calls.Should().Equal("stock", "escrow", "audit_read", "audit_write");
     }
 
     [Fact]

@@ -86,21 +86,24 @@ public class TransactionAuditWriterTests
     {
         var repo = Substitute.For<ITransactionAuditRepository>();
         var captured = new List<Dictionary<string, object>>();
-        repo.AppendIfAbsentAsync(Arg.Do<Dictionary<string, object>>(captured.Add)).Returns(true);
+        // The second write finds the row already there.
+        repo.AppendIfAbsentAsync(Arg.Do<Dictionary<string, object>>(captured.Add)).Returns(true, false);
 
+        var results = new List<bool>();
         for (var i = 0; i < 2; i++)
         {
-            await TransactionAuditWriter.EmitOnceAsync(
+            results.Add(await TransactionAuditWriter.EmitOnceAsync(
                 repo, _context, "order-1", "order", "order-1", "payment_verified", "payment_submitted", "funded",
-                AuditContext.ForSystem("telebirr"), "2026-09-30T09:00:00.0000000Z", metadata: "m");
+                AuditContext.ForSystem("telebirr"), "2026-09-30T09:00:00.0000000Z", metadata: "m"));
         }
 
+        results.Should().Equal(new[] { true, true }, "the row is there after both calls");
         captured.Should().HaveCount(2);
         captured[0].Should().BeEquivalentTo(captured[1], "two writers of the same event build the same row");
         var row = captured[0];
         row["transactionId"].Should().Be("order-1");
         row["timestamp"].Should().Be("2026-09-30T09:00:00.0000000Z");
-        row["auditId"].Should().Be("txaudit-payment_verified-20260930T0900000000000Z");
+        row["auditId"].Should().Be("txaudit-order-1-payment_verified-20260930T0900000000000Z");
         row["action"].Should().Be("payment_verified");
         row["fromState"].Should().Be("payment_submitted");
         row["toState"].Should().Be("funded");
@@ -110,15 +113,34 @@ public class TransactionAuditWriterTests
     }
 
     [Fact]
+    public async Task EmitOnceAsync_SameEventTimeOnTwoTransactions_GetsTwoIds()
+    {
+        var repo = Substitute.For<ITransactionAuditRepository>();
+        var ids = new List<string>();
+        repo.AppendIfAbsentAsync(Arg.Do<Dictionary<string, object>>(e => ids.Add((string)e["auditId"]))).Returns(true);
+
+        foreach (var orderId in new[] { "order-1", "order-2" })
+        {
+            await TransactionAuditWriter.EmitOnceAsync(
+                repo, _context, orderId, "order", orderId, "payment_verified", null, null, Ctx(),
+                "2026-09-30T09:00:00.0000000Z");
+        }
+
+        ids.Should().OnlyHaveUniqueItems().And.HaveCount(2);
+    }
+
+    [Fact]
     public async Task EmitOnceAsync_WithoutRepoOrTimestamp_IsNoOp()
     {
         var repo = Substitute.For<ITransactionAuditRepository>();
 
-        await TransactionAuditWriter.EmitOnceAsync(
+        var noRepo = await TransactionAuditWriter.EmitOnceAsync(
             null, _context, "order-1", "order", "order-1", "x", null, null, Ctx(), "2026-09-30T09:00:00.0000000Z");
-        await TransactionAuditWriter.EmitOnceAsync(
+        var noTimestamp = await TransactionAuditWriter.EmitOnceAsync(
             repo, _context, "order-1", "order", "order-1", "x", null, null, Ctx(), "");
 
+        noRepo.Should().BeFalse();
+        noTimestamp.Should().BeFalse();
         await repo.DidNotReceive().AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>());
     }
 
@@ -129,10 +151,12 @@ public class TransactionAuditWriterTests
         repo.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>())
             .Returns<Task<bool>>(_ => throw new InvalidOperationException("dynamo down"));
 
-        var act = async () => await TransactionAuditWriter.EmitOnceAsync(
+        bool? written = null;
+        var act = async () => written = await TransactionAuditWriter.EmitOnceAsync(
             repo, _context, "order-1", "order", "order-1", "x", null, null, Ctx(), "2026-09-30T09:00:00.0000000Z");
 
         await act.Should().NotThrowAsync();
+        written.Should().BeFalse("the caller logs which order lost its row");
         ((TestLambdaLogger)_context.Logger).Buffer.ToString().Should().Contain("transaction-audit write failed (non-fatal)");
     }
 }

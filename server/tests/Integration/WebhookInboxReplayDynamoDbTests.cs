@@ -265,6 +265,20 @@ public sealed class WebhookInboxReplayDynamoDbTests : IDisposable
         // same payment takes the repair path, and the real conditional write keeps one row.
         await SeedAsync();
         var real = new TransactionAuditRepository(Ddb, _db.TransactionAudit);
+        // The rows sync writes for every order before it is paid: the repair must look for
+        // payment_verified, not for any row.
+        await real.AppendAsync(new Dictionary<string, object>
+        {
+            ["auditId"] = $"txaudit-{Guid.NewGuid():N}", ["transactionId"] = _orderId, ["entityType"] = "order",
+            ["entityId"] = _orderId, ["action"] = "order_created", ["toState"] = "created", ["actor"] = "buyer-esc45",
+            ["timestamp"] = "2026-10-09T07:00:00.0000000Z"
+        });
+        await real.AppendAsync(new Dictionary<string, object>
+        {
+            ["auditId"] = $"txaudit-{Guid.NewGuid():N}", ["transactionId"] = _orderId, ["entityType"] = "order",
+            ["entityId"] = _orderId, ["action"] = "order_updated", ["fromState"] = "created",
+            ["toState"] = "payment_submitted", ["actor"] = "buyer-esc45", ["timestamp"] = PaymentSubmittedAt
+        });
         var flaky = Substitute.For<ITransactionAuditRepository>();
         var left = 1;
         flaky.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>()).Returns(call =>
@@ -291,7 +305,8 @@ public sealed class WebhookInboxReplayDynamoDbTests : IDisposable
         // The key alone refuses a second row, even for a writer that does not look first.
         (await real.AppendIfAbsentAsync(new Dictionary<string, object>(row) { ["auditId"] = "txaudit-other" }))
             .Should().BeFalse();
-        (await real.GetByTransactionAsync(_orderId)).Count(IsPaymentVerified).Should().Be(1);
+        (await real.GetByTransactionAsync(_orderId)).Select(e => e["action"].ToString())
+            .Should().Equal("order_created", "order_updated", "payment_verified");
     }
 
     [LocalDynamoDbFact]

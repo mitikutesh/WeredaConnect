@@ -79,7 +79,11 @@ public static class TransactionAuditWriter
     /// missing row and a replay never writes it twice. Best effort, like <see cref="EmitAsync"/>.
     /// </summary>
     /// <param name="timestamp">The key: the time of the event itself, the same for every writer of it.</param>
-    public static async Task EmitOnceAsync(
+    /// <returns>
+    /// True when the row is there afterwards (written now or before); false when nothing was
+    /// written (no repo, a missing key part, or a failed write).
+    /// </returns>
+    public static async Task<bool> EmitOnceAsync(
         ITransactionAuditRepository? repo,
         ILambdaContext? context,
         string transactionId,
@@ -95,20 +99,22 @@ public static class TransactionAuditWriter
         if (repo == null || string.IsNullOrEmpty(transactionId) || string.IsNullOrEmpty(entityId)
             || string.IsNullOrEmpty(timestamp))
         {
-            return;
+            return false;
         }
 
         try
         {
             // The id is deterministic too, so two writers that race build the same row.
-            var auditId = $"txaudit-{action}-{new string(timestamp.Where(char.IsAsciiLetterOrDigit).ToArray())}";
+            var auditId = $"txaudit-{transactionId}-{action}-{new string(timestamp.Where(char.IsAsciiLetterOrDigit).ToArray())}";
             await repo.AppendIfAbsentAsync(BuildEntry(
                 auditId, transactionId, entityType, entityId, action, fromState, toState, ctx, timestamp, metadata));
+            return true;
         }
         catch (Exception ex)
         {
             context?.Logger.LogWarning(
                 $"transaction-audit write failed (non-fatal): [{ex.GetType().Name}] action={action} entity={entityType}");
+            return false;
         }
     }
 

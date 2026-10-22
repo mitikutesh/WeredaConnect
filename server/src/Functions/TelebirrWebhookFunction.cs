@@ -926,15 +926,14 @@ public class TelebirrWebhookFunction
     private async Task<string> RepairRedeliveryAsync(
         Dictionary<string, object> order, OrderPayment payment, ILambdaContext context)
     {
-        // ESC-47: the payment_verified row records a funding that happened, so a redelivery writes
-        // it when the first delivery did not, whatever the order became since.
-        await EnsurePaymentVerifiedAuditAsync(order, payment, lookForEarlierRow: true, context);
-
         var status = GetString(order, "status");
         if (NoRepairOrderStatuses.Contains(status))
         {
             context.Logger.LogInformation(
                 $"Telebirr redelivery for an order that is {SafeLogId(status)}; nothing to repair: {Describe(payment)}.");
+            // ESC-47: the payment_verified row records a funding that happened, so it is written
+            // whatever the order became since.
+            await EnsurePaymentVerifiedAuditAsync(order, payment, lookForEarlierRow: true, context);
             return "applied_again";
         }
 
@@ -949,6 +948,8 @@ public class TelebirrWebhookFunction
             context.Logger.LogWarning($"{BookkeepingToken} {Describe(payment)} step=repair reason={ex.GetType().Name}");
         }
 
+        // ESC-47: after the stock and escrow repair, so a slow audit table never uses up its time.
+        await EnsurePaymentVerifiedAuditAsync(order, payment, lookForEarlierRow: true, context);
         return "applied_again";
     }
 
@@ -957,8 +958,8 @@ public class TelebirrWebhookFunction
     /// Its key is the order's <c>paymentVerifiedAt</c>, so the funding delivery and every redelivery
     /// that repairs it write the same row, and only the first write lands. A repair first looks for
     /// the row under any timestamp (servers before ESC-47 wrote it at the time of the write) and
-    /// writes nothing if it is there or cannot be read. Never throws: a failure is logged, and the
-    /// next redelivery tries again.
+    /// writes nothing if it is there or cannot be read. Never throws: a failure (read or write) is
+    /// logged with the bookkeeping token and the payment ids, and the next redelivery tries again.
     /// </summary>
     private async Task EnsurePaymentVerifiedAuditAsync(
         Dictionary<string, object> order, OrderPayment payment, bool lookForEarlierRow, ILambdaContext context)
@@ -995,10 +996,16 @@ public class TelebirrWebhookFunction
             }
         }
 
-        await TransactionAuditWriter.EmitOnceAsync(
+        var written = await TransactionAuditWriter.EmitOnceAsync(
             _txAuditRepo, context, payment.Checkout.OrderId, "order", payment.Checkout.OrderId,
             "payment_verified", "payment_submitted", "funded", AuditContext.ForSystem(TelebirrActor), verifiedAt,
             metadata: $"merchOrderId={payment.Checkout.MerchOrderId},paymentOrderId={payment.PaymentOrderId}");
+        if (!written)
+        {
+            // The writer's own line has no order or payment id; this one lets ops find the order.
+            context.Logger.LogWarning(
+                $"{BookkeepingToken} {Describe(payment)} step=payment_verified_audit reason=write_failed");
+        }
     }
 
     /// <summary>A payment that funded (or already funded) the order closes its checkout.</summary>
