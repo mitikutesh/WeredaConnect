@@ -40,7 +40,7 @@ interface DynamoTableDef {
  * S2-04 Phase 2: Audit Logging — compliance observability layer.
  *
  * Cost: ~$7/month (1 dashboard @ $3 + 12 alarms @ $0.10 + 9 custom metrics from the log
- * filters @ $0.30). The live gateway adds 4 alarms and 2 metrics on the API alarm ($0.60),
+ * filters @ $0.30). The live gateway adds 5 alarms and 2 metrics on the API alarm ($0.70),
  * 2 log metrics ($0.60) and the webhook route's 6 detailed API Gateway metrics (at most
  * $1.80, billed only for hours with webhook traffic; FUP-39). Metric filters are free.
  *
@@ -619,8 +619,8 @@ export class MonitoringStack extends cdk.Stack {
         'Check Lambda errors and CloudWatch logs for root cause.' +
         (telebirrLive
           ? ` The Telebirr webhook route (POST ${TELEBIRR_WEBHOOK_PATH}) is left out: it answers ` +
-            '500 on purpose for retryable failures; telebirr-webhook-5xx and ' +
-            'telebirr-webhook-errors watch it (FUP-39).'
+            '500 on purpose for retryable failures; the telebirr-webhook-5xx, -errors and ' +
+            '-throttles alarms watch it (FUP-39).'
           : ''),
       metric: new cloudwatch.MathExpression({
         expression: api5xxExpression,
@@ -1079,6 +1079,7 @@ export class MonitoringStack extends cdk.Stack {
     let orderPaymentProblemsAlarm: cloudwatch.Alarm | undefined;
     let webhook5xxAlarm: cloudwatch.Alarm | undefined;
     let webhookErrorsAlarm: cloudwatch.Alarm | undefined;
+    let webhookThrottlesAlarm: cloudwatch.Alarm | undefined;
     if (telebirrLive) {
       const webhookLogGroup = logs.LogGroup.fromLogGroupName(
         this,
@@ -1237,6 +1238,41 @@ export class MonitoringStack extends cdk.Stack {
       });
       webhookErrorsAlarm.addAlarmAction(snsAction);
       webhookErrorsAlarm.addOkAction(snsAction);
+
+      // A throttled invocation is not a Lambda error, so the alarm above never counts it, and at
+      // one or two payments per 15 minutes the route's 5xx stays under the volume alarm's count.
+      // Any throttle pages: a throttled notification is recorded nowhere. The limit is the reserved
+      // concurrency of 10 outside dev and the account's concurrency in dev (lambda-construct skips
+      // reserved concurrency there). Same window as the errors alarm, so a burst stays one episode.
+      webhookThrottlesAlarm = new cloudwatch.Alarm(this, 'TelebirrWebhookThrottles', {
+        alarmName: `${prefix}-telebirr-webhook-throttles`,
+        alarmDescription:
+          'The Telebirr webhook Lambda was throttled (FUP-39): more invocations at once than its ' +
+          'concurrency allows (reserved 10 outside dev, the account limit in dev), on the public ' +
+          'notification route or the 5 minute inbox replay sweep. A throttled notification never ' +
+          'ran, so it is recorded nowhere: Telebirr ' +
+          'gets an error and only its retries can bring the payment back. A throttled sweep run is ' +
+          'retried by Lambda. Check the ConcurrentExecutions of the webhook Lambda and the API ' +
+          'access log for a burst on POST /webhooks/telebirr (a flood is refused by the signature ' +
+          'check but still uses concurrency); raise the reserved concurrency only for real payment ' +
+          'volume. Then check order-payment-problems. Clears 10 to 15 minutes after the last throttle.',
+        metric: new cloudwatch.Metric({
+          namespace: 'AWS/Lambda',
+          metricName: 'Throttles',
+          dimensionsMap: { FunctionName: `${prefix}-telebirr-webhook` },
+          statistic: 'Sum',
+          period: cdk.Duration.minutes(5),
+          label: 'Telebirr Webhook Throttles',
+        }),
+        threshold: 1,
+        evaluationPeriods: 3,
+        datapointsToAlarm: 1,
+        comparisonOperator:
+          cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+      webhookThrottlesAlarm.addAlarmAction(snsAction);
+      webhookThrottlesAlarm.addOkAction(snsAction);
     }
 
     // Alarm 7: Order Cron Errors — the scheduled unpaid-order auto-cancel must never
@@ -1338,6 +1374,7 @@ export class MonitoringStack extends cdk.Stack {
           ...(orderPaymentProblemsAlarm ? [orderPaymentProblemsAlarm] : []),
           ...(webhook5xxAlarm ? [webhook5xxAlarm] : []),
           ...(webhookErrorsAlarm ? [webhookErrorsAlarm] : []),
+          ...(webhookThrottlesAlarm ? [webhookThrottlesAlarm] : []),
         ],
         width: 24,
         height: 3,

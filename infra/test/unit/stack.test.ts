@@ -1141,6 +1141,34 @@ describe('MonitoringStack', () => {
     });
   });
 
+  test('FUP-39 ON: any webhook Lambda throttle pages (not a Lambda error; under the 5xx count at low traffic)', () => {
+    const template = monitoringTemplate(true);
+    const notifiesTopic = Match.arrayWith([Match.objectLike({ Ref: Match.stringLikeRegexp('^AlarmTopic') })]);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-telebirr-webhook-throttles',
+      Metrics: [
+        Match.objectLike({
+          MetricStat: Match.objectLike({
+            Metric: Match.objectLike({
+              MetricName: 'Throttles',
+              Namespace: 'AWS/Lambda',
+              Dimensions: [{ Name: 'FunctionName', Value: 'wereda-connect-dev-telebirr-webhook' }],
+            }),
+            Period: 300,
+            Stat: 'Sum',
+          }),
+        }),
+      ],
+      Threshold: 1,
+      ComparisonOperator: 'GreaterThanOrEqualToThreshold',
+      EvaluationPeriods: 3,
+      DatapointsToAlarm: 1,
+      TreatMissingData: 'notBreaching',
+      AlarmActions: notifiesTopic,
+      OKActions: notifiesTopic,
+    });
+  });
+
   test('FUP-39 OFF: no webhook alarms (the route and the Lambda do not exist)', () => {
     const alarms = monitoringTemplate(false).findResources('AWS::CloudWatch::Alarm');
     expect(JSON.stringify(alarms)).not.toContain('telebirr-webhook');
