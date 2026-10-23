@@ -3711,5 +3711,45 @@
   "errorOrderCancelNotAllowed": "This order can't be cancelled now. It can be cancelled only when the crops were not collected in time and nothing was picked up.",
   "@errorOrderCancelNotAllowed": {
     "description": "The server (ORDER_CANCEL_NOT_ALLOWED) or the app refused to cancel an accepted order: its pickup deadline has not passed, or the crops were picked up (ESC-06)"
+  },
+  "errorDeadlinePassed": "Too late. The time for this step has passed.",
+  "@errorDeadlinePassed": {
+    "description": "The server refused an order response because its deadline passed (ORDER_DEADLINE_PASSED); on mobile the local change was undone"
+  },
+  "errorTripNotEligible": "That truck is no longer available. Choose again.",
+  "@errorTripNotEligible": {
+    "description": "The server refused an order because the trip it names can no longer take it (ORDER_TRIP_NOT_ELIGIBLE); the buyer chooses another truck"
+  },
+  "errorTransportAttemptsExceeded": "No more trucks can be tried for this order. Collect the crops yourself or cancel for a full refund.",
+  "@errorTransportAttemptsExceeded": {
+    "description": "The server refused a replacement truck because no more may be tried for this order (ORDER_TRANSPORT_ATTEMPTS_EXCEEDED); the buyer collects or cancels"
+  },
+  "errorTripCapacityExceeded": "This truck has no room left for this order. Choose another truck.",
+  "@errorTripCapacityExceeded": {
+    "description": "The server refused an order because the trip it names is full (TRIP_CAPACITY_EXCEEDED); on mobile the local order was removed"
+  },
+  "errorReputationRestricted": "Your account can't do this for now, so this change was not saved. Your current orders continue.",
+  "@errorReputationRestricted": {
+    "description": "The server refused a new listing, trip or order accept because the account is restricted for a while (REPUTATION_RESTRICTED); neutral wording, no blame; on mobile the local change was undone"
+  },
+  "errorCounterpartyRestricted": "This farmer or trucker can't take new orders right now, so the order was not placed. Please choose another.",
+  "@errorCounterpartyRestricted": {
+    "description": "The server refused a buyer's order because the listing's farmer or the trip's trucker is restricted (REPUTATION_RESTRICTED on order create); on mobile the local order was removed"
+  },
+  "errorTripHasBookings": "This trip has booked orders, so this change can't be made.",
+  "@errorTripHasBookings": {
+    "description": "The server refused a trip change because orders are booked on it (TRIP_HAS_BOOKINGS); on mobile the local trip went back to the server's"
+  },
+  "errorCropHasActiveOrders": "This listing has open orders. Handle them first.",
+  "@errorCropHasActiveOrders": {
+    "description": "The server refused to remove or reduce a listing that has funded or accepted orders (CROP_HAS_ACTIVE_ORDERS); on mobile the local listing went back to the server's"
+  },
+  "errorAppUpdateRequired": "Please update the app to continue. This change was not saved.",
+  "@errorAppUpdateRequired": {
+    "description": "The server refused a change because this app version is below its minimum (APP_UPDATE_REQUIRED); on mobile the local change was undone"
+  },
+  "errorAppUpdateRequiredKept": "Please update the app. This change is kept on your phone and will be sent after the update.",
+  "@errorAppUpdateRequiredKept": {
+    "description": "The server answered a queued change other than an order (listing, trip, delivery, rating, message, buyer request) with APP_UPDATE_REQUIRED; the app keeps it queued and sends it after the update"
   }
 }

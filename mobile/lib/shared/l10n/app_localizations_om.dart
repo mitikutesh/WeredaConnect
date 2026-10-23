@@ -2986,4 +2986,44 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get errorOrderCancelNotAllowed =>
       'Ajajni kun amma haqamuu hin danda\'u. Kan haqamu midhaan yeroodhaan yoo hin fudhatamin fi wanti tokkollee yoo hin fudhatamin qofa.';
+
+  @override
+  String get errorDeadlinePassed =>
+      'Yeroon darbeera. Yeroon tarkaanfii kanaa xumurameera.';
+
+  @override
+  String get errorTripNotEligible =>
+      'Konkolaataan fe\'aa sun amma hin argamu. Irra deebi\'aa filadhaa.';
+
+  @override
+  String get errorTransportAttemptsExceeded =>
+      'Ajaja kanaaf konkolaataan fe\'aa biraa yaalamuu hin danda\'u. Midhaan ofiin fudhadhaa, yookiin ajaja haqxanii maallaqa kaffaltan hunda deebifadhaa.';
+
+  @override
+  String get errorTripCapacityExceeded =>
+      'Konkolaataan fe\'aa kun ajaja kanaaf iddoo hin qabu. Konkolaataa fe\'aa biraa filadhaa.';
+
+  @override
+  String get errorReputationRestricted =>
+      'Herregni keessan yeroo ammaaf kana gochuu hin danda\'u, kanaaf jijjiiramni kun hin olkaa\'amne. Ajajni keessan kan amma jiran itti fufu.';
+
+  @override
+  String get errorCounterpartyRestricted =>
+      'Qonnaan bultaan yookiin konkolaataan fe\'aa kun amma ajaja haaraa fudhachuu hin danda\'u, kanaaf ajajni hin galmoofne. Maaloo kan biraa filadhaa.';
+
+  @override
+  String get errorTripHasBookings =>
+      'Imalli kun ajajoota qabame waan qabuuf, jijjiiramni kun hin danda\'amu.';
+
+  @override
+  String get errorCropHasActiveOrders =>
+      'Tarreen kun ajajoota banaa qaba. Dura isaan xumuraa.';
+
+  @override
+  String get errorAppUpdateRequired =>
+      'Itti fufuuf maaloo appii haaromsaa. Jijjiiramni kun hin olkaa\'amne.';
+
+  @override
+  String get errorAppUpdateRequiredKept =>
+      'Maaloo appii haaromsaa. Jijjiiramni kun bilbila keessan irratti kuufameera, haaromsa booda ni ergama.';
 }

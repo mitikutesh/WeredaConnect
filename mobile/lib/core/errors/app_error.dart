@@ -86,6 +86,48 @@ enum AppErrorCode {
   /// (`MESSAGE_CONTACT_LOCKED`); it was not sent.
   contactLocked,
 
+  /// A response to an order came after its deadline
+  /// (`ORDER_DEADLINE_PASSED`); nothing changed, or the local change was
+  /// undone.
+  deadlinePassed,
+
+  /// The trip an order names cannot take it (`ORDER_TRIP_NOT_ELIGIBLE`): the
+  /// buyer chooses again.
+  tripNotEligible,
+
+  /// No more trucks may be tried for the order
+  /// (`ORDER_TRANSPORT_ATTEMPTS_EXCEEDED`): collect or cancel.
+  transportAttemptsExceeded,
+
+  /// The trip an order names has no room left (`TRIP_CAPACITY_EXCEEDED`).
+  tripCapacityExceeded,
+
+  /// The acting account is restricted by reputation (`REPUTATION_RESTRICTED`
+  /// on a crop create, trip create or order accept); the change was not saved.
+  reputationRestricted,
+
+  /// The listing's farmer or the trip's trucker is restricted
+  /// (`REPUTATION_RESTRICTED` on a buyer's order create, spec A7): the order
+  /// was not placed, choose another.
+  counterpartyRestricted,
+
+  /// A trip with booked orders cannot change its date, price, route or drop
+  /// its capacity (`TRIP_HAS_BOOKINGS`); the local change was undone.
+  tripHasBookings,
+
+  /// A listing with active orders cannot be removed or reduced
+  /// (`CROP_HAS_ACTIVE_ORDERS`); the local change was undone.
+  cropHasActiveOrders,
+
+  /// This app build is below the server's minimum (`APP_UPDATE_REQUIRED`,
+  /// ESC-25); the change was not saved and the user must update (an order
+  /// command on mobile, anything on web).
+  appUpdateRequired,
+
+  /// `APP_UPDATE_REQUIRED` on a queued change other than an order command
+  /// (mobile): it is kept on the phone and sent after the update.
+  appUpdateRequiredKept,
+
   /// The server refused a queued change (not an order) for good, so it was
   /// never saved there.
   changeNotSaved,
@@ -143,6 +185,34 @@ AppErrorCode mapErrorToCode(Object error) {
         when isPaymentMethodUnavailableMessage(message) =>
       AppErrorCode.paymentMethodUnavailable,
     SyncConflictException() => AppErrorCode.conflict,
+    // Codes with their own text (spec section 8) come before the ORDER_
+    // prefix rule. There is no entity or action here, so REPUTATION_RESTRICTED
+    // reads as the actor's restriction; the web order create maps it to the
+    // owner's (OrderBloc).
+    SyncRejectedException(:final message)
+        when isAppUpdateRequiredMessage(message) =>
+      AppErrorCode.appUpdateRequired,
+    SyncRejectedException(:final message)
+        when isReputationRestrictedMessage(message) =>
+      AppErrorCode.reputationRestricted,
+    SyncRejectedException(:final message)
+        when isTripHasBookingsMessage(message) =>
+      AppErrorCode.tripHasBookings,
+    SyncRejectedException(:final message)
+        when isTripCapacityExceededMessage(message) =>
+      AppErrorCode.tripCapacityExceeded,
+    SyncRejectedException(:final message)
+        when isCropHasActiveOrdersMessage(message) =>
+      AppErrorCode.cropHasActiveOrders,
+    SyncRejectedException(:final message)
+        when isOrderDeadlinePassedMessage(message) =>
+      AppErrorCode.deadlinePassed,
+    SyncRejectedException(:final message)
+        when isOrderTripNotEligibleMessage(message) =>
+      AppErrorCode.tripNotEligible,
+    SyncRejectedException(:final message)
+        when isOrderTransportAttemptsExceededMessage(message) =>
+      AppErrorCode.transportAttemptsExceeded,
     SyncRejectedException(:final message)
         when isOrderCancelNotAllowedMessage(message) =>
       AppErrorCode.orderCancelNotAllowed,
@@ -222,6 +292,17 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.deliveryDisputeExpired => l10n.deliveryErrorDisputeExpired,
     AppErrorCode.orderCancelNotAllowed => l10n.errorOrderCancelNotAllowed,
     AppErrorCode.contactLocked => l10n.contactClosedNote,
+    AppErrorCode.deadlinePassed => l10n.errorDeadlinePassed,
+    AppErrorCode.tripNotEligible => l10n.errorTripNotEligible,
+    AppErrorCode.transportAttemptsExceeded =>
+      l10n.errorTransportAttemptsExceeded,
+    AppErrorCode.tripCapacityExceeded => l10n.errorTripCapacityExceeded,
+    AppErrorCode.reputationRestricted => l10n.errorReputationRestricted,
+    AppErrorCode.counterpartyRestricted => l10n.errorCounterpartyRestricted,
+    AppErrorCode.tripHasBookings => l10n.errorTripHasBookings,
+    AppErrorCode.cropHasActiveOrders => l10n.errorCropHasActiveOrders,
+    AppErrorCode.appUpdateRequired => l10n.errorAppUpdateRequired,
+    AppErrorCode.appUpdateRequiredKept => l10n.errorAppUpdateRequiredKept,
     AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
@@ -235,14 +316,39 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
 /// (mobile background sync, `SyncOperationRejected`). A refused order create
 /// removed the local order; any other refused order change was undone; a
 /// delivery cancel refused after pickup was undone (ESC-08), and so was a
-/// delivery dispute that was refused or too late (ESC-07); any other refused
-/// change was not saved on the server.
+/// delivery dispute that was refused or too late (ESC-07); a crop or trip
+/// change refused by reputation, bookings or active orders was undone (ESC-12
+/// part B); any other refused change was not saved on the server.
+///
+/// A code with its own text wins over the generic create text: "choose
+/// another truck" or "update the app" already says the order must be placed
+/// again.
 AppErrorCode syncRejectionErrorCode({
   required String entityType,
   required String action,
   required String message,
 }) {
+  if (isAppUpdateRequiredMessage(message)) {
+    // Only an order command is refused for the app version; anything else
+    // stays queued for the updated build (sync-protocol.md 1.17.0).
+    return entityType == 'order'
+        ? AppErrorCode.appUpdateRequired
+        : AppErrorCode.appUpdateRequiredKept;
+  }
   if (entityType == 'order') {
+    if (isReputationRestrictedMessage(message)) {
+      // On a create the restricted party is the listing's or trip's owner
+      // (spec A7), not the buyer who ordered.
+      return action == 'create'
+          ? AppErrorCode.counterpartyRestricted
+          : AppErrorCode.reputationRestricted;
+    }
+    if (isTripCapacityExceededMessage(message)) {
+      return AppErrorCode.tripCapacityExceeded;
+    }
+    if (isOrderTripNotEligibleMessage(message)) {
+      return AppErrorCode.tripNotEligible;
+    }
     if (action == 'create') return AppErrorCode.orderNotPlaced;
     if (isOrderCancelNotAllowedMessage(message)) {
       return AppErrorCode.orderCancelNotAllowed;
@@ -250,9 +356,24 @@ AppErrorCode syncRejectionErrorCode({
     if (isPaymentMethodUnavailableMessage(message)) {
       return AppErrorCode.paymentMethodUnavailable;
     }
+    if (isOrderDeadlinePassedMessage(message)) {
+      return AppErrorCode.deadlinePassed;
+    }
+    if (isOrderTransportAttemptsExceededMessage(message)) {
+      return AppErrorCode.transportAttemptsExceeded;
+    }
     return isPaymentTotalOutOfRangeMessage(message)
         ? AppErrorCode.paymentTotalOutOfRange
         : AppErrorCode.orderRefused;
+  }
+  if (isReputationRestrictedMessage(message)) {
+    return AppErrorCode.reputationRestricted;
+  }
+  if (isTripHasBookingsMessage(message)) {
+    return AppErrorCode.tripHasBookings;
+  }
+  if (isCropHasActiveOrdersMessage(message)) {
+    return AppErrorCode.cropHasActiveOrders;
   }
   if (isDeliveryCancelRefusalMessage(message)) {
     return AppErrorCode.deliveryCancelNotAllowed;
