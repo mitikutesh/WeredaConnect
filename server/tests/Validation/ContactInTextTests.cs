@@ -64,6 +64,22 @@ public class ContactInTextTests
         JoinedBy(0x2013, "0911", "23", "45", "67"),
         JoinedBy(0x2212, "0911", "234", "567"),
         JoinedBy(0x00A0, "0911", "234567"),
+        // Invisible format characters are dropped and do not count toward the gap
+        JoinedBy(0x200B, "0911", "223344"),
+        JoinedBy(0x200F, "0911", "223344"),
+        JoinedBy(0x00AD, "0911", "223344"),
+        JoinedBy(0x2060, "0911", "223344"),
+        JoinedBy(0x2064, "0911", "223344"),
+        JoinedBy(0xFEFF, "0911", "223344"),
+        "0" + (char)0x200B + "911" + (char)0x200D + "234567",
+        "0911 " + new string((char)0x200B, 3) + " 223344",
+        // Other Unicode spaces separate groups
+        JoinedBy(0x2000, "0911", "223344"),
+        JoinedBy(0x2002, "0911", "223344"),
+        JoinedBy(0x200A, "0911", "223344"),
+        JoinedBy(0x205F, "0911", "223344"),
+        JoinedBy(0x3000, "0911", "223344"),
+        JoinedBy(0x1680, "0911", "223344"),
     };
 
     public static TheoryData<string> NotPhoneNumbers => new()
@@ -76,6 +92,9 @@ public class ContactInTextTests
         "Harvested 09-10-2026 50 quintals",
         "Harvested 09.10.2026 50 quintals",
         "Harvested 09-10-18 5000 kg",
+        "Available 01-09-2017-30-09-2017",
+        "Available 01.09.2017.30.09.2017",
+        "Harvested 09 10 2017 50 quintals",
         "2026-10-23 500 quintals",
         "Price 7500 birr, 950 kg available",
         "Whole lot 750 000 - 800 000 birr",
@@ -101,11 +120,13 @@ public class ContactInTextTests
         "አይሱዙ 2015 ሞዴል 70 ኩንታል",
         "ቀበሌ 07 ዞን 3",
         "09-10-2018 50 ኩንታል",
+        "ተሰብስቧል 09 10 2017 50 ኩንታል",
         // Afan Oromo
         "Xaafii adii kuntaala 50, kiilootti qarshii 120",
         "Fe'umsa kuntaala 70, bara 2015",
         "Ganda 07, Godina 3",
         "Guyyaa 09.10.2018 50 kuntaala",
+        "Bale 09 07 2017 12 kuntaala",
     };
 
     [Theory]

@@ -188,7 +188,6 @@ public class SyncFunctionContactInTextTests
     [InlineData("description", "ለበለጠ መረጃ 0911 23 45 67 ይደውሉ")]
     [InlineData("description", "Bilbilaa +251 911 234 567 irratti bilbilaa")]
     [InlineData("locationName", "Jimma, 0712-345-678")]
-    [InlineData("woreda", "Jimma 251911234567")]
     public async Task CropCreate_PhoneNumberInText_IsRefusedAndNotWritten(string field, string text)
     {
         var op = Op("crop_listing", "crop-001", "create", CropCreateData((field, text)));
@@ -200,6 +199,20 @@ public class SyncFunctionContactInTextTests
         await _crops.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
         await _meta.DidNotReceive().StoreIdempotencyKeyAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task CropCreate_WoredaFromTheProfile_IsNotScreened()
+    {
+        // Clients send the registration profile's woreda; a refusal here would lock the farmer
+        // out with nothing to fix in the form. Profile text belongs to registration and profile
+        // update (a follow-up).
+        var op = Op("crop_listing", "crop-001", "create", CropCreateData(("woreda", "Jimma 0911234567")));
+
+        var response = await _fn.FunctionHandler(Req(op, "farmer-001", "farmer"), _ctx);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await _crops.Received(1).CreateAsync("crop-001", Arg.Any<Dictionary<string, object>>());
     }
 
     [Fact]

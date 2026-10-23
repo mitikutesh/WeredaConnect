@@ -30,6 +30,9 @@ public static class ContactInText
             return false;
         }
 
+        // Invisible format characters are dropped first, so they neither split a number nor
+        // count toward the gap between its groups ("0911", a zero-width space, "223344").
+        text = WithoutFormatCharacters(text);
         var groups = ReadDigitGroups(text);
         var count = groups.Count;
 
@@ -46,15 +49,20 @@ public static class ContactInText
         }
 
         // A date never joins a number: without this, "09-10-2018 50 quintals" reads as
-        // 0910201850. A date is three groups joined by the same single '-' or '.', not continued
-        // by that character on either side (so the tail of "0911-12-10-15" stays a number).
+        // 0910201850. A date is three groups joined by the same single '-', '.' or space. With a
+        // 4-digit year it is a date even when that separator goes on ("01-09-2017-30-09-2017",
+        // "09 10 2017 50 quintals"); with a 2-digit year only when it does not, so the tail of
+        // "0911-12-10-15" stays a number.
         var isDate = new bool[count];
         for (var i = 0; i + 2 < count; i++)
         {
             var sep = gapChar[i + 1];
-            if ((sep == '-' || sep == '.') && gapChar[i + 2] == sep
-                && gapChar[i] != sep && (i + 3 >= count || gapChar[i + 3] != sep)
-                && IsDateShape(groups[i].Digits, groups[i + 1].Digits, groups[i + 2].Digits))
+            var first = groups[i].Digits;
+            var last = groups[i + 2].Digits;
+            if ((sep == '-' || sep == '.' || sep == ' ') && gapChar[i + 2] == sep
+                && IsDateShape(first, groups[i + 1].Digits, last)
+                && (IsYear(first) || IsYear(last)
+                    || (gapChar[i] != sep && (i + 3 >= count || gapChar[i + 3] != sep))))
             {
                 isDate[i] = isDate[i + 1] = isDate[i + 2] = true;
             }
@@ -153,6 +161,36 @@ public static class ContactInText
         return false;
     }
 
+    /// <summary>
+    /// Invisible format characters: soft hyphen, zero-width space, joiners and direction marks,
+    /// word joiner and invisible operators, zero-width no-break space (byte order mark).
+    /// </summary>
+    private static bool IsFormatCharacter(char c) => (int)c switch
+    {
+        0x00AD or 0xFEFF => true,
+        >= 0x200B and <= 0x200F => true,
+        >= 0x2060 and <= 0x2064 => true,
+        _ => false,
+    };
+
+    private static string WithoutFormatCharacters(string text)
+    {
+        StringBuilder? kept = null;
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (IsFormatCharacter(text[i]))
+            {
+                kept ??= new StringBuilder(text, 0, i, text.Length);
+            }
+            else
+            {
+                kept?.Append(text[i]);
+            }
+        }
+
+        return kept?.ToString() ?? text;
+    }
+
     /// <summary>Maximal digit runs, with every digit form mapped to ASCII.</summary>
     private static List<DigitGroup> ReadDigitGroups(string text)
     {
@@ -195,13 +233,16 @@ public static class ContactInText
     };
 
     /// <summary>
-    /// Characters people put between the digit groups of a phone number. Comma, slash and colon
-    /// are not among them: they separate prices, fractions and times.
+    /// Characters people put between the digit groups of a phone number, including the Unicode
+    /// spaces a keyboard or a paste can bring. Comma, slash and colon are not among them: they
+    /// separate prices, fractions and times.
     /// </summary>
     private static bool IsSeparator(char c) => (int)c switch
     {
         0x0020 or 0x0009 or 0x000D or 0x000A => true, // space, tab, line breaks
         0x00A0 or 0x202F or 0x1361 => true, // no-break spaces, Ethiopic wordspace
+        >= 0x2000 and <= 0x200A => true, // typographic spaces
+        0x205F or 0x3000 or 0x1680 => true, // math, ideographic and Ogham spaces
         0x002E or 0x002D or 0x0028 or 0x0029 or 0x002B => true, // . - ( ) +
         >= 0x2010 and <= 0x2015 => true, // Unicode hyphens and dashes
         0x2212 => true, // minus sign

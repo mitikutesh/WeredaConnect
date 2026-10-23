@@ -19,6 +19,7 @@ const int _maxGapLength = 3;
 
 const int _hyphen = 0x2D;
 const int _dot = 0x2E;
+const int _space = 0x20;
 
 /// Whether [text] holds a mobile number: a 9 or 7 followed by 8 digits, after
 /// a trunk 0, after 251 or 00251 (with or without the trunk 0), or bare,
@@ -27,7 +28,11 @@ const int _dot = 0x2E;
 bool containsPhoneNumber(String? text) {
   if (text == null || text.isEmpty) return false;
 
-  final groups = _readDigitGroups(text);
+  // Invisible format characters are dropped first, so they neither split a
+  // number nor count toward the gap between its groups ("0911", a zero-width
+  // space, "223344").
+  final scanned = _withoutFormatCharacters(text);
+  final groups = _readDigitGroups(scanned);
   final count = groups.length;
 
   // linked[i]: group i continues group i - 1 (the gap between them is 1 to 3
@@ -38,26 +43,27 @@ bool containsPhoneNumber(String? text) {
     final gapStart = groups[i - 1].end;
     final gapLength = groups[i].start - gapStart;
     linked[i] = gapLength <= _maxGapLength &&
-        _isSeparatorRun(text, gapStart, gapLength);
-    gapChar[i] = gapLength == 1 ? text.codeUnitAt(gapStart) : 0;
+        _isSeparatorRun(scanned, gapStart, gapLength);
+    gapChar[i] = gapLength == 1 ? scanned.codeUnitAt(gapStart) : 0;
   }
 
   // A date never joins a number: without this, "09-10-2018 50 quintals"
-  // reads as 0910201850. A date is three groups joined by the same single '-'
-  // or '.', not continued by that character on either side (so the tail of
-  // "0911-12-10-15" stays a number).
+  // reads as 0910201850. A date is three groups joined by the same single '-',
+  // '.' or space. With a 4-digit year it is a date even when that separator
+  // goes on ("01-09-2017-30-09-2017", "09 10 2017 50 quintals"); with a
+  // 2-digit year only when it does not, so the tail of "0911-12-10-15" stays a
+  // number.
   final isDate = List<bool>.filled(count, false);
   for (var i = 0; i + 2 < count; i++) {
     final sep = gapChar[i + 1];
-    if ((sep == _hyphen || sep == _dot) &&
+    final first = groups[i].digits;
+    final last = groups[i + 2].digits;
+    if ((sep == _hyphen || sep == _dot || sep == _space) &&
         gapChar[i + 2] == sep &&
-        gapChar[i] != sep &&
-        (i + 3 >= count || gapChar[i + 3] != sep) &&
-        _isDateShape(
-          groups[i].digits,
-          groups[i + 1].digits,
-          groups[i + 2].digits,
-        )) {
+        _isDateShape(first, groups[i + 1].digits, last) &&
+        (_isYear(first) ||
+            _isYear(last) ||
+            (gapChar[i] != sep && (i + 3 >= count || gapChar[i + 3] != sep)))) {
       isDate[i] = isDate[i + 1] = isDate[i + 2] = true;
     }
   }
@@ -106,6 +112,22 @@ bool _chainHoldsNumber(List<_DigitGroup> groups, int first, int last) {
   return false;
 }
 
+/// Invisible format characters: soft hyphen, zero-width space, joiners and
+/// direction marks, word joiner and invisible operators, zero-width no-break
+/// space (byte order mark).
+bool _isFormatCharacter(int c) =>
+    c == 0x00AD ||
+    c == 0xFEFF ||
+    (c >= 0x200B && c <= 0x200F) ||
+    (c >= 0x2060 && c <= 0x2064);
+
+String _withoutFormatCharacters(String text) {
+  if (!text.codeUnits.any(_isFormatCharacter)) return text;
+  return String.fromCharCodes(
+    text.codeUnits.where((c) => !_isFormatCharacter(c)),
+  );
+}
+
 /// Maximal digit runs, with every digit form mapped to ASCII.
 List<_DigitGroup> _readDigitGroups(String text) {
   final groups = <_DigitGroup>[];
@@ -139,9 +161,9 @@ int _digitValue(int c) {
   return -1;
 }
 
-/// Characters people put between the digit groups of a phone number. Comma,
-/// slash and colon are not among them: they separate prices, fractions and
-/// times.
+/// Characters people put between the digit groups of a phone number,
+/// including the Unicode spaces a keyboard or a paste can bring. Comma, slash
+/// and colon are not among them: they separate prices, fractions and times.
 bool _isSeparator(int c) =>
     // space, tab, line breaks
     c == 0x0020 ||
@@ -152,6 +174,12 @@ bool _isSeparator(int c) =>
     c == 0x00A0 ||
     c == 0x202F ||
     c == 0x1361 ||
+    // typographic spaces
+    (c >= 0x2000 && c <= 0x200A) ||
+    // math, ideographic and Ogham spaces
+    c == 0x205F ||
+    c == 0x3000 ||
+    c == 0x1680 ||
     // . - ( ) +
     c == 0x002E ||
     c == 0x002D ||

@@ -435,7 +435,7 @@ times) and keep their local copy.
 
 A `crop_listing` or `trip` create, or an update that changes the text, is refused when text that
 buyers read before any order holds a phone number (`crop-listing-api.md` 1.4.0 rule 6b for
-`description`, `locationName`, `woreda`; `trip-listing-api.md` 1.5.0 rule 10 for
+`description`, `locationName`; `trip-listing-api.md` 1.5.0 rule 10 for
 `vehicleDescription`, `vehiclePlate`, `fromWoreda`, `toWoreda`):
 
 `CROP_CONTACT_IN_TEXT: Remove the phone number from <fields>. Contact opens after payment is held in escrow.`

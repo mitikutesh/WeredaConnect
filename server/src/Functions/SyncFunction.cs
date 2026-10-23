@@ -216,9 +216,10 @@ public partial class SyncFunction
     /// <summary>
     /// FUP-49: listing text that buyers read before any order. ESC-48 keeps contact closed until
     /// the money is held, so none of it may carry a phone number (crop-listing-api.md 1.4.0,
-    /// trip-listing-api.md 1.5.0).
+    /// trip-listing-api.md 1.5.0). The crop `woreda` is not screened here: clients send it from
+    /// the registration profile, so a refusal would lock the farmer out with nothing to fix.
     /// </summary>
-    private static readonly string[] CropContactScreenedFields = { "description", "locationName", "woreda" };
+    private static readonly string[] CropContactScreenedFields = { "description", "locationName" };
 
     private static readonly string[] TripContactScreenedFields =
     {
