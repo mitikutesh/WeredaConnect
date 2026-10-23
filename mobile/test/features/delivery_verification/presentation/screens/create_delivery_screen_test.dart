@@ -280,5 +280,33 @@ void main() {
       // Error is localized via localizeDeliveryError; null code maps to generic
       expect(find.text('Delivery operation failed'), findsOneWidget);
     });
+
+    // SIM-50: 25 Oct picked in Addis Ababa comes back from the server as
+    // 2026-10-24T21:00:00.000Z; the trip picker shows 25 Oct.
+    testWidgets('trip picker shows the departure day the trucker picked',
+        (tester) async {
+      when(() => tripRepository.getTripsByTrucker('trucker-001')).thenAnswer(
+        (_) async => [
+          _makeTrip()
+            ..departureDate = DateTime.parse('2026-10-24T21:00:00.000Z'),
+        ],
+      );
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+      final picker = find.byType(DropdownButtonFormField<Trip>);
+      await tester.ensureVisible(picker);
+      await tester.tap(picker);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Bishoftu -> Addis Ababa (Oct 25, 2026)'),
+        findsWidgets,
+      );
+      expect(
+        find.text('Bishoftu -> Addis Ababa (Oct 24, 2026)'),
+        findsNothing,
+      );
+    });
   });
 }
