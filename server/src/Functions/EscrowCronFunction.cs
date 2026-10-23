@@ -427,9 +427,10 @@ public class EscrowCronFunction
         _fraudHolds = 0;
         _riskSkips = 0;
         RiskGate?.BeginRun();
-        // FRD-04 (fraud-detection-architecture.md 14.4): a gate without the signals table holds suspended
-        // parties only. With the flag on, a CRITICAL party would then be paid without a trace, so say so.
-        if (FraudHoldEnabled && RiskGate is { ReadsRiskTier: false })
+        // FRD-04 (fraud-detection-architecture.md 14.4): a gate without the signals table stops suspended
+        // parties only. Flag on or off (off, the skip is what keeps a CRITICAL party unpaid), a CRITICAL
+        // party would then be paid without a trace, so say so.
+        if (RiskGate is { ReadsRiskTier: false })
         {
             context.Logger.LogError(MoneyAlarmLog.RiskTableUnconfigured("auto_release_and_refund"));
         }

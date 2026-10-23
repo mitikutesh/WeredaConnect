@@ -38,8 +38,8 @@ public interface ISettlementRiskGate
     void BeginRun();
 
     /// <summary>
-    /// FRD-04: whether the gate reads the parties' risk tiers. Without them it holds suspended parties
-    /// only, so a sweep with <c>FRAUD_HOLD_ENABLED</c> on logs <c>RISK_TABLE_UNCONFIGURED</c> (section 14.4).
+    /// FRD-04: whether the gate reads the parties' risk tiers. Without them it stops suspended parties
+    /// only, so each sweep run logs <c>RISK_TABLE_UNCONFIGURED</c>, flag on or off (section 14.4).
     /// </summary>
     bool ReadsRiskTier { get; }
 

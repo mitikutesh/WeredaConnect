@@ -309,7 +309,7 @@ If the same `idempotencyKey` is received again, return the cached result with `2
 | `403` | `AUTH_040` / `AUTH_041` | Step-up required (1.4.0 payment tiers; from 1.7.0 also raised by the caller's risk tier, built in 1.27.0, FRD-04). See Additions in 1.3.0, 1.7.0 and 1.27.0 |
 | `403` | `FRAUD_ACCOUNT_HELD` | Caller's risk tier is CRITICAL; nothing held (1.7.0; built in 1.27.0, FRD-04) |
 | `500` | `ESCROW_012` | Internal server error |
-| `503` | `ESCROW_012` | Buyer profile could not be read for the Fayda step-up check (amount above 10,000 ETB); nothing held, safe to retry (1.4.0) |
+| `503` | `ESCROW_012` | Buyer profile could not be read for the Fayda step-up check (amount above 10,000 ETB, 1.4.0; from 1.27.0 also at any amount when the caller's risk tier is HIGH); nothing held, safe to retry |
 | `502` | `ESCROW_013` | Telebirr gateway error (upstream failure) |
 | `503` | `ESCROW_014` | Telebirr service unavailable |
 
@@ -1641,8 +1641,8 @@ returned. The `AUTH_041` message becomes amount-neutral; clients key on the code
 - **Flag**: `FRAUD_HOLD_ENABLED`, default false. Off, a sweep that finds a trigger skips the escrow
   (status unchanged, no money, alarm token `RISK_SETTLEMENT_SKIPPED`) and retries next hour. A sweep
   that cannot read a party's tier or user row also skips the escrow for that run (no settlement) and
-  logs the same token with its reason. With the flag on and no `FRAUD_SIGNALS_TABLE` configured the
-  sweep logs `RISK_TABLE_UNCONFIGURED` once per run.
+  logs the same token with its reason. With no `FRAUD_SIGNALS_TABLE` configured the sweep logs
+  `RISK_TABLE_UNCONFIGURED` once per run, flag on or off (1.27.0).
 - **Client compatibility**: `held` is a value shipped clients do not parse (mobile throws, web shows
   `initiated`), as is `dispute_resolved` already. FRD-06 ships the tolerant parser and the
   "Under review" badge for mobile and web; the flag is turned on only after FRD-06 is on web and in
@@ -3715,7 +3715,8 @@ Builds the risk tier of 1.7.0. Design: `specs/architecture/fraud-detection-archi
   `Your account is under review. Some actions are paused. Contact support.`, then the step-up with the
   tier (`auth-api.md` 2.10.0: MEDIUM adds the fresh password at any amount, HIGH the Fayda login and then
   the password at any amount; the buyer's profile is read for the Fayda login above 10,000 ETB and,
-  from HIGH, at any amount; without the users table the Fayda check fails closed), then velocity
+  from HIGH, at any amount, and a profile that cannot be read answers `503 ESCROW_012` with nothing held;
+  without the users table the Fayda check fails closed), then velocity
   (`ESCROW_011`). A refused request writes nothing, calls no gateway and is not counted for velocity.
 - `POST /escrow/order-checkout`: the role and body checks (`ESCROW_025`, `ESCROW_033`), then CRITICAL
   `403 FRAUD_ACCOUNT_HELD` before the velocity check, the order read and any Telebirr call. No step-up
@@ -3734,12 +3735,13 @@ Builds the risk tier of 1.7.0. Design: `specs/architecture/fraud-detection-archi
   `FRAUD_HOLD_ENABLED` on the escrow is held as in 1.22.0; with it off the sweep skips it and logs
   `RISK_SETTLEMENT_SKIPPED ... reason=flag_off holdReason=risk_critical`. A CRITICAL party holds the
   escrow even when another party's score could not be read.
-- A party whose score could not be read skips the escrow for this run, flag on or off
+- Otherwise a party whose score could not be read skips the escrow for this run, flag on or off
   (`RISK_SETTLEMENT_SKIPPED ... reason=score_unavailable holdReason=-`): an unread score carries tier
   LOW and must not settle. A failed read is remembered for the run, so every escrow of that party waits.
   The next hourly run reads again.
-- A missing fraud-signals table is LOW (suspended parties still hold). With `FRAUD_HOLD_ENABLED` on and no
-  tier reading, escrow-cron logs `RISK_TABLE_UNCONFIGURED action=auto_release_and_refund` once per run.
+- A missing fraud-signals table is LOW (suspended parties still hold). Without tier reading, escrow-cron
+  logs `RISK_TABLE_UNCONFIGURED action=auto_release_and_refund` once per run, flag on or off: with the flag
+  off the `flag_off` skip is what keeps a CRITICAL party unpaid, so a missing table matters either way.
   escrow-cron now gets `FRAUD_SIGNALS_TABLE` with read access only.
 - MEDIUM and HIGH settle as before.
 - The `fraud_hold` metadata (escrow-audit and transaction-audit) of a `risk_critical` hold adds
@@ -3750,6 +3752,9 @@ Builds the risk tier of 1.7.0. Design: `specs/architecture/fraud-detection-archi
 - The tier in the audit metadata of a MEDIUM or HIGH settlement and of the admin release and refund
   (fraud spec section 17 matrix).
 - `fraud_confirmed` (FRD-05); HIGH's payout delay (FRD-13); the `RISK_TABLE_UNCONFIGURED` alarm (FRD-16).
+- The hourly trucker leg retry (`RetryPendingTruckerLegsAsync`, 1.11.0) is not risk-gated: a trucker who
+  turns CRITICAL after the release still gets a pending leg paid, as a suspended one does (1.22.0).
+  `held` never applies to a released escrow; FUP-29 covers both.
 
 ---
 
@@ -3757,7 +3762,7 @@ Builds the risk tier of 1.7.0. Design: `specs/architecture/fraud-detection-archi
 
 | Version | Date | Change |
 |---------|------|--------|
-| 1.27.0 | 2026-10-23 | Risk tier gates built (FRD-04, the 1.7.0 rules): `POST /escrow/initiate` refuses a caller at risk tier CRITICAL with `403 FRAUD_ACCOUNT_HELD` after the role check and before the step-up and velocity, and the step-up takes the tier (MEDIUM the password at any amount, HIGH Fayda and then the password at any amount); `POST /escrow/order-checkout` refuses CRITICAL before velocity and any Telebirr call; an unreadable score or a missing fraud service is LOW at these gates; the settlement sweeps hold (flag on) or skip (flag off) the escrow of a party at CRITICAL (`holdReason: risk_critical`, tier and score in the `fraud_hold` audit metadata) and skip, flag on or off, one whose score cannot be read (`reason=score_unavailable`); escrow-cron reads the fraud-signals table and logs `RISK_TABLE_UNCONFIGURED` when the flag is on without it; `AUTH_041` text amount-neutral; admin routes not gated; no client change |
+| 1.27.0 | 2026-10-23 | Risk tier gates built (FRD-04, the 1.7.0 rules): `POST /escrow/initiate` refuses a caller at risk tier CRITICAL with `403 FRAUD_ACCOUNT_HELD` after the role check and before the step-up and velocity, and the step-up takes the tier (MEDIUM the password at any amount, HIGH Fayda and then the password at any amount); `POST /escrow/order-checkout` refuses CRITICAL before velocity and any Telebirr call; an unreadable score or a missing fraud service is LOW at these gates; the settlement sweeps hold (flag on) or skip (flag off) the escrow of a party at CRITICAL (`holdReason: risk_critical`, tier and score in the `fraud_hold` audit metadata) and skip, flag on or off, one whose score cannot be read (`reason=score_unavailable`); escrow-cron reads the fraud-signals table and logs `RISK_TABLE_UNCONFIGURED` once per run without it, flag on or off; `AUTH_041` text amount-neutral; admin routes not gated; no client change |
 | 1.26.0 | 2026-10-23 | Dispute alarms (FUP-27): `DISPUTE_PROPAGATION_FAILED` (a dispute mirror leg that failed) is counted in the escrow, sync and escrow-cron log groups, the Lambdas that run the mirror, by the new alarm `dispute-propagation-failed` (money alarm shape); the line is written through the money alarm sink with its `legs` defanged like the verdict lines (the `dispute_propagation_failed` audit row keeps them raw); the sync Lambda logs `DELIVERY_DISPUTE_FROZEN escrowId=.. orderId=.. deliveryId=..` once a delivery dispute froze its escrow, counted into the `escrow-dispute-rate` metric with the escrow Lambda's `POST /escrow/dispute` audit line (an escrow already disputed, a refused or undecided freeze and the repairs of pre-1.12.0 disputes are not counted); no API, error code or client change (1.18.0 and 1.20.0 to 1.25.0 are in flight) |
 | 1.25.0 | 2026-10-23 | Transport cancel and dispute race (FUP-32): the buyer's transport-failure cancel writes the order and the refund arm (`expiresAt`, `refundReason`) on each held escrow in one `TransactWriteItems`, the escrow item conditioned on a plain hold, so a freeze that landed after the check refuses the cancel (`ORDER_CANCEL_NOT_ALLOWED`) and nothing is written; every freeze write requires `attribute_not_exists(refundReason)`: `POST /escrow/dispute` on an `escrowed` escrow with a scheduled refund answers `409 ESCROW_INVALID_TRANSITION` (also after a lost race or a `TransactionConflictException`, key freed), a delivery dispute is refused (`DELIVERY_DISPUTE_REFUSED`, audit `dispute_refused_refund_scheduled`), the escrow-cron legacy freeze blocks with the permanent reason `freeze_refund_scheduled` (alarmed once, not asked again); `refund_scheduled` audit row after the commit, a failed row logged `ORDER_ESCROW_REFUND_AUDIT_FAILED` (not alarmed); no client change (`order-lifecycle.md` 1.23.0) |
 | 1.24.0 | 2026-10-23 | The dispute step-up read fails closed with a typed answer (FUP-44): when `POST /escrow/dispute` cannot read the escrow (or an admin caller's profile) to decide the step-up, it answers `503 ESCROW_012` with nothing written (no escrow write, no escrow-audit row, no idempotency record), so the same request can be retried; before, the exception escaped the handler and API Gateway answered `502` without a code; no new read or write (1.20.0 to 1.23.0 belong to other tickets still in flight) |

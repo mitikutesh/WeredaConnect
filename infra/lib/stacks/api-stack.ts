@@ -1099,7 +1099,7 @@ export class ApiStack extends cdk.Stack {
         DISPUTE_WINDOW_PARAM: disputeWindowParam.parameterName,
         ESCROW_TIMEOUT_PARAM: escrowTimeoutParam.parameterName,
         // FRD-04: the settlement gate reads each party's risk tier (fraud-detection-architecture.md
-        // 17.2). Without it only suspended parties are held, and a flag-on run logs RISK_TABLE_UNCONFIGURED.
+        // 17.2). Without it only suspended parties are stopped, and every run logs RISK_TABLE_UNCONFIGURED.
         FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
         // FRD-03: off, a sweep that finds a suspended party (FRD-04: or a party at risk tier CRITICAL)
         // skips that settlement and logs RISK_SETTLEMENT_SKIPPED; on, it writes the escrow status `held`.

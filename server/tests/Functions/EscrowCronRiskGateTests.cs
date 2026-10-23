@@ -461,27 +461,33 @@ public class EscrowCronRiskGateTests
 
     // ── RISK_TABLE_UNCONFIGURED (section 14.4) ──
 
-    [Fact]
-    public async Task FlagOn_AGateThatReadsNoTier_LogsTheTokenOncePerRun()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AGateThatReadsNoTier_LogsTheTokenOncePerRun_FlagOnOrOff(bool flagOn)
     {
+        // With the flag off the flag_off skip is what keeps a CRITICAL party unpaid, so a missing table
+        // matters as much as with it on.
+        ScoreIs("farmer", Scored(RiskTier.Critical, 150));
         DueIn("auto-release", n: 2);
 
-        await RunAsync(Cron(flagOn: true, readsTier: false));
+        await RunAsync(Cron(flagOn, readsTier: false));
 
         Logs.Split('\n').Count(l => l.Contains("RISK_TABLE_UNCONFIGURED action=auto_release_and_refund")).Should().Be(1);
-        // Without the tier the gate is FRD-03's: both escrows settle, which is what the token warns about.
+        // Without the tier the gate is FRD-03's: both escrows of the CRITICAL farmer settle, which is what
+        // the token warns about.
         await _gateway.Received(2).ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        await _fraud.DidNotReceiveWithAnyArgs().GetUserRiskScoreAsync(default!);
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, true)]
-    [InlineData(false, true)]
-    public async Task NoToken_WithTheFlagOff_OrAGateThatReadsTheTier(bool flagOn, bool readsTier)
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task NoToken_WhenTheGateReadsTheTier_FlagOnOrOff(bool flagOn)
     {
         DueIn("auto-release");
 
-        await RunAsync(Cron(flagOn, readsTier));
+        await RunAsync(Cron(flagOn, readsTier: true));
 
         Logs.Should().NotContain("RISK_TABLE_UNCONFIGURED");
     }

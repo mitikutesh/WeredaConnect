@@ -25,7 +25,7 @@ public class MoneyAlarmLogTests
         "TELEBIRR_INBOX_REPLAY_RUN",
         // FRD-03: RISK_SETTLEMENT_SKIPPED is counted from FRD-03, RISK_HOLD_ORDER_MISMATCH by FRD-16.
         "RISK_SETTLEMENT_SKIPPED", "RISK_HOLD_ORDER_MISMATCH",
-        // FRD-04: counted by FRD-16 from the day FRAUD_HOLD_ENABLED is turned on.
+        // FRD-04: logged flag on or off; its metric filter and alarm are FRD-16's.
         "RISK_TABLE_UNCONFIGURED",
         // FUP-27: the dispute mirror's failed legs, and a sync delivery dispute's freeze (dispute rate).
         "DISPUTE_PROPAGATION_FAILED", "DELIVERY_DISPUTE_FROZEN"

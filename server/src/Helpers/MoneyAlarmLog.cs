@@ -34,8 +34,8 @@ namespace WeredaConnect.Server.Helpers;
 /// a party risk score it could not read; the <c>risk-settlement-skipped</c> alarm counts it from the FRD-03
 /// deploy. The escrow Lambda logs <c>RISK_HOLD_ORDER_MISMATCH</c> each time an admin refund of a held
 /// escrow is refused because its order cannot follow the refund; FRD-16 adds its alarm. FRD-04:
-/// escrow-cron logs <c>RISK_TABLE_UNCONFIGURED</c> once per settlement run while <c>FRAUD_HOLD_ENABLED</c>
-/// is on and its gate reads no risk tier (no <c>FRAUD_SIGNALS_TABLE</c>), so a CRITICAL party is not held
+/// escrow-cron logs <c>RISK_TABLE_UNCONFIGURED</c> once per settlement run while its gate reads no risk
+/// tier (no <c>FRAUD_SIGNALS_TABLE</c>), flag on or off, so a CRITICAL party is neither held nor skipped
 /// (section 14.4); FRD-16 adds its alarm.
 /// </para>
 /// <para>
@@ -194,7 +194,7 @@ public static class MoneyAlarmLog
     public static string RiskSettlementSkipped(string? escrowId, string? sweep, string? reason, string? holdReason)
         => $"{RiskSettlementSkippedToken} escrowId={LogId(escrowId)} sweep={Safe(sweep)} reason={Safe(reason)} holdReason={Safe(holdReason)}";
 
-    /// <summary>FRD-04: the flag is on but the settlement gate reads no risk tier, so only suspended parties are held.</summary>
+    /// <summary>FRD-04: the settlement gate reads no risk tier, so only suspended parties are held or skipped.</summary>
     public static string RiskTableUnconfigured(string? action)
         => $"{RiskTableUnconfiguredToken} action={Safe(action)}";
 
