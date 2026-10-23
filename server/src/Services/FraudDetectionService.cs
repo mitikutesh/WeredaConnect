@@ -42,6 +42,18 @@ public sealed class FraudDetectionService : IFraudDetectionService
     /// <summary>AI reviewer output (FRD-19): capped, and left out of the enforcement score.</summary>
     internal const string AdvisorySignalType = "AI_ADVISORY";
 
+    // Row kinds of the fraud-signals table (section 20). Rows without recordType are legacy signal rows.
+    internal const string RecordTypeSignal = "signal";
+    internal const string RecordTypeCredit = "credit";
+    internal const string RecordTypeWhitelist = "whitelist";
+
+    /// <summary>The key of a user's one whitelist row; sorts after every ISO key, so a newest-first read meets it first.</summary>
+    internal const string WhitelistSignalKey = "~whitelist";
+
+    // FRD-05: how long an admin whitelist lasts (section 14.5, FRAUD_WHITELIST_DAYS).
+    internal const int DefaultWhitelistDays = 30;
+    internal const int WhitelistDaysCap = 365;
+
     /// <summary>Log alarm token: the score read failed and the user was scored LOW (section 14.4).</summary>
     public const string RiskScoreUnavailableToken = "RISK_SCORE_UNAVAILABLE";
 
@@ -304,6 +316,16 @@ public sealed class FraudDetectionService : IFraudDetectionService
         signalType is "GPS_ANOMALY" or "PRICE_ANOMALY"
             or QrHandoffFailureSignal or TelebirrPayerMismatchSignal
             or StaleVersionBurstSignal or SuspendedTokenUseSignal;
+
+    /// <summary>
+    /// FRD-05: the whitelist duration in days. A value that is not an integer from 1 to
+    /// <see cref="WhitelistDaysCap"/> keeps the default, so a typo cannot whitelist a user for good.
+    /// </summary>
+    internal static int WhitelistDaysFrom(Func<string, string?> env) =>
+        int.TryParse(env("FRAUD_WHITELIST_DAYS"), System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out var days) && days is >= 1 and <= WhitelistDaysCap
+            ? days
+            : DefaultWhitelistDays;
 
     internal static string SignalSeverity(int weight) =>
         weight >= 20 ? "high" : weight >= 10 ? "medium" : "low";

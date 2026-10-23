@@ -89,6 +89,9 @@ export function useFraudAction() {
       api.post(`/admin/fraud-signals/${id}/action`, action),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "fraud-signals"] });
+      // FRD-05: reject suspends the user, and the dashboard counts signals.
+      queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard"] });
     },
   });
 }

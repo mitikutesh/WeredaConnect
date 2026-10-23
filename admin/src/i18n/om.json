@@ -233,7 +233,22 @@
     "medium": "Giddugaleessa",
     "low": "Gadi Aanaa",
     "reviewed": "Gamaaggamameera",
-    "pending": "Eeggatamaa"
+    "pending": "Eeggatamaa",
+    "resolution_approve": "Fudhatameera (hin lakkaa'amu)",
+    "resolution_reject": "Didameera (gowwoomsaan mirkanaa'eera)",
+    "resolution_whitelist": "Galmee Adii keessa jira",
+    "confirmReject": "Diduun herrega ni dhaabsisa, fayyadamaa sanas ni baasa.",
+    "confirmRejectButton": "Didii dhaabi",
+    "result_approve": "Mallattoon fudhatameera. Kana booda qabxii balaa fayyadamaa kanaa keessatti hin lakkaa'amu.",
+    "result_reject": "Mallattoon didameera. Fayyadamaan {userId} dhaabbateera (gowwoomsaan mirkanaa'eera).",
+    "result_sessionsNotEnded": "Tajaajilli seensaa hin haaromne, kanaaf fayyadamaan hanga yeroon seensa isaa dhumutti seenee turuu danda'a.",
+    "result_whitelist": "Mallattoon galmee adii keessa galeera. Mallattoon kun kana booda hin lakkaa'amu, mallattooleen salphaa (GPS fi gatii) fayyadamaa kanaas hanga {date} tti hin lakkaa'aman.",
+    "openEscrows": "Eeskiroo banaa (ilaaluuf qofa)",
+    "openEscrowsHint": "Amma homtuu hin qabamne. Adeemsi xumura kaffaltii itti aanu eeskiroo kana tokkoon tokkoon yeroo isaa ga'utti ni qabata.",
+    "noOpenEscrows": "Fayyadamaan kun eeskiroo banaa hin qabu.",
+    "openEscrowsIncomplete": "Tarreen kun guutuu dhiisuu danda'a. Fuula Eeskiroo ilaali.",
+    "error_ADMIN_006": "Mallattoon kun hin argamne, ykn mallattoo miti. Fuula irra deebi'ii fe'i.",
+    "error_ADMIN_007": "Fayyadamaan mallattoo kanaa hin argamne, kanaaf herregni tokkollee hin dhaabbanne. Mallattoon ammallee eeggataa jira."
   },
   "users": {
     "title": "Fayyadamtoota",
@@ -549,7 +564,9 @@
     "ADMIN_010": "Waldhabdeen kun amma furamuu hin danda'u: banaa miti, ykn kaffaltiin adeemsa irra jira. Fuula irra deebi'ii fe'i.",
     "ADMIN_014": "Qotee Bulaan Mo'a ykn Bitaan Mo'a filadhu.",
     "ADMIN_015": "Ajajni haala amma keessa jiruun murtii kana hordofuu hin danda'u. Waan ta'u filadhu.",
-    "ADMIN_016": "Filannoon kun haala ajajichi amma keessa jiru waliin hin walsimu. Fuula irra deebi'ii fe'iitii ajaja sana mirkaneeffadhu."
+    "ADMIN_016": "Filannoon kun haala ajajichi amma keessa jiru waliin hin walsimu. Fuula irra deebi'ii fe'iitii ajaja sana mirkaneeffadhu.",
+    "ADMIN_009": "Gochi hin beekamne.",
+    "ADMIN_017": "Sababni dhaabbii kun gocha didu Gamaaggama Gosoota qofaaf qabameera."
   },
   "language": {
     "english": "English",

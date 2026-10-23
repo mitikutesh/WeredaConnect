@@ -87,7 +87,7 @@ public class EscrowCronFraudHoldTests
         };
     }
 
-    private void PartiesAre(string? suspended = null)
+    private void PartiesAre(string? suspended = null, string? suspendReason = null)
     {
         foreach (var (id, role) in new[] { (BuyerId, "buyer"), (FarmerId, "farmer"), (TruckerId, "trucker") })
         {
@@ -99,6 +99,7 @@ public class EscrowCronFraudHoldTests
                 Woreda = "w",
                 IsPhoneVerified = true,
                 Suspended = id == suspended,
+                SuspendReason = id == suspended ? suspendReason : null,
                 CreatedAt = "2026-01-01T00:00:00Z",
                 UpdatedAt = "2026-01-01T00:00:00Z",
                 Version = 1
@@ -232,6 +233,36 @@ public class EscrowCronFraudHoldTests
         await RunAsync(Cron());
 
         _holds.Should().ContainSingle(h => h.EscrowId == "esc-r2");
+        await NoMoneyMovedAsync();
+    }
+
+    [Fact]
+    public async Task AutoRelease_AFarmerRejectedInFraudReview_IsHeldAsFraudConfirmed()
+    {
+        // FRD-05: the reject action suspends with suspendReason fraud_confirmed and holds nothing itself.
+        PartiesAre(suspended: FarmerId, suspendReason: "fraud_confirmed");
+        _escrows.StubReleaseSweep(Releasable("esc-r6"));
+
+        await RunAsync(Cron());
+
+        _holds.Should().ContainSingle();
+        _holds[0].Hold.HoldReason.Should().Be("fraud_confirmed");
+        await NoMoneyMovedAsync();
+        await _audit.Received(1).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(e =>
+            e.ContainsKey("action") && e["action"].ToString() == "fraud_hold"
+            && e["metadata"].ToString() == "holdReason=fraud_confirmed;heldFor=release;party=farmer;sweep=auto-release"));
+    }
+
+    [Fact]
+    public async Task AutoRelease_FraudConfirmedWithTheFlagOff_SkipsWithItsHoldReason()
+    {
+        PartiesAre(suspended: FarmerId, suspendReason: "fraud_confirmed");
+        _escrows.StubReleaseSweep(Releasable("esc-r7"));
+
+        await RunAsync(Cron(flagOn: false));
+
+        _holds.Should().BeEmpty();
+        Logs.Should().Contain("RISK_SETTLEMENT_SKIPPED escrowId=esc-r7 sweep=auto-release reason=flag_off holdReason=fraud_confirmed");
         await NoMoneyMovedAsync();
     }
 
