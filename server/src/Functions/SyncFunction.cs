@@ -248,7 +248,9 @@ public partial class SyncFunction
         PickupDeadline.Field, "cancelNote",
         AdminQueueFields.Marker, AdminQueueFields.QueuedAt, AdminQueueFields.Reason, AdminQueueFields.EscrowId,
         // ESC-45: the webhook holds an order whose verified payment is still pending in its inbox.
-        PaymentHoldFields.HoldUntil
+        PaymentHoldFields.HoldUntil,
+        // ESC-47: when the order last entered pending_payment; the auto-cancel counts from it.
+        "pendingPaymentAt"
     };
 
     /// <summary>
@@ -298,7 +300,8 @@ public partial class SyncFunction
         // ESC-47 (1), done in ESC-44: a retry after payment_failed may go straight to
         // payment_submitted. The payment gates run on the new status as for any payment,
         // paymentSubmittedAt is stamped again (a new payment attempt), and the pending_payment
-        // auto-cancel, which counts from createdAt, never sees the order.
+        // auto-cancel never sees the order. A retry through pending_payment gets 24 hours from
+        // that step (pendingPaymentAt), not from createdAt.
         { "payment_failed", new HashSet<string> { "pending_payment", "payment_submitted", "cancelled" } },
     };
 
@@ -5868,6 +5871,11 @@ public partial class SyncFunction
                     // ESC-01: starts the payment clock. The checkout refuses new attempts
                     // after 20 hours and the order cron marks the order payment_failed after 24.
                     operation.Data["paymentSubmittedAt"] = now;
+                    break;
+                case "pending_payment":
+                    // ESC-47: the order cron cancels an unpaid pending_payment order 24 hours after
+                    // this, so a retry after payment_failed on an old order is not cancelled at once.
+                    operation.Data["pendingPaymentAt"] = now;
                     break;
             }
         }

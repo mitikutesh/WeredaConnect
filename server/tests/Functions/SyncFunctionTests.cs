@@ -6622,6 +6622,49 @@ public class SyncFunctionTests
     }
 
     [Fact]
+    public async Task PendingPayment_StampsTheAutoCancelClockOnTheServer()
+    {
+        // ESC-47: the order cron cancels an unpaid pending_payment order 24 hours after it entered
+        // that status, so a retry after payment_failed on an old order gets a full day. The client's
+        // own value is dropped and the server's time is stored.
+        SetupExistingOrder(status: "payment_failed");
+        SetupOrderUpdateSucceeds();
+        var before = DateTime.UtcNow;
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "status", "pending_payment" },
+            { "pendingPaymentAt", "2020-01-01T00:00:00.0000000Z" },
+            { "version", 1 }
+        });
+
+        Assert.Contains("\"status\":\"success\"", body);
+        Assert.NotNull(_updatedOrderData);
+        var stamped = DateTime.Parse(_updatedOrderData!["pendingPaymentAt"].ToString()!, null,
+            System.Globalization.DateTimeStyles.RoundtripKind);
+        Assert.True(stamped >= before && stamped <= DateTime.UtcNow);
+    }
+
+    [Fact]
+    public async Task OrderUpdate_PendingPaymentAt_IsStrippedOutsideThePendingPaymentStep()
+    {
+        SetupExistingOrder(status: "pending_payment");
+        SetupOrderUpdateSucceeds();
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "paymentMethod", "telebirr" },
+            { "pendingPaymentAt", "2099-01-01T00:00:00.0000000Z" },
+            { "version", 1 }
+        });
+
+        // A client can never move its own order's auto-cancel into the future.
+        Assert.Contains("\"status\":\"success\"", body);
+        Assert.NotNull(_updatedOrderData);
+        Assert.False(_updatedOrderData!.ContainsKey("pendingPaymentAt"));
+    }
+
+    [Fact]
     public async Task OrderUpdate_PaymentSubmittedAt_IsStrippedOutsideAPaymentSubmit()
     {
         SetupExistingOrder(status: "created");
