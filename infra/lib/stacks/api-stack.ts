@@ -1200,6 +1200,14 @@ export class ApiStack extends cdk.Stack {
       props.ordersTable.grantReadWriteData(telebirrWebhookFn.function);
       props.cropsTable.grantReadWriteData(telebirrWebhookFn.function);
       props.transactionAuditTable.grantWriteData(telebirrWebhookFn.function);
+      // ESC-47: a redelivery reads the order's trail (Query on the base table, no index) before
+      // it writes a missing payment_verified row. Without it the read is denied and nothing is written.
+      telebirrWebhookFn.function.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ["dynamodb:Query"],
+          resources: [props.transactionAuditTable.tableArn],
+        }),
+      );
 
       // ESC-45: replay inbox rows left pending (a failure or a cut-off run after the
       // row was written). The same Lambda, invoked directly with the replay action;
