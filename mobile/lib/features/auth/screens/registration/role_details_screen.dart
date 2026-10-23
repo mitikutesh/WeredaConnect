@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/utils/contact_in_text.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
@@ -259,6 +260,11 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
                     helperText: _companyController.text.trim().isEmpty
                         ? l10n.companyNameRequired
                         : null,
+                    // FUP-52: the server refuses a phone number here.
+                    errorText: containsPhoneNumber(_companyController.text)
+                        ? l10n.errorContactInText
+                        : null,
+                    errorMaxLines: 3,
                   ),
                   onChanged: widget.onCompanyNameChanged,
                 ),

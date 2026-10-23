@@ -7,6 +7,8 @@
 /// check first so the user sees it before anything is queued (offline-first).
 /// Kept rule for rule identical to `server/src/Validation/ContactInText.cs`;
 /// the rule is defined in `specs/contracts/crop-listing-api.md` 1.4.0.
+/// FUP-52 runs it on the registration name, woreda and company name too
+/// (`auth-api.md` 2.12.0, `AUTH_027`).
 /// Pure Dart, no platform imports: safe on web.
 library;
 

@@ -2601,6 +2601,7 @@
   "errorAppUpdateRequired": "ለመቀጠል እባክዎ መተግበሪያውን ያዘምኑ። ይህ ለውጥ አልተቀመጠም።",
   "errorAppUpdateRequiredKept": "እባክዎ መተግበሪያውን ያዘምኑ። ይህ ለውጥ በስልክዎ ላይ ተቀምጧል፣ ከዝማኔው በኋላ ይላካል።",
   "errorContactInText": "እዚህ ስልክ ቁጥር አይፈቀድም። ቁጥሩን ያስወግዱ፤ ክፍያው በኢስክሮ ከተያዘ በኋላ መገናኘት ይቻላል።",
+  "authProfileContactInText": "ስልክ ቁጥሩን ከስምዎ፣ ከወረዳዎ ወይም ከኩባንያዎ ስም ያስወግዱ። ክፍያው በኢስክሮ ከተያዘ በኋላ መገናኘት ይቻላል።",
   "deleteAccount": "መለያ ሰርዝ",
   "deleteAccountSubtitle": "መለያዎን እና የግል መረጃዎን ያጥፉ",
   "deleteAccountWarning": "መለያዎን መሰረዝ ዘላቂ ነው። መመለስ አይቻልም።",

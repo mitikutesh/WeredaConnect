@@ -3054,6 +3054,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Lakkoofsi bilbilaa asitti hin hayyamamu. Lakkoofsa kana haqi; quunnamtiin kan banamu erga kaffaltiin Eeskiroo keessatti qabamee booda.';
 
   @override
+  String get authProfileContactInText =>
+      'Lakkoofsa bilbilaa maqaa keessan, aanaa ykn maqaa dhaabbataa keessaa haqi. Quunnamtiin kan banamu erga kaffaltiin Eeskiroo keessatti qabamee booda.';
+
+  @override
   String get deleteAccount => 'Herrega haqi';
 
   @override

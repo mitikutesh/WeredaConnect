@@ -27,4 +27,24 @@ void main() {
       }
     });
   });
+
+  group('AUTH_027 phone number in profile text (FUP-52)', () {
+    test('is the server code and has a fallback text', () {
+      expect(AuthErrorCode.profileContactInText, 'AUTH_027');
+      expect(
+        AuthErrorCode.profileContactInText.userMessage,
+        contains('phone number'),
+      );
+    });
+
+    test('localizes to the profile phone message in every language', () async {
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        final message =
+            localizeAuthError(l10n, AuthErrorCode.profileContactInText);
+        expect(message, l10n.authProfileContactInText, reason: locale);
+        expect(message, isNot(l10n.genericError), reason: locale);
+      }
+    });
+  });
 }

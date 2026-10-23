@@ -9,6 +9,7 @@ namespace WeredaConnect.Server.Validation;
 /// channel. A linear hand scanner (no regex, nothing to backtrack), kept rule for rule
 /// identical to the client copy in mobile/lib/core/utils/contact_in_text.dart so the form
 /// refuses exactly what the server refuses. The rule is defined in crop-listing-api.md 1.4.0.
+/// FUP-52 runs it on the registration profile text too (auth-api.md 2.12.0).
 /// </summary>
 public static class ContactInText
 {

@@ -2939,6 +2939,10 @@ class AppLocalizationsAm extends AppLocalizations {
       'እዚህ ስልክ ቁጥር አይፈቀድም። ቁጥሩን ያስወግዱ፤ ክፍያው በኢስክሮ ከተያዘ በኋላ መገናኘት ይቻላል።';
 
   @override
+  String get authProfileContactInText =>
+      'ስልክ ቁጥሩን ከስምዎ፣ ከወረዳዎ ወይም ከኩባንያዎ ስም ያስወግዱ። ክፍያው በኢስክሮ ከተያዘ በኋላ መገናኘት ይቻላል።';
+
+  @override
   String get deleteAccount => 'መለያ ሰርዝ';
 
   @override
