@@ -765,7 +765,7 @@ class SyncExecutor {
           deferred++;
 
         default:
-          // Step-up (AUTH_040 password, AUTH_041 Fayda above 10,000 ETB): the
+          // Step-up (AUTH_040 password, AUTH_041 Fayda for higher-risk payments): the
           // op is valid, so keep it pending WITHOUT burning a retry and never
           // mark it failed; it goes again after the user re-authenticates.
           if (status == 'error' && isStepUpRequiredMessage(message)) {

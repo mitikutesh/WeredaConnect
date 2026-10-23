@@ -2769,7 +2769,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get faydaStepUpMessage =>
-      'Kaffaltiin kun jecha iccitii osoo hin taane Faayidaan mirkaneessuu barbaada. Isin ta\'uu keessan Faayidaan mirkaneessaa, kaffaltiin keessan battaluma sanatti itti fufa.';
+      'Kaffaltii kana itti fufuuf isin ta\'uu keessan Faayidaadhaan mirkaneessaa. Jecha iccitii keessanis gaafatamuu dandeessu.';
 
   @override
   String get stepUpTitle => 'Isin ta\'uu keessan mirkaneessaa';

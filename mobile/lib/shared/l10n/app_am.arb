@@ -2536,7 +2536,7 @@
   "otpSentTo": "ባለ 6 አሃዝ ኮድ በኤስኤምኤስ ወደ {phone} ልከናል።",
   "otpCodeHint": "ባለ 6 አሃዝ ኮድ",
   "otpExpiresAt": "ኮዱ በ{time} ጊዜው ያልፋል።",
-  "faydaStepUpMessage": "ይህ ክፍያ የይለፍ ቃል ሳይሆን የፋይዳ ማረጋገጫ ያስፈልገዋል። እርስዎ መሆንዎን በፋይዳ ያረጋግጡ፣ ክፍያዎ ወዲያውኑ ይቀጥላል።",
+  "faydaStepUpMessage": "ይህን ክፍያ ለመቀጠል እርስዎ መሆንዎን በፋይዳ ያረጋግጡ። የይለፍ ቃልዎም ሊጠየቅ ይችላል።",
   "stepUpTitle": "እርስዎ መሆንዎን ያረጋግጡ",
   "stepUpPhoneLabel": "ስልክ፦ {phone}",
   "stepUpConfirm": "አረጋግጥ",

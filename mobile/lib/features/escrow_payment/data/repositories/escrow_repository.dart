@@ -674,8 +674,8 @@ class EscrowRepository extends BaseEscrowRepository {
   ///
   /// MH7: Never log raw request/response bodies. Use error codes only.
   EscrowError _mapApiException(ApiException e) {
-    // Step-up: AUTH_040 (password) or AUTH_041 (Fayda login, payments above
-    // 10,000 ETB). The session is valid; the screen asks for the matching
+    // Step-up: AUTH_040 (password) or AUTH_041 (Fayda login, for higher-risk
+    // payments). The session is valid; the screen asks for the matching
     // proof and retries, never "please log in". Keep the server's code:
     // answering AUTH_041 with the password prompt loops forever.
     if (e is StepUpRequiredException) {

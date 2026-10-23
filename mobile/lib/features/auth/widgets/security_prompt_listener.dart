@@ -21,7 +21,8 @@ typedef KycPaymentResubmitter = Future<void> Function(
 /// Shows the prompts that background work cannot resolve on its own:
 ///
 /// - [StepUpRequired]: a queued payment hit AUTH_040 (password) or AUTH_041
-///   (Fayda login, payments above 10,000 ETB). After the user confirms,
+///   (Fayda login, for higher-risk payments; a password step may follow).
+///   After the user confirms,
 ///   [SecurityEvents.stepUpCompleted] fires and the sync workers retry the
 ///   still-pending operations.
 /// - [KycRequired]: a queued payment hit ORDER_KYC_REQUIRED (the local order
@@ -178,7 +179,7 @@ class _SecurityPromptListenerState extends State<SecurityPromptListener> {
     }
   }
 
-  /// The password prompt, or above 10,000 ETB (AUTH_041) the Fayda login.
+  /// The password prompt, or for a higher-risk payment (AUTH_041) the Fayda login.
   /// The password prompt only closes unconfirmed when cancelled.
   Future<StepUpOutcome> _confirmStepUp({required bool withFayda}) async {
     if (withFayda) {
