@@ -44,6 +44,41 @@ describe("manual payout strings exist in every locale", () => {
   });
 });
 
+/* FUP-02: the unapplied payments page, its error codes and the two timeline rows a recorded
+ * refund writes (escrow-audit and transaction-audit). */
+describe("unapplied payment strings exist in every locale", () => {
+  const unappliedKeys = Object.keys(en.unapplied).map((k) => `unapplied.${k}`);
+  const keys = [
+    ...unappliedKeys,
+    "nav.unappliedPayments",
+    "errors.ESCROW_015",
+    "errors.ESCROW_036",
+    "errors.ESCROW_040",
+    "errors.ESCROW_042",
+    "errors.ESCROW_043",
+    "errors.ESCROW_044",
+    "transactions.action_order_payment_refunded_manual",
+    "transactions.action_admin_payment_refunded_manual",
+  ];
+
+  for (const locale of locales) {
+    it(`${locale} has every unapplied key, the nav label, the error codes and the timeline labels`, () => {
+      expect(keys.filter((key) => t(key, locale) === key)).toEqual([]);
+    });
+  }
+
+  it("keeps the placeholders the page fills in", () => {
+    for (const locale of locales) {
+      expect(t("unapplied.paymentUnknown", locale)).toContain("{merchOrderId}");
+      expect(t("unapplied.confirmRefund", locale)).toContain("{amount}");
+      expect(t("unapplied.confirmRefund", locale)).toContain("{payment}");
+      expect(t("unapplied.confirmRefund", locale)).toContain("{ref}");
+      expect(t("unapplied.reason_status", locale)).toContain("{status}");
+      expect(t("unapplied.reason_error", locale)).toContain("{code}");
+    }
+  });
+});
+
 /* ESC-08: a party's cancel (and the system cancel of a dispute verdict) is audited as
  * delivery_cancelled; without a label the transaction timeline shows the raw key. */
 describe("delivery cancel audit label exists in every locale", () => {

@@ -1196,6 +1196,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'This payment is already being paid out by an admin, so it can no longer be disputed. Contact support.';
 
   @override
+  String get escrowErrorDeliveryPaymentUnavailable =>
+      'Online payment for a delivery is not available here. Pay this order from its order page instead.';
+
+  @override
   String get escrowErrorDisputeBeforePickup =>
       'A dispute can be opened only after the goods are picked up. Before pickup, cancel the order instead, or contact support.';
 
@@ -2811,6 +2815,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Payments above 10,000 ETB need the farmer to have a verified Fayda ID too, so this payment was not sent. You can pay once the farmer verifies.';
 
   @override
+  String get kycFarmerNotVerifiedMessage =>
+      'The farmer\'s identity is not verified yet, so this payment was not sent. You can pay once the farmer verifies.';
+
+  @override
   String get kycUnavailableMessage =>
       'We could not check identity verification right now, so this payment was not sent. Please try again later.';
 
@@ -2932,6 +2940,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Telebirr takes 100 to 500,000 ETB in one payment. This order\'s total is outside that, so it can\'t be paid with Telebirr.';
 
   @override
+  String get paymentMethodUnavailable =>
+      'This payment method isn\'t available yet. Pay with Telebirr.';
+
+  @override
   String get continuePayment => 'Continue payment';
 
   @override
@@ -2955,4 +2967,44 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get errorOrderCancelNotAllowed =>
       'This order can\'t be cancelled now. It can be cancelled only when the crops were not collected in time and nothing was picked up.';
+
+  @override
+  String get errorDeadlinePassed =>
+      'Too late. The time for this step has passed.';
+
+  @override
+  String get errorTripNotEligible =>
+      'That truck is no longer available. Choose again.';
+
+  @override
+  String get errorTransportAttemptsExceeded =>
+      'No more trucks can be tried for this order. Collect the crops yourself or cancel for a full refund.';
+
+  @override
+  String get errorTripCapacityExceeded =>
+      'This truck has no room left for this order. Choose another truck.';
+
+  @override
+  String get errorReputationRestricted =>
+      'Your account can\'t do this for now, so this change was not saved. Your current orders continue.';
+
+  @override
+  String get errorCounterpartyRestricted =>
+      'This farmer or trucker can\'t take new orders right now, so the order was not placed. Please choose another.';
+
+  @override
+  String get errorTripHasBookings =>
+      'This trip has booked orders, so this change can\'t be made.';
+
+  @override
+  String get errorCropHasActiveOrders =>
+      'This listing has open orders. Handle them first.';
+
+  @override
+  String get errorAppUpdateRequired =>
+      'Please update the app to continue. This change was not saved.';
+
+  @override
+  String get errorAppUpdateRequiredKept =>
+      'Please update the app. This change is kept on your phone and will be sent after the update.';
 }

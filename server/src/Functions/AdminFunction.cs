@@ -32,6 +32,8 @@ namespace WeredaConnect.Server.Functions;
 /// - GET  /admin/transactions/{orderId} → stitched transaction detail + timeline
 /// - GET  /admin/payouts/manual         → manual payout queue (ESC-02)
 /// - POST /admin/payouts/{escrowId}/{ref}/complete → record an admin-paid leg (admin group only)
+/// - GET  /admin/payments/unapplied      → captured payments the webhook did not apply (FUP-02)
+/// - POST /admin/payments/{orderId}/refund-manual → record their manual refund (admin group only)
 /// </summary>
 public class AdminFunction
 {
@@ -46,6 +48,9 @@ public class AdminFunction
     private readonly string _ordersTable;
     private readonly string _deliveriesTable;
     private readonly string _paymentsTable;
+
+    // FUP-02: the refund claim rows of the unapplied payment queue (PutItem only).
+    private readonly string _escrowIdempotencyTable;
 
     // Account controls that must reach Cognito (disable, global sign-out, role
     // attribute); null in tests that only exercise DynamoDB behaviour.
@@ -71,6 +76,7 @@ public class AdminFunction
         _ordersTable = Environment.GetEnvironmentVariable("ORDERS_TABLE") ?? "";
         _deliveriesTable = Environment.GetEnvironmentVariable("DELIVERIES_TABLE") ?? "";
         _paymentsTable = Environment.GetEnvironmentVariable("PAYMENTS_TABLE") ?? "";
+        _escrowIdempotencyTable = Environment.GetEnvironmentVariable("ESCROW_IDEMPOTENCY_TABLE") ?? "";
     }
 
     /// <summary>
@@ -93,6 +99,7 @@ public class AdminFunction
         _ordersTable = "";
         _deliveriesTable = "";
         _paymentsTable = "";
+        _escrowIdempotencyTable = "";
     }
 
     /// <summary>
@@ -107,7 +114,8 @@ public class AdminFunction
         string escrowsTable,
         string deliveriesTable,
         string escrowAuditTable,
-        string transactionAuditTable = "")
+        string transactionAuditTable = "",
+        string escrowIdempotencyTable = "")
     {
         _dynamoDb = dynamoDb;
         _usersTable = usersTable;
@@ -120,6 +128,7 @@ public class AdminFunction
         _cropsTable = "";
         _tripsTable = "";
         _paymentsTable = "";
+        _escrowIdempotencyTable = escrowIdempotencyTable;
     }
 
     /// <summary>
@@ -168,6 +177,8 @@ public class AdminFunction
                 ("GET", ["admin", "audit"]) => await HandleAuditLogAsync(request, context),
                 ("GET", ["admin", "payouts", "manual"]) => await HandleListManualPayoutsAsync(request, context),
                 ("POST", ["admin", "payouts", _, _, "complete"]) => await HandleCompleteManualPayoutAsync(segments[2], segments[3], request, context),
+                ("GET", ["admin", "payments", "unapplied"]) => await HandleListUnappliedPaymentsAsync(request),
+                ("POST", ["admin", "payments", _, "refund-manual"]) => await HandleRecordManualRefundAsync(segments[2], request, context),
                 _ => LambdaResponse.Error(404, "ADMIN_002", "Admin endpoint not found.")
             };
         }
@@ -1065,6 +1076,102 @@ public class AdminFunction
     private static bool IsSafeEscrowId(string escrowId)
         => escrowId.Length is >= 1 and <= 128
            && escrowId.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-');
+
+    // ──────────────────────────────────────────────
+    // Manual refund of an unapplied payment (FUP-02)
+    // ──────────────────────────────────────────────
+
+    /// <summary>The unapplied payment queue; null when the escrow-audit or orders table is not configured.</summary>
+    private UnappliedPaymentService? UnappliedPaymentQueue()
+    {
+        if (string.IsNullOrEmpty(_escrowAuditTable) || string.IsNullOrEmpty(_ordersTable))
+        {
+            return null;
+        }
+
+        return new UnappliedPaymentService(
+            new EscrowAuditRepository(_dynamoDb, _escrowAuditTable),
+            new OrderRepository(_dynamoDb, _ordersTable),
+            TxAuditRepo(),
+            _escrowIdempotencyTable);
+    }
+
+    /// <summary>GET /admin/payments/unapplied?limit=&amp;nextToken= (a bounded Scan; see the service).</summary>
+    private async Task<APIGatewayProxyResponse> HandleListUnappliedPaymentsAsync(APIGatewayProxyRequest request)
+    {
+        var service = UnappliedPaymentQueue();
+        if (service == null)
+        {
+            return LambdaResponse.Error(503, "ADMIN_004", "Escrow audit or orders table not configured.");
+        }
+
+        var queryParams = request.QueryStringParameters ?? new Dictionary<string, string>();
+        queryParams.TryGetValue("nextToken", out var nextToken);
+        var limit = Math.Min(ParseLimit(queryParams, 20), 50);
+
+        var result = await service.ListAsync(limit, nextToken);
+        if (!result.IsSuccess)
+        {
+            var error = result.Error!;
+            return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message, error.Field);
+        }
+
+        return LambdaResponse.Ok(result.Value!, AppJsonContext.Default.UnappliedPaymentListResponse);
+    }
+
+    /// <summary>
+    /// POST /admin/payments/{orderId}/refund-manual with {paymentOrderId, telebirrRef, amount,
+    /// reason[, merchOrderId]}. Records a refund made in the merchant portal; money-affecting
+    /// bookkeeping, so it requires the admin pool's admin group (a role claim alone gets ESCROW_015).
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleRecordManualRefundAsync(
+        string orderId, APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        var service = UnappliedPaymentQueue();
+        if (service == null)
+        {
+            return LambdaResponse.Error(503, "ADMIN_004", "Escrow audit or orders table not configured.");
+        }
+
+        RecordManualRefundRequest? body;
+        try
+        {
+            body = JsonSerializer.Deserialize(request.Body ?? "", AppJsonContext.Default.RecordManualRefundRequest);
+        }
+        catch (JsonException)
+        {
+            return LambdaResponse.Error(400, "ADMIN_005", "Invalid JSON in request body.");
+        }
+
+        if (body == null)
+        {
+            return LambdaResponse.Error(400, "ADMIN_005", "Request body is required.");
+        }
+
+        var adminUserId = AuthHelper.GetUserId(request) ?? "admin";
+        var auditContext = AuditContext.From(request, adminUserId, "admin");
+        var correlationId = AuditLogger.GetCorrelationId(request);
+
+        var result = await service.RecordRefundAsync(
+            orderId, body, adminUserId, AdminAuthHelper.IsInAdminGroup(request), auditContext, context);
+
+        if (!result.IsSuccess)
+        {
+            var error = result.Error!;
+            AuditLogger.LogAudit("ADMIN", "PAYMENT_REFUND_MANUAL",
+                userId: adminUserId, correlationId: correlationId,
+                entityType: "order", entityId: MoneyAlarmLog.LogId(orderId), outcome: "failure", errorCode: error.Code);
+            return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message, error.Field);
+        }
+
+        var value = result.Value!;
+        AuditLogger.LogAudit("ADMIN", "PAYMENT_REFUND_MANUAL",
+            userId: adminUserId, correlationId: correlationId,
+            entityType: "order", entityId: MoneyAlarmLog.LogId(orderId), outcome: value.AlreadyRecorded ? "replay" : "success",
+            detail: $"amountChecked={(value.AmountChecked ? "true" : "false")}");
+
+        return LambdaResponse.Ok(value, AppJsonContext.Default.RecordManualRefundResponse);
+    }
 
     // ──────────────────────────────────────────────
     // Fraud Signals

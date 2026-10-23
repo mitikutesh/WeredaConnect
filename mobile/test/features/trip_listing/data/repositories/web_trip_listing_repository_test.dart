@@ -185,4 +185,93 @@ void main() {
       expect(tripReads, 2);
     });
   });
+
+  // ESC-12 part B (sync-protocol.md 1.17.0): web has no queue, so a refusal
+  // is a failure that carries the server message for its own text.
+  group('WebTripListingRepository part B refusals (FUP-01)', () {
+    late _MockApiClient api;
+    late WebTripListingRepository repository;
+
+    setUp(() {
+      api = _MockApiClient();
+      repository = WebTripListingRepository(api: api);
+      when(() => api.get<Map<String, dynamic>>('/trips/trip-1')).thenAnswer(
+        (_) async => {
+          'trip': {
+            'tripId': 'trip-1',
+            'truckerId': 'trucker-1',
+            'fromWoreda': 'Adama',
+            'toWoreda': 'Bishoftu',
+            'departureDate': '2026-10-30T00:00:00.000Z',
+            'capacity': 50,
+            'pricePerQuintal': 200,
+            'status': 'open',
+            'createdAt': '2026-10-01T00:00:00.000Z',
+            'updatedAt': '2026-10-01T00:00:00.000Z',
+            'version': 2,
+          },
+        },
+      );
+    });
+
+    void refuseWith(String message) {
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'results': [
+            {'status': 'error', 'message': message},
+          ],
+        },
+      );
+    }
+
+    for (final message in [
+      'REPUTATION_RESTRICTED: restricted',
+      'APP_UPDATE_REQUIRED: minimum 2.0.0',
+    ]) {
+      test('create: ${message.split(':').first} throws with the message',
+          () async {
+        refuseWith(message);
+
+        await expectLater(
+          repository.createTrip(
+            truckerId: 'trucker-1',
+            truckerName: 'Trucker',
+            truckerPhone: '+251900100002',
+            fromWoreda: 'Adama',
+            toWoreda: 'Bishoftu',
+            departureDate: DateTime.utc(2026, 10, 30),
+            capacity: 50,
+            pricePerQuintal: 200,
+          ),
+          throwsA(
+            isA<SyncRejectedException>()
+                .having((e) => e.message, 'message', message),
+          ),
+        );
+      });
+    }
+
+    for (final message in [
+      'TRIP_HAS_BOOKINGS: booked',
+      'APP_UPDATE_REQUIRED: minimum 2.0.0',
+    ]) {
+      test('cancel: ${message.split(':').first} throws with the message',
+          () async {
+        refuseWith(message);
+
+        await expectLater(
+          repository.cancelTrip(tripId: 'trip-1', truckerId: 'trucker-1'),
+          throwsA(
+            isA<SyncRejectedException>()
+                .having((e) => e.message, 'message', message),
+          ),
+        );
+      });
+    }
+  });
 }

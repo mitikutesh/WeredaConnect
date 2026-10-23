@@ -352,6 +352,96 @@ public sealed record CompleteManualPayoutResponse
 }
 
 // ──────────────────────────────────────────────
+// Manual refund of an unapplied payment (FUP-02, admin)
+// ──────────────────────────────────────────────
+
+/// <summary>
+/// A captured Telebirr payment the webhook did not apply, still waiting for its manual refund
+/// (GET /admin/payments/unapplied).
+/// </summary>
+public sealed record UnappliedPaymentDto
+{
+    public required string OrderId { get; init; }
+
+    /// <summary>The escrow-audit key the rows sit under: <c>escrow-order-{orderId}</c>.</summary>
+    public required string EscrowId { get; init; }
+
+    /// <summary>Telebirr payment_order_id; null when the webhook never learned it (search the portal by <see cref="MerchOrderId"/>).</summary>
+    public string? PaymentOrderId { get; init; }
+    public string? MerchOrderId { get; init; }
+
+    /// <summary><c>order_payment_unmatched</c>, <c>order_payment_duplicate</c> and/or <c>order_payment_unprocessed</c>.</summary>
+    public required List<string> Actions { get; init; }
+
+    /// <summary>The webhook's reasons (<c>order_missing</c>, <c>status_cancelled</c>, <c>amount</c>, ...).</summary>
+    public required List<string> Reasons { get; init; }
+    public required string FirstSeenAt { get; init; }
+    public required string LastSeenAt { get; init; }
+
+    /// <summary>What Telebirr captured, when the rows tell; null when only the portal knows.</summary>
+    public decimal? CapturedAmount { get; init; }
+    public required string Currency { get; init; }
+
+    /// <summary>The order's status now; null when the order does not exist.</summary>
+    public string? OrderStatus { get; init; }
+    public string? BuyerId { get; init; }
+
+    /// <summary>
+    /// Only <c>unprocessed</c> rows and the order still waits for a payment: a redelivery may
+    /// still apply it. Do not refund yet (the record call answers <c>409 ESCROW_044</c>).
+    /// </summary>
+    public required bool MayStillApply { get; init; }
+}
+
+public sealed record UnappliedPaymentListResponse
+{
+    public required List<UnappliedPaymentDto> Payments { get; init; }
+    public string? NextToken { get; init; }
+    public required int Total { get; init; }
+}
+
+/// <summary>POST /admin/payments/{orderId}/refund-manual body.</summary>
+public sealed record RecordManualRefundRequest
+{
+    /// <summary>Telebirr payment_order_id of the captured payment that was refunded.</summary>
+    public string? PaymentOrderId { get; init; }
+
+    /// <summary>Merchant-portal transaction id of the refund.</summary>
+    public string? TelebirrRef { get; init; }
+
+    /// <summary>Amount refunded, ETB.</summary>
+    public decimal? Amount { get; init; }
+
+    /// <summary>Why, for the audit trail: 10 to 500 characters.</summary>
+    public string? Reason { get; init; }
+
+    /// <summary>
+    /// Only for a payment the webhook could not name (no payment_order_id on its rows): its
+    /// checkout's merch_order_id, as listed.
+    /// </summary>
+    public string? MerchOrderId { get; init; }
+}
+
+public sealed record RecordManualRefundResponse
+{
+    public required string OrderId { get; init; }
+    public required string EscrowId { get; init; }
+    public required string PaymentOrderId { get; init; }
+    public string? MerchOrderId { get; init; }
+    public required string TelebirrRef { get; init; }
+    public decimal? Amount { get; init; }
+
+    /// <summary>False when the rows did not record what was captured, so the amount could not be checked.</summary>
+    public required bool AmountChecked { get; init; }
+    public required string RecordedAt { get; init; }
+    public required string RecordedBy { get; init; }
+    public string? Message { get; init; }
+
+    /// <summary>True on a replay with the same reference: no second row was written.</summary>
+    public bool AlreadyRecorded { get; init; }
+}
+
+// ──────────────────────────────────────────────
 // Domain DTOs
 // ──────────────────────────────────────────────
 

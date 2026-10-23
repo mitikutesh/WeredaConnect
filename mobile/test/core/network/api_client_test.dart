@@ -426,26 +426,35 @@ void main() {
         );
       });
 
-      test('connection timeout throws TimeoutException', () async {
-        // Arrange
-        const path = '/slow';
-        dioAdapter.onGet(
-          path,
-          (server) => server.throws(
-            408,
-            DioException(
-              requestOptions: RequestOptions(path: path),
-              type: DioExceptionType.connectionTimeout,
+      // Every Dio timeout, including transformTimeout (dio 5.11.1), is the
+      // same TimeoutException to the app.
+      for (final type in [
+        DioExceptionType.connectionTimeout,
+        DioExceptionType.sendTimeout,
+        DioExceptionType.receiveTimeout,
+        DioExceptionType.transformTimeout,
+      ]) {
+        test('${type.name} throws TimeoutException', () async {
+          // Arrange
+          const path = '/slow';
+          dioAdapter.onGet(
+            path,
+            (server) => server.throws(
+              408,
+              DioException(
+                requestOptions: RequestOptions(path: path),
+                type: type,
+              ),
             ),
-          ),
-        );
+          );
 
-        // Act & Assert
-        expect(
-          () => ApiClient().get<dynamic>(path),
-          throwsA(isA<TimeoutException>()),
-        );
-      });
+          // Act & Assert
+          expect(
+            () => ApiClient().get<dynamic>(path),
+            throwsA(isA<TimeoutException>()),
+          );
+        });
+      }
 
       test('network error throws NetworkException', () async {
         // Arrange
@@ -638,6 +647,8 @@ void main() {
             'in.',
         'ORDER_DEADLINE_PASSED: too late',
         'ORDER_ACTION_NOT_ALLOWED: no',
+        'ORDER_PAYMENT_METHOD_UNAVAILABLE: Bank transfer (cbe_transfer) is not '
+            'available yet. Pay with Telebirr.',
       ]) {
         expect(isRevertableRejectionMessage(message), isTrue, reason: message);
       }

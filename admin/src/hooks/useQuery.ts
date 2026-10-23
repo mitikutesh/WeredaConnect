@@ -158,6 +158,47 @@ export function useCompleteManualPayout() {
   });
 }
 
+// Unapplied payments (FUP-02): captured Telebirr payments the webhook did not apply.
+// The server pages through the escrow audit, so a page can be empty while more remain.
+export function useUnappliedPayments() {
+  return useInfiniteQuery({
+    queryKey: ["admin", "unapplied-payments"],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.get<{ payments?: unknown[]; nextToken?: string | null }>(
+        `/admin/payments/unapplied?limit=50${pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""}`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
+  });
+}
+
+export function useRecordManualRefund() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      orderId,
+      body,
+    }: {
+      orderId: string;
+      body: {
+        paymentOrderId: string;
+        telebirrRef: string;
+        amount: number;
+        reason: string;
+        merchOrderId?: string;
+      };
+    }) =>
+      api.post<{ alreadyRecorded?: boolean; amountChecked?: boolean }>(
+        `/admin/payments/${encodeURIComponent(orderId)}/refund-manual`,
+        body,
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "unapplied-payments"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+    },
+  });
+}
+
 // Transaction Monitor (unified order + delivery + escrow lifecycle view)
 export function useTransactions(params?: string) {
   return useQuery({
