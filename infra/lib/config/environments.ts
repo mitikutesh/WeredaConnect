@@ -64,6 +64,13 @@ export interface EnvironmentConfig {
   readonly faydaClientId?: string;
   /** Live Fayda only: issuer override. Defaults to https://esignet.ida.fayda.et. */
   readonly faydaIssuerUrl?: string;
+  /**
+   * FRAUD_HOLD_ENABLED on the sync and escrow-cron Lambdas (fraud-detection-architecture.md 18.7).
+   * On, a settlement sweep writes the escrow status `held` for a suspended, fraud-confirmed or
+   * CRITICAL party instead of skipping the escrow. Default false. Turn it on for an environment only
+   * once its web app and store builds parse `held`; older apps are answered `escrowed` (FUP-61).
+   */
+  readonly fraudHoldEnabled?: boolean;
 }
 
 export const environments: Record<string, EnvironmentConfig> = {
@@ -75,6 +82,8 @@ export const environments: Record<string, EnvironmentConfig> = {
     // To use real Fayda: faydaMode 'live' + faydaClientId, then seed the client
     // private key (specs/features/fayda-mock-server.md, "Switching to live Fayda").
     faydaMode: 'mock',
+    // FUP-61: dev holds the escrows of flagged parties; staging and prod stay off.
+    fraudHoldEnabled: true,
     tags: {
       Environment: 'development',
       Project: 'WeredaConnect',
