@@ -72,6 +72,20 @@ public static class LambdaResponse
     }
 
     /// <summary>
+    /// Response with any status code and a serialized body, for error bodies that carry more
+    /// than <see cref="AuthError"/> (ACC-02's blockers and deletion state).
+    /// </summary>
+    public static APIGatewayProxyResponse Json<T>(int statusCode, T body, JsonTypeInfo<T> typeInfo)
+    {
+        return new APIGatewayProxyResponse
+        {
+            StatusCode = statusCode,
+            Body = JsonSerializer.Serialize(body, typeInfo),
+            Headers = SecurityHeaders
+        };
+    }
+
+    /// <summary>
     /// Error response with AUTH_* code, message, and optional field reference.
     /// </summary>
     public static APIGatewayProxyResponse Error(int statusCode, string code, string message, string? field = null, int? retryAfterSeconds = null)

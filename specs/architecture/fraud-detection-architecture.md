@@ -1,10 +1,10 @@
 # Fraud Detection System Architecture (F-14)
 
 ## Version
-3.4.0 | 2026-10-23
+3.6.0 | 2026-10-23
 
 ## Status
-Rules 1 to 4, signal persistence and the risk score (sections 14 and 16, FRD-02) implemented. Nothing calls the score yet. The escrow `held` status of section 18 is built for a suspended party (FRD-03, behind `FRAUD_HOLD_ENABLED`, shipped off). The rest of enforcement and of the risk engine (sections 17 to 23) is specified, not built (EPIC FRD).
+Rules 1 to 4, signal persistence and the risk score (sections 14 and 16, FRD-02) implemented. The enforcement of section 17 is built (FRD-04): the user-action gates are live, and the settlement gate holds or skips a party at risk tier CRITICAL. The escrow `held` status of section 18 is built for a party rejected in Fraud Review (FRD-05), a suspended party (FRD-03) and a CRITICAL party (FRD-04), behind `FRAUD_HOLD_ENABLED`, shipped off. The admin actions of section 19 and the whitelist row of section 20 are built (FRD-05). The rest of the risk engine (credits, the held queue, AI advisory; sections 20 to 23) is specified, not built (EPIC FRD).
 
 ---
 
@@ -403,7 +403,7 @@ entityType:  "crop" | "delivery" | "escrow"
 weight:      20
 createdAt:   "2026-02-23T14:00:00Z"
 expiresAt:   1743868800  (Unix epoch, 30 days from creation)
-recordType:  absent on rows written today; "signal" | "credit" | "whitelist" from FRD-05 and FRD-10 (section 20)
+recordType:  absent on signal rows (still written so); "whitelist" from FRD-05, "credit" from FRD-10 (section 20)
 ```
 
 **Admin review semantics**: the admin API addresses a signal by `signalId`
@@ -411,7 +411,8 @@ recordType:  absent on rows written today; "signal" | "credit" | "whitelist" fro
 can reconstruct the composite table key without a scan. The review action
 sets `status = "reviewed"` (the admin UI keys on that value) and records the
 chosen verb (`approve`/`reject`/`whitelist`) in `resolution`, plus
-`reviewedBy`/`reviewedAt`/`reviewNotes`.
+`reviewedBy`/`reviewedAt`/`reviewNotes`. Since FRD-05 it accepts only those
+three verbs, exactly, and has side effects (section 19).
 
 **Producers**: signals are recorded best-effort (never blocking the underlying
 operation) at three sites: listing creation in `SyncFunction` (hard rejects
@@ -647,7 +648,7 @@ The server returns these new error codes:
 |------------|-------------|-------------|
 | `FRAUD_DUPLICATE_LISTING` | 400 (via sync `error`) | Edit existing listing instead |
 | `FRAUD_VELOCITY_EXCEEDED` | 429 (sync `error` or HTTP 429 as `ESCROW_011`) | Wait and retry |
-| `FRAUD_ACCOUNT_HELD` | 403 (REST) or sync `error`; planned FRD-04 | Show "account under review", do not retry; FRD-06 adds the strings (section 17.3) |
+| `FRAUD_ACCOUNT_HELD` | 403 (REST) or sync `error`; sent since FRD-04 | Show "account under review", do not retry; FRD-06 adds the strings (section 17.3) |
 
 In the sync error handler (`SyncExecutor` or per-screen error handling):
 
@@ -822,7 +823,7 @@ The sync response `SyncOperationResult.Message` field can now contain:
 |------------|---------|---------------|
 | `FRAUD_DUPLICATE_LISTING` | Same farmer+crop+similar price within 1h | Show message, suggest editing |
 | `FRAUD_VELOCITY_EXCEEDED` | Too many listings per hour | Show message, suggest waiting |
-| `FRAUD_ACCOUNT_HELD` | Account under fraud review (risk tier CRITICAL); planned FRD-04, sync-protocol 1.9.0 | Permanent; show the message; on a payment revert the local order status (section 17.3) |
+| `FRAUD_ACCOUNT_HELD` | Account under fraud review (risk tier CRITICAL); FRD-04, sync-protocol 1.9.0 (built in 1.25.0) | Permanent; show the message; on a payment revert the local order status (section 17.3) |
 
 These use the existing `status: "error"` response format: no schema changes.
 
@@ -1022,11 +1023,11 @@ mobile/test/features/crop_listing/presentation/widgets/fraud_error_test.dart ←
 
 ## 14. Risk Score (FRD-02, built)
 
-**Status on main**: built in FRD-02, with no caller yet (FRD-04 wires the gates). `IFraudDetectionService.GetUserRiskScoreAsync` returns a `RiskScoreResult`: score, enforcement score, tier, `Truncated`, and `Source` (`Computed`, `TableNotConfigured` or `Unavailable`). `RiskScoreCalculator` holds the pure scoring of section 14.2, `RiskScoreSettings` the configuration of section 14.5, and `RiskScoreMemo` the per-invocation memo of section 14.3. Sections 15 to 23 are the specification that the rest of EPIC FRD implements; each section names the task that owns it. Where this document and the code disagree, the code describes what is deployed and this document describes what is planned.
+**Status on main**: built in FRD-02; the FRD-04 gates call it (section 17: `SyncFunction` through one `RiskScoreMemo` per batch, `EscrowFunction` once per request, the escrow-cron settlement gate through one memo per run). `IFraudDetectionService.GetUserRiskScoreAsync` returns a `RiskScoreResult`: score, enforcement score, tier, `Truncated`, and `Source` (`Computed`, `TableNotConfigured` or `Unavailable`). `RiskScoreCalculator` holds the pure scoring of section 14.2, `RiskScoreSettings` the configuration of section 14.5, and `RiskScoreMemo` the per-invocation memo of section 14.3. Sections 15 to 23 are the specification that the rest of EPIC FRD implements; each section names the task that owns it. Where this document and the code disagree, the code describes what is deployed and this document describes what is planned.
 
 ### 14.1 Inputs
 
-Rows of the fraud-signals table in one partition (`userId`). A signal row carries `weight` (written by `FraudDetectionService.SignalWeight`), `status` (`pending`, or `reviewed` with `resolution` set by the admin action: `approve`, `reject` or `whitelist`, but any string today, section 19), `signalKey` (`{ISO timestamp}#{signalType}`) and the TTL attribute `expiresAt`. Section 20 adds `recordType` and the credit and whitelist rows.
+Rows of the fraud-signals table in one partition (`userId`). A signal row carries `weight` (written by `FraudDetectionService.SignalWeight`), `status` (`pending`, or `reviewed` with `resolution` set by the admin action: `approve`, `reject` or `whitelist`; since FRD-05 the action refuses any other value, and rows reviewed before it may hold one, section 19), `signalKey` (`{ISO timestamp}#{signalType}`) and the TTL attribute `expiresAt`. Section 20 adds `recordType` and the credit and whitelist rows.
 
 ### 14.2 Formula
 
@@ -1049,7 +1050,7 @@ tier          = CRITICAL if enforcement >= RISK_TIER_CRITICAL or the read is tru
 
 Rules behind the formula:
 
-- **Every signal counts unless an admin cleared it.** A `reject` resolution is the admin agreeing the signal was fraud, so the score must not fall when the admin rejects. Only `approve` (false positive) and `whitelist` stop the row from counting; any other resolution counts, which fails closed while the action handler still accepts any string (section 19). Rows without `recordType` are legacy signal rows.
+- **Every signal counts unless an admin cleared it.** A `reject` resolution is the admin agreeing the signal was fraud, so the score must not fall when the admin rejects. Only `approve` (false positive) and `whitelist` stop the row from counting; any other resolution counts, which fails closed for rows reviewed before FRD-05 validated the action (section 19). Rows without `recordType` are legacy signal rows.
 - **Two scores, one tier.** MEDIUM and HIGH come from the full score, so AI advisory weight can add a step-up. CRITICAL comes from the enforcement score, which leaves the advisory weight out. A full score of 100 or more with an enforcement score below 100 is therefore HIGH.
 - **Burst dedup.** An offline farmer syncing 12 queued listings gets 7 `FRAUD_VELOCITY_EXCEEDED` rejections in one batch (section 11.5). A plain sum gives 105, CRITICAL for an honest user; the hourly dedup counts 15. Every row is still written and shown to the admin.
 - **Floor at 0.** Credits never produce a negative score.
@@ -1058,7 +1059,7 @@ Rules behind the formula:
 Implementation choices (FRD-02), where the formula leaves room:
 
 - The scorer repeats the key condition's string comparison, so a row the Query should not have returned never counts.
-- `resolution` is compared exactly: `Approve` counts. The row's `status` is not read.
+- `resolution` is compared exactly: `Approve` counts. The row's `status` is not read. Since FRD-05 the action refuses `Approve` (`400 ADMIN_009`), so only older rows can hold it.
 - A signal row's weight is its stored `weight`, or `SignalWeight(signalType)` when that is missing. A negative weight on a signal row counts as 0, so only credit rows lower the score, and only within the cap. A missing `signalType` is read from the key.
 - A row whose `recordType` is neither `credit` nor `whitelist` counts as a signal, whatever the value, with the weight fallback above (fails closed). A value other than `signal` also logs `RISK_SCORE_UNKNOWN_RECORD`, so a new writer the scorer was not taught about shows up (section 14.4).
 - The dedup also covers `AI_ADVISORY` rows. A key whose timestamp does not parse is a bucket of its own.
@@ -1070,14 +1071,16 @@ One `Query` on partition key `userId` with key condition `signalKey >= :since`, 
 
 If rows remain after the page cap the result is `truncated`, the tier is CRITICAL and the log carries the alarm token `RISK_SCORE_TRUNCATED`. This fails closed on purpose: reading newest first, a burst of same-type rows in the current hour (deduplicated to one) could otherwise push older weight out of the read. Honest users cannot reach the cap, since every row needs a rejected or flagged action and the mobile client never retries `FRAUD_*` sync errors. FRD-08's per-user, per-type write rate limit makes the cap unreachable short of deliberate abuse, so FRD-08 is not a prerequisite for FRD-02. It is a prerequisite, once FRD-04 enforces the tiers, for any producer that writes a signal onto a user other than the caller (ESC-33's re-attributed `GPS_ANOMALY`, for one). A truncated read is CRITICAL, so without a per-user write limit one party could drive another past the page cap with rows of their own making (truncation griefing). Today every signal is written against the caller (section 15).
 
+Known edge (noted in FRD-04, not fixed): DynamoDB can return a `LastEvaluatedKey` on a page that ends exactly at the last row, so a user whose window holds exactly `RISK_MAX_PAGES` full pages reads as truncated and CRITICAL although nothing is left. It fails closed and needs about 3,000 rows in 30 days, which no honest user reaches; a one-row probe after the last page would remove it.
+
 The result is memoized per user per invocation: a sync batch or a settlement sweep reads each user once. The memo is a `RiskScoreMemo` the caller creates per batch or sweep, not a cache on the service, which lives as long as the Lambda container. It remembers a failed read too, so one batch treats a user the same way throughout. The Query projects only the attributes the scorer reads.
 
 ### 14.4 Failure modes
 
 | Condition | At a user-facing gate | In a settlement sweep |
 |-----------|-----------------------|-----------------------|
-| Signals table not configured (`FRAUD_SIGNALS_TABLE` empty) | LOW (today's no-op) | LOW (suspension triggers still apply). While `FRAUD_HOLD_ENABLED` is on, the sweep logs the alarm token `RISK_TABLE_UNCONFIGURED` once per run: the escrow cron has no `FRAUD_SIGNALS_TABLE` today (section 23), so a flag turned on before that infra change would otherwise fail open without a trace |
-| `Query` throws | LOW, log alarm token `RISK_SCORE_UNAVAILABLE`; the baseline payment step-up (section 17) still applies | Skip this escrow for this run: no hold, no money moves; log `RISK_SETTLEMENT_SKIPPED` with `reason=score_unavailable`; retried next hour |
+| Signals table not configured (`FRAUD_SIGNALS_TABLE` empty) | LOW (today's no-op) | LOW (suspension triggers still apply). The sweep logs the alarm token `RISK_TABLE_UNCONFIGURED` once per run (`RISK_TABLE_UNCONFIGURED action=auto_release_and_refund`, at the start of the run), whether `FRAUD_HOLD_ENABLED` is on or off: with the flag off the `flag_off` skip is what keeps a CRITICAL party unpaid, so a missing table matters either way. escrow-cron has `FRAUD_SIGNALS_TABLE` since FRD-04 (section 23), so the line means a deploy or a stack without it, which would otherwise pay a CRITICAL party without a trace |
+| `Query` throws | LOW, log alarm token `RISK_SCORE_UNAVAILABLE`; the baseline payment step-up (section 17) still applies | No money moves for this escrow on this run. When another party of the escrow is CRITICAL the escrow is held as for any `risk_critical` trigger (flag on; skipped with `reason=flag_off` when off), because that hold is certain whatever the unread score says (section 17). Otherwise it is skipped: no hold, log `RISK_SETTLEMENT_SKIPPED` with `reason=score_unavailable`, flag on or off; retried next hour |
 | A party's user row cannot be read (suspension check, section 17.2) | n/a | Skip this escrow for this run: no hold, no money moves; log `RISK_SETTLEMENT_SKIPPED` with `reason=user_read_failed`; retried next hour |
 | Read truncated (section 14.3) | CRITICAL | CRITICAL (hold, section 18) |
 
@@ -1101,7 +1104,7 @@ Constants live in `FraudDetectionService` with environment overrides, the same p
 | `FRAUD_WHITELIST_DAYS` | 30 | Default whitelist duration (section 19) |
 | `FRAUD_HOLD_ENABLED` | false | Whether a sweep may write `held` (section 18) |
 
-FRD-02 reads the first seven on every call (`RiskScoreSettings.FromEnvironment`). A value that is not an integer in range keeps its default: the window at least 1 and at most 30, tier bounds at least 1, caps at least 0, pages from 1 to 10 (a larger value is capped at 10, so a typo cannot turn one score into a long read). Tier bounds that are not strictly increasing all fall back to the defaults. No Lambda sets them today, so the defaults apply. `FRAUD_WHITELIST_DAYS` (FRD-05) and `FRAUD_HOLD_ENABLED` (FRD-03) are read by the tasks that use them.
+FRD-02 reads the first seven on every call (`RiskScoreSettings.FromEnvironment`). A value that is not an integer in range keeps its default: the window at least 1 and at most 30, tier bounds at least 1, caps at least 0, pages from 1 to 10 (a larger value is capped at 10, so a typo cannot turn one score into a long read). Tier bounds that are not strictly increasing all fall back to the defaults. No Lambda sets them today, so the defaults apply. `FRAUD_WHITELIST_DAYS` (FRD-05) and `FRAUD_HOLD_ENABLED` (FRD-03) are read by the tasks that use them. The admin action reads `FRAUD_WHITELIST_DAYS` on every whitelist (`FraudDetectionService.WhitelistDaysFrom`): an integer from 1 to 365, else 30, so a typo cannot whitelist a user for good. No Lambda sets it today.
 
 ### 14.6 Cost
 
@@ -1150,9 +1153,19 @@ Bounds are inclusive and configurable (section 14.5). The full score includes AI
 
 ---
 
-## 17. Enforcement Matrix and Gate Order (planned, FRD-04)
+## 17. Enforcement Matrix and Gate Order (FRD-04, built)
 
 Subject of the check: the caller at a user action; every party (buyer, farmer, and the trucker when present) at settlement. The tier and the score are never returned to clients.
+
+**Built by FRD-04 (2026-10-23)**, with these implementation choices:
+
+- `StepUpPolicy.CheckPayment` takes the tier (`PaymentNeedsFayda` tells a caller when to read the buyer's last Fayda login); `RiskGatePolicy` holds `FRAUD_ACCOUNT_HELD`, its text and `TierAtUserGate` (Source before Tier: anything but a computed score is LOW at a user gate). The `AUTH_041` text is now `Confirm it's you with Fayda to continue with this payment.`; the app string was already amount-neutral (FRD-06).
+- The user-action gates go live on deploy, not behind `FRAUD_HOLD_ENABLED`: they write nothing, and every shipped client already treats `FRAUD_*` as permanent. Signals written in the last 30 days count from the first request.
+- `EscrowFunction` without a fraud service (no `RATE_LIMITS_TABLE`) has no tier: LOW, like an unconfigured signals table (section 14.4), so the baseline step-up applies. Not taken: refusing payments (503) while the service is missing.
+- On `/sync` creates the CRITICAL check sits after the field rules and before the F-14 listing checks (crop) and the listing and trip reads (order), so a held account costs no reads and writes no velocity signal.
+- The settlement gate is FRD-03's `PartySuspensionGate` with a fraud service: the tier is read only when no party is suspended (so `account_suspended` keeps its precedence), through one `RiskScoreMemo` per run. A CRITICAL party holds the escrow even when another party could not be scored (both outcomes move no money; the hold is certain). Any result that is neither computed nor unconfigured skips the escrow (`score_unavailable`, fail closed). A `risk_critical` hold carries `tier`, `score`, `enforcementScore` and `truncated` in its `fraud_hold` audit metadata.
+- With the flag off a CRITICAL party's settlement is skipped (`RISK_SETTLEMENT_SKIPPED reason=flag_off holdReason=risk_critical`, alarmed), as FRD-03 decided for any trigger (section 18.7): a CRITICAL party is never paid by a sweep. Not taken: settling CRITICAL parties as today while the flag is off.
+- Not built (follow-up): the tier in the audit metadata of MEDIUM and HIGH cron settlements and of the admin release and refund (matrix rows below). HIGH at payout keeps today's money behaviour (rules below).
 
 | Action | LOW | MEDIUM | HIGH | CRITICAL |
 |--------|-----|--------|------|----------|
@@ -1160,14 +1173,14 @@ Subject of the check: the caller at a user action; every party (buyer, farmer, a
 | Buyer payment above 10,000 ETB | `AUTH_041` (today) | `AUTH_041`, then `AUTH_040` | `AUTH_041`, then `AUTH_040` | `FRAUD_ACCOUNT_HELD` |
 | `POST /escrow/order-checkout` (ESC-01) | The gates already ran at `payment_submitted` | same | same | `403 FRAUD_ACCOUNT_HELD`, no Telebirr preOrder call |
 | Create crop (farmer), trip (trucker), order (buyer) through `/sync` | allowed | allowed | allowed | `FRAUD_ACCOUNT_HELD` |
-| Cron release, refund and dispute settlement | as today | as today, tier in the audit metadata | as today, tier in the audit metadata (FRD-13 adds the payout delay) | escrow moves to `held` (section 18); no money moves |
-| Admin `POST /escrow/release` and `POST /escrow/refund` | not gated (the admin decides); tier in the audit metadata | same | same | same |
+| Cron release, refund and dispute settlement | as today | as today, tier in the audit metadata (not built yet) | as today, tier in the audit metadata (not built yet; FRD-13 adds the payout delay) | escrow moves to `held` (section 18); no money moves |
+| Admin `POST /escrow/release` and `POST /escrow/refund` | not gated (the admin decides); tier in the audit metadata (not built yet) | same | same | same |
 
 Rules:
 
 - **A gate holds nothing.** At a user action CRITICAL only refuses that action. The only place the system writes `held` is a settlement sweep (section 18).
 - **Fayda before the password at HIGH.** The Fayda round trip takes minutes and the password seconds, so asking for Fayda first keeps both proofs inside the 300 second window. The client already handles the pair: one prompt per batch, Fayda first, then the password-tier operations ask again on retry.
-- **`AUTH_041` text becomes amount-neutral** (`StepUpPolicy.FaydaErrorMessage` and the app string `faydaStepUpMessage` are amount-specific today). Clients key on the code, never on the text.
+- **`AUTH_041` text is amount-neutral** (`StepUpPolicy.FaydaErrorMessage` since FRD-04, the app string `faydaStepUpMessage` since FRD-06). Clients key on the code, never on the text.
 - **Not gated**: disputes (the existing `AUTH_040` rule is unchanged), delivery and logistics updates, messages, ratings, order accept and reject, profile updates.
 - **Known gap, kept**: the counterparty's tier is not checked at order create. The settlement hold covers the money, and revealing a counterparty's tier would leak a fraud flag.
 - **HIGH at payout keeps today's money behaviour** because no user is present to step up; FRD-13 owns the payout delay. The reviewer of FRD-04 may tighten HIGH at payout to `held`.
@@ -1176,10 +1189,13 @@ Rules:
 
 | Path | Order |
 |------|-------|
-| `/sync` order `payment_submitted` (`SyncFunction`) | transition auth (`ValidateOrderTransitionAuth`), risk read, CRITICAL check, KYC (`CheckPaymentKycAsync`, unchanged), tiered step-up (`StepUpPolicy.CheckPayment` extended with the tier), the live-gateway order total check (`ORDER_VALIDATION`, unchanged), then the write and the mock auto-fund |
-| `POST /escrow/initiate` (`EscrowFunction.HandleInitiateAsync`) | role check (`ESCROW_025`), risk read, CRITICAL check, tiered step-up, velocity (`ESCROW_011`) |
-| `POST /escrow/order-checkout` (`EscrowFunction.HandleOrderCheckoutAsync`) | role check (`ESCROW_025`) and body validation, CRITICAL check, velocity (`ESCROW_011`), then `EscrowService.CreateOrderCheckoutAsync` (order checks and the Telebirr preOrder) |
+| `/sync`, every operation (`SyncFunction`) | ACC-02 first, before any operation of the batch: the caller's users row, read strongly consistent; a `deletionState` answers the whole request `410 ACCOUNT_004` and nothing is applied (a failed read `503 SYNC_SERVER_ERROR`). The rows below run after it |
+| `/sync` order `payment_submitted` (`SyncFunction`) | transition auth (`ValidateOrderTransitionAuth`), risk read, CRITICAL check, the deleted party (ACC-02: the order's buyer, farmer or trucker row carries `deletionState`, read strongly consistent: `ORDER_VALIDATION: A party to this order has deleted their account.`, nothing written), KYC (`CheckPaymentKycAsync`, unchanged), tiered step-up (`StepUpPolicy.CheckPayment` extended with the tier), the live-gateway order total check (`ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` since FUP-22, then the payment method check), then the write and the mock auto-fund |
+| `POST /escrow/initiate` (`EscrowFunction.HandleInitiateAsync`) | the deleting caller first (ACC-02: `410 ACCOUNT_004`, before any other check or read; a failed read `503 ESCROW_012`), role check (`ESCROW_025`), risk read, CRITICAL check, tiered step-up, velocity (`ESCROW_011`), then `EscrowService.InitiateAsync`: at the start of its user validation, once the delivery and its order named the parties, a deleted buyer, farmer or trucker (ACC-02: `422 ESCROW_030`, nothing held; a failed read `500 ESCROW_012`) |
+| `POST /escrow/order-checkout` (`EscrowFunction.HandleOrderCheckoutAsync`) | the deleting caller first (ACC-02: `410 ACCOUNT_004`; a failed read `503 ESCROW_012`), role check (`ESCROW_025`) and body validation, CRITICAL check, velocity (`ESCROW_011`), then `EscrowService.CreateOrderCheckoutAsync`: the order checks (`ValidateOrderForCheckout`), a deleted buyer, farmer or trucker (ACC-02: `422 ESCROW_030`), then the checkout slot and the Telebirr preOrder |
 | `/sync` crop, trip and order `create` | after field validation and before the write: CRITICAL check |
+
+`POST /escrow/dispute` is not risk-gated (section 17); ACC-02's deleting-caller `410 ACCOUNT_004` applies to it as to the two payment routes. The ACC-02 checks are specified in `account-deletion.md` 1.2.0 (Effects on Other Endpoints), `escrow-protocol.md` 1.28.0 and `sync-protocol.md` 1.26.0.
 
 ### 17.2 Gate order at settlement
 
@@ -1206,13 +1222,15 @@ The code is permanent: the mobile `SyncExecutor._isPermanentRejection` already t
 
 Each tier on each gated path, sync and REST, for the farmer (crop create), the trucker (trip create) and the buyer (order create, both payment paths, checkout); the LOW path unchanged; CRITICAL on `order-checkout` before any Telebirr call; per sweep, for a CRITICAL or suspended party: no order cancel, no stock restore, no `ResolvePayoutAsync` or `release_blocked_kyc` audit, no lock call, no Telebirr call, one `held` write.
 
+Built in `server/tests/Functions/SyncFunctionRiskGateTests.cs`, `EscrowFunctionRiskGateTests.cs` and `EscrowCronRiskGateTests.cs` (each sweep for a CRITICAL buyer, farmer and trucker with the flag on and off, and for an `Unavailable` source), `server/tests/Services/PartySuspensionGateTests.cs`, `server/tests/Helpers/StepUpAndKycPolicyTests.cs` (the tier matrix of `CheckPayment`), and `infra/test/unit/stack.test.ts` (escrow-cron env and read grant). All run in CI (no `Integration` category).
+
 ---
 
-## 18. Escrow `held` (FRD-03; the tier and reject triggers planned, FRD-04, FRD-05)
+## 18. Escrow `held` (FRD-03; the tier trigger FRD-04; the reject trigger FRD-05)
 
-A new escrow status for money frozen pending an admin decision. Contract: `specs/contracts/escrow-protocol.md` 1.7.0, `specs/contracts/order-lifecycle.md` 1.9.0; built in escrow-protocol 1.22.0 and order-lifecycle 1.22.0.
+A new escrow status for money frozen pending an admin decision. Contract: `specs/contracts/escrow-protocol.md` 1.7.0, `specs/contracts/order-lifecycle.md` 1.9.0; built in escrow-protocol 1.22.0 and order-lifecycle 1.22.0, the tier trigger in escrow-protocol 1.27.0 and order-lifecycle 1.25.0.
 
-Built by FRD-03 (2026-10-23): the gate seam in the three sweeps (`ISettlementRiskGate`, sections 17.2 and 18.1) with the `account_suspended` trigger (`PartySuspensionGate`, the party's user row, memoized per run, a read failure skips the escrow for the run), the hold write with the order fence (18.2, the transaction; the fallback is not used, so there is no `fraud_hold_reverted`), the admin exits (18.3, admin group and a required `reason` of 10 to 500 characters, audited `fraud_hold_release` and `fraud_hold_refund` before the lock), the lock (18.4), the active sets, the accept refusal and the dispute refusal (18.5), the admin-only fields and the audit rows (18.6), the flag and its skip token with its alarm (18.7). `held` also joins the stale lock recovery and the statuses a manual payout may close from. FRD-04 adds `risk_critical` and `RISK_TABLE_UNCONFIGURED` to the same gate; FRD-05 defines the `fraud_confirmed` value.
+Built by FRD-03 (2026-10-23): the gate seam in the three sweeps (`ISettlementRiskGate`, sections 17.2 and 18.1) with the `account_suspended` trigger (`PartySuspensionGate`, the party's user row, memoized per run, a read failure skips the escrow for the run), the hold write with the order fence (18.2, the transaction; the fallback is not used, so there is no `fraud_hold_reverted`), the admin exits (18.3, admin group and a required `reason` of 10 to 500 characters, audited `fraud_hold_release` and `fraud_hold_refund` before the lock), the lock (18.4), the active sets, the accept refusal and the dispute refusal (18.5), the admin-only fields and the audit rows (18.6), the flag and its skip token with its alarm (18.7). `held` also joins the stale lock recovery and the statuses a manual payout may close from. FRD-04 (2026-10-23) added `risk_critical`, the `score_unavailable` skip and `RISK_TABLE_UNCONFIGURED` to the same gate (section 17); FRD-05 (2026-10-23) added `fraud_confirmed` (section 18.1), escrow-protocol 1.29.0.
 
 ```
 escrowed ---------+
@@ -1230,9 +1248,9 @@ Only a settlement sweep writes `held` (`heldBy: system`), at the gate position o
 | `account_suspended` | The party is suspended for any other reason |
 | `risk_critical` | The party's tier is CRITICAL, including a truncated read |
 
-`suspendReason` is admin free text today (`HandleUserActionAsync` stores the request's `reason` as typed), so `fraud_confirmed` cannot be told apart from an admin who typed the same words. FRD-05 owns the value: either a reserved token that the user action route refuses as free text, or a separate field that only the reject action sets.
+`suspendReason` is admin free text (`POST /admin/users/{id}/action` stores the request's `reason` as typed). Built by FRD-05: `fraud_confirmed` is a reserved value of it. Only the Fraud Review reject action writes it (section 19); the user action route refuses it as a suspend reason (`400 ADMIN_017`, compared trimmed and case-insensitively), and its `unsuspend` removes `suspendReason`, so the value of a lifted suspension never labels a later one that gives no reason. Not taken: a separate field that only the reject action sets. The gate (`PartySuspensionGate`) compares the value exactly and gives `fraud_confirmed` to the escrow when any party has it, whatever the order of the parties; the other suspended parties are `account_suspended`. Known edge, kept: a later free-text suspend of a user who is still suspended as `fraud_confirmed` replaces the reason, so that user's escrows are held as `account_suspended`; the hold and the money are the same.
 
-Why settlement only: all system money out goes through the three sweeps (`AutoReleaseAsync`, `AutoRefundAsync`, `SettleResolvedDisputesAsync`), so a hold at settlement freezes every system payout and refund of the party without enumerating the party's escrows. Eager holding would page three party GSIs keyed on party plus `createdAt` (`BuyerStatusIndex`, `FarmerStatusIndex`, `TruckerStatusIndex`, status only a filter), add latency and escrow writes to `/sync` or the admin Lambda, and still miss escrows created later. The cost: a party's escrows show "Under review" only once they are due to settle. FRD-05 and FRD-07 show the admin the user's open escrows read-only (the party GSIs with a status filter on `escrowed`, `disputed`, `dispute_resolved` and `held`, paged, admin side).
+Why settlement only: all system money out goes through the three sweeps (`AutoReleaseAsync`, `AutoRefundAsync`, `SettleResolvedDisputesAsync`), so a hold at settlement freezes every system payout and refund of the party without enumerating the party's escrows. Eager holding would page three party GSIs keyed on party plus `createdAt` (`BuyerStatusIndex`, `FarmerStatusIndex`, `TruckerStatusIndex`, status only a filter), add latency and escrow writes to `/sync` or the admin Lambda, and still miss escrows created later. The cost: a party's escrows show "Under review" only once they are due to settle. FRD-05 (built, the reject response, section 19) and FRD-07 show the admin the user's open escrows read-only (the party GSIs with a status filter on `escrowed`, `disputed`, `dispute_resolved` and `held`, paged, admin side).
 
 ### 18.2 Fields and write
 
@@ -1306,19 +1324,53 @@ A held escrow is never selected by any cron; `held` is in the active set (`ESCRO
 
 ---
 
-## 19. Admin Actions (planned, FRD-05)
+## 19. Admin Actions (FRD-05, built)
 
-`POST /admin/fraud-signals/{id}/action` (`AdminFunction.HandleFraudActionAsync`) today stamps `status: reviewed`, `resolution`, `reviewedBy`, `reviewedAt` and `reviewNotes` and writes a transaction-audit row (`fraud_{action}`), with no other side effect. FRD-05 validates the action against `approve`, `reject` and `whitelist` and refuses anything else with `400 ADMIN_009` (the unknown-action answer of `HandleUserActionAsync`; today any string is stored as the resolution, and the score counts it, section 14.2). FRD-05 also adds the side effects:
+`POST /admin/fraud-signals/{id}/action` (`AdminFunction.HandleFraudActionAsync`), body `{"action": "approve" | "reject" | "whitelist", "notes": "..."}` (`notes` optional), `id` the base64url of `userId|signalKey`. Before FRD-05 it stamped `status: reviewed`, `resolution`, `reviewedBy`, `reviewedAt` and `reviewNotes` and wrote a transaction-audit row (`fraud_{action}`), with no other side effect, and stored any string as the resolution (which the score counts, section 14.2).
+
+Built by FRD-05 (2026-10-23), in this order:
+
+1. The body (`400 ADMIN_005`), then the action: anything but `approve`, `reject` or `whitelist`, exactly (`Approve` included), is `400 ADMIN_009` (the unknown-action answer of the user action route) and nothing is written. Then the id (`400 ADMIN_005`).
+2. A consistent read of the row: a missing row, a credit row or the whitelist row (anything but no `recordType` or `recordType = signal`) is `404 ADMIN_006` and nothing is written.
+3. The action's side effect: the suspension for `reject`, the whitelist row for `whitelist`, none for `approve`.
+4. The review stamp, still conditional on `attribute_exists(userId) AND (attribute_not_exists(recordType) OR recordType = signal)` (a row gone since the read is `404 ADMIN_006`; the side effect stands), then its transaction-audit row (`fraud_approve`, `fraud_reject`, `fraud_whitelist`; entity `fraud`, the signal id; metadata the notes, for `whitelist` `whitelistUntil=<ISO>` then `;notes=<notes>`) and the success log.
+
+The side effect comes before the stamp so a failure fails closed and stays retryable: a throttle or a timeout in the suspension or the whitelist write answers `500 ADMIN_500` with the signal still `pending`, so Fraud Review offers the action again, and the retry repeats the side effect (the same suspension, the same whitelist row written in place) and then stamps. The other order would leave a reviewed signal with a user who is not suspended, whose escrows the next sweep pays, or a cleared signal without its whitelist row.
 
 | Action | Effect on the score | Other side effects |
 |--------|---------------------|--------------------|
 | `approve` | The signal stops counting (section 14.2) | none |
-| `reject` | The signal keeps counting | Suspends the user through the existing `HandleUserActionAsync` suspend path with `suspendReason: fraud_confirmed`: Cognito disable, global sign-out, `AUTH_025` on the next refresh. Holds nothing synchronously; the user's escrows are held by the next sweep that would settle them (section 18.1). The response lists the user's open escrows read-only |
-| `whitelist` | Writes the `~whitelist` row (section 20) with `whitelistUntil` now plus `FRAUD_WHITELIST_DAYS`; soft-class weights stop counting while it is active | none |
+| `reject` | The signal keeps counting | Before the stamp, suspends the user through the one suspend path of the user action route (`ApplyUserActionAsync`) with `suspendReason: fraud_confirmed`: the profile row (`suspended: true`), Cognito disable and global sign-out, `AUTH_025` on the next refresh, and that path's `user_suspend` row (metadata `fraud_confirmed`), then the stamp and `fraud_reject`. Holds nothing; the user's escrows are held by the next sweep that would settle them (section 18.1). The response lists the user's open escrows read-only, read after the stamp |
+| `whitelist` | The signal stops counting, whatever its class (section 14.2). Before the stamp, writes the `~whitelist` row (section 20) with `whitelistUntil` now plus `FRAUD_WHITELIST_DAYS` (section 14.5); soft-class weights stop counting while it is active, and count again after it. A new whitelist replaces the old row | none |
 
-Every action keeps its transaction-audit row. The action handler refuses non-signal rows (`recordType` of `credit` or `whitelist`) with `404 ADMIN_006`.
+Response (`200`), the fields before FRD-05 (`signalId`, `status: reviewed`, `reviewedAt`, `message`) plus:
 
-Admin surfaces until FRD-07: the dashboard count (`HandleDashboardStatsAsync`, `FraudSignalsCount`, a `ScanCountAsync` over the whole table) and the list (`HandleListFraudSignalsAsync`, a `Scan` with an optional `status` filter) must exclude credit and whitelist rows. The task that first writes a non-signal row (FRD-05 or FRD-10, whichever lands first) adds `attribute_not_exists(recordType) OR recordType = signal` to both. FRD-07 replaces the Scans with a sparse GSI on `status`, which excludes those rows by construction because they carry no `status`.
+| Field | When | Meaning |
+|-------|------|---------|
+| `resolution` | always | The action applied |
+| `userId` | always | The user the signal belongs to |
+| `suspended`, `suspendReason` | `reject` | `true`, `fraud_confirmed` |
+| `sessionsEnded` | `reject` | `false` when Cognito could not be updated: the suspension stands and a refresh is refused (`AUTH_025`), but live tokens work until they expire |
+| `openEscrows` | `reject` | `[{escrowId, status, party, amount, orderId, createdAt}]`, `party` the user's side (`buyer`, `farmer`, `trucker`) |
+| `openEscrowsComplete` | `reject` | `false` when the read stopped at a bound or failed (log `FRAUD_REJECT_OPEN_ESCROWS_UNREAD`); the suspension stands either way |
+| `whitelistUntil` | `whitelist` | ISO 8601 |
+
+The open escrows are read from the three party GSIs (`BuyerStatusIndex`, `FarmerStatusIndex`, `TruckerStatusIndex`, every one whatever the user's role, so a changed role keeps older escrows in view) with `status IN (escrowed, disputed, dispute_resolved, held)`, 100 rows a page, at most 5 pages per index and 50 escrows, an escrow that names the user twice listed once.
+
+Other answers: `503 ADMIN_006` without the table; `404 ADMIN_007` on `reject` when the user row is missing: nothing is written and the signal stays `pending` (it counts all the same); `approve` or `whitelist` can still close it. Reviewing a reviewed signal again is allowed (the admin app offers no buttons on reviewed rows); an `approve` after a `reject` does not lift the suspension, the user page does.
+
+`POST /admin/users/{id}/action` (FRD-05): `suspend` with the reason `fraud_confirmed` is `400 ADMIN_017`; `unsuspend` removes `suspendReason` (section 18.1).
+
+Known limits, kept:
+
+- A whitelist whose row was written but whose stamp then failed leaves the `~whitelist` row in place with the signal pending. If the admin then approves or rejects that signal instead of retrying the whitelist, the soft-signal bypass still lasts until `whitelistUntil`; nothing removes the row early (a later whitelist replaces it).
+- A `reject` whose stamp finds the row gone (the TTL deleted it between the read and the stamp) answers `404 ADMIN_006` although the user is already suspended. The suspension stands and shows on the user page; it fails closed.
+
+Admin surfaces until FRD-07: the dashboard count (`HandleDashboardStatsAsync`, `FraudSignalsCount`) and the list (`HandleListFraudSignalsAsync`, with its optional `status` filter) exclude credit and whitelist rows with `attribute_not_exists(recordType) OR recordType = signal` (built by FRD-05; the filtered list reads on past pages the filter emptied, as the other filtered admin lists do since FUP-16). The list rows carry `resolution`. FRD-07 replaces the Scans with a sparse GSI on `status`, which excludes those rows by construction because they carry no `status`.
+
+The admin app's Fraud Review page (FRD-05): `reject` asks once more (it suspends the account); `whitelist` is offered on soft-class signals only (`GPS_ANOMALY`, `PRICE_ANOMALY`, section 15), because it clears the signal it is given for good and skips only soft signals until its end, so on a hard signal it would quietly erase hard weight (the server still accepts it there; approve is the admin's tool for a hard false positive); after each action a panel shows the result: approve no longer counts, the user suspended (with a warning when `sessionsEnded` is `false`) and the open escrows with the note that the next sweep holds them (and a hint when `openEscrowsComplete` is `false`), or that the whitelisted signal no longer counts and the soft signals do not count until the end; reviewed rows show the decision. Its error texts for `ADMIN_006` (404) and `ADMIN_007` are its own (`fraud.error_*`), so the shared `errors.*` keys of other pages keep their wording. English, Amharic and Afan Oromo.
+
+No IAM change: the admin Lambda already reads the escrows table and its indexes, writes the fraud-signals, users and transaction-audit tables, and holds `AdminDisableUser` and `AdminUserGlobalSignOut` on the mobile pool (pinned in `infra/test/unit/stack.test.ts`).
 
 ---
 
@@ -1328,9 +1380,9 @@ The fraud-signals table keeps its keys (`userId`, `signalKey`) and its TTL attri
 
 | Row kind | `recordType` | `signalKey` | `status` | Other fields |
 |----------|--------------|-------------|----------|--------------|
-| Signal (today) | absent (legacy) or `signal` | `{ISO}#{signalType}` | `pending` or `reviewed` | as section 4.3 |
+| Signal | absent (legacy, still written so) or `signal` | `{ISO}#{signalType}` | `pending` or `reviewed` | as section 4.3 |
 | Credit (FRD-10) | `credit` | `{ISO}#CLEAN_DELIVERY` | absent | `weight: -5`, `entityType: escrow`, `entityId` |
-| Whitelist (FRD-05) | `whitelist` | `~whitelist` (one per user; sorts after every ISO key) | absent | `whitelistUntil` (ISO), `expiresAt` set to the same instant in epoch seconds, `reviewedBy`, `reviewNotes` |
+| Whitelist (FRD-05, built) | `whitelist` | `~whitelist` (one per user; sorts after every ISO key) | absent | `whitelistUntil` (ISO), `expiresAt` set to the same instant in epoch seconds, `reviewedBy`, `reviewedAt`, `reviewNotes` (when given) |
 
 Credits (FRD-10): when an escrow completes through auto-release with no dispute, no hold and no signal on its order, delivery or escrow, each party gets a credit row: the buyer, the farmer, and the trucker when present. The buyer is included because a paid, received and undisputed trade is the same evidence for every party. Self-trade farming is bounded by `RISK_CREDIT_CAP` and later caught by FRD-15.
 
@@ -1351,14 +1403,16 @@ FRD-07 adds a sparse GSI on `status` (partition `status`, sort `createdAt`) so t
 
 | Code or status | Kind | Since | Producer (owner) | Consumers (owner) | Contract |
 |----------------|------|-------|------------------|-------------------|----------|
-| `AUTH_040` | step-up | auth-api 2.1.0 | `StepUpPolicy` (live); FRD-04 adds the MEDIUM and HIGH use | step-up dialog, mobile and web (live) | auth-api 2.6.0 |
-| `AUTH_041` | step-up | auth-api 2.4.0 | `StepUpPolicy.CheckPayment` (live); FRD-04 adds the HIGH use and the amount-neutral text | Fayda step-up flow (live); FRD-06 rewords `faydaStepUpMessage` | auth-api 2.6.0 |
-| `FRAUD_ACCOUNT_HELD` | rejection | new | FRD-04 (server) | FRD-06 (mobile and web, three languages; `SyncExecutor` revert hook for `FRAUD_ACCOUNT_HELD` on `payment_submitted`); mobile sync already treats it as permanent | sync-protocol 1.9.0, escrow-protocol 1.7.0, order-lifecycle 1.9.0, auth-api 2.6.0 |
-| escrow `held` | status | escrow-protocol 1.22.0 | FRD-03 (server, infra; behind `FRAUD_HOLD_ENABLED`, shipped off; built with the `account_suspended` trigger); triggers from FRD-04 (tier) and FRD-05 (reject) | FRD-06 tolerant parser and badge (must ship before the flag is on); admin vocabulary with FRD-03 (next row); held queue FRD-07 | escrow-protocol 1.7.0, order-lifecycle 1.9.0 |
+| `AUTH_040` | step-up | auth-api 2.1.0 | `StepUpPolicy` (live); the MEDIUM and HIGH use built by FRD-04 | step-up dialog, mobile and web (live) | auth-api 2.6.0, built 2.10.0 |
+| `AUTH_041` | step-up | auth-api 2.4.0 | `StepUpPolicy.CheckPayment` (live); the HIGH use and the amount-neutral text built by FRD-04 | Fayda step-up flow (live); FRD-06 rewords `faydaStepUpMessage` | auth-api 2.6.0, built 2.10.0 |
+| `FRAUD_ACCOUNT_HELD` | rejection | FRD-04 | FRD-04 (server, built: `RiskGatePolicy`, `SyncFunction`, `EscrowFunction`) | FRD-06 (mobile and web, three languages; `SyncExecutor` revert hook for `FRAUD_ACCOUNT_HELD` on `payment_submitted`); mobile sync already treats it as permanent | sync-protocol 1.9.0 (built 1.25.0), escrow-protocol 1.7.0 (built 1.27.0), order-lifecycle 1.9.0 (built 1.25.0), auth-api 2.6.0 (built 2.10.0), crop-listing-api 1.5.0, trip-listing-api 1.6.0 |
+| escrow `held` | status | escrow-protocol 1.22.0 | FRD-03 (server, infra; behind `FRAUD_HOLD_ENABLED`, shipped off; built with the `account_suspended` trigger); the tier trigger built by FRD-04 (`risk_critical`, escrow-protocol 1.27.0); the reject trigger built by FRD-05 (`fraud_confirmed`, escrow-protocol 1.29.0) | FRD-06 tolerant parser and badge (must ship before the flag is on); admin vocabulary with FRD-03 (next row); held queue FRD-07 | escrow-protocol 1.7.0, order-lifecycle 1.9.0 |
 | escrow `held` in the admin app (`admin/src/lib/transaction.ts` `escrowStatusVariant`, `admin/src/pages/EscrowsPage.tsx` `statusVariant`, i18n en, am, om: `escrows.held`, a new `transactions.escrow_held`, `action_fraud_hold`, `action_fraud_hold_release`, `action_fraud_hold_refund`) | admin UI | FRD-03 | FRD-03 (the admin app is where held escrows are resolved, so it ships with the status) | FRD-07 adds the held queue and a dashboard held count | none |
+| `fraud_confirmed` | `suspendReason` and `holdReason` value | FRD-05 | the Fraud Review reject action (`AdminFunction`, built); refused as free text on the user action route | `PartySuspensionGate` (built, first in precedence); `risk-settlement-skipped` alarm text | escrow-protocol 1.29.0 |
+| `ADMIN_009` and `ADMIN_006` on `POST /admin/fraud-signals/{id}/action`, `ADMIN_017` on `POST /admin/users/{id}/action` | rejection | FRD-05 | `AdminFunction` (built) | admin app, en, am, om (built) | this document (section 19) |
 | `FRAUD_DUPLICATE_LISTING`, `FRAUD_VELOCITY_EXCEEDED`, `ESCROW_011` | rejection | F-14 | live | live | sync-protocol, escrow-protocol |
 | `CONTACT_THEN_TRANSPORT_CANCEL` | signal (weight 10, default) | ESC-48 | `SyncFunction.ProcessTransportFailureCancelAsync` (live, best-effort) | admin Fraud Review (live, raw type); the risk score of section 14 (FRD-02, default weight, hard) | order-lifecycle 1.18.0 |
-| `RISK_SCORE_UNAVAILABLE`, `RISK_SCORE_TRUNCATED`, `RISK_SCORE_UNKNOWN_RECORD`, `RISK_SETTLEMENT_SKIPPED` (`reason=flag_off`, `score_unavailable` or `user_read_failed`), `RISK_TABLE_UNCONFIGURED`, `RISK_HOLD_ORDER_MISMATCH` | log alarm tokens | FRD-02 (first three); new (others) | FRD-02 (first three, `FraudDetectionService.RiskScoreUnavailableToken`, `RiskScoreTruncatedToken` and `RiskScoreUnknownRecordToken`; no caller until FRD-04), FRD-03 (built: `RISK_SETTLEMENT_SKIPPED` with `flag_off` and `user_read_failed`, and `RISK_HOLD_ORDER_MISMATCH`) | `RISK_SETTLEMENT_SKIPPED`: metric filter and alarm `risk-settlement-skipped` on escrow-cron from the FRD-03 deploy, flag on or off; the others FRD-16 metrics and alarms, `RISK_TABLE_UNCONFIGURED` alarmed from the day `FRAUD_HOLD_ENABLED` is turned on | this document only |
+| `RISK_SCORE_UNAVAILABLE`, `RISK_SCORE_TRUNCATED`, `RISK_SCORE_UNKNOWN_RECORD`, `RISK_SETTLEMENT_SKIPPED` (`reason=flag_off`, `score_unavailable` or `user_read_failed`), `RISK_TABLE_UNCONFIGURED`, `RISK_HOLD_ORDER_MISMATCH` | log alarm tokens | FRD-02 (first three); new (others) | FRD-02 (first three, `FraudDetectionService.RiskScoreUnavailableToken`, `RiskScoreTruncatedToken` and `RiskScoreUnknownRecordToken`; called since FRD-04), FRD-03 (built: `RISK_SETTLEMENT_SKIPPED` with `flag_off` and `user_read_failed`, and `RISK_HOLD_ORDER_MISMATCH`), FRD-04 (built: `RISK_SETTLEMENT_SKIPPED` with `score_unavailable`, and `RISK_TABLE_UNCONFIGURED`, `MoneyAlarmLog.RiskTableUnconfigured`, logged flag on or off) | `RISK_SETTLEMENT_SKIPPED`: metric filter and alarm `risk-settlement-skipped` on escrow-cron from the FRD-03 deploy, flag on or off; the others FRD-16 metrics and alarms (`RISK_TABLE_UNCONFIGURED` is logged flag on or off since FRD-04, so its alarm can count from FRD-16's deploy rather than from the day `FRAUD_HOLD_ENABLED` is turned on) | this document only |
 
 Contract numbers are the ones taken by FRD-01 and may be renumbered by the lead in merge order. Ordering: FRD-02 first; FRD-03 merges with the flag off; FRD-06 ships on web and in both stores; then the flag is turned on (section 18.7).
 
@@ -1370,8 +1424,8 @@ Contract numbers are the ones taken by FRD-01 and may be renumbered by the lead 
 |------|---------|
 | FRD-02 (built) | `IFraudDetectionService.GetUserRiskScoreAsync` and its result type (score, enforcement score, tier, `truncated`), constants and env overrides in `FraudDetectionService`, memoization helper, unit tests (section 14.7). Delivered as `FraudDetectionService.GetUserRiskScoreAsync`, `RiskScoreResult` in `FraudDtos.cs`, `RiskScoreCalculator.cs` (with `RiskScoreSettings`), `RiskScoreMemo.cs`; no infra change, since the read uses the table's own keys and the Lambdas that have `FRAUD_SIGNALS_TABLE` already hold `dynamodb:Query` through `grantReadWriteData` |
 | FRD-03 | `held` write in the three sweeps of `EscrowCronFunction`, admin exits in `EscrowFunction` and `EscrowService` (`ReleaseAsync`, `RefundAsync` with the order rules), `TryAcquireSettlementLockAsync` set and admin flag (and the `dispute_resolved` fix), `ActiveEscrowStatuses` and the per-delivery active check in `InitiateAsync`, the order-version fence on the auto-refund hold, the `heldFor: release` refund with the order hops to `dispute_resolved`, the accept refusal on a funded order whose escrow is held, dispute refusal, audit actions, the sweep alarm tokens, `FRAUD_HOLD_ENABLED`; admin status vocabulary; infra (next table) |
-| FRD-04 | Risk gate in `SyncFunction` (order `payment_submitted`, crop, trip and order create), `EscrowFunction` (`HandleInitiateAsync`, `HandleOrderCheckoutAsync`), the settlement gate of section 17.2, amount-neutral `AUTH_041` text, `FRAUD_ACCOUNT_HELD` |
-| FRD-05 | `HandleFraudActionAsync` side effects, `~whitelist` row, `suspendReason: fraud_confirmed`, dashboard and list filters, transaction-audit rows, admin UI |
+| FRD-04 (built) | Risk gate in `SyncFunction` (order `payment_submitted`, crop, trip and order create), `EscrowFunction` (`HandleInitiateAsync`, `HandleOrderCheckoutAsync`), the settlement gate of section 17.2, amount-neutral `AUTH_041` text, `FRAUD_ACCOUNT_HELD`. Delivered as `RiskGatePolicy` (new), `StepUpPolicy.CheckPayment` with the tier and `PaymentNeedsFayda`, the tier pass of `PartySuspensionGate` (`ISettlementRiskGate.ReadsRiskTier`, `SkipScoreUnavailable`), the score in `SettlementGateDecision` and the `fraud_hold` metadata (`EscrowService.HoldForReviewAsync`), `MoneyAlarmLog.RiskTableUnconfigured`; infra: escrow-cron `FRAUD_SIGNALS_TABLE` with `grantReadData`, the `risk-settlement-skipped` alarm text |
+| FRD-05 (built) | `HandleFraudActionAsync` side effects, `~whitelist` row, `suspendReason: fraud_confirmed`, dashboard and list filters, transaction-audit rows, admin UI. Delivered as the action validation, the consistent signal-row read (`IsSignalRowAsync`) before the side effect and the conditional stamp after it, `ApplyUserActionAsync` (the suspend path the user route and the reject share), the reserved reason (`ADMIN_017`) and the `unsuspend` cleanup, `WriteWhitelistAsync`, `ReadOpenEscrowsAsync`, `ScanFilter.SignalRowsOnly` on the list and the count, `FraudSignalDto.Resolution` and the `FraudActionResponse` fields, `UserDto.SuspendReason` (server side only), `fraud_confirmed` in `PartySuspensionGate`, `FraudDetectionService.WhitelistDaysFrom`; the Fraud Review page; no infra change but the `risk-settlement-skipped` alarm text |
 | FRD-06 | `PaymentStatus` `held` on mobile and web, tolerant status parsers, badge and timeline, "Under review" and `FRAUD_ACCOUNT_HELD` strings in en, am, om, `SyncExecutor` revert hook for `FRAUD_ACCOUNT_HELD` on `payment_submitted` (and its message in the batch result), `AUTH_041` re-auth retry on web repositories |
 | FRD-07 | Sparse `status` GSI on fraud-signals, grouped Fraud Review with score and tier, held queue, transaction timeline link |
 | FRD-08 | Signals from existing rejects plus the per-user, per-type write rate limit |
@@ -1382,16 +1436,16 @@ Infrastructure needed (`infra/lib/stacks/api-stack.ts`):
 
 | Lambda | Today | Needed |
 |--------|-------|--------|
-| `EscrowCronFunction` | `USERS_TABLE` read; no signals or transaction-audit access | `FRAUD_SIGNALS_TABLE` with read (FRD-04 gate) and write (FRD-10 credits), `TRANSACTION_AUDIT_TABLE` with write (FRD-03 `fraud_hold` rows), `FRAUD_HOLD_ENABLED` |
+| `EscrowCronFunction` | `USERS_TABLE` read; `TRANSACTION_AUDIT_TABLE` write and `FRAUD_HOLD_ENABLED` (FRD-03); `FRAUD_SIGNALS_TABLE` with read (FRD-04 gate, built) | `FRAUD_SIGNALS_TABLE` write (FRD-10 credits) |
 | `EscrowFunction` | `FRAUD_SIGNALS_TABLE` read and write | `TRANSACTION_AUDIT_TABLE` with write (FRD-03 admin exits) |
 | `SyncFunction`, `AdminFunction` | `FRAUD_SIGNALS_TABLE` read and write, `TRANSACTION_AUDIT_TABLE` | no change for FRD-02 to FRD-05 |
 | fraud-signals table | keys and TTL only | FRD-07 sparse GSI on `status` |
 
-Notes for FRD-04, from the FRD-02 review:
+Notes for FRD-04, from the FRD-02 review (all handled by FRD-04):
 
-- `EscrowCronFunction` has no `FRAUD_SIGNALS_TABLE` environment variable, no grant on the table and no `FraudDetectionService` today. The settlement gate of section 17.2 needs all three, plus a `RiskScoreMemo` per sweep run.
-- `EscrowFunction` builds its fraud service only when `RATE_LIMITS_TABLE` is set (`_fraudService` is nullable), so the `EscrowFunction` gates must decide what a missing service means rather than assume one.
-- A `Source = Unavailable` result carries `Tier = Low` (section 14.4). Every caller checks `Source` first; FRD-04 owns the sweep test that an unscored party skips the escrow.
+- `EscrowCronFunction` had no `FRAUD_SIGNALS_TABLE` environment variable, no grant on the table and no `FraudDetectionService`. FRD-04 adds all three (the service built only when the variable is set, with a rate-limit repository that names no table because the cron never runs the velocity checks) and a `RiskScoreMemo` per sweep run.
+- `EscrowFunction` builds its fraud service only when `RATE_LIMITS_TABLE` is set (`_fraudService` is nullable). FRD-04 decided: no service, no tier, LOW (section 17).
+- A `Source = Unavailable` result carries `Tier = Low` (section 14.4). Every caller checks `Source` first; FRD-04 owns the sweep test that an unscored party skips the escrow (`server/tests/Functions/EscrowCronRiskGateTests.cs`).
 
 Ties to EPIC ESC: ESC-33 writes `NO_SHOW` and `DELIVERY_OVERDUE` signals and re-attributes `GPS_ANOMALY`; a minimum app version gate that covers escrow reads (ESC-25 extended, or its own gate) is one way to meet the client condition for turning the hold flag on (section 18.7); design cases H1 and H4 of the three-party escrow design (a party suspended mid-order, a buyer suspended after funding) resolve to this `held` status. The account deletion contract (`specs/contracts/account-deletion.md`, ACC-01, not built yet) refuses deletion while the user is a party to a `held` escrow, because any status it does not list blocks, and refuses self-deletion of a suspended user; its open point on ban evasion stays with EPIC FRD, since a CRITICAL user who is not suspended and has no open escrow can still delete the account.
 
@@ -1401,6 +1455,8 @@ Ties to EPIC ESC: ESC-33 writes `NO_SHOW` and `DELIVERY_OVERDUE` signals and re-
 
 | Version | Date | Change |
 |---------|------|--------|
+| 3.6.0 | 2026-10-23 | FRD-05 built (escrow-protocol 1.29.0): section 19 marked built, with the request, the order of the checks (`400 ADMIN_009` for anything but `approve`, `reject` or `whitelist` exactly, `404 ADMIN_006` for a non-signal row on a consistent read, both before any write; the side effect before the review stamp, so a failure leaves the signal pending and retryable), the whitelist offered on soft signals only in the admin app, the side effects (reject suspends through the user route's one suspend path with `suspendReason: fraud_confirmed` and lists the open escrows read-only, bounded, holding nothing; whitelist writes the `~whitelist` row), the response fields and the transaction-audit rows; section 18.1: `fraud_confirmed` is a reserved `suspendReason` value (`400 ADMIN_017` on the user route, `unsuspend` removes the reason; not taken: a separate field), first in the gate's precedence across parties, with the known edge of a later free-text suspend; 14.1, 14.2, 14.5 (`FRAUD_WHITELIST_DAYS` from 1 to 365, else 30); section 20 whitelist row built (`reviewedAt` added); list and dashboard exclude credit and whitelist rows; section 19 known limits (a leftover whitelist row after a failed stamp, a 404 after a suspension when the TTL removed the row); 17.1 names ACC-02's checks (the `/sync` batch and escrow-route `410 ACCOUNT_004`, the deleted-party `ORDER_VALIDATION` and `ESCROW_030`); sections 4.3, 22 and 23 updated |
+| 3.5.0 | 2026-10-23 | FRD-04 built (escrow-protocol 1.27.0, order-lifecycle 1.25.0, sync-protocol 1.25.0, auth-api 2.10.0, crop-listing-api 1.5.0, trip-listing-api 1.6.0): section 17 marked built, with its implementation choices (user-action gates live on deploy and not behind the flag, no fraud service at the escrow Lambda is LOW, the create check before the F-14 listing checks, the tier read after the suspension pass, a certain hold beats an unscored party, tier and score in the `fraud_hold` metadata; not built: the tier in the audit metadata of MEDIUM and HIGH settlements and of the admin routes); 14.3 known edge of two exactly full pages; 14.4: `RISK_TABLE_UNCONFIGURED` is logged flag on or off (the flag-off skip is the live CRITICAL enforcement) now that escrow-cron has the table, and an unreadable score holds instead of skipping when another party is CRITICAL; sections 18, 22 and 23 updated |
 | 3.4.0 | 2026-10-23 | FRD-06 client handling built: section 4.4 (no new Isar collection or field; `PaymentStatus` gains `held` and `unknown`, append only), section 6.1 (client scope: fraud codes, escrow status as an open set, "Under Review" on escrow and order screens) and section 6.5 (the two hold reads are the only new network calls) |
 | 3.3.0 | 2026-10-23 | FRD-03 built (escrow-protocol 1.22.0, order-lifecycle 1.22.0): section 18 marked built for the `account_suspended` trigger behind `FRAUD_HOLD_ENABLED` (shipped off); the gate seam the three sweeps share, before any side effect (for an `/escrow/initiate` refund before its pending delivery is cancelled), and the trucker taken as the payout takes it; the order fence as one transaction (no revert fallback); admin exits need a `reason` of 10 to 500 characters and record `fraud_hold_release` or `fraud_hold_refund` before the order or the money moves; `held` joins the stale lock recovery and the manual payout close; review decisions: the flag-off skip stays and `RISK_SETTLEMENT_SKIPPED` is alarmed from the FRD-03 deploy (18.7, 22), a held escrow keeps its verdict's direction with the T4 residual risk recorded (18.3), and with the flag on the farmer's accept is fenced on the escrow in one transaction (18.5); `fraud_confirmed` (FRD-05) and `risk_critical` (FRD-04) stay planned |
 | 3.2.0 | 2026-10-23 | FRD-02: risk score built (sections 14 and 16), no caller yet. `GetUserRiskScoreAsync` and `RiskScoreResult` with `Source`, `RiskScoreCalculator`, `RiskScoreSettings`, `RiskScoreMemo`; implementation choices listed in 14.2 (an unknown `recordType` counts as a signal and logs `RISK_SCORE_UNKNOWN_RECORD`), the logging and `Source` in 14.4, env parsing in 14.5 (`RISK_MAX_PAGES` capped at 10); FRD-08 as a prerequisite for signals written onto another user (14.3); notes for FRD-04 in section 23; status markers updated |
@@ -1416,14 +1472,15 @@ Ties to EPIC ESC: ESC-33 writes `NO_SHOW` and `DELIVERY_OVERDUE` signals and re-
 - Crop listing architecture: `specs/architecture/crop-listing-architecture.md`
 - Delivery verification: `specs/architecture/delivery-verification-architecture.md`
 - Escrow payment: `specs/architecture/escrow-payment-architecture.md`
-- Sync protocol: `specs/contracts/sync-protocol.md` (1.9.0: `FRAUD_ACCOUNT_HELD:` operation error)
-- Escrow protocol: `specs/contracts/escrow-protocol.md` (1.7.0: `held`, fraud hold and risk tiers)
-- Order lifecycle: `specs/contracts/order-lifecycle.md` (1.9.0: fraud hold and payment gates)
-- Auth API: `specs/contracts/auth-api.md` (2.6.0: `AUTH_040`, `AUTH_041`, `FRAUD_ACCOUNT_HELD`)
+- Sync protocol: `specs/contracts/sync-protocol.md` (1.9.0: `FRAUD_ACCOUNT_HELD:` operation error; built in 1.25.0)
+- Escrow protocol: `specs/contracts/escrow-protocol.md` (1.7.0: `held`, fraud hold and risk tiers; the tier gates built in 1.27.0; `fraud_confirmed` built in 1.29.0)
+- Order lifecycle: `specs/contracts/order-lifecycle.md` (1.9.0: fraud hold and payment gates; the tiers built in 1.25.0)
+- Auth API: `specs/contracts/auth-api.md` (2.6.0: `AUTH_040`, `AUTH_041`, `FRAUD_ACCOUNT_HELD`; built in 2.10.0)
+- Crop and trip listing: `specs/contracts/crop-listing-api.md` 1.5.0 and `specs/contracts/trip-listing-api.md` 1.6.0 (`FRAUD_ACCOUNT_HELD` on create)
 - Step-up decision record: `specs/decisions/auth-step-up-plan.md`
 - Three-party escrow design: `specs/features/three-party-escrow-commitments-reputation.md` (ESC-25, ESC-33, H1, H4)
 - Task list: `TASK.md`, EPIC FRD
 
 **Last Updated**: 2026-10-23
 **Author**: Architecture Agent
-**Status**: Rules 1 to 4, signal persistence and the risk score (FRD-02) implemented. The escrow `held` status of section 18 is built for a suspended party (FRD-03, behind `FRAUD_HOLD_ENABLED`, shipped off). The rest of enforcement and of the risk engine (sections 17 to 23) specified, not built (EPIC FRD).
+**Status**: Rules 1 to 4, signal persistence and the risk score (FRD-02) implemented. The enforcement of section 17 is built (FRD-04). The escrow `held` status of section 18 is built for a party rejected in Fraud Review (FRD-05), a suspended party (FRD-03) and a CRITICAL party (FRD-04), behind `FRAUD_HOLD_ENABLED`, shipped off. The admin actions of section 19 and the whitelist row are built (FRD-05). The rest of the risk engine (sections 20 to 23) specified, not built (EPIC FRD).

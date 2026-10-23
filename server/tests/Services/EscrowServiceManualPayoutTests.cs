@@ -1669,6 +1669,22 @@ public class EscrowServiceManualPayoutTests
     }
 
     [Fact]
+    public async Task List_DeletedPayee_ShowsNoPhone_AndIsNotPayable()
+    {
+        // ACC-02: a deleted account's tombstone maps its phone to "", which is no phone at all.
+        _escrowRepo.QueryOpenManualPayoutsAsync(20, null).Returns(
+            (new List<Dictionary<string, object>> { Escrow(withTrucker: false, queuedOp: ManualPayoutFields.OpRelease) }, null));
+        _userRepo.GetUserByIdAsync(FarmerId).Returns(
+            User(FarmerId, "farmer", "", phoneVerified: false, fayda: false) with { DeletionState = "completed", Woreda = "" });
+
+        var result = await _service.ListManualPayoutsAsync(20, null);
+
+        var leg = result.Value!.Payouts.Single().Legs.Single(l => l.Ref == "farmer");
+        leg.PayeePhone.Should().BeNull();
+        leg.PayeeVerified.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task List_InvalidToken_Returns400()
     {
         var result = await _service.ListManualPayoutsAsync(20, "not-a-token");

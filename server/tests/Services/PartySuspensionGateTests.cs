@@ -13,7 +13,7 @@ public class PartySuspensionGateTests
 {
     private readonly IUserRepository _users = Substitute.For<IUserRepository>();
 
-    private static UserDto User(string id, bool suspended) => new()
+    private static UserDto User(string id, bool suspended, string? reason = null) => new()
     {
         UserId = id,
         PhoneNumber = "+251900000001",
@@ -21,6 +21,7 @@ public class PartySuspensionGateTests
         Woreda = "w",
         IsPhoneVerified = true,
         Suspended = suspended,
+        SuspendReason = reason,
         CreatedAt = "2026-01-01T00:00:00Z",
         UpdatedAt = "2026-01-01T00:00:00Z",
         Version = 1
@@ -164,5 +165,220 @@ public class PartySuspensionGateTests
         gate.BeginRun();
         await gate.CheckAsync(Escrow());
         await _users.Received(2).GetUserByIdAsync("b");
+    }
+
+    // ── FRD-05: fraud_confirmed, the Fraud Review reject's suspension (section 18.1) ──
+
+    [Theory]
+    [InlineData("b", "buyer")]
+    [InlineData("f", "farmer")]
+    [InlineData("t", "trucker")]
+    public async Task APartySuspendedAsFraudConfirmed_HoldsForFraudConfirmed(string id, string party)
+    {
+        Users();
+        _users.GetUserByIdAsync(id).Returns(User(id, suspended: true, reason: "fraud_confirmed"));
+
+        var decision = await new PartySuspensionGate(_users).CheckAsync(Escrow());
+
+        decision.HoldReason.Should().Be("fraud_confirmed");
+        decision.Party.Should().Be(party);
+    }
+
+    [Fact]
+    public async Task FraudConfirmed_TakesPrecedenceOverAnEarlierPartySuspendedForAnotherReason()
+    {
+        Users(buyer: true);
+        _users.GetUserByIdAsync("t").Returns(User("t", suspended: true, reason: "fraud_confirmed"));
+
+        var decision = await new PartySuspensionGate(_users).CheckAsync(Escrow());
+
+        decision.HoldReason.Should().Be("fraud_confirmed");
+        decision.Party.Should().Be("trucker");
+    }
+
+    [Theory]
+    [InlineData("Fraud_Confirmed")]
+    [InlineData("fraud confirmed by phone")]
+    public async Task AnyOtherReason_IsAccountSuspended(string reason)
+    {
+        Users();
+        _users.GetUserByIdAsync("f").Returns(User("f", suspended: true, reason: reason));
+
+        (await new PartySuspensionGate(_users).CheckAsync(Escrow())).HoldReason.Should().Be("account_suspended");
+    }
+
+    [Fact]
+    public async Task TheReasonOfALiftedSuspension_HoldsNothing()
+    {
+        Users();
+        _users.GetUserByIdAsync("f").Returns(User("f", suspended: false, reason: "fraud_confirmed"));
+
+        (await new PartySuspensionGate(_users).CheckAsync(Escrow())).Settles.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task FraudConfirmed_TakesPrecedenceOverACriticalParty_AndNoScoreIsRead()
+    {
+        Users();
+        _users.GetUserByIdAsync("f").Returns(User("f", suspended: true, reason: "fraud_confirmed"));
+        _fraud.GetUserRiskScoreAsync(Arg.Any<string>()).Returns(Scored(RiskTier.Critical, 150));
+
+        var decision = await new PartySuspensionGate(_users, fraudService: _fraud).CheckAsync(Escrow());
+
+        decision.HoldReason.Should().Be("fraud_confirmed");
+        decision.Risk.Should().BeNull();
+        await _fraud.DidNotReceiveWithAnyArgs().GetUserRiskScoreAsync(default!);
+    }
+
+    // ── FRD-04: the parties' risk tiers (sections 14.4, 17.2, 18.1) ──
+
+    private readonly IFraudDetectionService _fraud = Substitute.For<IFraudDetectionService>();
+
+    private static RiskScoreResult Scored(RiskTier tier, int score = 0, bool truncated = false)
+        => new() { Score = score, EnforcementScore = score, Tier = tier, Truncated = truncated };
+
+    private void Tiers(RiskTier buyer = RiskTier.Low, RiskTier farmer = RiskTier.Low, RiskTier trucker = RiskTier.Low)
+    {
+        _fraud.GetUserRiskScoreAsync("b").Returns(Scored(buyer));
+        _fraud.GetUserRiskScoreAsync("f").Returns(Scored(farmer));
+        _fraud.GetUserRiskScoreAsync("t").Returns(Scored(trucker));
+    }
+
+    [Theory]
+    [InlineData(RiskTier.Critical, RiskTier.Low, RiskTier.Low, "buyer")]
+    [InlineData(RiskTier.Low, RiskTier.Critical, RiskTier.Low, "farmer")]
+    [InlineData(RiskTier.Low, RiskTier.Low, RiskTier.Critical, "trucker")]
+    public async Task ACriticalParty_HoldsForRiskCritical_WithItsScore(
+        RiskTier buyer, RiskTier farmer, RiskTier trucker, string party)
+    {
+        Users();
+        Tiers(buyer, farmer, trucker);
+
+        var decision = await new PartySuspensionGate(_users, fraudService: _fraud).CheckAsync(Escrow());
+
+        decision.HoldReason.Should().Be("risk_critical");
+        decision.SkipReason.Should().BeNull();
+        decision.Party.Should().Be(party);
+        decision.Risk!.Tier.Should().Be(RiskTier.Critical);
+    }
+
+    [Fact]
+    public async Task ATruncatedRead_IsCritical()
+    {
+        Users();
+        Tiers();
+        _fraud.GetUserRiskScoreAsync("f").Returns(Scored(RiskTier.Critical, 15, truncated: true));
+
+        var decision = await new PartySuspensionGate(_users, fraudService: _fraud).CheckAsync(Escrow());
+
+        decision.HoldReason.Should().Be("risk_critical");
+        decision.Risk!.Truncated.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(RiskTier.Medium)]
+    [InlineData(RiskTier.High)]
+    public async Task MediumAndHigh_Settle(RiskTier tier)
+    {
+        Users();
+        Tiers(tier, tier, tier);
+
+        (await new PartySuspensionGate(_users, fraudService: _fraud).CheckAsync(Escrow())).Settles.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ASuspendedParty_TakesPrecedenceOverACriticalOne_AndNoScoreIsRead()
+    {
+        Users(farmer: true);
+        Tiers(buyer: RiskTier.Critical);
+
+        var decision = await new PartySuspensionGate(_users, fraudService: _fraud).CheckAsync(Escrow());
+
+        decision.HoldReason.Should().Be("account_suspended");
+        decision.Party.Should().Be("farmer");
+        decision.Risk.Should().BeNull();
+        await _fraud.DidNotReceiveWithAnyArgs().GetUserRiskScoreAsync(default!);
+    }
+
+    [Fact]
+    public async Task AnUnavailableScore_SkipsForTheRun_EvenThoughItsTierReadsLow()
+    {
+        Users();
+        Tiers();
+        _fraud.GetUserRiskScoreAsync("f").Returns(RiskScoreResult.Unscored(RiskScoreSource.Unavailable));
+
+        var decision = await new PartySuspensionGate(_users, fraudService: _fraud).CheckAsync(Escrow());
+
+        decision.SkipReason.Should().Be("score_unavailable");
+        decision.HoldReason.Should().BeNull();
+        decision.Party.Should().Be("farmer");
+    }
+
+    [Fact]
+    public async Task ACriticalParty_HoldsEvenWhenAnotherCouldNotBeScored()
+    {
+        Users();
+        Tiers(trucker: RiskTier.Critical);
+        _fraud.GetUserRiskScoreAsync("b").Returns(RiskScoreResult.Unscored(RiskScoreSource.Unavailable));
+
+        var decision = await new PartySuspensionGate(_users, fraudService: _fraud).CheckAsync(Escrow());
+
+        decision.HoldReason.Should().Be("risk_critical");
+        decision.Party.Should().Be("trucker");
+    }
+
+    [Fact]
+    public async Task AnUnconfiguredSignalsTable_IsLow()
+    {
+        Users();
+        _fraud.GetUserRiskScoreAsync(Arg.Any<string>()).Returns(RiskScoreResult.Unscored(RiskScoreSource.TableNotConfigured));
+
+        (await new PartySuspensionGate(_users, fraudService: _fraud).CheckAsync(Escrow())).Settles.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ReadsRiskTier_OnlyWithAFraudService()
+    {
+        new PartySuspensionGate(_users).ReadsRiskTier.Should().BeFalse();
+        new PartySuspensionGate(_users, fraudService: _fraud).ReadsRiskTier.Should().BeTrue();
+
+        // Without one the gate is FRD-03's: a party at CRITICAL is not its concern.
+        Users();
+        (await new PartySuspensionGate(_users).CheckAsync(Escrow())).Settles.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ScoresAreReadOncePerPartyPerRun_AFailedOneToo()
+    {
+        Users();
+        Tiers();
+        _fraud.GetUserRiskScoreAsync("t").Returns(RiskScoreResult.Unscored(RiskScoreSource.Unavailable));
+        var gate = new PartySuspensionGate(_users, fraudService: _fraud);
+        gate.BeginRun();
+
+        (await gate.CheckAsync(Escrow())).SkipReason.Should().Be("score_unavailable");
+        (await gate.CheckAsync(Escrow())).SkipReason.Should().Be("score_unavailable");
+
+        await _fraud.Received(1).GetUserRiskScoreAsync("b");
+        await _fraud.Received(1).GetUserRiskScoreAsync("t");
+
+        // A new run reads again: a score never outlives the sweep run that read it.
+        gate.BeginRun();
+        await gate.CheckAsync(Escrow());
+        await _fraud.Received(2).GetUserRiskScoreAsync("b");
+        await _fraud.Received(2).GetUserRiskScoreAsync("t");
+    }
+
+    [Fact]
+    public async Task ALegacyTruckerFoundByTheLookup_IsScoredToo()
+    {
+        Users();
+        Tiers(trucker: RiskTier.Critical);
+        var gate = new PartySuspensionGate(_users, _ => Task.FromResult<string?>("t"), _fraud);
+
+        var decision = await gate.CheckAsync(LegacyEscrow(500m));
+
+        decision.HoldReason.Should().Be("risk_critical");
+        decision.Party.Should().Be("trucker");
     }
 }

@@ -191,6 +191,16 @@ public class LoginFunction
                 "User profile not found. Please contact support.");
         }
 
+        // ACC-02: a deleted account, or one whose Cognito user is still being deleted, answers like a
+        // wrong password (no enumeration). A deletion in_progress may log in to finish it.
+        if (user.DeletionState is AccountDeletionPolicy.CognitoPending or AccountDeletionPolicy.Completed)
+        {
+            AuditLogger.LogSecurity("LOGIN_BLOCKED",
+                userId: user.UserId, detail: "deleted", correlationId: correlationId,
+                outcome: "failure", sourceIp: sourceIp);
+            return LambdaResponse.Error(401, "AUTH_014", "Invalid phone number or password.");
+        }
+
         // Admin-suspended accounts must not authenticate even with valid credentials.
         if (user.Suspended)
         {

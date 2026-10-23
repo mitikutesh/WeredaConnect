@@ -129,6 +129,11 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new PasswordResetFunction().FunctionHandler, serializer),
 
+            // ACC-02: DELETE /user/account and its completion sweep (two Lambdas, one handler).
+            var h when h.Contains("AccountDeletionFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new AccountDeletionFunction().FunctionHandler, serializer),
+
             var h when h.Contains("HealthCheckFunction") =>
                 HandlerWrapper.GetHandlerWrapper(
                     (Func<APIGatewayProxyRequest, ILambdaContext, APIGatewayProxyResponse>)

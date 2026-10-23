@@ -44,7 +44,9 @@ public sealed class UserRepository : IUserRepository
         }
     }
 
-    public async Task<UserDto?> GetUserByIdAsync(string userId)
+    public Task<UserDto?> GetUserByIdAsync(string userId) => GetUserByIdAsync(userId, consistentRead: false);
+
+    public async Task<UserDto?> GetUserByIdAsync(string userId, bool consistentRead)
     {
         var request = new GetItemRequest
         {
@@ -52,7 +54,8 @@ public sealed class UserRepository : IUserRepository
             Key = new Dictionary<string, AttributeValue>
             {
                 { "userId", new AttributeValue { S = userId } }
-            }
+            },
+            ConsistentRead = consistentRead
         };
 
         var response = await _dynamoDb.GetItemAsync(request);
@@ -105,9 +108,12 @@ public sealed class UserRepository : IUserRepository
                                "#woreda = :woreda, #lang = :lang, #verified = :verified, " +
                                "#photo = :photo, #fayda = :fayda, #faydaV = :faydaV, #faydaVAt = :faydaVAt, #faydaAuthAt = :faydaAuthAt, " +
                                "#devices = :devices, #updated = :updated, #v = :newVersion",
-            ConditionExpression = "#v = :expectedVersion",
+            // ACC-02: never on a deleting or deleted account, so no profile write can put the
+            // personal data back on a tombstone.
+            ConditionExpression = "#v = :expectedVersion AND attribute_not_exists(#deletionState)",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
+                { "#deletionState", "deletionState" },
                 { "#phone", "phoneNumber" },
                 { "#name", "displayName" },
                 { "#fullName", "fullName" },
@@ -321,18 +327,19 @@ public sealed class UserRepository : IUserRepository
     }
 
     /// <summary>
-    /// Unmarshal a DynamoDB item to a UserDto.
+    /// Unmarshal a DynamoDB item to a UserDto. A deleted account's tombstone (ACC-02) has no
+    /// phone and no woreda: both map to an empty string.
     /// </summary>
     internal static UserDto FromItem(Dictionary<string, AttributeValue> item)
     {
         return new UserDto
         {
             UserId = item["userId"].S,
-            PhoneNumber = item["phoneNumber"].S,
+            PhoneNumber = item.TryGetValue("phoneNumber", out var pn) && pn.S != null ? pn.S : "",
             DisplayName = item.TryGetValue("displayName", out var dn) && dn.S != null ? dn.S : null,
             FullName = item.TryGetValue("fullName", out var fn) && fn.S != null ? fn.S : null,
             Role = item["role"].S,
-            Woreda = item["woreda"].S,
+            Woreda = item.TryGetValue("woreda", out var wd) && wd.S != null ? wd.S : "",
             FaydaId = item.TryGetValue("faydaId", out var fid) && fid.S != null ? fid.S : null,
             FaydaVerified = item.TryGetValue("faydaVerified", out var fv) && fv.BOOL,
             FaydaVerifiedAt = item.TryGetValue("faydaVerifiedAt", out var fva) && fva.S != null ? fva.S : null,
@@ -340,10 +347,14 @@ public sealed class UserRepository : IUserRepository
             PreferredLanguage = item.TryGetValue("preferredLanguage", out var lang) ? lang.S : "am",
             IsPhoneVerified = item.TryGetValue("isPhoneVerified", out var verified) && verified.BOOL,
             Suspended = item.TryGetValue("suspended", out var susp) && susp.BOOL,
+            SuspendReason = item.TryGetValue("suspendReason", out var sr) && sr.S != null ? sr.S : null,
             KnownDevices = item.TryGetValue("knownDevices", out var kd) && kd.SS is { Count: > 0 } ? [.. kd.SS] : [],
             ProfilePhotoRef = item.TryGetValue("profilePhotoRef", out var photo) && photo.S != null ? photo.S : null,
             BuyerType = item.TryGetValue("buyerType", out var bt) && bt.S != null ? bt.S : null,
             CompanyName = item.TryGetValue("companyName", out var cn) && cn.S != null ? cn.S : null,
+            DeletionState = item.TryGetValue("deletionState", out var ds) && ds.S != null ? ds.S : null,
+            DeletionRequestedAt = item.TryGetValue("deletionRequestedAt", out var dra) && dra.S != null ? dra.S : null,
+            DeletedAt = item.TryGetValue("deletedAt", out var da) && da.S != null ? da.S : null,
             CreatedAt = item["createdAt"].S,
             UpdatedAt = item["updatedAt"].S,
             Version = item.TryGetValue("version", out var ver) && ver.N != null ? int.Parse(ver.N) : 1

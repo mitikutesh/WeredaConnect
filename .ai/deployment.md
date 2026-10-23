@@ -486,8 +486,8 @@ POST /escrow/refund
 | GET | `/admin/analytics/transactions` | Transaction analytics |
 | GET | `/admin/payouts/manual` | Manual payout queue (ESC-02): settlements the live gateway could not make |
 | POST | `/admin/disputes/{id}/resolve` | Record a dispute verdict: `farmer_wins` (action `release`) or `buyer_wins` (action `refund`), admin group only; the hourly sweep settles it (ESC-03) |
-| POST | `/admin/fraud-signals/{id}/action` | Flag/investigate fraud |
-| POST | `/admin/users/{id}/action` | Disable/enable user |
+| POST | `/admin/fraud-signals/{id}/action` | Review a fraud signal: `approve`, `reject` (suspends the user, `fraud_confirmed`) or `whitelist` (FRD-05) |
+| POST | `/admin/users/{id}/action` | Suspend, unsuspend, verify or change role (`fraud_confirmed` is not an accepted suspend reason) |
 | POST | `/admin/payouts/{escrowId}/{ref}/complete` | Record an admin-paid manual payout leg (`{externalRef}`, admin group only) |
 
 #### Manual payout queue (live mode runbook, ESC-02)

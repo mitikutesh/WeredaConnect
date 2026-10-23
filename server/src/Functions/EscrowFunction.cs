@@ -128,6 +128,27 @@ public class EscrowFunction
 
         var action = ExtractAction(request);
 
+        // ACC-02: an account that is being or has been deleted starts no payment and no dispute.
+        if (request.HttpMethod == "POST" && (action is "initiate" or "order-checkout" or "dispute")
+            && _userRepo != null && GetAuthenticatedUserId(request) is { Length: > 0 } callerId)
+        {
+            APIGatewayProxyResponse? gone;
+            try
+            {
+                gone = await AccountDeletionGuard.RefuseIfDeletingAsync(_userRepo, callerId);
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogError($"Account state read failed: [{ex.GetType().Name}]");
+                return LambdaResponse.Error(503, "ESCROW_012", "Payment is temporarily unavailable. Please try again.");
+            }
+
+            if (gone != null)
+            {
+                return gone;
+            }
+        }
+
         return (request.HttpMethod, action) switch
         {
             ("POST", "initiate") => await HandleInitiateAsync(request, context),
@@ -193,11 +214,19 @@ public class EscrowFunction
             return LambdaResponse.Error(403, "ESCROW_025", "Only buyers can initiate escrow payments.");
         }
 
+        // FRD-04 (fraud-detection-architecture.md 17.1): the buyer's risk tier, after the role check.
+        // CRITICAL pays nothing; MEDIUM and HIGH add proofs to the step-up below.
+        var riskTier = await CallerRiskTierAsync(userId);
+        if (riskTier == RiskTier.Critical)
+        {
+            return AccountHeld(request, userId, "INITIATE", "escrow");
+        }
+
         // Step-up: a payment needs a recent password (up to 10,000 ETB) or a recent
         // Fayda login (above it), so a long-lived session on a shared or stolen phone
         // cannot pay on its own. Without the user table the Fayda tier fails closed.
         string? buyerFaydaAuthAt = null;
-        if (body.Amount > KycPolicy.FaydaThresholdEtb && _userRepo != null)
+        if (StepUpPolicy.PaymentNeedsFayda(body.Amount, riskTier) && _userRepo != null)
         {
             try
             {
@@ -214,7 +243,8 @@ public class EscrowFunction
                     "Payment is temporarily unavailable. Please try again.");
             }
         }
-        var stepUpError = StepUpPolicy.CheckPayment(AuthHelper.GetAuthTime(request), buyerFaydaAuthAt, body.Amount);
+        var stepUpError = StepUpPolicy.CheckPayment(
+            AuthHelper.GetAuthTime(request), buyerFaydaAuthAt, body.Amount, tier: riskTier);
         if (stepUpError != null)
         {
             var stepUpCode = StepUpPolicy.CodeOf(stepUpError);
@@ -338,6 +368,14 @@ public class EscrowFunction
         if (body == null || string.IsNullOrWhiteSpace(body.OrderId))
         {
             return LambdaResponse.Error(400, "ESCROW_033", "orderId is required.", "orderId");
+        }
+
+        // FRD-04 (fraud-detection-architecture.md 17.1): CRITICAL is refused before the velocity count
+        // and before any Telebirr call. MEDIUM and HIGH are not asked again: the step-up ran at
+        // payment_submitted.
+        if (await CallerRiskTierAsync(userId) == RiskTier.Critical)
+        {
+            return AccountHeld(request, userId, "ORDER_CHECKOUT", "order", body.OrderId);
         }
 
         // Same payment velocity limit as /escrow/initiate: each new checkout is a Telebirr
@@ -792,6 +830,30 @@ public class EscrowFunction
 
     private static string? GetAuthenticatedUserRole(APIGatewayProxyRequest request)
         => AuthHelper.GetRole(request);
+
+    // ──────────────────────────────────────────────
+    // Risk tier gate (FRD-04)
+    // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// The caller's risk tier (fraud-detection-architecture.md 17.1), one read per request. Without a fraud
+    /// service (no <c>RATE_LIMITS_TABLE</c>) there is no tier: LOW, as for an unconfigured signals table at
+    /// a user gate (section 14.4), so today's checks and the baseline step-up still apply.
+    /// </summary>
+    private async Task<RiskTier> CallerRiskTierAsync(string userId)
+        => _fraudService == null
+            ? RiskTier.Low
+            : RiskGatePolicy.TierAtUserGate(await _fraudService.GetUserRiskScoreAsync(userId));
+
+    /// <summary>FRD-04: <c>403 FRAUD_ACCOUNT_HELD</c> (section 17.3); nothing held, nothing written.</summary>
+    private static APIGatewayProxyResponse AccountHeld(
+        APIGatewayProxyRequest request, string userId, string action, string entityType, string? entityId = null)
+    {
+        AuditLogger.LogAudit("ESCROW", action,
+            userId: userId, correlationId: AuditLogger.GetCorrelationId(request),
+            entityType: entityType, entityId: entityId, outcome: "failure", errorCode: RiskGatePolicy.AccountHeldCode);
+        return LambdaResponse.Error(403, RiskGatePolicy.AccountHeldCode, RiskGatePolicy.AccountHeldMessage);
+    }
 
     // ──────────────────────────────────────────────
     // Gateway factory

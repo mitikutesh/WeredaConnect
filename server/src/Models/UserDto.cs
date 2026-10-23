@@ -37,12 +37,30 @@ public sealed record UserDto
     public string PreferredLanguage { get; init; } = "am";
     public required bool IsPhoneVerified { get; init; }
     public bool Suspended { get; init; }
+    /// <summary>
+    /// Why an admin suspended the account. <c>fraud_confirmed</c> is reserved for the Fraud Review
+    /// reject action (FRD-05), whose escrows the settlement sweep holds with that reason. Server-side
+    /// only, never returned to clients.
+    /// </summary>
+    [JsonIgnore]
+    public string? SuspendReason { get; init; }
     /// <summary>Install ids (X-Device-Id) that have signed in; a new one triggers a notice.</summary>
     public List<string> KnownDevices { get; init; } = [];
     public string? ProfilePhotoRef { get; init; }
     // Buyer-only identity fields (F-32); null for farmers/truckers.
     public string? BuyerType { get; init; }
     public string? CompanyName { get; init; }
+    /// <summary>
+    /// ACC-02: <c>in_progress</c>, <c>cognito_pending</c> or <c>completed</c> once the user asked
+    /// to delete the account (account-deletion.md); null on a live account. Server-side only.
+    /// </summary>
+    [JsonIgnore]
+    public string? DeletionState { get; init; }
+    [JsonIgnore]
+    public string? DeletionRequestedAt { get; init; }
+    /// <summary>ACC-02: when the personal data was erased (the tombstone write). Server-side only.</summary>
+    [JsonIgnore]
+    public string? DeletedAt { get; init; }
     public required string CreatedAt { get; init; }
     public required string UpdatedAt { get; init; }
     public required int Version { get; init; }

@@ -145,11 +145,12 @@ describe('ApiStack', () => {
     template.resourceCountIs('AWS::Cognito::UserPoolClient', 2);
   });
 
-  test('creates twenty-four Lambda functions (dev) on ARM64', () => {
+  test('creates twenty-six Lambda functions (dev) on ARM64', () => {
     // Prior 20 (core + match + device-token + crop-match-stream + ratings, plus
     // the delivery-qr-secrets work) + messages (read) + message-stream (push) = 22,
-    // + auth-verify-otp (SMS phone proof) + the dev-only mock Fayda provider = 24.
-    template.resourceCountIs('AWS::Lambda::Function', 24);
+    // + auth-verify-otp (SMS phone proof) + the dev-only mock Fayda provider = 24,
+    // + account deletion and its sweep (ACC-02) = 26.
+    template.resourceCountIs('AWS::Lambda::Function', 26);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
@@ -174,8 +175,9 @@ describe('ApiStack', () => {
     // plus GET /admin/payouts/manual and POST /admin/payouts/{escrowId}/{ref}/complete
     // (ESC-02, manual payout queue) → 58,
     // plus GET /admin/payments/unapplied and POST /admin/payments/{orderId}/refund-manual
-    // (FUP-02, manual refund of an unapplied payment) → 60 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 60);
+    // (FUP-02, manual refund of an unapplied payment) → 60,
+    // plus DELETE /user/account (ACC-02) → 61 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 61);
   });
 
   test('manual payout queue routes sit on the admin authorizer (ESC-02)', () => {
@@ -213,6 +215,44 @@ describe('ApiStack', () => {
     );
     expect(admin).toBeDefined();
     expect(admin!.Properties.Environment.Variables.ESCROW_IDEMPOTENCY_TABLE).toBeDefined();
+  });
+
+  test('FRD-05: the admin Lambda holds every grant the fraud review actions use', () => {
+    // No new grant: this pins the existing ones, since a missing one is a runtime AccessDenied.
+    // The role's statements overflow into a managed policy, so read both kinds.
+    const policies = {
+      ...template.findResources('AWS::IAM::Policy'),
+      ...template.findResources('AWS::IAM::ManagedPolicy'),
+    };
+    const statements = Object.keys(policies)
+      .filter((key) => key.startsWith('AdminFunctionServiceRole'))
+      .flatMap(
+        (id) =>
+          policies[id].Properties.PolicyDocument.Statement as Array<{
+            Action: string | string[];
+            Resource: unknown;
+          }>,
+      );
+    const actionsOf = (match: (resource: string) => boolean) =>
+      statements
+        .filter((s) => match(JSON.stringify(s.Resource)))
+        .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+
+    // reject: the open escrows come from the buyer, farmer and trucker indexes.
+    expect(actionsOf((r) => r.includes('EscrowsTable') && r.includes('/index/*'))).toContain('dynamodb:Query');
+    // The signal-row read, the review stamp, the whitelist row, and the list and count scans.
+    expect(actionsOf((r) => r.includes('FraudSignalsTable'))).toEqual(
+      expect.arrayContaining(['dynamodb:GetItem', 'dynamodb:UpdateItem', 'dynamodb:PutItem', 'dynamodb:Scan']),
+    );
+    // reject suspends through the user action path: the profile row, then Cognito on the mobile pool.
+    expect(actionsOf((r) => r.includes('UsersTable'))).toEqual(
+      expect.arrayContaining(['dynamodb:GetItem', 'dynamodb:UpdateItem']),
+    );
+    expect(actionsOf((r) => r.includes('UserPool') && !r.includes('AdminUserPool'))).toEqual(
+      expect.arrayContaining(['cognito-idp:AdminDisableUser', 'cognito-idp:AdminUserGlobalSignOut']),
+    );
+    // One transaction-audit row per action.
+    expect(actionsOf((r) => r.includes('TransactionAuditTable'))).toContain('dynamodb:PutItem');
   });
 
   test('unapplied payment routes sit on the admin authorizer (FUP-02)', () => {
@@ -503,6 +543,34 @@ describe('ApiStack', () => {
       FunctionName: 'wereda-connect-dev-sync',
       Environment: { Variables: Match.objectLike({ FRAUD_HOLD_ENABLED: 'false' }) },
     });
+  });
+
+  test('FRD-04: escrow-cron reads the fraud-signals table for the settlement risk tier, and writes none of it', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-escrow-cron',
+      Environment: {
+        Variables: Match.objectLike({ FRAUD_SIGNALS_TABLE: Match.anyValue(), FRAUD_HOLD_ENABLED: 'false' }),
+      },
+    });
+
+    const policies = [
+      ...Object.entries(template.findResources('AWS::IAM::Policy')),
+      ...Object.entries(template.findResources('AWS::IAM::ManagedPolicy')),
+    ];
+    const cronSignalActions = policies
+      .filter(([id]) => id.startsWith('EscrowCronFunctionServiceRole'))
+      .flatMap(
+        ([, policy]) =>
+          policy.Properties.PolicyDocument.Statement as Array<{ Action: string | string[]; Resource: unknown }>,
+      )
+      .filter((s) => JSON.stringify(s.Resource).includes('FraudSignalsTable'))
+      .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+
+    // The score is one Query of the party's partition (FraudDetectionService.GetUserRiskScoreAsync).
+    expect(cronSignalActions).toContain('dynamodb:Query');
+    for (const write of ['dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:DeleteItem', 'dynamodb:BatchWriteItem']) {
+      expect([write, cronSignalActions.includes(write)]).toEqual([write, false]);
+    }
   });
 
   test('ESC-10: escrow-cron can read the escrow audit trail the sweep freeze checks', () => {
@@ -1621,7 +1689,15 @@ describe('MonitoringStack', () => {
     const template = monitoringTemplate(false);
     const filter = metricFilter(template, ESCROW_CRON_LG, 'RiskSettlementSkipped');
     expect(filter.Properties.MetricTransformations[0].MetricValue).toBe('1');
-    for (const reason of ['flag_off holdReason=account_suspended', 'user_read_failed holdReason=-']) {
+    // FRD-04 adds a CRITICAL party with the flag off and a party risk score that could not be read,
+    // FRD-05 a party rejected in Fraud Review.
+    for (const reason of [
+      'flag_off holdReason=fraud_confirmed',
+      'flag_off holdReason=account_suspended',
+      'user_read_failed holdReason=-',
+      'flag_off holdReason=risk_critical',
+      'score_unavailable holdReason=-',
+    ]) {
       const line = `RISK_SETTLEMENT_SKIPPED escrowId=escrow-order-ord-1 sweep=auto-refund reason=${reason}`;
       expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, true]);
       const prefixed = `2026-10-23T10:00:00.000Z\t4f1c7a2e-req\twarn\t${line}`;
@@ -1632,6 +1708,8 @@ describe('MonitoringStack', () => {
       'ESCROW_FRAUD_HOLD escrowId=escrow-order-ord-1 holdReason=account_suspended heldFor=refund sweep=auto-refund',
       'ESCROW_FRAUD_HOLD_LOST escrowId=escrow-order-ord-1 outcome=OrderChanged sweep=auto-refund; the next run decides again.',
       'RISK_HOLD_ORDER_MISMATCH escrowId=escrow-order-ord-1 heldFor=release legs=order:mismatch:in-transit',
+      // FRD-04: the unconfigured-table line is FRD-16's alarm, not this one.
+      'RISK_TABLE_UNCONFIGURED action=auto_release_and_refund',
       SETTLEMENT_LINE,
       PAYOUT_LINE,
       QUEUE_LINE,

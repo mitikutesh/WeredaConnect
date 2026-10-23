@@ -99,4 +99,11 @@ public interface ICognitoAuthService
 
     /// <summary>Set custom:role so newly issued tokens carry the changed role.</summary>
     Task<AuthResult<bool>> AdminSetRoleAsync(string phone, string role);
+
+    /// <summary>
+    /// ACC-02: delete the Cognito user (<c>AdminDeleteUser</c>). <paramref name="username"/> may be
+    /// the user's <c>sub</c>: the pool signs in by phone, so the sub is the username. Fails with
+    /// <c>404 AUTH_013</c> when the user is already gone, which a deletion counts as done.
+    /// </summary>
+    Task<AuthResult<bool>> AdminDeleteUserAsync(string username);
 }
