@@ -240,6 +240,12 @@ class OfflineAuthCache {
     await _storage.delete(key: _cachedAtKey(phoneNumber));
   }
 
+  /// Remove everything this browser keeps for [phoneNumber]'s account once
+  /// it is deleted. Web keeps no offline-login counter, so this is the same
+  /// as [clearCredentials] (platform pair with the Isar implementation).
+  Future<void> forgetAccount(String phoneNumber) =>
+      clearCredentials(phoneNumber);
+
   Future<void> clearAllCredentials() async {
     await _storage.deleteAll();
   }

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -70,8 +71,8 @@ class OrderCard extends StatelessWidget {
                         const SizedBox(height: 4),
                         Text(
                           isFarmerView
-                              ? '${l10n.buyer}: ${order.buyerName}'
-                              : '${l10n.farmer}: ${order.farmerName}',
+                              ? '${l10n.buyer}: ${partyDisplayName(order.buyerName, l10n)}'
+                              : '${l10n.farmer}: ${partyDisplayName(order.farmerName, l10n)}',
                           style: theme.textTheme.bodyMedium,
                         ),
                         const SizedBox(height: 4),

@@ -21,6 +21,7 @@ import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/payment_intent.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/features/account/presentation/screens/delete_account_screen.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -62,9 +63,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
-        // When user logs out while on profile, pop back to auth gate
-        if (state is! AuthAuthenticated && Navigator.of(context).canPop()) {
-          Navigator.of(context).pop();
+        // When user logs out while on profile, pop back to auth gate, also
+        // past a screen opened from here (Delete account).
+        if (state is! AuthAuthenticated) {
+          Navigator.of(context).popUntil((route) => route.isFirst);
         }
       },
       child: BlocBuilder<AuthBloc, AuthState>(
@@ -667,6 +669,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: l10n.help,
         subtitle: l10n.faqAndSupport,
         onTap: () => _showComingSoon(context, l10n),
+      ),
+      // Same entry for every role (account-deletion.md).
+      _ProfileMenuItem(
+        key: const Key('profile_delete_account'),
+        icon: Icons.person_remove_outlined,
+        title: l10n.deleteAccount,
+        subtitle: l10n.deleteAccountSubtitle,
+        iconColor: AppTheme.statusError,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => const DeleteAccountScreen(),
+            ),
+          );
+        },
       ),
       if (kDebugMode)
         _ProfileMenuItem(

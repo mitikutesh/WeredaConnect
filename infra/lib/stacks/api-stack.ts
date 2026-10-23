@@ -438,6 +438,9 @@ export class ApiStack extends cdk.Stack {
       !((envConfig.enableTelebirrLive ?? false) ||
         this.node.tryGetContext("enableTelebirrLive") === "true");
 
+    // FRD-03 / FUP-61: one value for sync and escrow-cron, from the environment config (dev on).
+    const fraudHoldEnabled = envConfig.fraudHoldEnabled ? "true" : "false";
+
     const syncFn = new WeredaLambda(this, "SyncFunction", {
       functionName: `${prefix}-sync`,
       description: "POST /sync — offline-first sync engine batch processor",
@@ -469,7 +472,7 @@ export class ApiStack extends cdk.Stack {
         // FRD-03: on, the farmer's accept is one transaction with a check that the order's escrow
         // is not held (a sweep may hold it between the read and the write). Same value as on
         // escrow-cron; both are turned on together after FRD-06.
-        FRAUD_HOLD_ENABLED: "false",
+        FRAUD_HOLD_ENABLED: fraudHoldEnabled,
         ...(syncTelebirrMock ? { TELEBIRR_MOCK: "true" } : {}),
       },
       timeout: cdk.Duration.seconds(30),
@@ -1109,9 +1112,9 @@ export class ApiStack extends cdk.Stack {
         FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
         // FRD-03: off, a sweep that finds a suspended party (FRD-04: or a party at risk tier CRITICAL)
         // skips that settlement and logs RISK_SETTLEMENT_SKIPPED; on, it writes the escrow status `held`.
-        // Turn on only once every client parses `held` (FRD-06 on web and in both stores,
-        // fraud-detection-architecture.md 18.7).
-        FRAUD_HOLD_ENABLED: "false",
+        // On per environment once its clients parse `held` (FRD-06 on web and in both stores); apps
+        // older than that read `escrowed` on the escrow routes (FUP-61, fraud-detection-architecture.md 18.7).
+        FRAUD_HOLD_ENABLED: fraudHoldEnabled,
         ...(envConfig.isProd || enableTelebirrLive ? {} : { TELEBIRR_MOCK: "true" }),
       },
       timeout: cdk.Duration.minutes(5),
@@ -1480,13 +1483,15 @@ export class ApiStack extends cdk.Stack {
         allowOrigins: corsOrigins,
         // X-Device-Id / X-Device-Name ride on login, register and verify-otp
         // (server DeviceIdentity). Without them the browser preflight fails and
-        // the web app cannot sign up or sign in.
+        // the web app cannot sign up or sign in. X-App-Build rides on every request
+        // (FUP-61, server ClientAppBuild), so it must be here before a web build sends it.
         allowHeaders: [
           "Content-Type",
           "Authorization",
           "X-Request-Id",
           "X-Device-Id",
           "X-Device-Name",
+          "X-App-Build",
         ],
         allowMethods: [
           CorsHttpMethod.GET,

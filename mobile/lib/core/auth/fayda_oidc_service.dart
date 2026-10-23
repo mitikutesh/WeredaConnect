@@ -3,8 +3,10 @@ import 'package:flutter/foundation.dart';
 
 import 'package:wereda_connect/core/auth/fayda_callback_links.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
+import 'package:wereda_connect/core/auth/session_signals.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_config.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/network/json_body.dart';
 
 /// Result of parsing a Fayda OIDC callback URI.
@@ -448,6 +450,12 @@ class FaydaOidcService {
   static ({String code, String message, int? retryAfterSeconds}) _errorOf(
     DioException e,
   ) {
+    // `/user/fayda-start` and `/user/fayda-link` answer 410 ACCOUNT_004 for
+    // an account being or already deleted. These calls skip the API client,
+    // so they tell the AuthBloc themselves (account-deletion.md 1.3.0).
+    final goneState =
+        accountGoneState(e.response?.statusCode, e.response?.data);
+    if (goneState != null) SessionSignals.instance.accountGone(goneState);
     final error = decodeJsonMap(e.response?.data)?['error'];
     if (error is Map) {
       final code = error['code'];

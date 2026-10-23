@@ -4,6 +4,7 @@ import 'package:http_mock_adapter/http_mock_adapter.dart';
 
 import 'package:wereda_connect/core/auth/fayda_oidc_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
+import 'package:wereda_connect/core/auth/session_signals.dart';
 
 const noDelay = [Duration.zero, Duration.zero];
 
@@ -408,6 +409,62 @@ void main() {
 
       expect(result.isSuccess, isFalse);
       expect(result.errorCode, AuthErrorCode.faydaAlreadyLinked);
+    });
+  });
+
+  // ACC-03: these calls skip the API client, so they report a deleted
+  // account themselves (account-deletion.md 1.3.0).
+  group('410 ACCOUNT_004', () {
+    Map<String, dynamic> gone(String state) => {
+          'error': {
+            'code': 'ACCOUNT_004',
+            'message': 'This account has been deleted.',
+            'deletionState': state,
+          },
+        };
+
+    test('from /user/fayda-start and /user/fayda-link tells the AuthBloc',
+        () async {
+      final signalled = <String>[];
+      final sub = SessionSignals.instance.onAccountGone.listen(signalled.add);
+      addTearDown(sub.cancel);
+      adapter
+        ..onPost(
+          '/user/fayda-start',
+          (server) => server.reply(410, gone('completed')),
+          data: Matchers.any,
+        )
+        ..onPost(
+          '/user/fayda-link',
+          (server) => server.reply(410, gone('in_progress')),
+          data: Matchers.any,
+        );
+
+      final start = await service.startLink();
+      final link = await service.link(authCode: 'c', state: 's');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(start.isSuccess, isFalse);
+      expect(link.isSuccess, isFalse);
+      expect(signalled, ['completed', 'in_progress']);
+    });
+
+    test('other Fayda refusals tell nothing', () async {
+      final signalled = <String>[];
+      final sub = SessionSignals.instance.onAccountGone.listen(signalled.add);
+      addTearDown(sub.cancel);
+      adapter.onPost(
+        '/user/fayda-link',
+        (server) => server.reply(409, {
+          'error': {'code': 'FAYDA_004', 'message': 'already linked'},
+        }),
+        data: Matchers.any,
+      );
+
+      await service.link(authCode: 'c', state: 's');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(signalled, isEmpty);
     });
   });
 

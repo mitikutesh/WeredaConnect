@@ -6,6 +6,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -113,7 +114,13 @@ void main() {
     when(() => inboxBloc.stream).thenAnswer((_) => const Stream.empty());
   });
 
-  Widget buildScreen(String contextType, String contextId) => MultiBlocProvider(
+  Widget buildScreen(
+    String contextType,
+    String contextId, {
+    String counterpartName = 'Farmer',
+    Locale locale = const Locale('en'),
+  }) =>
+      MultiBlocProvider(
         providers: [
           BlocProvider<AuthBloc>.value(value: authBloc),
           BlocProvider<InboxBloc>.value(value: inboxBloc),
@@ -121,12 +128,12 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          locale: const Locale('en'),
+          locale: locale,
           home: ConversationScreen(
             contextType: contextType,
             contextId: contextId,
             counterpartId: 'farmer-1',
-            counterpartName: 'Farmer',
+            counterpartName: counterpartName,
           ),
         ),
       );
@@ -204,5 +211,22 @@ void main() {
     expect(find.text(note), findsNothing);
     expect(find.byType(TextField), findsOneWidget);
     expect(find.byIcon(Icons.call_outlined), findsNothing);
+  });
+
+  // ACC-03: a deleted party's name is the localized "Deleted user".
+  testWidgets('am: a deleted counterpart reads in Amharic', (tester) async {
+    await tester.pumpWidget(
+      buildScreen(
+        'order',
+        'order-1',
+        counterpartName: deletedUserSentinel,
+        locale: const Locale('am'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final am = lookupAppLocalizations(const Locale('am'));
+    expect(find.text(am.deletedUser), findsOneWidget);
+    expect(find.text(deletedUserSentinel), findsNothing);
   });
 }

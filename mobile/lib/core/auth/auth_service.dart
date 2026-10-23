@@ -68,6 +68,22 @@ bool isJwtExpired(
   }
 }
 
+/// The `sub` claim (the user id) of the JWT [token], or null when it cannot
+/// be read.
+String? jwtSubject(String token) {
+  final parts = token.split('.');
+  if (parts.length != 3) return null;
+  try {
+    final payload = jsonDecode(
+      utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+    );
+    final sub = payload is Map<String, dynamic> ? payload['sub'] : null;
+    return sub is String && sub.isNotEmpty ? sub : null;
+  } on Object {
+    return null;
+  }
+}
+
 /// Decode a response body that may arrive as a raw JSON String (web).
 Map<String, dynamic> _asMap(Object? data) =>
     requireJsonMap(data, what: 'auth response');

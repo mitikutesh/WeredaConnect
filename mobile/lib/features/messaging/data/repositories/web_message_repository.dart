@@ -47,6 +47,20 @@ class WebMessageRepository extends BaseMessageRepository {
 
   WebMessageRepository({required ApiClient api}) : _api = api;
 
+  /// Remove the read markers of every conversation [userId] is part of
+  /// (account deleted). Other accounts' markers in this browser stay.
+  static Future<void> forgetReadMarkers(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    for (final key in prefs.getKeys().toList()) {
+      if (!key.startsWith(_readKeyPrefix)) continue;
+      // `{contextType}:{contextId}:{userA}:{userB}`
+      final parts = key.substring(_readKeyPrefix.length).split(':');
+      if (parts.length >= 4 && parts.skip(2).contains(userId)) {
+        await prefs.remove(key);
+      }
+    }
+  }
+
   @override
   Future<Message> sendMessage({
     required String contextType,

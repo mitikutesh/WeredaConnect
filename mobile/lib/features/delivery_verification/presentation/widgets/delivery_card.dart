@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_status_indicator.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -25,6 +26,7 @@ class DeliveryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
     final dateFormat = DateFormat.yMMMd();
 
     return Card(
@@ -43,7 +45,7 @@ class DeliveryCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      AppLocalizations.of(context)!.deliveryIdLabel(
+                      l10n.deliveryIdLabel(
                         delivery.deliveryId.substring(0, 8),
                       ),
                       style: theme.textTheme.titleMedium?.copyWith(
@@ -52,12 +54,12 @@ class DeliveryCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${delivery.farmerName} \u2192 ${delivery.buyerName}',
+                      '${partyDisplayName(delivery.farmerName, l10n)} \u2192 ${partyDisplayName(delivery.buyerName, l10n)}',
                       style: theme.textTheme.bodyMedium,
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${delivery.truckerName} \u00b7 ${dateFormat.format(delivery.createdAt)}',
+                      '${partyDisplayName(delivery.truckerName, l10n)} \u00b7 ${dateFormat.format(delivery.createdAt)}',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color:
                             theme.colorScheme.onSurface.withValues(alpha: 0.6),

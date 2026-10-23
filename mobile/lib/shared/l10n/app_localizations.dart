@@ -5517,6 +5517,216 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Phone numbers are not allowed here. Remove the number: contact opens after payment is held in escrow.'**
   String get errorContactInText;
+
+  /// Profile menu entry and screen title: delete the signed-in account (all roles)
+  ///
+  /// In en, this message translates to:
+  /// **'Delete account'**
+  String get deleteAccount;
+
+  /// Profile menu subtitle under Delete account
+  ///
+  /// In en, this message translates to:
+  /// **'Remove your account and personal data'**
+  String get deleteAccountSubtitle;
+
+  /// Delete account screen: warning at the top
+  ///
+  /// In en, this message translates to:
+  /// **'Deleting your account is permanent. It cannot be undone.'**
+  String get deleteAccountWarning;
+
+  /// Delete account screen: heading of the list of data that is deleted
+  ///
+  /// In en, this message translates to:
+  /// **'What is deleted'**
+  String get deleteAccountDeletedHeading;
+
+  /// Delete account screen: deleted item (profile, name, phone)
+  ///
+  /// In en, this message translates to:
+  /// **'Your profile, name and phone number'**
+  String get deleteAccountDeletedProfile;
+
+  /// Delete account screen: deleted item (Fayda link)
+  ///
+  /// In en, this message translates to:
+  /// **'The link to your Fayda ID'**
+  String get deleteAccountDeletedFayda;
+
+  /// Delete account screen: deleted item (listings, trips, buying intents)
+  ///
+  /// In en, this message translates to:
+  /// **'Your crop listings, trips and buying intents'**
+  String get deleteAccountDeletedListings;
+
+  /// Delete account screen: deleted item (chat messages)
+  ///
+  /// In en, this message translates to:
+  /// **'Your messages'**
+  String get deleteAccountDeletedMessages;
+
+  /// Delete account screen: deleted item (push notification tokens)
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications to your phone'**
+  String get deleteAccountDeletedNotifications;
+
+  /// Delete account screen: heading of the records that are kept anonymized
+  ///
+  /// In en, this message translates to:
+  /// **'What is kept, without your name'**
+  String get deleteAccountKeptHeading;
+
+  /// Delete account screen: kept item (orders, deliveries, escrow and audit records)
+  ///
+  /// In en, this message translates to:
+  /// **'Orders, deliveries and payment records'**
+  String get deleteAccountKeptRecords;
+
+  /// Delete account screen: why records are kept and how the name is replaced (the same words as deletedUser)
+  ///
+  /// In en, this message translates to:
+  /// **'Money records must be kept. Your name on them is replaced with Deleted user.'**
+  String get deleteAccountKeptReason;
+
+  /// Delete account screen: online only, and the password may be asked again (AUTH_040)
+  ///
+  /// In en, this message translates to:
+  /// **'You need internet for this. You may be asked for your password.'**
+  String get deleteAccountNeedsInternet;
+
+  /// Delete account screen: the button that opens the confirm dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Delete my account'**
+  String get deleteAccountButton;
+
+  /// Confirm dialog title before the account is deleted
+  ///
+  /// In en, this message translates to:
+  /// **'Delete your account?'**
+  String get deleteAccountConfirmTitle;
+
+  /// Confirm dialog body before the account is deleted
+  ///
+  /// In en, this message translates to:
+  /// **'This cannot be undone. Your profile, listings and messages will be deleted.'**
+  String get deleteAccountConfirmBody;
+
+  /// Delete account screen: shown while the request runs
+  ///
+  /// In en, this message translates to:
+  /// **'Deleting your account...'**
+  String get deleteAccountDeleting;
+
+  /// Delete account screen: the server started the deletion and the app sends it again (503 ACCOUNT_005)
+  ///
+  /// In en, this message translates to:
+  /// **'Finishing the deletion...'**
+  String get deleteAccountFinishing;
+
+  /// Snackbar after the account was deleted, on the way to the login screen
+  ///
+  /// In en, this message translates to:
+  /// **'Your account was deleted.'**
+  String get deleteAccountDone;
+
+  /// Delete account screen: no network, nothing was sent (never queued)
+  ///
+  /// In en, this message translates to:
+  /// **'You are offline. Connect to the internet to delete your account.'**
+  String get deleteAccountOffline;
+
+  /// Delete account screen: the request got no answer; trying again is safe
+  ///
+  /// In en, this message translates to:
+  /// **'We could not reach the server, so we cannot tell if your account was deleted. Check your connection and try again.'**
+  String get deleteAccountNetworkError;
+
+  /// Delete account screen: automatic retries of 503 ACCOUNT_005 ran out
+  ///
+  /// In en, this message translates to:
+  /// **'The deletion started but is not finished yet. Try again in a moment.'**
+  String get deleteAccountIncomplete;
+
+  /// Delete account screen: ACCOUNT_003, a suspended account cannot delete itself
+  ///
+  /// In en, this message translates to:
+  /// **'This account is suspended, so it cannot be deleted here. Contact support.'**
+  String get deleteAccountSuspended;
+
+  /// Delete account screen: any other error (ACCOUNT_001, AUTH_007, unknown)
+  ///
+  /// In en, this message translates to:
+  /// **'Your account could not be deleted. Try again later.'**
+  String get deleteAccountFailed;
+
+  /// Delete account screen: the stored session is another account now (shared phone, or another tab on web), so nothing was sent
+  ///
+  /// In en, this message translates to:
+  /// **'Another account is now signed in here, so nothing was deleted. Reload the page or reopen the app, then try again.'**
+  String get deleteAccountOtherAccount;
+
+  /// Delete account screen: ACCOUNT_002, active items block the deletion
+  ///
+  /// In en, this message translates to:
+  /// **'You cannot delete your account yet'**
+  String get deleteAccountBlockedTitle;
+
+  /// Delete account screen: introduces the list of blocking items
+  ///
+  /// In en, this message translates to:
+  /// **'Finish or cancel these first:'**
+  String get deleteAccountBlockedIntro;
+
+  /// Blocker line (type order): number of active orders
+  ///
+  /// In en, this message translates to:
+  /// **'Active orders: {count}'**
+  String deleteAccountBlockerOrder(int count);
+
+  /// Blocker line (type escrow): number of payments still held
+  ///
+  /// In en, this message translates to:
+  /// **'Payments held in escrow: {count}'**
+  String deleteAccountBlockerEscrow(int count);
+
+  /// Blocker line (type delivery): number of open deliveries
+  ///
+  /// In en, this message translates to:
+  /// **'Open deliveries: {count}'**
+  String deleteAccountBlockerDelivery(int count);
+
+  /// Blocker line (type dispute): number of open disputes
+  ///
+  /// In en, this message translates to:
+  /// **'Open disputes: {count}'**
+  String deleteAccountBlockerDispute(int count);
+
+  /// Blocker line (type payment_review): a captured payment awaits a manual refund that only support can record
+  ///
+  /// In en, this message translates to:
+  /// **'Payments waiting for a refund: {count}. Contact support to finish the refund.'**
+  String deleteAccountBlockerPaymentReview(int count);
+
+  /// Blocker line for a blocker type this app version does not know
+  ///
+  /// In en, this message translates to:
+  /// **'Other active items: {count}'**
+  String deleteAccountBlockerOther(int count);
+
+  /// Blocked list: the server listed fewer items than blockerCount
+  ///
+  /// In en, this message translates to:
+  /// **'And {count} more.'**
+  String deleteAccountBlockersMore(int count);
+
+  /// Shown instead of the name of a party whose account was deleted (server sentinel 'Deleted user')
+  ///
+  /// In en, this message translates to:
+  /// **'Deleted user'**
+  String get deletedUser;
 }
 
 class _AppLocalizationsDelegate
