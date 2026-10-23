@@ -1432,10 +1432,12 @@ export class ApiStack extends cdk.Stack {
       }),
     );
 
+    // Every 6 hours: a deletion is due one hour after its request, so its first sweep comes at
+    // most 7 hours in and three runs try it within the contract's 24 hours.
     new events.Rule(this, "AccountDeletionSweepSchedule", {
       ruleName: `${prefix}-account-deletion-sweep`,
-      description: "Finish or abort started account deletions every 12 hours (ACC-02)",
-      schedule: events.Schedule.rate(cdk.Duration.hours(12)),
+      description: "Finish or abort started account deletions every 6 hours (ACC-02)",
+      schedule: events.Schedule.rate(cdk.Duration.hours(6)),
       targets: [
         new targets.LambdaFunction(accountDeletionSweepFn.function, {
           // Wrapped as `body`, like the escrow and order crons (Review C3).

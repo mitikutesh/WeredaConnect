@@ -25,6 +25,28 @@ public static class AccountDeletionGuard
         return string.IsNullOrEmpty(user?.DeletionState) ? null : Gone(user.DeletionState!);
     }
 
+    /// <summary>The refusal text of a payment for an order of a deleting or deleted account.</summary>
+    public const string DeletedPartyMessage = "A party to this order has deleted their account.";
+
+    /// <summary>
+    /// The counterparty money entry points: true when any of these parties' rows, read strongly
+    /// consistent, carries <c>deletionState</c> (empty ids are skipped, a missing row is not a
+    /// deletion). A failed read throws, so no payment passes on doubt.
+    /// </summary>
+    public static async Task<bool> AnyPartyDeletingAsync(IUserRepository users, params string?[] partyIds)
+    {
+        foreach (var partyId in partyIds.Where(id => !string.IsNullOrEmpty(id)).Distinct(StringComparer.Ordinal))
+        {
+            var party = await users.GetUserByIdAsync(partyId!, consistentRead: true);
+            if (!string.IsNullOrEmpty(party?.DeletionState))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static APIGatewayProxyResponse Gone(string deletionState)
         => LambdaResponse.Json(410, new AccountDeletionErrorResponse
         {

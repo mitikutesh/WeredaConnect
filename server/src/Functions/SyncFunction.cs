@@ -5955,6 +5955,16 @@ public partial class SyncFunction
                     return AccountHeldResult(operation);
                 }
 
+                // ACC-02 (account-deletion.md, counterparty money entry points): no money for an
+                // order whose buyer, farmer or trucker is being or has been deleted. Part of the KYC
+                // gate, read strongly consistent, and before the KYC rows so a deleted farmer is not
+                // reported as an unverified phone.
+                if (_userRepo != null
+                    && await AccountDeletionGuard.AnyPartyDeletingAsync(_userRepo, orderBuyerId, orderFarmerId, orderTruckerId))
+                {
+                    return OrderValidationError(operation, AccountDeletionGuard.DeletedPartyMessage);
+                }
+
                 var orderTotal = ReadDecimal(existingOrder, "orderTotal");
                 var (kycError, buyer) = await CheckPaymentKycAsync(authenticatedUserId!, orderFarmerId, orderTotal, context);
                 if (kycError != null)

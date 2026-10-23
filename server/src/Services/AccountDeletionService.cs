@@ -41,6 +41,9 @@ public sealed record AccountDeletionOutcome
     public string? DeletionState { get; init; }
     public string? DeletedAt { get; init; }
     public IReadOnlyList<AccountDeletionBlocker> Blockers { get; init; } = Array.Empty<AccountDeletionBlocker>();
+
+    /// <summary>Incomplete only because the invocation ran out of time (not a failed step).</summary>
+    public bool BudgetCut { get; init; }
 }
 
 /// <summary>
@@ -64,8 +67,20 @@ public sealed class DeletionBudget
     {
         if (_isLow())
         {
-            throw new TimeoutException("The invocation is about to run out of time.");
+            throw new DeletionBudgetExceededException();
         }
+    }
+}
+
+/// <summary>
+/// The invocation stopped between two writes because its time ran out (<see cref="DeletionBudget"/>).
+/// Not a failure of the deletion: the sweep neither counts it nor alarms on it.
+/// </summary>
+public sealed class DeletionBudgetExceededException : Exception
+{
+    public DeletionBudgetExceededException()
+        : base("The invocation is about to run out of time.")
+    {
     }
 }
 
@@ -81,12 +96,22 @@ public sealed class AccountDeletionService
     internal static readonly TimeSpan SweepMinAge = TimeSpan.FromHours(1);
 
     /// <summary>
-    /// A row at least this old was due in the previous 12 hourly sweep run too, so failing on it
-    /// now is its second failure: <c>ACCOUNT_DELETION_STUCK</c>.
+    /// How often the sweep runs (the EventBridge rule in api-stack.ts). A deletion is first due at
+    /// most <see cref="SweepMinAge"/> plus one interval after its request (7 hours), then again
+    /// every interval, so three runs try it within the contract's 24 hours.
     /// </summary>
-    internal static readonly TimeSpan StuckAfter = TimeSpan.FromHours(13);
+    internal static readonly TimeSpan SweepInterval = TimeSpan.FromHours(6);
+
+    /// <summary>
+    /// A row at least this old was due in the previous sweep run too, so failing on it now is its
+    /// second failure: <c>ACCOUNT_DELETION_STUCK</c>.
+    /// </summary>
+    internal static readonly TimeSpan StuckAfter = SweepMinAge + SweepInterval;
 
     public const int RetryAfterSeconds = 2;
+
+    /// <summary>Tries of the step 8 cancel of one order (each re-reads it after a lost condition).</summary>
+    internal const int MaxCancelAttempts = 3;
 
     private readonly IAccountDeletionRepository _repo;
     private readonly ICognitoAuthService _cognito;
@@ -342,8 +367,15 @@ public sealed class AccountDeletionService
 
             var orderId = AccountDeletionPolicy.Text(row.Item, "orderId");
             var createdAt = AccountDeletionPolicy.Text(row.Item, "createdAt");
-            for (var attempt = 0; attempt < 3; attempt++)
+            for (var attempt = 0; ; attempt++)
             {
+                // Still unpaid after every lost race: neither cancelled nor a blocker, so the run
+                // stops here (503) and the resume decides on it.
+                if (attempt == MaxCancelAttempts)
+                {
+                    throw new InvalidOperationException($"Order {orderId} kept changing while it was being cancelled.");
+                }
+
                 budget.ThrowIfLow();
                 var order = await _repo.GetOrderAsync(orderId, createdAt);
                 if (order == null)
@@ -615,7 +647,8 @@ public sealed class AccountDeletionService
     /// Finish or abort every deletion started more than an hour ago (<c>in_progress</c> from step 5b,
     /// <c>cognito_pending</c> from step 12) as the system. Logs <c>ACCOUNT_DELETION_INCOMPLETE</c> per
     /// row it finishes, aborts or fails on, and <c>ACCOUNT_DELETION_STUCK</c> when it fails on a row
-    /// for the second run.
+    /// for the second run. A row the run had no time left for is neither a failure nor stuck: the run
+    /// stops there and the next one starts over.
     /// </summary>
     public async Task<SweepSummary> SweepAsync(DeletionBudget budget, ILambdaContext? log)
     {
@@ -638,13 +671,32 @@ public sealed class AccountDeletionService
                     return new SweepSummary(finished, aborted, failed, Truncated: true);
                 }
 
-                var user = await _repo.GetAccountAsync(userId);
+                UserDto? user;
+                try
+                {
+                    user = await _repo.GetAccountAsync(userId);
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    log?.Logger.LogWarning(
+                        $"ACCOUNT_DELETION_INCOMPLETE userId={MoneyAlarmLog.LogId(userId)} state=- sweep=failed reason=[{ex.GetType().Name}]");
+                    continue;
+                }
+
                 if (user == null || user.DeletionState is not (AccountDeletionPolicy.InProgress or AccountDeletionPolicy.CognitoPending))
                 {
                     continue;
                 }
 
                 var outcome = await ResumeAsync(user, AuditContext.ForSystem(), budget, log);
+                if (outcome.BudgetCut)
+                {
+                    log?.Logger.LogInformation(
+                        $"Account deletion sweep stopped at {MoneyAlarmLog.LogId(userId)}: the run is out of time; the next run resumes it.");
+                    return new SweepSummary(finished, aborted, failed, Truncated: true);
+                }
+
                 var result = outcome.Result switch
                 {
                     AccountDeletionResult.Completed => "finished",
@@ -798,7 +850,12 @@ public sealed class AccountDeletionService
     {
         log?.Logger.LogWarning(
             $"ACCOUNT_DELETION_INCOMPLETE userId={MoneyAlarmLog.LogId(userId)} state={state} reason=[{ex?.GetType().Name ?? "state"}]");
-        return new AccountDeletionOutcome { Result = AccountDeletionResult.Incomplete, DeletionState = state };
+        return new AccountDeletionOutcome
+        {
+            Result = AccountDeletionResult.Incomplete,
+            DeletionState = state,
+            BudgetCut = ex is DeletionBudgetExceededException
+        };
     }
 
     private static string? NullIfEmpty(string value) => value.Length == 0 ? null : value;

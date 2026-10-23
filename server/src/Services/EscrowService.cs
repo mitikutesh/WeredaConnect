@@ -358,6 +358,7 @@ public sealed class EscrowService
         string? counterpartyBuyerName = null;
         string? counterpartyFarmerName = null;
         string? deliveryOrderId = null;
+        string? deliveryTruckerId = null;
         if (_deliveryRepo != null)
         {
             var delivery = await _deliveryRepo.GetByIdAsync(request.DeliveryId);
@@ -398,6 +399,7 @@ public sealed class EscrowService
             counterpartyBuyerName = GetStringOrNull(delivery, "buyerName");
             counterpartyFarmerName = GetStringOrNull(delivery, "farmerName");
             deliveryOrderId = GetStringOrNull(delivery, "orderId");
+            deliveryTruckerId = GetStringOrNull(delivery, "truckerId");
         }
 
         // 6e. Resolve the linked order. The delivery's own orderId is authoritative; a
@@ -497,9 +499,20 @@ public sealed class EscrowService
 
         if (_userRepo != null)
         {
+            // ACC-02 (account-deletion.md, counterparty money entry points): nothing is held for a
+            // delivery whose buyer, farmer or trucker is being or has been deleted. Here, once the
+            // delivery and its order named the parties.
+            var partyTruckerId = (linkedOrder != null ? GetStringOrNull(linkedOrder, "truckerId") : null) ?? deliveryTruckerId;
+            if (await AccountDeletionGuard.AnyPartyDeletingAsync(_userRepo, request.BuyerId, request.FarmerId, partyTruckerId))
+            {
+                return EscrowResult<InitiateEscrowResponse>.Failure(
+                    422, "ESCROW_030", "This order cannot be paid online.", "orderId");
+            }
+
             var buyer = await _userRepo.GetUserByIdAsync(request.BuyerId);
             var farmer = await _userRepo.GetUserByIdAsync(request.FarmerId);
-            buyerPhone = buyer?.PhoneNumber ?? buyerPhone;
+            // A deleted account's tombstone keeps no phone (empty, not null).
+            buyerPhone = string.IsNullOrEmpty(buyer?.PhoneNumber) ? buyerPhone : buyer.PhoneNumber;
 
             // Farmer must exist, have the farmer role, and be phone-verified (contract §User
             // Validation). These use ESCROW_VALIDATION (not ESCROW_008/006, which carry
@@ -964,6 +977,16 @@ public sealed class EscrowService
         if (validation != null)
         {
             return validation;
+        }
+
+        // ACC-02 (account-deletion.md, counterparty money entry points): no checkout, new or open,
+        // for an order whose buyer, farmer or trucker is being or has been deleted. One of the order
+        // checks: after them, before the slot and any Telebirr call.
+        if (_userRepo != null && await AccountDeletionGuard.AnyPartyDeletingAsync(
+                _userRepo, GetString(order, "buyerId"), GetString(order, "farmerId"), GetStringOrNull(order, "truckerId")))
+        {
+            return EscrowResult<OrderCheckoutResponse>.Failure(
+                422, "ESCROW_030", "This order cannot be paid online.", "orderId");
         }
 
         var now = DateTime.UtcNow;
@@ -5741,7 +5764,7 @@ public sealed class EscrowService
                 PayeeRole = leg,
                 PayeeId = payeeId,
                 PayeeName = payee?.DisplayName ?? payee?.FullName,
-                PayeePhone = payee?.PhoneNumber,
+                PayeePhone = string.IsNullOrEmpty(payee?.PhoneNumber) ? null : payee.PhoneNumber,
                 PayeeVerified = verified,
                 BlockReason = blockReason,
                 Amount = amount,
@@ -6519,7 +6542,8 @@ public sealed class EscrowService
         }
 
         var buyer = await _userRepo.GetUserByIdAsync(buyerId);
-        return buyer?.PhoneNumber ?? buyerId;
+        // A deleted account's tombstone keeps no phone (empty, not null): fall back to the id.
+        return string.IsNullOrEmpty(buyer?.PhoneNumber) ? buyerId : buyer.PhoneNumber;
     }
 
     /// <summary>

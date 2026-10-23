@@ -192,10 +192,10 @@ describe('ACC-02 account deletion (ApiStack)', () => {
     expect(actionsOn(template, SWEEP_FN, 'TransactionAuditTable')).toEqual(['dynamodb:PutItem', 'dynamodb:Query']);
   });
 
-  test('the sweep runs every 12 hours with the sweep action wrapped as body', () => {
+  test('the sweep runs every 6 hours (three tries within 24 hours) with the sweep action wrapped as body', () => {
     template.hasResourceProperties('AWS::Events::Rule', {
       Name: 'wereda-connect-dev-account-deletion-sweep',
-      ScheduleExpression: 'rate(12 hours)',
+      ScheduleExpression: 'rate(6 hours)',
       Targets: [
         Match.objectLike({
           Arn: { 'Fn::GetAtt': [functionId(template, SWEEP_FN), 'Arn'] },
@@ -231,7 +231,7 @@ describe('ACC-02 account deletion (MonitoringStack)', () => {
     });
     template.hasResourceProperties('AWS::CloudWatch::Alarm', {
       AlarmName: 'wereda-connect-dev-account-deletion-stuck',
-      EvaluationPeriods: 13,
+      EvaluationPeriods: 7,
       DatapointsToAlarm: 1,
       Threshold: 0,
       TreatMissingData: 'notBreaching',

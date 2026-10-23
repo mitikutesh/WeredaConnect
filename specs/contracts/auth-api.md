@@ -924,7 +924,8 @@ so a failed or refused verification leaves the payment blocked.
   `in_progress` refreshes normally (the deletion revoked the earlier sessions in its step 6).
 - **`/user/fayda-start`, `/user/fayda-link`**: `410 ACCOUNT_004` with `error.deletionState`
   when the caller's account carries `deletionState`, checked before the state row is read or
-  the code exchanged, so nothing is consumed or written.
+  the code exchanged, so nothing is consumed or written. When the account cannot be read the
+  answer is `503 AUTH_008` (retry), with nothing consumed.
 - **Register**: a `displayName` equal to `Deleted user` (trimmed, any case) is refused with
   `400 AUTH_007` on `displayName`; that text is the sentinel copied onto a deleted user's rows,
   so a live account may never look deleted.
@@ -940,7 +941,7 @@ so a failed or refused verification leaves the payment blocked.
 |---------|------|--------|
 | 1.0.0 | 2026-02-12 | Initial contract: registration, OTP, login, refresh, logout, offline auth, rate limits |
 | 2.0.0 | 2026-03-02 | Replace SMS OTP with Fayda OIDC: add `POST /auth/fayda-verify`, remove `POST /auth/verify-otp`, registration returns tokens directly, add FAYDA_001-004 error codes, remove AUTH_009-012 |
-| 2.11.0 | 2026-10-23 | Account deletion (ACC-02, `account-deletion.md` 1.2.0): login and refresh of a `cognito_pending` or `completed` account answer `401 AUTH_014` (refresh also revokes the token), `in_progress` logs in; `/user/fayda-start` and `/user/fayda-link` answer `410 ACCOUNT_004` for a deleting or deleted account before any state is read; register refuses the display name `Deleted user` with `AUTH_007`; profile writes skip a deleting or deleted row |
+| 2.11.0 | 2026-10-23 | Account deletion (ACC-02, `account-deletion.md` 1.2.0): login and refresh of a `cognito_pending` or `completed` account answer `401 AUTH_014` (refresh also revokes the token), `in_progress` logs in; `/user/fayda-start` and `/user/fayda-link` answer `410 ACCOUNT_004` for a deleting or deleted account before any state is read (`503 AUTH_008` when the account cannot be read); register refuses the display name `Deleted user` with `AUTH_007`; profile writes skip a deleting or deleted row |
 | 2.10.0 | 2026-10-23 | Risk tier step-up built (FRD-04, the 2.6.0 rules): MEDIUM adds the fresh password at any amount, HIGH the Fayda login and then the password at any amount, CRITICAL refuses payments, checkouts and crop, trip and order creates with `FRAUD_ACCOUNT_HELD`; the caller's tier only, read once per request or `/sync` batch; an unreadable score or a missing fraud-signals table is LOW, a truncated read CRITICAL; `AUTH_041` text is now amount-neutral (`Confirm it's you with Fayda to continue with this payment.`); order of the checks per path |
 | 2.9.0 | 2026-10-23 | Client logout sequence (SIM-55): the app starts `POST /auth/logout` with the live stored tokens before it clears the session and never waits on it to clear; a missing or expired access token is first replaced by one minted with `POST /auth/refresh` (never stored); a `401` or `403 AUTH_026` is retried once with a minted bearer; the app maps `AUTH_026`. Server unchanged |
 | 2.8.0 | 2026-10-17 | The `/sync` delivery dispute step-up fails closed (FUP-26): an order (or a legacy delivery's escrow) that cannot be read answers `DELIVERY_DISPUTE_RETRY` and nothing is written, where the step-up was skipped before; a missing order, or a missing, unreadable, zero or negative total, needs the fresh password at any amount; a legacy delivery without an `orderId` is sized by its `DeliveryIndex` escrow; the total is rounded to the cent like the escrow amount |

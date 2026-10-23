@@ -681,4 +681,25 @@ public class FaydaVerifyFunctionTests
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>());
         await _mockRepo.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
     }
+
+    [Theory]
+    [InlineData("/user/fayda-start")]
+    [InlineData("/user/fayda-link")]
+    public async Task UserFaydaRoutes_WhenTheAccountCannotBeRead_Return503_AndConsumeNothing(string path)
+    {
+        _mockAuthState.ConsumeAsync(StateKey).Returns(StateRow("link", userId: "user-7"));
+        _mockRepo.GetUserByIdAsync("user-7", true).Returns(
+            Task.FromException<UserDto?>(new Amazon.DynamoDBv2.AmazonDynamoDBException("throttled")));
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(path.EndsWith("link") ? VerifyBody() : null, path, userId: "user-7"), _context);
+
+        Assert.Equal(503, response.StatusCode);
+        Assert.Contains("AUTH_008", response.Body);
+        Assert.DoesNotContain("throttled", response.Body);
+        await _mockAuthState.DidNotReceive().ConsumeAsync(Arg.Any<string>());
+        await _mockAuthState.DidNotReceive().PutAsync(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>>(), Arg.Any<int>());
+        await _mockFayda.DidNotReceive().ExchangeCodeAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>());
+    }
 }

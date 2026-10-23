@@ -1440,9 +1440,9 @@ export class MonitoringStack extends cdk.Stack {
     escrowCronErrorsAlarm.addAlarmAction(snsAction);
     escrowCronErrorsAlarm.addOkAction(snsAction);
 
-    // ACC-02: every started account deletion must finish or abort within 24 hours. The 12 hourly
-    // sweep logs ACCOUNT_DELETION_STUCK when it fails on a deletion requested more than 13 hours
-    // ago (its second run on that row). 13 one-hour periods, 1 datapoint: the next run's line
+    // ACC-02: every started account deletion must finish or abort within 24 hours. The 6 hourly
+    // sweep logs ACCOUNT_DELETION_STUCK when it fails on a deletion requested at least 7 hours
+    // ago (its second run on that row). 7 one-hour periods, 1 datapoint: the next run's line
     // lands inside the window, so a row that stays stuck keeps one ALARM episode.
     const accountDeletionSweepLogGroup = logs.LogGroup.fromLogGroupName(
       this,
@@ -1460,7 +1460,7 @@ export class MonitoringStack extends cdk.Stack {
     const accountDeletionStuckAlarm = new cloudwatch.Alarm(this, 'AccountDeletionStuck', {
       alarmName: `${prefix}-account-deletion-stuck`,
       alarmDescription:
-        'A started account deletion failed in two sweep runs and will miss its 24 hour bound ' +
+        'A started account deletion failed in two sweep runs in a row and may miss its 24 hour bound ' +
         '(ACCOUNT_DELETION_STUCK in the account-deletion-sweep log group, with userId, state and ' +
         'requestedAt; account-deletion.md). state=in_progress: personal data may still be in the ' +
         'users row; cognito_pending: the Cognito user may still exist. Read the ' +
@@ -1475,7 +1475,7 @@ export class MonitoringStack extends cdk.Stack {
         label: 'Account Deletion Stuck',
       }),
       threshold: 0,
-      evaluationPeriods: 13,
+      evaluationPeriods: 7,
       datapointsToAlarm: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,

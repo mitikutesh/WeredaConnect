@@ -719,6 +719,36 @@ public class AccountDeletionServiceTests
         (await Delete(BuyerId)).Result.Should().Be(AccountDeletionResult.Completed);
     }
 
+    [Theory]
+    [InlineData("merch-1", false)]
+    [InlineData("merch-2", true)]
+    public async Task NamelessPayment_IsMatchedToTheOrderByItsMerchOrderId(string fundedMerchOrderId, bool blocks)
+    {
+        // A captured payment the webhook recorded without a payment_order_id: the order's own
+        // telebirrMerchOrderId decides whether it is the money that funded the order.
+        _repo.AddUser(Live(BuyerId, "buyer"));
+        AddOrder("order-1", "settled", with: o => o[OrderFundingService.MerchOrderIdField] = fundedMerchOrderId);
+        _repo.CheckoutSlots.Add("order-1");
+        _repo.PaymentTrails["order-1"] = new List<Dictionary<string, object>>
+        {
+            PaymentRow("order_payment_unprocessed", "2026-10-02T00:00:00Z", null, "reason=giveup,merchOrderId=merch-1")
+        };
+
+        var outcome = await Delete(BuyerId);
+
+        if (blocks)
+        {
+            outcome.Blockers.Should().ContainSingle().Which.Should().BeEquivalentTo(new AccountDeletionBlocker
+            {
+                Type = "payment_review", Id = "order-1", Status = "order_payment_unprocessed", Role = "buyer"
+            });
+        }
+        else
+        {
+            outcome.Result.Should().Be(AccountDeletionResult.Completed);
+        }
+    }
+
     [Fact]
     public async Task PaymentReview_IsOnlyCheckedForOrdersWithACheckoutSlot()
     {
@@ -935,6 +965,33 @@ public class AccountDeletionServiceTests
     }
 
     [Fact]
+    public async Task AnUnpaidOrderThatKeepsChangingDuringStep8_Answers503_AndTheResumeCancelsIt()
+    {
+        _repo.AddUser(Live(FarmerId, "farmer"));
+        var order = AddOrder("order-1", "created");
+        // Every cancel loses its version condition; the order stays unpaid.
+        _repo.BeforeCall = m =>
+        {
+            if (m == nameof(_repo.TryCancelUnpaidOrderAsync))
+            {
+                order["version"] = ((AccountDeletionPolicy.Number(order, "version") ?? 0) + 1).ToString();
+            }
+        };
+
+        var first = await Delete(FarmerId);
+
+        first.Result.Should().Be(AccountDeletionResult.Incomplete);
+        first.DeletionState.Should().Be(AccountDeletionPolicy.InProgress);
+        _repo.Count(nameof(_repo.TryCancelUnpaidOrderAsync)).Should().Be(AccountDeletionService.MaxCancelAttempts);
+        order["status"].Should().Be("created");
+        _repo.Count(nameof(_repo.TombstoneAsync)).Should().Be(0, "nothing past step 8 ran");
+
+        _repo.BeforeCall = null;
+        (await Delete(FarmerId, stepUpFresh: false)).Result.Should().Be(AccountDeletionResult.Completed);
+        order["status"].Should().Be("cancelled");
+    }
+
+    [Fact]
     public async Task AnUnpaidOrderPaidDuringStep8_IsABlocker_AndIsNotCancelled()
     {
         _repo.AddUser(Live(FarmerId, "farmer"));
@@ -1018,6 +1075,8 @@ public class AccountDeletionServiceTests
 
     [Theory]
     [InlineData(2, false)]
+    [InlineData(6, false)]
+    [InlineData(8, true)]
     [InlineData(14, true)]
     public async Task Sweep_LogsStuck_OnlyForARowTheLastRunHadToo(int ageHours, bool stuck)
     {
@@ -1036,6 +1095,48 @@ public class AccountDeletionServiceTests
         {
             Logs.Should().NotContain("ACCOUNT_DELETION_STUCK");
         }
+    }
+
+    [Fact]
+    public async Task Sweep_ABudgetCutInsideARow_IsNotAFailure_NorStuck_AndTheRunStops()
+    {
+        _repo.AddUser(Live(FarmerId, "farmer"));
+        _repo.AddUser(Live(TruckerId, "trucker"));
+        StartedAt(FarmerId, AccountDeletionPolicy.InProgress, Now.AddHours(-20));
+        StartedAt(TruckerId, AccountDeletionPolicy.InProgress, Now.AddHours(-20));
+        for (var i = 0; i < 3; i++)
+        {
+            _repo.Messages[$"msg-{i}"] = new Dictionary<string, object> { ["messageId"] = $"msg-{i}", ["senderId"] = FarmerId };
+            _repo.Messages[$"tmsg-{i}"] = new Dictionary<string, object> { ["messageId"] = $"tmsg-{i}", ["senderId"] = TruckerId };
+        }
+
+        // The run's time ends in the middle of the first row's message deletes.
+        var budget = new DeletionBudget(() => _repo.Count(nameof(_repo.DeleteMessageAsync)) >= 2);
+
+        var summary = await _service.SweepAsync(budget, _context);
+
+        summary.Should().Be(new AccountDeletionService.SweepSummary(0, 0, 0, Truncated: true));
+        Logs.Should().NotContain("ACCOUNT_DELETION_STUCK").And.NotContain("sweep=failed");
+        _repo.Users.Values.Should().OnlyContain(r => r["deletionState"].S == AccountDeletionPolicy.InProgress);
+        _repo.Count(nameof(_repo.DeleteMessageAsync)).Should().Be(2, "no row is started after the cut");
+    }
+
+    [Fact]
+    public async Task Sweep_ChecksTheBudgetBeforeEachRow()
+    {
+        _repo.AddUser(Live(FarmerId, "farmer"));
+        _repo.AddUser(Live(TruckerId, "trucker"));
+        StartedAt(FarmerId, AccountDeletionPolicy.CognitoPending, Now.AddHours(-3));
+        StartedAt(TruckerId, AccountDeletionPolicy.CognitoPending, Now.AddHours(-3));
+
+        // Time runs out once the first row is done.
+        var budget = new DeletionBudget(() =>
+            _repo.Users.Values.Any(r => r["deletionState"].S == AccountDeletionPolicy.Completed));
+
+        var summary = await _service.SweepAsync(budget, _context);
+
+        summary.Should().Be(new AccountDeletionService.SweepSummary(1, 0, 0, Truncated: true));
+        _repo.Users.Values.Count(r => r["deletionState"].S == AccountDeletionPolicy.CognitoPending).Should().Be(1);
     }
 
     [Fact]
