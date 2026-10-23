@@ -40,6 +40,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/screens/browse
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
@@ -1984,6 +1985,12 @@ String orderActivityDescription(
 ) =>
     '${l10n.orders}: $cropLabel (${orderStatusLabel(status, l10n)})';
 
+/// Recent-activity title for a payment, with the status in the user's
+/// language (it showed the enum name, such as "held payment").
+@visibleForTesting
+String paymentActivityTitle(AppLocalizations l10n, PaymentStatus status) =>
+    l10n.paymentStatusTitle(escrowStatusLabel(status, l10n));
+
 /// Recent-activity line for a trip, with the status in the user's language.
 @visibleForTesting
 String tripActivityDescription(
@@ -2701,7 +2708,7 @@ class _NotificationIconState extends State<_NotificationIcon> {
         items.add(
           _NotifItem(
             icon: Icons.account_balance_wallet_outlined,
-            title: widget.l10n.paymentStatusTitle(p.status.name),
+            title: paymentActivityTitle(widget.l10n, p.status),
             subtitle: '${p.amount} ETB',
             color: p.status == PaymentStatus.released
                 ? AppTheme.statusSuccess

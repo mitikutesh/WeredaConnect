@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -172,6 +174,73 @@ void main() {
 
     expect(find.text(en.rejectOrder), findsNWidgets(2));
     expect(find.text(en.acceptOrder), findsOneWidget);
+  });
+
+  void heldReadAnswers(Future<List<Payment>> Function() answer) => when(
+        () => escrowRepo.refreshHistory(
+          userId: any(named: 'userId'),
+          statusFilter: any(named: 'statusFilter'),
+          roleFilter: any(named: 'roleFilter'),
+          limit: any(named: 'limit'),
+          nextToken: any(named: 'nextToken'),
+        ),
+      ).thenAnswer((_) => answer());
+
+  List<FilledButton> acceptButtons(WidgetTester tester) => tester
+      .widgetList<FilledButton>(
+        find.widgetWithText(FilledButton, en.acceptOrder),
+      )
+      .toList();
+
+  testWidgets('a held copy of a settled order shows no badge', (tester) async {
+    tallView(tester);
+    signIn(UserRole.buyer);
+    when(() => orderBloc.state).thenReturn(
+      OrdersLoaded(orders: [_order('ord-held', OrderStatus.settled)]),
+    );
+
+    await tester.pumpWidget(screen());
+    await tester.pumpAndSettle();
+
+    // The cache (offline, or a failed refresh) still says held; the order
+    // moved on with its money.
+    expect(find.text(en.escrowStatusHeld), findsNothing);
+  });
+
+  testWidgets('farmer: Accept waits for the held read, then is enabled',
+      (tester) async {
+    tallView(tester);
+    signIn(UserRole.farmer);
+    final answer = Completer<List<Payment>>();
+    heldReadAnswers(() => answer.future);
+
+    await tester.pumpWidget(screen());
+    await tester.pumpAndSettle();
+    expect(acceptButtons(tester), hasLength(2));
+    for (final button in acceptButtons(tester)) {
+      expect(button.onPressed, isNull);
+    }
+
+    answer.complete(const []);
+    await tester.pumpAndSettle();
+    for (final button in acceptButtons(tester)) {
+      expect(button.onPressed, isNotNull);
+    }
+  });
+
+  testWidgets('farmer: a failed held read enables Accept', (tester) async {
+    tallView(tester);
+    signIn(UserRole.farmer);
+    heldReadAnswers(() => Future.error(StateError('offline')));
+
+    await tester.pumpWidget(screen());
+    await tester.pumpAndSettle();
+
+    expect(find.text(en.escrowStatusHeld), findsNothing);
+    expect(acceptButtons(tester), hasLength(2));
+    for (final button in acceptButtons(tester)) {
+      expect(button.onPressed, isNotNull);
+    }
   });
 
   testWidgets('a filter tap does not ask again', (tester) async {

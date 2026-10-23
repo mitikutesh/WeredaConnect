@@ -3218,7 +3218,7 @@
   },
   "paymentStatusTitle": "{status} payment",
   "@paymentStatusTitle": {
-    "description": "Payment notification title with status",
+    "description": "Payment notification title with status. {status} is the localized payment status label, not the enum name",
     "placeholders": { "status": { "type": "String" } }
   },
   "myCrops": "My Crops",

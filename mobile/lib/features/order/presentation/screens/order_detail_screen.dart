@@ -59,25 +59,29 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   /// FRD-06: the order's escrow is held for review.
   bool _underReview = false;
 
-  /// Statuses at which the order's escrow can be held: the money is in
-  /// escrow and waits to settle, or the order was refused, cancelled or
-  /// disputed and its money waits for the refund or the verdict.
-  static const _holdableStatuses = {
-    OrderStatus.funded,
-    OrderStatus.accepted,
-    OrderStatus.pickupConfirmed,
-    OrderStatus.inTransit,
-    OrderStatus.delivered,
-    OrderStatus.disputed,
-    OrderStatus.disputeResolved,
-    OrderStatus.cancelled,
-    OrderStatus.rejected,
-  };
+  /// Whether a hold check has answered (held, not held, or failed). Until
+  /// then the farmer's Accept stays disabled, so it never shows enabled on
+  /// an order whose escrow turns out to be held.
+  bool _holdChecked = false;
+
+  /// Only the newest hold check may change the screen: a reload (the
+  /// contact pull, a payment) starts another one.
+  int _holdCheck = 0;
 
   @override
   void initState() {
     super.initState();
     context.read<OrderBloc>().add(LoadOrderById(orderId: widget.orderId));
+    // A bloc that already holds this order may emit nothing new for the
+    // listener: check that order once the first frame is up.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final current = context.read<OrderBloc>().state;
+      if (current is SingleOrderLoaded &&
+          current.order.orderId == widget.orderId) {
+        _checkHold(current.order);
+      }
+    });
   }
 
   /// ESC-48: an open order without the parties' phones on this device (the
@@ -111,19 +115,27 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   }
 
   /// FRD-06: read whether the order's escrow is held; the parties then see
-  /// "Under Review" and lose the actions the server refuses while it is.
+  /// "Under Review" and lose the actions the server refuses while it is. A
+  /// failed read, or no escrow side above this screen, counts as not held.
   Future<void> _checkHold(Order order) async {
+    final check = ++_holdCheck;
     var held = false;
-    if (_holdableStatuses.contains(order.status)) {
-      final BaseEscrowRepository repository;
+    if (orderHoldableStatuses.contains(order.status)) {
+      BaseEscrowRepository? repository;
       try {
         repository = context.read<EscrowBloc>().repository;
       } on Object {
-        return; // No escrow side above this screen.
+        repository = null;
       }
-      held = await isOrderEscrowHeld(repository, order.orderId);
+      if (repository != null) {
+        held = await isOrderEscrowHeld(repository, order.orderId);
+      }
     }
-    if (mounted && held != _underReview) setState(() => _underReview = held);
+    if (!mounted || check != _holdCheck) return;
+    setState(() {
+      _underReview = held;
+      _holdChecked = true;
+    });
   }
 
   @override
@@ -166,6 +178,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             return _OrderDetailBody(
               order: state.order,
               underReview: _underReview,
+              holdChecked: _holdChecked,
             );
           }
           if (state is OrderError) {
@@ -184,7 +197,14 @@ class _OrderDetailBody extends StatelessWidget {
   /// The order's escrow is held for review (FRD-06).
   final bool underReview;
 
-  const _OrderDetailBody({required this.order, this.underReview = false});
+  /// Whether the hold check has answered; the farmer's Accept waits for it.
+  final bool holdChecked;
+
+  const _OrderDetailBody({
+    required this.order,
+    this.underReview = false,
+    this.holdChecked = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -395,7 +415,8 @@ class _OrderDetailBody extends StatelessWidget {
     }
 
     // Farmer + funded → Accept / Reject. Under review the server refuses the
-    // accept (FRD-03), so only Reject is offered.
+    // accept (FRD-03), so only Reject is offered; Accept stays disabled until
+    // the hold check has answered.
     if (userRole == UserRole.farmer && order.status == OrderStatus.funded) {
       widgets.add(
         Row(
@@ -422,14 +443,16 @@ class _OrderDetailBody extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: FilledButton(
-                  onPressed: () {
-                    context.read<OrderBloc>().add(
-                          AcceptOrder(
-                            orderId: order.orderId,
-                            farmerId: userId,
-                          ),
-                        );
-                  },
+                  onPressed: holdChecked
+                      ? () {
+                          context.read<OrderBloc>().add(
+                                AcceptOrder(
+                                  orderId: order.orderId,
+                                  farmerId: userId,
+                                ),
+                              );
+                        }
+                      : null,
                   style: FilledButton.styleFrom(
                     minimumSize: const Size.fromHeight(48),
                   ),

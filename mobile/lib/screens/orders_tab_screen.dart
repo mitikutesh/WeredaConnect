@@ -42,6 +42,12 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
   /// Orders whose escrow is held for review (FRD-06), read with the orders.
   Set<String> _heldOrderIds = const {};
 
+  /// Whether that read has answered once; Accept waits for it.
+  bool _heldChecked = false;
+
+  /// Only the newest read may change the list.
+  int _heldRead = 0;
+
   @override
   void initState() {
     super.initState();
@@ -86,19 +92,26 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
 
   /// Which of this party's orders are under review: their escrow is held
   /// (FRD-06). Read on open, on pull-to-refresh and after the detail screen,
-  /// not on every filter tap.
+  /// not on every filter tap. A failed read, or no escrow side above this
+  /// screen, flags none.
   Future<void> _loadHeldOrders() async {
+    final read = ++_heldRead;
     final userId = _getUserId();
     final role = _userRole;
-    if (userId == null || role == null) return;
-    final BaseEscrowRepository repository;
+    BaseEscrowRepository? repository;
     try {
       repository = context.read<EscrowBloc>().repository;
     } on Object {
-      return; // No escrow side above this screen.
+      repository = null;
     }
-    final held = await heldOrderIds(repository, userId: userId, role: role);
-    if (mounted) setState(() => _heldOrderIds = held);
+    final held = userId == null || role == null || repository == null
+        ? const <String>{}
+        : await heldOrderIds(repository, userId: userId, role: role);
+    if (!mounted || read != _heldRead) return;
+    setState(() {
+      _heldOrderIds = held;
+      _heldChecked = true;
+    });
   }
 
   void _applyFilter(String? status) {
@@ -315,7 +328,10 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
                   return OrderCard(
                     order: order,
                     isFarmerView: isFarmer,
-                    underReview: _heldOrderIds.contains(order.orderId),
+                    // A cached `held` row is stale once the order moved on.
+                    underReview: _heldOrderIds.contains(order.orderId) &&
+                        orderHoldableStatuses.contains(order.status),
+                    acceptEnabled: _heldChecked,
                     onTap: () => _openOrderDetail(order.orderId),
                     onAccept: isFarmer
                         ? () {

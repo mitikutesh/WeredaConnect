@@ -4744,7 +4744,7 @@ abstract class AppLocalizations {
   /// **'{count} waiting to sync'**
   String syncPendingCount(int count);
 
-  /// Payment notification title with status
+  /// Payment notification title with status. {status} is the localized payment status label, not the enum name
   ///
   /// In en, this message translates to:
   /// **'{status} payment'**

@@ -19,6 +19,22 @@ StatusKind escrowStatusKind(PaymentStatus status) {
   };
 }
 
+/// Localized label for an escrow payment status, shared by the badge and the
+/// Home activity feed (never the enum name).
+String escrowStatusLabel(PaymentStatus status, AppLocalizations l10n) {
+  return switch (status) {
+    PaymentStatus.initiated => l10n.escrowStatusInitiated,
+    PaymentStatus.escrowed => l10n.escrowStatusEscrowed,
+    PaymentStatus.released => l10n.escrowStatusReleased,
+    PaymentStatus.completed => l10n.escrowStatusCompleted,
+    PaymentStatus.cancelled => l10n.escrowStatusCancelled,
+    PaymentStatus.disputed => l10n.escrowStatusDisputed,
+    PaymentStatus.refunded => l10n.escrowStatusRefunded,
+    PaymentStatus.held => l10n.escrowStatusHeld,
+    PaymentStatus.unknown => l10n.escrowStatusUnknown,
+  };
+}
+
 /// Color-coded status badge for escrow payment status.
 ///
 /// Colors come from the shared status vocabulary; icons stay
@@ -49,8 +65,9 @@ class EscrowStatusBadge extends StatelessWidget {
     final pending = refundPending && status == PaymentStatus.escrowed;
     final kind = pending ? StatusKind.info : escrowStatusKind(status);
     final icon = pending ? Icons.replay : _statusIcon(status);
-    final label =
-        pending ? l10n.escrowStatusRefundPending : _statusLabel(status, l10n);
+    final label = pending
+        ? l10n.escrowStatusRefundPending
+        : escrowStatusLabel(status, l10n);
 
     if (large) {
       final fg = kind.foreground;
@@ -104,20 +121,6 @@ class EscrowStatusBadge extends StatelessWidget {
       PaymentStatus.refunded => Icons.replay,
       PaymentStatus.held => Icons.pause_circle_outline,
       PaymentStatus.unknown => Icons.help_outline,
-    };
-  }
-
-  static String _statusLabel(PaymentStatus status, AppLocalizations l10n) {
-    return switch (status) {
-      PaymentStatus.initiated => l10n.escrowStatusInitiated,
-      PaymentStatus.escrowed => l10n.escrowStatusEscrowed,
-      PaymentStatus.released => l10n.escrowStatusReleased,
-      PaymentStatus.completed => l10n.escrowStatusCompleted,
-      PaymentStatus.cancelled => l10n.escrowStatusCancelled,
-      PaymentStatus.disputed => l10n.escrowStatusDisputed,
-      PaymentStatus.refunded => l10n.escrowStatusRefunded,
-      PaymentStatus.held => l10n.escrowStatusHeld,
-      PaymentStatus.unknown => l10n.escrowStatusUnknown,
     };
   }
 

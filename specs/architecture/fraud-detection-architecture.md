@@ -1,7 +1,7 @@
 # Fraud Detection System Architecture (F-14)
 
 ## Version
-3.1.0 | 2026-10-17
+3.4.0 | 2026-10-23
 
 ## Status
 Rules 1 to 4 and signal persistence implemented. Risk engine (sections 14 to 23) specified, not built (EPIC FRD).
@@ -424,12 +424,12 @@ the risk engine (section 14) is built and tuned.
 
 **The risk score will be computed on read** (section 14) by summing the counted weights in the window with the dedup and caps of section 14.2. No separate risk score storage: that avoids stale scores and keeps the model simple. Not implemented on main.
 
-### 4.4 No Isar Schema Changes on Mobile
+### 4.4 Mobile Isar Schema: Enum Values Only
 
-Fraud detection is transparent to the mobile client:
-- Fraud rejections arrive as standard sync error codes (`FRAUD_DUPLICATE_LISTING`, `FRAUD_VELOCITY_EXCEEDED`)
+Fraud detection adds no Isar collection or field on the mobile client:
+- Fraud rejections arrive as standard sync error codes (`FRAUD_DUPLICATE_LISTING`, `FRAUD_VELOCITY_EXCEEDED`, `FRAUD_ACCOUNT_HELD`)
 - Flagged operations succeed normally: `isFlagged` is server-side metadata only
-- No new Isar collections or fields needed. FRD-06 appends `held` to the `PaymentStatus` enum (append only, stored by name; section 18.7)
+- FRD-06 appended `held` and `unknown` to the `PaymentStatus` enum on mobile and web (append only, stored by name, so rows written before read the same and nothing migrates; section 18.7). `unknown` is what the client reads for an escrow status it does not know
 
 ### 4.5 Velocity Key Design
 
@@ -618,11 +618,14 @@ if (_fraudService != null && result.IsSuccess)
 
 ## 6. Mobile-Side Design
 
-### 6.1 No Isar Schema Changes
+### 6.1 Client Scope (FRD-06)
 
-Fraud detection is server-side only. The mobile app needs only:
-1. Handle new error codes from sync responses
-2. Optionally display client-side advisory warnings (velocity, duplicate)
+The server decides everything. The client (mobile and web):
+1. Handles the fraud error codes from sync responses and the escrow routes (section 6.2; `FRAUD_ACCOUNT_HELD` in section 17.3)
+2. Reads the escrow status as an open set and shows `held` as "Under Review" on escrow and order screens, with no action the server refuses while held (section 18.7)
+3. Optionally displays client-side advisory warnings (velocity, duplicate)
+
+No new Isar collection or field; `PaymentStatus` gained `held` and `unknown` (section 4.4).
 
 ### 6.2 Error Code Handling
 
@@ -679,7 +682,7 @@ Add to all three `.arb` files:
 
 ### 6.5 Battery/Data Impact
 
-- **Zero additional network calls**: Fraud detection piggybacks on existing sync and escrow endpoints
+- **Two small reads for the hold (FRD-06)**: order detail reads its order's escrow (`GET /escrow/escrow-order-{orderId}`, only when the order's status can hold money) and the order list reads one `GET /escrow/history?status=held` page per load (not on filter taps). Mobile answers both from its Isar cache offline. Everything else piggybacks on the existing sync and escrow endpoints
 - **No background processing**: No new timers, workers, or periodic tasks on mobile
 - **Minimal Isar impact**: Optional advisory check is a single indexed query (<1ms)
 
@@ -1359,6 +1362,7 @@ Ties to EPIC ESC: ESC-33 writes `NO_SHOW` and `DELIVERY_OVERDUE` signals and re-
 
 | Version | Date | Change |
 |---------|------|--------|
+| 3.4.0 | 2026-10-23 | FRD-06 client handling built: section 4.4 (no new Isar collection or field; `PaymentStatus` gains `held` and `unknown`, append only), section 6.1 (client scope: fraud codes, escrow status as an open set, "Under Review" on escrow and order screens) and section 6.5 (the two hold reads are the only new network calls) |
 | 3.1.0 | 2026-10-17 | New signal `CONTACT_THEN_TRANSPORT_CANCEL` (ESC-48): a buyer's transport-failure cancel of an order whose contact had opened, best-effort, default weight; listed with the producers and in section 22 |
 | 3.0.0 | 2026-10-06 | Risk engine specified (sections 14 to 23): score formula with hourly dedup, bounded newest-first read that fails closed, tiers LOW 0-29, MEDIUM 30-59, HIGH 60-99, CRITICAL 100+, enforcement matrix and gate order per money action, escrow `held` (`holdReason`, `heldAt`, `heldBy`, `heldFromStatus`, `heldFor`; settlement-only entry, admin-only exits, `FRAUD_HOLD_ENABLED`), decay credits and whitelist rows, AI advisory boundary, codes and owners table, implementation map. Corrections: payment velocity is 5 per hour and returned as `ESCROW_011`; Rule 5 and `GetUserRiskScoreAsync` marked not built; current `RecordFraudSignalAsync` signature; status header |
 | 2.0.0 | 2026-02-23 | Full architecture: 5 rules, risk scoring, FraudSignalsTable, mobile integration, testing strategy |
@@ -1379,6 +1383,6 @@ Ties to EPIC ESC: ESC-33 writes `NO_SHOW` and `DELIVERY_OVERDUE` signals and re-
 - Three-party escrow design: `specs/features/three-party-escrow-commitments-reputation.md` (ESC-25, ESC-33, H1, H4)
 - Task list: `TASK.md`, EPIC FRD
 
-**Last Updated**: 2026-10-06
+**Last Updated**: 2026-10-23
 **Author**: Architecture Agent
 **Status**: Rules 1 to 4 and signal persistence implemented. Risk engine (sections 14 to 23) specified, not built (EPIC FRD).

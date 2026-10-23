@@ -157,16 +157,29 @@ void main() {
         ),
       );
 
+  final en = lookupAppLocalizations(const Locale('en'));
+  final underReview = en.escrowStatusHeld.toUpperCase();
+
   void escrowIs(PaymentStatus? status) =>
       when(() => escrowRepo.refreshEscrow(_escrowId)).thenAnswer(
         (_) async => status == null ? null : _escrow(status),
       );
 
-  Future<void> open(WidgetTester tester, Order order) async {
+  /// Opens the screen the way the orders tab does: a fresh bloc that loads
+  /// and then emits the order. [alreadyLoaded]: the bloc holds the order
+  /// from the start and emits nothing new.
+  Future<void> open(
+    WidgetTester tester,
+    Order order, {
+    bool alreadyLoaded = false,
+    bool withEscrow = true,
+  }) async {
     tester.view.physicalSize = const Size(1000, 6000);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
-    when(() => orderBloc.state).thenReturn(SingleOrderLoaded(order: order));
+    when(() => orderBloc.state).thenReturn(
+      alreadyLoaded ? SingleOrderLoaded(order: order) : const OrderLoading(),
+    );
     await tester.pumpWidget(
       MultiBlocProvider(
         providers: [
@@ -174,7 +187,7 @@ void main() {
           BlocProvider<AuthBloc>.value(value: authBloc),
           BlocProvider<DeliveryBloc>.value(value: deliveryBloc),
           BlocProvider<RatingBloc>.value(value: ratingBloc),
-          BlocProvider<EscrowBloc>.value(value: escrowBloc),
+          if (withEscrow) BlocProvider<EscrowBloc>.value(value: escrowBloc),
         ],
         child: const MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -185,12 +198,13 @@ void main() {
       ),
     );
     // The route-scoped bloc's load lands after the screen is up.
-    orderStates.add(SingleOrderLoaded(order: order));
+    if (!alreadyLoaded) orderStates.add(SingleOrderLoaded(order: order));
     await tester.pumpAndSettle();
   }
 
-  final en = lookupAppLocalizations(const Locale('en'));
-  final underReview = en.escrowStatusHeld.toUpperCase();
+  FilledButton acceptButton(WidgetTester tester) => tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, en.acceptOrder),
+      );
 
   for (final (role, userId) in const [
     (UserRole.buyer, _buyerId),
@@ -278,6 +292,87 @@ void main() {
 
     expect(find.text(underReview), findsNothing);
     verifyNever(() => escrowRepo.refreshEscrow(any()));
+  });
+
+  testWidgets('farmer: Accept waits for the hold check, then is enabled',
+      (tester) async {
+    signIn(UserRole.farmer, _farmerId);
+    final answer = Completer<Payment?>();
+    when(() => escrowRepo.refreshEscrow(_escrowId))
+        .thenAnswer((_) => answer.future);
+
+    await open(tester, _order(OrderStatus.funded));
+    expect(acceptButton(tester).onPressed, isNull);
+
+    answer.complete(_escrow(PaymentStatus.escrowed));
+    await tester.pumpAndSettle();
+    expect(acceptButton(tester).onPressed, isNotNull);
+    expect(find.text(underReview), findsNothing);
+  });
+
+  testWidgets('farmer: a failed hold check enables Accept (offline works)',
+      (tester) async {
+    signIn(UserRole.farmer, _farmerId);
+    when(() => escrowRepo.refreshEscrow(_escrowId))
+        .thenThrow(StateError('offline'));
+
+    await open(tester, _order(OrderStatus.funded));
+
+    expect(acceptButton(tester).onPressed, isNotNull);
+    expect(find.text(underReview), findsNothing);
+  });
+
+  testWidgets('farmer: no escrow side above the screen enables Accept',
+      (tester) async {
+    signIn(UserRole.farmer, _farmerId);
+
+    await open(tester, _order(OrderStatus.funded), withEscrow: false);
+
+    expect(acceptButton(tester).onPressed, isNotNull);
+  });
+
+  testWidgets('an older hold check that answers last is ignored',
+      (tester) async {
+    signIn(UserRole.buyer, _buyerId);
+    final first = Completer<Payment?>();
+    var calls = 0;
+    when(() => escrowRepo.refreshEscrow(_escrowId)).thenAnswer((_) {
+      calls++;
+      return calls == 1
+          ? first.future
+          : Future.value(_escrow(PaymentStatus.escrowed));
+    });
+
+    await open(tester, _order(OrderStatus.delivered));
+    // A reload (the contact pull) emits the order again: a second check.
+    orderStates.add(SingleOrderLoaded(order: _order(OrderStatus.delivered)));
+    await tester.pumpAndSettle();
+    first.complete(_escrow(PaymentStatus.held));
+    await tester.pumpAndSettle();
+
+    expect(calls, 2);
+    expect(find.text(underReview), findsNothing);
+  });
+
+  testWidgets('a settled order is not looked up, even with a held copy',
+      (tester) async {
+    signIn(UserRole.farmer, _farmerId);
+    escrowIs(PaymentStatus.held);
+
+    await open(tester, _order(OrderStatus.settled));
+
+    expect(find.text(underReview), findsNothing);
+    verifyNever(() => escrowRepo.refreshEscrow(any()));
+  });
+
+  testWidgets('a bloc that already holds the order is still checked',
+      (tester) async {
+    signIn(UserRole.trucker, _truckerId);
+    escrowIs(PaymentStatus.held);
+
+    await open(tester, _order(OrderStatus.delivered), alreadyLoaded: true);
+
+    expect(find.text(underReview), findsOneWidget);
   });
 
   testWidgets('a failed lookup shows no badge', (tester) async {

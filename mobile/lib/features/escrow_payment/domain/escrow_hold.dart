@@ -1,3 +1,4 @@
+import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
 
@@ -10,6 +11,43 @@ import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_
 /// The id of an order's own escrow (`escrow-order-{orderId}`,
 /// escrow-protocol.md, Order-Funded Escrow).
 String orderEscrowId(String orderId) => 'escrow-order-$orderId';
+
+/// Order statuses at which the order's escrow can be held: the money is in
+/// escrow and waits to settle, or the order was refused, cancelled or
+/// disputed and its money waits for the refund or the verdict. At any other
+/// status a `held` escrow row is a stale copy (the order moved on with its
+/// money), so the order screens show "Under Review" only at these.
+const orderHoldableStatuses = {
+  OrderStatus.funded,
+  OrderStatus.accepted,
+  OrderStatus.pickupConfirmed,
+  OrderStatus.inTransit,
+  OrderStatus.delivered,
+  OrderStatus.disputed,
+  OrderStatus.disputeResolved,
+  OrderStatus.cancelled,
+  OrderStatus.rejected,
+};
+
+/// Whether the buyer has already paid the escrow of a delivery, so "Pay for
+/// delivery" is not offered again: the money is held, paid out, disputed or
+/// frozen for review. A status this build does not know counts too, since
+/// no action is offered on it. Not `initiated`: a stale abandoned initiation
+/// would hide the button forever, and the server's ESCROW_009 guard blocks a
+/// genuine double payment.
+bool escrowAlreadyPaid(PaymentStatus status) => switch (status) {
+      PaymentStatus.escrowed ||
+      PaymentStatus.released ||
+      PaymentStatus.completed ||
+      PaymentStatus.disputed ||
+      PaymentStatus.held ||
+      PaymentStatus.unknown =>
+        true,
+      PaymentStatus.initiated ||
+      PaymentStatus.cancelled ||
+      PaymentStatus.refunded =>
+        false,
+    };
 
 /// Whether the escrow of [orderId] is `held`. Reads the server when it can
 /// (mobile falls back to its cached copy offline). A failure reads as not
