@@ -129,6 +129,25 @@ public sealed class FraudRiskScoreDynamoDbTests
     }
 
     [LocalDynamoDbFact]
+    public async Task Score_ReadsTheEntityId_AStuckOperationCountsOnce()
+    {
+        // FRD-08: one refused operation retried in three hours, and one other id. The Query must
+        // project entityId, or the three rows would count three times (100, CRITICAL).
+        var now = DateTime.UtcNow;
+        foreach (var (hoursAgo, entityId) in new[] { (1, "crop-1"), (2, "crop-1"), (3, "crop-1"), (4, "crop-2") })
+        {
+            var row = Row(_userId, $"{Iso(now.AddHours(-hoursAgo))}#ROLE_FORBIDDEN", "ROLE_FORBIDDEN", 25);
+            row["entityId"] = new AttributeValue { S = entityId };
+            await PutAsync(row);
+        }
+
+        var result = await Service().GetUserRiskScoreAsync(_userId);
+
+        result.Score.Should().Be(50);
+        result.Tier.Should().Be(RiskTier.Medium);
+    }
+
+    [LocalDynamoDbFact]
     public async Task Score_BurstBeyondTwoPagesIsTruncatedToCritical()
     {
         // About 2.6 MB of one burst in one hour: DynamoDB returns at most 1 MB per page, so two

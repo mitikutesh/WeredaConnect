@@ -281,8 +281,14 @@ public sealed class FraudDetectionService : IFraudDetectionService
     /// <summary>A delivery handoff with a wrong, reused or missing QR nonce.</summary>
     internal const string QrHandoffFailureSignal = "QR_HANDOFF_FAILURE";
 
-    /// <summary>A verified Telebirr payment from a wallet other than the buyer's registered phone.</summary>
+    /// <summary>
+    /// A verified Telebirr payment from a wallet other than the buyer's registered phone, applied
+    /// because the payer match is not enforced. Paying from a relative's wallet is common: never scores.
+    /// </summary>
     internal const string TelebirrPayerMismatchSignal = "TELEBIRR_PAYER_MISMATCH";
+
+    /// <summary>The same payment refused because TELEBIRR_REQUIRE_PAYER_MATCH is on.</summary>
+    internal const string TelebirrPayerRefusedSignal = "TELEBIRR_PAYER_REFUSED";
 
     /// <summary>Many version conflicts in one /sync batch. Honest offline clients conflict too: never scores.</summary>
     internal const string StaleVersionBurstSignal = "STALE_VERSION_BURST";
@@ -301,7 +307,8 @@ public sealed class FraudDetectionService : IFraudDetectionService
         RoleForbiddenSignal => 25,
         ImmutableFieldChangeSignal => 25,
         QrHandoffFailureSignal => 5,
-        TelebirrPayerMismatchSignal => 5,
+        TelebirrPayerMismatchSignal => 0,
+        TelebirrPayerRefusedSignal => 5,
         StaleVersionBurstSignal => 0,
         SuspendedTokenUseSignal => 0,
         _ => 10
@@ -314,7 +321,18 @@ public sealed class FraudDetectionService : IFraudDetectionService
     /// </summary>
     internal static bool IsSoftSignal(string signalType) =>
         signalType is "GPS_ANOMALY" or "PRICE_ANOMALY"
-            or QrHandoffFailureSignal or TelebirrPayerMismatchSignal
+            or QrHandoffFailureSignal or TelebirrPayerMismatchSignal or TelebirrPayerRefusedSignal
+            or StaleVersionBurstSignal or SuspendedTokenUseSignal;
+
+    /// <summary>
+    /// FRD-08 types the scorer counts once per (type, entityId) over the whole window, not once per
+    /// hour: the mobile queue sends a refused operation again on every reconnect, so one honest
+    /// refusal would otherwise add its weight in every hour it is retried. Probes of different ids
+    /// still add up. A row without an entityId falls back to the hourly bucket.
+    /// </summary>
+    internal static bool CountsOncePerEntity(string signalType) =>
+        signalType is IdorCreateConflictSignal or RoleForbiddenSignal or ImmutableFieldChangeSignal
+            or QrHandoffFailureSignal or TelebirrPayerMismatchSignal or TelebirrPayerRefusedSignal
             or StaleVersionBurstSignal or SuspendedTokenUseSignal;
 
     /// <summary>
@@ -443,7 +461,7 @@ public sealed class FraudDetectionService : IFraudDetectionService
             TableName = _fraudSignalsTable,
             KeyConditionExpression = "#u = :uid AND #k >= :since",
             // Only the attributes the scorer reads; descriptions stay on the table.
-            ProjectionExpression = "#k, #t, #w, #r, #rt, #wu",
+            ProjectionExpression = "#k, #t, #w, #r, #rt, #wu, #e",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
                 { "#u", "userId" },
@@ -452,7 +470,8 @@ public sealed class FraudDetectionService : IFraudDetectionService
                 { "#w", "weight" },
                 { "#r", "resolution" },
                 { "#rt", "recordType" },
-                { "#wu", "whitelistUntil" }
+                { "#wu", "whitelistUntil" },
+                { "#e", "entityId" }
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {

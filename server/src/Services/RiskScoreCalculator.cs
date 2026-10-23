@@ -154,8 +154,13 @@ internal sealed class RiskScoreCalculator
         }
 
         // Burst dedup: an offline batch can produce many rejections of one type in one hour.
-        // The first counted row read (the newest) takes the slot.
-        if (!_countedBuckets.Add($"{signalType}|{HourBucket(signalKey)}"))
+        // The first counted row read (the newest) takes the slot. FRD-08 reject types count once
+        // per refused entity over the window instead, since a stuck operation is retried in every
+        // hour the client reconnects.
+        var bucket = FraudDetectionService.CountsOncePerEntity(signalType) && Str(row, "entityId") is { Length: > 0 } entityId
+            ? $"{signalType}|entity:{entityId}"
+            : $"{signalType}|{HourBucket(signalKey)}";
+        if (!_countedBuckets.Add(bucket))
         {
             return;
         }

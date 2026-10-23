@@ -482,7 +482,8 @@ public class FraudDetectionServiceTests
     [InlineData("ROLE_FORBIDDEN", 25, false, "high")]
     [InlineData("IMMUTABLE_FIELD_CHANGE", 25, false, "high")]
     [InlineData("QR_HANDOFF_FAILURE", 5, true, "low")]
-    [InlineData("TELEBIRR_PAYER_MISMATCH", 5, true, "low")]
+    [InlineData("TELEBIRR_PAYER_MISMATCH", 0, true, "low")]
+    [InlineData("TELEBIRR_PAYER_REFUSED", 5, true, "low")]
     [InlineData("STALE_VERSION_BURST", 0, true, "low")]
     [InlineData("SUSPENDED_TOKEN_USE", 0, true, "low")]
     public async Task RecordFraudSignal_RejectSignalsCarryTheCatalogueWeightAndClass(
@@ -501,42 +502,91 @@ public class FraudDetectionServiceTests
         Assert.Equal(UserId, captured.Item["userId"].S);
     }
 
-    private static RiskScoreResult ScoreOf(params (int HoursAgo, string Type)[] rows)
+    private static RiskScoreResult ScoreOf(params (int HoursAgo, string Type, string? EntityId)[] rows)
     {
         var calculator = new RiskScoreCalculator(RiskScoreSettings.Default, DateTime.UtcNow);
-        foreach (var (hoursAgo, type) in rows.OrderBy(r => r.HoursAgo)) // newest first, as the Query reads
+        foreach (var (hoursAgo, type, entityId) in rows.OrderBy(r => r.HoursAgo)) // newest first, as the Query reads
         {
             var hour = DateTime.UtcNow.AddHours(-hoursAgo).ToString("yyyy-MM-dd'T'HH':00:00.0000000Z'", System.Globalization.CultureInfo.InvariantCulture);
-            calculator.Add(new Dictionary<string, AttributeValue>
+            var row = new Dictionary<string, AttributeValue>
             {
                 ["signalKey"] = new() { S = $"{hour}#{type}" },
                 ["signalType"] = new() { S = type },
                 ["weight"] = new() { N = FraudDetectionService.SignalWeight(type).ToString() }
-            });
+            };
+            if (entityId != null)
+            {
+                row["entityId"] = new AttributeValue { S = entityId };
+            }
+
+            calculator.Add(row);
         }
 
         return calculator.Result(truncated: false);
     }
 
     [Fact]
-    public void RejectSignals_TiersFollowTheHoursOfProbing()
+    public void RejectSignals_TiersFollowTheNumberOfProbedIds()
     {
-        // One role or field probe is LOW, one create probe MEDIUM; the three hard probes of one hour
-        // are HIGH; CRITICAL needs probes in more than one hour.
-        Assert.Equal(RiskTier.Low, ScoreOf((1, "ROLE_FORBIDDEN")).Tier);
-        Assert.Equal(RiskTier.Medium, ScoreOf((1, "IDOR_CREATE_CONFLICT")).Tier);
+        // One refused operation is LOW (25) or MEDIUM (40) however often it is retried; the three
+        // hard types on three ids are HIGH; CRITICAL needs probes of several ids.
+        Assert.Equal(RiskTier.Low, ScoreOf((1, "ROLE_FORBIDDEN", "crop-1")).Tier);
+        Assert.Equal(RiskTier.Medium, ScoreOf((1, "IDOR_CREATE_CONFLICT", "crop-1")).Tier);
         Assert.Equal(RiskTier.High, ScoreOf(
-            (1, "IDOR_CREATE_CONFLICT"), (1, "ROLE_FORBIDDEN"), (1, "IMMUTABLE_FIELD_CHANGE")).Tier);
+            (1, "IDOR_CREATE_CONFLICT", "crop-1"), (1, "ROLE_FORBIDDEN", "crop-2"), (1, "IMMUTABLE_FIELD_CHANGE", "crop-3")).Tier);
         Assert.Equal(RiskTier.Critical, ScoreOf(
-            (1, "IDOR_CREATE_CONFLICT"), (2, "IDOR_CREATE_CONFLICT"), (3, "ROLE_FORBIDDEN")).Tier);
+            (1, "IDOR_CREATE_CONFLICT", "crop-1"), (2, "IDOR_CREATE_CONFLICT", "crop-2"), (3, "ROLE_FORBIDDEN", "crop-3")).Tier);
+    }
+
+    [Theory]
+    [InlineData("ROLE_FORBIDDEN", 25)]
+    [InlineData("IMMUTABLE_FIELD_CHANGE", 25)]
+    [InlineData("IDOR_CREATE_CONFLICT", 40)]
+    [InlineData("QR_HANDOFF_FAILURE", 5)]
+    [InlineData("TELEBIRR_PAYER_REFUSED", 5)]
+    public void RejectSignals_AStuckOperationRetriedEveryHourCountsOnce(string type, int weight)
+    {
+        // The mobile queue resets failed operations on every reconnect, so one honest refusal writes
+        // a row in each hour it is retried (here every hour for 30 days): it counts once.
+        var rows = Enumerable.Range(1, 30 * 24 - 1).Select(h => (h, type, (string?)"delivery-1")).ToArray();
+
+        var result = ScoreOf(rows);
+
+        Assert.Equal(weight, result.Score);
+        Assert.NotEqual(RiskTier.Critical, result.Tier);
+    }
+
+    [Fact]
+    public void RejectSignals_DifferentIdsAddUp_RowsWithoutAnIdCountPerHour()
+    {
+        // Probing five ids, one per hour: each counts.
+        Assert.Equal(125, ScoreOf(Enumerable.Range(1, 5).Select(h => (h, "ROLE_FORBIDDEN", (string?)$"crop-{h}")).ToArray()).Score);
+        // ESCROW_025 on the checkout carries no id: the hourly bucket of section 14.2 applies.
+        Assert.Equal(75, ScoreOf(Enumerable.Range(1, 3).Select(h => (h, "ROLE_FORBIDDEN", (string?)null)).ToArray()).Score);
+    }
+
+    [Fact]
+    public void RejectSignals_TheEarlierProducersKeepTheHourlyCount()
+    {
+        // Only FRD-08 types count per entity: a velocity refusal of one listing in three hours is 45.
+        var rows = Enumerable.Range(1, 3).Select(h => (h, "FRAUD_VELOCITY_EXCEEDED", (string?)"crop-1")).ToArray();
+
+        Assert.Equal(45, ScoreOf(rows).Score);
+        Assert.False(FraudDetectionService.CountsOncePerEntity("FRAUD_VELOCITY_EXCEEDED"));
+        Assert.False(FraudDetectionService.CountsOncePerEntity("GPS_ANOMALY"));
     }
 
     [Fact]
     public void RejectSignals_HonestClientTypesStayLowAcrossADay()
     {
-        // A QR failure, a stale-version burst and a suspended refresh in each of 5 hours: 25 points.
+        // A QR failure on each of 5 deliveries, a stale-version burst, a suspended refresh and an
+        // applied payment from a relative's wallet in each of 5 hours: 25 points.
         var rows = Enumerable.Range(1, 5)
-            .SelectMany(h => new[] { (h, "QR_HANDOFF_FAILURE"), (h, "STALE_VERSION_BURST"), (h, "SUSPENDED_TOKEN_USE") })
+            .SelectMany(h => new (int, string, string?)[]
+            {
+                (h, "QR_HANDOFF_FAILURE", $"delivery-{h}"), (h, "STALE_VERSION_BURST", $"crop-{h}"),
+                (h, "SUSPENDED_TOKEN_USE", null), (h, "TELEBIRR_PAYER_MISMATCH", $"escrow-order-{h}")
+            })
             .ToArray();
 
         var result = ScoreOf(rows);

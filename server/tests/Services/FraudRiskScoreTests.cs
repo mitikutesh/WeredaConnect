@@ -310,9 +310,10 @@ public class FraudRiskScoreTests
         request.ScanIndexForward.Should().BeFalse();
         request.ConsistentRead.Should().BeFalse();
         request.ExclusiveStartKey.Should().BeNullOrEmpty();
-        request.ProjectionExpression.Should().Be("#k, #t, #w, #r, #rt, #wu");
+        // FRD-08 adds entityId: its reject types count once per refused entity.
+        request.ProjectionExpression.Should().Be("#k, #t, #w, #r, #rt, #wu, #e");
         request.ExpressionAttributeNames.Values.Should().BeEquivalentTo(
-            "userId", "signalKey", "signalType", "weight", "resolution", "recordType", "whitelistUntil");
+            "userId", "signalKey", "signalType", "weight", "resolution", "recordType", "whitelistUntil", "entityId");
     }
 
     [Fact]

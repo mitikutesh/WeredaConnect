@@ -526,7 +526,7 @@ public class TelebirrWebhookFunction
         }
 
         var buyer = string.IsNullOrEmpty(buyerId) ? null : await _userRepo.GetUserByIdAsync(buyerId);
-        var payer = Validation.RequestValidator.NormalizePhoneNumber(payerMsisdn) ?? payerMsisdn.Trim();
+        var payer = NormalizePayerPhone(payerMsisdn);
         if (buyer != null && string.Equals(buyer.PhoneNumber, payer, StringComparison.Ordinal))
         {
             return true;
@@ -538,17 +538,37 @@ public class TelebirrWebhookFunction
 
         // FRD-08: the notification is verified and the buyer id comes from our own escrow or
         // checkout row, so the evidence is about this buyer's payment. Only a buyer whose row and
-        // phone were read gets the signal; a missing row is no evidence about anyone.
+        // phone were read gets the signal; a missing row is no evidence about anyone. A payment that
+        // is applied anyway (a relative's wallet is common) weighs 0; only a refused one scores.
         if (!string.IsNullOrEmpty(buyer?.PhoneNumber))
         {
-            await TryRecordPayerMismatchAsync(buyer.UserId, escrowId, context);
+            await TryRecordPayerMismatchAsync(
+                buyer.UserId,
+                _requirePayerMatch ? FraudDetectionService.TelebirrPayerRefusedSignal : FraudDetectionService.TelebirrPayerMismatchSignal,
+                escrowId, context);
         }
 
         return !_requirePayerMatch;
     }
 
+    /// <summary>
+    /// The payer's MSISDN in the users table's form (+251XXXXXXXXX). Telebirr sends it as 12 digits
+    /// without the plus (251XXXXXXXXX), which <c>RequestValidator.NormalizePhoneNumber</c> does not
+    /// take; without this every live payer would read as a mismatch.
+    /// </summary>
+    internal static string NormalizePayerPhone(string payerMsisdn)
+    {
+        var trimmed = payerMsisdn.Trim();
+        if (trimmed.Length == 12 && trimmed.StartsWith("251", StringComparison.Ordinal) && trimmed.All(char.IsAsciiDigit))
+        {
+            trimmed = "+" + trimmed;
+        }
+
+        return Validation.RequestValidator.NormalizePhoneNumber(trimmed) ?? trimmed;
+    }
+
     /// <summary>FRD-08: best-effort; the webhook's answer and the payment outcome never depend on it.</summary>
-    private async Task TryRecordPayerMismatchAsync(string buyerId, string escrowId, ILambdaContext context)
+    private async Task TryRecordPayerMismatchAsync(string buyerId, string signalType, string escrowId, ILambdaContext context)
     {
         if (_fraudService == null || string.IsNullOrEmpty(buyerId))
         {
@@ -558,13 +578,13 @@ public class TelebirrWebhookFunction
         try
         {
             await _fraudService.RecordFraudSignalAsync(
-                buyerId, FraudDetectionService.TelebirrPayerMismatchSignal, escrowId, "escrow",
+                buyerId, signalType, escrowId, "escrow",
                 "A verified Telebirr payment came from a wallet other than the buyer's registered phone.");
         }
         catch (Exception ex)
         {
             context.Logger.LogWarning(
-                $"Failed to record fraud signal {FraudDetectionService.TelebirrPayerMismatchSignal} for escrow {SafeLogId(escrowId)}: [{ex.GetType().Name}]");
+                $"Failed to record fraud signal {signalType} for escrow {SafeLogId(escrowId)}: [{ex.GetType().Name}]");
         }
     }
 

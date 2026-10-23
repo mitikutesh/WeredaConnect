@@ -1901,7 +1901,7 @@ public class TelebirrWebhookFunctionTests
         .RecordFraudSignalAsync(default!, default!, default, default!, default);
 
     [Fact]
-    public async Task Verified_payer_mismatch_writes_one_signal_on_the_escrows_buyer()
+    public async Task Verified_payer_mismatch_applied_anyway_writes_a_weight_zero_signal_on_the_escrows_buyer()
     {
         EscrowHasBuyer();
         var fn = NewFunction(userRepo: BuyerWithPhone("+251911000001"), fraudService: _fraud);
@@ -1911,21 +1911,25 @@ public class TelebirrWebhookFunctionTests
         resp.StatusCode.Should().Be(200);
         await _fraud.Received(1).RecordFraudSignalAsync(
             "buyer-1", FraudDetectionService.TelebirrPayerMismatchSignal, EscrowId, "escrow", Arg.Any<string?>());
+        // A relative's wallet is common: logged for review, never scored.
+        FraudDetectionService.SignalWeight(FraudDetectionService.TelebirrPayerMismatchSignal).Should().Be(0);
         // Not required: the payment still applies, as before.
         await _escrowRepo.Received(1).UpdateStatusAsync(
             EscrowId, Arg.Any<string>(), "escrowed", "initiated", Arg.Any<Dictionary<string, object>?>());
     }
 
     [Fact]
-    public async Task Verified_order_payment_from_another_wallet_signals_the_checkouts_buyer()
+    public async Task Order_payment_refused_for_another_wallet_signals_the_checkouts_buyer_with_weight()
     {
         _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
         var fn = NewOrderFunction(userRepo: BuyerWithPhone("+251911000001"), requirePayerMatch: true, fraudService: _fraud);
 
         await fn.FunctionHandler(Req(OrderBody(msisdn: "+251922000002")), _ctx);
 
+        // Enforced: the payment is refused, so the signal scores (soft 5, once per order escrow).
         await _fraud.Received(1).RecordFraudSignalAsync(
-            "buyer-1", FraudDetectionService.TelebirrPayerMismatchSignal, OrderEscrowId, "escrow", Arg.Any<string?>());
+            "buyer-1", FraudDetectionService.TelebirrPayerRefusedSignal, OrderEscrowId, "escrow", Arg.Any<string?>());
+        FraudDetectionService.SignalWeight(FraudDetectionService.TelebirrPayerRefusedSignal).Should().Be(5);
         await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
 
@@ -1970,6 +1974,49 @@ public class TelebirrWebhookFunctionTests
         await AuditRecorded("webhook_payer_mismatch");
         await NoSignal();
     }
+
+    [Fact]
+    public async Task Payer_mismatch_on_a_buyer_row_without_a_phone_writes_no_signal()
+    {
+        // A deleted buyer's tombstone has no phone: no wallet of theirs to compare, nothing to attribute.
+        EscrowHasBuyer();
+
+        await NewFunction(userRepo: BuyerWithPhone(""), fraudService: _fraud)
+            .FunctionHandler(Req(SignedBody("Completed", msisdn: "0922000002")), _ctx);
+
+        await AuditRecorded("webhook_payer_mismatch");
+        await NoSignal();
+    }
+
+    [Theory]
+    [InlineData("251911000001")]
+    [InlineData("+251911000001")]
+    [InlineData("0911000001")]
+    [InlineData(" 251911000001 ")]
+    public async Task The_buyers_own_wallet_matches_in_every_form_Telebirr_may_send(string msisdn)
+    {
+        // Telebirr's MSISDN is 12 digits without the plus; the users table stores +251.
+        EscrowHasBuyer();
+        var fn = NewFunction(userRepo: BuyerWithPhone("+251911000001"), requirePayerMatch: true, fraudService: _fraud);
+
+        await fn.FunctionHandler(Req(SignedBody("Completed", msisdn: msisdn)), _ctx);
+
+        await _escrowRepo.Received(1).UpdateStatusAsync(
+            EscrowId, Arg.Any<string>(), "escrowed", "initiated", Arg.Any<Dictionary<string, object>?>());
+        await _auditRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(
+            e => e.Values.Any(v => v != null && v.ToString() == "webhook_payer_mismatch")));
+        await NoSignal();
+    }
+
+    [Theory]
+    [InlineData("251911000001", "+251911000001")]
+    [InlineData("+251911000001", "+251911000001")]
+    [InlineData("0911000001", "+251911000001")]
+    [InlineData("00251911000001", "+251911000001")]
+    [InlineData("2519110000012", "2519110000012")]
+    [InlineData("251abc000001", "251abc000001")]
+    public void Payer_phone_is_normalized_to_the_users_table_form(string msisdn, string expected)
+        => TelebirrWebhookFunction.NormalizePayerPhone(msisdn).Should().Be(expected);
 
     [Fact]
     public async Task A_failing_signal_write_changes_neither_the_answer_nor_the_payment()

@@ -4575,7 +4575,8 @@ public partial class SyncFunction
                                     ? snObj?.ToString() : null;
 
                                 // FRD-08: QR failures are soft. A code regenerated offline and scanned
-                                // before it synced fails too, and its retries land in the same hour.
+                                // before it synced fails too; the score counts it once per delivery
+                                // however often the queue retries it.
                                 if (string.IsNullOrEmpty(scannedNonce))
                                 {
                                     return await RefuseWithSignalAsync(new SyncOperationResult

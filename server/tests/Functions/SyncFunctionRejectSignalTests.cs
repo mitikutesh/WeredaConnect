@@ -9,6 +9,7 @@ using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
 using Xunit;
 
@@ -495,5 +496,309 @@ public class SyncFunctionRejectSignalTests
         await failing.Received(3).RecordFraudSignalAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
         ((TestLambdaLogger)_context.Logger).Buffer.ToString().Should().Contain("Failed to record fraud signal");
+    }
+
+    // ── One test per refusal site, through the real service: the row written, its type and weight ──
+
+    private readonly IAmazonDynamoDB _signalsDb = Substitute.For<IAmazonDynamoDB>();
+    private readonly List<Dictionary<string, AttributeValue>> _written = new();
+    private readonly IIntentRepository _intents = Substitute.For<IIntentRepository>();
+    private readonly IRatingRepository _ratings = Substitute.For<IRatingRepository>();
+    private readonly IMessageRepository _messages = Substitute.For<IMessageRepository>();
+
+    /// <summary>A function whose signals go through a real <see cref="FraudDetectionService"/>.</summary>
+    private SyncFunction Recording()
+    {
+        _signalsDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>>() });
+        _signalsDb.PutItemAsync(Arg.Do<PutItemRequest>(r => _written.Add(r.Item)), Arg.Any<CancellationToken>())
+            .Returns(new PutItemResponse());
+        var service = new FraudDetectionService(_signalsDb, "crops", "fraud-signals", Substitute.For<IRateLimitRepository>());
+        return new SyncFunction(_meta, _crops, _ddb, "trips", DeliveriesTable,
+            fraudService: service, userRepo: _users, orderRepo: _orders, intentRepo: _intents,
+            ratingRepo: _ratings, qrSecretRepo: _qrSecrets, messageRepo: _messages);
+    }
+
+    private async Task<JsonElement> RefusedAsync(string caller, string? role, SyncOperationRequest op, string messageStart)
+    {
+        var body = await SyncAsync(Request(caller, role, op), Recording());
+        var result = Result(body);
+        result.GetProperty("message").GetString().Should().StartWith(messageStart);
+        return result;
+    }
+
+    private void WroteOne(string userId, string signalType, int weight, string entityId, string entityType)
+    {
+        var row = _written.Should().ContainSingle().Subject;
+        row["userId"].S.Should().Be(userId);
+        row["signalType"].S.Should().Be(signalType);
+        row["weight"].N.Should().Be(weight.ToString());
+        row["entityId"].S.Should().Be(entityId);
+        row["entityType"].S.Should().Be(entityType);
+    }
+
+    private void TripRow(string truckerId) =>
+        _ddb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "trips"), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    new()
+                    {
+                        { "tripId", new AttributeValue { S = "trip-001" } },
+                        { "createdAt", new AttributeValue { S = "2026-10-01T08:00:00Z" } },
+                        { "truckerId", new AttributeValue { S = truckerId } },
+                        { "truckerName", new AttributeValue { S = "Chaltu Tolosa" } },
+                        { "truckerPhone", new AttributeValue { S = "+251933333333" } },
+                        { "status", new AttributeValue { S = "open" } },
+                        { "version", new AttributeValue { N = "2" } }
+                    }
+                }
+            });
+
+    [Fact]
+    public async Task TripCreateOnAnotherTruckersId_WritesIdor40()
+    {
+        TripRow("trucker-002");
+
+        var result = await RefusedAsync(TruckerId, "trucker", Op("trip", "trip-001", "create", new Dictionary<string, object>
+        {
+            { "truckerId", TruckerId }, { "fromWoreda", "Bishoftu" }, { "toWoreda", "Adama" },
+            { "departureDate", DateTime.UtcNow.AddDays(3).ToString("o") }, { "capacity", 150.0 }, { "pricePerQuintal", 120.0 }
+        }), "Trip already exists on server.");
+
+        result.GetProperty("status").GetString().Should().Be("conflict");
+        WroteOne(TruckerId, FraudDetectionService.IdorCreateConflictSignal, 40, "trip-001", "trip");
+    }
+
+    [Fact]
+    public async Task TripUpdateThatChangesTheTruckerName_WritesImmutableFieldChange25()
+    {
+        TripRow(TruckerId);
+
+        await RefusedAsync(TruckerId, "trucker", Op("trip", "trip-001", "update",
+                new Dictionary<string, object> { { "truckerName", "Someone Else" }, { "version", 2 } }),
+            "TRIP_VALIDATION: truckerName is immutable");
+
+        WroteOne(TruckerId, FraudDetectionService.ImmutableFieldChangeSignal, 25, "trip-001", "trip");
+    }
+
+    [Fact]
+    public async Task OrderCreateOnAnotherBuyersId_WritesIdor40()
+    {
+        _crops.GetByIdAsync("listing-001").Returns(new Dictionary<string, object>
+        {
+            { "cropId", "listing-001" }, { "listingId", "listing-001" }, { "farmerId", FarmerId },
+            { "farmerName", "Abebe Kebede" }, { "cropType", "teff" }, { "quantity", 10.0 },
+            { "pricePerKg", 45.5 }, { "status", "available" }, { "version", "1" }
+        });
+        _orders.CreateAsync("order-taken", Arg.Any<Dictionary<string, object>>())
+            .Returns(AuthResult<Dictionary<string, object>>.Failure(409, "CONFLICT", "exists"));
+        _orders.GetByIdAsync("order-taken").Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-taken" }, { "buyerId", "buyer-002" }, { "farmerId", OtherFarmerId }, { "version", "1" }
+        });
+
+        var result = await RefusedAsync(BuyerId, "buyer", Op("order", "order-taken", "create", new Dictionary<string, object>
+        {
+            { "buyerId", BuyerId }, { "farmerId", FarmerId }, { "listingId", "listing-001" },
+            { "buyerName", "Meron Alemu" }, { "farmerName", "Abebe Kebede" }, { "cropType", "teff" },
+            { "quantity", 50 }, { "pricePerUnit", 45.5 }
+        }), "Order already exists on server.");
+
+        result.GetProperty("status").GetString().Should().Be("conflict");
+        WroteOne(BuyerId, FraudDetectionService.IdorCreateConflictSignal, 40, "order-taken", "order");
+    }
+
+    [Fact]
+    public async Task OrderUpdateEchoingAnotherOrderId_WritesImmutableFieldChange25()
+    {
+        Order();
+
+        await RefusedAsync(BuyerId, "buyer", OrderUpdate(new Dictionary<string, object>
+        {
+            { "orderId", "order-999" }, { "status", "cancelled" }, { "version", 4 }
+        }), "ORDER_VALIDATION: orderId does not match the operation entityId.");
+
+        WroteOne(BuyerId, FraudDetectionService.ImmutableFieldChangeSignal, 25, "order-001", "order");
+    }
+
+    [Fact]
+    public async Task TruckerSettingANonLogisticsOrderStatus_WritesRoleForbidden25()
+    {
+        _orders.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-001" }, { "buyerId", BuyerId }, { "farmerId", FarmerId }, { "truckerId", TruckerId },
+            { "status", "funded" }, { "version", "4" }
+        });
+
+        await RefusedAsync(TruckerId, "trucker", OrderUpdate(new Dictionary<string, object>
+        {
+            { "status", "accepted" }, { "version", 4 }
+        }), "ORDER_UNAUTHORIZED: The trucker may only set pickup_confirmed, in_transit or delivered.");
+
+        WroteOne(TruckerId, FraudDetectionService.RoleForbiddenSignal, 25, "order-001", "order");
+    }
+
+    [Theory]
+    [InlineData("farmer", "INTENT_UNAUTHORIZED: Only buyers can create purchase intents.")]
+    [InlineData("buyer", "INTENT_UNAUTHORIZED: buyerId must match authenticated user.")]
+    public async Task IntentRefusals_WriteRoleForbidden25(string role, string message)
+    {
+        await RefusedAsync(BuyerId, role, Op("buyer_intent", "intent-001", "create",
+            new Dictionary<string, object> { { "buyerId", "buyer-002" }, { "cropType", "teff" } }), message);
+
+        WroteOne(BuyerId, FraudDetectionService.RoleForbiddenSignal, 25, "intent-001", "buyer_intent");
+    }
+
+    public static IEnumerable<object[]> RatingRefusals() => new[]
+    {
+        new object[] { "farmer", BuyerId, "RATING_UNAUTHORIZED: Only buyers can rate counterparties." },
+        new object[] { "buyer", "buyer-002", "RATING_UNAUTHORIZED: raterId must match authenticated user." },
+        new object[] { "buyer", BuyerId, "RATING_FORBIDDEN: You can only rate your own orders." },
+    };
+
+    [Theory]
+    [MemberData(nameof(RatingRefusals))]
+    public async Task RatingRefusals_WriteRoleForbidden25(string role, string raterId, string message)
+    {
+        _orders.GetByIdAsync("order-other").Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-other" }, { "buyerId", "buyer-002" }, { "farmerId", FarmerId }, { "status", "delivered" }
+        });
+
+        await RefusedAsync(BuyerId, role, Op("rating", "rating-001", "create", new Dictionary<string, object>
+        {
+            { "ratingId", "rating-001" }, { "orderId", "order-other" }, { "raterId", raterId },
+            { "rateeId", FarmerId }, { "rateeRole", "farmer" }, { "stars", 5 }
+        }), message);
+
+        WroteOne(BuyerId, FraudDetectionService.RoleForbiddenSignal, 25, "rating-001", "rating");
+    }
+
+    [Fact]
+    public async Task MessageFromSomeoneElse_WritesRoleForbidden25()
+    {
+        await RefusedAsync(BuyerId, "buyer", Op("message", "msg-001", "create", new Dictionary<string, object>
+        {
+            { "messageId", "msg-001" }, { "conversationId", $"order:order-001:{BuyerId}:{FarmerId}" },
+            { "contextType", "order" }, { "contextId", "order-001" }, { "senderId", FarmerId },
+            { "recipientId", BuyerId }, { "body", "Hello" }
+        }), "MESSAGE_UNAUTHORIZED: senderId must match authenticated user.");
+
+        WroteOne(BuyerId, FraudDetectionService.RoleForbiddenSignal, 25, "msg-001", "message");
+    }
+
+    private void DeliveryRow(string status, string? deliveryType = null, string? confirmedAt = null)
+    {
+        var created = DateTime.UtcNow.AddDays(-1).ToString("o");
+        var item = new Dictionary<string, AttributeValue>
+        {
+            { "deliveryId", new AttributeValue { S = DeliveryId } },
+            { "tripId", new AttributeValue { S = "trip-001" } },
+            { "listingId", new AttributeValue { S = "listing-001" } },
+            { "orderId", new AttributeValue { S = "order-001" } },
+            { "farmerId", new AttributeValue { S = FarmerId } },
+            { "truckerId", new AttributeValue { S = TruckerId } },
+            { "buyerId", new AttributeValue { S = BuyerId } },
+            { "status", new AttributeValue { S = status } },
+            { "createdAt", new AttributeValue { S = created } },
+            { "updatedAt", new AttributeValue { S = created } },
+            { "version", new AttributeValue { N = "1" } }
+        };
+        if (deliveryType != null)
+        {
+            item["deliveryType"] = new AttributeValue { S = deliveryType };
+        }
+
+        if (confirmedAt != null)
+        {
+            item["confirmedAt"] = new AttributeValue { S = confirmedAt };
+        }
+
+        _ddb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { item } });
+    }
+
+    private static SyncOperationRequest DeliveryUpdate(Dictionary<string, object> data) =>
+        Op("delivery", DeliveryId, "update", data, "op-delivery");
+
+    public static IEnumerable<object[]> DeliveryRoleRefusals() => new[]
+    {
+        new object[] { "pending", BuyerId, "buyer", "pickedUp", "DELIVERY_UNAUTHORIZED: Only the trucker can mark as pickedUp." },
+        new object[] { "inTransit", TruckerId, "trucker", "delivered", "DELIVERY_UNAUTHORIZED: Only the buyer can confirm delivery." },
+        new object[] { "pending", OtherFarmerId, "farmer", "cancelled", "DELIVERY_UNAUTHORIZED: Only participants can cancel a delivery." },
+        new object[] { "disputed", OtherFarmerId, "farmer", "disputed", "DELIVERY_UNAUTHORIZED: Only participants can dispute a delivery." },
+    };
+
+    [Theory]
+    [MemberData(nameof(DeliveryRoleRefusals))]
+    public async Task DeliveryStatusRefusals_WriteRoleForbidden25OnTheCaller(
+        string current, string caller, string role, string target, string message)
+    {
+        DeliveryRow(current);
+
+        await RefusedAsync(caller, role, DeliveryUpdate(new Dictionary<string, object> { { "status", target }, { "version", 1 } }), message);
+
+        WroteOne(caller, FraudDetectionService.RoleForbiddenSignal, 25, DeliveryId, "delivery");
+    }
+
+    [Fact]
+    public async Task DisputeOfADeliveredDeliveryByANonParty_WritesRoleForbidden25()
+    {
+        DeliveryRow("delivered", confirmedAt: DateTime.UtcNow.AddHours(-1).ToString("o"));
+
+        await RefusedAsync(OtherFarmerId, "farmer", DeliveryUpdate(new Dictionary<string, object>
+        {
+            { "status", "disputed" }, { "disputeReason", "Not mine" }, { "version", 1 }
+        }), "DELIVERY_UNAUTHORIZED: Only participants can dispute a delivery.");
+
+        WroteOne(OtherFarmerId, FraudDetectionService.RoleForbiddenSignal, 25, DeliveryId, "delivery");
+    }
+
+    [Fact]
+    public async Task NonStatusDeliveryUpdateByTheBuyer_WritesRoleForbidden25()
+    {
+        DeliveryRow("pending");
+
+        await RefusedAsync(BuyerId, "buyer", DeliveryUpdate(new Dictionary<string, object>
+        {
+            { "disputeReason", "late" }, { "version", 1 }
+        }), "DELIVERY_UNAUTHORIZED: You can only update your own deliveries.");
+
+        WroteOne(BuyerId, FraudDetectionService.RoleForbiddenSignal, 25, DeliveryId, "delivery");
+    }
+
+    [Fact]
+    public async Task DeliveryUpdateThatRepointsTheBuyer_WritesImmutableFieldChange25()
+    {
+        DeliveryRow("pending");
+
+        await RefusedAsync(TruckerId, "trucker", DeliveryUpdate(new Dictionary<string, object>
+        {
+            { "buyerId", "buyer-002" }, { "version", 1 }
+        }), "DELIVERY_VALIDATION: buyerId is immutable");
+
+        WroteOne(TruckerId, FraudDetectionService.ImmutableFieldChangeSignal, 25, DeliveryId, "delivery");
+    }
+
+    [Theory]
+    [InlineData("self_pickup", "DELIVERY_UNAUTHORIZED: buyerId must match authenticated user for self-pickup.")]
+    [InlineData("truck", "DELIVERY_UNAUTHORIZED: truckerId must match authenticated user.")]
+    public async Task DeliveryCreateForSomeoneElse_WritesRoleForbidden25(string deliveryType, string message)
+    {
+        var data = new Dictionary<string, object>
+        {
+            { "orderId", "order-001" }, { "listingId", "listing-001" }, { "farmerId", FarmerId },
+            { "buyerId", "buyer-002" }, { "truckerId", "trucker-002" }
+        };
+        if (deliveryType == "self_pickup")
+        {
+            data["deliveryType"] = "self_pickup";
+        }
+
+        await RefusedAsync(BuyerId, "buyer", Op("delivery", "delivery-new", "create", data), message);
+
+        WroteOne(BuyerId, FraudDetectionService.RoleForbiddenSignal, 25, "delivery-new", "delivery");
     }
 }
