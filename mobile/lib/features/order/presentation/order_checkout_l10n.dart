@@ -15,6 +15,7 @@ String localizeCheckoutIssue(AppLocalizations l10n, CheckoutIssue issue) {
     CheckoutIssue.notSent => l10n.orderCheckoutNotSent,
     CheckoutIssue.sessionExpired => l10n.escrowErrorAuthRequired,
     CheckoutIssue.unauthorized => l10n.escrowErrorUnauthorized,
+    CheckoutIssue.accountHeld => l10n.fraudAccountHeld,
     CheckoutIssue.alreadyOpen => l10n.orderCheckoutAlreadyOpen,
     CheckoutIssue.gateway => l10n.orderCheckoutGatewayProblem,
     CheckoutIssue.rateLimited => l10n.escrowErrorRateLimit,

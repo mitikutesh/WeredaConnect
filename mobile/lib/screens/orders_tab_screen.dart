@@ -5,6 +5,9 @@ import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/escrow_payment/domain/escrow_hold.dart';
+import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
@@ -35,6 +38,15 @@ class OrdersTabScreen extends StatefulWidget {
 class _OrdersTabScreenState extends State<OrdersTabScreen> {
   String? _selectedStatus;
   String? _userRole;
+
+  /// Orders whose escrow is held for review (FRD-06), read with the orders.
+  Set<String> _heldOrderIds = const {};
+
+  /// Whether that read has answered once; Accept waits for it.
+  bool _heldChecked = false;
+
+  /// Only the newest read may change the list.
+  int _heldRead = 0;
 
   @override
   void initState() {
@@ -75,6 +87,31 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
             LoadUserOrders(userId: userId, role: _userRole),
           );
     }
+    _loadHeldOrders();
+  }
+
+  /// Which of this party's orders are under review: their escrow is held
+  /// (FRD-06). Read on open, on pull-to-refresh and after the detail screen,
+  /// not on every filter tap. A failed read, or no escrow side above this
+  /// screen, flags none.
+  Future<void> _loadHeldOrders() async {
+    final read = ++_heldRead;
+    final userId = _getUserId();
+    final role = _userRole;
+    BaseEscrowRepository? repository;
+    try {
+      repository = context.read<EscrowBloc>().repository;
+    } on Object {
+      repository = null;
+    }
+    final held = userId == null || role == null || repository == null
+        ? const <String>{}
+        : await heldOrderIds(repository, userId: userId, role: role);
+    if (!mounted || read != _heldRead) return;
+    setState(() {
+      _heldOrderIds = held;
+      _heldChecked = true;
+    });
   }
 
   void _applyFilter(String? status) {
@@ -113,6 +150,7 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
     // Preserve the active status tab (mirrors the Retry button) rather than
     // resetting to "All".
     _applyFilter(_selectedStatus);
+    _loadHeldOrders();
   }
 
   @override
@@ -272,6 +310,7 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
               // the refresh spinner until the reload actually finishes.
               onRefresh: () async {
                 _applyFilter(_selectedStatus);
+                _loadHeldOrders();
                 await context.read<OrderBloc>().stream.firstWhere(
                       (s) => s is OrdersLoaded || s is OrderError,
                     );
@@ -289,6 +328,10 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
                   return OrderCard(
                     order: order,
                     isFarmerView: isFarmer,
+                    // A cached `held` row is stale once the order moved on.
+                    underReview: _heldOrderIds.contains(order.orderId) &&
+                        orderHoldableStatuses.contains(order.status),
+                    acceptEnabled: _heldChecked,
                     onTap: () => _openOrderDetail(order.orderId),
                     onAccept: isFarmer
                         ? () {

@@ -140,4 +140,13 @@ enum PaymentStatus {
 
   /// Funds returned to buyer
   refunded,
+
+  /// Frozen for review by a settlement sweep; only an admin release or
+  /// refund leaves it (escrow-protocol.md 1.7.0, FRD-03). Shown as "Under
+  /// Review" with no actions.
+  held,
+
+  /// A status this build does not know. The server's set is open
+  /// (escrow-protocol.md 1.7.0), so it is shown as neutral, with no actions.
+  unknown,
 }

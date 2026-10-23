@@ -1207,6 +1207,8 @@
   "@escrowStatusRefunded": {
     "description": "Status label when escrow payment has been refunded"
   },
+  "escrowStatusHeld": "Ilaalamaa Jira",
+  "escrowStatusUnknown": "Haalli Hin Beekamu",
 
   "escrowProtectionInfo": "Kaffaltiin keessan geejjibni mirkanaa'uu hanga gahutti nagaan qabama.",
   "@escrowProtectionInfo": {
@@ -1786,6 +1788,7 @@
       }
     }
   },
+  "fraudAccountHeld": "Herregni keessan ilaalamaa waan jiruuf, gochi kun yeroof dhaabbateera. Deeggarsa qunnamaa.",
 
   "profileSaved": "Profaayiliin haaromfame",
   "@profileSaved": {
@@ -1907,6 +1910,8 @@
   "@escrowDescRefunded": {
     "description": "Status description for refunded escrow"
   },
+  "escrowDescHeld": "Hanga waltajjiin ilaalutti kaffaltiin dhaabbateera. Maallaqni nagaan jira.",
+  "escrowDescUnknown": "Haala kaffaltii kanaa isa dhiyoo ilaaluuf appii haaromsaa.",
   "escrowStatusRefundPending": "Deebii Eegamaa Jira",
   "@escrowStatusRefundPending": {
     "description": "Status label for an escrowed hold whose refund is on its way (order cancelled or hold expired)"
@@ -2514,7 +2519,7 @@
   "otpSentTo": "Koodii lakkoofsa 6 qabu SMS'n gara {phone} ergineerra.",
   "otpCodeHint": "Koodii lakkoofsa 6",
   "otpExpiresAt": "Koodiin sa'aatii {time} irratti dhumata.",
-  "faydaStepUpMessage": "Kaffaltiin qarshii 10,000 ol ta'e jecha iccitii osoo hin taane Faayidaan mirkaneessuu barbaada. Isin ta'uu keessan Faayidaan mirkaneessaa, kaffaltiin keessan battaluma sanatti itti fufa.",
+  "faydaStepUpMessage": "Kaffaltiin kun jecha iccitii osoo hin taane Faayidaan mirkaneessuu barbaada. Isin ta'uu keessan Faayidaan mirkaneessaa, kaffaltiin keessan battaluma sanatti itti fufa.",
   "stepUpTitle": "Isin ta'uu keessan mirkaneessaa",
   "stepUpPhoneLabel": "Bilbila: {phone}",
   "stepUpConfirm": "Mirkaneessi",

@@ -65,6 +65,18 @@ class EscrowTimeline extends StatelessWidget {
       );
     }
 
+    // Held for review (FRD-03): frozen until an admin releases or refunds.
+    if (payment.status == PaymentStatus.held) {
+      steps.add(
+        _Step(
+          label: l10n.escrowStatusHeld,
+          timestamp: payment.updatedAt,
+          isReached: true,
+          isCurrent: true,
+        ),
+      );
+    }
+
     // Insert refunded step if applicable
     if (payment.status == PaymentStatus.refunded) {
       steps.add(
@@ -104,6 +116,9 @@ class EscrowTimeline extends StatelessWidget {
       PaymentStatus.disputed => 1,
       PaymentStatus.cancelled => -1,
       PaymentStatus.refunded => 2,
+      PaymentStatus.held => 1,
+      // Whatever it is, the escrow was initiated; nothing else is claimed.
+      PaymentStatus.unknown => 0,
     };
   }
 }

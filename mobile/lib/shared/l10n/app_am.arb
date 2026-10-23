@@ -1214,6 +1214,8 @@
   "@escrowStatusRefunded": {
     "description": "Status label when escrow payment has been refunded"
   },
+  "escrowStatusHeld": "በግምገማ ላይ",
+  "escrowStatusUnknown": "ሁኔታው አይታወቅም",
   "escrowProtectionInfo": "ማድረሻ እስኪረጋገጥ ድረስ ክፍያዎ በጥበቃ ይቀመጣል።",
   "@escrowProtectionInfo": {
     "description": "Trust-building message explaining escrow protection"
@@ -1780,6 +1782,7 @@
       }
     }
   },
+  "fraudAccountHeld": "መለያዎ በግምገማ ላይ ስለሆነ ይህ ድርጊት ለጊዜው ቆሟል። ድጋፍ ሰጪን ያግኙ።",
   "profileSaved": "መገለጫ ተዘምኗል",
   "@profileSaved": {
     "description": "Snackbar message after profile is saved successfully"
@@ -1898,6 +1901,8 @@
   "@escrowDescRefunded": {
     "description": "Status description for refunded escrow"
   },
+  "escrowDescHeld": "መድረኩ እስኪገመግመው ድረስ ክፍያው ቆሟል። ገንዘቡ በጥበቃ ላይ ነው።",
+  "escrowDescUnknown": "የዚህን ክፍያ የቅርብ ጊዜ ሁኔታ ለማየት መተግበሪያውን ያዘምኑ።",
   "escrowStatusRefundPending": "ተመላሽ በመጠበቅ ላይ",
   "@escrowStatusRefundPending": {
     "description": "Status label for an escrowed hold whose refund is on its way (order cancelled or hold expired)"
@@ -2521,7 +2526,7 @@
   "otpSentTo": "ባለ 6 አሃዝ ኮድ በኤስኤምኤስ ወደ {phone} ልከናል።",
   "otpCodeHint": "ባለ 6 አሃዝ ኮድ",
   "otpExpiresAt": "ኮዱ በ{time} ጊዜው ያልፋል።",
-  "faydaStepUpMessage": "ከ10,000 ብር በላይ ለሆኑ ክፍያዎች የይለፍ ቃል ሳይሆን የፋይዳ ማረጋገጫ ያስፈልጋል። እርስዎ መሆንዎን በፋይዳ ያረጋግጡ፣ ክፍያዎ ወዲያውኑ ይቀጥላል።",
+  "faydaStepUpMessage": "ይህ ክፍያ የይለፍ ቃል ሳይሆን የፋይዳ ማረጋገጫ ያስፈልገዋል። እርስዎ መሆንዎን በፋይዳ ያረጋግጡ፣ ክፍያዎ ወዲያውኑ ይቀጥላል።",
   "stepUpTitle": "እርስዎ መሆንዎን ያረጋግጡ",
   "stepUpPhoneLabel": "ስልክ፦ {phone}",
   "stepUpConfirm": "አረጋግጥ",

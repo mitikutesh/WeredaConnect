@@ -7,6 +7,7 @@ import 'package:wereda_connect/core/database/isar_service.dart'
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
+import 'package:wereda_connect/features/escrow_payment/domain/escrow_hold.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/initiate_payment_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/photo_manager.dart';
@@ -880,20 +881,13 @@ class _EscrowPayButtonState extends State<_EscrowPayButton> {
   }
 
   Future<bool> _moneyAlreadyHeld() async {
-    // NOT 'initiated': a stale abandoned initiation would hide the button
-    // forever (this screen never refreshes history), and the server's
-    // ESCROW_009 guard already blocks a genuine double-initiation.
+    // NOT 'initiated' (escrowAlreadyPaid): this screen never refreshes
+    // history. A `held` escrow (FRD-06) counts as paid.
     final payment = await IsarService.instance.db.payments
         .filter()
         .deliveryIdEqualTo(widget.delivery.deliveryId)
         .findFirst();
-    final paymentStatus = payment?.status.name;
-    if (paymentStatus == 'escrowed' ||
-        paymentStatus == 'released' ||
-        paymentStatus == 'completed' ||
-        paymentStatus == 'disputed') {
-      return true;
-    }
+    if (payment != null && escrowAlreadyPaid(payment.status)) return true;
 
     // When no trip-matched order exists, showing the button is safe (the
     // server's ESCROW_024 guard rejects a true double-charge).
