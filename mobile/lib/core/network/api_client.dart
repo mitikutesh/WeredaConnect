@@ -295,6 +295,9 @@ class ApiClient {
         case DioExceptionType.connectionTimeout:
         case DioExceptionType.sendTimeout:
         case DioExceptionType.receiveTimeout:
+        // dio 5.11.1 (PR #138) added this value: a request or response
+        // transformer took too long. Same remedy as the other timeouts.
+        case DioExceptionType.transformTimeout:
           return TimeoutException(error.message ?? 'Request timeout');
 
         case DioExceptionType.connectionError:
