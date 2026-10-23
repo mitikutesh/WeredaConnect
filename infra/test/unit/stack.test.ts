@@ -422,6 +422,42 @@ describe('ApiStack', () => {
     }
   });
 
+  test('FRD-03: escrow-cron ships with the fraud hold off and the grants its hold write needs', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-escrow-cron',
+      Environment: { Variables: Match.objectLike({ FRAUD_HOLD_ENABLED: 'false' }) },
+    });
+
+    // A large role spills into an overflow managed policy, so read both kinds.
+    const policies = [
+      ...Object.entries(template.findResources('AWS::IAM::Policy')),
+      ...Object.entries(template.findResources('AWS::IAM::ManagedPolicy')),
+    ];
+    const actionsOn = (rolePrefix: string, tableId: string) =>
+      policies
+        .filter(([id]) => id.startsWith(rolePrefix))
+        .flatMap(
+          ([, policy]) =>
+            policy.Properties.PolicyDocument.Statement as Array<{
+              Action: string | string[];
+              Resource: unknown;
+            }>,
+        )
+        .filter((s) => JSON.stringify(s.Resource).includes(tableId))
+        .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+
+    // The hold is one TransactWriteItems: an UpdateItem on the escrow and a ConditionCheckItem on the
+    // order (the auto-refund fence). IAM checks each item's own action.
+    expect(actionsOn('EscrowCronFunctionServiceRole', 'EscrowsTable')).toEqual(
+      expect.arrayContaining(['dynamodb:UpdateItem', 'dynamodb:Query']),
+    );
+    expect(actionsOn('EscrowCronFunctionServiceRole', 'OrdersTable')).toContain('dynamodb:ConditionCheckItem');
+    // The risk gate reads every party's user row.
+    expect(actionsOn('EscrowCronFunctionServiceRole', 'UsersTable')).toContain('dynamodb:GetItem');
+    // The farmer's accept checks the order escrow for a hold (a strongly consistent Query).
+    expect(actionsOn('SyncFunctionServiceRole', 'EscrowsTable')).toContain('dynamodb:Query');
+  });
+
   test('ESC-10: escrow-cron can read the escrow audit trail the sweep freeze checks', () => {
     // The sweeps freeze a disputed trade through the ESC-07 delivery dispute path, whose refusal row
     // reads the escrow's audit trail first.

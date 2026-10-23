@@ -87,7 +87,7 @@
     "initiated": "Jalqabame",
     "funded": "Maallaqni Galera",
     "escrowed": "Eeskiroo Keessa Jira",
-    "held": "Qabamee",
+    "held": "Gamaaggama irra jira",
     "released": "Gadi Lakkifame",
     "disputed": "Waldhabdeen Ka'era",
     "dispute_resolved": "Furamee",
@@ -275,6 +275,7 @@
     "escrow_dispute_resolved": "Waldhabdeen furame",
     "escrow_refunded": "Deebi'e kaffaltame",
     "escrow_cancelled": "Haqame",
+    "escrow_held": "Gamaaggama irra jira",
     "delivery_pending": "Eeggannoo keessa",
     "delivery_pickedUp": "Fudhatame",
     "delivery_inTransit": "Karaa irra",
@@ -301,7 +302,10 @@
     "action_refund_mismatch_override": "Ajajni jiraatus maallaqni deebi'eera (bulchaa)",
     "action_delivery_updated": "Geejjibni haaromfame",
     "action_delivery_cancelled": "Geejjibni haqame",
-    "action_admin_dispute_resolved": "Waldhabdeen furame (bulchaa)"
+    "action_admin_dispute_resolved": "Waldhabdeen furame (bulchaa)",
+    "action_fraud_hold": "Gamaaggamaaf qabame",
+    "action_fraud_hold_release": "Gamaaggama booda gadhiifame (bulchaa)",
+    "action_fraud_hold_refund": "Gamaaggama booda deebi'e kaffaltame (bulchaa)"
   },
   "analytics": {
     "title": "Hanga Daldala",

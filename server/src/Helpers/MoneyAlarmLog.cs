@@ -20,7 +20,16 @@ namespace WeredaConnect.Server.Helpers;
 /// TRUCKER_PAYOUT_OVERDUE escrowId=&lt;id&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
 /// DISPUTE_NO_ESCROW orderId=&lt;id&gt; deliveryId=&lt;id&gt;
 /// ORDER_MONEY_MISMATCH orderId=&lt;id&gt; escrowId=&lt;id&gt; orderStatus=&lt;s&gt; escrowStatus=&lt;s&gt; reason=&lt;reason&gt;
+/// RISK_SETTLEMENT_SKIPPED escrowId=&lt;id&gt; sweep=&lt;auto-release|auto-refund|dispute&gt; reason=&lt;flag_off|user_read_failed&gt; holdReason=&lt;reason&gt;
+/// RISK_HOLD_ORDER_MISMATCH escrowId=&lt;id&gt; heldFor=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// </code>
+/// <para>
+/// The two risk lines (FRD-03, fraud-detection-architecture.md section 18) have no metric filter yet
+/// (FRD-16 adds the alarms). Escrow-cron logs <c>RISK_SETTLEMENT_SKIPPED</c> each run a settlement sweep
+/// leaves an escrow unsettled because of the risk gate: a trigger while <c>FRAUD_HOLD_ENABLED</c> is off,
+/// or a party row it could not read. The escrow Lambda logs <c>RISK_HOLD_ORDER_MISMATCH</c> each time an
+/// admin refund of a held escrow is refused because its order cannot follow the refund.
+/// </para>
 /// <para>
 /// The order-money line (ESC-09) is logged by escrow-cron's hourly order-money sweep when the order
 /// does not show what its escrow's money says: <c>write_failed</c> (it could follow but the writes keep
@@ -99,6 +108,8 @@ public static class MoneyAlarmLog
     public const string TruckerPayoutOverdueToken = "TRUCKER_PAYOUT_OVERDUE";
     public const string DisputeNoEscrowToken = "DISPUTE_NO_ESCROW";
     public const string OrderMoneyMismatchToken = "ORDER_MONEY_MISMATCH";
+    public const string RiskSettlementSkippedToken = "RISK_SETTLEMENT_SKIPPED";
+    public const string RiskHoldOrderMismatchToken = "RISK_HOLD_ORDER_MISMATCH";
 
     /// <summary>The gateway definitely refused the settlement; no money moved.</summary>
     public const string OutcomeFailed = "failed";
@@ -157,6 +168,14 @@ public static class MoneyAlarmLog
     /// <summary>ESC-04: a released escrow's trucker leg is still owed (and not queued) after <see cref="QueueAlarmAfter"/>.</summary>
     public static string TruckerPayoutOverdue(string? escrowId, string? reason, int ageHours)
         => $"{TruckerPayoutOverdueToken} escrowId={LogId(escrowId)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}";
+
+    /// <summary>FRD-03: a settlement sweep left an escrow unsettled for this run because of the risk gate.</summary>
+    public static string RiskSettlementSkipped(string? escrowId, string? sweep, string? reason, string? holdReason)
+        => $"{RiskSettlementSkippedToken} escrowId={LogId(escrowId)} sweep={Safe(sweep)} reason={Safe(reason)} holdReason={Safe(holdReason)}";
+
+    /// <summary>FRD-03: an admin refund of a held escrow was refused because its order cannot follow the refund.</summary>
+    public static string RiskHoldOrderMismatch(string? escrowId, string? heldFor, string? legs)
+        => $"{RiskHoldOrderMismatchToken} escrowId={LogId(escrowId)} heldFor={Safe(heldFor)} legs={LogId(legs?.Replace(',', '.'))}";
 
     /// <summary>ESC-03: a dispute verdict was not settled because its order or delivery cannot follow it.</summary>
     public static string DisputeVerdictOrderMismatch(string? escrowId, string? op, string? legs)

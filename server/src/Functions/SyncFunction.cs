@@ -5817,6 +5817,30 @@ public partial class SyncFunction
             var nowUtc = DateTime.UtcNow;
             var now = nowUtc.ToString("o");
 
+            // FRD-03: a funded order whose escrow is held for review cannot be accepted: a delivery
+            // created after it could never link to the held escrow. Reject and cancel stay allowed. An
+            // escrow that cannot be read refuses the accept for now (transient, the client retries).
+            if (newStatus == "accepted" && _escrowRepo != null)
+            {
+                Dictionary<string, object>? orderEscrow;
+                try
+                {
+                    orderEscrow = await _escrowRepo.GetByIdAsync($"escrow-order-{operation.EntityId}", consistentRead: true);
+                }
+                catch (Exception ex)
+                {
+                    context.Logger.LogWarning(
+                        $"ORDER_ACCEPT_ESCROW_UNREAD orderId={MoneyAlarmLog.LogId(operation.EntityId)} error={ex.GetType().Name}");
+                    return TransientOrderError(operation, "The order's payment could not be checked. Please try again later.");
+                }
+
+                if (orderEscrow != null && orderEscrow.TryGetValue("status", out var orderEscrowStatus)
+                    && orderEscrowStatus?.ToString() == EscrowHoldFields.Status)
+                {
+                    return OrderValidationError(operation, "This order is under review and cannot be accepted. Contact support.");
+                }
+            }
+
             // ESC-06: the farmer's accept starts the pickup clock in the same write. A trip that
             // cannot be read refuses the accept for now (transient, so the client retries): no
             // accepted order is left without its deadline.

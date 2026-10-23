@@ -120,6 +120,12 @@ public sealed record ReleaseEscrowRequest
 
     public required string DeliveryId { get; init; }
     public required string IdempotencyKey { get; init; }
+
+    /// <summary>
+    /// FRD-03: why an admin releases a <c>held</c> escrow (10 to 500 characters, required for a held
+    /// escrow, audited with the decision). Ignored otherwise.
+    /// </summary>
+    public string? Reason { get; init; }
 }
 
 /// <summary>
@@ -198,7 +204,8 @@ public sealed record RefundEscrowRequest
     public required string Trigger { get; init; }
 
     /// <summary>
-    /// Explanation for audit trail (0-500 chars; 10-500 with <see cref="OverrideOrderMismatch"/>).
+    /// Explanation for audit trail (0-500 chars; 10-500 with <see cref="OverrideOrderMismatch"/> and,
+    /// FRD-03, for a <c>held</c> escrow).
     /// </summary>
     public string? Reason { get; init; }
 
@@ -396,6 +403,26 @@ public sealed record EscrowDto
     /// <summary>See <see cref="EscrowSummaryDto.RefundPending"/>. SIM-20.</summary>
     public bool RefundPending { get; init; }
     public string? RefundReason { get; init; }
+
+    /// <summary>
+    /// FRD-03, admin responses only: why a settlement sweep held the escrow (<c>account_suspended</c>,
+    /// later <c>fraud_confirmed</c> or <c>risk_critical</c>). Party reads never fill these five fields, so
+    /// they are left out of the JSON (nulls are not written).
+    /// </summary>
+    public string? HoldReason { get; init; }
+
+    /// <summary>FRD-03, admin only: when the sweep held the escrow (ISO 8601).</summary>
+    public string? HeldAt { get; init; }
+
+    /// <summary>FRD-03, admin only: <c>system</c>.</summary>
+    public string? HeldBy { get; init; }
+
+    /// <summary>FRD-03, admin only: <c>escrowed</c> or <c>dispute_resolved</c>.</summary>
+    public string? HeldFromStatus { get; init; }
+
+    /// <summary>FRD-03, admin only: <c>release</c> or <c>refund</c>, what the sweep was about to do.</summary>
+    public string? HeldFor { get; init; }
+
     public required int Version { get; init; }
 }
 

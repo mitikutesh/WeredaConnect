@@ -87,7 +87,7 @@
     "initiated": "ተጀምሯል",
     "funded": "ገንዘብ ገብቷል",
     "escrowed": "በኢስክሮ ተይዟል",
-    "held": "ተይዟል",
+    "held": "በግምገማ ላይ",
     "released": "ተለቋል",
     "disputed": "ክርክር ተነስቷል",
     "dispute_resolved": "ተፈትቷል",
@@ -275,6 +275,7 @@
     "escrow_dispute_resolved": "ክርክር ተፈትቷል",
     "escrow_refunded": "ተመላሽ ሆኗል",
     "escrow_cancelled": "ተሰርዟል",
+    "escrow_held": "በግምገማ ላይ",
     "delivery_pending": "በመጠባበቅ ላይ",
     "delivery_pickedUp": "ተነስቷል",
     "delivery_inTransit": "በመጓጓዝ ላይ",
@@ -301,7 +302,10 @@
     "action_refund_mismatch_override": "ትዕዛዙ ቢኖርም ተመላሽ ተደርጓል (አስተዳዳሪ)",
     "action_delivery_updated": "ማድረስ ተዘምኗል",
     "action_delivery_cancelled": "ማድረስ ተሰርዟል",
-    "action_admin_dispute_resolved": "ክርክር ተፈትቷል (አስተዳዳሪ)"
+    "action_admin_dispute_resolved": "ክርክር ተፈትቷል (አስተዳዳሪ)",
+    "action_fraud_hold": "ለግምገማ ተይዟል",
+    "action_fraud_hold_release": "ከግምገማ በኋላ ተለቋል (አስተዳዳሪ)",
+    "action_fraud_hold_refund": "ከግምገማ በኋላ ተመላሽ ሆኗል (አስተዳዳሪ)"
   },
   "analytics": {
     "title": "የግብይት መጠን",

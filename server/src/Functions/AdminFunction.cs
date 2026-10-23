@@ -195,8 +195,8 @@ public class AdminFunction
         var buyersCount = await ScanCountWithFilterAsync(_usersTable, "role", "buyer");
         var escrowsCount = await ScanCountAsync(_escrowsTable);
         // Funded-but-not-released escrows are persisted as "escrowed" (EscrowService
-        // sets this after a successful Telebirr hold); "held" is never written to the
-        // escrow record, so the old filter always counted 0.
+        // sets this after a successful Telebirr hold). "held" means frozen for fraud review
+        // (FRD-03); FRD-07 adds its own count.
         var activeEscrows = await ScanCountWithFilterAsync(_escrowsTable, "status", "escrowed");
         var disputedEscrows = await ScanCountWithFilterAsync(_escrowsTable, "status", "disputed");
         var ordersCount = await ScanCountAsync(_ordersTable);
@@ -2127,6 +2127,12 @@ public class AdminFunction
             ReleasedAt = GetStringOrNull(item, "releasedAt"),
             RefundedAt = GetStringOrNull(item, "refundedAt"),
             CompletedAt = GetStringOrNull(item, "completedAt"),
+            // FRD-03: the hold fields are admin-only; the party mapping in EscrowService leaves them out.
+            HoldReason = GetStringOrNull(item, EscrowHoldFields.HoldReason),
+            HeldAt = GetStringOrNull(item, EscrowHoldFields.HeldAt),
+            HeldBy = GetStringOrNull(item, EscrowHoldFields.HeldBy),
+            HeldFromStatus = GetStringOrNull(item, EscrowHoldFields.HeldFromStatus),
+            HeldFor = GetStringOrNull(item, EscrowHoldFields.HeldFor),
             Version = GetInt(item, "version", 1)
         };
     }

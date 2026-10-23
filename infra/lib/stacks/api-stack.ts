@@ -1087,6 +1087,10 @@ export class ApiStack extends cdk.Stack {
         COMMISSION_RATE_PARAM: commissionRateParam.parameterName,
         DISPUTE_WINDOW_PARAM: disputeWindowParam.parameterName,
         ESCROW_TIMEOUT_PARAM: escrowTimeoutParam.parameterName,
+        // FRD-03: off, a sweep that finds a suspended party skips that settlement and logs
+        // RISK_SETTLEMENT_SKIPPED; on, it writes the escrow status `held`. Turn on only once every
+        // client parses `held` (FRD-06 on web and in both stores, fraud-detection-architecture.md 18.7).
+        FRAUD_HOLD_ENABLED: "false",
         ...(envConfig.isProd || enableTelebirrLive ? {} : { TELEBIRR_MOCK: "true" }),
       },
       timeout: cdk.Duration.minutes(5),

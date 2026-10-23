@@ -87,7 +87,7 @@
     "initiated": "Initiated",
     "funded": "Funded",
     "escrowed": "Escrowed",
-    "held": "Held",
+    "held": "Under review",
     "released": "Released",
     "disputed": "Disputed",
     "dispute_resolved": "Resolved",
@@ -275,6 +275,7 @@
     "escrow_dispute_resolved": "Dispute resolved",
     "escrow_refunded": "Refunded",
     "escrow_cancelled": "Cancelled",
+    "escrow_held": "Under review",
     "delivery_pending": "Pending",
     "delivery_pickedUp": "Picked up",
     "delivery_inTransit": "In transit",
@@ -301,7 +302,10 @@
     "action_refund_mismatch_override": "Refund despite order (admin)",
     "action_delivery_updated": "Delivery updated",
     "action_delivery_cancelled": "Delivery cancelled",
-    "action_admin_dispute_resolved": "Dispute resolved (admin)"
+    "action_admin_dispute_resolved": "Dispute resolved (admin)",
+    "action_fraud_hold": "Held for review",
+    "action_fraud_hold_release": "Released after review (admin)",
+    "action_fraud_hold_refund": "Refunded after review (admin)"
   },
   "analytics": {
     "title": "Transaction Volume",

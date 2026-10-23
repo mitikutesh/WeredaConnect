@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.18.0
+1.22.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -95,7 +95,7 @@ mismatch — see `trip-transition` gotchas: send the **pre-increment** version).
 | admin release of a plain `escrowed` order escrow | Only an order `delivered` or `disbursing` (an order left behind a delivered delivery is advanced to `delivered` first); anything else `422`, no override (1.17.0). | `EscrowService.CheckAdminReleaseOrderAsync` |
 | escrowed + 7 days no delivery | Escrow refunds the buyer. For order-funded escrows the sweep is order-aware: it refunds only stale-`funded` or terminal orders (then cancels a stale-funded order, `cancelReason: escrow_refunded`, and restores its listing stock, 1.4.2); progressing orders get the expiry pushed +48h, never past funding + 21 days (1.15.0). | `escrow-protocol.md` §Order-Funded Escrow; `EscrowCronFunction.TryRestoreListingStockAsync` |
 | funded + 21 days, order not done | No more extension: the order enters the admin stuck-order queue (server-only `adminQueue`, `adminQueuedAt`, `adminQueueReason: hold_cap`, `adminQueueEscrowId`, written without bumping `version`), audited `admin_queue_entered`; the hourly report alarms `ADMIN_QUEUE_OVERDUE` once an entry is due for 24 hours and clears it when the escrow shows the money moved on. Nothing moves the money by itself (1.15.0). | `EscrowCronFunction`; `escrow-protocol.md` §Additions in 1.13.0 |
-| escrow due to settle (auto-release, auto-refund, dispute settlement) while a party is suspended or at risk tier CRITICAL | The escrow moves to `held` instead of paying out; the order status does not change (a stale-funded order is not cancelled and its stock not restored until the admin decides). Planned FRD-03, FRD-04, behind `FRAUD_HOLD_ENABLED` (1.9.0). | `EscrowCronFunction`; `escrow-protocol.md` §Additions in 1.7.0 |
+| escrow due to settle (auto-release, auto-refund, dispute settlement) while a party is suspended or at risk tier CRITICAL | The escrow moves to `held` instead of paying out; the order status does not change (a stale-funded order is not cancelled and its stock not restored until the admin decides). Built for a suspended party (FRD-03, 1.22.0) behind `FRAUD_HOLD_ENABLED`, shipped off: the sweep then only skips the settlement for the run; the risk tier is planned (FRD-04). | `EscrowCronFunction`; `escrow-protocol.md` §Additions in 1.22.0 |
 | delivery `pickedUp` / `inTransit` / `delivered` | The linked order advances to `pickup_confirmed` / `in_transit` / `delivered` as a system actor, forward only (never out of `disputed`, `cancelled` or a later status). Self-pickup: `accepted → delivered` in one hop. Best-effort: a failure is logged, the delivery update still succeeds. This is what unblocks ratings without any manual stepping (1.4.0, SIM-11). | `TryAdvanceOrderForDeliveryAsync`, `SyncFunction.cs` |
 | escrow or delivery `disputed` | Every dispute freezes the escrow **first** (1.14.0, ESC-07); only a frozen (or already `disputed`) escrow lets the delivery and the order move, and a refused freeze moves nothing. A delivery dispute that cannot freeze (manual payout queued, settlement in flight, escrow not holding the money, no escrow for a funded order) is refused with `DELIVERY_DISPUTE_REFUSED` (`sync-protocol.md` 1.12.0). Then the order moves `delivered → disputed` (blocks ratings); an order left at `accepted`, `pickup_confirmed` or `in_transit` behind a `delivered` or `disputed` delivery is first advanced to `delivered`. System actor, version-checked from a consistent read, the third conflict gives up, one transaction-audit row per hop (`order_updated`, `dispute`). An escrow dispute also marks the delivery `disputed` (transaction-audit `dispute`). A failed hop leaves the money frozen and is repaired by the verdict mirror before any settlement (1.4.1 SIM-12, 1.14.0). | `EscrowService.FreezeForDeliveryDisputeAsync` + `MirrorDisputeAsync`; `FreezeBeforeDeliveryDisputeAsync` (`SyncFunction.cs`) |
 | admin dispute verdict (`farmer_wins` or `buyer_wins`) | The order moves to `dispute_resolved`: `delivered → disputed → dispute_resolved` or `disputed → dispute_resolved`; an order left at `accepted`, `pickup_confirmed` or `in_transit` behind a `delivered` or `disputed` delivery is first advanced to `delivered`. System actor, version-checked (the third conflict of a run gives up), one transaction-audit row per hop (`order_updated`, `dispute`, `dispute_resolved`, metadata `resolution=<verdict>`). The delivery stays `disputed` and gets the verdict. Runs when the verdict is recorded and again before the escrow is settled (sweep or admin), so a failed hop is repaired before the money moves. `buyer_wins` also settles an order that never got going: a `cancelled` or `rejected` order is refunded as it is, and an order before pickup (`funded`, or `accepted` with no delivery or a `pending` one) is cancelled by the refund settlement (its pending delivery first, then the order with `cancelReason: escrow_refunded`, listing stock restored), then refunded; if the cancel or the restore does not land, the refund waits for the next run (fail closed), which retries the restore first. The order's active delivery is the one checked for pickup. Any other order (goods moving for `buyer_wins`, before delivery for `farmer_wins`) is left as it is, and **the verdict is not settled**: release and refund answer `422`, the escrow stays `dispute_resolved`, the refusal is alarmed (`DISPUTE_VERDICT_ORDER_MISMATCH`) and audited on the escrow once (`dispute_verdict_mismatch`). The admin brings the order to a status the verdict can follow (a `farmer_wins` settles by itself once the order reaches `delivered`), or, for `buyer_wins` only, refunds with the admin-group override (`overrideOrderMismatch` and a reason), which leaves the order status alone and flags it (`disputeOverrideAt`, `disputeOverrideBy`, `disputeOverrideReason`, `disputeOverrideEscrowId`, server-only). A failed order read refuses the settlement for that run. A hop whose write failed does not block the money and is repaired later. Ratings stay blocked. Listing stock is not restored (1.12.0, ESC-03). | `DisputeVerdictMirror` (`AdminFunction.HandleResolveDisputeAsync`, `EscrowService.ReleaseAsync`/`RefundAsync`); `escrow-protocol.md` §Additions in 1.9.0 |
@@ -231,10 +231,12 @@ active delivery.` opens the existing delivery.
 
 ---
 
-## Fraud hold and risk tiers (1.9.0, planned FRD-03, FRD-04)
+## Fraud hold and risk tiers (1.9.0; the hold built in 1.22.0, FRD-03; the tiers planned, FRD-04)
 
 Design: `specs/architecture/fraud-detection-architecture.md` 3.0.0, sections 14 to 18; escrow side
-in `escrow-protocol.md` 1.7.0. Nothing here is deployed yet.
+in `escrow-protocol.md` 1.7.0 and 1.22.0. 1.22.0 builds the hold for a suspended buyer, farmer or
+trucker, behind `FRAUD_HOLD_ENABLED` (shipped off), the accept refusal and the admin refund's order
+side below; the risk tiers, `FRAUD_ACCOUNT_HELD` and the gates on `payment_submitted` are still planned.
 
 - **No new order status.** `OrderTransitions` and the actor rules are unchanged; the only new rule
   is the accept refusal below. The hold lives on the escrow (`status: held`), so invariant 3 does
@@ -250,21 +252,26 @@ in `escrow-protocol.md` 1.7.0. Nothing here is deployed yet.
   releases or refunds. That hold is written together with a check that the order's `version` and
   status are unchanged, the same fence cancel-then-refund uses today, so a farmer's accept that
   lands in between cancels the hold and the next sweep pushes the expiry.
-- **Accept while held**: the farmer's `accepted` on a `funded` order whose escrow is `held` is
-  refused with `ORDER_VALIDATION: This order is under review and cannot be accepted. Contact
-  support.` (planned FRD-03), because a delivery created after it could never link to the held
-  escrow. Reject and cancel stay allowed.
-- **Admin refund, order side.** For an escrow held before a refund (`heldFor: refund`) the order is
-  cancelled (`cancelReason: escrow_refunded`) and restocked as the sweep would have done, and a
-  progressing order is not refunded. For an escrow held before a payout (`heldFor: release`) the
+- **Accept while held**: the farmer's `accepted` on a `funded` order whose escrow
+  (`escrow-order-{orderId}`) is `held` is refused with `ORDER_VALIDATION: This order is under review
+  and cannot be accepted. Contact support.` (FRD-03, 1.22.0), because a delivery created after it
+  could never link to the held escrow. Reject and cancel stay allowed (the refund scheduling does
+  nothing on a held escrow; the admin refund then finds a terminal order). An order escrow that cannot
+  be read refuses the accept for now with an unprefixed, transient error, so the client retries.
+- **Admin refund, order side** (1.22.0). For an escrow held before a refund (`heldFor: refund`) a
+  still `funded` order is cancelled (`cancelReason: escrow_refunded`) and restocked as the sweep would
+  have done, a `rejected` or `cancelled` order is refunded as it is (a cancelled one restocked first when
+  its cancel promised it), and any other status is refused (`422 ESCROW_INVALID_TRANSITION`, alarm
+  `RISK_HOLD_ORDER_MISMATCH`). For an escrow held before a payout (`heldFor: release`) the
   progressing rule does not apply. Before the refund the order goes `delivered` to `disputed` to
   `dispute_resolved` (or `disputed` to `dispute_resolved`), system actor, version-checked, one
   transaction-audit row per hop, with the escrow's `disputeResolution: buyer_wins`; the listing is
   not restocked because the goods were delivered. An order left at `accepted`, `pickup_confirmed`
   or `in_transit` behind its delivery is first advanced to `delivered` when its active delivery is
   `delivered`; otherwise, and for any other status, the refund is refused (`422
-  ESCROW_INVALID_TRANSITION`, alarm `RISK_HOLD_ORDER_MISMATCH`). Admin release keeps today's order
-  behaviour.
+  ESCROW_INVALID_TRANSITION`, alarm `RISK_HOLD_ORDER_MISMATCH`). An order already `dispute_resolved`
+  is taken as a retry only when the escrow or its delivery already carries `buyer_wins`. Admin release
+  keeps today's order behaviour (1.17.0: a delivered order).
 - **Order create by a CRITICAL buyer** is refused with `FRAUD_ACCOUNT_HELD` (permanent, nothing
   written). Crop create (farmer) and trip create (trucker) get the same code; see
   `sync-protocol.md` 1.9.0.
@@ -458,6 +465,7 @@ pull: an order closed on the server while a party is offline keeps its numbers t
 
 ## Changelog
 
+- **1.22.0 (2026-10-23)**: Fraud hold built for a suspended party (FRD-03, `escrow-protocol.md` 1.22.0): the settlement sweeps hold the escrow of a suspended buyer, farmer or trucker behind `FRAUD_HOLD_ENABLED` (shipped off), with no order status change; the refund-sweep hold is fenced on the order's version and status; the farmer's accept of an order whose escrow is held is refused with `ORDER_VALIDATION` (an unreadable escrow refuses for now, transient), reject and cancel stay allowed; the admin refund's order side is built (`heldFor: refund` cancels and restocks a still `funded` order and refuses anything but `funded`, `rejected` or `cancelled`; `heldFor: release` takes the order to `dispute_resolved` as `buyer_wins`); no client change. The risk tiers stay planned (FRD-04).
 - **1.18.0 (2026-10-17)**: Contact between the parties (ESC-48): `contactOpen` on every order read and the parties' phones to a party of an open order (`accepted` to `settled` and `disputed`, no admin override refund), resolved from the users table at read time; contact closed before the farmer's accept and again after `cancelled`, `rejected` or `dispute_resolved`; a buyer's transport-failure cancel of an order whose contact had opened records the fraud signal `CONTACT_THEN_TRANSPORT_CANCEL`; order detail gets the Contact section.
 
 - **1.17.0 (2026-10-10)**: The order follows the money (ESC-09): `disbursing` when the release is committed (the escrow `released` or its release queued), `settled` only when the escrow is `completed` with no leg owed; a lagging logistics order is advanced to `delivered` first; status-conditioned hops with `ADD version`, one `order_updated` row each, after the escrow write; a verdict escrow keeps its order at `dispute_resolved`; the hourly order-money sweep repairs and backfills, with the server-only skip marker `moneySweepSkip`; an admin refund of a plain escrowed order escrow cancels a pre-pickup order first (refund scheduled, stock restored) and refuses goods on the move unless overridden (`refundOverride*`); an admin release pays only a delivered order; ratings allowed on `disbursing`; a client status change on a mirrored order is a permanent `ORDER_VALIDATION`.

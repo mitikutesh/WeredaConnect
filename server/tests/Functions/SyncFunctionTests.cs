@@ -3786,6 +3786,102 @@ public class SyncFunctionTests
         Assert.True(_updatedOrderData.ContainsKey("pickupDeadlineAt"));
     }
 
+    /// <summary>FRD-03: the sync Lambda with an escrows table, so the farmer's accept can see a held order escrow.</summary>
+    private async Task<string> UpdateOrderWithEscrowsAs(
+        IEscrowRepository escrows, string userId, string role, Dictionary<string, object> data)
+    {
+        var function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, orderRepo: _mockOrderRepo, escrowRepo: escrows);
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeOrderUpdateOp(data)), userId, role), _context);
+        Assert.Equal(200, response.StatusCode);
+        return response.Body;
+    }
+
+    [Fact]
+    public async Task OrderAccept_WhileTheOrderEscrowIsHeld_IsRefusedWithOrderValidation_NothingWritten()
+    {
+        // FRD-03 (fraud-detection-architecture.md 18.5): a delivery created after the accept could never
+        // link to the held escrow, so the accept is refused with an existing, permanent code.
+        SetupExistingOrder(status: "funded", version: 3);
+        var escrows = Substitute.For<IEscrowRepository>();
+        escrows.GetByIdAsync("escrow-order-order-001", true).Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-order-order-001" }, { "status", "held" }
+        });
+
+        var body = await UpdateOrderWithEscrowsAs(escrows, "farmer-001", "farmer", new Dictionary<string, object>
+        {
+            { "status", "accepted" }, { "version", 3 }
+        });
+
+        Assert.Contains("ORDER_VALIDATION: This order is under review and cannot be accepted. Contact support.", body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Theory]
+    [InlineData("rejected")]
+    [InlineData("cancelled")]
+    public async Task OrderRejectOrCancel_WhileTheOrderEscrowIsHeld_StaysAllowed(string newStatus)
+    {
+        SetupExistingOrder(status: "funded", version: 3);
+        SetupOrderUpdateSucceeds();
+        var escrows = Substitute.For<IEscrowRepository>();
+        escrows.GetByIdAsync("escrow-order-order-001", true).Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-order-order-001" }, { "status", "held" }
+        });
+
+        var (userId, role) = newStatus == "rejected" ? ("farmer-001", "farmer") : ("buyer-001", "buyer");
+        var body = await UpdateOrderWithEscrowsAs(escrows, userId, role, new Dictionary<string, object>
+        {
+            { "status", newStatus }, { "version", 3 }
+        });
+
+        Assert.DoesNotContain("under review", body);
+        Assert.Equal(newStatus, _updatedOrderData!["status"].ToString());
+    }
+
+    [Fact]
+    public async Task OrderAccept_WithAPlainOrderEscrow_ProceedsAsBefore()
+    {
+        SetupExistingOrder(status: "funded", version: 3);
+        SetupOrderUpdateSucceeds();
+        SetupExistingTrip("trip-001", "trucker-001", "open", 1,
+            departureDate: DateTime.UtcNow.AddDays(3).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'"));
+        var escrows = Substitute.For<IEscrowRepository>();
+        escrows.GetByIdAsync("escrow-order-order-001", true).Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-order-order-001" }, { "status", "escrowed" }
+        });
+
+        var body = await UpdateOrderWithEscrowsAs(escrows, "farmer-001", "farmer", new Dictionary<string, object>
+        {
+            { "status", "accepted" }, { "version", 3 }
+        });
+
+        Assert.Contains("success", body);
+        Assert.Equal("accepted", _updatedOrderData!["status"].ToString());
+    }
+
+    [Fact]
+    public async Task OrderAccept_WhenTheOrderEscrowCannotBeRead_IsATransientRefusal_NothingWritten()
+    {
+        SetupExistingOrder(status: "funded", version: 3);
+        var escrows = Substitute.For<IEscrowRepository>();
+        escrows.GetByIdAsync("escrow-order-order-001", true).ThrowsAsync(new InvalidOperationException("ddb"));
+
+        var body = await UpdateOrderWithEscrowsAs(escrows, "farmer-001", "farmer", new Dictionary<string, object>
+        {
+            { "status", "accepted" }, { "version", 3 }
+        });
+
+        // No ORDER_ prefix: the client keeps the operation and retries (the apostrophe is JSON-escaped).
+        Assert.Contains("payment could not be checked. Please try again later.", body);
+        Assert.DoesNotContain("ORDER_", body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
     [Fact]
     public async Task OrderUpdate_EchoedBookkeepingAndUnchangedFields_AreStrippedAndApplied()
     {
