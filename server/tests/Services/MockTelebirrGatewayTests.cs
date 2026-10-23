@@ -9,6 +9,14 @@ public class MockTelebirrGatewayTests
     private readonly MockTelebirrGateway _gateway = new();
 
     [Fact]
+    public void IsLiveTelebirr_IsFalse()
+    {
+        // FUP-36: the mock never reaches Telebirr, so the legacy delivery initiate stays open on it.
+        Assert.False(_gateway.IsLiveTelebirr);
+        Assert.False(_gateway.SupportsHostedCheckout);
+    }
+
+    [Fact]
     public async Task HoldFundsAsync_Success_ReturnsMockHoldRef()
     {
         var request = new HoldFundsRequest
