@@ -814,7 +814,8 @@ class SyncExecutor {
           (msg) =>
               msg != null &&
               (msg.contains('FRAUD_DUPLICATE_LISTING') ||
-                  msg.contains('FRAUD_VELOCITY_EXCEEDED')),
+                  msg.contains('FRAUD_VELOCITY_EXCEEDED') ||
+                  isFraudAccountHeldMessage(msg)),
           orElse: () => null,
         );
 

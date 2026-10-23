@@ -18,7 +18,7 @@ namespace WeredaConnect.Server.Tests.Functions;
 /// before an auto-release (FUP-28), the refund check of /escrow/initiate escrows, and the block reason
 /// stored and audited once. The 150-row acceptance runs on LocalStack in SweepHygieneDynamoDbTests.
 /// </summary>
-public class EscrowCronSweepHygieneTests
+public partial class EscrowCronSweepHygieneTests
 {
     private readonly IEscrowRepository _escrows = Substitute.For<IEscrowRepository>();
     private readonly IEscrowAuditRepository _audit = Substitute.For<IEscrowAuditRepository>();

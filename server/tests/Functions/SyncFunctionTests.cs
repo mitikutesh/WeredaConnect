@@ -15,7 +15,7 @@ using Xunit;
 
 namespace WeredaConnect.Server.Tests.Functions;
 
-public class SyncFunctionTests
+public partial class SyncFunctionTests
 {
     private readonly ISyncMetadataRepository _mockSyncMeta;
     private readonly ICropRepository _mockCropRepo;
@@ -6531,9 +6531,12 @@ public class SyncFunctionTests
             MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
                 authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
 
-        Assert.Contains("ORDER_VALIDATION", response.Body);
-        Assert.Contains("100 to 500000 ETB", response.Body);
-        Assert.DoesNotContain("\"status\":\"success\"", response.Body);
+        // FUP-22: its own code, so clients match it without reading the English text.
+        var (status, message) = SingleResult(response);
+        Assert.Equal("error", status);
+        Assert.StartsWith("ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: This order total (99.99 ETB) is outside", message);
+        Assert.EndsWith("what one Telebirr payment can take (100 to 500000 ETB).", message);
+        Assert.DoesNotContain("ORDER_VALIDATION", response.Body);
     }
 
     [Fact]
@@ -6545,8 +6548,34 @@ public class SyncFunctionTests
         var response = await function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer"), _context);
 
-        Assert.Contains("ORDER_VALIDATION", response.Body);
-        Assert.DoesNotContain("\"status\":\"success\"", response.Body);
+        var (status, message) = SingleResult(response);
+        Assert.Equal("error", status);
+        Assert.StartsWith("ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: This order total (500000.01 ETB) is outside", message);
+        Assert.DoesNotContain("ORDER_VALIDATION", response.Body);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_LiveTotalAtTheTelebirrMinimum_IsAccepted()
+    {
+        var function = PaymentFunction(100m, PaymentParty("buyer-001"), PaymentParty("farmer-001"));
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+        Assert.Equal("success", SingleResult(response).Status);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_LiveTotalAtTheTelebirrMaximum_IsAccepted()
+    {
+        var buyer = WithFaydaLogin(PaymentParty("buyer-001", faydaVerified: true), DateTime.UtcNow.AddMinutes(-1));
+        var function = PaymentFunction(500_000m, buyer, PaymentParty("farmer-001", faydaVerified: true));
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer"), _context);
+
+        Assert.Equal("success", SingleResult(response).Status);
     }
 
     [Fact]
@@ -6562,6 +6591,7 @@ public class SyncFunctionTests
                     authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
 
             Assert.DoesNotContain("ORDER_VALIDATION", response.Body);
+            Assert.DoesNotContain("ORDER_PAYMENT_TOTAL_OUT_OF_RANGE", response.Body);
             Assert.Contains("\"status\":\"success\"", response.Body);
         }
         finally
@@ -6763,7 +6793,7 @@ public class SyncFunctionTests
             MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
                 authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
 
-        Assert.Contains("ORDER_VALIDATION", response.Body);
+        Assert.StartsWith("ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: ", SingleResult(response).Message);
         Assert.Contains("100 to 500000 ETB", response.Body);
         Assert.DoesNotContain("\"status\":\"success\"", response.Body);
     }

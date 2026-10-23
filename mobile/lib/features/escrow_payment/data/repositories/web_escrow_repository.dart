@@ -1,5 +1,6 @@
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/payment_intent.dart';
+import 'package:wereda_connect/core/models/payment_status_wire.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_config.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
@@ -288,7 +289,7 @@ class WebEscrowRepository extends BaseEscrowRepository {
       ..refundPending = m['refundPending'] as bool? ?? false
       ..refundReason = m['refundReason'] as String?
       ..telebirrRef = m['telebirrRef'] as String?
-      ..status = _parsePaymentStatus(m['status'] as String?)
+      ..status = paymentStatusFromWire(m['status'] as String?)
       ..createdAt =
           DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now()
       ..updatedAt =
@@ -308,12 +309,5 @@ class WebEscrowRepository extends BaseEscrowRepository {
           (m['dispute'] as Map<String, dynamic>?)?['description'] as String? ??
               m['disputeDescription'] as String?
       ..version = (m['version'] as num?)?.toInt() ?? 1;
-  }
-
-  PaymentStatus _parsePaymentStatus(String? s) {
-    return PaymentStatus.values.firstWhere(
-      (e) => e.name == s,
-      orElse: () => PaymentStatus.initiated,
-    );
   }
 }

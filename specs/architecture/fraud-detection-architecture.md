@@ -1,7 +1,7 @@
 # Fraud Detection System Architecture (F-14)
 
 ## Version
-3.3.0 | 2026-10-23
+3.4.0 | 2026-10-23
 
 ## Status
 Rules 1 to 4, signal persistence and the risk score (sections 14 and 16, FRD-02) implemented. Nothing calls the score yet. The escrow `held` status of section 18 is built for a suspended party (FRD-03, behind `FRAUD_HOLD_ENABLED`, shipped off). The rest of enforcement and of the risk engine (sections 17 to 23) is specified, not built (EPIC FRD).
@@ -436,12 +436,12 @@ the risk engine (section 14) is built and tuned.
 
 **The risk score is computed on read** (section 14) by summing the counted weights in the window with the dedup and caps of section 14.2. No separate risk score storage: that avoids stale scores and keeps the model simple. Built in FRD-02; no request path calls it until FRD-04.
 
-### 4.4 No Isar Schema Changes on Mobile
+### 4.4 Mobile Isar Schema: Enum Values Only
 
-Fraud detection is transparent to the mobile client:
-- Fraud rejections arrive as standard sync error codes (`FRAUD_DUPLICATE_LISTING`, `FRAUD_VELOCITY_EXCEEDED`)
+Fraud detection adds no Isar collection or field on the mobile client:
+- Fraud rejections arrive as standard sync error codes (`FRAUD_DUPLICATE_LISTING`, `FRAUD_VELOCITY_EXCEEDED`, `FRAUD_ACCOUNT_HELD`)
 - Flagged operations succeed normally: `isFlagged` is server-side metadata only
-- No new Isar collections or fields needed. FRD-06 appends `held` to the `PaymentStatus` enum (append only, stored by name; section 18.7)
+- FRD-06 appended `held` and `unknown` to the `PaymentStatus` enum on mobile and web (append only, stored by name, so rows written before read the same and nothing migrates; section 18.7). `unknown` is what the client reads for an escrow status it does not know
 
 ### 4.5 Velocity Key Design
 
@@ -630,11 +630,14 @@ if (_fraudService != null && result.IsSuccess)
 
 ## 6. Mobile-Side Design
 
-### 6.1 No Isar Schema Changes
+### 6.1 Client Scope (FRD-06)
 
-Fraud detection is server-side only. The mobile app needs only:
-1. Handle new error codes from sync responses
-2. Optionally display client-side advisory warnings (velocity, duplicate)
+The server decides everything. The client (mobile and web):
+1. Handles the fraud error codes from sync responses and the escrow routes (section 6.2; `FRAUD_ACCOUNT_HELD` in section 17.3)
+2. Reads the escrow status as an open set and shows `held` as "Under Review" on escrow and order screens, with no action the server refuses while held (section 18.7)
+3. Optionally displays client-side advisory warnings (velocity, duplicate)
+
+No new Isar collection or field; `PaymentStatus` gained `held` and `unknown` (section 4.4).
 
 ### 6.2 Error Code Handling
 
@@ -691,7 +694,7 @@ Add to all three `.arb` files:
 
 ### 6.5 Battery/Data Impact
 
-- **Zero additional network calls**: Fraud detection piggybacks on existing sync and escrow endpoints
+- **Two small reads for the hold (FRD-06)**: order detail reads its order's escrow (`GET /escrow/escrow-order-{orderId}`, only when the order's status can hold money) and the order list reads one `GET /escrow/history?status=held` page per load (not on filter taps). Mobile answers both from its Isar cache offline. Everything else piggybacks on the existing sync and escrow endpoints
 - **No background processing**: No new timers, workers, or periodic tasks on mobile
 - **Minimal Isar impact**: Optional advisory check is a single indexed query (<1ms)
 
@@ -1398,6 +1401,7 @@ Ties to EPIC ESC: ESC-33 writes `NO_SHOW` and `DELIVERY_OVERDUE` signals and re-
 
 | Version | Date | Change |
 |---------|------|--------|
+| 3.4.0 | 2026-10-23 | FRD-06 client handling built: section 4.4 (no new Isar collection or field; `PaymentStatus` gains `held` and `unknown`, append only), section 6.1 (client scope: fraud codes, escrow status as an open set, "Under Review" on escrow and order screens) and section 6.5 (the two hold reads are the only new network calls) |
 | 3.3.0 | 2026-10-23 | FRD-03 built (escrow-protocol 1.22.0, order-lifecycle 1.22.0): section 18 marked built for the `account_suspended` trigger behind `FRAUD_HOLD_ENABLED` (shipped off); the gate seam the three sweeps share, before any side effect (for an `/escrow/initiate` refund before its pending delivery is cancelled), and the trucker taken as the payout takes it; the order fence as one transaction (no revert fallback); admin exits need a `reason` of 10 to 500 characters and record `fraud_hold_release` or `fraud_hold_refund` before the order or the money moves; `held` joins the stale lock recovery and the manual payout close; review decisions: the flag-off skip stays and `RISK_SETTLEMENT_SKIPPED` is alarmed from the FRD-03 deploy (18.7, 22), a held escrow keeps its verdict's direction with the T4 residual risk recorded (18.3), and with the flag on the farmer's accept is fenced on the escrow in one transaction (18.5); `fraud_confirmed` (FRD-05) and `risk_critical` (FRD-04) stay planned |
 | 3.2.0 | 2026-10-23 | FRD-02: risk score built (sections 14 and 16), no caller yet. `GetUserRiskScoreAsync` and `RiskScoreResult` with `Source`, `RiskScoreCalculator`, `RiskScoreSettings`, `RiskScoreMemo`; implementation choices listed in 14.2 (an unknown `recordType` counts as a signal and logs `RISK_SCORE_UNKNOWN_RECORD`), the logging and `Source` in 14.4, env parsing in 14.5 (`RISK_MAX_PAGES` capped at 10); FRD-08 as a prerequisite for signals written onto another user (14.3); notes for FRD-04 in section 23; status markers updated |
 | 3.1.0 | 2026-10-17 | New signal `CONTACT_THEN_TRANSPORT_CANCEL` (ESC-48): a buyer's transport-failure cancel of an order whose contact had opened, best-effort, default weight; listed with the producers and in section 22 |

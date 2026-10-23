@@ -56,12 +56,12 @@ Each contract file follows this structure:
 
 | Contract | File | Version | Parties |
 |----------|------|---------|---------|
-| Sync Protocol | `sync-protocol.md` | 1.23.0 | Mobile, Backend |
+| Sync Protocol | `sync-protocol.md` | 1.24.0 | Mobile, Backend |
 | Authentication API | `auth-api.md` | 2.9.0 | Mobile, Backend, Infrastructure |
 | User Entity | `user-entity.md` | 1.1.0 | Mobile, Backend, Infrastructure |
 | Rating API | `rating-api.md` | 1.1.0 | Mobile, Backend, Infrastructure |
-| Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 1.22.0 | Mobile, Backend, Admin |
-| Escrow Protocol (Telebirr integration) | `escrow-protocol.md` | 1.22.0 | Mobile, Backend, Telebirr Gateway, Admin |
+| Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 1.24.0 | Mobile, Backend, Admin |
+| Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 1.26.0 | Mobile, Backend, Admin, Infrastructure, Telebirr Gateway |
 | Delivery Verification API | `delivery-verification-api.md` | 1.17.0 | Mobile, Backend |
 | Account Deletion | `account-deletion.md` | 1.1.0 | Mobile, Backend, Infrastructure, Admin |
 

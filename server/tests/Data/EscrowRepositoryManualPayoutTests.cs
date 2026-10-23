@@ -267,12 +267,15 @@ public class EscrowRepositoryManualPayoutTests
     public async Task UpdateStatus_ToDisputed_RequiresNoOpenManualPayoutAndNoSettlementLock()
     {
         // ESC-03: a dispute never lands on an escrow whose settlement is in flight.
+        // FUP-32: nor on one whose refund is scheduled.
         await _repo.UpdateStatusAsync(EscrowId, CreatedAt, "disputed", "escrowed");
 
         _update!.ConditionExpression.Should().Be(
-            "#status = :expectedStatus AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#lock)");
+            "#status = :expectedStatus AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#lock) "
+            + "AND attribute_not_exists(#refundReason)");
         Name(_update, "#manualPayout").Should().Be("manualPayout");
         Name(_update, "#lock").Should().Be("settlementLock");
+        Name(_update, "#refundReason").Should().Be("refundReason");
     }
 
     [Fact]

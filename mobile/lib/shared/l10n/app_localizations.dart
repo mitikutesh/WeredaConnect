@@ -1882,6 +1882,18 @@ abstract class AppLocalizations {
   /// **'Refunded'**
   String get escrowStatusRefunded;
 
+  /// Status label when the platform froze the payment for a review (escrow status held); shown to the buyer, farmer and trucker on payment and order screens. Neutral wording: never mention fraud
+  ///
+  /// In en, this message translates to:
+  /// **'Under Review'**
+  String get escrowStatusHeld;
+
+  /// Status label for a payment status this app version does not know yet
+  ///
+  /// In en, this message translates to:
+  /// **'Status Unknown'**
+  String get escrowStatusUnknown;
+
   /// Trust-building message explaining escrow protection
   ///
   /// In en, this message translates to:
@@ -2620,6 +2632,12 @@ abstract class AppLocalizations {
   /// **'Too many listings created. You can try again in {minutes, plural, =1{1 minute} other{{minutes} minutes}}.'**
   String fraudVelocityExceeded(int minutes);
 
+  /// The server refused a new listing, trip, order or a payment because the account is under review (FRAUD_ACCOUNT_HELD); nothing was saved and trying again gives the same answer. Neutral wording: never mention fraud or blame
+  ///
+  /// In en, this message translates to:
+  /// **'Your account is under review, so this action is paused. Contact support.'**
+  String get fraudAccountHeld;
+
   /// Snackbar message after profile is saved successfully
   ///
   /// In en, this message translates to:
@@ -2943,6 +2961,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Funds returned to buyer'**
   String get escrowDescRefunded;
+
+  /// Status description for a payment the platform froze for a review (escrow status held); only an admin can release or refund it
+  ///
+  /// In en, this message translates to:
+  /// **'Payment paused while the platform reviews it. The money stays safe.'**
+  String get escrowDescHeld;
+
+  /// Status description for a payment status this app version does not know yet
+  ///
+  /// In en, this message translates to:
+  /// **'Update the app to see the latest status of this payment.'**
+  String get escrowDescUnknown;
 
   /// Status label for an escrowed hold whose refund is on its way (order cancelled or hold expired)
   ///
@@ -4726,7 +4756,7 @@ abstract class AppLocalizations {
   /// **'{count} waiting to sync'**
   String syncPendingCount(int count);
 
-  /// Payment notification title with status
+  /// Payment notification title with status. {status} is the localized payment status label, not the enum name
   ///
   /// In en, this message translates to:
   /// **'{status} payment'**
@@ -5038,10 +5068,10 @@ abstract class AppLocalizations {
   /// **'The code expires at {time}.'**
   String otpExpiresAt(String time);
 
-  /// Fayda step-up dialog (AUTH_041): a payment above 10,000 ETB needs a fresh Fayda login instead of the password
+  /// Fayda step-up dialog (AUTH_041): this payment needs a fresh Fayda login instead of the password. No amount: the server asks for it above 10,000 ETB and may ask at any amount
   ///
   /// In en, this message translates to:
-  /// **'Payments above 10,000 ETB need a Fayda login, not your password. Confirm it\'s you with Fayda and your payment continues right after.'**
+  /// **'This payment needs a Fayda login, not your password. Confirm it\'s you with Fayda and your payment continues right after.'**
   String get faydaStepUpMessage;
 
   /// Title of the step-up re-authentication dialog
@@ -5368,7 +5398,7 @@ abstract class AppLocalizations {
   /// **'Checking your payment...'**
   String get orderCheckoutCheckingPayment;
 
-  /// Live payments: the order total is outside what one Telebirr payment takes (ORDER_VALIDATION / ESCROW_001)
+  /// Live payments: the order total is outside what one Telebirr payment takes (ORDER_PAYMENT_TOTAL_OUT_OF_RANGE, or ORDER_VALIDATION from servers before FUP-22; ESCROW_001 from the checkout)
   ///
   /// In en, this message translates to:
   /// **'Telebirr takes 100 to 500,000 ETB in one payment. This order\'s total is outside that, so it can\'t be paid with Telebirr.'**

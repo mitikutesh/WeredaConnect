@@ -4,6 +4,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/models/payment_status_wire.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_config.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
@@ -265,7 +266,7 @@ class EscrowSyncService {
               : 0.025
           ..farmerPayout = response.farmerPayout
           ..telebirrRef = response.telebirrRef
-          ..status = PaymentStatus.values.byName(response.status)
+          ..status = paymentStatusFromWire(response.status)
           ..createdAt = DateTime.parse(response.createdAt)
           ..updatedAt = DateTime.parse(response.createdAt)
           ..expiresAt = DateTime.parse(response.expiresAt)
@@ -307,6 +308,26 @@ class EscrowSyncService {
       });
       return StepUpRequired(withFayda: e.requiresFayda);
     } on ApiException catch (e) {
+      if (e.code == fraudAccountHeldCode) {
+        // The account is under review: the same payment gets the same
+        // answer until support clears it, so stop now instead of retrying,
+        // and tell the buyer why.
+        await _handleIntentFailure(
+          syncing,
+          fraudAccountHeldCode,
+          permanent: true,
+        );
+        _securityEvents.emit(
+          SyncOperationRejected(
+            entityType: 'payment_intent',
+            entityId: syncing.deliveryId,
+            action: 'initiate',
+            message: '$fraudAccountHeldCode: ${e.message}',
+            userId: syncing.buyerId,
+          ),
+        );
+        return null;
+      }
       await _handleIntentFailure(syncing, e.message);
     } on Exception catch (e) {
       await _handleIntentFailure(syncing, e.toString());
@@ -314,11 +335,13 @@ class EscrowSyncService {
     return null;
   }
 
-  /// Handle a failed intent: increment retry count or mark as failed.
+  /// Handle a failed intent: increment retry count or mark as failed. A
+  /// [permanent] refusal is marked failed at once.
   Future<void> _handleIntentFailure(
     PaymentIntent intent,
-    String errorMessage,
-  ) async {
+    String errorMessage, {
+    bool permanent = false,
+  }) async {
     await _isar.writeTxn(() async {
       final current = await _isar.paymentIntents.get(intent.id);
       if (current == null) return;
@@ -330,8 +353,8 @@ class EscrowSyncService {
           ? errorMessage.substring(0, 100)
           : errorMessage;
 
-      if (current.retryCount >= maxRetries) {
-        // Max retries reached — mark as failed, user must manually retry
+      if (permanent || current.retryCount >= maxRetries) {
+        // A permanent refusal, or max retries reached: mark as failed
         current.status = IntentStatus.failed;
       } else {
         // Put back to pendingSync for next connectivity event

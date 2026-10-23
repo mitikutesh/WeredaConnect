@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.22.0
+1.26.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -408,7 +408,8 @@ order with a consistent read and retries a version conflict (3 attempts in all);
 missing order, or one that is no longer `delivered`, is nothing to do. A failed leg is
 logged as `DISPUTE_PROPAGATION_FAILED` and audited as `dispute_propagation_failed` with
 `metadata` `legs=<leg>:<reason>` (for example `order:[AmazonDynamoDBException]`,
-`order:conflict`, `delivery:[InvalidOperationException]`). The dispute still answers
+`order:conflict`, `delivery:[InvalidOperationException]`); since 1.26.0 that line is alarmed
+(see "Dispute tokens" in "Additions in 1.8.1"). The dispute still answers
 `200`: the escrow is already `disputed` and audited (money frozen) before propagation
 runs, and failing the request would make the client retry into `ESCROW_020`.
 
@@ -424,6 +425,13 @@ its condition is never a `500`: the idempotency key is freed and the answer foll
 it is then (manual payout `409 ESCROW_038`, settlement lock `409 ESCROW_INVALID_TRANSITION`,
 another dispute first `409 ESCROW_020`, any other status `422 ESCROW_INVALID_TRANSITION`). An escrow
 that is already `disputed` when the request reads it answers `409 ESCROW_020` too.
+
+No dispute on a scheduled refund (1.25.0, FUP-32): an `escrowed` escrow that carries `refundReason`
+(its order was cancelled or rejected, or an admin refund is armed) answers `409
+ESCROW_INVALID_TRANSITION` and writes nothing, whether the request reads it so or the refund is armed
+between its read and its write (the freeze write requires `attribute_not_exists(refundReason)`). A
+freeze write that meets a transport cancel's transaction in flight (`TransactionConflictException`)
+is answered like a lost race. See "Additions in 1.25.0".
 
 #### Request Body
 
@@ -478,9 +486,10 @@ that is already `disputed` when the request reads it answers `409 ESCROW_020` to
 | `409` | `ESCROW_038` | The escrow's settlement is waiting in the manual payout queue; it can no longer be disputed (1.8.0) |
 | `422` | `ESCROW_041` | The goods are not picked up yet: no `deliveryConfirmedAt`, the order before `pickup_confirmed` and its delivery before `pickedUp` (1.21.0) |
 | `503` | `ESCROW_012` | The order or delivery behind the escrow could not be read for the pickup check; nothing was written, retry (1.21.0) |
-| `409` | `ESCROW_INVALID_TRANSITION` | A release or refund holds the settlement lock (1.9.0), or the escrow changed while the dispute was written and is still `escrowed`: try again (1.12.0) |
+| `409` | `ESCROW_INVALID_TRANSITION` | A release or refund holds the settlement lock (1.9.0), or the escrow changed while the dispute was written and is still `escrowed`: try again (1.12.0), or a refund is scheduled on it (`refundReason`), also when it was armed between the read and the write (1.25.0) |
 | `422` | `ESCROW_INVALID_TRANSITION` | Escrow is in any state but `escrowed` or `disputed` (a `held` escrow is refused too, 1.7.0), also when it moved there between the read and the write (1.12.0) |
 | `500` | `ESCROW_012` | Internal server error |
+| `503` | `ESCROW_012` | The escrow (or an admin caller's profile) could not be read for the step-up check; the dispute did not run and nothing was written, safe to retry (1.24.0; before, a Lambda error that API Gateway answered `502` without a code) |
 
 ---
 
@@ -1313,7 +1322,8 @@ the buyer's last Fayda login (`POST /user/fayda-link`) is within the window. A f
 does not satisfy the Fayda tier. When the buyer's profile cannot be read for that check the
 response is `503 ESCROW_012` (nothing held; safe to retry). `POST /escrow/dispute` returns `403 AUTH_040` when the
 escrow's amount is at or above the step-up threshold and `auth_time` is older than the window.
-See auth-api.md 2.4.0.
+When the escrow cannot be read for that check the response is `503 ESCROW_012` (nothing
+written; safe to retry; 1.24.0, FUP-44). See auth-api.md 2.4.0.
 
 ### Payout destination and identity at release
 Release and refund send money to the **registered phone** of the party, read from the
@@ -1642,6 +1652,38 @@ returned. The `AUTH_041` message becomes amount-neutral; clients key on the code
 
 ---
 
+## Additions in 1.23.0 (client handling of `held` and `FRAUD_ACCOUNT_HELD`, FRD-06)
+
+Mobile and web together, no server change. This is the client half of the `held` rollout condition
+in §Additions in 1.7.0 ("Client compatibility"); protecting installs older than FRD-06 on the escrow
+reads is still owed before `FRAUD_HOLD_ENABLED` is turned on.
+
+- **Status is an open set.** Every escrow the client reads (`GET /escrow/{id}`,
+  `GET /escrow/by-delivery/{deliveryId}`, `GET /escrow/history`, the initiate answers and the
+  payment rows in `/sync` conflict data) goes through one tolerant parser: a known name maps to
+  itself, `dispute_resolved` reads as `disputed` (the money is still frozen and the party has
+  nothing to do), and any other value reads as a neutral "Status Unknown" with no actions and a hint
+  to update the app. Mobile no longer fails the history refresh or the detail on such a value, and
+  web no longer shows it as `initiated`. Payment rows are never sent back, so the server's value is
+  never overwritten.
+- **`held` reads "Under Review"** (en, am, om) on the escrow badge, detail and timeline, with no
+  actions (a dispute needs `escrowed`). Order detail and the order list show the same badge to the
+  buyer, the farmer and the trucker when the order's escrow is `held`: the detail reads
+  `GET /escrow/escrow-order-{orderId}` (statuses that can hold money only), the list reads
+  `GET /escrow/history?status=held&role=<caller's role>&limit=50` once per load. The server filters
+  within its page, so a held escrow older than the party's 50 newest is flagged on the order detail
+  but not in the list. While held, the farmer is not offered Accept on a funded order and the buyer
+  is not offered the transport-failure cancel (the server refuses both); Reject and the cancel of a
+  funded order stay. A read that fails shows no badge; the server still refuses what `held` forbids.
+- **`FRAUD_ACCOUNT_HELD`**: the `403` on `/escrow/initiate` and `/escrow/order-checkout` keeps its
+  code (it was shown as "sign in again" and as "not authorized") and shows "Your account is under
+  review, so this action is paused. Contact support." A queued `/escrow/initiate` intent (mobile,
+  offline payment) fails at once instead of being retried three times, and the same text is shown.
+- **`AUTH_041` on `POST /escrow/dispute`** opens the Fayda login and sends the dispute again (the
+  server sends only `AUTH_040` there today). The Fayda prompt no longer names an amount.
+
+---
+
 ## Additions in 1.8.0 (fail-closed payouts and the manual payout queue, ESC-02)
 
 ### Gateway rule
@@ -1929,6 +1971,8 @@ ESCROW_SETTLEMENT_FAILED escrowId=<id> action=<action> outcome=<failed|unknown> 
 MANUAL_PAYOUT_OVERDUE escrowId=<id> ref=<ref> ageHours=<n>
 TRUCKER_PAYOUT_OVERDUE escrowId=<id> reason=<reason> ageHours=<n>   (1.11.0)
 ADMIN_QUEUE_OVERDUE orderId=<id> reason=<code> ageHours=<n>
+DISPUTE_PROPAGATION_FAILED escrowId=<id> orderId=<id> deliveryId=<id> legs=<legs>   (1.26.0)
+DELIVERY_DISPUTE_FROZEN escrowId=<id> orderId=<id> deliveryId=<id>   (1.26.0, a rate, not a failure)
 ```
 
 `outcome=failed` is a definite gateway refusal: no money moved. `outcome=unknown` means
@@ -1981,6 +2025,31 @@ Lambda's log group publishing the same metric.
 The overdue line is a `LogWarning`: a log level above Warning on escrow-cron silences the
 manual payout alarm.
 
+### Dispute tokens (1.26.0, FUP-27)
+
+`DISPUTE_PROPAGATION_FAILED` is logged by the dispute mirror (`EscrowService.MirrorDisputeAsync`,
+through the money alarm sink, before the `dispute_propagation_failed` audit row) once per call in
+which the delivery or the order did not follow a frozen escrow. Three Lambdas run the mirror, and
+a filter on each of their log groups counts the line: escrow (`POST /escrow/dispute`, and its
+repair of a dispute already frozen), sync (a delivery dispute) and escrow-cron (a sweep that freezes
+a trade disputed before 1.12.0). `legs` is the failed-legs text through `MoneyAlarmLog.LogLegs`:
+the characters `LogId` keeps, `_` as `-`, `,` as `.`, brackets dropped, cut at 200 characters (not
+64, so three legs with long exception names survive): `delivery:[TimeoutException],order:conflict`
+logs `delivery:TimeoutException.order:conflict`; the audit row keeps it raw. The money is frozen, so
+nothing pays out; the order may still show `delivered` and stay open to ratings until a party's
+repeated dispute (skipped while a manual payout or a settlement lock is open) or the admin verdict
+(1.9.0, the operator's lever) moves it. Before 1.26.0 no filter counted the line.
+
+`DELIVERY_DISPUTE_FROZEN` is logged by the sync Lambda (`LogWarning`) once a delivery dispute
+froze its escrow (outcome `Frozen` in 1.12.0's freeze), before the delivery write. It is counted
+into the existing `EscrowDispute` metric, so `${prefix}-escrow-dispute-rate` counts delivery
+disputes through sync as well as `POST /escrow/dispute` requests (the escrow Lambda's
+`ESCROW`/`DISPUTE` audit line, any outcome). Not logged: an escrow already `disputed` (counted when
+it froze), a refused or undecided freeze (clients before sync-protocol 1.12.0 resend a refused
+dispute on every reconnect), the repeat of a dispute on a delivery already `disputed`, and
+escrow-cron's sweep freeze (both repair disputes from before 1.12.0). Both tokens contain `_` and
+every id on both lines goes through `LogId`.
+
 ### Alarms (`infra/lib/stacks/monitoring-stack.ts`, all on the `${prefix}-alarms` topic)
 
 | Alarm | Counts | Fires |
@@ -1992,6 +2061,8 @@ manual payout alarm.
 | `${prefix}-manual-payouts-overdue` | `MANUAL_PAYOUT_OVERDUE` in the escrow-cron log group | any line in 15 minutes, same hold and clear as settlement failures; a leg that stays blocked keeps it in ALARM (1.8.0 known limits). The admin acts on the Manual Payouts page (`/payouts`) |
 | `${prefix}-trucker-payouts-overdue` (1.11.0) | `TRUCKER_PAYOUT_OVERDUE` in the escrow-cron log group | same as manual payouts overdue: a trucker leg still owed (not queued) more than 24 hours after it went pending; see Additions in 1.11.0 |
 | `${prefix}-admin-queue-overdue` | `ADMIN_QUEUE_OVERDUE` in the escrow-cron log group | same; an entry that stays undecided keeps it in ALARM (1.13.0, runbook in `.ai/deployment.md`) |
+| `${prefix}-dispute-propagation-failed` (1.26.0) | `DISPUTE_PROPAGATION_FAILED` in the escrow, sync and escrow-cron log groups | any line in 15 minutes, same hold and clear as settlement failures; runbook in `.ai/deployment.md` |
+| `${prefix}-escrow-dispute-rate` (not a money alarm; sync counted since 1.26.0) | the escrow Lambda's `ESCROW`/`DISPUTE` JSON audit line and `DELIVERY_DISPUTE_FROZEN` in the sync log group, one metric | more than 5 in one hour |
 
 `scripts/money_alarms_synthetic.sh` checks that the deployed filters match these exact lines
 and, with `--fire`, that every alarm reaches ALARM from synthetic lines plus one failed
@@ -2525,7 +2596,10 @@ and decides on the base row, never on an index copy:
    server-only `disputeAuditAt` (equal to `disputeCreatedAt`), and the `dispute` audit row goes to
    that deterministic key, written only if absent. When the condition
    fails, the row is read again and decided by steps 3 to 5; still `escrowed` with nothing in the way
-   is an unknown outcome (retry).
+   is an unknown outcome (retry). 1.25.0: an `escrowed` row with a scheduled refund (`refundReason`)
+   is refused here instead (audit `dispute_refused_refund_scheduled`, metadata
+   `deliveryId=<id>;refundReason=<reason>`), and the write also requires
+   `attribute_not_exists(refundReason)`.
 5. `disputed`: already frozen (no status write); when the escrow carries `disputeAuditAt`, the
    `dispute` row is written at that key if it is missing (the freeze's own audit write may have
    failed), and the delivery and order may follow. An escrow disputed before 1.12.0 has no marker:
@@ -2544,7 +2618,7 @@ escrow-audit).
 | Outcome | Sync answer | Written |
 |---------|-------------|---------|
 | frozen, already disputed | the delivery update (`success`, or `conflict` with the current row) | escrow (when frozen), delivery, order |
-| manual payout, settlement in flight, not held, other delivery | `error` `DELIVERY_DISPUTE_REFUSED: <why> Contact support.` (permanent) | nothing (one escrow-audit refusal row) |
+| manual payout, settlement in flight, not held, other delivery, refund scheduled (1.25.0) | `error` `DELIVERY_DISPUTE_REFUSED: <why> Contact support.` (permanent) | nothing (one escrow-audit refusal row) |
 | no escrow, delivery has an `orderId` | `error` `DELIVERY_DISPUTE_REFUSED: No payment is on record for this delivery's order, ...`; log `DISPUTE_NO_ESCROW orderId=<id> deliveryId=<id>` (the order escrow problems alarm counts it) | nothing |
 | no escrow, legacy delivery without an `orderId` | the delivery update, as before (no money to freeze) | delivery |
 | exception, or no escrow service wired for an order's delivery | `error` `DELIVERY_DISPUTE_RETRY: ...` (transient: the client sends it again) | nothing |
@@ -2663,7 +2737,8 @@ The run summary gains `adminQueueEntered`, `adminQueueOverdue` and `adminQueueCl
 ### Refund of a transport-failure cancel (order-lifecycle.md 1.15.0)
 
 The buyer's cancel of an `accepted` order after a transport failure schedules the refund like any
-cancel (`refundReason: order_transport_failed`). Before refunding an order `cancelled` with
+cancel (`refundReason: order_transport_failed`; since 1.25.0 in the order cancel's own transaction,
+see "Additions in 1.25.0"). Before refunding an order `cancelled` with
 `cancelReason: transport_failed_buyer_cancelled`, the sweep makes sure the order's quintals are back
 on its listing (`RestoreStockAsync`, idempotent per order), with the dispute verdict's rules: no
 listing or a quantity that is not positive counts as done (never blocks the refund), a listing that
@@ -3552,10 +3627,89 @@ Builds the `held` status of 1.7.0 for one trigger and leaves the others to their
 
 ---
 
+## Additions in 1.25.0 (transport cancel and dispute race, FUP-32)
+
+Before 1.25.0 the buyer's transport-failure cancel (ESC-06, `order-lifecycle.md` 1.15.0) checked the
+escrow, cancelled the order and only then scheduled the refund, in separate writes. A freeze that
+landed after the check (`POST /escrow/dispute`, a delivery dispute, the escrow-cron legacy freeze)
+left a cancelled order over frozen money, and the refund step logged only an info line. A freeze in
+the hour between the refund schedule and the sweep's refund did the same.
+
+### One transaction for the cancel and its refund
+
+The order write and the refund arm are one `TransactWriteItems` (sync Lambda):
+
+| Item | Write | Condition |
+|---|---|---|
+| the order | the cancel fields, `version + 1`, `updatedAt` | `version = <expected> AND status = accepted` |
+| each escrow the check found holding the money (normally `escrow-order-{orderId}` alone) | `expiresAt = now`, `refundReason = order_transport_failed`, `updatedAt` | `status = escrowed AND attribute_not_exists(settlementLock) AND attribute_not_exists(manualPayout) AND (attribute_not_exists(deliveryConfirmedAt) OR size(deliveryConfirmedAt) = 0)` |
+
+- An escrow condition that fails refuses the cancel with `ORDER_CANCEL_NOT_ALLOWED: The payment is
+  being settled or reviewed.` (the answer the check gives), also when the order condition failed too.
+  Nothing is written. The pending delivery the cancel already cancelled stays cancelled, as on every
+  refusal after that step (a replacement can be created). Info line: `Transport cancel of order <id>
+  refused: its escrow changed after the check.`
+- The order condition alone failing is the 1.13.0 version retry (re-read, at most 3 writes).
+- A transaction cancelled for any other reason (a conflicting transaction, throttling) writes nothing
+  and answers the unprefixed transient error, which the client retries.
+- After the commit, one escrow-audit `refund_scheduled` row per armed escrow (metadata the reason, as
+  before). A failed row is logged `ORDER_ESCROW_REFUND_AUDIT_FAILED orderId=<id> escrowId=<id>
+  reason=[<type>]`, not an alarm token: the refund is armed, and the sweep's refund writes its own
+  rows. The cancel's separate refund schedule step is gone, so `ORDER_ESCROW_REFUND_SCHEDULE_FAILED`
+  no longer comes from this path.
+- No new IAM: the sync Lambda's read-write grants on orders and escrows cover `UpdateItem` items in a
+  transaction.
+
+### No freeze on a scheduled refund
+
+Every freeze write (`escrowed -> disputed`) also requires `attribute_not_exists(refundReason)`. A
+scheduled refund is a settlement decided: the order was cancelled or rejected, or an admin refund is
+armed, and the money is on its way back to the buyer. This holds for every refund arm
+(`order_rejected`, `order_cancelled`, `order_transport_failed`, `admin_refund`, the admin queue's
+re-arm).
+
+| Path | `escrowed` escrow with `refundReason` |
+|---|---|
+| `POST /escrow/dispute` | `409 ESCROW_INVALID_TRANSITION` ("A refund to the buyer is scheduled for this escrow ..."), before the idempotency record is stored. Armed between the read and the write: the same answer after the condition fails, key freed. A freeze write that meets a cancel's transaction in flight (`TransactionConflictException`) is answered from the escrow as it is then, key freed, never a `500`. |
+| Delivery dispute (`POST /sync`) | `DELIVERY_DISPUTE_REFUSED: The payment for this delivery is being refunded to the buyer, so it can no longer be disputed. Contact support.` (permanent, nothing written); escrow-audit `dispute_refused_refund_scheduled` (once a day per escrow and delivery, metadata `deliveryId=<id>;refundReason=<reason>`); line `ESCROW_DISPUTE_REFUSED_REFUND_SCHEDULED escrowId=<id>` (not alarmed) |
+| escrow-cron freeze of a legacy disputed trade (1.15.0) | refused, so the settlement blocks with `freeze_refund_scheduled` (`<op>:trade:freeze_refund_scheduled`), audited and alarmed once; like the other permanent freeze refusals it is not asked again on later runs (`refundReason` is never removed) |
+
+An escrow that is already `disputed` keeps its 1.12.0 answers (`409 ESCROW_020`, the mirror repair),
+with or without `refundReason`.
+
+### Interleavings
+
+| First to reach the escrow | Cancel | Freeze | End state |
+|---|---|---|---|
+| the freeze, before the cancel's check | refused at the check | frozen | order `accepted`, escrow `disputed` |
+| the freeze, between the check and the order write | refused by the transaction | frozen | order `accepted`, escrow `disputed` |
+| the cancel, before the freeze reads | committed | refused before any write | order `cancelled`, escrow `escrowed`, refund armed |
+| the cancel, between the freeze's read and its write | committed | refused by its condition | the same |
+
+Never a cancelled order over a `disputed` escrow, and never a cancelled order without its refund arm.
+Clients: no new code; `ESCROW_INVALID_TRANSITION`, `ORDER_CANCEL_NOT_ALLOWED` and
+`DELIVERY_DISPUTE_REFUSED` keep their texts in en, am and om.
+
+### Not in 1.25.0 (known limits)
+- A funded order's reject or cancel, the admin refund's cancel before pickup, and the auto-refund
+  sweep's cancel of a stale funded order still cancel the order first and arm or take the refund
+  after. `POST /escrow/dispute` reads no order status, so a freeze in that short window still leaves
+  a closed order over frozen money; once the refund is armed, no freeze lands. The same transaction
+  fits them.
+- A plain write to the escrow (a settlement lock, a sweep write) that meets a transport cancel's
+  transaction in flight fails with `TransactionConflictException`, like any DynamoDB error on that
+  path (the SDK does not retry it).
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.26.0 | 2026-10-23 | Dispute alarms (FUP-27): `DISPUTE_PROPAGATION_FAILED` (a dispute mirror leg that failed) is counted in the escrow, sync and escrow-cron log groups, the Lambdas that run the mirror, by the new alarm `dispute-propagation-failed` (money alarm shape); the line is written through the money alarm sink with its `legs` defanged like the verdict lines (the `dispute_propagation_failed` audit row keeps them raw); the sync Lambda logs `DELIVERY_DISPUTE_FROZEN escrowId=.. orderId=.. deliveryId=..` once a delivery dispute froze its escrow, counted into the `escrow-dispute-rate` metric with the escrow Lambda's `POST /escrow/dispute` audit line (an escrow already disputed, a refused or undecided freeze and the repairs of pre-1.12.0 disputes are not counted); no API, error code or client change (1.18.0 and 1.20.0 to 1.25.0 are in flight) |
+| 1.25.0 | 2026-10-23 | Transport cancel and dispute race (FUP-32): the buyer's transport-failure cancel writes the order and the refund arm (`expiresAt`, `refundReason`) on each held escrow in one `TransactWriteItems`, the escrow item conditioned on a plain hold, so a freeze that landed after the check refuses the cancel (`ORDER_CANCEL_NOT_ALLOWED`) and nothing is written; every freeze write requires `attribute_not_exists(refundReason)`: `POST /escrow/dispute` on an `escrowed` escrow with a scheduled refund answers `409 ESCROW_INVALID_TRANSITION` (also after a lost race or a `TransactionConflictException`, key freed), a delivery dispute is refused (`DELIVERY_DISPUTE_REFUSED`, audit `dispute_refused_refund_scheduled`), the escrow-cron legacy freeze blocks with the permanent reason `freeze_refund_scheduled` (alarmed once, not asked again); `refund_scheduled` audit row after the commit, a failed row logged `ORDER_ESCROW_REFUND_AUDIT_FAILED` (not alarmed); no client change (`order-lifecycle.md` 1.23.0) |
+| 1.24.0 | 2026-10-23 | The dispute step-up read fails closed with a typed answer (FUP-44): when `POST /escrow/dispute` cannot read the escrow (or an admin caller's profile) to decide the step-up, it answers `503 ESCROW_012` with nothing written (no escrow write, no escrow-audit row, no idempotency record), so the same request can be retried; before, the exception escaped the handler and API Gateway answered `502` without a code; no new read or write (1.20.0 to 1.23.0 belong to other tickets still in flight) |
+| 1.23.0 | 2026-10-23 | Client handling (FRD-06): one tolerant status parser on mobile and web (`dispute_resolved` reads as `disputed`, any unknown value as a neutral "Status Unknown" with no actions); `held` shown as "Under Review" on escrow and order screens for all three parties (order detail reads the order escrow, the order list one `status=held` history page), farmer Accept and the transport-failure cancel hidden while held; `FRAUD_ACCOUNT_HELD` keeps its code and its own text on initiate and order checkout, a queued intent fails at once; `AUTH_041` on dispute opens the Fayda login; no server change |
 | 1.22.0 | 2026-10-23 | Fraud hold (FRD-03): the three settlement sweeps ask a risk gate before the first money side effect; a suspended buyer, farmer or trucker holds the escrow (`held`, `holdReason: account_suspended`, `heldAt`, `heldBy: system`, `heldFromStatus`, `heldFor`) behind `FRAUD_HOLD_ENABLED`, shipped off (the sweep only skips: `RISK_SETTLEMENT_SKIPPED reason=flag_off`); an unreadable party row skips (`reason=user_read_failed`); every skip is alarmed (`risk-settlement-skipped`); the hold write loses to a lock or a queued payout, and the auto-refund hold of an order escrow is fenced on the order's version and status in one transaction; admin-group exits with a required `reason` (10 to 500; `reason` added to the release request), checked on the held-from status, the refund by `heldFor` (order cancel and restock, or the dispute path to `dispute_resolved` with `buyer_wins`; `RISK_HOLD_ORDER_MISMATCH` and `422` when the order cannot follow); audit `fraud_hold`, `fraud_hold_release`, `fraud_hold_refund` in escrow-audit and transaction-audit; `held` in the active set, the lock (admin only), the manual payout close and the stale lock recovery; the farmer's accept of an order whose escrow is held refused (`ORDER_VALIDATION`; with the flag on, fenced on the escrow in one transaction); a held verdict keeps its direction; admin-only hold fields on the admin escrow reads; no client change |
 | 1.21.0 | 2026-10-22 | Dispute dispositions and the pickup rule (FUP-16; 1.18.0, 1.19.0 and 1.20.0 belong to FUP-36, ESC-47 and FUP-02, in flight): the verdict endpoint decides the order and delivery before writing and records a verdict they cannot follow only with a `disposition` and a `reason` (`422 ADMIN_015` without one, `422 ADMIN_016` when none fits or the chosen one does not, `400 ADMIN_014` for a bad value or reason, `503 ESCROW_012` on a failed read); `return_to_farmer` and `delivered_anyway` for `buyer_wins` with the goods moving, `settle_now` (after pickup) and `wait_for_delivery` for `farmer_wins` before delivery; the disposition is stored on the escrow in the verdict write (`disputeDisposition*`), audited once (`dispute_resolved_goods_returned`, `dispute_resolved_delivered_anyway`, `dispute_resolved_settled_early`, `dispute_resolved_waiting_for_delivery`, escrow audit at the choice time plus four ticks, plus transaction audit; shown on the admin `DisputeDto`), then closes the delivery (`cancelled` with `cancelReason: dispute_<verdict>`, or `disputed`) and the order (`dispute_resolved`) as a system actor, without restoring stock; a replay records a new choice (conditional on the one it read, `409 ADMIN_010`) or repairs the recorded one; the settlement mirror accepts a delivery cancelled under the same verdict and never treats its order as before pickup; a recorded `wait_for_delivery` is refused without the alarm (`DISPUTE_VERDICT_WAITING_FOR_DELIVERY`); status-filtered admin lists read on past filtered-out pages (25-page budget, `nextToken`); `overrideOrderMismatch` deprecated for verdicts; `POST /escrow/dispute` refused before pickup (`422 ESCROW_041`, `503 ESCROW_012` on a failed read), localized in the apps; admin Disputes page with an awaiting-settlement tab and the disposition choice |
 | 1.20.0 | 2026-10-23 | Manual refund of an unapplied payment (FUP-02; 1.18.0 FUP-36 and 1.19.0 ESC-47 are in flight): `GET /admin/payments/unapplied` (filtered Scan of escrow-audit, at most 4 pages of 500 rows per call, signed token that skips the order already read) and `POST /admin/payments/{orderId}/refund-manual` (admin group only) write the reserved `order_payment_refunded_manual` row (metadata `paymentOrderId=..;amount=..` then `;merchOrderId=..`, attribute `reason`) and transaction-audit `admin_payment_refunded_manual`; a payment is matched by its payment_order_id, a nameless one by its merch_order_id, whenever the rows were written; a payment that funded the order, or may still fund it (only `unprocessed` rows, or nameless, while the order is `payment_submitted`), is refused (`409 ESCROW_044`) and not listed (funded) or flagged `mayStillApply`; the record is exclusive per payment (one `TransactWriteItems` with a claim row `refund-claim#{orderId}#{payment}` in escrow-idempotency, 400-day TTL; the admin Lambda gains `PutItem` there only); the list reads at most 50 order trails per call and resumes after the last one; the amount is checked against the captured amount when the rows record it (`409 ESCROW_043`, else `amountChecked: false`); `400 ESCROW_040`, `404 ESCROW_042`, `409 ESCROW_036` reused for a reference conflict; a replay, or a second admin with the same reference, answers `alreadyRecorded` and writes nothing; `ESCROW_041` left to FUP-16; `account-deletion.md` 1.1.0 uses the same rule; admin page in en/am/om; no client change |
@@ -3591,5 +3745,5 @@ Builds the `held` status of 1.7.0 for one trigger and leaves the others to their
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 1.22.0
+**Version**: 1.26.0
 **Status**: Draft (Phase R4)

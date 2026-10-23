@@ -46,7 +46,8 @@ class Payment {
           expiresAt!.isBefore(DateTime.now()));
 }
 
-/// Status of a payment in its lifecycle.
+/// Status of a payment in its lifecycle. Same values, in the same order, as
+/// the Isar enum in `core/database/schemas/payment.dart`.
 enum PaymentStatus {
   initiated,
   escrowed,
@@ -55,4 +56,6 @@ enum PaymentStatus {
   cancelled,
   disputed,
   refunded,
+  held,
+  unknown,
 }

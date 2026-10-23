@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.23.0
+1.24.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -296,6 +296,17 @@ so only the message needs FRD-06: the batch error message names only
 directly, handle the code in FRD-06 too. Design:
 `specs/architecture/fraud-detection-architecture.md` 3.0.0, section 17.
 
+### Client handling (1.18.0, FRD-06)
+
+| Code | Mobile client (sync queue) | Web client (calls `/sync` directly) |
+|------|----------------------------|-------------------------------------|
+| `FRAUD_ACCOUNT_HELD:` | Permanent, as before. A refused order operation is reverted as in 1.10.0 (a refused create removes the local order, a refused `payment_submitted` puts the server's order back); a refused crop or trip create keeps its local row, like the other `FRAUD_*` codes. For every entity and action the user is told, in en, am and om: "Your account is under review, so this action is paused. Contact support." The batch result's error message picks the code too. | The refused call fails with the same text (crop, trip and order create, payment). |
+| `AUTH_041:` | Unchanged: kept pending, the Fayda login opens, the operation goes again after it. The prompt no longer names an amount, since the server may ask at any amount. | Unchanged: the payment screen opens the Fayda login and sends the same payment again, with the same prompt. |
+
+The escrow routes (`/escrow/initiate`, `/escrow/order-checkout`, `/escrow/dispute`) and the
+escrow `held` status are covered in `escrow-protocol.md` 1.23.0. Clients older than 1.18.0 show
+a generic refusal for `FRAUD_ACCOUNT_HELD` and do not retry it either.
+
 ---
 
 ## Permanent order rejections (1.10.0, ESC-12 part A)
@@ -580,13 +591,37 @@ removed locally is a follow-up.
 
 ---
 
+## Payment total refusal (1.24.0, FUP-22)
+
+With the live gateway (`TELEBIRR_MOCK` off) one Telebirr payment takes 100 to 500,000 ETB
+(`order-lifecycle.md` 1.24.0, Payment gates). An order update to `payment_submitted` whose
+`orderTotal`, rounded to the cent, is outside that range is refused with
+`ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: This order total (X ETB) is outside what one Telebirr payment can take (100 to 500000 ETB).`
+Before 1.24.0 the same refusal was `ORDER_VALIDATION:` with the same sentence, and clients had
+to read the English text. The gate, its bounds and its place among the payment gates (after KYC
+and step-up, before any write) are unchanged. Mock mode (dev, staging) skips it as before.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE:` | Permanent under the `ORDER_*` rule above: mark rejected, never resent, revert the local order (re-read `GET /orders/{id}`), show `paymentTotalOutOfRange` (en, am, om). | Failure with the same message, shown inline as `paymentTotalOutOfRange`. |
+| `ORDER_VALIDATION:` with the sentence above (servers before 1.24.0) | Same as the row above; matched for one more release. | Same. |
+
+Live builds check the total before they send it (`order-lifecycle.md` 1.13.0), so the refusal
+comes back only after a total changed since that check or from a demo build pointed at a live
+server. Clients older than 1.24.0 do not know the code: they revert the order and show the
+generic `errorOrderRefused` text (1.10.0).
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.24.0 | 2026-10-23 | Payment total refusal (FUP-22): the live gateway's refusal of a `payment_submitted` whose total is outside 100 to 500,000 ETB is `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` with the same sentence (it was `ORDER_VALIDATION`); permanent under the `ORDER_*` rule, nothing written; clients match the code and, for one release, the old text; same gate, bounds and order; clients before 1.24.0 show the generic refusal |
 | 1.23.0 | 2026-10-23 | Listing text refusal (FUP-49): `CROP_CONTACT_IN_TEXT` and `TRIP_CONTACT_IN_TEXT` for a crop listing or trip whose buyer-visible text holds a phone number (`crop-listing-api.md` 1.4.0, `trip-listing-api.md` 1.5.0), nothing written; deterministic, permanent on the mobile queue, not reverted, explained in en, am and om; web shows the same text; the forms run the same check before queueing; older clients retry it |
 | 1.20.0 | 2026-10-23 | Legacy listing side effect (FUP-18): mobile no longer queues a `cropListing` update on delivery create and confirm (the server cannot route it and refuses non-owners anyway) nor flips its local listing copy; `cropListing` operations already queued are removed at app start, the one exception to invariant 1; no server change |
 | 1.19.0 | 2026-10-23 | QR gate money check (FUP-42, `delivery-verification-api.md` 1.17.0): `deferred` is also sent for a delivery `pickedUp`/`delivered` with no nonce on record when the escrow that decides whether it needs the QR cannot be read (message `DELIVERY_NONCE_PENDING: ...`, nothing written, never hard-failed, alarmed on the server); such a delivery whose order escrow is not linked to it is now `deferred` too, where it passed. Clients unchanged: mobile re-queues `deferred` without using a retry, web shows its QR-pending message. |
+| 1.18.0 | 2026-10-23 | Client handling of fraud codes (FRD-06): `FRAUD_ACCOUNT_HELD` gets its own text in en, am and om on mobile (every entity and action, and the batch error message) and on web; order operations keep the 1.10.0 revert, crop and trip creates keep their local row; the `AUTH_041` prompt no longer names an amount; no server change |
 | 1.17.0 | 2026-10-23 | Permanent trip and crop rejections (ESC-12 part B, FUP-01): `REPUTATION_RESTRICTED`, `TRIP_HAS_BOOKINGS`, `TRIP_CAPACITY_EXCEEDED` and `CROP_HAS_ACTIVE_ORDERS` are permanent on any entity, `APP_UPDATE_REQUIRED` on an order (it is sent on order commands, spec K1); the mobile client reverts a refused crop listing or trip with the order rules (create: remove; update or delete: re-read `GET /crops/{id}` or `GET /trips/{id}`, 404/403 remove, other failures restore the lowest sent version and clear the pull stamp) and leaves a reverted one out of the failed count; order refusals with these codes are reverted like any order refusal; any other operation answered `APP_UPDATE_REQUIRED` is kept pending for the updated build, never reverted, not resent by this build; a refused delivery create is removed; every section 8 code has its own text in en, am and om, `REPUTATION_RESTRICTED` on an order create names the owner; `APP_UPDATE_REQUIRED` also raises an in-memory update flag; servers may send the five codes once this client is the minimum in use |
 | 1.16.0 | 2026-10-22 | Payment method refusal (FUP-20): `ORDER_PAYMENT_METHOD_UNAVAILABLE` for a live `payment_submitted` whose `paymentMethod` is present and not `telebirr` (bank transfers wait for ESC-46); decided after the other payment gates and before any write (no payment clock, audit row or idempotency key); only the update's value counts, an update without a method is left to the checkout; mock mode unchanged; permanent, with its own text in en, am and om on mobile and web |
 | 1.15.0 | 2026-10-17 | Message contact refusal (ESC-48): `MESSAGE_CONTACT_LOCKED` for a message into a `crop` or `trip` thread, or into an `order` or `delivery` thread whose order's contact is not open; permanent, the mobile client removes its local copy and explains it in en, am and om; a refused resend of a message the sender already stored answers `duplicate`; message rows in `/sync` data carry no phone; delivery rows in `/sync` data carry no phone (`delivery-verification-api.md` 1.15.0) |
@@ -608,4 +643,4 @@ removed locally is a follow-up.
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 1.23.0
+**Version**: 1.24.0

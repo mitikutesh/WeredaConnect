@@ -85,6 +85,19 @@ bool isFaydaStepUpRequiredMessage(String? message) =>
 bool isKycRequiredMessage(String? message) =>
     message != null && message.startsWith(orderKycRequiredCode);
 
+/// Sync rejection prefix, and REST error code (`403` on `/escrow/initiate`
+/// and `/escrow/order-checkout`), when the account is under review (risk
+/// tier CRITICAL, fraud-detection-architecture.md section 17.3): a crop, trip
+/// or order create or a payment is refused and nothing is written. The same
+/// command gets the same answer until support clears the account.
+const String fraudAccountHeldCode = 'FRAUD_ACCOUNT_HELD';
+
+/// Whether a /sync per-operation error message refuses the action because
+/// the account is under review (`FRAUD_ACCOUNT_HELD: ...`). Permanent like
+/// every `FRAUD_*` rejection.
+bool isFraudAccountHeldMessage(String? message) =>
+    message != null && message.startsWith(fraudAccountHeldCode);
+
 /// Whether a /sync per-operation error message is a permanent order
 /// rejection whose local change the client must undo: every `ORDER_*` code
 /// except `ORDER_KYC_REQUIRED`, which keeps its own revert and Fayda prompt
@@ -270,14 +283,23 @@ bool isRevertableListingRejectionMessage(String? message) =>
 bool isRevertableTripRejectionMessage(String? message) =>
     isReputationRestrictedMessage(message) || isTripHasBookingsMessage(message);
 
+/// Sync rejection prefix when the live gateway refuses a payment whose order
+/// total one Telebirr payment cannot take (FUP-22, sync-protocol.md 1.24.0).
+/// Nothing was written.
+const String orderPaymentTotalOutOfRangeCode =
+    'ORDER_PAYMENT_TOTAL_OUT_OF_RANGE';
+
 /// Whether a /sync per-operation error message is the live gateway's refusal
-/// of a payment whose order total one Telebirr payment cannot take
-/// (`ORDER_VALIDATION: This order total (X ETB) is outside what one Telebirr
-/// payment can take (100 to 500000 ETB).`, order-lifecycle.md 1.7.0).
+/// of a payment whose order total one Telebirr payment cannot take:
+/// `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: ...` since sync-protocol.md 1.24.0, or,
+/// from servers before it, `ORDER_VALIDATION: This order total (X ETB) is
+/// outside what one Telebirr payment can take (100 to 500000 ETB).`
+/// (order-lifecycle.md 1.7.0). The old text is matched for one more release.
 bool isPaymentTotalOutOfRangeMessage(String? message) =>
     message != null &&
-    message.startsWith('ORDER_VALIDATION:') &&
-    message.contains('outside what one Telebirr payment can take');
+    (message.startsWith(orderPaymentTotalOutOfRangeCode) ||
+        (message.startsWith('ORDER_VALIDATION:') &&
+            message.contains('outside what one Telebirr payment can take')));
 
 /// Sync rejection prefix when the live gateway refuses a payment method it
 /// cannot fund (FUP-20, sync-protocol.md 1.16.0): a bank transfer

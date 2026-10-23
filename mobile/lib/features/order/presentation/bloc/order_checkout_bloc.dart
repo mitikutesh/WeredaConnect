@@ -349,8 +349,10 @@ class OrderCheckoutBloc extends Bloc<OrderCheckoutEvent, OrderCheckoutState> {
         emit(const CheckoutStopped(CheckoutIssue.notFound));
       case 'ESCROW_005':
         emit(const CheckoutStopped(CheckoutIssue.sessionExpired));
-      case 'ESCROW_025' || 'ESCROW_026' || 'FRAUD_ACCOUNT_HELD':
+      case 'ESCROW_025' || 'ESCROW_026':
         emit(const CheckoutStopped(CheckoutIssue.unauthorized));
+      case 'FRAUD_ACCOUNT_HELD':
+        emit(const CheckoutStopped(CheckoutIssue.accountHeld));
       case 'ESCROW_OFFLINE':
         _retryOnReconnect = true;
         emit(const CheckoutProblem(CheckoutIssue.offline));

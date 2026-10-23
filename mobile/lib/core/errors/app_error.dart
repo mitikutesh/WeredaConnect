@@ -46,6 +46,11 @@ enum AppErrorCode {
   /// `unavailable`). Nobody has to verify; the buyer tries again later.
   kycUnavailable,
 
+  /// The account is under review (`FRAUD_ACCOUNT_HELD`): a create or a
+  /// payment was refused and nothing was written. Only support can lift it,
+  /// so it is never retried.
+  accountHeld,
+
   /// The server refused an order change for good (any other `ORDER_*`
   /// rejection), or a local guard refused it; nothing was changed.
   orderRefused,
@@ -183,6 +188,11 @@ AppErrorCode mapErrorToCode(Object error) {
     SyncRejectedException(:final message) when isKycRequiredMessage(message) =>
       _kycErrorCode(message),
     SyncRejectedException(:final message)
+        when isFraudAccountHeldMessage(message) =>
+      AppErrorCode.accountHeld,
+    // REST answers it as a 403 with the code (escrow routes).
+    ApiException(code: fraudAccountHeldCode) => AppErrorCode.accountHeld,
+    SyncRejectedException(:final message)
         when isPaymentTotalOutOfRangeMessage(message) =>
       AppErrorCode.paymentTotalOutOfRange,
     SyncRejectedException(:final message)
@@ -289,6 +299,7 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.kycRequired => l10n.kycRequiredFaydaMessage,
     AppErrorCode.kycFarmerRequired => l10n.kycFarmerNotVerifiedMessage,
     AppErrorCode.kycUnavailable => l10n.kycUnavailableMessage,
+    AppErrorCode.accountHeld => l10n.fraudAccountHeld,
     AppErrorCode.orderRefused => l10n.errorOrderRefused,
     AppErrorCode.paymentTotalOutOfRange => l10n.paymentTotalOutOfRange,
     AppErrorCode.paymentMethodUnavailable => l10n.paymentMethodUnavailable,
@@ -343,6 +354,8 @@ AppErrorCode syncRejectionErrorCode({
         ? AppErrorCode.appUpdateRequired
         : AppErrorCode.appUpdateRequiredKept;
   }
+  // The real reason for any entity and action: the account is under review.
+  if (isFraudAccountHeldMessage(message)) return AppErrorCode.accountHeld;
   if (entityType == 'order') {
     if (isReputationRestrictedMessage(message)) {
       // On a create the restricted party is the listing's or trip's owner

@@ -6,6 +6,7 @@ import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/models/payment_status_wire.dart';
 import 'package:wereda_connect/core/models/sync_operation.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/user.dart';
@@ -482,12 +483,9 @@ class ConflictResolver {
         payment!.refundReason = serverData['refundReason'] as String?;
         payment!.telebirrRef = serverData['telebirrRef'] as String?;
 
-        // Parse status enum
-        final statusStr = serverData['status'] as String;
-        payment!.status = PaymentStatus.values.firstWhere(
-          (e) => e.name == statusStr,
-          orElse: () => PaymentStatus.initiated,
-        );
+        // Parse status enum (an unknown value is neutral, never `initiated`)
+        payment!.status =
+            paymentStatusFromWire(serverData['status'] as String?);
 
         // Timestamps
         payment!.createdAt =

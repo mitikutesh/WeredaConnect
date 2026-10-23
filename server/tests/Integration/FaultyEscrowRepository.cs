@@ -27,6 +27,9 @@ internal sealed class FaultyEscrowRepository : IEscrowRepository
     public Task<bool> TryExtendExpiryAsync(string escrowId, string createdAt, string expiresAt)
         => _inner.TryExtendExpiryAsync(escrowId, createdAt, expiresAt);
 
+    public TransactWriteItem BuildRefundArm(string escrowId, string createdAt, string reason, string scheduledAt)
+        => _inner.BuildRefundArm(escrowId, createdAt, reason, scheduledAt);
+
     /// <summary>Called with the escrowId before each trucker leg record write; may throw.</summary>
     public Action<string>? OnRecordTruckerPayout { get; init; }
 

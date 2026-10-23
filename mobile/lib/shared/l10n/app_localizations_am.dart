@@ -931,6 +931,12 @@ class AppLocalizationsAm extends AppLocalizations {
   String get escrowStatusRefunded => 'ተመላሽ ሆኗል';
 
   @override
+  String get escrowStatusHeld => 'በግምገማ ላይ';
+
+  @override
+  String get escrowStatusUnknown => 'ሁኔታው አይታወቅም';
+
+  @override
   String get escrowProtectionInfo => 'ማድረሻ እስኪረጋገጥ ድረስ ክፍያዎ በጥበቃ ይቀመጣል።';
 
   @override
@@ -1334,6 +1340,10 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String get fraudAccountHeld =>
+      'መለያዎ በግምገማ ላይ ስለሆነ ይህ ድርጊት ለጊዜው ቆሟል። ድጋፍ ሰጪን ያግኙ።';
+
+  @override
   String get profileSaved => 'መገለጫ ተዘምኗል';
 
   @override
@@ -1502,6 +1512,12 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get escrowDescRefunded => 'ገንዘቡ ለገዢው ተመልሷል';
+
+  @override
+  String get escrowDescHeld => 'መድረኩ እስኪገመግመው ድረስ ክፍያው ቆሟል። ገንዘቡ በጥበቃ ላይ ነው።';
+
+  @override
+  String get escrowDescUnknown => 'የዚህን ክፍያ የቅርብ ጊዜ ሁኔታ ለማየት መተግበሪያውን ያዘምኑ።';
 
   @override
   String get escrowStatusRefundPending => 'ተመላሽ በመጠበቅ ላይ';
@@ -2651,7 +2667,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get faydaStepUpMessage =>
-      'ከ10,000 ብር በላይ ለሆኑ ክፍያዎች የይለፍ ቃል ሳይሆን የፋይዳ ማረጋገጫ ያስፈልጋል። እርስዎ መሆንዎን በፋይዳ ያረጋግጡ፣ ክፍያዎ ወዲያውኑ ይቀጥላል።';
+      'ይህ ክፍያ የይለፍ ቃል ሳይሆን የፋይዳ ማረጋገጫ ያስፈልገዋል። እርስዎ መሆንዎን በፋይዳ ያረጋግጡ፣ ክፍያዎ ወዲያውኑ ይቀጥላል።';
 
   @override
   String get stepUpTitle => 'እርስዎ መሆንዎን ያረጋግጡ';

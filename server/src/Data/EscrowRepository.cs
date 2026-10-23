@@ -167,10 +167,14 @@ public sealed class EscrowRepository : IEscrowRepository
 
         // ESC-03: a dispute never lands on an escrow whose settlement is in flight, which would
         // leave a disputed row behind a held lock that no verdict can resolve.
+        // FUP-32: nor on one whose refund is scheduled (refundReason: an order cancel or reject, an
+        // admin refund), which would leave a closed order over frozen money.
         if (newStatus == "disputed")
         {
             conditions.Add("attribute_not_exists(#lock)");
             request.ExpressionAttributeNames["#lock"] = "settlementLock";
+            conditions.Add("attribute_not_exists(#refundReason)");
+            request.ExpressionAttributeNames["#refundReason"] = "refundReason";
         }
 
         if (conditions.Count > 0)
@@ -180,6 +184,39 @@ public sealed class EscrowRepository : IEscrowRepository
 
         await _dynamoDb.UpdateItemAsync(request);
     }
+
+    /// <inheritdoc />
+    public TransactWriteItem BuildRefundArm(string escrowId, string createdAt, string reason, string scheduledAt) => new()
+    {
+        Update = new Update
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "SET #expiresAt = :at, #refundReason = :reason, #updated = :at",
+            // EscrowService.IsPlainEscrowed, as a condition: a dispute, a settlement or a confirmed
+            // delivery that took the money since it was read refuses the whole transaction.
+            ConditionExpression = "#status = :escrowed AND attribute_not_exists(#lock) "
+                + "AND attribute_not_exists(#manualPayout) "
+                + "AND (attribute_not_exists(#confirmed) OR size(#confirmed) = :zero)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#expiresAt", "expiresAt" },
+                { "#refundReason", "refundReason" },
+                { "#updated", "updatedAt" },
+                { "#status", "status" },
+                { "#lock", SettlementLockFields.Lock },
+                { "#manualPayout", ManualPayoutFields.Marker },
+                { "#confirmed", "deliveryConfirmedAt" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":at", new AttributeValue { S = scheduledAt } },
+                { ":reason", new AttributeValue { S = reason } },
+                { ":escrowed", new AttributeValue { S = "escrowed" } },
+                { ":zero", new AttributeValue { N = "0" } }
+            }
+        }
+    };
 
     /// <inheritdoc />
     public async Task<bool> TryExtendExpiryAsync(string escrowId, string createdAt, string expiresAt)
