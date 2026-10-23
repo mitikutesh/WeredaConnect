@@ -212,6 +212,8 @@ class _PlaceSelectorState extends State<PlaceSelector> {
                   suffixIcon:
                       const Icon(Icons.search, color: AppTheme.textMuted),
                   isDense: widget.isDense,
+                  // Long validator texts (FUP-49 phone refusal) wrap, not clip.
+                  errorMaxLines: 3,
                   border: widget.isDense ? const OutlineInputBorder() : null,
                   contentPadding: widget.contentPadding ??
                       (widget.isDense
@@ -304,6 +306,11 @@ class _PlaceOptionTile extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
+      // On web with semantics on, a click focuses a focusable tile first,
+      // the field loses focus, and RawAutocomplete closes the list before
+      // the tap arrives (SIM-59). Keyboard picking stays on the field
+      // (up/down + enter).
+      canRequestFocus: false,
       child: Container(
         color: highlighted
             ? AppTheme.primaryGreen.withValues(alpha: 0.08)

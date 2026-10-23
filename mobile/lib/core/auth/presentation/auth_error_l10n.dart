@@ -70,6 +70,7 @@ String localizeAuthError(
     AuthErrorCode.refreshTokenExpired => l10n.authErrorTokenExpired,
     AuthErrorCode.refreshTokenRevoked => l10n.authErrorTokenExpired,
     AuthErrorCode.invalidToken => l10n.authErrorTokenExpired,
+    AuthErrorCode.refreshTokenNotOwned => l10n.authErrorTokenExpired,
 
     // Mobile-only errors
     AuthErrorCode.apiNotConfigured => l10n.authApiNotConfigured,

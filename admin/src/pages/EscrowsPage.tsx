@@ -12,7 +12,8 @@ const statusVariant: Record<string, "success" | "warning" | "danger" | "info" | 
   initiated: "info",
   funded: "info",
   escrowed: "info",
-  held: "info",
+  // FRD-03: frozen for fraud review until an admin releases or refunds it.
+  held: "warning",
   released: "success",
   disputed: "danger",
   dispute_resolved: "success",

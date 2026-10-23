@@ -32,6 +32,73 @@ public class OrderRepositoryTests
             });
     }
 
+    private void ExistingOrder(string status = "funded", string version = "3")
+        => _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    new()
+                    {
+                        { "orderId", new AttributeValue { S = "order-1" } },
+                        { "createdAt", new AttributeValue { S = "2026-10-01T09:00:00Z" } },
+                        { "status", new AttributeValue { S = status } },
+                        { "version", new AttributeValue { N = version } }
+                    }
+                }
+            });
+
+    private static readonly EscrowRowKey OrderEscrow = new("test-escrows", "escrow-order-order-1", "2026-10-01T10:00:00Z");
+
+    // FRD-03: with the fraud hold on, the farmer's accept is one transaction with a check on the order escrow.
+    [Fact]
+    public async Task UpdateUnlessEscrowHeld_IsOneTransaction_TheVersionedUpdateAndAnEscrowConditionCheck()
+    {
+        ExistingOrder();
+        TransactWriteItemsRequest? sent = null;
+        _mockDynamoDb.TransactWriteItemsAsync(Arg.Do<TransactWriteItemsRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new TransactWriteItemsResponse());
+
+        var result = await _repository.UpdateUnlessEscrowHeldAsync(
+            "order-1", new Dictionary<string, object> { { "status", "accepted" } }, 3, OrderEscrow);
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(sent);
+        var update = sent!.TransactItems[0].Update;
+        Assert.Equal(TableName, update.TableName);
+        Assert.Equal("#v = :expectedVersion", update.ConditionExpression);
+        Assert.Equal("3", update.ExpressionAttributeValues[":expectedVersion"].N);
+        Assert.Equal("4", update.ExpressionAttributeValues[":newVersion"].N);
+        var check = sent.TransactItems[1].ConditionCheck;
+        Assert.Equal("test-escrows", check.TableName);
+        Assert.Equal("escrow-order-order-1", check.Key["escrowId"].S);
+        Assert.Equal("2026-10-01T10:00:00Z", check.Key["createdAt"].S);
+        Assert.Equal("attribute_not_exists(#status) OR #status <> :held", check.ConditionExpression);
+        Assert.Equal("held", check.ExpressionAttributeValues[":held"].S);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("None", "ConditionalCheckFailed", "ESCROW_HELD")]
+    [InlineData("ConditionalCheckFailed", "ConditionalCheckFailed", "ESCROW_HELD")]
+    [InlineData("ConditionalCheckFailed", "None", "SYNC_CONFLICT")]
+    public async Task UpdateUnlessEscrowHeld_AHeldEscrowWins_ThenAVersionConflict(string orderCode, string escrowCode, string expected)
+    {
+        ExistingOrder();
+        _mockDynamoDb.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>())
+            .Returns<TransactWriteItemsResponse>(_ => throw new TransactionCanceledException("cancelled")
+            {
+                CancellationReasons = new List<CancellationReason> { new() { Code = orderCode }, new() { Code = escrowCode } }
+            });
+
+        var result = await _repository.UpdateUnlessEscrowHeldAsync(
+            "order-1", new Dictionary<string, object> { { "status", "accepted" } }, 3, OrderEscrow);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(409, result.Error!.HttpStatus);
+        Assert.Equal(expected, result.Error.Code);
+    }
+
     // SIM-39: a replayed create used to add a second row with the same orderId.
     [Fact]
     public async Task CreateAsync_ExistingOrderId_Returns409WithoutWriting()

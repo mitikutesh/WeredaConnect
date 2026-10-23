@@ -362,6 +362,35 @@ public class EscrowFunctionTests
         await _mockIdempotencyRepo.DidNotReceive().GetAsync(Arg.Any<string>());
     }
 
+    [Fact]
+    public async Task HandleInitiate_LiveTelebirr_Returns422Escrow039_NothingWrittenNothingCounted()
+    {
+        // FUP-36: the refusal is decided before any write, any gateway call and the velocity count.
+        _mockTelebirrGateway.IsLiveTelebirr.Returns(true);
+        var fraud = Substitute.For<IFraudDetectionService>();
+        fraud.CheckPaymentVelocityAsync(BuyerId).Returns(new FraudCheckResult { IsAllowed = true });
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
+        var function = new EscrowFunction(service, fraud);
+        var request = WithAuthTime(
+            MakePostRequest("/escrow/initiate", ValidInitiateBody(), BuyerId),
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+        var response = await function.FunctionHandler(request, _context);
+
+        Assert.Equal(422, response.StatusCode);
+        Assert.Contains("ESCROW_039", response.Body);
+        await _mockTelebirrGateway.DidNotReceive().HoldFundsAsync(Arg.Any<HoldFundsRequest>());
+        await _mockIdempotencyRepo.DidNotReceive().StoreAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+        await _mockEscrowRepo.DidNotReceive().CreateAsync(Arg.Any<Dictionary<string, object>>());
+        await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+        // The velocity gate in front of the service still runs; only the count after a success does not.
+        await fraud.Received(1).CheckPaymentVelocityAsync(BuyerId);
+        await fraud.DidNotReceive().RecordPaymentInitiatedAsync(Arg.Any<string>());
+        await fraud.DidNotReceive().RecordFraudSignalAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
+    }
+
     private static string ValidInitiateBody() =>
         $$"""{"deliveryId":"del-001","buyerId":"{{BuyerId}}","farmerId":"{{FarmerId}}","amount":5000,"currency":"ETB","idempotencyKey":"{{BuyerId}}:del-001:initiate:1708084800000"}""";
 
@@ -1005,6 +1034,61 @@ public class EscrowFunctionTests
 
         Assert.NotEqual(200, response.StatusCode);
         await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+    }
+
+    /// <summary>
+    /// FRD-03: a held escrow leaves only through the admin pool's group. The route passes the group check to
+    /// the service; a marketplace admin whose profile says admin (enough for an escrowed escrow) is refused.
+    /// </summary>
+    [Fact]
+    public async Task Release_OfAHeldEscrow_NeedsTheAdminGroup_AndAReason()
+    {
+        var users = Substitute.For<IUserRepository>();
+        users.GetUserByIdAsync(Arg.Any<string>()).Returns(ci => new UserDto
+        {
+            UserId = ci.Arg<string>(),
+            PhoneNumber = "+251900000009",
+            Role = ci.Arg<string>() == FarmerId ? "farmer" : "admin",
+            Woreda = "w",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-01-01T00:00:00Z",
+            UpdatedAt = "2026-01-01T00:00:00Z",
+            Version = 1
+        });
+        var function = new EscrowFunction(new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo,
+            _mockTelebirrGateway, users));
+        var held = new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-held" }, { "deliveryId", "del-001" }, { "buyerId", BuyerId }, { "farmerId", FarmerId },
+            { "amount", 5_000m }, { "commission", 125m }, { "farmerPayout", 4_875m }, { "currency", "ETB" },
+            { "status", "held" }, { "heldFromStatus", "escrowed" }, { "heldFor", "release" },
+            { "holdReason", "account_suspended" }, { "createdAt", "2026-02-17T10:00:00Z" }, { "version", 2 }
+        };
+        _mockEscrowRepo.GetByIdAsync("escrow-held").Returns(held);
+        _mockEscrowRepo.TryAcquireSettlementLockAsync("escrow-held", Arg.Any<string>(), "release", "held", true).Returns(true);
+
+        var profileAdmin = await function.FunctionHandler(
+            MakePostRequest("/escrow/release", ReleaseBody("escrow-held"), "profile-admin", "admin"), _context);
+        Assert.Equal(403, profileAdmin.StatusCode);
+        Assert.Contains("ESCROW_015", profileAdmin.Body);
+
+        var noReason = await function.FunctionHandler(AdminPoolRequest("/escrow/release", ReleaseBody("escrow-held")), _context);
+        Assert.Equal(400, noReason.StatusCode);
+        Assert.Contains("ESCROW_VALIDATION", noReason.Body);
+
+        var withReason = JsonSerializer.Serialize(new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-held",
+            Trigger = "admin_override",
+            DeliveryId = "del-001",
+            IdempotencyKey = "admin:escrow-held:release:1708171200222",
+            Reason = "Reviewed by support: the delivery was genuine."
+        }, AppJsonContext.Default.ReleaseEscrowRequest);
+        var released = await function.FunctionHandler(AdminPoolRequest("/escrow/release", withReason), _context);
+
+        Assert.Equal(200, released.StatusCode);
+        await _mockTelebirrGateway.Received(1).ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        await _mockEscrowRepo.Received(1).TryAcquireSettlementLockAsync("escrow-held", Arg.Any<string>(), "release", "held", true);
     }
 
     // ──────────────────────────────────────────────

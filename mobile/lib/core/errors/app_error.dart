@@ -1,4 +1,5 @@
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Stable, localizable error categories surfaced by BLoCs to the UI.
@@ -31,8 +32,19 @@ enum AppErrorCode {
   /// A payment above 10,000 ETB needs a fresh Fayda login (AUTH_041).
   faydaStepUpRequired,
 
-  /// The payment needs Fayda KYC or a verified phone (ORDER_KYC_REQUIRED).
+  /// The payment needs the buyer's own Fayda KYC or verified phone
+  /// (ORDER_KYC_REQUIRED `buyer_fayda`, `buyer_phone`), so the buyer can fix
+  /// it by verifying with Fayda.
   kycRequired,
+
+  /// The payment needs the farmer's verified phone or Fayda ID
+  /// (ORDER_KYC_REQUIRED `farmer_phone`, `farmer_fayda`). The buyer cannot
+  /// fix it, so the text names the farmer and offers no Fayda (SIM-49).
+  kycFarmerRequired,
+
+  /// The KYC gate could not read the parties' profiles (ORDER_KYC_REQUIRED
+  /// `unavailable`). Nobody has to verify; the buyer tries again later.
+  kycUnavailable,
 
   /// The server refused an order change for good (any other `ORDER_*`
   /// rejection), or a local guard refused it; nothing was changed.
@@ -41,6 +53,11 @@ enum AppErrorCode {
   /// The live gateway refused the payment: one Telebirr payment takes 100 to
   /// 500,000 ETB and the order total is outside that (ESC-44).
   paymentTotalOutOfRange,
+
+  /// The live gateway refused the chosen payment method (a bank transfer, or
+  /// anything but Telebirr): `ORDER_PAYMENT_METHOD_UNAVAILABLE`, FUP-20;
+  /// nothing was changed.
+  paymentMethodUnavailable,
 
   /// The server refused a queued order create, so the local order was
   /// removed (mobile).
@@ -68,6 +85,52 @@ enum AppErrorCode {
   /// ESC-48: a message went into a thread whose contact is not open
   /// (`MESSAGE_CONTACT_LOCKED`); it was not sent.
   contactLocked,
+
+  /// A response to an order came after its deadline
+  /// (`ORDER_DEADLINE_PASSED`); nothing changed, or the local change was
+  /// undone.
+  deadlinePassed,
+
+  /// The trip an order names cannot take it (`ORDER_TRIP_NOT_ELIGIBLE`): the
+  /// buyer chooses again.
+  tripNotEligible,
+
+  /// No more trucks may be tried for the order
+  /// (`ORDER_TRANSPORT_ATTEMPTS_EXCEEDED`): collect or cancel.
+  transportAttemptsExceeded,
+
+  /// The trip an order names has no room left (`TRIP_CAPACITY_EXCEEDED`).
+  tripCapacityExceeded,
+
+  /// The acting account is restricted by reputation (`REPUTATION_RESTRICTED`
+  /// on a crop create, trip create or order accept); the change was not saved.
+  reputationRestricted,
+
+  /// The listing's farmer or the trip's trucker is restricted
+  /// (`REPUTATION_RESTRICTED` on a buyer's order create, spec A7): the order
+  /// was not placed, choose another.
+  counterpartyRestricted,
+
+  /// A trip with booked orders cannot change its date, price, route or drop
+  /// its capacity (`TRIP_HAS_BOOKINGS`); the local change was undone.
+  tripHasBookings,
+
+  /// A listing with active orders cannot be removed or reduced
+  /// (`CROP_HAS_ACTIVE_ORDERS`); the local change was undone.
+  cropHasActiveOrders,
+
+  /// This app build is below the server's minimum (`APP_UPDATE_REQUIRED`,
+  /// ESC-25); the change was not saved and the user must update (an order
+  /// command on mobile, anything on web).
+  appUpdateRequired,
+
+  /// `APP_UPDATE_REQUIRED` on a queued change other than an order command
+  /// (mobile): it is kept on the phone and sent after the update.
+  appUpdateRequiredKept,
+
+  /// FUP-49: crop or trip text that buyers read held a phone number
+  /// (`CROP_CONTACT_IN_TEXT` / `TRIP_CONTACT_IN_TEXT`); nothing was saved.
+  contactInText,
 
   /// The server refused a queued change (not an order) for good, so it was
   /// never saved there.
@@ -118,11 +181,42 @@ AppErrorCode mapErrorToCode(Object error) {
         when isStepUpRequiredMessage(message) =>
       AppErrorCode.stepUpRequired,
     SyncRejectedException(:final message) when isKycRequiredMessage(message) =>
-      AppErrorCode.kycRequired,
+      _kycErrorCode(message),
     SyncRejectedException(:final message)
         when isPaymentTotalOutOfRangeMessage(message) =>
       AppErrorCode.paymentTotalOutOfRange,
+    SyncRejectedException(:final message)
+        when isPaymentMethodUnavailableMessage(message) =>
+      AppErrorCode.paymentMethodUnavailable,
     SyncConflictException() => AppErrorCode.conflict,
+    // Codes with their own text (spec section 8) come before the ORDER_
+    // prefix rule. There is no entity or action here, so REPUTATION_RESTRICTED
+    // reads as the actor's restriction; the web order create maps it to the
+    // owner's (OrderBloc).
+    SyncRejectedException(:final message)
+        when isAppUpdateRequiredMessage(message) =>
+      AppErrorCode.appUpdateRequired,
+    SyncRejectedException(:final message)
+        when isReputationRestrictedMessage(message) =>
+      AppErrorCode.reputationRestricted,
+    SyncRejectedException(:final message)
+        when isTripHasBookingsMessage(message) =>
+      AppErrorCode.tripHasBookings,
+    SyncRejectedException(:final message)
+        when isTripCapacityExceededMessage(message) =>
+      AppErrorCode.tripCapacityExceeded,
+    SyncRejectedException(:final message)
+        when isCropHasActiveOrdersMessage(message) =>
+      AppErrorCode.cropHasActiveOrders,
+    SyncRejectedException(:final message)
+        when isOrderDeadlinePassedMessage(message) =>
+      AppErrorCode.deadlinePassed,
+    SyncRejectedException(:final message)
+        when isOrderTripNotEligibleMessage(message) =>
+      AppErrorCode.tripNotEligible,
+    SyncRejectedException(:final message)
+        when isOrderTransportAttemptsExceededMessage(message) =>
+      AppErrorCode.transportAttemptsExceeded,
     SyncRejectedException(:final message)
         when isOrderCancelNotAllowedMessage(message) =>
       AppErrorCode.orderCancelNotAllowed,
@@ -138,6 +232,9 @@ AppErrorCode mapErrorToCode(Object error) {
     SyncRejectedException(:final message)
         when isContactLockedMessage(message) =>
       AppErrorCode.contactLocked,
+    SyncRejectedException(:final message)
+        when isContactInTextMessage(message) =>
+      AppErrorCode.contactInText,
     OrderCancelNotAllowedException() => AppErrorCode.orderCancelNotAllowed,
     OrderActionNotAllowedException() => AppErrorCode.orderRefused,
     AlreadyRatedException() => AppErrorCode.alreadyRated,
@@ -156,6 +253,25 @@ AppErrorCode mapErrorToCode(Object error) {
   };
 }
 
+/// Whose verification the KYC refusal [message] says is missing, as a code:
+/// only a buyer-side reason may tell the buyer to verify (SIM-49).
+AppErrorCode _kycErrorCode(String message) =>
+    switch (KycReason.fromMessage(message)) {
+      KycReason.buyerPhone || KycReason.buyerFayda => AppErrorCode.kycRequired,
+      KycReason.farmerPhone ||
+      KycReason.farmerFayda =>
+        AppErrorCode.kycFarmerRequired,
+      KycReason.unavailable => AppErrorCode.kycUnavailable,
+    };
+
+/// Whether [code] is a KYC gate refusal (ORDER_KYC_REQUIRED) of any party.
+/// The payment screen explains these in the KYC dialog, which reads the exact
+/// reason from the message.
+bool isKycErrorCode(AppErrorCode code) =>
+    code == AppErrorCode.kycRequired ||
+    code == AppErrorCode.kycFarmerRequired ||
+    code == AppErrorCode.kycUnavailable;
+
 /// A localized, user-facing, actionable message for an [AppErrorCode].
 ///
 /// Codes are collapsed onto a small set of phrased messages: connectivity and
@@ -171,8 +287,11 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.stepUpRequired => l10n.stepUpRequiredMessage,
     AppErrorCode.faydaStepUpRequired => l10n.faydaStepUpMessage,
     AppErrorCode.kycRequired => l10n.kycRequiredFaydaMessage,
+    AppErrorCode.kycFarmerRequired => l10n.kycFarmerNotVerifiedMessage,
+    AppErrorCode.kycUnavailable => l10n.kycUnavailableMessage,
     AppErrorCode.orderRefused => l10n.errorOrderRefused,
     AppErrorCode.paymentTotalOutOfRange => l10n.paymentTotalOutOfRange,
+    AppErrorCode.paymentMethodUnavailable => l10n.paymentMethodUnavailable,
     AppErrorCode.orderNotPlaced => l10n.errorOrderNotPlaced,
     AppErrorCode.alreadyRated => l10n.alreadyRated,
     AppErrorCode.deliveryCancelNotAllowed => l10n.deliveryErrorCancelNotAllowed,
@@ -180,6 +299,18 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.deliveryDisputeExpired => l10n.deliveryErrorDisputeExpired,
     AppErrorCode.orderCancelNotAllowed => l10n.errorOrderCancelNotAllowed,
     AppErrorCode.contactLocked => l10n.contactClosedNote,
+    AppErrorCode.deadlinePassed => l10n.errorDeadlinePassed,
+    AppErrorCode.tripNotEligible => l10n.errorTripNotEligible,
+    AppErrorCode.transportAttemptsExceeded =>
+      l10n.errorTransportAttemptsExceeded,
+    AppErrorCode.tripCapacityExceeded => l10n.errorTripCapacityExceeded,
+    AppErrorCode.reputationRestricted => l10n.errorReputationRestricted,
+    AppErrorCode.counterpartyRestricted => l10n.errorCounterpartyRestricted,
+    AppErrorCode.tripHasBookings => l10n.errorTripHasBookings,
+    AppErrorCode.cropHasActiveOrders => l10n.errorCropHasActiveOrders,
+    AppErrorCode.appUpdateRequired => l10n.errorAppUpdateRequired,
+    AppErrorCode.appUpdateRequiredKept => l10n.errorAppUpdateRequiredKept,
+    AppErrorCode.contactInText => l10n.errorContactInText,
     AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
@@ -193,21 +324,64 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
 /// (mobile background sync, `SyncOperationRejected`). A refused order create
 /// removed the local order; any other refused order change was undone; a
 /// delivery cancel refused after pickup was undone (ESC-08), and so was a
-/// delivery dispute that was refused or too late (ESC-07); any other refused
-/// change was not saved on the server.
+/// delivery dispute that was refused or too late (ESC-07); a crop or trip
+/// change refused by reputation, bookings or active orders was undone (ESC-12
+/// part B); any other refused change was not saved on the server.
+///
+/// A code with its own text wins over the generic create text: "choose
+/// another truck" or "update the app" already says the order must be placed
+/// again.
 AppErrorCode syncRejectionErrorCode({
   required String entityType,
   required String action,
   required String message,
 }) {
+  if (isAppUpdateRequiredMessage(message)) {
+    // Only an order command is refused for the app version; anything else
+    // stays queued for the updated build (sync-protocol.md 1.17.0).
+    return entityType == 'order'
+        ? AppErrorCode.appUpdateRequired
+        : AppErrorCode.appUpdateRequiredKept;
+  }
   if (entityType == 'order') {
+    if (isReputationRestrictedMessage(message)) {
+      // On a create the restricted party is the listing's or trip's owner
+      // (spec A7), not the buyer who ordered.
+      return action == 'create'
+          ? AppErrorCode.counterpartyRestricted
+          : AppErrorCode.reputationRestricted;
+    }
+    if (isTripCapacityExceededMessage(message)) {
+      return AppErrorCode.tripCapacityExceeded;
+    }
+    if (isOrderTripNotEligibleMessage(message)) {
+      return AppErrorCode.tripNotEligible;
+    }
     if (action == 'create') return AppErrorCode.orderNotPlaced;
     if (isOrderCancelNotAllowedMessage(message)) {
       return AppErrorCode.orderCancelNotAllowed;
     }
+    if (isPaymentMethodUnavailableMessage(message)) {
+      return AppErrorCode.paymentMethodUnavailable;
+    }
+    if (isOrderDeadlinePassedMessage(message)) {
+      return AppErrorCode.deadlinePassed;
+    }
+    if (isOrderTransportAttemptsExceededMessage(message)) {
+      return AppErrorCode.transportAttemptsExceeded;
+    }
     return isPaymentTotalOutOfRangeMessage(message)
         ? AppErrorCode.paymentTotalOutOfRange
         : AppErrorCode.orderRefused;
+  }
+  if (isReputationRestrictedMessage(message)) {
+    return AppErrorCode.reputationRestricted;
+  }
+  if (isTripHasBookingsMessage(message)) {
+    return AppErrorCode.tripHasBookings;
+  }
+  if (isCropHasActiveOrdersMessage(message)) {
+    return AppErrorCode.cropHasActiveOrders;
   }
   if (isDeliveryCancelRefusalMessage(message)) {
     return AppErrorCode.deliveryCancelNotAllowed;
@@ -220,6 +394,9 @@ AppErrorCode syncRejectionErrorCode({
   }
   if (isContactLockedMessage(message)) {
     return AppErrorCode.contactLocked;
+  }
+  if (isContactInTextMessage(message)) {
+    return AppErrorCode.contactInText;
   }
   return isRevertableRejectionMessage(message)
       ? AppErrorCode.orderRefused
