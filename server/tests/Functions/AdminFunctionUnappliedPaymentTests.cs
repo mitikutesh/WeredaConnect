@@ -170,6 +170,13 @@ public class AdminFunctionUnappliedPaymentTests
 
     private static Put ClaimPut(TransactWriteItemsRequest t) => t.TransactItems[1].Put;
 
+    /// <summary>The claim row expires like the table's checkout rows: epoch seconds, 400 days out.</summary>
+    private static bool ExpiresInAbout400Days(AttributeValue expiresAt)
+    {
+        var days = (DateTimeOffset.FromUnixTimeSeconds(long.Parse(expiresAt.N)) - DateTimeOffset.UtcNow).TotalDays;
+        return expiresAt.S == null && days is > 399.9 and < 400.1;
+    }
+
     private void OrderReturns(Dictionary<string, AttributeValue>? order)
         => _db.QueryAsync(Arg.Is<QueryRequest>(q => q.TableName == OrdersTable), Arg.Any<CancellationToken>())
             .Returns(new QueryResponse
@@ -398,7 +405,7 @@ public class AdminFunctionUnappliedPaymentTests
                 && ClaimPut(t).Item["idempotencyKey"].S == "refund-claim#ord-1#TB-PAY-1"
                 && ClaimPut(t).Item["telebirrRef"].S == "TB-REFUND-9"
                 && ClaimPut(t).Item["claimedBy"].S == "admin-1"
-                && !ClaimPut(t).Item.ContainsKey("expiresAt")
+                && ExpiresInAbout400Days(ClaimPut(t).Item["expiresAt"])
                 && ClaimPut(t).ConditionExpression == "attribute_not_exists(idempotencyKey)"),
             Arg.Any<CancellationToken>());
         await _db.Received(1).PutItemAsync(

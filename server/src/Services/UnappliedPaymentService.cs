@@ -31,6 +31,13 @@ public sealed class UnappliedPaymentService
     internal const string ClaimPrefix = "refund-claim#";
 
     /// <summary>
+    /// The claim row's TTL, as the table's checkout rows (account-deletion.md: every escrow-idempotency
+    /// row expires within 400 days). Its expiry cannot reopen a double record: every later attempt
+    /// first reads the permanent escrow-audit refund row, strongly consistent.
+    /// </summary>
+    internal const int ClaimTtlDays = 400;
+
+    /// <summary>
     /// Extra field in the signed nextToken: the partition the previous call already read in full
     /// (with a Query), so its remaining rows at the start of the next Scan page are skipped.
     /// Table attributes never start with an underscore.
@@ -406,7 +413,8 @@ public sealed class UnappliedPaymentService
     /// <summary>
     /// The refund row and its claim row in escrow-idempotency, in one transaction: the row never
     /// overwrites one that shares its timestamp (then it tries the next instant), and the claim
-    /// (<c>refund-claim#{orderId}#{payment}</c>, kept) lets only one writer record a payment.
+    /// (<c>refund-claim#{orderId}#{payment}</c>, expiring after <see cref="ClaimTtlDays"/> days) lets
+    /// only one writer record a payment.
     /// </summary>
     private async Task<(AuditClaimWriteResult Result, string Timestamp)> AppendRefundRowAsync(
         string escrowId, string actor, string telebirrRef, string metadata, string reason, AuditContext auditContext,
@@ -446,7 +454,9 @@ public sealed class UnappliedPaymentService
                 { "paymentOrderId", paymentOrderId },
                 { "telebirrRef", telebirrRef },
                 { "claimedBy", actor },
-                { "claimedAt", timestamp }
+                { "claimedAt", timestamp },
+                // The table's TTL attribute: Unix epoch seconds.
+                { "expiresAt", DateTimeOffset.UtcNow.AddDays(ClaimTtlDays).ToUnixTimeSeconds() }
             };
             var result = await _auditRepo.AppendWithClaimAsync(entry, _claimTable!, claim);
             if (result != AuditClaimWriteResult.EntryExists)

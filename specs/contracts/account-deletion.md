@@ -289,7 +289,7 @@ Every DynamoDB table in `infra/lib/stacks/database-stack.ts` and `infra/lib/cons
 | `fraud-signals` | Retain until TTL | Fraud prevention. PK `userId`, SK `signalKey`, weight and rule text; `expiresAt` 30 days after the signal. Not rewritten |
 | `rate-limits` | Retain until TTL | Counters and auth state keyed by phone or `userId` (`LOGIN#`, `REGISTER#`, `OTP#`, `OTPSEND#`, `SYNC#`, `IP#`, `AUTHSTATE#OTP#`, `AUTHSTATE#OIDC#`, `AUTHSTATE#JTI#`). `expiresAt` within 24 hours. Kept so abuse limits still apply to a phone that re-registers; the OIDC state rows are the only Fayda-related rows outside the users row and hold no identity data |
 | `sync-metadata` | Retain until TTL | Idempotency keys `{userId}:{entityType}:{entityId}:{action}:{timestamp}` plus a result string; `expiresAt` 7 days. Deleted-account syncs are refused before this table is touched |
-| `escrow-idempotency` | Retain until TTL | Money idempotency rows (30 days); ESC-01 checkout slot and mapping rows (`buyerId`, amount, ids only) 400 days; webhook inbox rows 30 days. Read by the blocker check, never written by deletion |
+| `escrow-idempotency` | Retain until TTL | Money idempotency rows (30 days); ESC-01 checkout slot and mapping rows (`buyerId`, amount, ids only) 400 days; webhook inbox rows 30 days; FUP-02 refund claim rows (order, payment and refund ids, admin id; no buyer data) 400 days. Read by the blocker check, never written by deletion |
 | `delivery-qr-secrets` | Retain until TTL | Per-delivery nonce and consumption flags, no personal data; `expiresAt` 30 days |
 | `fayda-mock-codes` | Retain until TTL | Dev and staging only (`infra/lib/constructs/fayda-mock-construct.ts`). Short-lived mock authorization codes with `expiresAt`. Not deployed in prod |
 
@@ -392,7 +392,7 @@ Open for legal review: the retention period for financial records and a purge jo
 
 | Version | Date | Change |
 |---------|------|--------|
-| 1.1.0 | 2026-10-23 | `payment_review` resolution defined (FUP-02, `escrow-protocol.md` 1.20.0): one blocker per unapplied payment (by payment_order_id, or merch_order_id for a nameless one), lifted by the `order_payment_refunded_manual` row naming that payment whenever it was written, not by any later row of the order; a payment that funded the order never blocks; the admin endpoint that records the refund exists, so the blocker is no longer permanent and "contact support" now leads to a resolution |
+| 1.1.0 | 2026-10-23 | `payment_review` resolution defined (FUP-02, `escrow-protocol.md` 1.20.0): one blocker per unapplied payment (by payment_order_id, or merch_order_id for a nameless one), lifted by the `order_payment_refunded_manual` row naming that payment whenever it was written, not by any later row of the order; a payment that funded the order never blocks; the admin endpoint that records the refund exists, so the blocker is no longer permanent and "contact support" now leads to a resolution; escrow-idempotency's per-table row lists the refund claim rows (400 days) |
 | 1.0.0 | 2026-10-06 | Initial contract (ACC-01): endpoint, error codes, blocked-while-active rule, deletion steps, sweep, per-table policy for all 20 tables, retention, client and admin obligations |
 
 ---

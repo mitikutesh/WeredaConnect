@@ -201,7 +201,9 @@ public sealed class UnappliedPaymentDynamoDbTests
             ConsistentRead = true,
         });
         claim.Item["telebirrRef"].S.Should().Be($"TBREFUND{_run}");
-        claim.Item.Should().NotContainKey("expiresAt");
+        // The table's TTL, as its checkout rows: epoch seconds, 400 days out.
+        var expiresIn = DateTimeOffset.FromUnixTimeSeconds(long.Parse(claim.Item["expiresAt"].N)) - DateTimeOffset.UtcNow;
+        expiresIn.TotalDays.Should().BeInRange(399.9, 400.1);
     }
 
     [LocalDynamoDbFact]
