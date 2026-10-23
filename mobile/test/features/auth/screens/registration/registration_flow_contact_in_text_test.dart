@@ -246,8 +246,9 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('AUTH_027 on sign up keeps the user on Personal Info',
-      (tester) async {
+  testWidgets(
+      'AUTH_027 on sign up keeps the user on Personal Info, and the fixed '
+      'form is resent with the same Fayda proof', (tester) async {
     await signUpAsFarmer(tester, name: 'Abebe Kebede');
 
     states.add(
@@ -270,6 +271,22 @@ void main() {
     expect(find.text('Personal Info'), findsOneWidget);
     expect(find.text('Retry'), findsNothing);
     expect(find.text('Sign Up'), findsOneWidget);
+
+    // The snackbar times out, the user edits the name and signs up again.
+    await tester.pump(const Duration(seconds: 6));
+    await _settle(tester);
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Display Name'),
+      'Abebe K.',
+    );
+    await _settle(tester);
+    await tester.tap(find.text('Sign Up'));
+    await _settle(tester);
+
+    final sent = registrations();
+    expect(sent, hasLength(2));
+    expect(sent.map((e) => e.faydaVerificationToken), everyElement('vt-1'));
+    expect(sent.last.name, 'Abebe K.');
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
