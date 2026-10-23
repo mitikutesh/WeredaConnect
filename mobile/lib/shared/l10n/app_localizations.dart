@@ -5518,11 +5518,17 @@ abstract class AppLocalizations {
   /// **'Please update the app. This change is kept on your phone and will be sent after the update.'**
   String get errorAppUpdateRequiredKept;
 
-  /// A crop or trip text field that buyers read holds a phone number. Shown under the field and when the server refuses the listing (CROP_CONTACT_IN_TEXT / TRIP_CONTACT_IN_TEXT, FUP-49)
+  /// A crop or trip text field that buyers read holds a phone number. Shown under the field and when the server refuses the listing (CROP_CONTACT_IN_TEXT / TRIP_CONTACT_IN_TEXT, FUP-49). Also under the registration name, woreda and company name fields (FUP-52)
   ///
   /// In en, this message translates to:
   /// **'Phone numbers are not allowed here. Remove the number: contact opens after payment is held in escrow.'**
   String get errorContactInText;
+
+  /// Registration refused because the display name, woreda or company name holds a phone number (AUTH_027, FUP-52). Shown as a snackbar on the registration screen
+  ///
+  /// In en, this message translates to:
+  /// **'Remove the phone number from your name, woreda or company name. Contact opens after payment is held in escrow.'**
+  String get authProfileContactInText;
 
   /// Profile menu entry and screen title: delete the signed-in account (all roles)
   ///

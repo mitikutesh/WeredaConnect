@@ -1,7 +1,7 @@
 # Authentication API Contract
 
 ## Version
-2.11.0
+2.12.0
 
 ## Parties
 - **Mobile** (client) -- registers users, authenticates online/offline, manages cached tokens
@@ -49,12 +49,12 @@ Register a new user with Ethiopian phone number, password, role, woreda, and Fay
 | `phoneNumber` | string | Yes | Ethiopian format: `+251` followed by 9 digits. Regex: `^\+251[0-9]{9}$` |
 | `password` | string | Yes | Minimum 8 characters, maximum 128 characters. Must contain at least one lowercase letter and one digit |
 | `role` | string | Yes | Enum: `farmer`, `trucker`, `buyer` |
-| `woreda` | string | Yes | Non-empty, maximum 100 characters (administrative district name) |
-| `displayName` | string | No | Maximum 100 characters. Supports Amharic/Oromo Unicode. |
+| `woreda` | string | Yes | Non-empty, maximum 100 characters (administrative district name). No phone number (2.12.0, `AUTH_027`) |
+| `displayName` | string | No | Maximum 100 characters. Supports Amharic/Oromo Unicode. No phone number (2.12.0, `AUTH_027`) |
 | `preferredLanguage` | string | No | Enum: `en`, `am`, `om`. Default: `am` |
 | `faydaVerificationToken` | string | Yes | Short-lived JWT from `POST /auth/fayda-verify` (30-minute validity). Missing or blank: `400 AUTH_021` (2.2.0) |
 | `buyerType` | string | No | **Buyer only.** Enum: `private`, `company`. Must be absent for non-buyer roles. |
-| `companyName` | string | No | **Buyer only.** Required when `buyerType` is `company`; rejected otherwise. Maximum 100 characters. |
+| `companyName` | string | No | **Buyer only.** Required when `buyerType` is `company`; rejected otherwise. Maximum 100 characters. No phone number (2.12.0, `AUTH_027`) |
 
 > **Note (F-32)**: `buyerType`/`companyName` apply only to `buyer` registrations and are echoed back in the response `user` object. The trucker driving-license is intentionally **not** part of this contract — it is captured and kept **local-only on the device** (Isar) until a server-side image-upload pipeline exists.
 
@@ -98,6 +98,7 @@ Register a new user with Ethiopian phone number, password, role, woreda, and Fay
 | `400` | `AUTH_003` | Invalid role (must be farmer, trucker, or buyer) |
 | `400` | `AUTH_004` | Woreda is required |
 | `400` | `AUTH_021` | Missing Fayda verification token (required since 2.2.0) |
+| `400` | `AUTH_027` | `displayName`, `woreda` or `companyName` holds a phone number (2.12.0) |
 | `409` | `AUTH_005` | Phone number already registered |
 | `429` | `AUTH_006` | Rate limit exceeded |
 | `500` | `AUTH_007` | Internal server error |
@@ -539,6 +540,7 @@ After a successful online login or registration, the mobile client stores the fo
 | `AUTH_021` | 400 | Missing Fayda verification token on register (required since 2.2.0) | Send the user back to the Fayda step |
 | `AUTH_025` | 403 | Account suspended (login, verify-otp, refresh) | Show "contact support", clear the session |
 | `AUTH_026` | 403 | Refresh token belongs to another user (logout, 2.7.0) | Retry the logout once with a bearer minted from the refresh token (2.9.0), then clear the local session anyway |
+| `AUTH_027` | 400 | Register: `displayName`, `woreda` or `companyName` holds a phone number; `field` is the first of them (2.12.0) | Show "remove the phone number" on the registration screen; the Fayda proof is still valid, so resend after the fix |
 | `ACCOUNT_004` | 410 | `/user/fayda-start` or `/user/fayda-link` by an account that is being or has been deleted; carries `error.deletionState` (2.11.0, `account-deletion.md`) | `in_progress`: offer "Finish deleting"; otherwise wipe local data and go to login |
 | `AUTH_009` | 400 | OTP code missing (2.1.0) | Show validation error on the code field |
 | `AUTH_011` | 400 | OTP code format invalid, not 6 digits (2.1.0) | Show validation error on the code field |
@@ -935,12 +937,48 @@ so a failed or refused verification leaves the payment blocked.
 
 ---
 
+## Additions in 2.12.0 (phone numbers in profile text, FUP-52)
+
+The display name is stamped onto every new crop listing and trip as `farmerName` or
+`truckerName`, and the app sends the profile `woreda` as the crop listing's `woreda`. Buyers read
+both before any order, and contact opens only after the money is held in escrow
+(`crop-listing-api.md` 1.3.0, ESC-48), so a phone number typed into the profile would reopen the
+channel that the listing text rule (`crop-listing-api.md` 1.4.0 rule 6b, FUP-49) closes.
+
+- **Register**: `displayName`, `woreda` and `companyName` must not hold an Ethiopian mobile
+  number, found by the same detector as listing text (rule 6b: ASCII, Arabic-Indic, fullwidth and
+  Ethiopic digits; invisible format characters dropped; spaces, dots, dashes, parentheses and a
+  plus between digit groups; dates, prices, plates and short numbers such as kebele numbers
+  are not phone numbers). A request where one of them does is refused with `400 AUTH_027`,
+  `field` set to the first such field:
+  `Remove the phone number from <fields>. Contact opens after payment is held in escrow.`
+  `<fields>` lists them comma-separated in the order `displayName`, `woreda`, `companyName`.
+- **Order**: the check runs with the other request field rules, after them, so a payload with a
+  length or buyer-field error reports that first, and before `AUTH_021`. It runs before the
+  per-IP cap, the Fayda token check and its single-use burn, the Cognito sign-up and any write:
+  a refused request consumes nothing, and the user resends it with the same Fayda proof.
+- **Fayda name**: `fullName` is never screened. It is not part of the request: the server reads it
+  from the verification token (`/auth/register`) or the Fayda login (`/user/fayda-link`), so it
+  is the verified identity, not typed text.
+- **Existing accounts**: nothing re-validates stored profile text. Login, refresh and the
+  stamping of names on new listings are unchanged, so an account registered before 2.12.0 keeps
+  working.
+- **Profile updates**: there is no profile update route today. Any later one must apply the same
+  rule to the fields it changes (`user-entity.md` 1.2.0).
+- **Clients**: the registration form runs the same check (`mobile/lib/core/utils/contact_in_text.dart`)
+  under the name, woreda and company name fields before it sends anything, and shows
+  `authProfileContactInText` (en, am, om) when the server answers `AUTH_027`. Android and web
+  share this code.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
 | 1.0.0 | 2026-02-12 | Initial contract: registration, OTP, login, refresh, logout, offline auth, rate limits |
 | 2.0.0 | 2026-03-02 | Replace SMS OTP with Fayda OIDC: add `POST /auth/fayda-verify`, remove `POST /auth/verify-otp`, registration returns tokens directly, add FAYDA_001-004 error codes, remove AUTH_009-012 |
+| 2.12.0 | 2026-10-23 | No phone number in profile text (FUP-52): register refuses a `displayName`, `woreda` or `companyName` that holds an Ethiopian mobile number with `400 AUTH_027` (`field` = the first such field, the message lists all), same detector as listing text (`crop-listing-api.md` 1.4.0 rule 6b); checked after the other field rules and before `AUTH_021`, the IP cap, the Fayda token burn and any write; the Fayda `fullName` is never screened; stored profiles are not re-validated; the app runs the same check on the form and explains `AUTH_027` in en, am and om |
 | 2.11.0 | 2026-10-23 | Account deletion (ACC-02, `account-deletion.md` 1.2.0): login and refresh of a `cognito_pending` or `completed` account answer `401 AUTH_014` (refresh also revokes the token), `in_progress` logs in; `/user/fayda-start` and `/user/fayda-link` answer `410 ACCOUNT_004` for a deleting or deleted account before any state is read (`503 AUTH_008` when the account cannot be read); register refuses the display name `Deleted user` with `AUTH_007`; profile writes skip a deleting or deleted row |
 | 2.10.0 | 2026-10-23 | Risk tier step-up built (FRD-04, the 2.6.0 rules): MEDIUM adds the fresh password at any amount, HIGH the Fayda login and then the password at any amount, CRITICAL refuses payments, checkouts and crop, trip and order creates with `FRAUD_ACCOUNT_HELD`; the caller's tier only, read once per request or `/sync` batch; an unreadable score or a missing fraud-signals table is LOW, a truncated read CRITICAL; `AUTH_041` text is now amount-neutral (`Confirm it's you with Fayda to continue with this payment.`); order of the checks per path |
 | 2.9.0 | 2026-10-23 | Client logout sequence (SIM-55): the app starts `POST /auth/logout` with the live stored tokens before it clears the session and never waits on it to clear; a missing or expired access token is first replaced by one minted with `POST /auth/refresh` (never stored); a `401` or `403 AUTH_026` is retried once with a minted bearer; the app maps `AUTH_026`. Server unchanged |
@@ -955,4 +993,4 @@ so a failed or refused verification leaves the payment blocked.
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 2.11.0
+**Version**: 2.12.0

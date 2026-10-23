@@ -1,7 +1,7 @@
 # User Entity Contract
 
 ## Version
-1.1.0
+1.2.0
 
 ## Parties
 - **Mobile** (client) -- stores user profile in Isar for offline access, displays user info
@@ -366,11 +366,28 @@ public partial class UserJsonContext : JsonSerializerContext { }
 | Field | Validation |
 |-------|-----------|
 | `phoneNumber` | Regex: `^\+251[0-9]{9}$`, unique (check PhoneIndex before insert) |
-| `displayName` | Max 100 chars, sanitize HTML/script tags |
+| `displayName` | Max 100 chars, sanitize HTML/script tags, no phone number (1.2.0) |
 | `role` | Must be one of: `farmer`, `trucker`, `buyer` |
-| `woreda` | Non-empty, max 100 chars |
+| `woreda` | Non-empty, max 100 chars, no phone number (1.2.0) |
+| `companyName` | Buyer only, required for a company buyer, max 100 chars, no phone number (1.2.0) |
 | `faydaId` | Format validation TBD (Fayda API spec pending) |
 | `preferredLanguage` | Must be one of: `en`, `am`, `om` |
+
+#### No phone number in profile text (1.2.0, FUP-52)
+
+`displayName` reaches buyers as the `farmerName` or `truckerName` of every new listing, and
+`woreda` as the crop listing's `woreda`, before contact opens at escrow. So `displayName`,
+`woreda` and `companyName` must not hold an Ethiopian mobile number, found by the listing text
+detector (`crop-listing-api.md` 1.4.0 rule 6b).
+
+- Registration refuses one with `400 AUTH_027` and writes nothing (`auth-api.md` 2.12.0).
+- There is no profile update path today (the `profile` sync operation above is not served by
+  `/sync`). Any later one must run the same check on the fields it changes, and treat a value
+  equal to the stored one as an unchanged echo that is not checked, as listings do.
+- Values stored before 1.2.0 are kept. Nothing re-validates them at login, refresh or when a
+  name is stamped onto a listing.
+- `fullName` (the Fayda legal name, written only from Fayda itself: the registration
+  verification token or `/user/fayda-link`) is never screened.
 
 ---
 
@@ -407,8 +424,9 @@ Given Ethiopian mobile data costs:
 |---------|------|--------|
 | 1.0.0 | 2026-02-12 | Initial entity definition: fields, DynamoDB schema, Isar schema, sync rules |
 | 1.1.0 | 2026-10-06 | Deletion is now supported through `DELETE /user/account` (`account-deletion.md`); server-only `deletionState`, `deletionRequestedAt`, `deletedAt` and the tombstone shape documented (ACC-01) |
+| 1.2.0 | 2026-10-23 | No phone number in `displayName`, `woreda` or `companyName` (FUP-52): refused at registration with `AUTH_027` (`auth-api.md` 2.12.0); any later profile update path must run the same check; stored values are not re-validated; the Fayda `fullName` is not screened; `companyName` added to the server validation table |
 
 ---
 
-**Last Updated**: 2026-10-06
-**Version**: 1.1.0
+**Last Updated**: 2026-10-23
+**Version**: 1.2.0

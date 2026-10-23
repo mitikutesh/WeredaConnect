@@ -608,4 +608,87 @@ public class RegisterFunctionTests
 
         Assert.Equal(expected, RegisterFunction.IsPhoneProven(verification, registrationPhone));
     }
+
+    // ===== FUP-52: no phone number in profile text (auth-api 2.12.0) =====
+
+    private static object BuyerBody(string displayName, string woreda, string companyName) => new
+    {
+        phoneNumber = "+251912345678",
+        password = "secure123",
+        role = "buyer",
+        woreda,
+        faydaVerificationToken = "valid-token",
+        displayName,
+        preferredLanguage = "om",
+        buyerType = "company",
+        companyName
+    };
+
+    [Theory]
+    [InlineData("Abebe 0911234567", "Adama", "Abebe Trading", "displayName")]
+    [InlineData("Caalaa", "Aanaa Adaamaa +251 911 234 567", "Dhaabbata Qonnaa", "woreda")]
+    [InlineData("አበበ", "አዳማ", "አበበ ንግድ 0911​234567", "companyName")]
+    public async Task FunctionHandler_PhoneNumberInProfileText_Returns400Auth027AndWritesNothing(
+        string displayName, string woreda, string companyName, string field)
+    {
+        SetupCognitoSuccess();
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(BuyerBody(displayName, woreda, companyName)), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        using var body = JsonDocument.Parse(response.Body);
+        var error = body.RootElement.GetProperty("error");
+        Assert.Equal("AUTH_027", error.GetProperty("code").GetString());
+        Assert.Equal(field, error.GetProperty("field").GetString());
+        Assert.Equal(
+            $"Remove the phone number from {field}. Contact opens after payment is held in escrow.",
+            error.GetProperty("message").GetString());
+
+        // Refused before the IP cap and before the Fayda proof is read or burned: the user
+        // fixes the text and sends the same form again.
+        await _mockRateLimit.DidNotReceive().RecordIpAsync(Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<int>());
+        _mockFayda.DidNotReceive().ValidateVerificationToken(Arg.Any<string>());
+        await _mockAuthState.DidNotReceive().PutIfAbsentAsync(
+            Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>>(), Arg.Any<int>());
+        await _mockAuth.DidNotReceive().RegisterAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>());
+        await _mockRepo.DidNotReceive().CreateUserAsync(Arg.Any<UserDto>());
+    }
+
+    [Fact]
+    public async Task FunctionHandler_FaydaFullNameIsNotScreened()
+    {
+        // The verified name comes from the Fayda token, not from the form: it is stored as
+        // released, even holding digits a typed name could not.
+        SetupCognitoSuccess();
+        _mockFayda.ValidateVerificationToken(Arg.Any<string>())
+            .Returns(AuthResult<FaydaVerificationResult>.Success(new FaydaVerificationResult
+            {
+                FaydaId = "FAYDA-123",
+                FullName = "Abebe Kebede 0911234567",
+                PhoneNumber = "+251912345678",
+                Jti = "jti-001"
+            }));
+
+        var response = await _function.FunctionHandler(MakeRequest(RegisterBody("valid-token")), _context);
+
+        Assert.Equal(201, response.StatusCode);
+        await _mockRepo.Received(1).CreateUserAsync(Arg.Is<UserDto>(u =>
+            u.FullName == "Abebe Kebede 0911234567" && u.DisplayName == "Abebe"));
+    }
+
+    [Fact]
+    public async Task FunctionHandler_AmharicNameAndKebeleWoreda_Returns201()
+    {
+        SetupCognitoSuccess();
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(BuyerBody("አበበ ከበደ", "ቀበሌ 07 ዞን 3", "አበበ ንግድ 2015")), _context);
+
+        Assert.Equal(201, response.StatusCode);
+        await _mockRepo.Received(1).CreateUserAsync(Arg.Is<UserDto>(u =>
+            u.DisplayName == "አበበ ከበደ" && u.Woreda == "ቀበሌ 07 ዞን 3" && u.CompanyName == "አበበ ንግድ 2015"));
+    }
 }

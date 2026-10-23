@@ -10,6 +10,7 @@ import 'package:wereda_connect/core/auth/fayda_oidc_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/presentation/auth_error_l10n.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/utils/contact_in_text.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -162,8 +163,11 @@ class _RegistrationFlowState extends State<RegistrationFlow>
           // Truckers must scan their driving license to register.
           return _drivingLicensePath != null;
         }
-        // Company buyers must name their company (server rejects blank).
-        return _buyerType != 'company' || _companyName.trim().isNotEmpty;
+        // Company buyers must name their company (server rejects blank or a
+        // phone number in it, FUP-52).
+        return _buyerType != 'company' ||
+            (_companyName.trim().isNotEmpty &&
+                !containsPhoneNumber(_companyName));
       case 3:
         return true;
       default:

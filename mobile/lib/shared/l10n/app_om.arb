@@ -2604,6 +2604,7 @@
   "errorAppUpdateRequired": "Itti fufuuf maaloo appii haaromsaa. Jijjiiramni kun hin olkaa'amne.",
   "errorAppUpdateRequiredKept": "Maaloo appii haaromsaa. Jijjiiramni kun bilbila keessan irratti kuufameera, haaromsa booda ni ergama.",
   "errorContactInText": "Lakkoofsi bilbilaa asitti hin hayyamamu. Lakkoofsa kana haqi; quunnamtiin kan banamu erga kaffaltiin Eeskiroo keessatti qabamee booda.",
+  "authProfileContactInText": "Lakkoofsa bilbilaa maqaa keessan, aanaa ykn maqaa dhaabbataa keessaa haqi. Quunnamtiin kan banamu erga kaffaltiin Eeskiroo keessatti qabamee booda.",
   "deleteAccount": "Herrega haqi",
   "deleteAccountSubtitle": "Herrega fi odeeffannoo dhuunfaa keessan haqaa",
   "deleteAccountWarning": "Herrega haquun yeroo hundaafi. Deebisuun hin danda'amu.",

@@ -567,4 +567,153 @@ public class RequestValidatorTests
 
         Assert.True(RequestValidator.ValidateRegisterRequest(request).IsValid);
     }
+
+    // --- FUP-52: no phone number in profile text (auth-api 2.12.0) ---
+
+    private const string ContactTail = " Contact opens after payment is held in escrow.";
+
+    /// <summary>Digits 1-9 written as Ethiopic digits (Ethiopic has no zero).</summary>
+    private static string Ethiopic(string ascii) =>
+        new(ascii.Select(c => (char)(0x1369 + (c - '1'))).ToArray());
+
+    /// <summary>A valid farmer registration, or a company buyer one when a company name is given.</summary>
+    private static RegisterRequest ProfileRequest(
+        string? displayName = "Abebe Kebede", string woreda = "Adama", string? companyName = null) => new()
+        {
+            PhoneNumber = "+251912345678",
+            Password = "securePass1",
+            Role = companyName == null ? "farmer" : "buyer",
+            Woreda = woreda,
+            FaydaVerificationToken = "some-valid-token",
+            DisplayName = displayName,
+            BuyerType = companyName == null ? null : "company",
+            CompanyName = companyName,
+            PreferredLanguage = "am"
+        };
+
+    private static RegisterRequest WithFieldText(string field, string text) => field switch
+    {
+        "displayName" => ProfileRequest(displayName: text),
+        "woreda" => ProfileRequest(woreda: text),
+        "companyName" => ProfileRequest(companyName: text),
+        _ => throw new ArgumentOutOfRangeException(nameof(field))
+    };
+
+    public static TheoryData<string, string> PhoneNumbersInProfileText => new()
+    {
+        // English
+        { "displayName", "Abebe 0911234567" },
+        { "displayName", "Abebe +251911234567" },
+        { "displayName", "Abebe +251 911 234 567" },
+        { "displayName", "Abebe 0911 23 45 67" },
+        { "displayName", "Abebe Safaricom 0712-345-678" },
+        { "displayName", "Abebe 0911​234567" },
+        { "woreda", "Adama 0911234567" },
+        { "woreda", "Bishoftu +251-91-123-4567" },
+        { "woreda", "Adama 0911‍23​45​67" },
+        { "companyName", "Abebe Trading 0911-234-567" },
+        { "companyName", "Abebe Trading 00251 911 234 567" },
+        // Amharic, with Ethiopic digits and the Ethiopic wordspace
+        { "displayName", "አበበ ከበደ 0911234567" },
+        { "displayName", "አበበ " + Ethiopic("911234567") },
+        { "woreda", "አዳማ " + Ethiopic("911234567") },
+        { "woreda", "ቢሾፍቱ 0911፡23፡45፡67" },
+        { "companyName", "አበበ ንግድ +251 911 234 567" },
+        // Afan Oromo
+        { "displayName", "Caalaa Guddataa 0712 34 56 78" },
+        { "woreda", "Aanaa Adaamaa bilbilaa 0911234567" },
+        { "companyName", "Dhaabbata Qonnaa +251 911 234 567" },
+    };
+
+    [Theory]
+    [MemberData(nameof(PhoneNumbersInProfileText))]
+    public void ValidateRegisterRequest_PhoneNumberInProfileText_IsRefusedWithAuth027(string field, string text)
+    {
+        var result = RequestValidator.ValidateRegisterRequest(WithFieldText(field, text));
+
+        Assert.False(result.IsValid);
+        var error = Assert.Single(result.Errors);
+        Assert.Equal("AUTH_027", error.Code);
+        Assert.Equal(field, error.Field);
+        Assert.Equal($"Remove the phone number from {field}.{ContactTail}", error.Message);
+    }
+
+    public static TheoryData<string, string> ProfileTextWithoutPhoneNumbers => new()
+    {
+        // English names, woredas and companies, some with digits that are not phones
+        { "displayName", "Abebe Kebede" },
+        { "displayName", "Abebe Kebede II" },
+        { "displayName", "Abebe, farming since 2015-09-11" },
+        { "woreda", "Adama" },
+        { "woreda", "Kebele 07" },
+        { "woreda", "Bole Sub-city Woreda 03" },
+        { "woreda", "Adama Kebele 14, Zone 3" },
+        { "companyName", "Abebe Trading PLC" },
+        { "companyName", "Tsehay Farms 2019" },
+        { "companyName", "Abebe Grain Traders est. 01-09-2017" },
+        // Amharic
+        { "displayName", "አበበ ከበደ" },
+        { "displayName", "ጥቅምት 12 2018 የተወለደ" },
+        { "woreda", "አዳማ" },
+        { "woreda", "ቀበሌ 07 ዞን 3" },
+        { "companyName", "አበበ ንግድ ኃ/የተ/የግ/ማ 2015" },
+        // Afan Oromo
+        { "displayName", "Caalaa Guddataa" },
+        { "woreda", "Ganda 07, Godina 3" },
+        { "woreda", "Aanaa Adaamaa" },
+        { "companyName", "Dhaabbata Qonnaa bara 2018" },
+    };
+
+    [Theory]
+    [MemberData(nameof(ProfileTextWithoutPhoneNumbers))]
+    public void ValidateRegisterRequest_ProfileTextWithoutPhoneNumber_IsAccepted(string field, string text)
+    {
+        Assert.True(RequestValidator.ValidateRegisterRequest(WithFieldText(field, text)).IsValid);
+    }
+
+    [Fact]
+    public void ValidateRegisterRequest_NoDisplayName_IsNotScreened()
+    {
+        Assert.True(RequestValidator.ValidateRegisterRequest(ProfileRequest(displayName: null)).IsValid);
+    }
+
+    [Fact]
+    public void ValidateRegisterRequest_PhoneNumberInSeveralFields_OneErrorNamesThemInOrder()
+    {
+        var request = ProfileRequest(
+            displayName: "Abebe 0911234567",
+            woreda: "Adama +251 911 234 567",
+            companyName: "Abebe Trading 0712345678");
+
+        var result = RequestValidator.ValidateRegisterRequest(request);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Equal("AUTH_027", error.Code);
+        Assert.Equal("displayName", error.Field);
+        Assert.Equal(
+            $"Remove the phone number from displayName, woreda, companyName.{ContactTail}", error.Message);
+    }
+
+    [Fact]
+    public void ValidateRegisterRequest_FieldRuleAndPhoneNumber_ReportsTheFieldRuleFirst()
+    {
+        var request = ProfileRequest(displayName: "Abebe 0911234567 " + new string('a', 100));
+
+        var result = RequestValidator.ValidateRegisterRequest(request);
+
+        Assert.Equal("AUTH_007", result.Errors[0].Code);
+        Assert.Equal("displayName", result.Errors[0].Field);
+    }
+
+    [Fact]
+    public void ValidateRegisterRequest_PhoneNumberAndMissingFaydaToken_ReportsThePhoneNumberFirst()
+    {
+        var request = ProfileRequest(woreda: "Adama 0911234567") with { FaydaVerificationToken = null };
+
+        var result = RequestValidator.ValidateRegisterRequest(request);
+
+        Assert.Equal("AUTH_027", result.Errors[0].Code);
+        Assert.Equal("woreda", result.Errors[0].Field);
+        Assert.Equal("AUTH_021", result.Errors[^1].Code);
+    }
 }

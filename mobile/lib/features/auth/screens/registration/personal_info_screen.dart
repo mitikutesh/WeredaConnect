@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:wereda_connect/core/utils/contact_in_text.dart';
 import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -189,6 +190,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                     labelText: l10n.displayName,
                     helperText: l10n.displayNameHelper,
                     prefixIcon: const Icon(Icons.person),
+                    errorMaxLines: 3,
                   ),
                   keyboardType: TextInputType.name,
                   textCapitalization: TextCapitalization.words,
@@ -196,6 +198,10 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
                       return l10n.fieldRequired;
+                    }
+                    // FUP-52: listings show this name to every buyer.
+                    if (containsPhoneNumber(value)) {
+                      return l10n.errorContactInText;
                     }
                     return null;
                   },
@@ -212,6 +218,10 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
                       return l10n.fieldRequired;
+                    }
+                    // FUP-52: crop listings carry it to every buyer.
+                    if (containsPhoneNumber(value)) {
+                      return l10n.errorContactInText;
                     }
                     return null;
                   },

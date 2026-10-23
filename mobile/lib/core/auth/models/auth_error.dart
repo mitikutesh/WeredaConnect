@@ -72,6 +72,10 @@ class AuthErrorCode {
   // Logout: the refresh token in the body belongs to another user (403).
   static const refreshTokenNotOwned = 'AUTH_026';
 
+  /// Register: the display name, woreda or company name holds a phone number
+  /// (400, FUP-52). `field` names the first such field.
+  static const profileContactInText = 'AUTH_027';
+
   // Step-up: the session is too old for a high-value money action.
   static const stepUpRequired = 'AUTH_040';
 
@@ -115,6 +119,8 @@ extension AuthErrorCodeExtension on String {
         return 'This phone number is already registered';
       case AuthErrorCode.rateLimitExceeded:
         return 'Too many attempts. Please try again later';
+      case AuthErrorCode.profileContactInText:
+        return 'Remove the phone number from your name, woreda or company name';
 
       // Fayda errors
       case AuthErrorCode.faydaVerificationFailed:

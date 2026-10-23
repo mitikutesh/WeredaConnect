@@ -53,7 +53,9 @@ public static partial class RequestValidator
     public static string? NormalizePhoneNumber(string? input)
     {
         if (string.IsNullOrWhiteSpace(input))
+        {
             return null;
+        }
 
         var cleaned = input.Trim().Replace(" ", "").Replace("-", "");
 
@@ -442,6 +444,31 @@ public static partial class RequestValidator
                     Message = "companyName must not exceed 100 characters."
                 });
             }
+        }
+
+        // FUP-52 (auth-api 2.12.0): the display name is stamped onto listings as farmerName or
+        // truckerName and the app sends the woreda as each crop listing's woreda, so a phone
+        // number typed here would reach every buyer before escrow opens contact (FUP-49). After
+        // the field rules, so one form always gets the same answer. The Fayda name is not part
+        // of the request: it is read from the verified token and never screened.
+        var contactFields = new (string Field, string? Text)[]
+            {
+                ("displayName", request.DisplayName),
+                ("woreda", request.Woreda),
+                ("companyName", request.CompanyName),
+            }
+            .Where(f => ContactInText.ContainsPhoneNumber(f.Text))
+            .Select(f => f.Field)
+            .ToList();
+        if (contactFields.Count > 0)
+        {
+            errors.Add(new ValidationError
+            {
+                Field = contactFields[0],
+                Code = "AUTH_027",
+                Message = $"Remove the phone number from {string.Join(", ", contactFields)}. "
+                          + "Contact opens after payment is held in escrow."
+            });
         }
 
         // Registration goes through Fayda only (auth-api 2.2.0). Checked last so a

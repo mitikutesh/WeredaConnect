@@ -34,6 +34,7 @@ String localizeAuthError(
     AuthErrorCode.rateLimitExceeded => l10n.authRateLimitExceeded,
     AuthErrorCode.internalServerError => l10n.authServerError,
     AuthErrorCode.cognitoUnavailable => l10n.authServiceUnavailable,
+    AuthErrorCode.profileContactInText => l10n.authProfileContactInText,
 
     // Fayda errors
     AuthErrorCode.faydaVerificationFailed => l10n.faydaVerificationFailed,

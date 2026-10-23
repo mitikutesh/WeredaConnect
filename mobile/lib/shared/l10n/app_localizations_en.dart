@@ -3036,6 +3036,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Phone numbers are not allowed here. Remove the number: contact opens after payment is held in escrow.';
 
   @override
+  String get authProfileContactInText =>
+      'Remove the phone number from your name, woreda or company name. Contact opens after payment is held in escrow.';
+
+  @override
   String get deleteAccount => 'Delete account';
 
   @override
