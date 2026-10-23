@@ -6,6 +6,7 @@ import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/escrow_hold.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/initiate_payment_screen.dart';
@@ -123,19 +124,19 @@ class DeliveryDetailScreen extends StatelessWidget {
                       _ParticipantRow(
                         icon: Icons.agriculture,
                         label: l10n.deliveryFarmer,
-                        name: delivery.farmerName,
+                        name: partyDisplayName(delivery.farmerName, l10n),
                       ),
                       const SizedBox(height: 8),
                       _ParticipantRow(
                         icon: Icons.local_shipping,
                         label: l10n.deliveryTrucker,
-                        name: delivery.truckerName,
+                        name: partyDisplayName(delivery.truckerName, l10n),
                       ),
                       const SizedBox(height: 8),
                       _ParticipantRow(
                         icon: Icons.store,
                         label: l10n.deliveryBuyer,
-                        name: delivery.buyerName,
+                        name: partyDisplayName(delivery.buyerName, l10n),
                       ),
                       const SizedBox(height: 24),
 

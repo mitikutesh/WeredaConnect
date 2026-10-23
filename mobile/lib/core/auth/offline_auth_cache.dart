@@ -381,6 +381,14 @@ class OfflineAuthCache {
     }
   }
 
+  /// Remove everything this device keeps for [phoneNumber]'s account once
+  /// it is deleted: the credentials and profile ([clearCredentials]) and the
+  /// offline-login failure counter, whose key holds the phone number.
+  Future<void> forgetAccount(String phoneNumber) async {
+    await _clearFailedAttempts(phoneNumber);
+    await clearCredentials(phoneNumber);
+  }
+
   /// Clear all cached credentials (for all users).
   ///
   /// This should be called during app reset or uninstall.

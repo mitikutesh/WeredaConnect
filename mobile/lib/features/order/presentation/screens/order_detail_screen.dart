@@ -9,6 +9,7 @@ import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
@@ -254,12 +255,12 @@ class _OrderDetailBody extends StatelessWidget {
                   children: [
                     _InfoRow(
                       label: l10n.farmer,
-                      value: order.farmerName,
+                      value: partyDisplayName(order.farmerName, l10n),
                     ),
                     const Divider(height: 16),
                     _InfoRow(
                       label: l10n.buyer,
-                      value: order.buyerName,
+                      value: partyDisplayName(order.buyerName, l10n),
                     ),
                     const Divider(height: 16),
                     _InfoRow(
@@ -1312,7 +1313,9 @@ class _OrderContactSection extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: () {
                 final navigator = Navigator.of(context);
-                final name = party.name.isNotEmpty ? party.name : party.role;
+                final name = party.name.isNotEmpty
+                    ? partyDisplayName(party.name, l10n)
+                    : party.role;
                 showContactActionsSheet(
                   context,
                   name: name,

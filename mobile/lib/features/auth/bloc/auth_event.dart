@@ -142,6 +142,19 @@ class AuthLogoutRequested extends AuthEvent {
   List<Object?> get props => [clearCache];
 }
 
+/// The server deleted [userId]'s account (account-deletion.md): wipe
+/// everything this device holds for it and sign out. Sends nothing to the
+/// server. Ignored unless [userId] is the signed-in user, so a late answer
+/// can never wipe an account that signed in since.
+class AuthAccountDeleted extends AuthEvent {
+  final String userId;
+
+  const AuthAccountDeleted({required this.userId});
+
+  @override
+  List<Object?> get props => [userId];
+}
+
 /// Event to request password reset (sends verification code).
 class AuthForgotPasswordRequested extends AuthEvent {
   final String phoneNumber;

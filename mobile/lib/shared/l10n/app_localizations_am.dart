@@ -2937,4 +2937,127 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get errorContactInText =>
       'እዚህ ስልክ ቁጥር አይፈቀድም። ቁጥሩን ያስወግዱ፤ ክፍያው በኢስክሮ ከተያዘ በኋላ መገናኘት ይቻላል።';
+
+  @override
+  String get deleteAccount => 'መለያ ሰርዝ';
+
+  @override
+  String get deleteAccountSubtitle => 'መለያዎን እና የግል መረጃዎን ያጥፉ';
+
+  @override
+  String get deleteAccountWarning => 'መለያዎን መሰረዝ ዘላቂ ነው። መመለስ አይቻልም።';
+
+  @override
+  String get deleteAccountDeletedHeading => 'የሚሰረዘው';
+
+  @override
+  String get deleteAccountDeletedProfile => 'መገለጫዎ፣ ስምዎ እና ስልክ ቁጥርዎ';
+
+  @override
+  String get deleteAccountDeletedFayda => 'ከፋይዳ መታወቂያዎ ጋር ያለው ትስስር';
+
+  @override
+  String get deleteAccountDeletedListings => 'የሰብል ዝርዝሮችዎ፣ ጉዞዎችዎ እና የግዢ ፍላጎቶችዎ';
+
+  @override
+  String get deleteAccountDeletedMessages => 'መልእክቶችዎ';
+
+  @override
+  String get deleteAccountDeletedNotifications => 'ወደ ስልክዎ የሚላኩ ማሳወቂያዎች';
+
+  @override
+  String get deleteAccountKeptHeading => 'ያለ ስምዎ የሚቀመጠው';
+
+  @override
+  String get deleteAccountKeptRecords => 'የትዕዛዝ፣ የማድረሻ እና የክፍያ መዝገቦች';
+
+  @override
+  String get deleteAccountKeptReason =>
+      'የገንዘብ መዝገቦች መቀመጥ አለባቸው። በእነሱ ላይ ያለው ስምዎ የተሰረዘ ተጠቃሚ በሚል ይተካል።';
+
+  @override
+  String get deleteAccountNeedsInternet =>
+      'ለዚህ ኢንተርኔት ያስፈልግዎታል። የይለፍ ቃልዎን እንዲያስገቡ ሊጠየቁ ይችላሉ።';
+
+  @override
+  String get deleteAccountButton => 'መለያዬን ሰርዝ';
+
+  @override
+  String get deleteAccountConfirmTitle => 'መለያዎ ይሰረዝ?';
+
+  @override
+  String get deleteAccountConfirmBody =>
+      'ይህ መመለስ አይቻልም። መገለጫዎ፣ ዝርዝሮችዎ እና መልእክቶችዎ ይሰረዛሉ።';
+
+  @override
+  String get deleteAccountDeleting => 'መለያዎ እየተሰረዘ ነው...';
+
+  @override
+  String get deleteAccountFinishing => 'ስረዛው እየተጠናቀቀ ነው...';
+
+  @override
+  String get deleteAccountDone => 'መለያዎ ተሰርዟል።';
+
+  @override
+  String get deleteAccountOffline =>
+      'ከመስመር ውጭ ነዎት። መለያዎን ለመሰረዝ ከኢንተርኔት ጋር ይገናኙ።';
+
+  @override
+  String get deleteAccountNetworkError =>
+      'ሰርቨሩን ማግኘት አልቻልንም፣ ስለዚህ መለያዎ መሰረዙን ማወቅ አንችልም። ግንኙነትዎን አረጋግጠው እንደገና ይሞክሩ።';
+
+  @override
+  String get deleteAccountIncomplete =>
+      'ስረዛው ተጀምሯል ግን ገና አልተጠናቀቀም። ከትንሽ ቆይታ በኋላ እንደገና ይሞክሩ።';
+
+  @override
+  String get deleteAccountSuspended =>
+      'ይህ መለያ ታግዷል፣ ስለዚህ እዚህ ሊሰረዝ አይችልም። ድጋፍ ሰጪን ያግኙ።';
+
+  @override
+  String get deleteAccountFailed => 'መለያዎ ሊሰረዝ አልቻለም። ቆይተው እንደገና ይሞክሩ።';
+
+  @override
+  String get deleteAccountBlockedTitle => 'መለያዎን ገና መሰረዝ አይችሉም';
+
+  @override
+  String get deleteAccountBlockedIntro => 'መጀመሪያ እነዚህን ይጨርሱ ወይም ይሰርዙ፦';
+
+  @override
+  String deleteAccountBlockerOrder(int count) {
+    return 'በሂደት ላይ ያሉ ትዕዛዞች፦ $count';
+  }
+
+  @override
+  String deleteAccountBlockerEscrow(int count) {
+    return 'በኢስክሮ የተያዙ ክፍያዎች፦ $count';
+  }
+
+  @override
+  String deleteAccountBlockerDelivery(int count) {
+    return 'ያልተጠናቀቁ ማድረሻዎች፦ $count';
+  }
+
+  @override
+  String deleteAccountBlockerDispute(int count) {
+    return 'ያልተፈቱ ክርክሮች፦ $count';
+  }
+
+  @override
+  String deleteAccountBlockerPaymentReview(int count) {
+    return 'ተመላሽ የሚጠብቁ ክፍያዎች፦ $count። ተመላሹን ለማጠናቀቅ ድጋፍ ሰጪን ያግኙ።';
+  }
+
+  @override
+  String deleteAccountBlockerOther(int count) {
+    return 'ሌሎች በሂደት ላይ ያሉ ነገሮች፦ $count';
+  }
+
+  @override
+  String deleteAccountBlockersMore(int count) {
+    return 'እና $count ተጨማሪ።';
+  }
+
+  @override
+  String get deletedUser => 'የተሰረዘ ተጠቃሚ';
 }

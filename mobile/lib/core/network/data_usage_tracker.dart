@@ -65,6 +65,25 @@ class DataUsageTracker extends ChangeNotifier {
     _load();
   }
 
+  /// Remove the signed-in account's counters from this device (the account
+  /// was deleted) and stop counting. Stops first, so a response still in
+  /// flight cannot write them back.
+  Future<void> forgetCurrentUser() async {
+    final prefs = _prefs;
+    final suffix = _keySuffix;
+    setUser(null);
+    if (prefs == null || suffix == null) return;
+    try {
+      await Future.wait([
+        prefs.remove('$_downloadedKey:$suffix'),
+        prefs.remove('$_uploadedKey:$suffix'),
+        prefs.remove('$_sinceKey:$suffix'),
+      ]);
+    } on Object catch (e) {
+      debugPrint('[DataUsageTracker] forget failed: $e');
+    }
+  }
+
   /// Record bytes received from a server response.
   void addDownloaded(int bytes) {
     if (bytes <= 0 || _userId == null) return;

@@ -34,6 +34,7 @@ import 'package:wereda_connect/features/buyer/presentation/screens/create_intent
 import 'package:wereda_connect/features/buyer/presentation/screens/match_results_screen.dart';
 import 'package:wereda_connect/features/buyer/presentation/widgets/intent_card.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/find_crops_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
@@ -2681,7 +2682,7 @@ class _NotificationIconState extends State<_NotificationIcon> {
             title: widget.l10n.deliveryStatusActivity(
               deliveryStatusLabel(d.status, widget.l10n),
             ),
-            subtitle: d.farmerName,
+            subtitle: partyDisplayName(d.farmerName, widget.l10n),
             color: d.status == DeliveryStatus.delivered
                 ? AppTheme.statusSuccess
                 : AppTheme.statusInfo,

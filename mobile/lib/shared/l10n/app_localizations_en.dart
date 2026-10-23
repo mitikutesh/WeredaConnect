@@ -3029,4 +3029,132 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get errorContactInText =>
       'Phone numbers are not allowed here. Remove the number: contact opens after payment is held in escrow.';
+
+  @override
+  String get deleteAccount => 'Delete account';
+
+  @override
+  String get deleteAccountSubtitle => 'Remove your account and personal data';
+
+  @override
+  String get deleteAccountWarning =>
+      'Deleting your account is permanent. It cannot be undone.';
+
+  @override
+  String get deleteAccountDeletedHeading => 'What is deleted';
+
+  @override
+  String get deleteAccountDeletedProfile =>
+      'Your profile, name and phone number';
+
+  @override
+  String get deleteAccountDeletedFayda => 'The link to your Fayda ID';
+
+  @override
+  String get deleteAccountDeletedListings =>
+      'Your crop listings, trips and buying intents';
+
+  @override
+  String get deleteAccountDeletedMessages => 'Your messages';
+
+  @override
+  String get deleteAccountDeletedNotifications => 'Notifications to your phone';
+
+  @override
+  String get deleteAccountKeptHeading => 'What is kept, without your name';
+
+  @override
+  String get deleteAccountKeptRecords =>
+      'Orders, deliveries and payment records';
+
+  @override
+  String get deleteAccountKeptReason =>
+      'Money records must be kept. Your name on them is replaced with Deleted user.';
+
+  @override
+  String get deleteAccountNeedsInternet =>
+      'You need internet for this. You may be asked for your password.';
+
+  @override
+  String get deleteAccountButton => 'Delete my account';
+
+  @override
+  String get deleteAccountConfirmTitle => 'Delete your account?';
+
+  @override
+  String get deleteAccountConfirmBody =>
+      'This cannot be undone. Your profile, listings and messages will be deleted.';
+
+  @override
+  String get deleteAccountDeleting => 'Deleting your account...';
+
+  @override
+  String get deleteAccountFinishing => 'Finishing the deletion...';
+
+  @override
+  String get deleteAccountDone => 'Your account was deleted.';
+
+  @override
+  String get deleteAccountOffline =>
+      'You are offline. Connect to the internet to delete your account.';
+
+  @override
+  String get deleteAccountNetworkError =>
+      'We could not reach the server, so we cannot tell if your account was deleted. Check your connection and try again.';
+
+  @override
+  String get deleteAccountIncomplete =>
+      'The deletion started but is not finished yet. Try again in a moment.';
+
+  @override
+  String get deleteAccountSuspended =>
+      'This account is suspended, so it cannot be deleted here. Contact support.';
+
+  @override
+  String get deleteAccountFailed =>
+      'Your account could not be deleted. Try again later.';
+
+  @override
+  String get deleteAccountBlockedTitle => 'You cannot delete your account yet';
+
+  @override
+  String get deleteAccountBlockedIntro => 'Finish or cancel these first:';
+
+  @override
+  String deleteAccountBlockerOrder(int count) {
+    return 'Active orders: $count';
+  }
+
+  @override
+  String deleteAccountBlockerEscrow(int count) {
+    return 'Payments held in escrow: $count';
+  }
+
+  @override
+  String deleteAccountBlockerDelivery(int count) {
+    return 'Open deliveries: $count';
+  }
+
+  @override
+  String deleteAccountBlockerDispute(int count) {
+    return 'Open disputes: $count';
+  }
+
+  @override
+  String deleteAccountBlockerPaymentReview(int count) {
+    return 'Payments waiting for a refund: $count. Contact support to finish the refund.';
+  }
+
+  @override
+  String deleteAccountBlockerOther(int count) {
+    return 'Other active items: $count';
+  }
+
+  @override
+  String deleteAccountBlockersMore(int count) {
+    return 'And $count more.';
+  }
+
+  @override
+  String get deletedUser => 'Deleted user';
 }

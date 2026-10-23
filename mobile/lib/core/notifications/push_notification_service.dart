@@ -74,6 +74,20 @@ class PushNotificationService {
     }
   }
 
+  /// Drop this device's FCM token once the account is deleted: FCM stops
+  /// delivering to it, and the next sign-in registers a fresh one. The
+  /// server removes its own copy as part of the deletion.
+  static Future<void> deleteToken() async {
+    try {
+      if (Firebase.apps.isEmpty) return;
+      await _tokenRefreshSubscription?.cancel();
+      _tokenRefreshSubscription = null;
+      await FirebaseMessaging.instance.deleteToken();
+    } on Object catch (_) {
+      // Push not set up or unreachable: nothing to drop.
+    }
+  }
+
   Future<void> _register(String token) async {
     try {
       await _api.post<Map<String, dynamic>>(

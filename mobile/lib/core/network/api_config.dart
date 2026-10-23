@@ -60,6 +60,10 @@ class ApiConfig {
   /// POST / DELETE /device-tokens - Register / unregister the FCM push token
   static const String deviceTokensEndpoint = '/device-tokens';
 
+  /// DELETE /user/account - Delete the caller's account (online only,
+  /// specs/contracts/account-deletion.md)
+  static const String userAccountEndpoint = '/user/account';
+
   /// POST /auth/login - Login with phone/password
   static const String loginEndpoint = '/auth/login';
 

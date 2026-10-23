@@ -12,6 +12,9 @@ import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart'
     if (dart.library.html) 'package:wereda_connect/core/auth/offline_auth_cache_web.dart';
 import 'package:wereda_connect/core/auth/session_signals.dart';
+import 'package:wereda_connect/core/models/buyer_intent.dart';
+import 'package:wereda_connect/core/models/conversation_read.dart';
+import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/message.dart';
 import 'package:wereda_connect/core/models/order.dart';
@@ -19,9 +22,12 @@ import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/payment_intent.dart';
 import 'package:wereda_connect/core/models/rating.dart';
 import 'package:wereda_connect/core/models/sync_operation.dart';
+import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/messaging/data/repositories/web_message_repository.dart';
 
 /// BLoC for managing authentication state.
 ///
@@ -47,6 +53,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final OfflineAuthCache _offlineCache;
   final Isar? _isar;
   final Future<String?> Function()? _pushTokenProvider;
+  final Future<void> Function()? _pushTokenDeleter;
+  final Future<void> Function(String userId) _forgetReadMarkers;
   final SecurityEvents _securityEvents;
   StreamSubscription<void>? _sessionExpiredSub;
   String? _currentPhoneNumber;
@@ -87,6 +95,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   /// [pushTokenProvider] returns this device's current FCM token (mobile
   /// only) so logout can ask the server to stop pushing to it.
+  /// [pushTokenDeleter] drops that token on this device once the account is
+  /// deleted (mobile only).
+  /// [forgetReadMarkers] removes the web read markers of a deleted account.
   /// [sessionExpired] fires when the server rejects the refresh token.
   /// [securityEvents] defaults to the app-wide bus (tests inject one).
   AuthBloc({
@@ -94,12 +105,17 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     OfflineAuthCache? offlineCache,
     Isar? isar,
     Future<String?> Function()? pushTokenProvider,
+    Future<void> Function()? pushTokenDeleter,
+    Future<void> Function(String userId)? forgetReadMarkers,
     Stream<void>? sessionExpired,
     SecurityEvents? securityEvents,
   })  : _authService = authService ?? AuthService(),
         _offlineCache = offlineCache ?? OfflineAuthCache(),
         _isar = isar,
         _pushTokenProvider = pushTokenProvider,
+        _pushTokenDeleter = pushTokenDeleter,
+        _forgetReadMarkers =
+            forgetReadMarkers ?? WebMessageRepository.forgetReadMarkers,
         _securityEvents = securityEvents ?? SecurityEvents.instance,
         super(const AuthInitial()) {
     // Register event handlers
@@ -112,6 +128,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthCancelRequested>(_onAuthCancelRequested);
     on<AuthOtpAbandoned>(_onOtpAbandoned);
     on<AuthLogoutRequested>(_onAuthLogoutRequested);
+    on<AuthAccountDeleted>(_onAccountDeleted);
     on<AuthForgotPasswordRequested>(_onForgotPassword);
     on<AuthResetPasswordRequested>(_onResetPassword);
     on<AuthVerifyOtpRequested>(_onVerifyOtp);
@@ -761,6 +778,64 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
   }
 
+  /// The account was deleted on the server: remove everything this device
+  /// holds for it, then sign out (account-deletion.md, client obligations).
+  ///
+  /// Reuses the logout wipe and adds what logout keeps: the user's own
+  /// listings, trips, buyer requests, payment intents and read markers, the
+  /// users row and the offline-login counter. Other accounts on a shared
+  /// phone keep their data and queued work, so the database stays open
+  /// instead of going through IsarService.clearAllData. No server call: the
+  /// server already ended every session and removed the device tokens.
+  /// Every step is best effort, so one failure never keeps the user signed
+  /// in. The data usage counters go when [AuthAccountWiped] is emitted.
+  Future<void> _onAccountDeleted(
+    AuthAccountDeleted event,
+    Emitter<AuthState> emit,
+  ) async {
+    final current = state;
+    if (current is! AuthAuthenticated || current.userId != event.userId) {
+      return;
+    }
+    _clearPendingOtp();
+    emit(const AuthLoading());
+
+    final userId = current.userId;
+    final phoneNumber = _currentPhoneNumber ?? current.phoneNumber ?? '';
+
+    Future<void> step(String what, Future<void> Function() run) async {
+      try {
+        await run();
+      } on Object catch (e) {
+        debugPrint('[AuthBloc] account wipe: $what failed: $e');
+      }
+    }
+
+    final deleter = _pushTokenDeleter;
+    if (deleter != null) {
+      await step(
+        'push token',
+        () => deleter().timeout(pushUnregisterBudget),
+      );
+    }
+    final isar = _isar;
+    if (isar != null) {
+      await step('business data', () => _clearUserBusinessData(isar, userId));
+      await step('account data', () => _clearAccountData(isar, userId));
+    }
+    _securityEvents.clearKeptRejections();
+    if (phoneNumber.isNotEmpty) {
+      await step(
+        'offline cache',
+        () => _offlineCache.forgetAccount(phoneNumber),
+      );
+    }
+    await step('read markers', () => _forgetReadMarkers(userId));
+    await step('session', _clearSession);
+
+    emit(const AuthAccountWiped());
+  }
+
   /// Confirm the registration OTP; on success the session starts exactly
   /// like a login.
   Future<void> _onVerifyOtp(
@@ -1066,6 +1141,50 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           .idempotencyKeyStartsWith('$userId:')
           .findAll();
       await isar.syncOperations.deleteAll(ops.map((o) => o.id).toList());
+    });
+  }
+
+  /// Delete what a deleted account leaves after [_clearUserBusinessData]:
+  /// its own listings, trips, buyer requests and payment intents, the orders
+  /// it carried as trucker, its read markers and its users row. Listings of
+  /// other users stay (public marketplace data).
+  Future<void> _clearAccountData(Isar isar, String userId) async {
+    if (kIsWeb) return;
+    await isar.writeTxn(() async {
+      final listings =
+          await isar.cropListings.filter().farmerIdEqualTo(userId).findAll();
+      await isar.cropListings.deleteAll(listings.map((l) => l.id).toList());
+
+      final trips =
+          await isar.trips.filter().truckerIdEqualTo(userId).findAll();
+      await isar.trips.deleteAll(trips.map((t) => t.id).toList());
+
+      final intents =
+          await isar.buyerIntents.filter().buyerIdEqualTo(userId).findAll();
+      await isar.buyerIntents.deleteAll(intents.map((i) => i.id).toList());
+
+      final asBuyer =
+          await isar.paymentIntents.filter().buyerIdEqualTo(userId).findAll();
+      final asFarmer =
+          await isar.paymentIntents.filter().farmerIdEqualTo(userId).findAll();
+      final paymentIds = <int>{
+        for (final p in [...asBuyer, ...asFarmer]) p.id,
+      };
+      await isar.paymentIntents.deleteAll(paymentIds.toList());
+
+      final hauled =
+          await isar.orders.filter().truckerIdEqualTo(userId).findAll();
+      await isar.orders.deleteAll(hauled.map((o) => o.id).toList());
+
+      // `{contextType}:{contextId}:{userA}:{userB}`
+      final reads = await isar.conversationReads.where().findAll();
+      await isar.conversationReads.deleteAll([
+        for (final r in reads)
+          if (r.conversationId.split(':').skip(2).contains(userId)) r.id,
+      ]);
+
+      final users = await isar.users.filter().userIdEqualTo(userId).findAll();
+      await isar.users.deleteAll(users.map((u) => u.id).toList());
     });
   }
 }
