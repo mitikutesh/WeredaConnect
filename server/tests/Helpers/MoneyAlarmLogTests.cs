@@ -22,7 +22,9 @@ public class MoneyAlarmLogTests
         "ORDER_PAYMENT_UNMATCHED", "ORDER_PAYMENT_DUPLICATE", "ORDER_PAYMENT_UNPROCESSED",
         "ORDER_STOCK_DECREMENT_FAILED", "ORDER_MONEY_MISMATCH",
         // ESC-45: the inbox replay heartbeat; a spelled one would hide a stalled sweep.
-        "TELEBIRR_INBOX_REPLAY_RUN"
+        "TELEBIRR_INBOX_REPLAY_RUN",
+        // FUP-27: the dispute mirror's failed legs, and a sync delivery dispute's freeze (dispute rate).
+        "DISPUTE_PROPAGATION_FAILED", "DELIVERY_DISPUTE_FROZEN"
     };
 
     /// <summary>A client value that spells every alarm token.</summary>

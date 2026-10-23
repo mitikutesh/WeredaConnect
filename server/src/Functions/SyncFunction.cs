@@ -6053,6 +6053,14 @@ public partial class SyncFunction
         context.Logger.LogInformation(
             $"Dispute on delivery {MoneyAlarmLog.LogId(deliveryId)} by {MoneyAlarmLog.LogId(disputedBy)}: escrow {MoneyAlarmLog.LogId(freeze.EscrowId)} {freeze.Outcome}");
 
+        // FUP-27: the escrow dispute-rate alarm counts this dispute with the escrow Lambda's. Only a
+        // fresh freeze: an escrow already disputed was counted when it froze, and a refused dispute
+        // is resent by older clients on every reconnect. Warning, so a raised log level keeps it.
+        if (freeze.Outcome == DeliveryDisputeFreeze.Frozen)
+        {
+            context.Logger.LogWarning(MoneyAlarmLog.DeliveryDisputeFrozen(freeze.EscrowId, orderId, deliveryId));
+        }
+
         var refusal = freeze.Outcome switch
         {
             DeliveryDisputeFreeze.Frozen or DeliveryDisputeFreeze.AlreadyDisputed => null,

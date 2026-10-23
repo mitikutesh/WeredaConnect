@@ -20,7 +20,19 @@ namespace WeredaConnect.Server.Helpers;
 /// TRUCKER_PAYOUT_OVERDUE escrowId=&lt;id&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
 /// DISPUTE_NO_ESCROW orderId=&lt;id&gt; deliveryId=&lt;id&gt;
 /// ORDER_MONEY_MISMATCH orderId=&lt;id&gt; escrowId=&lt;id&gt; orderStatus=&lt;s&gt; escrowStatus=&lt;s&gt; reason=&lt;reason&gt;
+/// DISPUTE_PROPAGATION_FAILED escrowId=&lt;id&gt; orderId=&lt;id&gt; deliveryId=&lt;id&gt; legs=&lt;legs&gt;
+/// DELIVERY_DISPUTE_FROZEN escrowId=&lt;id&gt; orderId=&lt;id&gt; deliveryId=&lt;id&gt;
 /// </code>
+/// <para>
+/// FUP-27. The propagation line is logged by the escrow service's dispute mirror when the delivery
+/// or order behind a frozen dispute did not follow it, from the three Lambdas that run the mirror:
+/// escrow (<c>POST /escrow/dispute</c> and its repeat), sync (a delivery dispute) and escrow-cron (a
+/// sweep that froze a disputed trade). <c>legs</c> is the mirror's failed-legs text like the verdict
+/// lines (defanged, <c>,</c> as <c>.</c>); the escrow-audit row <c>dispute_propagation_failed</c> keeps
+/// it raw. The frozen line is logged by the sync Lambda (with <c>LogWarning</c>) once a delivery
+/// dispute froze its escrow, and nowhere else: its filter feeds the escrow dispute-rate metric that
+/// the escrow Lambda's <c>ESCROW</c>/<c>DISPUTE</c> audit line feeds too. It is a rate, not a failure.
+/// </para>
 /// <para>
 /// The order-money line (ESC-09) is logged by escrow-cron's hourly order-money sweep when the order
 /// does not show what its escrow's money says: <c>write_failed</c> (it could follow but the writes keep
@@ -99,6 +111,8 @@ public static class MoneyAlarmLog
     public const string TruckerPayoutOverdueToken = "TRUCKER_PAYOUT_OVERDUE";
     public const string DisputeNoEscrowToken = "DISPUTE_NO_ESCROW";
     public const string OrderMoneyMismatchToken = "ORDER_MONEY_MISMATCH";
+    public const string DisputePropagationFailedToken = "DISPUTE_PROPAGATION_FAILED";
+    public const string DeliveryDisputeFrozenToken = "DELIVERY_DISPUTE_FROZEN";
 
     /// <summary>The gateway definitely refused the settlement; no money moved.</summary>
     public const string OutcomeFailed = "failed";
@@ -178,6 +192,21 @@ public static class MoneyAlarmLog
         string? orderId, string? escrowId, string? orderStatus, string? escrowStatus, string? reason)
         => $"{OrderMoneyMismatchToken} orderId={LogId(orderId)} escrowId={LogId(escrowId)} "
            + $"orderStatus={Safe(orderStatus)} escrowStatus={Safe(escrowStatus)} reason={Safe(reason)}";
+
+    /// <summary>
+    /// FUP-27: the delivery or order behind a frozen dispute did not follow it (the dispute
+    /// mirror's failed legs). The money is frozen; the order may still be open to ratings.
+    /// </summary>
+    public static string DisputePropagationFailed(string? escrowId, string? orderId, string? deliveryId, string? legs)
+        => $"{DisputePropagationFailedToken} escrowId={LogId(escrowId)} orderId={LogId(orderId)} "
+           + $"deliveryId={LogId(deliveryId)} legs={LogId(legs?.Replace(',', '.'))}";
+
+    /// <summary>
+    /// FUP-27: a delivery dispute through sync froze its escrow. Counted with the escrow Lambda's
+    /// disputes by the escrow dispute-rate alarm; not a failure.
+    /// </summary>
+    public static string DeliveryDisputeFrozen(string? escrowId, string? orderId, string? deliveryId)
+        => $"{DeliveryDisputeFrozenToken} escrowId={LogId(escrowId)} orderId={LogId(orderId)} deliveryId={LogId(deliveryId)}";
 
     /// <summary>
     /// A client-chosen or client-influenced id (entity id, path parameter, header, an escrow id

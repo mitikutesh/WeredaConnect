@@ -217,6 +217,19 @@ export class MonitoringStack extends cdk.Stack {
       defaultValue: 0,
     });
 
+    // FUP-27: a delivery dispute through sync that froze its escrow counts toward the escrow
+    // dispute rate too (before, only POST /escrow/dispute did, through the JSON filter above).
+    // The sync Lambda logs DELIVERY_DISPUTE_FROZEN once per fresh freeze; an escrow already
+    // disputed and a refused dispute log nothing. Same metric, so the alarm adds both sources.
+    new logs.MetricFilter(this, 'SyncDeliveryDisputeFilter', {
+      logGroup: syncLogGroup,
+      filterPattern: logs.FilterPattern.literal('"DELIVERY_DISPUTE_FROZEN"'),
+      metricNamespace,
+      metricName: 'EscrowDispute',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+
     // ESC-13: settlement failures. EscrowService logs one ESCROW_SETTLEMENT_FAILED line
     // per failed release, refund or trucker leg (from the escrow Lambda on the admin
     // routes, from escrow-cron on the sweeps); the cron and the admin routes add one per
@@ -265,6 +278,24 @@ export class MonitoringStack extends cdk.Stack {
       });
     countVerdictMismatches('EscrowVerdictMismatchFilter', escrowLogGroup);
     countVerdictMismatches('EscrowCronVerdictMismatchFilter', escrowCronLogGroup);
+
+    // FUP-27: the delivery or order behind a frozen dispute did not follow it. EscrowService's
+    // dispute mirror logs DISPUTE_PROPAGATION_FAILED once per call with a failed leg, from every
+    // Lambda that runs the mirror: escrow (POST /escrow/dispute and its repeat), sync (a delivery
+    // dispute) and escrow-cron (a sweep that froze a disputed trade). Admin and telebirr-webhook
+    // never reach it. Three filters publish one metric.
+    const countPropagationFailures = (id: string, logGroup: logs.ILogGroup) =>
+      new logs.MetricFilter(this, id, {
+        logGroup,
+        filterPattern: logs.FilterPattern.literal('"DISPUTE_PROPAGATION_FAILED"'),
+        metricNamespace,
+        metricName: 'DisputePropagationFailed',
+        metricValue: '1',
+        defaultValue: 0,
+      });
+    countPropagationFailures('EscrowDisputePropagationFilter', escrowLogGroup);
+    countPropagationFailures('SyncDisputePropagationFilter', syncLogGroup);
+    countPropagationFailures('EscrowCronDisputePropagationFilter', escrowCronLogGroup);
 
     // ESC-03: a dispute verdict whose settlement fails closed (the order or delivery could not
     // be read, or a buyer_wins order could not be cancelled or restocked first). The hourly
@@ -753,7 +784,10 @@ export class MonitoringStack extends cdk.Stack {
         alarmName: `${prefix}-escrow-dispute-rate`,
         alarmDescription:
           'More than 5 escrow disputes in 1 hour. Possible fraud or ' +
-          'systematic delivery issues. Investigate dispute patterns.',
+          'systematic delivery issues. Investigate dispute patterns. Counts POST /escrow/dispute ' +
+          'requests (the escrow Lambda\'s ESCROW/DISPUTE audit line, any outcome) and, since FUP-27, ' +
+          'delivery disputes through sync that froze an escrow (DELIVERY_DISPUTE_FROZEN in the sync ' +
+          'log group, with escrowId, orderId and deliveryId).',
         metric: new cloudwatch.Metric({
           namespace: metricNamespace,
           metricName: 'EscrowDispute',
@@ -960,6 +994,25 @@ export class MonitoringStack extends cdk.Stack {
         'pickup_confirmed or in_transit. No money moved; the escrow stays dispute_resolved and ' +
         'the hourly sweep tries again. Bring the order (and its delivery) to a status the ' +
         'verdict can follow, or settle the case by hand, then the next sweep settles it (ESC-03).',
+    );
+
+    // FUP-27: before, a failed dispute mirror leg was only an escrow-audit row. Event-driven
+    // (one line per failed mirror call), so the money alarm shape holds one episode per failure.
+    const disputePropagationFailedAlarm = moneyLogAlarm(
+      'DisputePropagationFailed',
+      'dispute-propagation-failed',
+      'DisputePropagationFailed',
+      'Dispute Propagation Failed',
+      'The delivery or order behind a frozen dispute did not follow it (DISPUTE_PROPAGATION_FAILED ' +
+        'in the escrow, sync or escrow-cron log group, with escrowId, orderId, deliveryId and legs; ' +
+        'escrow-audit row dispute_propagation_failed has the raw legs). The money is frozen (escrow ' +
+        'disputed), so nothing pays out, but the order may still show delivered and stay open to ' +
+        'ratings. legs lookup:<error> or delivery:<error>: a read or write failed (throttling, IAM); ' +
+        'order:conflict: three version conflicts in a row; order:<code>: the order write was ' +
+        'refused. Fix the cause, then check the trade in /transactions/<orderId>. A repeated ' +
+        'dispute (POST /escrow/dispute, or the delivery dispute sent again through sync) runs the ' +
+        'mirror again, and the admin verdict moves the order and delivery before it settles ' +
+        '(ESC-03). Never edit the rows by hand (FUP-27).',
     );
 
     const orderMoneyMismatchAlarm = moneyLogAlarm(
@@ -1223,6 +1276,7 @@ export class MonitoringStack extends cdk.Stack {
           adminQueueOverdueAlarm,
           disputeVerdictMismatchAlarm,
           disputeSettlementBlockedAlarm,
+          disputePropagationFailedAlarm,
           orderMoneyMismatchAlarm,
           ...(orderPaymentProblemsAlarm ? [orderPaymentProblemsAlarm] : []),
         ],
