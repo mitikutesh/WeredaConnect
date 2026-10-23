@@ -192,7 +192,7 @@ public class FaydaMockPaymentFlowTests : IClassFixture<FaydaMockProvider>
         authState.ConsumeAsync(Arg.Any<string>()).Returns(ci =>
             _authState.Remove(ci.Arg<string>(), out var entry) ? entry : null);
 
-        _orderRepo.GetByIdAsync(OrderId).Returns(_ => new Dictionary<string, object>
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(_ => new Dictionary<string, object>
         {
             { "orderId", OrderId },
             { "buyerId", BuyerId },

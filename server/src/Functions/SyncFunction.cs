@@ -5612,8 +5612,11 @@ public partial class SyncFunction
             };
         }
 
-        // Fetch existing order
-        var existingOrder = await _orderRepo.GetByIdAsync(operation.EntityId);
+        // FUP-21: strongly consistent. Every check below runs on this row, but the write's
+        // version check uses the client's version, so a stale row can pass a transition the
+        // stored order forbids. Two updates of one order in one batch (pay then cancel)
+        // would otherwise validate the second against the row from before the first.
+        var existingOrder = await _orderRepo.GetByIdAsync(operation.EntityId, consistentRead: true);
         if (existingOrder == null)
         {
             return new SyncOperationResult
@@ -5970,8 +5973,9 @@ public partial class SyncFunction
             };
         }
 
-        // Conflict
-        var serverData = await _orderRepo.GetByIdAsync(operation.EntityId);
+        // Conflict. Read strongly consistent (FUP-21): the client adopts this row and retries
+        // from its version, so it must be the row that beat the write, not an older one.
+        var serverData = await _orderRepo.GetByIdAsync(operation.EntityId, consistentRead: true);
         var srvVersion = serverData != null && serverData.TryGetValue("version", out var svObj)
             ? int.TryParse(svObj.ToString(), out var parsed) ? parsed : version
             : version;
