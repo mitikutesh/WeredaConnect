@@ -13,6 +13,13 @@ String _inBlock(String ascii, int zero) => String.fromCharCodes(
 String _ethiopic(String ascii) =>
     String.fromCharCodes(ascii.codeUnits.map((c) => 0x1369 + (c - 0x31)));
 
+/// Each digit as a keycap emoji: the digit, variation selector 16, combining
+/// keycap.
+String _keycaps(String ascii) {
+  final keycap = String.fromCharCodes([0xFE0F, 0x20E3]);
+  return ascii.split('').map((d) => '$d$keycap').join();
+}
+
 String _joinedBy(int separator, List<String> parts) =>
     parts.join(String.fromCharCode(separator));
 
@@ -78,6 +85,8 @@ void main() {
     _joinedBy(0x205F, ['0911', '223344']),
     _joinedBy(0x3000, ['0911', '223344']),
     _joinedBy(0x1680, ['0911', '223344']),
+    // Keycap emoji digits
+    'Call ${_keycaps('0911223344')}',
   ];
 
   final notPhoneNumbers = <String>[

@@ -18,6 +18,10 @@ public class ContactInTextTests
     private static string Ethiopic(string ascii) =>
         new(ascii.Select(c => (char)(0x1369 + (c - '1'))).ToArray());
 
+    /// <summary>Each digit as a keycap emoji: the digit, variation selector 16, combining keycap.</summary>
+    private static string Keycaps(string ascii) =>
+        string.Concat(ascii.Select(c => new string(new[] { c, (char)0xFE0F, (char)0x20E3 })));
+
     private static string JoinedBy(int separator, params string[] parts) =>
         string.Join((char)separator, parts);
 
@@ -80,6 +84,8 @@ public class ContactInTextTests
         JoinedBy(0x205F, "0911", "223344"),
         JoinedBy(0x3000, "0911", "223344"),
         JoinedBy(0x1680, "0911", "223344"),
+        // Keycap emoji digits
+        "Call " + Keycaps("0911223344"),
     };
 
     public static TheoryData<string> NotPhoneNumbers => new()

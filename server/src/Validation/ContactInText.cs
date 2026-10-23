@@ -163,13 +163,16 @@ public static class ContactInText
 
     /// <summary>
     /// Invisible format characters: soft hyphen, zero-width space, joiners and direction marks,
-    /// word joiner and invisible operators, zero-width no-break space (byte order mark).
+    /// word joiner and invisible operators, zero-width no-break space (byte order mark), and the
+    /// variation selectors and combining keycap that turn a digit into a keycap emoji.
     /// </summary>
     private static bool IsFormatCharacter(char c) => (int)c switch
     {
         0x00AD or 0xFEFF => true,
         >= 0x200B and <= 0x200F => true,
         >= 0x2060 and <= 0x2064 => true,
+        >= 0xFE00 and <= 0xFE0F => true, // variation selectors
+        0x20E3 => true, // combining enclosing keycap
         _ => false,
     };
 

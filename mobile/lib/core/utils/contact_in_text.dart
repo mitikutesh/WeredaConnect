@@ -114,12 +114,17 @@ bool _chainHoldsNumber(List<_DigitGroup> groups, int first, int last) {
 
 /// Invisible format characters: soft hyphen, zero-width space, joiners and
 /// direction marks, word joiner and invisible operators, zero-width no-break
-/// space (byte order mark).
+/// space (byte order mark), and the variation selectors and combining keycap
+/// that turn a digit into a keycap emoji.
 bool _isFormatCharacter(int c) =>
     c == 0x00AD ||
     c == 0xFEFF ||
     (c >= 0x200B && c <= 0x200F) ||
-    (c >= 0x2060 && c <= 0x2064);
+    (c >= 0x2060 && c <= 0x2064) ||
+    // variation selectors
+    (c >= 0xFE00 && c <= 0xFE0F) ||
+    // combining enclosing keycap
+    c == 0x20E3;
 
 String _withoutFormatCharacters(String text) {
   if (!text.codeUnits.any(_isFormatCharacter)) return text;
