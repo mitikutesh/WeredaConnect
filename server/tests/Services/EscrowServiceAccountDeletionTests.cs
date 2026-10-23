@@ -146,6 +146,43 @@ public class EscrowServiceAccountDeletionTests
         }
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Initiate_LegacyDelivery_TakesTheTruckerFromTheDelivery_WhenTheOrderHasNone(bool truckerDeleting)
+    {
+        // A legacy delivery names the trucker; its linked order carries no truckerId.
+        var deliveries = Substitute.For<IDeliveryRepository>();
+        deliveries.GetByIdAsync(DeliveryId).Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", DeliveryId }, { "buyerId", BuyerId }, { "farmerId", FarmerId },
+            { "truckerId", TruckerId }, { "orderId", OrderId }, { "status", "pending" }
+        });
+        var order = Order("created");
+        order.Remove("truckerId");
+        _orders.GetByIdAsync(OrderId).Returns(order);
+        if (truckerDeleting)
+        {
+            Deleting("trucker");
+        }
+
+        var service = new EscrowService(_escrowRepo, _auditRepo, _idemRepo, _gateway, _users, _orders, deliveries);
+
+        var result = await service.InitiateAsync(Initiate() with { OrderId = null }, BuyerId);
+
+        await _users.Received(1).GetUserByIdAsync(TruckerId, true);
+        if (truckerDeleting)
+        {
+            result.Error!.HttpStatus.Should().Be(422);
+            result.Error.Code.Should().Be("ESCROW_030");
+            await _gateway.DidNotReceiveWithAnyArgs().HoldFundsAsync(default!);
+        }
+        else
+        {
+            result.Error?.Code.Should().NotBe("ESCROW_030");
+        }
+    }
+
     // ── POST /escrow/order-checkout ──
 
     private EscrowService CheckoutService()
