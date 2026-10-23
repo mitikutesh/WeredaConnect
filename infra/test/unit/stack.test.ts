@@ -672,6 +672,24 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     expect(text).toContain('/index/*');
   });
 
+  test('ON: the webhook may query the transaction-audit base table, no index (ESC-47)', () => {
+    // The repair of a redelivered payment reads the order's trail before it writes a missing
+    // payment_verified row; grantWriteData alone has no Query, so the read would be denied.
+    const policies = buildTemplate(true).findResources('AWS::IAM::Policy');
+    const statements = Object.entries(policies)
+      .filter(([id]) => id.startsWith('TelebirrWebhookFunction'))
+      .flatMap(([, p]) =>
+        (p as { Properties: { PolicyDocument: { Statement: Array<{ Action: unknown; Resource: unknown }> } } })
+          .Properties.PolicyDocument.Statement);
+    const onAudit = statements.filter((s) => JSON.stringify(s.Resource).includes('TransactionAuditTable'));
+    const queries = onAudit.filter((s) => ([] as unknown[]).concat(s.Action).includes('dynamodb:Query'));
+    expect(queries).toHaveLength(1);
+    expect(queries[0].Action).toBe('dynamodb:Query');
+    expect(JSON.stringify(queries[0].Resource)).not.toContain('/index/');
+    // The writes stay as they were.
+    expect(JSON.stringify(onAudit)).toContain('dynamodb:PutItem');
+  });
+
   test.each([false, true])(
     'order cron reads only the InboxReplayIndex of the idempotency table (live=%s, ESC-45)',
     (live) => {

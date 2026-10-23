@@ -78,4 +78,85 @@ public class TransactionAuditWriterTests
 
         await act.Should().NotThrowAsync();
     }
+
+    // ===== ESC-47: one row per event at a deterministic key =====
+
+    [Fact]
+    public async Task EmitOnceAsync_WritesConditionallyAtTheGivenTimestamp_WithADeterministicId()
+    {
+        var repo = Substitute.For<ITransactionAuditRepository>();
+        var captured = new List<Dictionary<string, object>>();
+        // The second write finds the row already there.
+        repo.AppendIfAbsentAsync(Arg.Do<Dictionary<string, object>>(captured.Add)).Returns(true, false);
+
+        var results = new List<bool>();
+        for (var i = 0; i < 2; i++)
+        {
+            results.Add(await TransactionAuditWriter.EmitOnceAsync(
+                repo, _context, "order-1", "order", "order-1", "payment_verified", "payment_submitted", "funded",
+                AuditContext.ForSystem("telebirr"), "2026-09-30T09:00:00.0000000Z", metadata: "m"));
+        }
+
+        results.Should().Equal(new[] { true, true }, "the row is there after both calls");
+        captured.Should().HaveCount(2);
+        captured[0].Should().BeEquivalentTo(captured[1], "two writers of the same event build the same row");
+        var row = captured[0];
+        row["transactionId"].Should().Be("order-1");
+        row["timestamp"].Should().Be("2026-09-30T09:00:00.0000000Z");
+        row["auditId"].Should().Be("txaudit-order-1-payment_verified-20260930T0900000000000Z");
+        row["action"].Should().Be("payment_verified");
+        row["fromState"].Should().Be("payment_submitted");
+        row["toState"].Should().Be("funded");
+        row["actor"].Should().Be("telebirr");
+        row["metadata"].Should().Be("m");
+        await repo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task EmitOnceAsync_SameEventTimeOnTwoTransactions_GetsTwoIds()
+    {
+        var repo = Substitute.For<ITransactionAuditRepository>();
+        var ids = new List<string>();
+        repo.AppendIfAbsentAsync(Arg.Do<Dictionary<string, object>>(e => ids.Add((string)e["auditId"]))).Returns(true);
+
+        foreach (var orderId in new[] { "order-1", "order-2" })
+        {
+            await TransactionAuditWriter.EmitOnceAsync(
+                repo, _context, orderId, "order", orderId, "payment_verified", null, null, Ctx(),
+                "2026-09-30T09:00:00.0000000Z");
+        }
+
+        ids.Should().OnlyHaveUniqueItems().And.HaveCount(2);
+    }
+
+    [Fact]
+    public async Task EmitOnceAsync_WithoutRepoOrTimestamp_IsNoOp()
+    {
+        var repo = Substitute.For<ITransactionAuditRepository>();
+
+        var noRepo = await TransactionAuditWriter.EmitOnceAsync(
+            null, _context, "order-1", "order", "order-1", "x", null, null, Ctx(), "2026-09-30T09:00:00.0000000Z");
+        var noTimestamp = await TransactionAuditWriter.EmitOnceAsync(
+            repo, _context, "order-1", "order", "order-1", "x", null, null, Ctx(), "");
+
+        noRepo.Should().BeFalse();
+        noTimestamp.Should().BeFalse();
+        await repo.DidNotReceive().AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task EmitOnceAsync_RepoThrows_DoesNotPropagate()
+    {
+        var repo = Substitute.For<ITransactionAuditRepository>();
+        repo.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>())
+            .Returns<Task<bool>>(_ => throw new InvalidOperationException("dynamo down"));
+
+        bool? written = null;
+        var act = async () => written = await TransactionAuditWriter.EmitOnceAsync(
+            repo, _context, "order-1", "order", "order-1", "x", null, null, Ctx(), "2026-09-30T09:00:00.0000000Z");
+
+        await act.Should().NotThrowAsync();
+        written.Should().BeFalse("the caller logs which order lost its row");
+        ((TestLambdaLogger)_context.Logger).Buffer.ToString().Should().Contain("transaction-audit write failed (non-fatal)");
+    }
 }

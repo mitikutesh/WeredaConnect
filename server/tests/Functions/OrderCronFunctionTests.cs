@@ -110,6 +110,95 @@ public class OrderCronFunctionTests
         Assert.Contains("\"cancelled\":\"1\"", response.Body);
     }
 
+    // ===== ESC-47: the pending_payment auto-cancel counts from when the order entered it =====
+
+    /// <summary>
+    /// An order created 30 hours ago whose first payment failed (submitted 25 hours ago, failed by the
+    /// cron an hour ago) and that the buyer moved back to pending_payment
+    /// <paramref name="pendingPaymentAgo"/> ago (null: a row from before the stamp).
+    /// </summary>
+    private void StubRetriedPendingPaymentOrder(TimeSpan? pendingPaymentAgo)
+    {
+        var now = DateTime.UtcNow;
+        var order = new Dictionary<string, object>
+        {
+            { "orderId", "order-retry" },
+            { "status", "pending_payment" },
+            { "version", "6" },
+            { "createdAt", now.AddHours(-30).ToString("o") },
+            { "paymentSubmittedAt", now.AddHours(-25).ToString("o") },
+            { "updatedAt", now.AddMinutes(-10).ToString("o") }
+        };
+        if (pendingPaymentAgo != null)
+        {
+            order["pendingPaymentAt"] = (now - pendingPaymentAgo.Value).ToString("o");
+        }
+
+        _mockOrderRepo.QueryByStatusForCronAsync("pending_payment", Arg.Any<string?>())
+            .Returns(new List<Dictionary<string, object>> { order });
+        _mockOrderRepo.UpdateAsync("order-retry", Arg.Any<Dictionary<string, object>>(), 6)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "order-retry" },
+                { "status", "cancelled" }
+            }));
+    }
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_OldOrderRetriedIntoPendingPaymentRecently_IsNotCancelled()
+    {
+        var txAuditRepo = Substitute.For<ITransactionAuditRepository>();
+        var sut = new OrderCronFunction(_mockOrderRepo, txAuditRepo);
+        StubRetriedPendingPaymentOrder(pendingPaymentAgo: TimeSpan.FromMinutes(10));
+
+        var actual = await sut.FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        Assert.Equal(200, actual.StatusCode);
+        Assert.Contains("\"cancelled\":\"0\"", actual.Body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(
+            "order-retry", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await txAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_PendingPaymentWithNoStatusChangeFor25Hours_IsCancelled()
+    {
+        var txAuditRepo = Substitute.For<ITransactionAuditRepository>();
+        var sut = new OrderCronFunction(_mockOrderRepo, txAuditRepo);
+        StubRetriedPendingPaymentOrder(pendingPaymentAgo: TimeSpan.FromHours(25));
+
+        var actual = await sut.FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        Assert.Contains("\"cancelled\":\"1\"", actual.Body);
+        await _mockOrderRepo.Received(1).UpdateAsync("order-retry", Arg.Is<Dictionary<string, object>>(d =>
+            (string)d["status"] == "cancelled"), 6);
+        await txAuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+            (string)e["entityId"] == "order-retry" && (string)e["fromState"] == "pending_payment"
+            && (string)e["toState"] == "cancelled"));
+    }
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_PendingPaymentFromBeforeTheStamp_CountsFromCreation()
+    {
+        // A row that entered pending_payment before the server stamped pendingPaymentAt keeps the
+        // old clock (createdAt), even though its last write was recent.
+        StubRetriedPendingPaymentOrder(pendingPaymentAgo: null);
+
+        var actual = await _function.FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        Assert.Contains("\"cancelled\":\"1\"", actual.Body);
+    }
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_PendingPaymentStampJustInsideTheWindow_IsNotCancelled()
+    {
+        StubRetriedPendingPaymentOrder(pendingPaymentAgo: TimeSpan.FromHours(23) + TimeSpan.FromMinutes(59));
+
+        var actual = await _function.FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        Assert.Contains("\"cancelled\":\"0\"", actual.Body);
+    }
+
     private static Dictionary<string, object> SubmittedOrder(
         string orderId, DateTime createdAt, DateTime? paymentSubmittedAt, string version = "3")
     {
