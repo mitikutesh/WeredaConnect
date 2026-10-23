@@ -1155,6 +1155,10 @@ class AppLocalizationsAm extends AppLocalizations {
       'ይህ ክፍያ በአስተዳዳሪ እየተከፈለ ስለሆነ ከእንግዲህ ክርክር ማንሳት አይቻልም። ድጋፍ ሰጪን ያግኙ።';
 
   @override
+  String get escrowErrorDeliveryPaymentUnavailable =>
+      'ለማድረሻ የመስመር ላይ ክፍያ እዚህ አይገኝም። በምትኩ ይህን ትዕዛዝ ከትዕዛዙ ገጽ ይክፈሉ።';
+
+  @override
   String get escrowErrorInvalidTransition => 'ይህ ድርጊት በአሁኑ የክፍያ ሁኔታ አይፈቀድም።';
 
   @override
@@ -2725,6 +2729,10 @@ class AppLocalizationsAm extends AppLocalizations {
       'ከ10,000 ብር በላይ ለሆኑ ክፍያዎች ገበሬውም የተረጋገጠ የፋይዳ መታወቂያ ሊኖረው ይገባል፣ ስለዚህ ይህ ክፍያ አልተላከም። ገበሬው ካረጋገጠ በኋላ መክፈል ይችላሉ።';
 
   @override
+  String get kycFarmerNotVerifiedMessage =>
+      'የገበሬው ማንነት ገና ስላልተረጋገጠ ይህ ክፍያ አልተላከም። ገበሬው ካረጋገጠ በኋላ መክፈል ይችላሉ።';
+
+  @override
   String get kycUnavailableMessage =>
       'አሁን የማንነት ማረጋገጫን ማየት አልቻልንም፣ ስለዚህ ይህ ክፍያ አልተላከም። እባክዎ ቆይተው እንደገና ይሞክሩ።';
 
@@ -2840,6 +2848,9 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get paymentTotalOutOfRange =>
       'ቴሌብር በአንድ ክፍያ ከ100 እስከ 500,000 ብር ይቀበላል። የዚህ ትዕዛዝ ጠቅላላ ዋጋ ከዚህ ውጭ ስለሆነ በቴሌብር ሊከፈል አይችልም።';
+
+  @override
+  String get paymentMethodUnavailable => 'ይህ የክፍያ ዘዴ ገና አይገኝም። በቴሌብር ይክፈሉ።';
 
   @override
   String get continuePayment => 'ክፍያውን ይቀጥሉ';
