@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
@@ -143,7 +144,7 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                dateFormat.format(delivery.createdAt),
+                dateFormat.format(dayInEthiopia(delivery.createdAt)),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                 ),

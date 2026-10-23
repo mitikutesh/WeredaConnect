@@ -6,6 +6,10 @@ import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 /// SIM-50: a trip's departure day is the day it falls on in Ethiopia, for
 /// every viewer. The inputs are built with explicit offsets, so the cases do
 /// not depend on the timezone of the machine running them.
+// intl renders a narrow no-break space (U+202F) before AM/PM; normalize
+// it so the literal expectations below stay readable.
+String _norm(String s) => s.replaceAll('\u202f', ' ').replaceAll('\u00a0', ' ');
+
 void main() {
   DateTime day(String iso) => dayInEthiopia(DateTime.parse(iso));
 
@@ -61,6 +65,59 @@ void main() {
       expect(
         DateFormat.MMMd().format(day('2026-10-24T21:00:00.000Z')),
         'Oct 25',
+      );
+    });
+  });
+
+  group('instantInEthiopia', () {
+    DateTime at(String iso) => instantInEthiopia(DateTime.parse(iso));
+
+    test('an instant on the previous UTC day is today in Ethiopia', () {
+      // 02:30 on 23 Oct in Ethiopia is 23:30 on 22 Oct UTC. Web kept the UTC
+      // value and formatted it, so it showed 22 Oct (the reported bug).
+      final eat = at('2026-10-22T23:30:00.000Z');
+      expect((eat.year, eat.month, eat.day), (2026, 10, 23));
+      expect((eat.hour, eat.minute), (2, 30));
+      // The old, unconverted display showed the previous day.
+      expect(
+        DateFormat.yMMMd().format(DateTime.parse('2026-10-22T23:30:00.000Z')),
+        'Oct 22, 2026',
+      );
+      expect(
+        _norm(DateFormat.yMMMd().add_jm().format(eat)),
+        'Oct 23, 2026 2:30 AM',
+      );
+    });
+
+    test('keeps the time of day, not only the date', () {
+      expect(
+        _norm(
+          DateFormat.yMMMd().add_jm().format(at('2026-06-19T10:00:00.000Z')),
+        ),
+        'Jun 19, 2026 1:00 PM',
+      );
+    });
+
+    test('shows Ethiopia time whatever the device timezone', () {
+      // The same instant written at UTC-4 formats to the same Ethiopia time.
+      final fromUtc = at('2026-10-22T23:30:00.000Z');
+      final fromWest = at('2026-10-22T19:30:00.000-04:00');
+      expect(fromWest, fromUtc);
+      expect(_norm(DateFormat.jm().format(fromWest)), '2:30 AM');
+    });
+
+    test('the same instant in UTC or local form gives the same wall clock', () {
+      // Web keeps the parsed value in UTC; Isar hands mobile a local one.
+      final instant = DateTime.parse('2026-10-22T23:30:00.000Z');
+      expect(instantInEthiopia(instant.toLocal()), instantInEthiopia(instant));
+    });
+
+    test('its calendar day matches dayInEthiopia', () {
+      final instant = DateTime.parse('2026-10-22T23:30:00.000Z');
+      final eat = instantInEthiopia(instant);
+      expect(
+        DateTime.utc(eat.year, eat.month, eat.day),
+        dayInEthiopia(instant),
       );
     });
   });

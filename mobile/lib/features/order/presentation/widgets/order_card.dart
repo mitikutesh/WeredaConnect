@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
@@ -77,7 +78,7 @@ class OrderCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${(order.orderTotal ?? order.totalPrice).toStringAsFixed(0)} ETB · ${dateFormat.format(order.createdAt)}',
+                          '${(order.orderTotal ?? order.totalPrice).toStringAsFixed(0)} ETB · ${dateFormat.format(dayInEthiopia(order.createdAt))}',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.onSurface
                                 .withValues(alpha: 0.6),

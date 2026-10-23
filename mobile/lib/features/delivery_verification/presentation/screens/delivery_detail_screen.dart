@@ -6,6 +6,7 @@ import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/escrow_hold.dart';
@@ -187,7 +188,7 @@ class DeliveryDetailScreen extends StatelessWidget {
           _InfoRow(
             icon: Icons.access_time,
             label: l10n.deliveryTimeLabel,
-            value: dateFormat.format(delivery.pickedUpAt!),
+            value: dateFormat.format(instantInEthiopia(delivery.pickedUpAt!)),
           ),
           const SizedBox(height: 8),
           if (delivery.gpsPickup != null)
@@ -240,7 +241,7 @@ class DeliveryDetailScreen extends StatelessWidget {
           _InfoRow(
             icon: Icons.access_time,
             label: l10n.deliveryTimeLabel,
-            value: dateFormat.format(delivery.confirmedAt!),
+            value: dateFormat.format(instantInEthiopia(delivery.confirmedAt!)),
           ),
           const SizedBox(height: 8),
           if (delivery.gpsDropoff != null)

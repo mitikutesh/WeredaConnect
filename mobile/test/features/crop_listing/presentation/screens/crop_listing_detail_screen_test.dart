@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/models/rating.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_listing_detail_screen.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
@@ -149,8 +150,9 @@ void main() {
 
     testWidgets('renders created date', (tester) async {
       final listing = _makeListing();
-      final expectedDate =
-          DateFormat.yMMMd().add_jm().format(DateTime(2026, 2, 20));
+      final expectedDate = DateFormat.yMMMd()
+          .add_jm()
+          .format(instantInEthiopia(DateTime(2026, 2, 20)));
 
       await tester.pumpWidget(_buildScreen(listing: listing));
       await tester.pumpAndSettle();
