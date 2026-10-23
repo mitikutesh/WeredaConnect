@@ -29,7 +29,8 @@ enum AppErrorCode {
   /// The server wants the user to re-enter their password (AUTH_040).
   stepUpRequired,
 
-  /// A payment above 10,000 ETB needs a fresh Fayda login (AUTH_041).
+  /// A higher-risk payment needs a fresh Fayda login (AUTH_041); at MEDIUM risk
+  /// above 10,000 ETB or at HIGH risk (FRD-04). A password prompt may follow.
   faydaStepUpRequired,
 
   /// The payment needs the buyer's own Fayda KYC or verified phone

@@ -2751,7 +2751,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get faydaStepUpMessage =>
-      'This payment needs a Fayda login, not your password. Confirm it\'s you with Fayda and your payment continues right after.';
+      'Confirm it\'s you with Fayda to continue with this payment. You may also be asked for your password.';
 
   @override
   String get stepUpTitle => 'Confirm it\'s you';

@@ -5077,7 +5077,7 @@ abstract class AppLocalizations {
   /// Fayda step-up dialog (AUTH_041): this payment needs a fresh Fayda login instead of the password. No amount: the server asks for it above 10,000 ETB and may ask at any amount
   ///
   /// In en, this message translates to:
-  /// **'This payment needs a Fayda login, not your password. Confirm it\'s you with Fayda and your payment continues right after.'**
+  /// **'Confirm it\'s you with Fayda to continue with this payment. You may also be asked for your password.'**
   String get faydaStepUpMessage;
 
   /// Title of the step-up re-authentication dialog

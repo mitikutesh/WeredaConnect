@@ -2672,7 +2672,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get faydaStepUpMessage =>
-      'ይህ ክፍያ የይለፍ ቃል ሳይሆን የፋይዳ ማረጋገጫ ያስፈልገዋል። እርስዎ መሆንዎን በፋይዳ ያረጋግጡ፣ ክፍያዎ ወዲያውኑ ይቀጥላል።';
+      'ይህን ክፍያ ለመቀጠል እርስዎ መሆንዎን በፋይዳ ያረጋግጡ። የይለፍ ቃልዎም ሊጠየቅ ይችላል።';
 
   @override
   String get stepUpTitle => 'እርስዎ መሆንዎን ያረጋግጡ';
