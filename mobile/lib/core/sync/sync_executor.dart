@@ -890,8 +890,9 @@ class SyncExecutor {
   /// `ORDER_*` code but `ORDER_KYC_REQUIRED` (matched earlier) is
   /// deterministic too (sync-protocol.md 1.10.0), and so are a delivery cancel
   /// refused after pickup (1.11.0), a delivery dispute that was refused or
-  /// came after the 48-hour window (1.12.0, ESC-07), and a message into a
-  /// thread whose contact is not open (1.15.0, ESC-48).
+  /// came after the 48-hour window (1.12.0, ESC-07), a message into a
+  /// thread whose contact is not open (1.15.0, ESC-48), and a crop listing or
+  /// trip whose text holds a phone number (1.23.0, FUP-49).
   static bool _isPermanentRejection(String? message) {
     if (message == null) return false;
     return message.startsWith('FRAUD_') ||
@@ -899,7 +900,8 @@ class SyncExecutor {
         message.startsWith('DELIVERY_ORDER_REQUIRED') ||
         isRevertableRejectionMessage(message) ||
         isRevertableDeliveryRejectionMessage(message) ||
-        isContactLockedMessage(message);
+        isContactLockedMessage(message) ||
+        isContactInTextMessage(message);
   }
 
   /// Background operations the user never made (matching analytics): a

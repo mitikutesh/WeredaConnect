@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.3.0
+1.4.0
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -250,7 +250,7 @@ GET /crops/crop-456
 | `location.region` | string | Yes | 1-100 chars | Region name |
 | `location.coordinates.latitude` | number | No | -90 to 90 | GPS latitude |
 | `location.coordinates.longitude` | number | No | -180 to 180 | GPS longitude |
-| `description` | string | No | 0-500 chars | Additional details |
+| `description` | string | No | 0-500 chars, no phone number (1.4.0) | Additional details |
 | `status` | enum | Yes | See Status Types | Listing status |
 | `harvestDate` | string (ISO 8601) | Yes | — | Date crop was harvested |
 | `createdAt` | string (ISO 8601) | Yes | — | Timestamp when listing was created |
@@ -321,6 +321,18 @@ GET /crops/crop-456
 6. **Description**:
    - Maximum 500 characters
    - Allow Amharic, Afan Oromo, English characters
+6b. **No phone number in listing text** (1.4.0, FUP-49):
+   - `description`, `locationName` and `woreda` must not hold an Ethiopian mobile number. Buyers read them before any order, and contact opens only after the money is held in escrow (1.3.0, ESC-48).
+   - A create, or an update that changes one of these fields, is refused with `CROP_CONTACT_IN_TEXT: Remove the phone number from <fields>. Contact opens after payment is held in escrow.` and nothing is written. `<fields>` lists the fields that hold a number, comma-separated, in the order `description`, `locationName`, `woreda`. The check runs after the `CROP_VALIDATION` field rules, so one payload always gets the same answer. Clients treat the code as permanent (`sync-protocol.md` 1.23.0).
+   - On update, a value equal to the stored one is an unchanged echo and is not checked, so a listing stored before 1.4.0 can still change status.
+   - The detector (server `server/src/Validation/ContactInText.cs`, client `mobile/lib/core/utils/contact_in_text.dart`, rule for rule the same and tested with the same table of cases):
+     1. Digits: ASCII, Arabic-Indic (U+0660 to U+0669), Extended Arabic-Indic (U+06F0 to U+06F9) and fullwidth (U+FF10 to U+FF19); the Ethiopic digits one to nine (U+1369 to U+1371; Ethiopic has no zero).
+     2. Digit groups are maximal runs of digits. Two neighbouring groups belong to one number when 1 to 3 separator characters lie between them: white space (with U+00A0, U+202F and the Ethiopic wordspace U+1361), `.`, `-`, `(`, `)`, `+`, the Unicode hyphens and dashes U+2010 to U+2015 and the minus sign U+2212. A comma, slash, colon or any letter ends the number.
+     3. Dates are not numbers: three groups joined by the same single `-` or `.`, not continued by that character on either side, that read day and month (1 to 31) then a 2- or 4-digit year, or a 4-digit year (1900 to 2099) then month and day.
+     4. A number is a 9 (Ethio Telecom) or a 7 (Safaricom) and 8 more digits: after a trunk `0`, after `251` or `00251` (with or without the trunk `0`, so `+251 (0) 9...` too), or bare. A prefixed number may start and end on any group border inside a run of linked groups (`price 45 0911234567`); a bare 9-digit number must be the whole run, so `750 000 - 800 000 birr` stays a price range.
+   - Found: `0911234567`, `0911 23 45 67`, `0911-234-567`, `0911.23.45.67`, `+251 911 234 567`, `(+251) 911234567`, `00251911234567`, `0712345678`, `911 234 567`, one digit per space, the same in Amharic or Afan Oromo text.
+   - Allowed: prices, quantities and weights (`500 kg`, `1,200 ETB`, `1 200 000 birr`), dates (`2026-10-23`, `09-10-2018 50 quintals`), plates (`3-AA-12345`), times (`09:30`).
+   - Not covered: landlines (`011 ...`), digits spelled out in any language, letters or commas inside the number, digits glued to other digits. Audio notes (`audioNoteRef`) cannot be screened.
 7. **Farmer ID**:
    - Must match authenticated user's ID (cannot create listings for other users)
 
@@ -406,6 +418,7 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 ### Data Privacy
 - Phone numbers returned only to the owning farmer and admins, never to buyers (1.3.0, ESC-48: no contact before the money is held, so a buyer and a farmer cannot agree to trade off the platform)
 - GPS coordinates optional (farmers may not want exact farm location public)
+- Listing text carries no phone number (1.4.0, FUP-49, rule 6b)
 
 ---
 
@@ -434,9 +447,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 | 1.1.1 | 2026-09-25 | Geo/date rules on update as on create (SIM-17): `latitude`/`longitude` must be inside the Ethiopia bounding box when present (null tolerated), `createdAt` must be ISO 8601 and not in the future (24h skew); both `CROP_VALIDATION` |
 | 1.2.0 | 2026-09-28 | Create: `farmerName`/`farmerPhone` come from the farmer's profile, client values ignored (SIM-40) |
 | 1.3.0 | 2026-10-17 | `GET /crops` and `GET /crops/{id}` return `farmerPhone` only to the listing's farmer and admins; buyers get none (ESC-48). Clients read `farmerPhone ?? ''`, so shipped apps keep working and their browse cache loses the numbers at the next pull |
+| 1.4.0 | 2026-10-23 | No phone number in listing text (FUP-49): a `description`, `locationName` or `woreda` that holds an Ethiopian mobile number is refused with `CROP_CONTACT_IN_TEXT` on create and on an update that changes it (an unchanged echo is accepted), nothing written; permanent on clients; the forms run the same check first; detector in rule 6b; audio notes are not screened |
 
 ---
 
-**Last Updated**: 2026-10-17
-**Version**: 1.3.0
+**Last Updated**: 2026-10-23
+**Version**: 1.4.0
 **Status**: Implemented (Phase R3)

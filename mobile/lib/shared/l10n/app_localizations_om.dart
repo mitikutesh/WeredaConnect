@@ -2974,4 +2974,8 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get errorOrderCancelNotAllowed =>
       'Ajajni kun amma haqamuu hin danda\'u. Kan haqamu midhaan yeroodhaan yoo hin fudhatamin fi wanti tokkollee yoo hin fudhatamin qofa.';
+
+  @override
+  String get errorContactInText =>
+      'Lakkoofsi bilbilaa asitti hin hayyamamu. Lakkoofsa kana haqi; quunnamtiin kan banamu erga kaffaltiin Eeskiroo keessatti qabamee booda.';
 }

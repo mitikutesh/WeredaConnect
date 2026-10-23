@@ -12,6 +12,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/place.dart';
+import 'package:wereda_connect/core/utils/contact_in_text.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 import 'package:wereda_connect/shared/widgets/voice_note_widget.dart';
@@ -298,6 +299,10 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
                           if (value == null || value.trim().isEmpty) {
                             return l10n.locationRequired;
                           }
+                          // FUP-49: buyers read it before any order.
+                          if (containsPhoneNumber(value)) {
+                            return l10n.errorContactInText;
+                          }
                           return null;
                         },
                       ),
@@ -317,6 +322,7 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
                         decoration: InputDecoration(
                           labelText: l10n.description,
                           prefixIcon: const Icon(Icons.description),
+                          errorMaxLines: 3,
                           border: const OutlineInputBorder(),
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16,
@@ -325,6 +331,9 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
                         ),
                         maxLines: 3,
                         keyboardType: TextInputType.multiline,
+                        validator: (value) => containsPhoneNumber(value)
+                            ? l10n.errorContactInText
+                            : null,
                       ),
                       const SizedBox(height: 16),
 

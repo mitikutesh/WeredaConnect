@@ -2567,5 +2567,6 @@
   "orderTransportFailedBuyerHint": "Midhaan yeroodhaan hin fudhatamne. Ajaja kana haqxanii maallaqa kaffaltan hunda deebifachuu dandeessu.",
   "orderTransportFailedPartyHint": "Midhaan yeroodhaan hin fudhatamne. Bitataan amma ajaja kana haquu danda'a.",
   "cancelOrderTransportFailedBody": "Kan kaffaltan hundi, baasii geejjibaa fi komishinii waltajjii dabalatee, isinii deebi'a.",
-  "errorOrderCancelNotAllowed": "Ajajni kun amma haqamuu hin danda'u. Kan haqamu midhaan yeroodhaan yoo hin fudhatamin fi wanti tokkollee yoo hin fudhatamin qofa."
+  "errorOrderCancelNotAllowed": "Ajajni kun amma haqamuu hin danda'u. Kan haqamu midhaan yeroodhaan yoo hin fudhatamin fi wanti tokkollee yoo hin fudhatamin qofa.",
+  "errorContactInText": "Lakkoofsi bilbilaa asitti hin hayyamamu. Lakkoofsa kana haqi; quunnamtiin kan banamu erga kaffaltiin Eeskiroo keessatti qabamee booda."
 }

@@ -2574,5 +2574,6 @@
   "orderTransportFailedBuyerHint": "ሰብሉ በጊዜው አልተነሳም። ይህን ትዕዛዝ ሰርዘው የከፈሉትን ገንዘብ በሙሉ መመለስ ይችላሉ።",
   "orderTransportFailedPartyHint": "ሰብሉ በጊዜው አልተነሳም። ገዢው አሁን ይህን ትዕዛዝ መሰረዝ ይችላል።",
   "cancelOrderTransportFailedBody": "የትራንስፖርትና የመድረክ ኮሚሽንን ጨምሮ የከፈሉት ሁሉ ይመለስልዎታል።",
-  "errorOrderCancelNotAllowed": "ይህ ትዕዛዝ አሁን ሊሰረዝ አይችልም። መሰረዝ የሚቻለው ሰብሉ በጊዜው ካልተነሳና ምንም ካልተወሰደ ብቻ ነው።"
+  "errorOrderCancelNotAllowed": "ይህ ትዕዛዝ አሁን ሊሰረዝ አይችልም። መሰረዝ የሚቻለው ሰብሉ በጊዜው ካልተነሳና ምንም ካልተወሰደ ብቻ ነው።",
+  "errorContactInText": "እዚህ ስልክ ቁጥር አይፈቀድም። ቁጥሩን ያስወግዱ፤ ክፍያው በኢስክሮ ከተያዘ በኋላ መገናኘት ይቻላል።"
 }

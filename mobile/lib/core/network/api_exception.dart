@@ -149,6 +149,19 @@ const String contactLockedCode = 'MESSAGE_CONTACT_LOCKED';
 bool isContactLockedMessage(String? message) =>
     message != null && message.startsWith(contactLockedCode);
 
+/// Sync rejection prefixes when crop or trip text that buyers read carries a
+/// phone number (FUP-49, sync-protocol.md 1.23.0). Nothing was written.
+const String cropContactInTextCode = 'CROP_CONTACT_IN_TEXT';
+const String tripContactInTextCode = 'TRIP_CONTACT_IN_TEXT';
+
+/// Whether a /sync per-operation error message refuses a crop listing or a
+/// trip because its text holds a phone number. Permanent: the same payload
+/// always gets the same answer, so it is never resent.
+bool isContactInTextMessage(String? message) =>
+    message != null &&
+    (message.startsWith(cropContactInTextCode) ||
+        message.startsWith(tripContactInTextCode));
+
 /// Whether a /sync per-operation error message refuses a delivery change for
 /// good and the client must put the delivery back from the server: a cancel
 /// after pickup (ESC-08) or a dispute that was refused or too late (ESC-07).

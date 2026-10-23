@@ -2865,4 +2865,8 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get errorOrderCancelNotAllowed =>
       'ይህ ትዕዛዝ አሁን ሊሰረዝ አይችልም። መሰረዝ የሚቻለው ሰብሉ በጊዜው ካልተነሳና ምንም ካልተወሰደ ብቻ ነው።';
+
+  @override
+  String get errorContactInText =>
+      'እዚህ ስልክ ቁጥር አይፈቀድም። ቁጥሩን ያስወግዱ፤ ክፍያው በኢስክሮ ከተያዘ በኋላ መገናኘት ይቻላል።';
 }

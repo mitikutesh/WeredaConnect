@@ -2951,4 +2951,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get errorOrderCancelNotAllowed =>
       'This order can\'t be cancelled now. It can be cancelled only when the crops were not collected in time and nothing was picked up.';
+
+  @override
+  String get errorContactInText =>
+      'Phone numbers are not allowed here. Remove the number: contact opens after payment is held in escrow.';
 }

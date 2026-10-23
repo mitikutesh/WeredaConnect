@@ -3699,5 +3699,9 @@
   "errorOrderCancelNotAllowed": "This order can't be cancelled now. It can be cancelled only when the crops were not collected in time and nothing was picked up.",
   "@errorOrderCancelNotAllowed": {
     "description": "The server (ORDER_CANCEL_NOT_ALLOWED) or the app refused to cancel an accepted order: its pickup deadline has not passed, or the crops were picked up (ESC-06)"
+  },
+  "errorContactInText": "Phone numbers are not allowed here. Remove the number: contact opens after payment is held in escrow.",
+  "@errorContactInText": {
+    "description": "A crop or trip text field that buyers read holds a phone number. Shown under the field and when the server refuses the listing (CROP_CONTACT_IN_TEXT / TRIP_CONTACT_IN_TEXT, FUP-49)"
   }
 }

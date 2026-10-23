@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.15.0
+1.23.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -201,6 +201,7 @@ These rules must always hold:
 - Order rejections (every `ORDER_*` code except `ORDER_KYC_REQUIRED`, since 1.10.0) → Mark as permanently rejected and revert the local order (see Permanent order rejections)
 - `DELIVERY_CANCEL_NOT_ALLOWED` (since 1.11.0) → Mark as permanently rejected and revert the local delivery (see Delivery cancel)
 - `DELIVERY_DISPUTE_REFUSED` and `DELIVERY_DISPUTE_EXPIRED` (since 1.12.0) → Mark as permanently rejected and revert the local delivery (see Delivery dispute); `DELIVERY_DISPUTE_RETRY` is transient and retried
+- `CROP_CONTACT_IN_TEXT` and `TRIP_CONTACT_IN_TEXT` (since 1.23.0) → Mark as permanently rejected, not reverted (see Listing text refusal)
 
 **Retry State Management**:
 - `retryCount` field in `SyncOperation` entity tracks attempts (only incremented by server errors, not network failures)
@@ -430,10 +431,44 @@ times) and keep their local copy.
 
 ---
 
+## Listing text refusal (1.23.0, FUP-49)
+
+A `crop_listing` or `trip` create, or an update that changes the text, is refused when text that
+buyers read before any order holds a phone number (`crop-listing-api.md` 1.4.0 rule 6b for
+`description`, `locationName`, `woreda`; `trip-listing-api.md` 1.5.0 rule 10 for
+`vehicleDescription`, `vehiclePlate`, `fromWoreda`, `toWoreda`):
+
+`CROP_CONTACT_IN_TEXT: Remove the phone number from <fields>. Contact opens after payment is held in escrow.`
+
+`TRIP_CONTACT_IN_TEXT: Remove the phone number from <fields>. Contact opens after payment is held in escrow.`
+
+Nothing is written. The answer depends only on the payload (on update, also on the stored value:
+an unchanged echo is not checked), so the same operation always gets the same answer.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `CROP_CONTACT_IN_TEXT:` or `TRIP_CONTACT_IN_TEXT:` | Permanent: mark the operation rejected (never resent, not reset by a reconnect). Not reverted: like any other refused listing or trip, the local row stays and the operation counts as failed. Explained in en, am and om with `errorContactInText` ("Phone numbers are not allowed here. Remove the number: contact opens after payment is held in escrow."). | Failure with the same text. |
+
+The crop and trip forms run the same detector before anything is queued (offline-first) and show
+the same text under the field, so the refusal comes back only for an operation queued by an older
+build, a client that skips the form, or a rule that changed on one side.
+
+`CROP_VALIDATION` and `TRIP_VALIDATION` are unchanged.
+
+Clients from before 1.23.0 do not know the codes: they retry them like any other error and keep
+their local change; every retry gets the same refusal.
+
+A crop and trip revert for permanent refusals is in flight separately (ESC-12 part B, FUP-01). It
+reverts only the codes it lists; once both ship, these two codes are added to that list so a
+refused create is removed locally.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.23.0 | 2026-10-23 | Listing text refusal (FUP-49): `CROP_CONTACT_IN_TEXT` and `TRIP_CONTACT_IN_TEXT` for a crop listing or trip whose buyer-visible text holds a phone number (`crop-listing-api.md` 1.4.0, `trip-listing-api.md` 1.5.0), nothing written; deterministic, permanent on the mobile queue, not reverted, explained in en, am and om; web shows the same text; the forms run the same check before queueing; older clients retry it |
 | 1.15.0 | 2026-10-17 | Message contact refusal (ESC-48): `MESSAGE_CONTACT_LOCKED` for a message into a `crop` or `trip` thread, or into an `order` or `delivery` thread whose order's contact is not open; permanent, the mobile client removes its local copy and explains it in en, am and om; a refused resend of a message the sender already stored answers `duplicate`; message rows in `/sync` data carry no phone; delivery rows in `/sync` data carry no phone (`delivery-verification-api.md` 1.15.0) |
 | 1.14.0 | 2026-10-17 | Delivery dispute step-up fails closed (FUP-26): when the order (or a legacy delivery's `DeliveryIndex` escrow) that sizes the step-up cannot be read, the dispute answers `DELIVERY_DISPUTE_RETRY` before the freeze and nothing is written (it was let through without the step-up); a missing order, or a total that is missing, unreadable, zero or negative, answers `AUTH_040` to a stale session at any amount; clients unchanged (`DELIVERY_DISPUTE_RETRY` retried, `AUTH_040` kept pending) |
 | 1.13.0 | 2026-10-10 | Order cancel refusal (ESC-06): `ORDER_CANCEL_NOT_ALLOWED` is sent for a buyer cancel of an `accepted` order before its pickup deadline, after pickup or while its money is being settled; permanent (server-clock dependent, never resent), its own localized message on mobile and web; the cancel's read and write failures are unprefixed and retried; a delivery create on an order that no longer takes one is refused with `DELIVERY_VALIDATION`; order rows carry `pickupDeadlineAt` |
@@ -452,5 +487,5 @@ times) and keep their local copy.
 
 ---
 
-**Last Updated**: 2026-10-17
-**Version**: 1.15.0
+**Last Updated**: 2026-10-23
+**Version**: 1.23.0
