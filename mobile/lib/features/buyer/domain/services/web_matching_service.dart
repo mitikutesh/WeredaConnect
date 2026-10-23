@@ -4,6 +4,7 @@ import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
 import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/services/base_matching_service.dart';
@@ -231,6 +232,9 @@ class WebMatchingService extends BaseMatchingService {
     DateTime? neededByDate,
   }) {
     final now = DateTime.now().toUtc();
+    // FUP-85: compare by Ethiopia calendar day, not by instant, so a trip
+    // departing today is suggested all day (parity with MatchingService).
+    final todayStart = startOfDayInEthiopia(now);
     final fromKey = normalizeWoreda(fromLocation);
     final toKey = normalizeWoreda(toLocation);
     final deadline = neededByDate?.toUtc();
@@ -239,7 +243,11 @@ class WebMatchingService extends BaseMatchingService {
     if (fromKey.isEmpty || toKey.isEmpty) return const <Trip>[];
 
     final matched = trips.where((trip) {
-      if (trip.departureDate.isBefore(now)) return false;
+      // FUP-85: keep trips departing today or later in Ethiopia; drop only
+      // past days.
+      if (startOfDayInEthiopia(trip.departureDate).isBefore(todayStart)) {
+        return false;
+      }
       if (trip.capacity < quantityNeeded) return false;
       // Date-fit: drop trips departing after the buyer's delivery deadline.
       if (deadline != null && trip.departureDate.isAfter(deadline)) {

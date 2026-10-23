@@ -15,3 +15,15 @@ DateTime dayInEthiopia(DateTime instant) {
   final inEthiopia = instant.toUtc().add(_ethiopiaUtcOffset);
   return DateTime.utc(inEthiopia.year, inEthiopia.month, inEthiopia.day);
 }
+
+/// FUP-85: the instant at which the Ethiopia calendar day of [instant] begins
+/// (local midnight, UTC+3). Unlike [dayInEthiopia] this is a real instant, so
+/// it is safe to compare against stored instants such as a trip's
+/// departureDate. A trip departing "today" is then eligible until Ethiopia
+/// midnight, not only until the instant it would have left.
+DateTime startOfDayInEthiopia(DateTime instant) {
+  final inEthiopia = instant.toUtc().add(_ethiopiaUtcOffset);
+  final dayMidnightEat =
+      DateTime.utc(inEthiopia.year, inEthiopia.month, inEthiopia.day);
+  return dayMidnightEat.subtract(_ethiopiaUtcOffset);
+}

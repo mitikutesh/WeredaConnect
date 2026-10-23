@@ -75,6 +75,7 @@ void main() {
       double capacity = 100,
       double pricePerQuintal = 10,
       Duration departsIn = const Duration(days: 2),
+      DateTime? departureDate,
     }) async {
       await isar.writeTxn(() async {
         await isar.trips.putByTripId(
@@ -85,7 +86,8 @@ void main() {
             ..truckerPhone = '+251900000000'
             ..fromWoreda = fromWoreda
             ..toWoreda = toWoreda
-            ..departureDate = DateTime.now().toUtc().add(departsIn)
+            ..departureDate =
+                departureDate ?? DateTime.now().toUtc().add(departsIn)
             ..capacity = capacity
             ..pricePerQuintal = pricePerQuintal
             ..status = TripStatus.open
@@ -193,6 +195,42 @@ void main() {
       final results = await service.matchListingsForIntent(buildIntent());
 
       expect(results.single.suggestedTrips, hasLength(1));
+    });
+
+    test('FUP-85: a trip departing today is still suggested later the same day',
+        () async {
+      // A trip leaving today stores its departureDate as the instant of
+      // Ethiopia local midnight (UTC+3), which is already in the past by
+      // mid-morning. The old instant filter dropped it; it must now stay
+      // eligible until Ethiopia midnight, while yesterday's trip is dropped.
+      final nowEat = DateTime.now().toUtc().add(const Duration(hours: 3));
+      final todayStart = DateTime.utc(nowEat.year, nowEat.month, nowEat.day)
+          .subtract(const Duration(hours: 3));
+      final yesterdayStart = todayStart.subtract(const Duration(days: 1));
+
+      await putCrop(id: 'crop-1'); // woreda 'Assosa'
+      await putTrip(
+        id: 'trip-today',
+        fromWoreda: 'Assosa',
+        departureDate: todayStart,
+      );
+      await putTrip(
+        id: 'trip-yesterday',
+        fromWoreda: 'Assosa',
+        departureDate: yesterdayStart,
+      );
+
+      final trips = await service.findTripsForListing(
+        (await isar.cropListings.getByListingId('crop-1'))!,
+        'AddisAbeba',
+        5,
+      );
+
+      expect(
+        trips.map((t) => t.tripId),
+        ['trip-today'],
+        reason: 'today stays eligible all day; a past day is dropped',
+      );
     });
 
     test('equal-score crops are tie-broken by cheaper crop price', () async {
