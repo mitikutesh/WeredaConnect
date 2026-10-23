@@ -456,7 +456,7 @@ public class AdminFunction
 
             if (plan.Case != DispositionCase.NotNeeded)
             {
-                if (DispositionRefusal(plan, disposition, body.Resolution) is { } refusal)
+                if (DispositionRefusal(plan, disposition, body.Resolution, replay: false) is { } refusal)
                 {
                     return refusal;
                 }
@@ -645,7 +645,7 @@ public class AdminFunction
             if (plan.Case != DispositionCase.NotNeeded)
             {
                 var chosen = disposition ?? recordedDisposition;
-                if (DispositionRefusal(plan, chosen, resolution) is { } refusal)
+                if (DispositionRefusal(plan, chosen, resolution, replay: true) is { } refusal)
                 {
                     return refusal;
                 }
@@ -656,10 +656,11 @@ public class AdminFunction
                 var dispositionAt = latest.TryGetValue(DisputeDispositionFields.At, out var rat) && rat.S != null ? rat.S : recordedAt;
                 if (disposition != null && disposition != recordedDisposition)
                 {
-                    if (!await RecordDispositionAsync(latest, resolution, disposition, reason, adminUserId, now))
+                    if (!await RecordDispositionAsync(latest, resolution, disposition, recordedDisposition, reason, adminUserId, now))
                     {
                         return LambdaResponse.Error(409, "ADMIN_010",
-                            "The verdict can no longer take a disposition: a settlement is in progress or done. Reload the page.");
+                            "The verdict can no longer take this disposition: a settlement is in progress or done, or another "
+                            + "admin recorded a choice meanwhile. Reload the page.");
                     }
 
                     dispositionAt = now;
@@ -686,13 +687,18 @@ public class AdminFunction
     /// FUP-16: why a verdict whose legs cannot follow it is not recorded (or not changed) with
     /// <paramref name="disposition"/>; null when the disposition resolves it. Nothing is written on a refusal.
     /// </summary>
-    private static APIGatewayProxyResponse? DispositionRefusal(DispositionPlan plan, string? disposition, string resolution)
+    private static APIGatewayProxyResponse? DispositionRefusal(
+        DispositionPlan plan, string? disposition, string resolution, bool replay)
     {
         if (plan.Case == DispositionCase.NoFit)
         {
+            // A recorded verdict cannot change; before it is recorded the admin can still pick the other one.
             return LambdaResponse.Error(422, "ADMIN_016",
                 $"The order or delivery behind this verdict cannot follow {resolution} ({plan.Legs}) and no disposition fits. "
-                + "Nothing was changed: bring the order to a status the verdict can follow, or choose the other verdict.");
+                + (replay
+                    ? "Nothing was changed. The verdict is recorded and cannot change: the order must be repaired by hand "
+                      + "first (for buyer_wins, the deprecated overrideOrderMismatch refund still settles it)."
+                    : "Nothing was recorded: bring the order to a status the verdict can follow, or choose the other verdict."));
         }
 
         if (disposition == null)
@@ -719,13 +725,30 @@ public class AdminFunction
 
     /// <summary>
     /// FUP-16: record a new disposition on a verdict that is not settled yet. Conditional on the escrow
-    /// still being <c>dispute_resolved</c> with this verdict, with no manual payout and no settlement lock.
-    /// False when the condition fails.
+    /// still being <c>dispute_resolved</c> with this verdict, with no manual payout and no settlement lock,
+    /// and still carrying the disposition this request read (<paramref name="previous"/>, or none), so two
+    /// admins choosing at once cannot overwrite each other unseen. False when the condition fails.
     /// </summary>
     private async Task<bool> RecordDispositionAsync(
-        Dictionary<string, AttributeValue> escrow, string resolution, string disposition, string reason,
+        Dictionary<string, AttributeValue> escrow, string resolution, string disposition, string? previous, string reason,
         string adminUserId, string now)
     {
+        var values = new Dictionary<string, AttributeValue>
+        {
+            { ":disposition", new AttributeValue { S = disposition } },
+            { ":reason", new AttributeValue { S = reason } },
+            { ":by", new AttributeValue { S = adminUserId } },
+            { ":now", new AttributeValue { S = now } },
+            { ":resolved", new AttributeValue { S = "dispute_resolved" } },
+            { ":resolution", new AttributeValue { S = resolution } }
+        };
+        var unchanged = "attribute_not_exists(#disposition)";
+        if (previous != null)
+        {
+            values[":previous"] = new AttributeValue { S = previous };
+            unchanged = "#disposition = :previous";
+        }
+
         try
         {
             await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
@@ -739,7 +762,7 @@ public class AdminFunction
                 UpdateExpression = "SET #disposition = :disposition, #dispositionReason = :reason, #dispositionBy = :by, "
                                    + "#dispositionAt = :now, #updatedAt = :now",
                 ConditionExpression = "#status = :resolved AND #resolution = :resolution "
-                                      + "AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#lock)",
+                                      + "AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#lock) AND " + unchanged,
                 ExpressionAttributeNames = new Dictionary<string, string>
                 {
                     { "#disposition", DisputeDispositionFields.Disposition },
@@ -752,15 +775,7 @@ public class AdminFunction
                     { "#manualPayout", ManualPayoutFields.Marker },
                     { "#lock", "settlementLock" }
                 },
-                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-                {
-                    { ":disposition", new AttributeValue { S = disposition } },
-                    { ":reason", new AttributeValue { S = reason } },
-                    { ":by", new AttributeValue { S = adminUserId } },
-                    { ":now", new AttributeValue { S = now } },
-                    { ":resolved", new AttributeValue { S = "dispute_resolved" } },
-                    { ":resolution", new AttributeValue { S = resolution } }
-                }
+                ExpressionAttributeValues = values
             });
             return true;
         }
@@ -2262,36 +2277,51 @@ public class AdminFunction
             return (new List<Dictionary<string, object>>(), null);
         }
 
-        var request = new ScanRequest
+        var items = new List<Dictionary<string, object>>();
+        var lastKey = startKey;
+        var pages = 0;
+        do
         {
-            TableName = tableName,
-            Limit = limit
-        };
-
-        if (startKey != null)
-        {
-            request.ExclusiveStartKey = startKey;
-        }
-
-        if (!string.IsNullOrEmpty(filterValue))
-        {
-            request.FilterExpression = "#field = :value";
-            request.ExpressionAttributeNames = new Dictionary<string, string>
+            var request = new ScanRequest
             {
-                { "#field", filterField }
+                TableName = tableName,
+                Limit = limit
             };
-            request.ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-            {
-                { ":value", new AttributeValue { S = filterValue } }
-            };
-        }
 
-        var response = await _dynamoDb.ScanAsync(request);
-        var items = response.Items.Select(DynamoDbHelper.FromItem).ToList();
-        var lastKey = response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null;
+            if (lastKey != null)
+            {
+                request.ExclusiveStartKey = lastKey;
+            }
+
+            if (!string.IsNullOrEmpty(filterValue))
+            {
+                request.FilterExpression = "#field = :value";
+                request.ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#field", filterField }
+                };
+                request.ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":value", new AttributeValue { S = filterValue } }
+                };
+            }
+
+            var response = await _dynamoDb.ScanAsync(request);
+            items.AddRange(response.Items.Select(DynamoDbHelper.FromItem));
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
+            pages++;
+        }
+        // FUP-16: DynamoDB applies the filter after the Limit, so one page of a filtered scan can hold
+        // few matches or none. Keep reading until `limit` matched (the last page may add up to
+        // limit - 1 more), the table ends, or the page budget is spent; the nextToken resumes after the
+        // last page read, so nothing is skipped or repeated.
+        while (!string.IsNullOrEmpty(filterValue) && items.Count < limit && lastKey != null && pages < MaxFilteredScanPages);
 
         return (items, lastKey);
     }
+
+    /// <summary>The most Scan pages (of <c>limit</c> rows each) one filtered admin list request reads.</summary>
+    private const int MaxFilteredScanPages = 25;
 
     private async Task<Dictionary<string, AttributeValue>?> QuerySingleItemAsync(
         string tableName,
@@ -2419,7 +2449,11 @@ public class AdminFunction
                 Resolution = GetStringOrNull(item, "disputeResolution"),
                 ResolvedBy = GetStringOrNull(item, "disputeResolvedBy"),
                 ResolvedAt = GetStringOrNull(item, "disputeResolvedAt"),
-                CreatedAt = GetString(item, "disputeCreatedAt")
+                CreatedAt = GetString(item, "disputeCreatedAt"),
+                Disposition = GetStringOrNull(item, DisputeDispositionFields.Disposition),
+                DispositionReason = GetStringOrNull(item, DisputeDispositionFields.Reason),
+                DispositionBy = GetStringOrNull(item, DisputeDispositionFields.By),
+                DispositionAt = GetStringOrNull(item, DisputeDispositionFields.At)
             };
         }
 

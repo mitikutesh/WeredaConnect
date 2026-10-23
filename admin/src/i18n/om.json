@@ -126,7 +126,10 @@
     "dispositionHint_wait_for_delivery": "Amma homtuu hin jijjiiramu. Ajajni yeroo gahu qotee bulaan ni kaffalama; hanga sanaatti akeekkachiisni walsimuu dhabuu itti fufa.",
     "dispositionReason": "Sababa (galmee odiitii keessatti kuufama)",
     "dispositionReasonHint": "Qubee 10 hanga 500.",
-    "confirmDisposition": "Murtii galmeessi"
+    "confirmDisposition": "Murtii galmeessi",
+    "recordedChoice": "Filannoo galmaa'e",
+    "noChoice": "Ammaaf hin jiru",
+    "loadMore": "Dabalata fe'i"
   },
   "payouts": {
     "title": "Kaffaltii Harkaan",

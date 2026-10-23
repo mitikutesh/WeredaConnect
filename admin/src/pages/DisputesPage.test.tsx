@@ -13,15 +13,26 @@ type MutateOptions = {
   onSettled?: () => void;
 };
 
+/* Both lists are infinite queries: the page reads data.pages and offers "Load more". */
+function pagedList() {
+  return {
+    data: undefined as unknown,
+    isLoading: false,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
+  };
+}
+
 const mocks = vi.hoisted(() => ({
-  disputes: { data: undefined as unknown, isLoading: false },
-  awaiting: { data: undefined as unknown, isLoading: false },
+  disputes: undefined as unknown as ReturnType<typeof pagedList>,
+  awaiting: undefined as unknown as ReturnType<typeof pagedList>,
   mutate: vi.fn<(vars: unknown, opts?: MutateOptions) => void>(),
 }));
 
 vi.mock("@/hooks/useQuery", () => ({
   useDisputes: () => mocks.disputes,
-  useEscrows: () => mocks.awaiting,
+  useEscrowPages: () => mocks.awaiting,
   useResolveDispute: () => ({ mutate: mocks.mutate, isPending: false }),
 }));
 
@@ -83,8 +94,10 @@ function lastMutate() {
 describe("DisputesPage", () => {
   beforeEach(() => {
     mocks.mutate.mockReset();
-    mocks.disputes.data = { disputes: [openDispute()] };
-    mocks.awaiting.data = { escrows: [recordedVerdict()] };
+    mocks.disputes = pagedList();
+    mocks.awaiting = pagedList();
+    mocks.disputes.data = { pages: [{ disputes: [openDispute()] }] };
+    mocks.awaiting.data = { pages: [{ escrows: [recordedVerdict()] }] };
   });
 
   it("sends a plain verdict, and on ADMIN_015 offers the goods choices for buyer_wins", async () => {
@@ -172,6 +185,37 @@ describe("DisputesPage", () => {
     expect(screen.getByRole("alert").textContent).toBe(
       "That choice does not fit the order's current state. Reload the page and check the order.",
     );
+  });
+
+  it("pages the awaiting list: rows of every page, and Load more fetches the next", async () => {
+    const user = userEvent.setup();
+    const waiting = recordedVerdict();
+    waiting.escrowId = "escrow-3";
+    (waiting.dispute as Record<string, unknown>).disposition = "wait_for_delivery";
+    (waiting.dispute as Record<string, unknown>).dispositionReason = "Trucker says two more days";
+    // An empty first page (the scan found no match there) still has more behind it.
+    mocks.awaiting.data = { pages: [{ escrows: [] }, { escrows: [recordedVerdict(), waiting] }] };
+    mocks.awaiting.hasNextPage = true;
+    render(<DisputesPage />);
+
+    await user.click(screen.getByRole("button", { name: "Awaiting settlement" }));
+
+    expect(within(table()).getByText("escrow-2")).toBeTruthy();
+    expect(within(table()).getByText("None yet")).toBeTruthy();
+    expect(within(table()).getByText("Wait for the delivery")).toBeTruthy();
+    expect(within(table()).getByText("Trucker says two more days")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    expect(mocks.awaiting.fetchNextPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers Load more on the open list only when the server has more", async () => {
+    const { rerender } = render(<DisputesPage />);
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+
+    mocks.disputes.hasNextPage = true;
+    rerender(<DisputesPage />);
+
+    expect(screen.getByRole("button", { name: "Load more" })).toBeTruthy();
   });
 
   it("cancel closes the choice without sending anything", async () => {

@@ -33,11 +33,32 @@ export function useEscrowAudit(id: string) {
   });
 }
 
-// Disputes
-export function useDisputes(params?: string) {
-  return useQuery({
-    queryKey: ["admin", "disputes", params],
-    queryFn: () => api.get(`/admin/disputes${params ? `?${params}` : ""}`),
+// Disputes. FUP-16: the server scans and then filters by status, so a page can come back short
+// with a nextToken; the disputes page loads the next one on demand.
+export function useDisputes() {
+  return useInfiniteQuery({
+    queryKey: ["admin", "disputes"],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.get<{ disputes?: unknown[]; nextToken?: string | null }>(
+        `/admin/disputes${pageParam ? `?nextToken=${encodeURIComponent(pageParam)}` : ""}`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
+  });
+}
+
+/** FUP-16: escrows in one status, page by page (the disputes page's awaiting-settlement tab). */
+export function useEscrowPages(status: string) {
+  return useInfiniteQuery({
+    queryKey: ["admin", "escrows", "pages", status],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.get<{ escrows?: unknown[]; nextToken?: string | null }>(
+        `/admin/escrows?status=${encodeURIComponent(status)}${
+          pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""
+        }`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
   });
 }
 

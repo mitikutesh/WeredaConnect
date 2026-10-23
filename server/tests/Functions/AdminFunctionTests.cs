@@ -117,6 +117,13 @@ public class AdminFunctionTests
         };
     }
 
+    private static APIGatewayProxyRequest AdminGetWithQuery(string path, Dictionary<string, string> query)
+    {
+        var request = AdminGet(path);
+        request.QueryStringParameters = query;
+        return request;
+    }
+
     private AdminFunction TransactionFunction(IAmazonDynamoDB db) =>
         new(db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable);
 
@@ -968,6 +975,90 @@ public class AdminFunctionTests
             Arg.Any<CancellationToken>());
     }
 
+    // ===== FUP-16: filtered admin lists page past filtered-out rows =====
+
+    private static Dictionary<string, AttributeValue> PageKey(string escrowId)
+        => new() { { "escrowId", S(escrowId) }, { "createdAt", S("2026-10-01T10:00:00Z") } };
+
+    private static ScanResponse ScanPage(Dictionary<string, AttributeValue>? lastKey, params string[] disputedIds) => new()
+    {
+        Items = disputedIds.Select(id => new Dictionary<string, AttributeValue>
+        {
+            { "escrowId", S(id) }, { "createdAt", S("2026-10-01T10:00:00Z") }, { "status", S("disputed") },
+            { "buyerId", S("buyer-1") }, { "farmerId", S("farmer-1") }, { "amount", Num("100") }
+        }).ToList(),
+        LastEvaluatedKey = lastKey ?? new Dictionary<string, AttributeValue>()
+    };
+
+    /// <summary>A database whose user-name lookup (list enrichment) finds nobody.</summary>
+    private static IAmazonDynamoDB ListDb()
+    {
+        var db = Substitute.For<IAmazonDynamoDB>();
+        db.BatchGetItemAsync(Arg.Any<BatchGetItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new BatchGetItemResponse
+            {
+                Responses = new Dictionary<string, List<Dictionary<string, AttributeValue>>>(),
+                UnprocessedKeys = new Dictionary<string, KeysAndAttributes>()
+            });
+        return db;
+    }
+
+    [Fact]
+    public async Task ListDisputes_KeepsScanningPastPagesWithoutMatches_UntilTheLimitMatches()
+    {
+        var db = ListDb();
+        var scans = new List<ScanRequest>();
+        db.ScanAsync(Arg.Do<ScanRequest>(scans.Add), Arg.Any<CancellationToken>())
+            .Returns(ScanPage(PageKey("e-10")), ScanPage(PageKey("e-20"), "escrow-a"), ScanPage(PageKey("e-30"), "escrow-b"),
+                ScanPage(null, "escrow-c"));
+        var fn = new AdminFunction(db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable);
+
+        var response = await fn.FunctionHandler(
+            AdminGetWithQuery("/admin/disputes", new Dictionary<string, string> { { "limit", "2" } }), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        response.Body.Should().Contain("escrow-a").And.Contain("escrow-b").And.NotContain("escrow-c");
+        scans.Should().HaveCount(3);
+        scans[0].ExclusiveStartKey.Should().BeNullOrEmpty();
+        scans[1].ExclusiveStartKey["escrowId"].S.Should().Be("e-10");
+        scans[2].ExclusiveStartKey["escrowId"].S.Should().Be("e-20");
+        scans.Should().OnlyContain(r => r.Limit == 2 && r.ExpressionAttributeValues[":value"].S == "disputed");
+        // The next page resumes after the last page read.
+        response.Body.Should().Contain("\"nextToken\":\"");
+    }
+
+    [Fact]
+    public async Task ListEscrows_ByStatus_StopsAtThePageBudget_AndHandsBackANextToken()
+    {
+        var db = ListDb();
+        var scans = new List<ScanRequest>();
+        db.ScanAsync(Arg.Do<ScanRequest>(scans.Add), Arg.Any<CancellationToken>())
+            .Returns(_ => ScanPage(PageKey($"e-{scans.Count}")));
+        var fn = new AdminFunction(db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable);
+
+        var response = await fn.FunctionHandler(AdminGetWithQuery("/admin/escrows",
+            new Dictionary<string, string> { { "status", "dispute_resolved" }, { "limit", "20" } }), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        scans.Should().HaveCount(25);
+        response.Body.Should().Contain("\"escrows\":[]").And.Contain("\"nextToken\":\"");
+    }
+
+    [Fact]
+    public async Task ListEscrows_WithoutAStatus_ReadsOnePage()
+    {
+        var db = ListDb();
+        var scans = new List<ScanRequest>();
+        db.ScanAsync(Arg.Do<ScanRequest>(scans.Add), Arg.Any<CancellationToken>())
+            .Returns(ScanPage(PageKey("e-1"), "escrow-a"));
+        var fn = new AdminFunction(db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable);
+
+        var response = await fn.FunctionHandler(AdminGet("/admin/escrows"), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        scans.Should().ContainSingle();
+    }
+
     // ===== FUP-16: a verdict the legs cannot follow needs a disposition =====
 
     private const string Reason = "Truck turned back at Adama with the bags.";
@@ -1195,7 +1286,7 @@ public class AdminFunctionTests
             ResolveRequest(new { resolution = "farmer_wins", action = "release" }), _context);
 
         response.StatusCode.Should().Be(422);
-        response.Body.Should().Contain("ADMIN_016").And.Contain("order:mismatch:cancelled");
+        response.Body.Should().Contain("ADMIN_016").And.Contain("order:mismatch:cancelled").And.Contain("choose the other verdict");
         await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
     }
 
@@ -1267,6 +1358,47 @@ public class AdminFunctionTests
     }
 
     [Fact]
+    public async Task ResolveDispute_ReplayOfAVerdictNothingFits_SaysItCannotChange()
+    {
+        // A recorded verdict cannot become the other one: the message must not offer it.
+        TableReads(EscrowsTable, RecordedVerdict("farmer_wins"));
+        TableReads(OrdersTable, OrderItem("cancelled"));
+        TheVerdictWriteFindsItDecided();
+
+        var response = await WithMirrorTables().FunctionHandler(
+            ResolveRequest(DispositionBody("farmer_wins", "settle_now")), _context);
+
+        response.StatusCode.Should().Be(422);
+        response.Body.Should().Contain("ADMIN_016").And.Contain("cannot change").And.NotContain("choose the other verdict");
+        Calls<UpdateItemRequest>(nameof(IAmazonDynamoDB.UpdateItemAsync))
+            .Should().NotContain(u => u.TableName == EscrowsTable && u.ConditionExpression.StartsWith("#status = :resolved"));
+    }
+
+    [Fact]
+    public async Task ListEscrows_ShowsTheRecordedDisposition()
+    {
+        var db = ListDb();
+        var item = RecordedVerdict("farmer_wins", ("disputeId", "dispute-1"), ("disputeReason", "not_delivered"),
+            ("disputeCreatedAt", "2026-09-20T10:00:00Z"), ("disputeDisposition", "wait_for_delivery"),
+            ("disputeDispositionReason", Reason), ("disputeDispositionBy", "admin-1"),
+            ("disputeDispositionAt", "2026-09-21T08:00:00.0000000Z"));
+        item["buyerId"] = S("buyer-1");
+        item["farmerId"] = S("farmer-1");
+        item["amount"] = Num("100");
+        db.ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ScanResponse { Items = [item], LastEvaluatedKey = new Dictionary<string, AttributeValue>() });
+        var fn = new AdminFunction(db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable);
+
+        var response = await fn.FunctionHandler(AdminGetWithQuery("/admin/escrows",
+            new Dictionary<string, string> { { "status", "dispute_resolved" } }), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        response.Body.Should().Contain("\"disposition\":\"wait_for_delivery\"")
+            .And.Contain($"\"dispositionReason\":\"{Reason}\"")
+            .And.Contain("\"dispositionBy\":\"admin-1\"");
+    }
+
+    [Fact]
     public async Task ResolveDispute_ReplayTurnsAWaitIntoSettleNow_RecordsTheNewChoiceFirst()
     {
         TableReads(EscrowsTable, RecordedVerdict("farmer_wins",
@@ -1286,6 +1418,9 @@ public class AdminFunctionTests
         choice.ConditionExpression.Should().Contain("attribute_not_exists(#lock)").And.Contain("attribute_not_exists(#manualPayout)");
         choice.ExpressionAttributeValues[":disposition"].S.Should().Be("settle_now");
         choice.ExpressionAttributeValues[":resolution"].S.Should().Be("farmer_wins");
+        // Never last-writer-wins: the write requires the choice this request read.
+        choice.ConditionExpression.Should().EndWith("AND #disposition = :previous");
+        choice.ExpressionAttributeValues[":previous"].S.Should().Be("wait_for_delivery");
         updates.Single(u => u.TableName == DeliveriesTable).ExpressionAttributeValues[":cancelReason"].S
             .Should().Be("dispute_farmer_wins");
         updates.Single(u => u.TableName == OrdersTable).ExpressionAttributeValues[":to"].S.Should().Be("dispute_resolved");
@@ -1308,9 +1443,13 @@ public class AdminFunctionTests
             ResolveRequest(DispositionBody("farmer_wins", "settle_now")), _context);
 
         response.StatusCode.Should().Be(409);
-        response.Body.Should().Contain("ADMIN_010");
+        response.Body.Should().Contain("ADMIN_010").And.Contain("another admin");
         await _dynamoDb.DidNotReceive().UpdateItemAsync(
             Arg.Is<UpdateItemRequest>(u => u.TableName == OrdersTable || u.TableName == DeliveriesTable), Arg.Any<CancellationToken>());
+        // Nothing was recorded when this request read the escrow: a concurrent first choice wins.
+        Calls<UpdateItemRequest>(nameof(IAmazonDynamoDB.UpdateItemAsync))
+            .Single(u => u.TableName == EscrowsTable && u.ConditionExpression.StartsWith("#status = :resolved"))
+            .ConditionExpression.Should().EndWith("AND attribute_not_exists(#disposition)");
     }
 
     [Fact]

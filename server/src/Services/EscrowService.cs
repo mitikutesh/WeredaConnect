@@ -2582,7 +2582,15 @@ public sealed class EscrowService
             return await RecordMismatchOverrideAsync(escrowId, result, actor, overrideReason);
         }
 
-        if (result.IsMismatch)
+        if (result.IsMismatch && await IsRecordedWaitAsync(escrow, resolution))
+        {
+            // FUP-16: the admin chose to wait for the delivery. Still refused and audited once, but not
+            // alarmed: an hourly alarm line here would keep the mismatch alarm in ALARM for days and hide
+            // a verdict that is really stuck.
+            Console.WriteLine(
+                $"DISPUTE_VERDICT_WAITING_FOR_DELIVERY escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
+        }
+        else if (result.IsMismatch)
         {
             AlarmLog(MoneyAlarmLog.DisputeVerdictOrderMismatch(escrowId, op, result.FailedLegs));
         }
@@ -2611,6 +2619,23 @@ public sealed class EscrowService
                 + "bring the order to a status the verdict can follow first, or record a disposition on the verdict "
                 + "(POST /admin/disputes/{id}/resolve).")
             : null;
+    }
+
+    /// <summary>
+    /// FUP-16: the verdict carries the admin's <c>wait_for_delivery</c> and its legs are exactly what that
+    /// choice waits on (a <c>farmer_wins</c> before delivery). Anything else (the order cancelled meanwhile,
+    /// a missing row, a read that fails) is not a recorded wait and keeps the alarm.
+    /// </summary>
+    private async Task<bool> IsRecordedWaitAsync(Dictionary<string, object> escrow, string resolution)
+    {
+        if (resolution != "farmer_wins"
+            || GetStringOrNull(escrow, DisputeDispositionFields.Disposition) != DisputeDisposition.WaitForDelivery)
+        {
+            return false;
+        }
+
+        var plan = await _verdictMirror.PlanDispositionAsync(escrow, resolution);
+        return plan.Case == DispositionCase.BeforeDelivery && plan.Fits(DisputeDisposition.WaitForDelivery);
     }
 
     /// <summary>

@@ -432,9 +432,11 @@ public sealed class DisputeSettlementDynamoDbTests
         Str(await DeliveryAsync(deliveryId), "status").Should().Be("inTransit");
         await MakeSweepableAsync(escrowId);
         await SweepAsync();
-        // An explicit wait is today's behaviour: refused and alarmed until the order is delivered.
+        // An explicit wait is refused until the order is delivered, audited once, but not alarmed:
+        // an hourly alarm line would keep the mismatch alarm red and hide a really stuck verdict.
         Str(await EscrowAsync(escrowId), "status").Should().Be("dispute_resolved");
-        _alarms.Should().Contain(l => l.StartsWith($"DISPUTE_VERDICT_ORDER_MISMATCH escrowId={escrowId} op=release"));
+        _alarms.Should().NotContain(l => l.Contains(escrowId));
+        (await AuditActionsAsync(escrowId)).Should().Contain("dispute_verdict_mismatch");
 
         // The trucker stopped: the admin settles now.
         var settle = await Admin().FunctionHandler(

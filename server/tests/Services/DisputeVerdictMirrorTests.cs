@@ -956,6 +956,36 @@ public class DisputeVerdictMirrorTests
     }
 
     [Fact]
+    public async Task ADeliveryCancelledByADisposition_IsNotBeforePickup_SoTheRefundNeverCancelsAndRestocks()
+    {
+        // FUP-16 review: return_to_farmer on an order at accepted cancelled the picked-up delivery, then
+        // the order write failed. The refund must wait for the admin's replay, not take the
+        // cancel-before-pickup path (which would restore stock and cancel the order).
+        var crops = RestoringCrops();
+        var mirror = new DisputeVerdictMirror(_orders, _deliveries, _txAudit, crops);
+        _orders.GetByIdAsync(OrderId, true).Returns(ListedOrder("accepted", 4));
+        _deliveries.GetByIdAsync(DeliveryId, true).Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", DeliveryId }, { "orderId", OrderId }, { "status", "cancelled" },
+            { "cancelReason", "dispute_buyer_wins" }, { "disputeResolution", "buyer_wins" }
+        });
+        OrderAdvances("accepted");
+
+        var settlement = await mirror.ApplyAsync(Escrow(), "buyer_wins", ResolvedAt, cancelBeforePickup: true);
+        var plan = await mirror.PlanDispositionAsync(Escrow(), "buyer_wins");
+        var replay = await mirror.ApplyDispositionAsync(Escrow(), "buyer_wins", DisputeDisposition.ReturnToFarmer, ResolvedAt);
+
+        settlement.IsMismatch.Should().BeTrue();
+        settlement.FailedLegs.Should().Be("order:mismatch:accepted");
+        await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await crops.DidNotReceive().RestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
+        plan.Case.Should().Be(DispositionCase.GoodsMoving);
+        plan.Fits(DisputeDisposition.ReturnToFarmer).Should().BeTrue();
+        replay.FailedLegs.Should().BeNull();
+        await _orders.Received(1).TryAdvanceStatusAsync(OrderId, "accepted", "dispute_resolved");
+    }
+
+    [Fact]
     public async Task EscrowWithoutAnOrder_SettlesNowOnTheDeliveryAlone()
     {
         // A legacy /escrow/initiate escrow names only its delivery.

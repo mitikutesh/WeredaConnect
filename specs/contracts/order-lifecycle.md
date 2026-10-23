@@ -477,7 +477,9 @@ status-conditioned hop (`ADD version`, one transaction-audit row `dispute_resolv
 The money follows through the escrow as for any verdict: `buyer_wins` refunds the buyer in full,
 `farmer_wins` releases. The order stays at `dispute_resolved` (terminal, 1.17.0). The hop is conditional
 on the status the verdict read, so an order that moved meanwhile (a handoff) is left alone and the admin
-is told to send the verdict again. Ratings stay blocked, and contact closes at `dispute_resolved`
+is told to send the verdict again. Until it does, the order is never taken for one before pickup: its
+delivery was cancelled by the disposition, so the `buyer_wins` refund does not cancel the order or restore
+its stock. Ratings stay blocked, and contact closes at `dispute_resolved`
 (1.18.0). The clients already show `dispute_resolved`; no client change.
 
 ## Changelog

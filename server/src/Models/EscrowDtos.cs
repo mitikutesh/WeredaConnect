@@ -416,6 +416,18 @@ public sealed record DisputeDto
     public string? ResolvedBy { get; init; }
     public string? ResolvedAt { get; init; }
     public required string CreatedAt { get; init; }
+
+    /// <summary>FUP-16: the admin's disposition recorded on the verdict. Admin routes only; null for the parties.</summary>
+    public string? Disposition { get; init; }
+
+    /// <summary>FUP-16: the admin's reason for <see cref="Disposition"/>. Admin routes only.</summary>
+    public string? DispositionReason { get; init; }
+
+    /// <summary>FUP-16: the admin who recorded <see cref="Disposition"/>. Admin routes only.</summary>
+    public string? DispositionBy { get; init; }
+
+    /// <summary>FUP-16: when <see cref="Disposition"/> was recorded. Admin routes only.</summary>
+    public string? DispositionAt { get; init; }
 }
 
 /// <summary>

@@ -319,7 +319,8 @@ public sealed class DisputeVerdictMirror
         var cancelAllowed = cancelBeforePickup && resolution == "buyer_wins";
         // A delivery the escrow or order names but that could not be read counts as unknown, never as "none".
         var deliveryStatus = delivery != null ? Str(delivery, "status") : string.IsNullOrEmpty(deliveryId) ? null : "unknown";
-        var (orderPlan, orderReason) = PlanOrder(order, orderId, deliveryStatus, resolution, cancelAllowed);
+        var closedByVerdict = ClosedByVerdict(delivery);
+        var (orderPlan, orderReason) = PlanOrder(order, orderId, deliveryStatus, resolution, cancelAllowed, closedByVerdict);
         var (deliveryPlan, deliveryReason) = PlanDelivery(delivery, deliveryId, resolution, orderPlan, cancelAllowed);
         if (IsRefusal(orderPlan) || IsRefusal(deliveryPlan))
         {
@@ -338,7 +339,7 @@ public sealed class DisputeVerdictMirror
         }
 
         var (orderOutcome, orderFailure) = orderPlan == VerdictLegOutcome.Resolved
-            ? await MoveOrderAsync(order!, orderId!, deliveryStatus, resolution, context)
+            ? await MoveOrderAsync(order!, orderId!, deliveryStatus, resolution, closedByVerdict, context)
             : (orderPlan, null);
         var (deliveryOutcome, deliveryFailure) = deliveryPlan == VerdictLegOutcome.Resolved
             ? await MoveDeliveryAsync(delivery!, deliveryId!, escrow, resolution, resolvedAt, orderPlan, transactionId, context)
@@ -435,8 +436,8 @@ public sealed class DisputeVerdictMirror
         if (plan.Case == DispositionCase.NotNeeded)
         {
             // The legs follow the verdict now: nothing to apply, the plain verdict mirror does the rest.
-            return Result(VerdictLegOutcome.None, null, VerdictLegOutcome.None, null, read.OrderId, read.DeliveryId, read.Order)
-                with { DispositionNotNeeded = true };
+            var followed = Result(VerdictLegOutcome.None, null, VerdictLegOutcome.None, null, read.OrderId, read.DeliveryId, read.Order);
+            return followed with { DispositionNotNeeded = true };
         }
 
         if (!plan.Fits(disposition))
@@ -491,7 +492,8 @@ public sealed class DisputeVerdictMirror
         }
 
         var deliveryStatus = delivery != null ? Str(delivery, "status") : string.IsNullOrEmpty(deliveryId) ? null : "unknown";
-        var (orderPlan, orderReason) = PlanOrder(order, orderId, deliveryStatus, resolution, cancelAllowed: false);
+        var (orderPlan, orderReason) = PlanOrder(
+            order, orderId, deliveryStatus, resolution, cancelAllowed: false, ClosedByVerdict(delivery));
         var (deliveryPlan, deliveryReason) = PlanDelivery(delivery, deliveryId, resolution, orderPlan, cancelAllowed: false);
         if (!IsRefusal(orderPlan) && !IsRefusal(deliveryPlan))
         {
@@ -704,7 +706,8 @@ public sealed class DisputeVerdictMirror
     }
 
     private (VerdictLegOutcome Plan, string? Reason) PlanOrder(
-        Dictionary<string, object>? order, string? orderId, string? deliveryStatus, string resolution, bool cancelAllowed)
+        Dictionary<string, object>? order, string? orderId, string? deliveryStatus, string resolution, bool cancelAllowed,
+        bool deliveryClosedByVerdict = false)
     {
         if (_orderRepo == null || string.IsNullOrEmpty(orderId))
         {
@@ -736,7 +739,10 @@ public sealed class DisputeVerdictMirror
             }
 
             // Before pickup: nothing has left the farm, so the buyer is refunded and the order ends.
-            if (status == "funded" || (status == "accepted" && deliveryStatus is null or "pending" or "cancelled"))
+            // FUP-16: a delivery an admin disposition cancelled was picked up; its order waits for the
+            // admin's replay of the disposition, never for the cancel-and-restock path.
+            if (!deliveryClosedByVerdict
+                && (status == "funded" || (status == "accepted" && deliveryStatus is null or "pending" or "cancelled")))
             {
                 return cancelAllowed ? (VerdictLegOutcome.Cancelled, null) : (VerdictLegOutcome.Deferred, null);
             }
@@ -788,7 +794,8 @@ public sealed class DisputeVerdictMirror
 
     /// <summary>The order hops, from wherever the order is now, retried on version conflicts.</summary>
     private async Task<(VerdictLegOutcome, string?)> MoveOrderAsync(
-        Dictionary<string, object> order, string orderId, string? deliveryStatus, string resolution, ILambdaContext? context)
+        Dictionary<string, object> order, string orderId, string? deliveryStatus, string resolution, bool deliveryClosedByVerdict,
+        ILambdaContext? context)
     {
         try
         {
@@ -797,7 +804,7 @@ public sealed class DisputeVerdictMirror
             var conflicts = 0;
             for (var step = 0; step < MaxOrderHops + MaxOrderAttempts; step++)
             {
-                var (plan, reason) = PlanOrder(order, orderId, deliveryStatus, resolution, cancelAllowed: false);
+                var (plan, reason) = PlanOrder(order, orderId, deliveryStatus, resolution, cancelAllowed: false, deliveryClosedByVerdict);
                 if (plan != VerdictLegOutcome.Resolved)
                 {
                     // A concurrent writer finished the job, or moved the order somewhere else.
@@ -1077,6 +1084,15 @@ public sealed class DisputeVerdictMirror
 
     private static bool IsRefusal(VerdictLegOutcome plan)
         => plan is VerdictLegOutcome.Mismatch or VerdictLegOutcome.Missing;
+
+    /// <summary>
+    /// FUP-16: a delivery an admin disposition cancelled (<c>cancelReason: dispute_*</c>, or a verdict stamped
+    /// on a cancelled row). It was picked up, so its order is never treated as one before pickup.
+    /// </summary>
+    private static bool ClosedByVerdict(Dictionary<string, object>? delivery)
+        => delivery != null && Str(delivery, "status") == "cancelled"
+           && (Str(delivery, "cancelReason")?.StartsWith("dispute_", StringComparison.Ordinal) == true
+               || Str(delivery, "disputeResolution") != null);
 
     private static bool IsWritePlan(VerdictLegOutcome plan)
         => plan is VerdictLegOutcome.Resolved or VerdictLegOutcome.Cancelled;

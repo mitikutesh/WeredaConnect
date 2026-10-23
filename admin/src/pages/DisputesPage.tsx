@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Badge } from "@/components/ui/Badge";
 import { useLocale } from "@/hooks/useLocale";
-import { useDisputes, useEscrows, useResolveDispute } from "@/hooks/useQuery";
+import { useDisputes, useEscrowPages, useResolveDispute } from "@/hooks/useQuery";
 import { formatETB, formatDate } from "@/lib/i18n";
 
 type Verdict = "farmer_wins" | "buyer_wins";
@@ -29,8 +29,8 @@ const verdictOf = (row: Row): Verdict | null => {
 export function DisputesPage() {
   const { t, locale } = useLocale();
   const [tab, setTab] = useState<"open" | "awaiting">("open");
-  const { data, isLoading } = useDisputes();
-  const awaiting = useEscrows("status=dispute_resolved");
+  const open = useDisputes();
+  const awaiting = useEscrowPages("dispute_resolved");
   const resolveDispute = useResolveDispute();
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -39,8 +39,10 @@ export function DisputesPage() {
   const [disposition, setDisposition] = useState<Disposition | null>(null);
   const [reason, setReason] = useState("");
 
-  const disputes = ((data as Row | undefined)?.disputes as Row[]) || [];
-  const awaitingRows = ((awaiting.data as Row | undefined)?.escrows as Row[]) || [];
+  // Both lists come in pages: a status-filtered scan can return a short page with more behind it.
+  const disputes = (open.data?.pages ?? []).flatMap((page) => (page.disputes as Row[] | undefined) ?? []);
+  const awaitingRows = (awaiting.data?.pages ?? []).flatMap((page) => (page.escrows as Row[] | undefined) ?? []);
+  const current = tab === "open" ? open : awaiting;
 
   function openChoice(id: string, verdict: Verdict) {
     setChoice({ id, verdict });
@@ -166,6 +168,23 @@ export function DisputesPage() {
       render: (row: Row) => {
         const verdict = verdictOf(row);
         return verdict ? t(`disputes.verdict_${verdict}`) : "";
+      },
+    },
+    {
+      key: "disposition",
+      header: t("disputes.recordedChoice"),
+      render: (row: Row) => {
+        const dispute = row.dispute as Row | undefined;
+        const recorded = dispute?.disposition;
+        if (typeof recorded !== "string") return t("disputes.noChoice");
+        return (
+          <span>
+            {t(`disputes.disposition_${recorded}`)}
+            {dispute?.dispositionReason ? (
+              <span className="block text-xs text-text-muted">{String(dispute.dispositionReason)}</span>
+            ) : null}
+          </span>
+        );
       },
     },
     {
@@ -298,12 +317,24 @@ export function DisputesPage() {
       )}
       <Card>
         {tab === "open" ? (
-          <DataTable columns={openColumns} data={disputes} isLoading={isLoading} />
+          <DataTable columns={openColumns} data={disputes} isLoading={open.isLoading} />
         ) : (
           <>
             <p className="mb-3 text-sm text-text-muted">{t("disputes.awaitingHint")}</p>
             <DataTable columns={awaitingColumns} data={awaitingRows} isLoading={awaiting.isLoading} />
           </>
+        )}
+        {current.hasNextPage && (
+          <div className="flex justify-center border-t border-gray-200 p-4">
+            <button
+              type="button"
+              onClick={() => current.fetchNextPage()}
+              disabled={current.isFetchingNextPage}
+              className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50 disabled:opacity-50"
+            >
+              {t("disputes.loadMore")}
+            </button>
+          </div>
         )}
       </Card>
     </div>

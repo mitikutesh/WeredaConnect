@@ -126,7 +126,10 @@
     "dispositionHint_wait_for_delivery": "Nothing changes now. The farmer is paid once the order is delivered; until then the mismatch alarm keeps firing.",
     "dispositionReason": "Reason (kept in the audit trail)",
     "dispositionReasonHint": "10 to 500 characters.",
-    "confirmDisposition": "Record the verdict"
+    "confirmDisposition": "Record the verdict",
+    "recordedChoice": "Recorded choice",
+    "noChoice": "None yet",
+    "loadMore": "Load more"
   },
   "payouts": {
     "title": "Manual Payouts",

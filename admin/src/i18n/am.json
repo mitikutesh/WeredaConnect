@@ -126,7 +126,10 @@
     "dispositionHint_wait_for_delivery": "አሁን ምንም አይቀየርም። ትዕዛዙ ሲደርስ ገበሬው ይከፈለዋል፤ እስከዚያ ድረስ የአለመጣጣም ማንቂያው ይቀጥላል።",
     "dispositionReason": "ምክንያት (በኦዲት መዝገብ ውስጥ ይቀመጣል)",
     "dispositionReasonHint": "ከ10 እስከ 500 ፊደላት።",
-    "confirmDisposition": "ውሳኔውን መዝግብ"
+    "confirmDisposition": "ውሳኔውን መዝግብ",
+    "recordedChoice": "የተመዘገበ ምርጫ",
+    "noChoice": "ገና የለም",
+    "loadMore": "ተጨማሪ ጫን"
   },
   "payouts": {
     "title": "በእጅ የሚከፈሉ ክፍያዎች",

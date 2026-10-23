@@ -80,6 +80,9 @@ describe("dispute disposition strings exist in every locale", () => {
     "dispositionReason",
     "dispositionReasonHint",
     "confirmDisposition",
+    "recordedChoice",
+    "noChoice",
+    "loadMore",
   ].map((k) => `disputes.${k}`);
   const otherKeys = [
     "errors.ADMIN_015",

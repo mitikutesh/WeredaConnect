@@ -653,6 +653,47 @@ public class EscrowServiceTests
     }
 
     [Theory]
+    [InlineData("wait_for_delivery", "in_transit", false)]
+    [InlineData(null, "in_transit", true)]
+    [InlineData("wait_for_delivery", "cancelled", true)]
+    public async Task ResolvedDispute_ARecordedWaitForDelivery_IsRefusedButNotAlarmed(
+        string? disposition, string orderStatus, bool alarmed)
+    {
+        // FUP-16: an admin's explicit wait would otherwise keep the mismatch alarm in ALARM for days
+        // and hide a verdict that is really stuck. A wait whose order moved somewhere it cannot
+        // follow (cancelled) is stuck, so it alarms again.
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1", true).Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-1" }, { "status", orderStatus }, { "version", 4 }
+        });
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
+        var alarms = new List<string>();
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
+            userRepo, orderRepo) { AlarmLog = alarms.Add };
+        var escrow = MakeResolvedDispute("farmer_wins");
+        escrow["orderId"] = "order-1";
+        escrow.Remove("deliveryId");
+        if (disposition != null)
+        {
+            escrow["disputeDisposition"] = disposition;
+        }
+
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrow);
+
+        var error = (await service.ReleaseAsync(DisputeReleaseRequest(), "system")).Error;
+
+        Assert.Equal(422, error!.HttpStatus);
+        Assert.Equal("ESCROW_INVALID_TRANSITION", error.Code);
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        Assert.Equal(alarmed, alarms.Any(l => l.StartsWith("DISPUTE_VERDICT_ORDER_MISMATCH escrowId=escrow-001 op=release")));
+        // Audited once either way, so the admin timeline shows why the money waits.
+        await _mockAuditRepo.Received(1).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(e =>
+            e["action"].ToString() == "dispute_verdict_mismatch"));
+    }
+
+    [Theory]
     [InlineData("farmer_wins", "release")]
     [InlineData("buyer_wins", "refund")]
     public async Task ResolvedDispute_OrderReadFails_FailsClosed_NoLockNoGateway(string resolution, string op)
