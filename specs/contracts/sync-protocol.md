@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.17.0
+1.20.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -165,7 +165,7 @@ When the client receives `status: "conflict"`:
 
 These rules must always hold:
 
-1. **No data loss.** An operation in the client's local queue is never silently dropped. It either succeeds, conflicts (with resolution), errors (with retry), or is rejected for good, in which case the client undoes its local change and tells the user why (1.10.0).
+1. **No data loss.** An operation in the client's local queue is never silently dropped. It either succeeds, conflicts (with resolution), errors (with retry), or is rejected for good, in which case the client undoes its local change and tells the user why (1.10.0). One exception: a legacy `cropListing` operation, which the user never made and the server never accepted, is removed (1.20.0, Legacy listing side effect).
 2. **Idempotent retries.** Sending the same `idempotencyKey` twice from the same caller produces the same result. Another user's key never affects your operations.
 3. **Monotonic versions.** Entity versions only increase. A version number is never reused or decremented.
 4. **Offline queue persistence.** The client's sync queue survives app restarts and device reboots (Isar database).
@@ -521,10 +521,33 @@ is not reverted by them either, because those codes have no `ORDER_` prefix.
 
 ---
 
+## Legacy listing side effect (1.20.0, FUP-18)
+
+Mobile builds before 1.20.0 queued a second operation next to two delivery operations: a listing
+`update` with `entityType: "cropListing"` (status `reserved` when the trucker created a delivery,
+`sold` when the buyer confirmed one), and flipped their local copy of the listing the same way. The
+server routes `crop_listing`, not `cropListing`. It answers `Unsupported entity type: 'cropListing'.`,
+an unprefixed error, so the client sent it three times per sync and `retryFailed` put it back on
+every reconnect, without end. Spelled right it would still be refused with `CROP_UNAUTHORIZED`: the
+trucker and the buyer do not own the listing. The listing's stock belongs to the server: funding
+takes the ordered quantity off and a listing at 0 becomes `reserved` (`order-lifecycle.md`, the
+`funded` transition).
+
+| | Mobile client | Web client |
+|---|---|---|
+| Delivery create (trucker) and confirm (buyer, self-pickup included) | Only the delivery operation is queued. The local listing row is not touched; the next crop pull shows the server's listing. | Unchanged: it never sent a listing operation. |
+| A `cropListing` operation an older build left in the queue | Removed at app start, whatever its status, before the sync executor runs: not sent, not counted as failed, not announced. While it was queued it kept its listing row out of the crop pull's stale delete, so a listing the server took off the market is now dropped by the next pull. A listing the server still returns was already overwritten by every pull. | Nothing is queued on web. |
+
+No server change: the server never applied a `cropListing` operation. Older builds keep sending
+theirs until they update, and the server answers each the same way.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.20.0 | 2026-10-23 | Legacy listing side effect (FUP-18): mobile no longer queues a `cropListing` update on delivery create and confirm (the server cannot route it and refuses non-owners anyway) nor flips its local listing copy; `cropListing` operations already queued are removed at app start, the one exception to invariant 1; no server change |
 | 1.17.0 | 2026-10-23 | Permanent trip and crop rejections (ESC-12 part B, FUP-01): `REPUTATION_RESTRICTED`, `TRIP_HAS_BOOKINGS`, `TRIP_CAPACITY_EXCEEDED` and `CROP_HAS_ACTIVE_ORDERS` are permanent on any entity, `APP_UPDATE_REQUIRED` on an order (it is sent on order commands, spec K1); the mobile client reverts a refused crop listing or trip with the order rules (create: remove; update or delete: re-read `GET /crops/{id}` or `GET /trips/{id}`, 404/403 remove, other failures restore the lowest sent version and clear the pull stamp) and leaves a reverted one out of the failed count; order refusals with these codes are reverted like any order refusal; any other operation answered `APP_UPDATE_REQUIRED` is kept pending for the updated build, never reverted, not resent by this build; a refused delivery create is removed; every section 8 code has its own text in en, am and om, `REPUTATION_RESTRICTED` on an order create names the owner; `APP_UPDATE_REQUIRED` also raises an in-memory update flag; servers may send the five codes once this client is the minimum in use |
 | 1.16.0 | 2026-10-22 | Payment method refusal (FUP-20): `ORDER_PAYMENT_METHOD_UNAVAILABLE` for a live `payment_submitted` whose `paymentMethod` is present and not `telebirr` (bank transfers wait for ESC-46); decided after the other payment gates and before any write (no payment clock, audit row or idempotency key); only the update's value counts, an update without a method is left to the checkout; mock mode unchanged; permanent, with its own text in en, am and om on mobile and web |
 | 1.15.0 | 2026-10-17 | Message contact refusal (ESC-48): `MESSAGE_CONTACT_LOCKED` for a message into a `crop` or `trip` thread, or into an `order` or `delivery` thread whose order's contact is not open; permanent, the mobile client removes its local copy and explains it in en, am and om; a refused resend of a message the sender already stored answers `duplicate`; message rows in `/sync` data carry no phone; delivery rows in `/sync` data carry no phone (`delivery-verification-api.md` 1.15.0) |
@@ -546,4 +569,4 @@ is not reverted by them either, because those codes have no `ORDER_` prefix.
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 1.17.0
+**Version**: 1.20.0

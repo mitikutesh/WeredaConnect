@@ -464,6 +464,38 @@ class SyncQueue {
     return fixed;
   }
 
+  /// Entity type of the listing side effect that builds before
+  /// sync-protocol.md 1.20.0 queued on delivery create and confirm (FUP-18).
+  static const String _legacyCropListingEntityType = 'cropListing';
+
+  /// Remove every queued `cropListing` operation, whatever its status.
+  ///
+  /// Older builds queued one next to a delivery create (listing `reserved`)
+  /// and confirm (`sold`). The server routes `crop_listing` only and answers
+  /// this one with an error the client retries, so it was sent three times
+  /// per sync and put back by [retryFailed] on every reconnect. It could never
+  /// succeed: the trucker and the buyer may not update the farmer's listing,
+  /// and the server owns its stock. The user never made it, so it is removed
+  /// rather than rejected (a rejected one would count as failed forever).
+  /// While queued it kept its listing row out of the crop pull's stale
+  /// delete, so once it is gone a listing the server took off the market is
+  /// dropped by the next pull.
+  ///
+  /// Called once per app start, before the sync executor runs. Returns the
+  /// number of operations removed.
+  Future<int> dropLegacyCropListingOperations() async {
+    final removed = await _isar.writeTxn(
+      () => _isar.syncOperations
+          .filter()
+          .entityTypeEqualTo(_legacyCropListingEntityType)
+          .deleteAll(),
+    );
+    if (removed > 0) {
+      debugPrint('[SYNC] dropped $removed legacy cropListing operations');
+    }
+    return removed;
+  }
+
   /// Release resources held by this queue.
   void dispose() {
     _enqueueController.close();

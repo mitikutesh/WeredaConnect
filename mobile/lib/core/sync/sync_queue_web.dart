@@ -37,6 +37,9 @@ class SyncQueue {
 
   Future<int> retryFailed() async => 0;
 
+  /// No queue on web, so no legacy operation to drop.
+  Future<int> dropLegacyCropListingOperations() async => 0;
+
   /// No queue on web, so nothing is ever rejected.
   static bool isRejected(SyncOperation op) => false;
 

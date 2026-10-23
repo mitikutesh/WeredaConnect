@@ -176,46 +176,6 @@ class DeliveryRepository extends BaseDeliveryRepository {
     }
   }
 
-  /// Update the status of a crop listing and enqueue a sync operation.
-  ///
-  /// Called as a side-effect of delivery lifecycle transitions so the
-  /// listing status stays in sync with its delivery state.
-  Future<void> _updateListingStatus(
-    String listingId,
-    ListingStatus newStatus,
-    String userId,
-  ) async {
-    final listing = await _isar.cropListings
-        .filter()
-        .listingIdEqualTo(listingId)
-        .findFirst();
-
-    if (listing == null) return;
-
-    final now = DateTime.now().toUtc();
-
-    await _isar.writeTxn(() async {
-      listing.status = newStatus;
-      listing.updatedAt = now;
-      listing.version += 1;
-      await _isar.cropListings.put(listing);
-    });
-
-    await _syncQueue.enqueue(
-      userId: userId,
-      entityType: 'cropListing',
-      entityId: listingId,
-      action: 'update',
-      data: jsonEncode({
-        'listingId': listingId,
-        'status': newStatus.name,
-        'updatedAt': now.toIso8601String(),
-        'version': listing.version,
-      }),
-      operationId: _uuid.v4(),
-    );
-  }
-
   /// Create a new delivery.
   @override
   Future<Delivery> createDelivery({
@@ -290,8 +250,10 @@ class DeliveryRepository extends BaseDeliveryRepository {
       );
     }
 
-    await _updateListingStatus(listingId, ListingStatus.reserved, truckerId);
-
+    // No listing operation (FUP-18): the listing is the farmer's and its
+    // stock is the server's (taken off when the order was funded). The
+    // trucker may not update it, and the next crop pull shows the server's
+    // listing.
     return delivery;
   }
 
@@ -545,8 +507,7 @@ class DeliveryRepository extends BaseDeliveryRepository {
       data: jsonEncode(syncData),
       operationId: _uuid.v4(),
     );
-
-    await _updateListingStatus(delivery.listingId, ListingStatus.sold, buyerId);
+    // The listing is left alone, as on create (FUP-18).
   }
 
   /// Mark delivery as in transit by trucker. Status → inTransit.
