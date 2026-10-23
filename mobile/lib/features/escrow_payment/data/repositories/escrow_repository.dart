@@ -416,6 +416,9 @@ class EscrowRepository extends BaseEscrowRepository {
             payment.telebirrRef = existing.telebirrRef;
             payment.expiresAt ??= existing.expiresAt;
             payment.disputeWindowEndsAt = existing.disputeWindowEndsAt;
+            // releaseNotBefore is NOT kept from the cache: the server sends it
+            // to the farmer and the trucker only (FRD-13), so a buyer's
+            // refresh on a shared device must not keep a payee's date.
             payment.releasedAt = existing.releasedAt;
             payment.refundedAt = existing.refundedAt;
             payment.disputeReason = existing.disputeReason;
@@ -603,6 +606,7 @@ class EscrowRepository extends BaseEscrowRepository {
       ..disputeWindowEndsAt = response.disputeWindowEndsAt != null
           ? DateTime.parse(response.disputeWindowEndsAt!)
           : null
+      ..releaseNotBefore = DateTime.tryParse(response.releaseNotBefore ?? '')
       ..releasedAt = response.releasedAt != null
           ? DateTime.parse(response.releasedAt!)
           : null
@@ -639,6 +643,7 @@ class EscrowRepository extends BaseEscrowRepository {
       ..orderId = summary.orderId
       ..refundPending = summary.refundPending
       ..refundReason = summary.refundReason
+      ..releaseNotBefore = DateTime.tryParse(summary.releaseNotBefore ?? '')
       ..expiresAt = summary.expiresAt != null
           ? DateTime.tryParse(summary.expiresAt!)
           : null

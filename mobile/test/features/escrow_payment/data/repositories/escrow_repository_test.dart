@@ -491,6 +491,34 @@ void main() {
         expect(payment.version, 2);
       });
 
+      test('caches the payee\'s expected payout date (FRD-13)', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(() => apiClient.get<Map<String, dynamic>>(any())).thenAnswer(
+          (_) async => {
+            'escrowId': 'esc-001',
+            'status': 'escrowed',
+            'createdAt': '2026-02-17T10:00:00Z',
+            'updatedAt': '2026-02-19T10:00:00Z',
+            'expiresAt': '2026-02-24T10:00:00Z',
+            'disputeWindowEndsAt': '2026-02-21T10:00:00Z',
+            'releaseNotBefore': '2026-02-22T10:00:00.0000000Z',
+          },
+        );
+
+        final payment = await repository.refreshEscrow('esc-001');
+
+        expect(
+          payment!.releaseNotBefore!.toUtc(),
+          DateTime.utc(2026, 2, 22, 10),
+        );
+        final cached = await repository.getEscrow('esc-001');
+        expect(
+          cached!.releaseNotBefore!.toUtc(),
+          DateTime.utc(2026, 2, 22, 10),
+        );
+      });
+
       test('falls back to cache when offline', () async {
         await _insertTestPayment(isar);
 
@@ -557,6 +585,7 @@ void main() {
         String? expiresAt,
         bool? refundPending,
         String? refundReason,
+        String? releaseNotBefore,
       }) =>
           {
             'escrows': [
@@ -575,6 +604,8 @@ void main() {
                 if (expiresAt != null) 'expiresAt': expiresAt,
                 if (refundPending != null) 'refundPending': refundPending,
                 if (refundReason != null) 'refundReason': refundReason,
+                if (releaseNotBefore != null)
+                  'releaseNotBefore': releaseNotBefore,
                 'currency': 'ETB',
                 'status': 'escrowed',
                 'createdAt': '2026-03-01T10:00:00.0000000Z',
@@ -700,6 +731,51 @@ void main() {
         expect(row.refundPending, isTrue);
         expect(row.refundReason, 'order_cancelled');
         expect(row.isRefundPending, isTrue);
+      });
+
+      test('caches the farmer\'s expected payout date (FRD-13)', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.get<Map<String, dynamic>>(
+            any(),
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenAnswer(
+          (_) async =>
+              summaryJson(releaseNotBefore: '2026-03-04T10:00:00.0000000Z'),
+        );
+
+        await repository.refreshHistory(
+          userId: 'farmer-001',
+          roleFilter: 'farmer',
+        );
+
+        final row = (await repository.getHistory(userId: 'farmer-001')).single;
+        expect(row.releaseNotBefore!.toUtc(), DateTime.utc(2026, 3, 4, 10));
+      });
+
+      test(
+          'a refresh without the date clears a cached one, so a buyer on a '
+          'shared device never keeps a payee\'s date (FRD-13)', () async {
+        final cached =
+            await _insertTestPayment(isar, paymentId: 'escrow-order-ord-1');
+        cached.releaseNotBefore = DateTime.utc(2026, 3, 4, 10);
+        await isar.writeTxn(() => isar.payments.put(cached));
+
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.get<Map<String, dynamic>>(
+            any(),
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenAnswer((_) async => summaryJson());
+
+        await repository.refreshHistory(userId: 'buyer-001');
+
+        final row = (await repository.getHistory(userId: 'buyer-001')).single;
+        expect(row.releaseNotBefore, isNull);
       });
 
       test('derives the farmer leg when an older server sends no legs',

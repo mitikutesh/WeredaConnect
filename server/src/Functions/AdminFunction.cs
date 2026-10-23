@@ -2920,6 +2920,8 @@ public class AdminFunction
             ExpiresAt = GetString(item, "expiresAt"),
             DeliveryConfirmedAt = GetStringOrNull(item, "deliveryConfirmedAt"),
             DisputeWindowEndsAt = GetStringOrNull(item, "disputeWindowEndsAt"),
+            // FRD-13: when the sweep may pay it out (the payout delay); the class behind it stays in the log.
+            ReleaseNotBefore = PayoutDelayPolicy.EffectiveReleaseNotBefore(item),
             ReleasedAt = GetStringOrNull(item, "releasedAt"),
             RefundedAt = GetStringOrNull(item, "refundedAt"),
             CompletedAt = GetStringOrNull(item, "completedAt"),

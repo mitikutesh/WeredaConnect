@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/features/escrow_payment/domain/payout_expectation.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
@@ -14,6 +15,7 @@ import 'package:wereda_connect/features/escrow_payment/presentation/screens/rais
 import 'package:wereda_connect/features/escrow_payment/presentation/telebirr_launcher.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_timeline.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/widgets/payout_expected_text.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
@@ -269,6 +271,12 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
               large: true,
               refundPending: payment.isRefundPending,
             ),
+            // FRD-13: the payee's expected payout day. Only the farmer's and
+            // the trucker's reads carry the date.
+            if (expectedPayoutAt(payment) case final payoutAt?) ...[
+              const SizedBox(height: 12),
+              PayoutExpectedText(payoutAt: payoutAt, center: true),
+            ],
             const SizedBox(height: 24),
 
             // Amount breakdown

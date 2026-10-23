@@ -2069,6 +2069,16 @@
   "@escrowDescUnknown": {
     "description": "Status description for a payment status this app version does not know yet"
   },
+  "escrowPayoutExpectedOn": "Payout expected on {date}",
+  "@escrowPayoutExpectedOn": {
+    "description": "Escrow detail and payment list, farmer and trucker only: the earliest day the payout is sent (FRD-13). Never says why the day is later than usual",
+    "placeholders": {
+      "date": {
+        "type": "String",
+        "example": "Oct 26, 2026"
+      }
+    }
+  },
   "escrowStatusRefundPending": "Refund Pending",
   "@escrowStatusRefundPending": {
     "description": "Status label for an escrowed hold whose refund is on its way (order cancelled or hold expired)"

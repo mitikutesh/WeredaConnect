@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.29.0
+1.32.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -694,6 +694,8 @@ Get the authenticated user's payment history.
 
 Money legs (SIM-15): `amount = farmerPayout + truckerPayout + commission` on every row. `truckerPayout` and `truckerId` are `null` when the order carried no trucker split. Each client renders only the caller's own leg in its Payments and Profile views (buyer: `amount`, farmer: `farmerPayout`, trucker: `truckerPayout`); the escrow detail shows the full breakdown. `counterpartyName` is the farmer for a buyer and the buyer for a farmer or trucker.
 
+Expected payout (1.32.0, FRD-13): a row of `role=farmer` or `role=trucker` carries `releaseNotBefore` (see `EscrowDto`); a buyer's row never does.
+
 Refund pending (SIM-20): `refundPending` is `true` while a row is still `escrowed` but the money is on its way back to the buyer: the order was cancelled or rejected (the server scheduled the refund, `refundReason` says why, `expiresAt` is set to that moment) or the hold passed its `expiresAt`; the hourly sweep refunds it. Clients label such rows "Refund pending" and never "Funds held safely"; a row without a delivery shows its `orderId` as the reference. Both fields are also on `EscrowDto`.
 
 #### Error Responses
@@ -735,6 +737,7 @@ Refund pending (SIM-20): `refundPending` is `true` while a row is still `escrowe
 | `expiresAt` | string (ISO 8601) | Yes | createdAt + 7 days | Auto-refund deadline |
 | `deliveryConfirmedAt` | string (ISO 8601) | No | Set by F-12 | When delivery was confirmed |
 | `disputeWindowEndsAt` | string (ISO 8601) | No | deliveryConfirmedAt + 48h | Dispute deadline |
+| `releaseNotBefore` | string (ISO 8601) | No | Farmer, trucker and admin responses only (1.32.0, FRD-13); `>= disputeWindowEndsAt` | Earliest time the hourly auto-release may pay the escrow out; for an escrow confirmed before 1.32.0 its `disputeWindowEndsAt`; null before the delivery is confirmed |
 | `releasedAt` | string (ISO 8601) | No | Set on release | When funds were released |
 | `refundedAt` | string (ISO 8601) | No | Set on refund | When funds were refunded |
 | `refundPending` | boolean | Yes | `status = escrowed` and (`refundReason` set or `expiresAt` passed) | Money still held but going back to the buyer; label "Refund pending" (SIM-20) |
@@ -1231,6 +1234,7 @@ A scheduled Lambda runs every hour:
    escrowed row
 4. Log audit entry with `actor = system`
 5. From 1.22.0 (FRD-03): between steps 2 and 3 the sweep checks every party's suspension (and from 1.27.0 each party's risk tier, FRD-04); on a trigger the escrow becomes `held` and no money moves (§Additions in 1.22.0 and 1.27.0)
+6. From 1.32.0 (FRD-13): step 2 also requires `now >= releaseNotBefore` when the escrow has one (the payout delay of a new or flagged payee, never before `disputeWindowEndsAt`; §Additions in 1.32.0)
 
 ### Auto-Refund (Cron)
 
@@ -3817,10 +3821,70 @@ sections 18.1 and 19.
 
 ---
 
+## Additions in 1.32.0 (payout delay, FRD-13)
+
+Design: `specs/architecture/fraud-detection-architecture.md` 3.9.0, section 17.5. A new or flagged payee waits
+longer for the automatic payout; a trusted one is paid when the dispute window ends, as before. The risk tier,
+the score and the class are never on the escrow row and never in a response.
+
+### The date
+- At delivery confirm the escrow is stamped `releaseNotBefore` in the same conditional write as
+  `deliveryConfirmedAt` and `disputeWindowEndsAt` (the sync `delivered` update, and the escrow-cron stamp repair of a
+  delivered but unstamped escrow): `releaseNotBefore = max(disputeWindowEndsAt, deliveryConfirmedAt + delay)`, so
+  it never shortens the 48 hour dispute window. The dispute window itself is unchanged: a buyer disputes within 48
+  hours, not during the extra delay.
+- The delay is the longer of the payees' delays: the farmer, and the trucker when the escrow has a trucker leg
+  (`truckerPayout > 0`; the trucker on the escrow, else the one on the delivery). One release pays both legs, so
+  the escrow has one date.
+- A payee is `trusted` with a computed risk score of 0, an account at least `PAYOUT_TRUSTED_MIN_ACCOUNT_DAYS` (30)
+  old and at least `PAYOUT_TRUSTED_MIN_COMPLETED` (3) `completed` escrows as that party among its newest 50;
+  `flagged` at risk tier HIGH or CRITICAL; `new` with any other computed score (a young account, too little history,
+  a score above 0, or a history read that failed); `unscored` when the score is not computed (`Unavailable`,
+  `TableNotConfigured`), the user row cannot be read or is missing, or the payee is unknown.
+- Delays after delivery confirm, in hours: `PAYOUT_DELAY_TRUSTED_HOURS` 24, `PAYOUT_DELAY_NEW_HOURS` 72,
+  `PAYOUT_DELAY_FLAGGED_HOURS` 72; `unscored` takes the longest of the three. Integers from 0 to 168, else the
+  default; delays not ordered trusted, new, flagged all fall back. No Lambda sets them, so the defaults apply: a
+  trusted payee is paid at the window end, every other one a day later.
+- An escrow confirmed before 1.32.0 has no `releaseNotBefore` and settles as before. A stored value that does not
+  parse is read as `deliveryConfirmedAt + 168h`.
+- escrow-cron and the sync Lambda log `PAYOUT_DELAY_SET escrowId=.. releaseNotBefore=.. hours=.. farmer=<class>
+  trucker=<class|->` on every stamp (not alarmed).
+
+### Sweeps
+- `AutoReleaseAsync`: a row before its `releaseNotBefore` is skipped with the window filter, before any read, gate
+  or lock, and is not counted against the sweep's row budget; the run summary gains `payoutsDelayed`.
+- The hourly trucker retry does not pay a pending trucker leg before `releaseNotBefore` (outcome deferred, reason
+  `payout_delay`), after the stale lock park, the legacy park and the payout gate (a blocked trucker still gets the
+  block reason). A leg is owed from the later of `truckerPayoutPendingSince` and `releaseNotBefore`, so the
+  24 hour `TRUCKER_PAYOUT_OVERDUE` line never counts the delay. Only an admin release or a verdict can release an
+  escrow before its date, so only their pending legs wait here.
+- Not delayed: admin `POST /escrow/release` (a held exit included), the dispute sweep (`farmer_wins`), every refund,
+  the stale lock recovery and the manual payout queue.
+
+### Reads
+- `GET /escrow/{id}` and `GET /escrow/by-delivery/{deliveryId}` carry `releaseNotBefore` when the caller is the
+  escrow's farmer or trucker; `GET /escrow/history?role=farmer|trucker` carries it on every row. For an escrow
+  confirmed before 1.32.0 the value is its `disputeWindowEndsAt`; before the delivery is confirmed there is none.
+  The buyer never gets the field (left out of the JSON): the date can be later for a new or flagged payee, which
+  would hint at the counterparty's risk. Admin escrow reads carry it.
+- Clients (mobile and web) show "Payout expected on (date)" (the day in Ethiopia) while the escrow is `escrowed` and
+  not refund pending, on the escrow detail and on the farmer's and the trucker's payment list, in en, am and om. An
+  older client ignores the field.
+
+### Not in 1.32.0
+- Per-leg dates (a trusted farmer waits for a new trucker and both see the same date); per-leg status is ESC-20.
+- A payee who becomes HIGH after the confirm keeps the date stamped then; CRITICAL is still held by the sweep gate
+  (1.27.0).
+- The trucker retry pays a leg of an early admin release only after the date (the row does not record who released).
+- The admin app does not show the date yet.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.32.0 | 2026-10-23 | Payout delay (FRD-13): delivery confirm stamps `releaseNotBefore = max(disputeWindowEndsAt, deliveryConfirmedAt + delay)` (the longer of the farmer's and the trucker's delay: trusted 24 h, new 72 h, flagged 72 h, unscored the longest; `PAYOUT_DELAY_*` and `PAYOUT_TRUSTED_*` env, 0 to 168 hours); the auto-release and the trucker retry pay nothing before it (`payoutsDelayed` in the run summary, the overdue age counts from it); admin release, the dispute sweep and refunds are not delayed; the escrow reads carry `releaseNotBefore` for the farmer, the trucker and admins, never the buyer; mobile and web show "Payout expected on (date)"; an escrow confirmed before keeps today's behaviour |
 | 1.29.0 | 2026-10-23 | Fraud Review reject trigger built (FRD-05, the 1.7.0 rules): the admin's `reject` on a fraud signal suspends its user with the reserved `suspendReason: fraud_confirmed` through the user route's suspend path and holds nothing (the response lists the user's open escrows read-only); the settlement sweeps hold (flag on) or skip (flag off, `RISK_SETTLEMENT_SKIPPED ... holdReason=fraud_confirmed`) an escrow with such a party as `holdReason: fraud_confirmed`, ahead of `account_suspended` and `risk_critical`; `POST /admin/users/{id}/action` refuses that reason (`400 ADMIN_017`) and its `unsuspend` removes `suspendReason`; `risk-settlement-skipped` alarm text names the value; no client change |
 | 1.28.0 | 2026-10-23 | Account deletion (ACC-02, `account-deletion.md` 1.2.0): `POST /escrow/initiate`, `/escrow/order-checkout` and `/escrow/dispute` answer `410 ACCOUNT_004` to a caller whose account is being or has been deleted (a row that cannot be read: `503 ESCROW_012`); initiate and order-checkout answer `422 ESCROW_030` for an order whose buyer, farmer or trucker is being or has been deleted, after the 1.27.0 gates and before any slot, hold or Telebirr call; a refund to a deleted buyer goes to the buyer id, never an empty phone; the manual payout queue shows no phone for a deleted payee; no client change |
 | 1.27.0 | 2026-10-23 | Risk tier gates built (FRD-04, the 1.7.0 rules): `POST /escrow/initiate` refuses a caller at risk tier CRITICAL with `403 FRAUD_ACCOUNT_HELD` after the role check and before the step-up and velocity, and the step-up takes the tier (MEDIUM the password at any amount, HIGH Fayda and then the password at any amount); `POST /escrow/order-checkout` refuses CRITICAL before velocity and any Telebirr call; an unreadable score or a missing fraud service is LOW at these gates; the settlement sweeps hold (flag on) or skip (flag off) the escrow of a party at CRITICAL (`holdReason: risk_critical`, tier and score in the `fraud_hold` audit metadata) and skip, flag on or off, one whose score cannot be read (`reason=score_unavailable`); escrow-cron reads the fraud-signals table and logs `RISK_TABLE_UNCONFIGURED` once per run without it, flag on or off; `AUTH_041` text amount-neutral; admin routes not gated; no client change |
@@ -3863,5 +3927,5 @@ sections 18.1 and 19.
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 1.29.0
+**Version**: 1.32.0
 **Status**: Draft (Phase R4)

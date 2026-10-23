@@ -488,6 +488,13 @@ public sealed record EscrowDto
     public required string ExpiresAt { get; init; }
     public string? DeliveryConfirmedAt { get; init; }
     public string? DisputeWindowEndsAt { get; init; }
+
+    /// <summary>
+    /// FRD-13: the earliest time the hourly auto-release may pay this escrow out (ISO 8601): the payout delay
+    /// of a new or flagged payee, never before <see cref="DisputeWindowEndsAt"/>; for an escrow confirmed
+    /// before FRD-13, its dispute window end. Party reads fill it for the farmer and the trucker only.
+    /// </summary>
+    public string? ReleaseNotBefore { get; init; }
     public string? ReleasedAt { get; init; }
     public string? RefundedAt { get; init; }
     public string? CompletedAt { get; init; }
@@ -597,6 +604,9 @@ public sealed record EscrowSummaryDto
 
     /// <summary>Why the refund was scheduled, when the server recorded one.</summary>
     public string? RefundReason { get; init; }
+
+    /// <summary>See <see cref="EscrowDto.ReleaseNotBefore"/>. FRD-13: only on the farmer's and the trucker's history.</summary>
+    public string? ReleaseNotBefore { get; init; }
 }
 
 /// <summary>

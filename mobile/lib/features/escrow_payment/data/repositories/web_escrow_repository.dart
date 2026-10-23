@@ -297,6 +297,9 @@ class WebEscrowRepository extends BaseEscrowRepository {
       ..expiresAt = DateTime.tryParse(m['expiresAt'] as String? ?? '')
       ..disputeWindowEndsAt =
           DateTime.tryParse(m['disputeWindowEndsAt'] as String? ?? '')
+      // FRD-13: sent to the farmer and the trucker only.
+      ..releaseNotBefore =
+          DateTime.tryParse(m['releaseNotBefore'] as String? ?? '')
       ..releasedAt = DateTime.tryParse(m['releasedAt'] as String? ?? '')
       ..refundedAt = DateTime.tryParse(m['refundedAt'] as String? ?? '')
       ..completedAt = DateTime.tryParse(m['completedAt'] as String? ?? '')

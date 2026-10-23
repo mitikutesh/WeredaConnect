@@ -1,10 +1,10 @@
 # Fraud Detection System Architecture (F-14)
 
 ## Version
-3.6.0 | 2026-10-23
+3.9.0 | 2026-10-23
 
 ## Status
-Rules 1 to 4, signal persistence and the risk score (sections 14 and 16, FRD-02) implemented. The enforcement of section 17 is built (FRD-04): the user-action gates are live, and the settlement gate holds or skips a party at risk tier CRITICAL. The escrow `held` status of section 18 is built for a party rejected in Fraud Review (FRD-05), a suspended party (FRD-03) and a CRITICAL party (FRD-04), behind `FRAUD_HOLD_ENABLED`, shipped off. The admin actions of section 19 and the whitelist row of section 20 are built (FRD-05). The rest of the risk engine (credits, the held queue, AI advisory; sections 20 to 23) is specified, not built (EPIC FRD).
+Rules 1 to 4, signal persistence and the risk score (sections 14 and 16, FRD-02) implemented. The enforcement of section 17 is built (FRD-04): the user-action gates are live, and the settlement gate holds or skips a party at risk tier CRITICAL. The escrow `held` status of section 18 is built for a party rejected in Fraud Review (FRD-05), a suspended party (FRD-03) and a CRITICAL party (FRD-04), behind `FRAUD_HOLD_ENABLED`, shipped off. The admin actions of section 19 and the whitelist row of section 20 are built (FRD-05). The payout delay of section 17.5 is built (FRD-13). The rest of the risk engine (credits, the held queue, AI advisory; sections 20 to 23) is specified, not built (EPIC FRD).
 
 ---
 
@@ -1146,7 +1146,7 @@ Attribution: today every signal is written against the authenticated caller of t
 |------|-----------------------|---------------------|
 | LOW | full score 0 to 29 | No change from today |
 | MEDIUM | full score 30 to 59 | Fresh password on every payment, after the Fayda login above 10,000 ETB as today |
-| HIGH | full score 60 and above, enforcement score below 100 | Fresh Fayda login and then a fresh password on every payment; FRD-13 payout delay |
+| HIGH | full score 60 and above, enforcement score below 100 | Fresh Fayda login and then a fresh password on every payment; the longest payout delay (section 17.5, FRD-13) |
 | CRITICAL | enforcement score 100 and above, or a truncated read | New listings, trips, orders and payments refused with `FRAUD_ACCOUNT_HELD`; settlement of the party's escrows held for an admin |
 
 Bounds are inclusive and configurable (section 14.5). The full score includes AI advisory weight; the enforcement score leaves it out (section 14.2), so a full score of 100 or more with an enforcement score below 100 is HIGH. The risk tier is unrelated to the reputation tiers of the three-party escrow design (`specs/features/three-party-escrow-commitments-reputation.md`) and to the Telebirr hold; this document says "risk tier" throughout.
@@ -1173,7 +1173,7 @@ Subject of the check: the caller at a user action; every party (buyer, farmer, a
 | Buyer payment above 10,000 ETB | `AUTH_041` (today) | `AUTH_041`, then `AUTH_040` | `AUTH_041`, then `AUTH_040` | `FRAUD_ACCOUNT_HELD` |
 | `POST /escrow/order-checkout` (ESC-01) | The gates already ran at `payment_submitted` | same | same | `403 FRAUD_ACCOUNT_HELD`, no Telebirr preOrder call |
 | Create crop (farmer), trip (trucker), order (buyer) through `/sync` | allowed | allowed | allowed | `FRAUD_ACCOUNT_HELD` |
-| Cron release, refund and dispute settlement | as today | as today, tier in the audit metadata (not built yet) | as today, tier in the audit metadata (not built yet; FRD-13 adds the payout delay) | escrow moves to `held` (section 18); no money moves |
+| Cron release, refund and dispute settlement | as today | as today, tier in the audit metadata (not built yet) | as today, tier in the audit metadata (not built yet); the auto-release waits for the payout delay (section 17.5) | escrow moves to `held` (section 18); no money moves |
 | Admin `POST /escrow/release` and `POST /escrow/refund` | not gated (the admin decides); tier in the audit metadata (not built yet) | same | same | same |
 
 Rules:
@@ -1183,7 +1183,7 @@ Rules:
 - **`AUTH_041` text is amount-neutral** (`StepUpPolicy.FaydaErrorMessage` since FRD-04, the app string `faydaStepUpMessage` since FRD-06). Clients key on the code, never on the text.
 - **Not gated**: disputes (the existing `AUTH_040` rule is unchanged), delivery and logistics updates, messages, ratings, order accept and reject, profile updates.
 - **Known gap, kept**: the counterparty's tier is not checked at order create. The settlement hold covers the money, and revealing a counterparty's tier would leak a fraud flag.
-- **HIGH at payout keeps today's money behaviour** because no user is present to step up; FRD-13 owns the payout delay. The reviewer of FRD-04 may tighten HIGH at payout to `held`.
+- **HIGH at payout keeps today's money behaviour** because no user is present to step up, apart from the payout delay of section 17.5 (FRD-13): the auto-release of a HIGH payee's escrow waits longer. The reviewer of FRD-04 may tighten HIGH at payout to `held`.
 
 ### 17.1 Gate order at user actions
 
@@ -1223,6 +1223,34 @@ The code is permanent: the mobile `SyncExecutor._isPermanentRejection` already t
 Each tier on each gated path, sync and REST, for the farmer (crop create), the trucker (trip create) and the buyer (order create, both payment paths, checkout); the LOW path unchanged; CRITICAL on `order-checkout` before any Telebirr call; per sweep, for a CRITICAL or suspended party: no order cancel, no stock restore, no `ResolvePayoutAsync` or `release_blocked_kyc` audit, no lock call, no Telebirr call, one `held` write.
 
 Built in `server/tests/Functions/SyncFunctionRiskGateTests.cs`, `EscrowFunctionRiskGateTests.cs` and `EscrowCronRiskGateTests.cs` (each sweep for a CRITICAL buyer, farmer and trucker with the flag on and off, and for an `Unavailable` source), `server/tests/Services/PartySuspensionGateTests.cs`, `server/tests/Helpers/StepUpAndKycPolicyTests.cs` (the tier matrix of `CheckPayment`), and `infra/test/unit/stack.test.ts` (escrow-cron env and read grant). All run in CI (no `Integration` category).
+
+
+### 17.5 Payout delay (FRD-13, built)
+
+**Built by FRD-13 (2026-10-23)**, escrow-protocol 1.32.0. A new or flagged payee waits longer for the automatic payout, so a signal, a late review or a FRD-05 reject has time to land before the money leaves; a trusted payee is paid when the dispute window ends, as before. Code: `PayoutDelayPolicy` (with `PayoutDelaySettings`), the stamp in `SyncFunction.StampEscrowDeliveryConfirmedAsync` and `EscrowCronFunction.StampIfDeliveredAsync`, the filter in `AutoReleaseAsync`, the deferral in `EscrowService.RetryTruckerLegAsync`.
+
+**When.** At delivery confirm, in the same conditional write that stamps `deliveryConfirmedAt` and `disputeWindowEndsAt` (the sync `delivered` update, and the escrow-cron stamp repair): `releaseNotBefore = max(disputeWindowEndsAt, deliveryConfirmedAt + delay)`, so it never shortens the dispute window. An escrow stamped before FRD-13 has no field and settles as before. Not taken: deciding at the sweep (the date could not be shown before it and would move under the payee).
+
+**Whose risk.** The payees: the farmer, and the trucker when the escrow has a trucker leg (the trucker on the escrow, else the one on the delivery). One release pays both legs, so the escrow waits for the later payee and both see the same date. Not taken: per-leg dates (the trucker leg cannot be paid before the farmer's, and per-leg status is ESC-20).
+
+**Classes**, from data the server already has, read once per payee (the sync batch's `RiskScoreMemo` at the sync stamp):
+
+| Class | Rule | Delay (hours after confirm, env, default) |
+|-------|------|-------------------------------------------|
+| trusted | computed score 0 (no counted signal), the users row's `createdAt` at least `PAYOUT_TRUSTED_MIN_ACCOUNT_DAYS` (30) days ago, and at least `PAYOUT_TRUSTED_MIN_COMPLETED` (3) `completed` escrows as that party among its newest 50 (one Query on `FarmerStatusIndex` or `TruckerStatusIndex`, the status a filter; 0 skips the read) | `PAYOUT_DELAY_TRUSTED_HOURS`, 24 |
+| new | any other computed score: a young account, too little history, a score above 0 at LOW or MEDIUM, or a history read that failed | `PAYOUT_DELAY_NEW_HOURS`, 72 |
+| flagged | computed tier HIGH or CRITICAL (a CRITICAL payee's escrow is held by the gate at settlement anyway, section 17.2) | `PAYOUT_DELAY_FLAGGED_HOURS`, 72 |
+| unscored | Source before Tier (section 14.4): `Unavailable` or `TableNotConfigured`, a users row that is missing or cannot be read, or no payee to read | the longest of the three |
+
+Each delay is an integer from 0 to 168 (else its default); delays not ordered trusted, new, flagged all fall back to the defaults; read on every stamp, like `RiskScoreSettings`. No Lambda sets them, so with the 48 hour window a trusted payee is paid at the window end and every other payee a day later. A stored value that does not parse is read as `deliveryConfirmedAt + 168h`: later, never forever. The policy never throws; a read that fails gives the longer delay.
+
+**Sweeps.** `AutoReleaseAsync` skips a row before its `releaseNotBefore` next to the window filter, before the trade check, the gate, the payout resolution and the lock (run summary `payoutsDelayed`; the row does not count against the sweep's row budget). The trucker retry defers a pending leg before it (reason `payout_delay`), after the stale lock park, the legacy park and the payout gate, and counts the leg as owed from the later of `truckerPayoutPendingSince` and `releaseNotBefore`, so `TRUCKER_PAYOUT_OVERDUE` never counts the delay. Not delayed: the admin release (a held exit included), the dispute sweep (a `farmer_wins` verdict is an admin decision), every refund, the stale lock recovery and the manual payout queue.
+
+**Display.** The escrow reads carry `releaseNotBefore` for the farmer, the trucker and admins, never for the buyer (the date can hint at the counterparty's risk, rule of section 17). Mobile and web show "Payout expected on (date)", the day in Ethiopia, while the escrow is `escrowed` and not refund pending. The class, the tier and the score are never returned; the log line `PAYOUT_DELAY_SET escrowId=.. releaseNotBefore=.. hours=.. farmer=<class> trucker=<class|->` is server-side only.
+
+**Known limits, kept.** A payee who turns HIGH after the confirm keeps the date stamped then (CRITICAL still holds at the sweep). A trusted farmer waits for a new trucker. The trucker retry pays a pending leg of an early admin release only after the date, since the row does not record who released.
+
+Tests (all in CI): `server/tests/Services/PayoutDelayPolicyTests.cs` (settings, classes, the later payee, the window floor, the stored value), `server/tests/Functions/EscrowCronPayoutDelayTests.cs` (the auto-release before and after, an older escrow, an unreadable value, the row budget, the dispute sweep, the trucker retry and its overdue age, the stamp repair), `server/tests/Services/EscrowServicePayoutDelayTests.cs` (admin release, the trucker retry and the gate, the reads per party), `server/tests/Functions/SyncFunctionPayoutDelayTests.cs` (the sync stamp), and the mobile model, repository, widget and l10n tests.
 
 ---
 
@@ -1388,6 +1416,8 @@ Credits (FRD-10): when an escrow completes through auto-release with no dispute,
 
 FRD-07 adds a sparse GSI on `status` (partition `status`, sort `createdAt`) so the admin list and the held queue stop scanning.
 
+Escrows table (FRD-13, built): `releaseNotBefore` (ISO 8601), stamped with `deliveryConfirmedAt` and `disputeWindowEndsAt` at delivery confirm, the earliest time the auto-release may pay the escrow out (section 17.5). The class behind it is not stored.
+
 ---
 
 ## 21. AI Advisory Boundary (planned, FRD-19, FRD-20)
@@ -1412,6 +1442,7 @@ FRD-07 adds a sparse GSI on `status` (partition `status`, sort `createdAt`) so t
 | `ADMIN_009` and `ADMIN_006` on `POST /admin/fraud-signals/{id}/action`, `ADMIN_017` on `POST /admin/users/{id}/action` | rejection | FRD-05 | `AdminFunction` (built) | admin app, en, am, om (built) | this document (section 19) |
 | `FRAUD_DUPLICATE_LISTING`, `FRAUD_VELOCITY_EXCEEDED`, `ESCROW_011` | rejection | F-14 | live | live | sync-protocol, escrow-protocol |
 | `CONTACT_THEN_TRANSPORT_CANCEL` | signal (weight 10, default) | ESC-48 | `SyncFunction.ProcessTransportFailureCancelAsync` (live, best-effort) | admin Fraud Review (live, raw type); the risk score of section 14 (FRD-02, default weight, hard) | order-lifecycle 1.18.0 |
+| escrow `releaseNotBefore`, `PAYOUT_DELAY_SET` (log line, not alarmed), the `payout_delay` trucker retry reason, `payoutsDelayed` in the run summary | field, log, reason | FRD-13 | FRD-13 (built: `PayoutDelayPolicy`, the sync stamp and the escrow-cron stamp repair) | the auto-release and the trucker retry (built); mobile and web "Payout expected on (date)" for the farmer and the trucker (built); never the buyer | escrow-protocol 1.32.0, order-lifecycle 1.27.0, delivery-verification-api 1.19.0 |
 | `RISK_SCORE_UNAVAILABLE`, `RISK_SCORE_TRUNCATED`, `RISK_SCORE_UNKNOWN_RECORD`, `RISK_SETTLEMENT_SKIPPED` (`reason=flag_off`, `score_unavailable` or `user_read_failed`), `RISK_TABLE_UNCONFIGURED`, `RISK_HOLD_ORDER_MISMATCH` | log alarm tokens | FRD-02 (first three); new (others) | FRD-02 (first three, `FraudDetectionService.RiskScoreUnavailableToken`, `RiskScoreTruncatedToken` and `RiskScoreUnknownRecordToken`; called since FRD-04), FRD-03 (built: `RISK_SETTLEMENT_SKIPPED` with `flag_off` and `user_read_failed`, and `RISK_HOLD_ORDER_MISMATCH`), FRD-04 (built: `RISK_SETTLEMENT_SKIPPED` with `score_unavailable`, and `RISK_TABLE_UNCONFIGURED`, `MoneyAlarmLog.RiskTableUnconfigured`, logged flag on or off) | `RISK_SETTLEMENT_SKIPPED`: metric filter and alarm `risk-settlement-skipped` on escrow-cron from the FRD-03 deploy, flag on or off; the others FRD-16 metrics and alarms (`RISK_TABLE_UNCONFIGURED` is logged flag on or off since FRD-04, so its alarm can count from FRD-16's deploy rather than from the day `FRAUD_HOLD_ENABLED` is turned on) | this document only |
 
 Contract numbers are the ones taken by FRD-01 and may be renumbered by the lead in merge order. Ordering: FRD-02 first; FRD-03 merges with the flag off; FRD-06 ships on web and in both stores; then the flag is turned on (section 18.7).
@@ -1431,6 +1462,7 @@ Contract numbers are the ones taken by FRD-01 and may be renumbered by the lead 
 | FRD-08 | Signals from existing rejects plus the per-user, per-type write rate limit |
 | FRD-09 | Transaction pattern rules with thresholds in config |
 | FRD-10 | `CLEAN_DELIVERY` credit rows from the auto-release sweep |
+| FRD-13 (built) | The payout delay of section 17.5. Delivered as `PayoutDelayPolicy` and `PayoutDelaySettings` (new), `releaseNotBefore` in `SyncFunction.StampEscrowDeliveryConfirmedAsync` and `EscrowCronFunction.StampIfDeliveredAsync`, the filter in `AutoReleaseAsync`, the deferral in `EscrowService.RetryTruckerLegAsync` and the overdue age in `RetryPendingTruckerLegsAsync`, `EscrowDto.ReleaseNotBefore` and `EscrowSummaryDto.ReleaseNotBefore` (payees and admins), the mobile and web "Payout expected on (date)"; no infra change (the defaults live in code; the sync Lambda and escrow-cron already read the users, fraud-signals and escrows tables with their indexes) |
 
 Infrastructure needed (`infra/lib/stacks/api-stack.ts`):
 
@@ -1455,6 +1487,7 @@ Ties to EPIC ESC: ESC-33 writes `NO_SHOW` and `DELIVERY_OVERDUE` signals and re-
 
 | Version | Date | Change |
 |---------|------|--------|
+| 3.9.0 | 2026-10-23 | FRD-13 built (escrow-protocol 1.32.0, order-lifecycle 1.27.0, delivery-verification-api 1.19.0): new section 17.5, the payout delay. Delivery confirm stamps `releaseNotBefore = max(disputeWindowEndsAt, deliveryConfirmedAt + delay)`, the longer of the farmer's and the trucker's delay; classes trusted (score 0, account 30 days, 3 completed escrows), new, flagged (HIGH or CRITICAL) and unscored (Source before Tier, a failed or missing read; the longest delay); delays 24, 72 and 72 hours by default, env from 0 to 168; the auto-release and the trucker retry wait for it, the overdue age counts from it; admin release, the dispute sweep and refunds are not delayed; the escrow reads carry the date for the payees and admins, never the buyer; sections 16, 17 (matrix and rules), 20, 22 and 23 updated |
 | 3.6.0 | 2026-10-23 | FRD-05 built (escrow-protocol 1.29.0): section 19 marked built, with the request, the order of the checks (`400 ADMIN_009` for anything but `approve`, `reject` or `whitelist` exactly, `404 ADMIN_006` for a non-signal row on a consistent read, both before any write; the side effect before the review stamp, so a failure leaves the signal pending and retryable), the whitelist offered on soft signals only in the admin app, the side effects (reject suspends through the user route's one suspend path with `suspendReason: fraud_confirmed` and lists the open escrows read-only, bounded, holding nothing; whitelist writes the `~whitelist` row), the response fields and the transaction-audit rows; section 18.1: `fraud_confirmed` is a reserved `suspendReason` value (`400 ADMIN_017` on the user route, `unsuspend` removes the reason; not taken: a separate field), first in the gate's precedence across parties, with the known edge of a later free-text suspend; 14.1, 14.2, 14.5 (`FRAUD_WHITELIST_DAYS` from 1 to 365, else 30); section 20 whitelist row built (`reviewedAt` added); list and dashboard exclude credit and whitelist rows; section 19 known limits (a leftover whitelist row after a failed stamp, a 404 after a suspension when the TTL removed the row); 17.1 names ACC-02's checks (the `/sync` batch and escrow-route `410 ACCOUNT_004`, the deleted-party `ORDER_VALIDATION` and `ESCROW_030`); sections 4.3, 22 and 23 updated |
 | 3.5.0 | 2026-10-23 | FRD-04 built (escrow-protocol 1.27.0, order-lifecycle 1.25.0, sync-protocol 1.25.0, auth-api 2.10.0, crop-listing-api 1.5.0, trip-listing-api 1.6.0): section 17 marked built, with its implementation choices (user-action gates live on deploy and not behind the flag, no fraud service at the escrow Lambda is LOW, the create check before the F-14 listing checks, the tier read after the suspension pass, a certain hold beats an unscored party, tier and score in the `fraud_hold` metadata; not built: the tier in the audit metadata of MEDIUM and HIGH settlements and of the admin routes); 14.3 known edge of two exactly full pages; 14.4: `RISK_TABLE_UNCONFIGURED` is logged flag on or off (the flag-off skip is the live CRITICAL enforcement) now that escrow-cron has the table, and an unreadable score holds instead of skipping when another party is CRITICAL; sections 18, 22 and 23 updated |
 | 3.4.0 | 2026-10-23 | FRD-06 client handling built: section 4.4 (no new Isar collection or field; `PaymentStatus` gains `held` and `unknown`, append only), section 6.1 (client scope: fraud codes, escrow status as an open set, "Under Review" on escrow and order screens) and section 6.5 (the two hold reads are the only new network calls) |
@@ -1473,7 +1506,7 @@ Ties to EPIC ESC: ESC-33 writes `NO_SHOW` and `DELIVERY_OVERDUE` signals and re-
 - Delivery verification: `specs/architecture/delivery-verification-architecture.md`
 - Escrow payment: `specs/architecture/escrow-payment-architecture.md`
 - Sync protocol: `specs/contracts/sync-protocol.md` (1.9.0: `FRAUD_ACCOUNT_HELD:` operation error; built in 1.25.0)
-- Escrow protocol: `specs/contracts/escrow-protocol.md` (1.7.0: `held`, fraud hold and risk tiers; the tier gates built in 1.27.0; `fraud_confirmed` built in 1.29.0)
+- Escrow protocol: `specs/contracts/escrow-protocol.md` (1.7.0: `held`, fraud hold and risk tiers; the tier gates built in 1.27.0; `fraud_confirmed` built in 1.29.0; the payout delay in 1.32.0)
 - Order lifecycle: `specs/contracts/order-lifecycle.md` (1.9.0: fraud hold and payment gates; the tiers built in 1.25.0)
 - Auth API: `specs/contracts/auth-api.md` (2.6.0: `AUTH_040`, `AUTH_041`, `FRAUD_ACCOUNT_HELD`; built in 2.10.0)
 - Crop and trip listing: `specs/contracts/crop-listing-api.md` 1.5.0 and `specs/contracts/trip-listing-api.md` 1.6.0 (`FRAUD_ACCOUNT_HELD` on create)
@@ -1483,4 +1516,4 @@ Ties to EPIC ESC: ESC-33 writes `NO_SHOW` and `DELIVERY_OVERDUE` signals and re-
 
 **Last Updated**: 2026-10-23
 **Author**: Architecture Agent
-**Status**: Rules 1 to 4, signal persistence and the risk score (FRD-02) implemented. The enforcement of section 17 is built (FRD-04). The escrow `held` status of section 18 is built for a party rejected in Fraud Review (FRD-05), a suspended party (FRD-03) and a CRITICAL party (FRD-04), behind `FRAUD_HOLD_ENABLED`, shipped off. The admin actions of section 19 and the whitelist row are built (FRD-05). The rest of the risk engine (sections 20 to 23) specified, not built (EPIC FRD).
+**Status**: Rules 1 to 4, signal persistence and the risk score (FRD-02) implemented. The enforcement of section 17 is built (FRD-04), with the payout delay of section 17.5 (FRD-13). The escrow `held` status of section 18 is built for a party rejected in Fraud Review (FRD-05), a suspended party (FRD-03) and a CRITICAL party (FRD-04), behind `FRAUD_HOLD_ENABLED`, shipped off. The admin actions of section 19 and the whitelist row are built (FRD-05). The rest of the risk engine (sections 20 to 23) specified, not built (EPIC FRD).

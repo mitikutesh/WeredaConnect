@@ -4216,7 +4216,7 @@ public sealed class EscrowService
         /// <summary>Another run holds the trucker lock or took it first.</summary>
         InFlight,
 
-        /// <summary>No gateway call this run: out of time, over the per-run cap, or the row changed.</summary>
+        /// <summary>No gateway call this run: out of time, over the per-run cap, the row changed, or the payout delay has not ended (FRD-13).</summary>
         Deferred
     }
 
@@ -4302,6 +4302,14 @@ public sealed class EscrowService
         {
             await NoteTruckerBlockedAsync(escrow, block);
             return new(TruckerRetryOutcome.Blocked, block);
+        }
+
+        // FRD-13: a system payout never pays a leg before the payout delay ends. Only an admin release or a
+        // verdict releases that early, and its pending leg waits here; the gate above still tells a blocked
+        // trucker what to fix.
+        if (PayoutDelayPolicy.ReleaseNotBeforeOf(escrow) is { } notBefore && now.ToUniversalTime() < notBefore)
+        {
+            return new(TruckerRetryOutcome.Deferred, "payout_delay");
         }
 
         if (!mayCallGateway)
@@ -6024,7 +6032,7 @@ public sealed class EscrowService
         }
 
         // 3. Map to EscrowDto
-        return EscrowResult<EscrowDto>.Success(MapToEscrowDto(escrowItem));
+        return EscrowResult<EscrowDto>.Success(ForReader(MapToEscrowDto(escrowItem), escrowItem, authenticatedUserId));
     }
 
     /// <summary>
@@ -6050,7 +6058,7 @@ public sealed class EscrowService
         }
 
         // 3. Map to EscrowDto
-        return EscrowResult<EscrowDto>.Success(MapToEscrowDto(escrowItem));
+        return EscrowResult<EscrowDto>.Success(ForReader(MapToEscrowDto(escrowItem), escrowItem, authenticatedUserId));
     }
 
     /// <summary>
@@ -6076,6 +6084,15 @@ public sealed class EscrowService
         var value = GetStringOrNull(item, field);
         return !string.IsNullOrEmpty(value) && string.Equals(value, userId, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// FRD-13: the payees (the farmer and the trucker) see when the payout is due. The buyer does not: the date
+    /// can be later for a new or flagged payee, which would hint at the counterparty's risk.
+    /// </summary>
+    private static EscrowDto ForReader(EscrowDto dto, Dictionary<string, object> item, string authenticatedUserId)
+        => IsParty(item, "farmerId", authenticatedUserId) || IsParty(item, "truckerId", authenticatedUserId)
+            ? dto with { ReleaseNotBefore = PayoutDelayPolicy.EffectiveReleaseNotBefore(item) }
+            : dto;
 
     /// <summary>
     /// Get the authenticated user's payment history with optional filters and pagination.
@@ -6294,7 +6311,9 @@ public sealed class EscrowService
             CompletedAt = GetStringOrNull(item, "completedAt"),
             ExpiresAt = GetStringOrNull(item, "expiresAt"),
             RefundPending = IsRefundPending(item),
-            RefundReason = GetStringOrNull(item, "refundReason")
+            RefundReason = GetStringOrNull(item, "refundReason"),
+            // FRD-13: a farmer's or trucker's history row is their own payout; the buyer's carries no date.
+            ReleaseNotBefore = isBuyer ? null : PayoutDelayPolicy.EffectiveReleaseNotBefore(item)
         };
     }
 

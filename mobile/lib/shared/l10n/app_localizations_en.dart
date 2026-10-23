@@ -1571,6 +1571,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'Update the app to see the latest status of this payment.';
 
   @override
+  String escrowPayoutExpectedOn(String date) {
+    return 'Payout expected on $date';
+  }
+
+  @override
   String get escrowStatusRefundPending => 'Refund Pending';
 
   @override

@@ -2974,6 +2974,12 @@ abstract class AppLocalizations {
   /// **'Update the app to see the latest status of this payment.'**
   String get escrowDescUnknown;
 
+  /// Escrow detail and payment list, farmer and trucker only: the earliest day the payout is sent (FRD-13). Never says why the day is later than usual
+  ///
+  /// In en, this message translates to:
+  /// **'Payout expected on {date}'**
+  String escrowPayoutExpectedOn(String date);
+
   /// Status label for an escrowed hold whose refund is on its way (order cancelled or hold expired)
   ///
   /// In en, this message translates to:

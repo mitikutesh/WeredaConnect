@@ -455,6 +455,44 @@ void main() {
     });
   });
 
+  group('expected payout date (FRD-13)', () {
+    test('EscrowDetailResponse parses releaseNotBefore, null when absent', () {
+      final base = <String, dynamic>{
+        'escrowId': 'esc-001',
+        'status': 'escrowed',
+      };
+
+      final withDate = EscrowDetailResponse.fromJson({
+        ...base,
+        'releaseNotBefore': '2026-10-26T12:00:00.0000000Z',
+      });
+      final without = EscrowDetailResponse.fromJson(base);
+
+      expect(withDate.releaseNotBefore, '2026-10-26T12:00:00.0000000Z');
+      expect(without.releaseNotBefore, isNull);
+    });
+
+    test('EscrowSummary parses releaseNotBefore, null when absent', () {
+      final base = <String, dynamic>{
+        'escrowId': 'esc-001',
+        'deliveryId': 'del-001',
+        'amount': 1500,
+        'commission': 37.5,
+        'currency': 'ETB',
+        'status': 'escrowed',
+        'createdAt': '2026-10-23T12:00:00Z',
+      };
+
+      final withDate = EscrowSummary.fromJson({
+        ...base,
+        'releaseNotBefore': '2026-10-26T12:00:00Z',
+      });
+
+      expect(withDate.releaseNotBefore, '2026-10-26T12:00:00Z');
+      expect(EscrowSummary.fromJson(base).releaseNotBefore, isNull);
+    });
+  });
+
   group('EscrowAuditEntry', () {
     test('fromJson parses all fields', () {
       final json = <String, dynamic>{
