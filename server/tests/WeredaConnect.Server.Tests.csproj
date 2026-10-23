@@ -33,7 +33,7 @@
     <PackageReference Include="FluentAssertions" Version="6.12.0" />
 
     <!-- AWS Lambda Testing -->
-    <PackageReference Include="Amazon.Lambda.TestUtilities" Version="2.0.0" />
+    <PackageReference Include="Amazon.Lambda.TestUtilities" Version="4.3.0" />
   </ItemGroup>
 
   <ItemGroup>
