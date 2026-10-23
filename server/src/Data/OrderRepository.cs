@@ -98,7 +98,111 @@ public sealed class OrderRepository : IOrderRepository
                 404, "SYNC_VALIDATION", "Order not found.", "orderId");
         }
 
-        var createdAt = existing["createdAt"].S;
+        var request = BuildUpdateRequest(orderId, existing["createdAt"].S, data, expectedVersion);
+        try
+        {
+            var response = await _dynamoDb.UpdateItemAsync(request);
+            var result = DynamoDbHelper.FromItem(response.Attributes);
+            return AuthResult<Dictionary<string, object>>.Success(result);
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return VersionConflict(existing, expectedVersion);
+        }
+    }
+
+    /// <summary>FRD-03: the failure code of <see cref="UpdateUnlessEscrowHeldAsync"/> when the order's escrow is held.</summary>
+    public const string EscrowHeldCode = "ESCROW_HELD";
+
+    /// <inheritdoc />
+    public async Task<AuthResult<Dictionary<string, object>>> UpdateUnlessEscrowHeldAsync(
+        string orderId, Dictionary<string, object> data, int expectedVersion, EscrowRowKey escrow)
+    {
+        var existing = await GetItemAsync(orderId);
+        if (existing == null)
+        {
+            return AuthResult<Dictionary<string, object>>.Failure(
+                404, "SYNC_VALIDATION", "Order not found.", "orderId");
+        }
+
+        var update = BuildUpdateRequest(orderId, existing["createdAt"].S, data, expectedVersion);
+        try
+        {
+            await _dynamoDb.TransactWriteItemsAsync(new TransactWriteItemsRequest
+            {
+                TransactItems = new List<TransactWriteItem>
+                {
+                    new()
+                    {
+                        Update = new Update
+                        {
+                            TableName = update.TableName,
+                            Key = update.Key,
+                            UpdateExpression = update.UpdateExpression,
+                            ConditionExpression = update.ConditionExpression,
+                            ExpressionAttributeNames = update.ExpressionAttributeNames,
+                            ExpressionAttributeValues = update.ExpressionAttributeValues
+                        }
+                    },
+                    new()
+                    {
+                        ConditionCheck = new ConditionCheck
+                        {
+                            TableName = escrow.TableName,
+                            Key = new Dictionary<string, AttributeValue>
+                            {
+                                { "escrowId", new AttributeValue { S = escrow.EscrowId } },
+                                { "createdAt", new AttributeValue { S = escrow.CreatedAt } }
+                            },
+                            ConditionExpression = "attribute_not_exists(#status) OR #status <> :held",
+                            ExpressionAttributeNames = new Dictionary<string, string> { { "#status", "status" } },
+                            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                            {
+                                { ":held", new AttributeValue { S = EscrowHoldFields.Status } }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        catch (TransactionCanceledException ex)
+        {
+            // Reasons are per item, in request order: 0 is the order, 1 the escrow. A held escrow
+            // decides the answer even when the version moved too.
+            if (IsConditionFailure(ex.CancellationReasons, 1))
+            {
+                return AuthResult<Dictionary<string, object>>.Failure(
+                    409, EscrowHeldCode, "The order's escrow is held for review.");
+            }
+
+            if (IsConditionFailure(ex.CancellationReasons, 0))
+            {
+                return VersionConflict(existing, expectedVersion);
+            }
+
+            throw;
+        }
+
+        var written = await GetItemAsync(orderId, consistentRead: true);
+        return written != null
+            ? AuthResult<Dictionary<string, object>>.Success(DynamoDbHelper.FromItem(written))
+            : AuthResult<Dictionary<string, object>>.Failure(404, "SYNC_VALIDATION", "Order not found.", "orderId");
+    }
+
+    private static AuthResult<Dictionary<string, object>> VersionConflict(
+        Dictionary<string, AttributeValue> existing, int expectedVersion)
+        => AuthResult<Dictionary<string, object>>.Failure(
+            new AuthResultError
+            {
+                HttpStatus = 409,
+                Code = "SYNC_CONFLICT",
+                Message = $"Version conflict: server has version {existing["version"].N}, client expected {expectedVersion}."
+            });
+
+    /// <summary>The versioned order update of <see cref="UpdateAsync"/>, shared with the fenced write.</summary>
+    private UpdateItemRequest BuildUpdateRequest(
+        string orderId, string createdAt, Dictionary<string, object> data, int expectedVersion)
+    {
         var now = DateTime.UtcNow.ToString("o");
         var newVersion = expectedVersion + 1;
 
@@ -132,7 +236,7 @@ public sealed class OrderRepository : IOrderRepository
             i++;
         }
 
-        var request = new UpdateItemRequest
+        return new UpdateItemRequest
         {
             TableName = _tableName,
             Key = new Dictionary<string, AttributeValue>
@@ -146,24 +250,6 @@ public sealed class OrderRepository : IOrderRepository
             ExpressionAttributeValues = attrValues,
             ReturnValues = ReturnValue.ALL_NEW
         };
-
-        try
-        {
-            var response = await _dynamoDb.UpdateItemAsync(request);
-            var result = DynamoDbHelper.FromItem(response.Attributes);
-            return AuthResult<Dictionary<string, object>>.Success(result);
-        }
-        catch (ConditionalCheckFailedException)
-        {
-            var serverData = DynamoDbHelper.FromItem(existing);
-            return AuthResult<Dictionary<string, object>>.Failure(
-                new AuthResultError
-                {
-                    HttpStatus = 409,
-                    Code = "SYNC_CONFLICT",
-                    Message = $"Version conflict: server has version {existing["version"].N}, client expected {expectedVersion}."
-                });
-        }
     }
 
     /// <inheritdoc />

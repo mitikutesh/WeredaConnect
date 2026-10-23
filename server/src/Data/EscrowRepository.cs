@@ -266,9 +266,11 @@ public sealed class EscrowRepository : IEscrowRepository
     };
 
     /// <inheritdoc />
-    public async Task<bool> TryAcquireSettlementLockAsync(string escrowId, string createdAt, string op, string expectedStatus)
+    public async Task<bool> TryAcquireSettlementLockAsync(
+        string escrowId, string createdAt, string op, string expectedStatus, bool allowHeld = false)
     {
-        if (!SettleableStatuses.Contains(expectedStatus))
+        // FRD-03: held is settleable only for the admin exits, which pass allowHeld.
+        if (!SettleableStatuses.Contains(expectedStatus) && !(allowHeld && expectedStatus == EscrowHoldFields.Status))
         {
             return false;
         }
@@ -328,6 +330,150 @@ public sealed class EscrowRepository : IEscrowRepository
                 && latest.TryGetValue(SettlementLockFields.LockId, out var heldId) && heldId.S == lockId;
         }
     }
+
+    /// <inheritdoc />
+    public async Task<EscrowHoldWrite> TryHoldAsync(
+        string escrowId, string createdAt, EscrowHoldRequest hold, OrderFence? fence = null)
+    {
+        var names = new Dictionary<string, string>
+        {
+            { "#status", "status" },
+            { "#reason", EscrowHoldFields.HoldReason },
+            { "#heldAt", EscrowHoldFields.HeldAt },
+            { "#heldBy", EscrowHoldFields.HeldBy },
+            { "#heldFrom", EscrowHoldFields.HeldFromStatus },
+            { "#heldFor", EscrowHoldFields.HeldFor },
+            { "#updated", "updatedAt" },
+            { "#version", "version" },
+            { "#lock", SettlementLockFields.Lock },
+            { "#manualPayout", ManualPayoutFields.Marker }
+        };
+        var values = new Dictionary<string, AttributeValue>
+        {
+            { ":held", new AttributeValue { S = EscrowHoldFields.Status } },
+            { ":reason", new AttributeValue { S = hold.HoldReason } },
+            { ":heldAt", new AttributeValue { S = hold.HeldAt } },
+            { ":system", new AttributeValue { S = "system" } },
+            { ":from", new AttributeValue { S = hold.FromStatus } },
+            { ":for", new AttributeValue { S = hold.HeldFor } },
+            { ":one", new AttributeValue { N = "1" } }
+        };
+        const string updateExpression = "SET #status = :held, #reason = :reason, #heldAt = :heldAt, #heldBy = :system, "
+                                        + "#heldFrom = :from, #heldFor = :for, #updated = :heldAt ADD #version :one";
+        // A settlement in progress (its lock) or waiting for an admin (the queue) wins over the hold.
+        const string condition = "#status = :from AND attribute_not_exists(#lock) AND attribute_not_exists(#manualPayout)";
+
+        var orderChanged = false;
+        try
+        {
+            if (fence == null)
+            {
+                await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+                {
+                    TableName = _tableName,
+                    Key = EscrowKey(escrowId, createdAt),
+                    UpdateExpression = updateExpression,
+                    ConditionExpression = condition,
+                    ExpressionAttributeNames = names,
+                    ExpressionAttributeValues = values
+                });
+            }
+            else
+            {
+                if (string.IsNullOrEmpty(fence.TableName))
+                {
+                    throw new ArgumentException("An order fence needs the orders table name.", nameof(fence));
+                }
+
+                await _dynamoDb.TransactWriteItemsAsync(new TransactWriteItemsRequest
+                {
+                    TransactItems = new List<TransactWriteItem>
+                    {
+                        new()
+                        {
+                            Update = new Update
+                            {
+                                TableName = _tableName,
+                                Key = EscrowKey(escrowId, createdAt),
+                                UpdateExpression = updateExpression,
+                                ConditionExpression = condition,
+                                ExpressionAttributeNames = names,
+                                ExpressionAttributeValues = values
+                            }
+                        },
+                        new()
+                        {
+                            // The cancel-then-refund fence of the auto-refund sweep: a farmer's accept in
+                            // between moves the version, and nothing is held.
+                            ConditionCheck = new ConditionCheck
+                            {
+                                TableName = fence.TableName,
+                                Key = new Dictionary<string, AttributeValue>
+                                {
+                                    { "orderId", new AttributeValue { S = fence.OrderId } },
+                                    { "createdAt", new AttributeValue { S = fence.CreatedAt } }
+                                },
+                                ConditionExpression = "#status = :status AND #v = :version",
+                                ExpressionAttributeNames = new Dictionary<string, string>
+                                {
+                                    { "#status", "status" },
+                                    { "#v", "version" }
+                                },
+                                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                                {
+                                    { ":status", new AttributeValue { S = fence.Status } },
+                                    { ":version", new AttributeValue { N = fence.Version.ToString(System.Globalization.CultureInfo.InvariantCulture) } }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            return EscrowHoldWrite.Held;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            // The plain write lost its condition; the re-read below decides.
+        }
+        catch (Exception ex) when (ex is ProvisionedThroughputExceededException or RequestLimitExceededException)
+        {
+            // A throttle that outlived the SDK's retries: nothing was written, the next run retries.
+            return EscrowHoldWrite.Conflict;
+        }
+        catch (TransactionCanceledException ex)
+        {
+            // Reasons are per item, in request order: 0 is the escrow, 1 the order fence.
+            orderChanged = IsConditionFailure(ex.CancellationReasons, 1);
+            if (!orderChanged && !IsConditionFailure(ex.CancellationReasons, 0))
+            {
+                // A concurrent transaction or a throttle is transient: nothing was written. Anything
+                // else (a validation error) is a bug and escapes to the sweep's failure line.
+                if (ex.CancellationReasons?.Any(r => r?.Code is "TransactionConflict" or "ThrottlingError"
+                        or "ProvisionedThroughputExceeded") == true)
+                {
+                    return EscrowHoldWrite.Conflict;
+                }
+
+                throw;
+            }
+        }
+
+        // The SDK retries a write whose answer was lost, and the retry fails its condition on our own
+        // hold: only the heldAt we wrote tells it from another hold.
+        var latest = await GetItemAsync(escrowId, consistentRead: true);
+        if (latest != null
+            && latest.TryGetValue("status", out var status) && status.S == EscrowHoldFields.Status
+            && latest.TryGetValue(EscrowHoldFields.HeldAt, out var heldAt) && heldAt.S == hold.HeldAt)
+        {
+            return EscrowHoldWrite.Held;
+        }
+
+        return orderChanged ? EscrowHoldWrite.OrderChanged : EscrowHoldWrite.EscrowChanged;
+    }
+
+    private static bool IsConditionFailure(List<CancellationReason>? reasons, int index) =>
+        reasons != null && reasons.Count > index && reasons[index]?.Code == "ConditionalCheckFailed";
 
     /// <inheritdoc />
     public async Task ReleaseSettlementLockAsync(string escrowId, string createdAt)
@@ -589,15 +735,17 @@ public sealed class EscrowRepository : IEscrowRepository
             { ":escrowed", new AttributeValue { S = "escrowed" } },
             { ":disputed", new AttributeValue { S = "disputed" } },
             { ":disputeResolved", new AttributeValue { S = "dispute_resolved" } },
+            { ":held", new AttributeValue { S = EscrowHoldFields.Status } },
             { ":one", new AttributeValue { N = "1" } }
         };
 
         // ESC-04: a trucker leg queued on a released escrow closes from released, and only when
-        // it was queued from there (the farmer leg was paid by the release itself).
+        // it was queued from there (the farmer leg was paid by the release itself). FRD-03: an admin
+        // release or refund of a held escrow that the gateway queued closes from held.
         names["#fromStatus"] = ManualPayoutFields.FromStatus;
         values[":released"] = new AttributeValue { S = "released" };
         var condition = "#marker = :open AND #op = :op AND #legStatus = :pending"
-                        + " AND (#status = :escrowed OR #status = :disputed OR #status = :disputeResolved"
+                        + " AND (#status = :escrowed OR #status = :disputed OR #status = :disputeResolved OR #status = :held"
                         + " OR (#status = :released AND #fromStatus = :released))";
         var i = 0;
         foreach (var other in otherLegsMustBePaid)

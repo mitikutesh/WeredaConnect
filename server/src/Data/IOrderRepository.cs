@@ -3,6 +3,9 @@ using WeredaConnect.Server.Services;
 
 namespace WeredaConnect.Server.Data;
 
+/// <summary>FRD-03: the escrow row an order write is fenced on: its table and key.</summary>
+public sealed record EscrowRowKey(string TableName, string EscrowId, string CreatedAt);
+
 /// <summary>
 /// Repository interface for order persistence in DynamoDB.
 /// Supports sync operations with version-based conflict detection.
@@ -43,6 +46,20 @@ public interface IOrderRepository
         int expectedVersion,
         string expectedStatus,
         IReadOnlyList<TransactWriteItem> linkedItems);
+
+    /// <summary>
+    /// FRD-03: <see cref="UpdateAsync"/> in one <c>TransactWriteItems</c> with a <c>ConditionCheck</c> that
+    /// the order's escrow (<paramref name="escrow"/>) is not <c>held</c>, so a settlement sweep that holds it
+    /// between the caller's read and this write wins. Fails with <c>409</c>
+    /// <see cref="OrderRepository.EscrowHeldCode"/> when the escrow is held (nothing written), and like
+    /// <see cref="UpdateAsync"/> on a version conflict. On success it returns the order as written (a
+    /// strongly consistent read).
+    /// </summary>
+    Task<AuthResult<Dictionary<string, object>>> UpdateUnlessEscrowHeldAsync(
+        string orderId,
+        Dictionary<string, object> data,
+        int expectedVersion,
+        EscrowRowKey escrow);
 
     /// <summary>
     /// Get an order by ID. Returns null if not found.

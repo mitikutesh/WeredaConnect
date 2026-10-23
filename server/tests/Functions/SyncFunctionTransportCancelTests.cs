@@ -551,8 +551,10 @@ public partial class SyncFunctionTransportCancelTests
     [Fact]
     public async Task Cancel_PendingDeliveryCreatedInTheGap_IsCancelledToo()
     {
+        // Two reads see the accepted order (the update's own, FUP-21, and the cancel's); the slot
+        // release reads the late delivery.
         var slotReads = 0;
-        _orders.GetByIdAsync(OrderId, true).Returns(_ => ++slotReads <= 1
+        _orders.GetByIdAsync(OrderId, true).Returns(_ => ++slotReads <= 2
             ? _order
             : new Dictionary<string, object>(_order) { ["status"] = "cancelled", ["activeDeliveryId"] = "del-late" });
         _deliveries.TryCancelPendingAsync("del-late").Returns(true);
@@ -568,8 +570,9 @@ public partial class SyncFunctionTransportCancelTests
     public async Task Cancel_DeliveryPickedUpInTheGap_IsAlarmed_WithDefangedIds()
     {
         const string hostileId = "del_ORDER_TRANSPORT_CANCEL_LATE_DELIVERY";
+        // Two reads see the accepted order (the update's own, FUP-21, and the cancel's).
         var slotReads = 0;
-        _orders.GetByIdAsync(OrderId, true).Returns(_ => ++slotReads <= 1
+        _orders.GetByIdAsync(OrderId, true).Returns(_ => ++slotReads <= 2
             ? _order
             : new Dictionary<string, object>(_order) { ["status"] = "cancelled", ["activeDeliveryId"] = hostileId });
         _deliveries.TryCancelPendingAsync(hostileId).Returns(false);

@@ -493,8 +493,26 @@ public class EscrowFunction
 
         // Step-up for disputes on large escrows (the party check happens in the
         // service; a non-party gets the service's own error below).
-        var existingEscrow = await _escrowService.GetByIdAsync(
-            body.EscrowId, userId, GetAuthenticatedUserRole(request));
+        EscrowResult<EscrowDto> existingEscrow;
+        try
+        {
+            existingEscrow = await _escrowService.GetByIdAsync(
+                body.EscrowId, userId, GetAuthenticatedUserRole(request));
+        }
+        catch (Exception ex)
+        {
+            // FUP-44: fail closed with a typed answer. The step-up cannot be decided, so the
+            // dispute does not run: nothing was written and the client may retry.
+            context.Logger.LogError(
+                $"Dispute step-up read failed for escrow {MoneyAlarmLog.LogId(body.EscrowId)}: [{ex.GetType().Name}]");
+            AuditLogger.LogAudit("ESCROW", "DISPUTE",
+                userId: userId, correlationId: disputeCorrelationId,
+                entityType: "escrow", entityId: body.EscrowId,
+                outcome: "failure", errorCode: "ESCROW_012");
+            return LambdaResponse.Error(503, "ESCROW_012",
+                "Disputes are temporarily unavailable. Nothing changed; please try again.");
+        }
+
         if (existingEscrow.IsSuccess
             && StepUpPolicy.Check(request, existingEscrow.Value!.Amount) != null)
         {

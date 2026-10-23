@@ -687,6 +687,7 @@ public sealed class OrderFollowsMoneyDynamoDbTests
         public Task<AuthResult<Dictionary<string, object>>> CreateAsync(string orderId, Dictionary<string, object> data) => inner.CreateAsync(orderId, data);
         public Task<AuthResult<Dictionary<string, object>>> UpdateAsync(string orderId, Dictionary<string, object> data, int expectedVersion) => inner.UpdateAsync(orderId, data, expectedVersion);
         public Task<OrderLinkedWriteResult> TryUpdateWithAsync(string orderId, Dictionary<string, object> data, int expectedVersion, string expectedStatus, IReadOnlyList<TransactWriteItem> linkedItems) => inner.TryUpdateWithAsync(orderId, data, expectedVersion, expectedStatus, linkedItems);
+        public Task<AuthResult<Dictionary<string, object>>> UpdateUnlessEscrowHeldAsync(string orderId, Dictionary<string, object> data, int expectedVersion, EscrowRowKey escrow) => inner.UpdateUnlessEscrowHeldAsync(orderId, data, expectedVersion, escrow);
         public Task<Dictionary<string, object>?> GetByIdAsync(string orderId) => inner.GetByIdAsync(orderId);
         public Task<Dictionary<string, object>?> GetByIdAsync(string orderId, bool consistentRead) => inner.GetByIdAsync(orderId, consistentRead);
         public Task<Dictionary<string, object>?> TryMarkFundedAsync(string orderId, Dictionary<string, object> fields) => inner.TryMarkFundedAsync(orderId, fields);

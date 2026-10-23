@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # Money alarms synthetic test (ESC-13; the dispute verdict mismatch alarm since ESC-03; the
-# unknown-outcome alarm since ESC-05; the trucker payouts overdue alarm since ESC-04).
+# unknown-outcome alarm since ESC-05; the trucker payouts overdue alarm since ESC-04; the
+# dispute propagation alarm and the sync filter of the escrow dispute rate since FUP-27).
 #
 # Proves that the CloudWatch metric filters and alarms behind the escrow money paths
 # fire on the exact log lines the server emits, without moving any money. Pairs with
@@ -14,6 +15,8 @@
 #   - checks that the lines of a normal queued payout (ESC-02) and lines carrying hostile
 #     client text, as the server writes them, match no money filter
 #   - checks that the unknown-outcome filter (ESC-05) skips an outcome=failed line
+#   - checks the sync filter of the escrow dispute rate (FUP-27) like the money filters; that
+#     alarm is not a money alarm and is never fired here (it needs six disputes in an hour)
 #   - asserts the shape of the escrow-cron Errors alarm
 #   - prints the current state of every money alarm
 #
@@ -94,9 +97,10 @@ A_PAYOUT="${PREFIX}-manual-payouts-overdue"
 A_QUEUE="${PREFIX}-admin-queue-overdue"
 A_TRUCKER="${PREFIX}-trucker-payouts-overdue"
 A_MISMATCH="${PREFIX}-dispute-verdict-order-mismatch"
+A_PROPAGATION="${PREFIX}-dispute-propagation-failed"
 # Persistence alarm (three of four hourly datapoints): checked, never fired by this script.
 A_BLOCKED="${PREFIX}-dispute-verdict-settlement-blocked"
-ALL_ALARMS=("$A_SETTLE" "$A_UNKNOWN" "$A_CRON" "$A_ORDER" "$A_PAYOUT" "$A_QUEUE" "$A_TRUCKER" "$A_MISMATCH" "$A_BLOCKED")
+ALL_ALARMS=("$A_SETTLE" "$A_UNKNOWN" "$A_CRON" "$A_ORDER" "$A_PAYOUT" "$A_QUEUE" "$A_TRUCKER" "$A_MISMATCH" "$A_PROPAGATION" "$A_BLOCKED")
 
 # Sample lines: the exact formats of MoneyAlarmLog and the sync Lambda, with a synthetic id.
 SID="synthetic-esc13"
@@ -108,6 +112,9 @@ L_TRUCKER="TRUCKER_PAYOUT_OVERDUE escrowId=${SID} reason=phone_unverified ageHou
 L_QUEUE="ADMIN_QUEUE_OVERDUE orderId=${SID} reason=synthetic ageHours=25"
 L_MISMATCH="DISPUTE_VERDICT_ORDER_MISMATCH escrowId=${SID} op=refund legs=order:mismatch:accepted"
 L_BLOCKED="DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=${SID} op=refund legs=order:cancel:conflict"
+# FUP-27: a dispute mirror leg that failed, and a sync delivery dispute that froze its escrow.
+L_PROPAGATION="DISPUTE_PROPAGATION_FAILED escrowId=${SID} orderId=${SID} deliveryId=${SID} legs=order:conflict"
+L_FROZEN="DELIVERY_DISPUTE_FROZEN escrowId=${SID} orderId=${SID} deliveryId=${SID}"
 
 # How the Lambda runtime writes a line to CloudWatch: time, request id and level, tab separated.
 RT_PREFIX=$'2026-10-09T10:00:00.000Z\tsynthetic-esc13-request\twarn\t'
@@ -116,7 +123,7 @@ RT_PREFIX=$'2026-10-09T10:00:00.000Z\tsynthetic-esc13-request\twarn\t'
 # ESCROW_034), and lines that carry client text exactly as the server writes them, with a
 # hostile value that spells a token (the server turns "_" into "-" in client values, and the
 # escrow Lambda logs the route template, not the path).
-HOSTILE="ESCROW-SETTLEMENT-FAILED-ORDER-ESCROW-LINK-FAILED-MANUAL-PAYOUT-OVERDUE-TRUCKER-PAYOUT-OVERDUE-DISPUTE-VERDICT-ORDER-MISMATCH-DISPUTE-VERDICT-SETTLEMENT-BLOCKED"
+HOSTILE="ESCROW-SETTLEMENT-FAILED-ORDER-ESCROW-LINK-FAILED-MANUAL-PAYOUT-OVERDUE-TRUCKER-PAYOUT-OVERDUE-DISPUTE-VERDICT-ORDER-MISMATCH-DISPUTE-VERDICT-SETTLEMENT-BLOCKED-DISPUTE-PROPAGATION-FAILED-DELIVERY-DISPUTE-FROZEN"
 NEGATIVE_LINES=(
   "ESCROW_MANUAL_PAYOUT_QUEUED escrowId=${SID} op=release legs=farmer,trucker reason=PAYOUT_NOT_SUPPORTED"
   "ESCROW_MANUAL_PAYOUT_WAITING escrowId=${SID} sweep=auto-release"
@@ -127,6 +134,8 @@ NEGATIVE_LINES=(
   "Op ${HOSTILE}: status=error, msg=Invalid action: '${HOSTILE}'. Must be create, update, or delete."
   "ESCROW_MANUAL_PAYOUT_WAITING escrowId=escrow-order-${HOSTILE} sweep=auto-release"
   "DISPUTE_VERDICT_PROPAGATION_FAILED escrowId=${SID} orderId=${HOSTILE} deliveryId=- legs=order:conflict"
+  "Dispute on delivery ${HOSTILE} by ${HOSTILE}: escrow escrow-order-${HOSTILE} Frozen"
+  "ESCROW_SWEEP_DISPUTE_FROZEN escrowId=${SID} op=release"
 )
 
 # log group | metric name | sample line
@@ -142,6 +151,11 @@ CHECKS=(
   "${LG_ESCROW}|DisputeVerdictOrderMismatch|${L_MISMATCH}"
   "${LG_CRON}|DisputeVerdictOrderMismatch|${L_MISMATCH}"
   "${LG_CRON}|DisputeVerdictSettlementBlocked|${L_BLOCKED}"
+  "${LG_ESCROW}|DisputePropagationFailed|${L_PROPAGATION}"
+  "${LG_SYNC}|DisputePropagationFailed|${L_PROPAGATION}"
+  "${LG_CRON}|DisputePropagationFailed|${L_PROPAGATION}"
+  # Not a money alarm: the escrow dispute rate's sync filter (the escrow one is a JSON filter).
+  "${LG_SYNC}|EscrowDispute|${L_FROZEN}"
 )
 
 FAILED=0
@@ -274,9 +288,9 @@ put_lines() {
     fail "could not write the synthetic lines to ${lg}"
   fi
 }
-put_lines "$LG_ESCROW" "$L_SETTLE" "$L_UNKNOWN" "$L_MISMATCH"
-put_lines "$LG_CRON" "$L_SETTLE" "$L_UNKNOWN" "$L_PAYOUT" "$L_TRUCKER" "$L_QUEUE" "$L_MISMATCH"
-put_lines "$LG_SYNC" "$L_LINK"
+put_lines "$LG_ESCROW" "$L_SETTLE" "$L_UNKNOWN" "$L_MISMATCH" "$L_PROPAGATION"
+put_lines "$LG_CRON" "$L_SETTLE" "$L_UNKNOWN" "$L_PAYOUT" "$L_TRUCKER" "$L_QUEUE" "$L_MISMATCH" "$L_PROPAGATION"
+put_lines "$LG_SYNC" "$L_LINK" "$L_PROPAGATION"
 
 # A JSON string cannot deserialize into APIGatewayProxyRequest, so the runtime fails the
 # invocation before the handler runs: one Errors datapoint, no sweep, no money effect. If
@@ -335,7 +349,7 @@ for lg in "$LG_ESCROW" "$LG_CRON" "$LG_SYNC"; do
 done
 echo
 echo "Expected to clear by themselves with no new lines or errors:"
-echo "  ${A_SETTLE}, ${A_UNKNOWN}, ${A_PAYOUT}, ${A_TRUCKER}, ${A_QUEUE}, ${A_MISMATCH}: about 75 to 90 minutes after the lines were written"
+echo "  ${A_SETTLE}, ${A_UNKNOWN}, ${A_PAYOUT}, ${A_TRUCKER}, ${A_QUEUE}, ${A_MISMATCH}, ${A_PROPAGATION}: about 75 to 90 minutes after the lines were written"
 echo "  ${A_ORDER}: 15 to 30 minutes"
 echo "  ${A_CRON}: 20 to 25 minutes"
 

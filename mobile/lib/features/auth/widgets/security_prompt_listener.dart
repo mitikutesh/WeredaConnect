@@ -30,7 +30,8 @@ typedef KycPaymentResubmitter = Future<void> Function(
 ///   [SecurityPromptListener.resubmitPayment]; a failed or cancelled
 ///   verification leaves it unsent.
 /// - [SyncOperationRejected]: the server refused a queued change for good
-///   (a refused order change was already put back); a snackbar says why.
+///   (a refused order change, and a crop listing or trip change refused by
+///   an ESC-12 part B code, was already put back); a snackbar says why.
 ///   It never waits for, or closes, an open prompt. Refusals that arrive
 ///   together (one sync batch) share snackbars: one per distinct message.
 ///   Another user's refusal (shared device) is not shown.

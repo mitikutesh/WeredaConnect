@@ -14,6 +14,10 @@ Two payment modes:
     gateway (TELEBIRR_MOCK=false) the initiate returns a toPayUrl; this script
     opens it, clicks "Pay" on the local simulator, and polls until the webhook
     flips the escrow to "escrowed".
+    Since FUP-36 (escrow-protocol 1.18.0) the server refuses POST /escrow/initiate
+    with 422 ESCROW_039 unless the simulator's baseUrl host is loopback or
+    host.docker.internal: a tunnel-exposed simulator counts as live Telebirr, so
+    this mode needs the order checkout (follow-up; the script is unchanged).
 
 Stdlib only. Usage:
   python3 scripts/e2e_full_flow.py                       # deployed dev (mock)

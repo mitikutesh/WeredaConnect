@@ -14,6 +14,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
+import 'package:wereda_connect/core/utils/contact_in_text.dart';
 import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -422,7 +423,12 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
   Widget _buildRouteStep(AppLocalizations l10n) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
+      // Same layout, but the fields paint bottom-up (list reversed, laid out
+      // upward). Flutter 3.38 puts a PlaceSelector's suggestion list at the
+      // field's own place in the semantics tree, so on web a field painted
+      // after it (the date) sat above the list and took the click (SIM-59).
+      verticalDirection: VerticalDirection.up,
+      children: <Widget>[
         if (_recentRoutes.isNotEmpty) ...[
           Text(
             l10n.quickFill,
@@ -463,6 +469,8 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
             if (value == null || value.trim().isEmpty) {
               return l10n.fromWoredaRequired;
             }
+            // FUP-49: buyers read the route before any order.
+            if (containsPhoneNumber(value)) return l10n.errorContactInText;
             return null;
           },
         ),
@@ -479,6 +487,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
             if (value.trim() == _fromWoredaController.text.trim()) {
               return l10n.sameOriginDestination;
             }
+            if (containsPhoneNumber(value)) return l10n.errorContactInText;
             return null;
           },
         ),
@@ -507,7 +516,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
             ),
           ),
         ),
-      ],
+      ].reversed.toList(),
     );
   }
 
@@ -567,6 +576,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
             labelText: l10n.vehiclePlate,
             prefixIcon: const Icon(Icons.confirmation_number),
             hintText: '3-AA-12345',
+            errorMaxLines: 3,
             border: const OutlineInputBorder(),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 16,
@@ -575,6 +585,9 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
           ),
           keyboardType: TextInputType.text,
           textCapitalization: TextCapitalization.characters,
+          // FUP-49: the vehicle fields reach every buyer with the trip.
+          validator: (value) =>
+              containsPhoneNumber(value) ? l10n.errorContactInText : null,
         ),
         const SizedBox(height: 16),
         TextFormField(
@@ -583,6 +596,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
             labelText: l10n.vehicleDescription,
             prefixIcon: const Icon(Icons.directions_car),
             hintText: 'Isuzu FTR 10-ton',
+            errorMaxLines: 3,
             border: const OutlineInputBorder(),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 16,
@@ -591,6 +605,8 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
           ),
           keyboardType: TextInputType.text,
           textCapitalization: TextCapitalization.words,
+          validator: (value) =>
+              containsPhoneNumber(value) ? l10n.errorContactInText : null,
         ),
       ],
     );

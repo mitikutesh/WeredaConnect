@@ -2,6 +2,7 @@ namespace WeredaConnect.Server.Services;
 
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.RateLimiting;
 
@@ -26,6 +27,29 @@ public sealed class FraudDetectionService : IFraudDetectionService
     internal const double GpsSpoofingThresholdKm = 1.0;
     internal const int SignalTtlDays = 30;
 
+    // Risk score defaults (fraud-detection-architecture.md section 14.5). The environment
+    // overrides are read per call by RiskScoreSettings, like StepUpPolicy's.
+    internal const int DefaultRiskWindowDays = 30;
+    internal const int DefaultRiskTierMedium = 30;
+    internal const int DefaultRiskTierHigh = 60;
+    internal const int DefaultRiskTierCritical = 100;
+    internal const int DefaultRiskCreditCap = 30;
+    internal const int DefaultRiskAdvisoryCap = 10;
+    internal const int DefaultRiskMaxPages = 2;
+    internal const int RiskMaxPagesCap = 10;
+
+    /// <summary>AI reviewer output (FRD-19): capped, and left out of the enforcement score.</summary>
+    internal const string AdvisorySignalType = "AI_ADVISORY";
+
+    /// <summary>Log alarm token: the score read failed and the user was scored LOW (section 14.4).</summary>
+    public const string RiskScoreUnavailableToken = "RISK_SCORE_UNAVAILABLE";
+
+    /// <summary>Log alarm token: rows were left after the page cap and the user was scored CRITICAL.</summary>
+    public const string RiskScoreTruncatedToken = "RISK_SCORE_TRUNCATED";
+
+    /// <summary>Log alarm token: rows with an unknown <c>recordType</c> were read and counted as signals.</summary>
+    public const string RiskScoreUnknownRecordToken = "RISK_SCORE_UNKNOWN_RECORD";
+
     public FraudDetectionService(
         IAmazonDynamoDB dynamoDb,
         string cropsTable,
@@ -37,6 +61,12 @@ public sealed class FraudDetectionService : IFraudDetectionService
         _fraudSignalsTable = fraudSignalsTable ?? throw new ArgumentNullException(nameof(fraudSignalsTable));
         _rateLimitRepo = rateLimitRepo ?? throw new ArgumentNullException(nameof(rateLimitRepo));
     }
+
+    /// <summary>
+    /// Sink for the risk score alarm lines. Defaults to stdout, which Lambda ships to the
+    /// function's CloudWatch log group. Tests replace it to capture the lines.
+    /// </summary>
+    public Action<string> AlarmLog { get; init; } = Console.WriteLine;
 
     // ── CheckListingCreationAsync ──────────────────────────
     // Runs checks in order: velocity → duplicate → price anomaly
@@ -220,6 +250,13 @@ public sealed class FraudDetectionService : IFraudDetectionService
         _ => 10
     };
 
+    /// <summary>
+    /// Soft class of the signal catalogue (section 15): flag-only rules whose weight an active
+    /// whitelist skips. Every other type is hard and always counts.
+    /// </summary>
+    internal static bool IsSoftSignal(string signalType) =>
+        signalType is "GPS_ANOMALY" or "PRICE_ANOMALY";
+
     internal static string SignalSeverity(int weight) =>
         weight >= 20 ? "high" : weight >= 10 ? "medium" : "low";
 
@@ -255,6 +292,112 @@ public sealed class FraudDetectionService : IFraudDetectionService
         {
             return false;
         }
+    }
+
+    // ── GetUserRiskScoreAsync ──────────────────────────────
+    public Task<RiskScoreResult> GetUserRiskScoreAsync(string userId) =>
+        GetUserRiskScoreAsync(userId, DateTime.UtcNow, RiskScoreSettings.FromEnvironment());
+
+    // Section 14.3: one Query of the user's partition, newest first, at most MaxPages pages.
+    internal async Task<RiskScoreResult> GetUserRiskScoreAsync(
+        string userId, DateTime nowUtc, RiskScoreSettings settings)
+    {
+        if (string.IsNullOrEmpty(_fraudSignalsTable))
+        {
+            return RiskScoreResult.Unscored(RiskScoreSource.TableNotConfigured);
+        }
+
+        if (string.IsNullOrEmpty(userId))
+        {
+            // A caller bug, not a clean user: a sweep must skip rather than score nobody LOW.
+            AlarmLog($"{RiskScoreUnavailableToken} userId=- error=EmptyUserId");
+            return RiskScoreResult.Unscored(RiskScoreSource.Unavailable);
+        }
+
+        var calculator = new RiskScoreCalculator(settings, nowUtc);
+        try
+        {
+            var pages = 0;
+            Dictionary<string, AttributeValue>? startKey = null;
+            do
+            {
+                var response = await _dynamoDb.QueryAsync(BuildRiskQuery(userId, calculator.SinceKey, startKey));
+                pages++;
+                foreach (var row in response.Items ?? new List<Dictionary<string, AttributeValue>>())
+                {
+                    calculator.Add(row);
+                    if (calculator.ReachedCritical)
+                    {
+                        return Finish(truncated: false);
+                    }
+                }
+
+                startKey = response.LastEvaluatedKey is { Count: > 0 } next ? next : null;
+            }
+            while (startKey != null && pages < settings.MaxPages);
+
+            if (startKey != null)
+            {
+                // Fail closed: newest-first, a burst in the current hour (deduplicated to one)
+                // could otherwise push older weight out of the read.
+                AlarmLog($"{RiskScoreTruncatedToken} userId={MoneyAlarmLog.LogId(userId)} pages={pages}");
+                return Finish(truncated: true);
+            }
+
+            return Finish(truncated: false);
+        }
+        catch (Exception ex)
+        {
+            // A gate goes on with today's checks (the baseline step-up still applies); a
+            // settlement sweep sees Source == Unavailable and skips the escrow (section 14.4).
+            AlarmLog($"{RiskScoreUnavailableToken} userId={MoneyAlarmLog.LogId(userId)} error={MoneyAlarmLog.LogId(ex.GetType().Name)}");
+            return RiskScoreResult.Unscored(RiskScoreSource.Unavailable);
+        }
+
+        RiskScoreResult Finish(bool truncated)
+        {
+            if (calculator.UnknownRecordRows > 0)
+            {
+                AlarmLog($"{RiskScoreUnknownRecordToken} userId={MoneyAlarmLog.LogId(userId)} rows={calculator.UnknownRecordRows} recordType={MoneyAlarmLog.LogId(calculator.FirstUnknownRecordType)}");
+            }
+
+            return calculator.Result(truncated);
+        }
+    }
+
+    private QueryRequest BuildRiskQuery(
+        string userId, string sinceKey, Dictionary<string, AttributeValue>? startKey)
+    {
+        var request = new QueryRequest
+        {
+            TableName = _fraudSignalsTable,
+            KeyConditionExpression = "#u = :uid AND #k >= :since",
+            // Only the attributes the scorer reads; descriptions stay on the table.
+            ProjectionExpression = "#k, #t, #w, #r, #rt, #wu",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#u", "userId" },
+                { "#k", "signalKey" },
+                { "#t", "signalType" },
+                { "#w", "weight" },
+                { "#r", "resolution" },
+                { "#rt", "recordType" },
+                { "#wu", "whitelistUntil" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":uid", new AttributeValue { S = userId } },
+                { ":since", new AttributeValue { S = sinceKey } }
+            },
+            ScanIndexForward = false, // newest first; "~whitelist" sorts last, so it comes first
+            ConsistentRead = false
+        };
+        if (startKey != null)
+        {
+            request.ExclusiveStartKey = startKey;
+        }
+
+        return request;
     }
 
     // ── Record methods (post-success velocity tracking) ────
