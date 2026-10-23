@@ -13,7 +13,7 @@ public class PartySuspensionGateTests
 {
     private readonly IUserRepository _users = Substitute.For<IUserRepository>();
 
-    private static UserDto User(string id, bool suspended) => new()
+    private static UserDto User(string id, bool suspended, string? reason = null) => new()
     {
         UserId = id,
         PhoneNumber = "+251900000001",
@@ -21,6 +21,7 @@ public class PartySuspensionGateTests
         Woreda = "w",
         IsPhoneVerified = true,
         Suspended = suspended,
+        SuspendReason = reason,
         CreatedAt = "2026-01-01T00:00:00Z",
         UpdatedAt = "2026-01-01T00:00:00Z",
         Version = 1
@@ -164,6 +165,69 @@ public class PartySuspensionGateTests
         gate.BeginRun();
         await gate.CheckAsync(Escrow());
         await _users.Received(2).GetUserByIdAsync("b");
+    }
+
+    // ── FRD-05: fraud_confirmed, the Fraud Review reject's suspension (section 18.1) ──
+
+    [Theory]
+    [InlineData("b", "buyer")]
+    [InlineData("f", "farmer")]
+    [InlineData("t", "trucker")]
+    public async Task APartySuspendedAsFraudConfirmed_HoldsForFraudConfirmed(string id, string party)
+    {
+        Users();
+        _users.GetUserByIdAsync(id).Returns(User(id, suspended: true, reason: "fraud_confirmed"));
+
+        var decision = await new PartySuspensionGate(_users).CheckAsync(Escrow());
+
+        decision.HoldReason.Should().Be("fraud_confirmed");
+        decision.Party.Should().Be(party);
+    }
+
+    [Fact]
+    public async Task FraudConfirmed_TakesPrecedenceOverAnEarlierPartySuspendedForAnotherReason()
+    {
+        Users(buyer: true);
+        _users.GetUserByIdAsync("t").Returns(User("t", suspended: true, reason: "fraud_confirmed"));
+
+        var decision = await new PartySuspensionGate(_users).CheckAsync(Escrow());
+
+        decision.HoldReason.Should().Be("fraud_confirmed");
+        decision.Party.Should().Be("trucker");
+    }
+
+    [Theory]
+    [InlineData("Fraud_Confirmed")]
+    [InlineData("fraud confirmed by phone")]
+    public async Task AnyOtherReason_IsAccountSuspended(string reason)
+    {
+        Users();
+        _users.GetUserByIdAsync("f").Returns(User("f", suspended: true, reason: reason));
+
+        (await new PartySuspensionGate(_users).CheckAsync(Escrow())).HoldReason.Should().Be("account_suspended");
+    }
+
+    [Fact]
+    public async Task TheReasonOfALiftedSuspension_HoldsNothing()
+    {
+        Users();
+        _users.GetUserByIdAsync("f").Returns(User("f", suspended: false, reason: "fraud_confirmed"));
+
+        (await new PartySuspensionGate(_users).CheckAsync(Escrow())).Settles.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task FraudConfirmed_TakesPrecedenceOverACriticalParty_AndNoScoreIsRead()
+    {
+        Users();
+        _users.GetUserByIdAsync("f").Returns(User("f", suspended: true, reason: "fraud_confirmed"));
+        _fraud.GetUserRiskScoreAsync(Arg.Any<string>()).Returns(Scored(RiskTier.Critical, 150));
+
+        var decision = await new PartySuspensionGate(_users, fraudService: _fraud).CheckAsync(Escrow());
+
+        decision.HoldReason.Should().Be("fraud_confirmed");
+        decision.Risk.Should().BeNull();
+        await _fraud.DidNotReceiveWithAnyArgs().GetUserRiskScoreAsync(default!);
     }
 
     // ── FRD-04: the parties' risk tiers (sections 14.4, 17.2, 18.1) ──

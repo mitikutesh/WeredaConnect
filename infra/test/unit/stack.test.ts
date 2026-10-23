@@ -217,6 +217,44 @@ describe('ApiStack', () => {
     expect(admin!.Properties.Environment.Variables.ESCROW_IDEMPOTENCY_TABLE).toBeDefined();
   });
 
+  test('FRD-05: the admin Lambda holds every grant the fraud review actions use', () => {
+    // No new grant: this pins the existing ones, since a missing one is a runtime AccessDenied.
+    // The role's statements overflow into a managed policy, so read both kinds.
+    const policies = {
+      ...template.findResources('AWS::IAM::Policy'),
+      ...template.findResources('AWS::IAM::ManagedPolicy'),
+    };
+    const statements = Object.keys(policies)
+      .filter((key) => key.startsWith('AdminFunctionServiceRole'))
+      .flatMap(
+        (id) =>
+          policies[id].Properties.PolicyDocument.Statement as Array<{
+            Action: string | string[];
+            Resource: unknown;
+          }>,
+      );
+    const actionsOf = (match: (resource: string) => boolean) =>
+      statements
+        .filter((s) => match(JSON.stringify(s.Resource)))
+        .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+
+    // reject: the open escrows come from the buyer, farmer and trucker indexes.
+    expect(actionsOf((r) => r.includes('EscrowsTable') && r.includes('/index/*'))).toContain('dynamodb:Query');
+    // The signal-row read, the review stamp, the whitelist row, and the list and count scans.
+    expect(actionsOf((r) => r.includes('FraudSignalsTable'))).toEqual(
+      expect.arrayContaining(['dynamodb:GetItem', 'dynamodb:UpdateItem', 'dynamodb:PutItem', 'dynamodb:Scan']),
+    );
+    // reject suspends through the user action path: the profile row, then Cognito on the mobile pool.
+    expect(actionsOf((r) => r.includes('UsersTable'))).toEqual(
+      expect.arrayContaining(['dynamodb:GetItem', 'dynamodb:UpdateItem']),
+    );
+    expect(actionsOf((r) => r.includes('UserPool') && !r.includes('AdminUserPool'))).toEqual(
+      expect.arrayContaining(['cognito-idp:AdminDisableUser', 'cognito-idp:AdminUserGlobalSignOut']),
+    );
+    // One transaction-audit row per action.
+    expect(actionsOf((r) => r.includes('TransactionAuditTable'))).toContain('dynamodb:PutItem');
+  });
+
   test('unapplied payment routes sit on the admin authorizer (FUP-02)', () => {
     const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
     const adminAuthorizerId = Object.entries(authorizers)
@@ -1651,8 +1689,10 @@ describe('MonitoringStack', () => {
     const template = monitoringTemplate(false);
     const filter = metricFilter(template, ESCROW_CRON_LG, 'RiskSettlementSkipped');
     expect(filter.Properties.MetricTransformations[0].MetricValue).toBe('1');
-    // FRD-04 adds a CRITICAL party with the flag off and a party risk score that could not be read.
+    // FRD-04 adds a CRITICAL party with the flag off and a party risk score that could not be read,
+    // FRD-05 a party rejected in Fraud Review.
     for (const reason of [
+      'flag_off holdReason=fraud_confirmed',
       'flag_off holdReason=account_suspended',
       'user_read_failed holdReason=-',
       'flag_off holdReason=risk_critical',

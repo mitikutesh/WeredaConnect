@@ -29,8 +29,8 @@ public readonly record struct SettlementGateDecision(
 /// FRD-03: the risk gate each settlement sweep of escrow-cron asks before the first money-related side
 /// effect of an escrow (fraud-detection-architecture.md section 17.2). It looks at every party: the
 /// buyer, the farmer, and the trucker when the escrow names one. Hold reasons, in precedence:
-/// <c>fraud_confirmed</c> (FRD-05 defines the reject action's value), <c>account_suspended</c> (FRD-03),
-/// <c>risk_critical</c> (FRD-04 reads the tier).
+/// <c>fraud_confirmed</c> (FRD-05, the Fraud Review reject action's suspension), <c>account_suspended</c>
+/// (FRD-03), <c>risk_critical</c> (FRD-04 reads the tier).
 /// </summary>
 public interface ISettlementRiskGate
 {
@@ -50,7 +50,9 @@ public interface ISettlementRiskGate
 /// FRD-03: holds the settlement of an escrow when one of its parties is suspended
 /// (<c>account_suspended</c>). Each user row is read once per run. A row that cannot be read skips the
 /// escrow for this run (<c>user_read_failed</c>, fail closed); a party without a row is not suspended,
-/// and the payout gates decide about it as before. An escrow with a trucker leg but no <c>truckerId</c>
+/// and the payout gates decide about it as before. A party suspended by the Fraud Review reject action
+/// (<c>suspendReason = fraud_confirmed</c>, FRD-05) holds it as <c>fraud_confirmed</c>, ahead of any other
+/// suspended party. An escrow with a trucker leg but no <c>truckerId</c>
 /// (minted before its order had a truck) takes its trucker the way the payout does, from the order when
 /// the delivery names the same one; a lookup that throws fails closed too.
 /// FRD-04: with a fraud service, a party at risk tier CRITICAL (a truncated read included) holds it too
@@ -102,6 +104,7 @@ public sealed class PartySuspensionGate : ISettlementRiskGate
     public async Task<SettlementGateDecision> CheckAsync(Dictionary<string, object> escrow)
     {
         string? suspendedParty = null;
+        string? fraudConfirmedParty = null;
         var parties = new List<(string UserId, string Party)>(Parties.Length);
         foreach (var (field, party) in Parties)
         {
@@ -146,9 +149,18 @@ public sealed class PartySuspensionGate : ISettlementRiskGate
             if (user is { Suspended: true })
             {
                 suspendedParty ??= party;
+                if (user.SuspendReason == EscrowHoldFields.ReasonFraudConfirmed)
+                {
+                    fraudConfirmedParty ??= party;
+                }
             }
 
             parties.Add((userId, party));
+        }
+
+        if (fraudConfirmedParty != null)
+        {
+            return SettlementGateDecision.Hold(EscrowHoldFields.ReasonFraudConfirmed, fraudConfirmedParty);
         }
 
         if (suspendedParty != null)

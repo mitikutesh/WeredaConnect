@@ -95,6 +95,42 @@ describe("fraud hold labels exist in every locale", () => {
   }
 });
 
+/* FRD-05: the Fraud Review action results, the decision labels and the codes the actions answer with. */
+describe("fraud review strings exist in every locale", () => {
+  const keys = [
+    ...Object.keys(en.fraud).map((k) => `fraud.${k}`),
+    "errors.ADMIN_009",
+    "errors.ADMIN_017",
+    "users.buyer",
+    "users.farmer",
+    "users.trucker",
+    "escrows.escrowed",
+    "escrows.disputed",
+    "escrows.dispute_resolved",
+    "escrows.held",
+  ];
+  for (const locale of locales) {
+    it(`${locale} has every fraud key and the codes`, () => {
+      expect(keys.filter((key) => t(key, locale) === key)).toEqual([]);
+    });
+  }
+
+  it("keeps the placeholders the page fills in", () => {
+    for (const locale of locales) {
+      expect(t("fraud.result_reject", locale)).toContain("{userId}");
+      expect(t("fraud.result_whitelist", locale)).toContain("{date}");
+    }
+  });
+
+  it("keeps the fraud wording of ADMIN_006 and ADMIN_007 off the shared error keys", () => {
+    // The user page answers its own ADMIN_007 (user not found) through errors.*.
+    for (const locale of locales) {
+      expect(t("errors.ADMIN_006", locale)).toBe("errors.ADMIN_006");
+      expect(t("errors.ADMIN_007", locale)).toBe("errors.ADMIN_007");
+    }
+  });
+});
+
 /* ESC-08: a party's cancel (and the system cancel of a dispute verdict) is audited as
  * delivery_cancelled; without a label the transaction timeline shows the raw key. */
 describe("delivery cancel audit label exists in every locale", () => {
