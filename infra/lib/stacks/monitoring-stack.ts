@@ -198,7 +198,10 @@ export class MonitoringStack extends cdk.Stack {
     //     transport failure and a delivery that was not pending (picked up, or unreadable)
     //     held the order's slot right after: goods may have left the farm on a refunded order;
     //   ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED (ESC-06): a pickup synced after that cancel had
-    //     cancelled the delivery (the reverse offline race): the trucker has the goods.
+    //     cancelled the delivery (the reverse offline race): the trucker has the goods;
+    //   QR_GATE_UNDECIDED (FUP-42): a delivery pickup or confirm with no QR on record could not
+    //     read the escrow that decides whether it needs one. It stays deferred and never fails,
+    //     so a read that keeps failing would hold the delivery unseen.
     const syncLogGroup = logs.LogGroup.fromLogGroupName(
       this,
       'SyncLogGroup',
@@ -213,6 +216,7 @@ export class MonitoringStack extends cdk.Stack {
         'DISPUTE_NO_ESCROW',
         'ORDER_TRANSPORT_CANCEL_LATE_DELIVERY',
         'ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED',
+        'QR_GATE_UNDECIDED',
       ),
       metricNamespace,
       metricName: 'OrderEscrowProblems',
@@ -852,19 +856,19 @@ export class MonitoringStack extends cdk.Stack {
       {
         alarmName: `${prefix}-order-escrow-problems`,
         alarmDescription:
-          'The sync Lambda logged ORDER_ESCROW_CREATE_FAILED, ORDER_ESCROW_LINK_FAILED, ' +
-          'ORDER_ESCROW_REFUND_SCHEDULE_FAILED or DISPUTE_NO_ESCROW (the line carries the orderId). CREATE: a ' +
-          'funded order has no escrow record; the buyer\'s money is held but invisible to ' +
-          '/escrow/history and refund scheduling; delivery-time linkage self-heals it, ' +
-          'verify via the OrderIndex GSI. LINK: the delivery is not tied to the order ' +
-          'escrow, so delivery confirmation may never reach it and the refund-safety check ' +
-          'cannot see the delivery; link them by hand. REFUND_SCHEDULE: a rejected or ' +
-          'cancelled order\'s money stays in escrow; set the escrow expiry by hand so the ' +
-          'hourly sweep refunds the buyer. DISPUTE_NO_ESCROW (ESC-07): a delivery of the order ' +
-          'was disputed but no escrow-order row holds its money, so the dispute was refused; ' +
-          'find where the payment is held and contact the parties. ORDER_TRANSPORT_CANCEL_LATE_DELIVERY ' +
-          'or _PICKUP_REFUSED (ESC-06): goods may have left the farm on an order cancelled for ' +
-          'transport failure; call the parties.',
+          // At most 1024 characters (an infra test checks it); the runbook has the detail.
+          'The sync Lambda logged one of these (ids on the line; runbook: .ai/deployment.md). ' +
+          'ORDER_ESCROW_CREATE_FAILED: a funded order has no escrow record, so its money is invisible to ' +
+          '/escrow/history and refund scheduling; delivery-time linkage self-heals it, verify via the ' +
+          'OrderIndex GSI. _LINK_FAILED: the delivery is not tied to the order escrow, so delivery ' +
+          'confirmation and the refund-safety check cannot see it; link them by hand. ' +
+          '_REFUND_SCHEDULE_FAILED: a rejected or cancelled order\'s money stays in escrow; set the ' +
+          'escrow expiry by hand so the hourly sweep refunds the buyer. DISPUTE_NO_ESCROW (ESC-07): a ' +
+          'delivery was disputed but no escrow-order row holds the money, so the dispute was refused; ' +
+          'find the payment and contact the parties. ORDER_TRANSPORT_CANCEL_LATE_DELIVERY or ' +
+          '_PICKUP_REFUSED (ESC-06): goods may have left the farm on an order cancelled for transport ' +
+          'failure; call the parties. QR_GATE_UNDECIDED (FUP-42): a no-QR pickup or confirm could not ' +
+          'read its escrow and stays deferred; fix the read.',
         metric: new cloudwatch.Metric({
           namespace: metricNamespace,
           metricName: 'OrderEscrowProblems',

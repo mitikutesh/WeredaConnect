@@ -1247,6 +1247,9 @@ describe('MonitoringStack', () => {
   const LATE_DELIVERY_LINE = 'ORDER_TRANSPORT_CANCEL_LATE_DELIVERY orderId=ord-1 deliveryId=del-1 status=pickedUp';
   // ESC-06: the reverse offline race, a pickup refused on a delivery that cancel cancelled.
   const PICKUP_REFUSED_LINE = 'ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED orderId=ord-1 deliveryId=del-1 status=pickedUp';
+  // FUP-42: a delivery pickup or confirm with no QR whose escrow could not be read (it stays deferred).
+  const QR_GATE_LINE =
+    'QR_GATE_UNDECIDED deliveryId=del-1 orderId=ord-1 reason=ProvisionedThroughputExceededException detail=Rate exceeded';
   // ESC-02's producer: one line per pending leg, ref=<op>:<leg>.
   const PAYOUT_LINE = 'MANUAL_PAYOUT_OVERDUE escrowId=escrow-order-ord-1 ref=release:farmer ageHours=26';
   const QUEUE_LINE = 'ADMIN_QUEUE_OVERDUE orderId=ord-1 reason=undelivered ageHours=30';
@@ -1661,6 +1664,32 @@ describe('MonitoringStack', () => {
     expect(cloudWatchTermsMatch(adminQueue, 'ORDER_ESCROW_HOLD_CAPPED orderId=ord-1 escrowId=escrow-order-ord-1')).toBe(false);
     expect(cloudWatchTermsMatch(adminQueue, 'ADMIN_QUEUE_OVERDUE orderId=ord-1 reason=order_missing ageHours=30')).toBe(true);
     expect(cloudWatchTermsMatch(orderProblems, 'ORDER_ESCROW_HOLD_CAPPED orderId=ord-1 escrowId=escrow-order-ord-1')).toBe(false);
+  });
+
+  test('FUP-42: an undecided QR gate counts on sync as an order escrow problem, and nothing else counts it', () => {
+    const template = monitoringTemplate(false);
+    const orderProblems = metricFilter(template, SYNC_LG, 'OrderEscrowProblems').Properties.FilterPattern;
+    expect(cloudWatchTermsMatch(orderProblems, QR_GATE_LINE)).toBe(true);
+    expect(cloudWatchTermsMatch(orderProblems, `2026-10-23T10:00:00.000Z\t4f1c7a2e-req\terror\t${QR_GATE_LINE}`)).toBe(true);
+    expect(cloudWatchTermsMatch(orderProblems, 'QR_GATE_UNDECIDED deliveryId=del-1 orderId=- reason=TimeoutException detail=slow')).toBe(true);
+    // The answers the device gets are not the alarm line, and an exception text that spells the
+    // token is defanged by MoneyAlarmLog.LogText.
+    for (const line of [
+      'DELIVERY_NONCE_PENDING: The payment check could not be completed. Will retry automatically.',
+      "DELIVERY_NONCE_PENDING: Waiting for the farmer's QR code to sync. Will retry automatically.",
+      'DELIVERY_NONCE_MISSING: QR verification could not be completed for this payment. Contact support.',
+      'Error processing operation op-1: [AmazonDynamoDBException] QR-GATE-UNDECIDED',
+    ]) {
+      expect([line, cloudWatchTermsMatch(orderProblems, line)]).toEqual([line, false]);
+    }
+    for (const [lg, metric] of [
+      [ESCROW_LG, 'EscrowSettlementFailures'],
+      [ESCROW_CRON_LG, 'EscrowSettlementFailures'],
+      [ESCROW_CRON_LG, 'ManualPayoutsOverdue'],
+      [ESCROW_CRON_LG, 'AdminQueueOverdue'],
+    ]) {
+      expect(cloudWatchTermsMatch(metricFilter(template, lg, metric).Properties.FilterPattern, QR_GATE_LINE)).toBe(false);
+    }
   });
 
   // Every term of a money filter, as the synthesized pattern spells it.
