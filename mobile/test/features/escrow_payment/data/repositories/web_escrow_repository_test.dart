@@ -314,6 +314,50 @@ void main() {
       expect((result as EscrowError).code, 'ESCROW_009');
     });
 
+    test(
+        'keeps the server code on a 422: ESCROW_039 is the live refusal of '
+        'the delivery path (FUP-36)', () async {
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/escrow/initiate',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenThrow(
+        const ServerException(
+          'Online payment for a delivery is not available here.',
+          422,
+          'ESCROW_039',
+        ),
+      );
+
+      final result = await repo.initiatePayment(
+        deliveryId: 'del-001',
+        buyerId: 'buyer-001',
+        farmerId: 'farmer-001',
+        amount: 15000.0,
+      );
+
+      expect((result as EscrowError).code, 'ESCROW_039');
+    });
+
+    test('a 500 without a server code still reads as ESCROW_SERVER', () async {
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/escrow/initiate',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenThrow(const ServerException('Server error', 500));
+
+      final result = await repo.initiatePayment(
+        deliveryId: 'del-001',
+        buyerId: 'buyer-001',
+        farmerId: 'farmer-001',
+        amount: 15000.0,
+      );
+
+      expect((result as EscrowError).code, 'ESCROW_SERVER');
+    });
+
     test('toPayUrl is null for a mock/sync gateway response', () async {
       when(
         () => api.post<Map<String, dynamic>>(

@@ -2,13 +2,32 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/features/order/data/repositories/web_order_repository.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 
 class _MockOrderRepository extends Mock implements BaseOrderRepository {}
+
+class _MockApiClient extends Mock implements ApiClient {}
+
+const _createOrder = CreateOrder(
+  listingId: 'crop-1',
+  buyerId: 'buyer-1',
+  farmerId: 'farmer-1',
+  buyerName: 'Buyer',
+  farmerName: 'Farmer',
+  cropType: 'teff',
+  quantity: 5,
+  pricePerUnit: 60,
+  tripId: 'trip-1',
+  truckerId: 'trucker-1',
+  truckerName: 'Trucker',
+  transportCost: 100,
+);
 
 /// Polls until [states] holds [count] entries (5s cap) instead of sleeping a
 /// fixed time; the expects below then report what actually arrived.
@@ -84,10 +103,7 @@ void main() {
   for (final code in [
     'ORDER_VALIDATION',
     'ORDER_UNAUTHORIZED',
-    'ORDER_DEADLINE_PASSED',
     'ORDER_ACTION_NOT_ALLOWED',
-    'ORDER_TRIP_NOT_ELIGIBLE',
-    'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED',
   ]) {
     group(code, () {
       for (final action in actions.keys) {
@@ -119,6 +135,143 @@ void main() {
         await run('cancel', const OrderCancelNotAllowedException('not yet')),
         AppErrorCode.orderCancelNotAllowed,
       );
+    });
+  });
+
+  // ESC-12 part B (sync-protocol.md 1.17.0): the spec section 8 codes say
+  // what happened instead of the generic refusal (web throws them from /sync).
+  for (final (code, expected) in [
+    ('ORDER_DEADLINE_PASSED', AppErrorCode.deadlinePassed),
+    ('ORDER_TRIP_NOT_ELIGIBLE', AppErrorCode.tripNotEligible),
+    (
+      'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED',
+      AppErrorCode.transportAttemptsExceeded,
+    ),
+    ('TRIP_CAPACITY_EXCEEDED', AppErrorCode.tripCapacityExceeded),
+    ('REPUTATION_RESTRICTED', AppErrorCode.reputationRestricted),
+    ('APP_UPDATE_REQUIRED', AppErrorCode.appUpdateRequired),
+  ]) {
+    group(code, () {
+      for (final action in actions.keys) {
+        test('$action ends in ${expected.name}, never success', () async {
+          final states = await run(
+            action,
+            SyncRejectedException('$code: refused'),
+          );
+          expectError(states, expected);
+        });
+      }
+    });
+  }
+
+  group('a refused create (buyer, web)', () {
+    Future<List<OrderState>> createWith(BaseOrderRepository repository) async {
+      final bloc = OrderBloc(repository: repository);
+      final states = <OrderState>[];
+      final sub = bloc.stream.listen(states.add);
+      bloc.add(_createOrder);
+      await waitForStates(states, 2);
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      await bloc.close();
+      return states;
+    }
+
+    Future<List<OrderState>> create(Object error) async {
+      when(
+        () => repo.createOrder(
+          listingId: any(named: 'listingId'),
+          buyerId: any(named: 'buyerId'),
+          farmerId: any(named: 'farmerId'),
+          buyerName: any(named: 'buyerName'),
+          farmerName: any(named: 'farmerName'),
+          cropType: any(named: 'cropType'),
+          quantity: any(named: 'quantity'),
+          pricePerUnit: any(named: 'pricePerUnit'),
+          tripId: any(named: 'tripId'),
+          truckerId: any(named: 'truckerId'),
+          truckerName: any(named: 'truckerName'),
+          transportCost: any(named: 'transportCost'),
+          commissionRate: any(named: 'commissionRate'),
+        ),
+      ).thenAnswer((_) async => throw error);
+      return createWith(repo);
+    }
+
+    // Spec A7: on a create the restricted party is the farmer or trucker.
+    test('REPUTATION_RESTRICTED names the owner, not the buyer', () async {
+      expectError(
+        await create(
+          const SyncRejectedException('REPUTATION_RESTRICTED: owner'),
+        ),
+        AppErrorCode.counterpartyRestricted,
+      );
+    });
+
+    // The whole web chain: /sync refuses the create, the real repository
+    // throws from ensureSyncSucceeded, the bloc names the owner.
+    test(
+        'through WebOrderRepository: REPUTATION_RESTRICTED names the owner, '
+        'nothing is read after', () async {
+      final api = _MockApiClient();
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'results': [
+            {
+              'status': 'error',
+              'message': 'REPUTATION_RESTRICTED: The listing owner cannot '
+                  'take new orders.',
+            },
+          ],
+        },
+      );
+
+      expectError(
+        await createWith(WebOrderRepository(api: api)),
+        AppErrorCode.counterpartyRestricted,
+      );
+      verify(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).called(1);
+      verifyNoMoreInteractions(api);
+    });
+
+    for (final (code, expected) in [
+      ('TRIP_CAPACITY_EXCEEDED', AppErrorCode.tripCapacityExceeded),
+      ('ORDER_TRIP_NOT_ELIGIBLE', AppErrorCode.tripNotEligible),
+      ('APP_UPDATE_REQUIRED', AppErrorCode.appUpdateRequired),
+      ('ORDER_VALIDATION', AppErrorCode.orderRefused),
+    ]) {
+      test('$code ends in ${expected.name}, never OrderCreated', () async {
+        expectError(
+          await create(SyncRejectedException('$code: refused')),
+          expected,
+        );
+      });
+    }
+  });
+
+  // FUP-20: a live bank transfer is refused; the buyer is told to pay with
+  // Telebirr instead of seeing the generic refusal.
+  group('ORDER_PAYMENT_METHOD_UNAVAILABLE', () {
+    test('submitPayment ends in paymentMethodUnavailable, never success',
+        () async {
+      final states = await run(
+        'submitPayment',
+        const SyncRejectedException(
+          'ORDER_PAYMENT_METHOD_UNAVAILABLE: Bank transfer (cbe_transfer) is '
+          'not available yet. Pay with Telebirr.',
+        ),
+      );
+      expectError(states, AppErrorCode.paymentMethodUnavailable);
     });
   });
 

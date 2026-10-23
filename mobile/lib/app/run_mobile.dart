@@ -151,7 +151,8 @@ Future<void> runMobile({
       );
     },
     // Any other permanent order rejection: server wins, the local order goes
-    // back to the server's view (sync-protocol.md 1.10.0).
+    // back to the server's view (sync-protocol.md 1.10.0); so do refused
+    // deliveries, crop listings and trips (1.11.0, 1.12.0, 1.17.0).
     onPermanentRejection: marketplaceSync.revertRejected,
   );
   final syncWorker = SyncWorker(

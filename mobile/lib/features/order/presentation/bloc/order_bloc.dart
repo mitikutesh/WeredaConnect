@@ -147,7 +147,18 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
       );
       emit(OrderCreated(order: order));
     } on Object catch (e) {
-      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
+      final code = mapErrorToCode(e);
+      emit(
+        OrderError(
+          message: e.toString(),
+          // A refused create names the listing's or trip's owner as
+          // restricted (spec A7), not the buyer (web; mobile explains it
+          // through syncRejectionErrorCode).
+          code: code == AppErrorCode.reputationRestricted
+              ? AppErrorCode.counterpartyRestricted
+              : code,
+        ),
+      );
     }
   }
 

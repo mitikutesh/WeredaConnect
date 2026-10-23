@@ -48,6 +48,9 @@ class SyncQueue {
     String entityId,
   ) async =>
       0;
+
+  /// No queue on web, so nothing is ever reverted.
+  Future<int> markRevertedFor(String entityType, String entityId) async => 0;
 }
 
 /// Exception thrown when the sync queue is full.

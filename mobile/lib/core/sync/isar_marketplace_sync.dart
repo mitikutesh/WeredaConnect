@@ -185,12 +185,28 @@ class IsarMarketplaceSync implements MarketplaceSync {
   /// Every path clears the order pull stamp so that pull is not throttled.
   /// A delivery cancel refused after pickup (ESC-08) and a refused or late
   /// delivery dispute (ESC-07) are undone the same way from
-  /// `GET /deliveries/{id}`, never removing the delivery. A message refused
+  /// `GET /deliveries/{id}`, never removing the delivery; only a refused
+  /// delivery `create`, never stored, is removed (1.17.0). A message refused
   /// because its thread's contact is not open (ESC-48) was never stored, so
-  /// its local copy is removed. Other entity types are left alone.
+  /// its local copy is removed. A crop listing or trip change refused by
+  /// reputation, bookings or active orders (ESC-12 part B, 1.17.0) is undone
+  /// with the order rules; any other refusal of those, `APP_UPDATE_REQUIRED`
+  /// included, leaves the row alone. Other entity types are left alone.
   Future<void> revertRejected(SyncOperation operation, String message) async {
     if (operation.entityType == 'delivery') {
       await _revertRejectedDelivery(operation);
+      return;
+    }
+    if (operation.entityType == 'crop_listing') {
+      if (isRevertableListingRejectionMessage(message)) {
+        await _revertRejectedListing(operation);
+      }
+      return;
+    }
+    if (operation.entityType == 'trip') {
+      if (isRevertableTripRejectionMessage(message)) {
+        await _revertRejectedTrip(operation);
+      }
       return;
     }
     if (operation.entityType == 'message') {
@@ -251,10 +267,18 @@ class IsarMarketplaceSync implements MarketplaceSync {
   /// `delivered` there. Server wins, as for an order update: the local row
   /// is replaced by `GET /deliveries/{id}` unless another upload for it is on
   /// its way; when that read fails the version goes back for the next
-  /// [pullDeliveries].
+  /// [pullDeliveries]. A refused `create` was never stored, so the local
+  /// delivery is removed without a read, as for orders, listings and trips.
   Future<void> _revertRejectedDelivery(SyncOperation operation) async {
     final deliveryId = operation.entityId;
     _lastDeliveryPull = null;
+    if (operation.action == 'create') {
+      await _isar.writeTxn(
+        () =>
+            _isar.deliverys.filter().deliveryIdEqualTo(deliveryId).deleteAll(),
+      );
+      return;
+    }
     if (await _hasOpenUploads(operation.entityType, deliveryId)) return;
 
     Delivery? server;
@@ -286,18 +310,113 @@ class IsarMarketplaceSync implements MarketplaceSync {
     });
   }
 
+  /// ESC-12 part B: a crop listing change refused for good (restricted
+  /// farmer, active orders, app too old). Server wins, with the order rules:
+  /// a refused `create` was never stored, so the local listing is removed; a
+  /// refused delete is replaced by `GET /crops/{id}` unless another operation
+  /// for it is still on its way; a 404 or 403 removes the listing; any other
+  /// failed read puts the version back for the next [pullCrops].
+  Future<void> _revertRejectedListing(SyncOperation operation) async {
+    final listingId = operation.entityId;
+    _lastCropPull = null;
+    if (operation.action == 'create') {
+      await _isar
+          .writeTxn(() => _isar.cropListings.deleteByListingId(listingId));
+      return;
+    }
+    if (await _hasOpenUploads(operation.entityType, listingId)) return;
+
+    final (:row, :gone) = await _readOwnRow('/crops/$listingId', 'crop');
+    if (gone) {
+      await _isar
+          .writeTxn(() => _isar.cropListings.deleteByListingId(listingId));
+      return;
+    }
+    final restored = row == null ? null : _parseCrop(row);
+    if (restored == null || restored.listingId != listingId) {
+      await _restoreBaseVersion(operation);
+      return;
+    }
+    await _isar.writeTxn(() async {
+      // A change made while the read was in flight wins over the restore.
+      if (await _hasOpenUploads(operation.entityType, listingId)) return;
+      // No version guard: the local version is the refused optimistic one.
+      await _isar.cropListings.putByListingId(restored);
+    });
+  }
+
+  /// ESC-12 part B: a trip change refused for good (restricted trucker,
+  /// booked orders, app too old), undone like a crop listing from
+  /// `GET /trips/{id}` (404 also means cancelled there, so the trip is
+  /// removed as it is from the trip pull).
+  Future<void> _revertRejectedTrip(SyncOperation operation) async {
+    final tripId = operation.entityId;
+    _lastTripPull = null;
+    if (operation.action == 'create') {
+      await _isar.writeTxn(() => _isar.trips.deleteByTripId(tripId));
+      return;
+    }
+    if (await _hasOpenUploads(operation.entityType, tripId)) return;
+
+    final (:row, :gone) = await _readOwnRow('/trips/$tripId', 'trip');
+    if (gone) {
+      await _isar.writeTxn(() => _isar.trips.deleteByTripId(tripId));
+      return;
+    }
+    final restored = row == null ? null : _parseTrip(row);
+    if (restored == null || restored.tripId != tripId) {
+      await _restoreBaseVersion(operation);
+      return;
+    }
+    await _isar.writeTxn(() async {
+      // A change made while the read was in flight wins over the restore.
+      if (await _hasOpenUploads(operation.entityType, tripId)) return;
+      // No version guard: the local version is the refused optimistic one.
+      await _isar.trips.putByTripId(restored);
+    });
+  }
+
+  /// Read a refused crop listing or trip back for its owner: only a farmer
+  /// sends crop operations and only a trucker trip operations, and each may
+  /// read their own row. [envelopeKey] is the key `GET /crops/{id}`
+  /// (`crop`) or `GET /trips/{id}` (`trip`) wraps the row in. `gone` is true
+  /// when the server says the row does not exist or is not this user's (404,
+  /// 403); `row` is null when the read failed otherwise (offline, 401, 5xx)
+  /// or held nothing.
+  Future<({Map<String, dynamic>? row, bool gone})> _readOwnRow(
+    String path,
+    String envelopeKey,
+  ) async {
+    try {
+      final data = await _api.get<Map<String, dynamic>>(path);
+      final envelope = data[envelopeKey];
+      return (
+        row: envelope is Map<String, dynamic> ? envelope : null,
+        gone: false,
+      );
+    } on NotFoundException {
+      return (row: null, gone: true);
+    } on AuthException catch (e) {
+      return (row: null, gone: e.statusCode == 403);
+    } on Object {
+      // Offline or a server error: the next pull decides.
+      return (row: null, gone: false);
+    }
+  }
+
   Future<void> _deleteLocalOrder(String orderId) async {
     await _isar.writeTxn(() async {
       await _isar.orders.filter().orderIdEqualTo(orderId).deleteAll();
     });
   }
 
-  /// Put the local order (or delivery) back on the lowest version any of its
-  /// refused operations was based on, so a pull is not skipped by the "never
-  /// regress" guard. Each optimistic write bumped the version by one, so two
-  /// refused changes (pay, then cancel) leave the row two ahead of the
-  /// server, and their rejections may come in different batches. No-op when
-  /// a newer change is queued for it.
+  /// Put the local order (or delivery, crop listing, trip) back on the lowest
+  /// version any of its refused operations was based on, so a pull is not
+  /// skipped by the "never regress" guard and the next change sends the
+  /// version the server holds. Each optimistic write bumped the version by
+  /// one, so two refused changes (pay, then cancel) leave the row two ahead
+  /// of the server, and their rejections may come in different batches.
+  /// No-op when a newer change is queued for it.
   Future<void> _restoreBaseVersion(SyncOperation operation) async {
     final ops = await _isar.syncOperations
         .filter()
@@ -323,6 +442,26 @@ class IsarMarketplaceSync implements MarketplaceSync {
         if (local == null || local.version <= baseVersion) return;
         local.version = baseVersion;
         await _isar.deliverys.put(local);
+        return;
+      }
+      if (operation.entityType == 'crop_listing') {
+        final local = await _isar.cropListings
+            .filter()
+            .listingIdEqualTo(operation.entityId)
+            .findFirst();
+        if (local == null || local.version <= baseVersion) return;
+        local.version = baseVersion;
+        await _isar.cropListings.put(local);
+        return;
+      }
+      if (operation.entityType == 'trip') {
+        final local = await _isar.trips
+            .filter()
+            .tripIdEqualTo(operation.entityId)
+            .findFirst();
+        if (local == null || local.version <= baseVersion) return;
+        local.version = baseVersion;
+        await _isar.trips.put(local);
         return;
       }
       final local = await _isar.orders

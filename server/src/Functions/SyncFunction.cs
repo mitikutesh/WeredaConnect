@@ -103,6 +103,9 @@ public partial class SyncFunction
     private const decimal LiveMinPaymentEtb = 100m;
     private const decimal LiveMaxPaymentEtb = 500_000m;
 
+    /// <summary>FUP-20: the only payment method the live gateway funds (the ESC-01 checkout); bank transfers wait for ESC-46.</summary>
+    private const string LivePaymentMethod = "telebirr";
+
     /// <summary>Client-echoed money must match the server's computation to the santim.</summary>
     private const double MoneyTolerance = 0.01;
 
@@ -5609,8 +5612,11 @@ public partial class SyncFunction
             };
         }
 
-        // Fetch existing order
-        var existingOrder = await _orderRepo.GetByIdAsync(operation.EntityId);
+        // FUP-21: strongly consistent. Every check below runs on this row, but the write's
+        // version check uses the client's version, so a stale row can pass a transition the
+        // stored order forbids. Two updates of one order in one batch (pay then cancel)
+        // would otherwise validate the second against the row from before the first.
+        var existingOrder = await _orderRepo.GetByIdAsync(operation.EntityId, consistentRead: true);
         if (existingOrder == null)
         {
             return new SyncOperationResult
@@ -5780,6 +5786,24 @@ public partial class SyncFunction
                         $"This order total ({roundedTotal} ETB) is outside what one Telebirr payment can take "
                         + $"({LiveMinPaymentEtb} to {LiveMaxPaymentEtb} ETB).");
                 }
+
+                // FUP-20: with the live gateway only the Telebirr checkout funds an order. A bank
+                // transfer (cbe_transfer, the demo rail) has no funding path until ESC-46 builds
+                // CBE verification, so it is refused here, before the payment clock starts and
+                // before anything records a submitted payment. Only the update's own value counts:
+                // the stored one is a create-time default (the mobile create writes cbe_transfer),
+                // so an update without a method is left to the checkout.
+                if (!IsMockPaymentsEnabled()
+                    && operation.Data.TryGetValue("paymentMethod", out var methodObj)
+                    && methodObj?.ToString() is string paymentMethod
+                    && !string.Equals(paymentMethod, LivePaymentMethod, StringComparison.Ordinal))
+                {
+                    var methodLabel = paymentMethod == "cbe_transfer"
+                        ? "Bank transfer (cbe_transfer)"
+                        : $"Payment method '{paymentMethod}'";
+                    return PaymentMethodUnavailable(operation,
+                        $"{methodLabel} is not available yet. Pay with Telebirr.");
+                }
             }
 
             // SIM-60: pickup_confirmed and in_transit follow the delivery as well. The
@@ -5805,7 +5829,10 @@ public partial class SyncFunction
                 && adObj?.ToString() is string activeDeliveryId
                 && !string.IsNullOrEmpty(activeDeliveryId))
             {
-                var activeDelivery = await GetDeliveryItemAsync(activeDeliveryId);
+                // Strongly consistent (FUP-09): the catch-up usually comes right after the
+                // delivery's confirm, which a lagging read may not show yet; a lagging read
+                // could also still say delivered after the delivery was disputed.
+                var activeDelivery = await GetDeliveryItemAsync(activeDeliveryId, consistentRead: true);
                 var activeDeliveryStatus = activeDelivery != null
                     && activeDelivery.TryGetValue("status", out var adsAttr) ? adsAttr.S : null;
                 if (activeDeliveryStatus != "delivered")
@@ -5949,8 +5976,9 @@ public partial class SyncFunction
             };
         }
 
-        // Conflict
-        var serverData = await _orderRepo.GetByIdAsync(operation.EntityId);
+        // Conflict. Read strongly consistent (FUP-21): the client adopts this row and retries
+        // from its version, so it must be the row that beat the write, not an older one.
+        var serverData = await _orderRepo.GetByIdAsync(operation.EntityId, consistentRead: true);
         var srvVersion = serverData != null && serverData.TryGetValue("version", out var svObj)
             ? int.TryParse(svObj.ToString(), out var parsed) ? parsed : version
             : version;
@@ -6927,6 +6955,17 @@ public partial class SyncFunction
         OperationId = operation.OperationId,
         Status = "error",
         Message = $"ORDER_CANCEL_NOT_ALLOWED: {message}"
+    };
+
+    /// <summary>
+    /// FUP-20: a live payment with a method the gateway cannot fund. Deterministic, so permanent
+    /// under the <c>ORDER_*</c> rule (sync-protocol.md 1.16.0); nothing was written.
+    /// </summary>
+    private static SyncOperationResult PaymentMethodUnavailable(SyncOperationRequest operation, string message) => new()
+    {
+        OperationId = operation.OperationId,
+        Status = "error",
+        Message = $"ORDER_PAYMENT_METHOD_UNAVAILABLE: {message}"
     };
 
     /// <summary>A transient order failure: no <c>ORDER_</c> prefix, so the client keeps the change and retries.</summary>

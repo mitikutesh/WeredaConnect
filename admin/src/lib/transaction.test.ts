@@ -71,7 +71,7 @@ describe("label helpers", () => {
   it("falls back to the raw value when the key is missing", () => {
     expect(orderStatusLabel("in_transit", t)).toBe("in_transit");
     expect(stageLabel("in_progress", t)).toBe("in_progress");
-    expect(timelineActionLabel("some_new_action", t)).toBe("some_new_action");
+    // FUP-35: an action is humanized instead (auditActions.test.ts).
   });
 });
 

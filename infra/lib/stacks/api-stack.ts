@@ -20,6 +20,12 @@ import { WeredaLambda } from "../constructs/lambda-construct";
 import { FaydaMockConstruct } from "../constructs/fayda-mock-construct";
 import { EnvironmentConfig } from "../config/environments";
 
+/**
+ * Public route of the Telebirr payment notification (live gateway only). Exported for the
+ * monitoring stack, which reads this route's own metrics (FUP-39).
+ */
+export const TELEBIRR_WEBHOOK_PATH = "/webhooks/telebirr";
+
 export interface ApiStackProps extends cdk.StackProps {
   readonly envConfig: EnvironmentConfig;
   readonly usersTable: dynamodb.Table;
@@ -879,6 +885,7 @@ export class ApiStack extends cdk.Stack {
     let telebirrSecret: SecretRef | undefined;
     let telebirrVpc: ec2.Vpc | undefined;
     let telebirrWebhookFn: WeredaLambda | undefined;
+    let telebirrWebhookRoutes: apigateway.HttpRoute[] = [];
     // Spread into the escrow Lambdas so they egress via the NAT's stable IP.
     let escrowVpcProps: { vpc?: ec2.IVpc; vpcSubnets?: ec2.SubnetSelection } = {};
 
@@ -1886,7 +1893,7 @@ export class ApiStack extends cdk.Stack {
     // exists so we can derive the public URL). The escrow/cron Lambdas make the
     // outbound call; the webhook Lambda receives the callback.
     if (enableTelebirrLive && telebirrSecret) {
-      const notifyUrl = `${httpApi.apiEndpoint}/webhooks/telebirr`;
+      const notifyUrl = `${httpApi.apiEndpoint}${TELEBIRR_WEBHOOK_PATH}`;
       const liveFns = [escrowFn, escrowCronFn, telebirrWebhookFn].filter(
         (f): f is WeredaLambda => f !== undefined,
       );
@@ -1906,8 +1913,8 @@ export class ApiStack extends cdk.Stack {
       }
 
       if (telebirrWebhookFn) {
-        httpApi.addRoutes({
-          path: "/webhooks/telebirr",
+        telebirrWebhookRoutes = httpApi.addRoutes({
+          path: TELEBIRR_WEBHOOK_PATH,
           methods: [apigateway.HttpMethod.POST],
           // Public: NO authorizer. Telebirr authenticates via its RSA signature,
           // which TelebirrWebhookFunction verifies (+ optional IP allow-list).
@@ -2078,10 +2085,27 @@ export class ApiStack extends cdk.Stack {
     const defaultStage = httpApi.defaultStage?.node
       .defaultChild as apigateway.CfnStage;
     if (defaultStage) {
-      defaultStage.addPropertyOverride("DefaultRouteSettings", {
+      const stageThrottling = {
         ThrottlingBurstLimit: 50,
         ThrottlingRateLimit: 25,
-      });
+      };
+      defaultStage.addPropertyOverride("DefaultRouteSettings", stageThrottling);
+
+      // FUP-39: route metrics for the Telebirr webhook only, so the API-wide 5xx alarm
+      // (monitoring-stack.ts) can leave out its deliberate 500s (ESC-45 D1) and the webhook
+      // gets alarms of its own. Detailed metrics are billed as custom metrics, so not for the
+      // whole stage. The route's settings repeat the stage throttling so the webhook keeps
+      // its limits, and the stage waits for the route: API Gateway refuses route settings
+      // for a route key that does not exist yet.
+      if (telebirrWebhookRoutes.length > 0) {
+        defaultStage.addPropertyOverride("RouteSettings", {
+          [`${apigateway.HttpMethod.POST} ${TELEBIRR_WEBHOOK_PATH}`]: {
+            ...stageThrottling,
+            DetailedMetricsEnabled: true,
+          },
+        });
+        defaultStage.node.addDependency(...telebirrWebhookRoutes);
+      }
 
       // Edge-level audit: one structured JSON line per request (who/when/where
       // + method/path/status/latency), independent of any Lambda. Answers "was
