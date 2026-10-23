@@ -20,6 +20,7 @@ namespace WeredaConnect.Server.Functions;
 /// - 400: DEVICE_TOKEN_VALIDATION, missing/empty token, bad body, or a platform the
 ///   push pipeline cannot deliver to (SIM-60: only "android" today)
 /// - 401: DEVICE_TOKEN_UNAUTHORIZED, no authenticated user
+/// - 410: ACCOUNT_004, POST by an account that is being or has been deleted (ACC-02)
 /// - 500: DEVICE_TOKEN_SERVER_ERROR, unexpected failure
 /// </summary>
 public class DeviceTokenFunction
@@ -34,6 +35,8 @@ public class DeviceTokenFunction
     private readonly IAmazonSimpleNotificationService _sns;
     private readonly IDeviceTokenRepository _repo;
     private readonly string _platformAppArn;
+    // ACC-02: a deleting or deleted account registers no device.
+    private readonly IUserRepository? _users;
 
     /// <summary>Default constructor for the Lambda runtime.</summary>
     public DeviceTokenFunction()
@@ -42,20 +45,26 @@ public class DeviceTokenFunction
                           ?? throw new InvalidOperationException("PLATFORM_APP_ARN is not set.");
         var table = Environment.GetEnvironmentVariable("DEVICE_TOKENS_TABLE")
                     ?? throw new InvalidOperationException("DEVICE_TOKENS_TABLE is not set.");
+        var usersTable = Environment.GetEnvironmentVariable("USERS_TABLE")
+                         ?? throw new InvalidOperationException("USERS_TABLE is not set.");
 
+        var dynamoDb = new AmazonDynamoDBClient();
         _sns = new AmazonSimpleNotificationServiceClient();
-        _repo = new DeviceTokenRepository(new AmazonDynamoDBClient(), table);
+        _repo = new DeviceTokenRepository(dynamoDb, table);
+        _users = new UserRepository(dynamoDb, usersTable);
     }
 
     /// <summary>Constructor for testing with mocked dependencies.</summary>
     public DeviceTokenFunction(
         IAmazonSimpleNotificationService sns,
         IDeviceTokenRepository repo,
-        string platformAppArn)
+        string platformAppArn,
+        IUserRepository? users = null)
     {
         _sns = sns ?? throw new ArgumentNullException(nameof(sns));
         _repo = repo ?? throw new ArgumentNullException(nameof(repo));
         _platformAppArn = platformAppArn ?? throw new ArgumentNullException(nameof(platformAppArn));
+        _users = users;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -167,6 +176,11 @@ public class DeviceTokenFunction
 
         try
         {
+            if (_users != null && await AccountDeletionGuard.RefuseIfDeletingAsync(_users, userId) is { } gone)
+            {
+                return gone;
+            }
+
             var endpoint = await _sns.CreatePlatformEndpointAsync(new CreatePlatformEndpointRequest
             {
                 PlatformApplicationArn = _platformAppArn,

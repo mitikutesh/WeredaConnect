@@ -486,4 +486,77 @@ public class LoginFunctionTests
         Assert.Equal(200, response.StatusCode);
         await _mockRepo.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
     }
+
+    // --- ACC-02: a deleted user cannot log in ---
+
+    private void LoginResolvesTo(string? deletionState)
+    {
+        _mockAuth.LoginAsync(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(AuthResult<CognitoAuthTokens>.Success(new CognitoAuthTokens
+            {
+                AccessToken = "access-tok",
+                IdToken = MakeJwt("sub-42"),
+                RefreshToken = "refresh-tok",
+                ExpiresIn = 3600
+            }));
+        _mockRepo.GetUserByIdAsync("sub-42").Returns(new UserDto
+        {
+            UserId = "sub-42",
+            // A tombstone keeps no phone and no woreda.
+            PhoneNumber = deletionState is null or "in_progress" ? "+251912345678" : "",
+            Role = "buyer",
+            Woreda = deletionState is null or "in_progress" ? "Adama" : "",
+            IsPhoneVerified = deletionState is null or "in_progress",
+            DeletionState = deletionState,
+            CreatedAt = "2026-01-01T00:00:00Z",
+            UpdatedAt = "2026-01-01T00:00:00Z",
+            Version = 1
+        });
+    }
+
+    [Theory]
+    [InlineData("cognito_pending")]
+    [InlineData("completed")]
+    public async Task FunctionHandler_DeletedAccount_AnswersLikeAWrongPassword_AndIssuesNoTokens(string state)
+    {
+        LoginResolvesTo(state);
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(new { phoneNumber = "+251912345678", password = "secure123" }), _context);
+
+        Assert.Equal(401, response.StatusCode);
+        Assert.Contains("AUTH_014", response.Body);
+        Assert.DoesNotContain("access-tok", response.Body);
+        await _mockRepo.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task FunctionHandler_CognitoUserGone_CannotLogIn()
+    {
+        // After AdminDeleteUser Cognito answers like a wrong password, and the tombstone has
+        // no phone, so nothing resolves the old phone to the account.
+        _mockAuth.LoginAsync(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(AuthResult<CognitoAuthTokens>.Failure(401, "AUTH_014", "Invalid phone number or password."));
+        _mockRateLimit.RecordFailedLoginAsync(Arg.Any<string>()).Returns(1);
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(new { phoneNumber = "+251912345678", password = "secure123" }), _context);
+
+        Assert.Equal(401, response.StatusCode);
+        Assert.Contains("AUTH_014", response.Body);
+        await _mockRepo.DidNotReceive().GetUserByPhoneAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task FunctionHandler_DeletionInProgress_MayLogInToFinishIt()
+    {
+        LoginResolvesTo("in_progress");
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(new { phoneNumber = "+251912345678", password = "secure123" }), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("access-tok", response.Body);
+        Assert.DoesNotContain("deletionState", response.Body);
+    }
 }

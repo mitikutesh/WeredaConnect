@@ -590,12 +590,15 @@ export class ApiStack extends cdk.Stack {
       environment: {
         DEVICE_TOKENS_TABLE: props.deviceTokensTable.tableName,
         PLATFORM_APP_ARN: fcmPlatformAppArn,
+        // ACC-02: a deleting or deleted account registers no device (410 ACCOUNT_004).
+        USERS_TABLE: props.usersTable.tableName,
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
       reservedConcurrentExecutions: 10,
     });
     props.deviceTokensTable.grantReadWriteData(deviceTokenFn.function);
+    props.usersTable.grant(deviceTokenFn.function, "dynamodb:GetItem");
     deviceTokenFn.function.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["sns:CreatePlatformEndpoint"],
@@ -1343,6 +1346,108 @@ export class ApiStack extends cdk.Stack {
       ],
     });
 
+    // ─── Account Deletion (ACC-02, account-deletion.md) ─────────────
+    // One handler, two Lambdas: DELETE /user/account (30 s, behind API Gateway's own 30 s) and
+    // the completion sweep (5 minutes, one at a time), which finishes or aborts every deletion
+    // started more than an hour ago. Grants are per action: each table gets only the calls the
+    // deletion makes on it (reads through the party indexes, conditional updates, and deletes of
+    // messages, intents, match events and device tokens).
+    const accountDeletionEnv: Record<string, string> = {
+      USERS_TABLE: props.usersTable.tableName,
+      CROPS_TABLE: props.cropsTable.tableName,
+      TRIPS_TABLE: props.tripsTable.tableName,
+      ORDERS_TABLE: props.ordersTable.tableName,
+      DELIVERIES_TABLE: props.deliveriesTable.tableName,
+      ESCROWS_TABLE: props.escrowsTable.tableName,
+      ESCROW_AUDIT_TABLE: props.escrowAuditTable.tableName,
+      ESCROW_IDEMPOTENCY_TABLE: props.escrowIdempotencyTable.tableName,
+      TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
+      RATINGS_TABLE: props.ratingsTable.tableName,
+      MESSAGES_TABLE: props.messagesTable.tableName,
+      INTENTS_TABLE: props.intentsTable.tableName,
+      MATCH_EVENTS_TABLE: props.matchEventsTable.tableName,
+      DEVICE_TOKENS_TABLE: props.deviceTokensTable.tableName,
+      COGNITO_USER_POOL_ID: this.userPool.userPoolId,
+      COGNITO_CLIENT_ID: this.userPoolClient.userPoolClientId,
+    };
+
+    const accountDeletionFn = new WeredaLambda(this, "AccountDeletionFunction", {
+      functionName: `${prefix}-account-deletion`,
+      description: "DELETE /user/account: delete the caller's account (ACC-02)",
+      handlerName: "AccountDeletionFunction",
+      environment: accountDeletionEnv,
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 512,
+      reservedConcurrentExecutions: 5,
+    });
+
+    const accountDeletionSweepFn = new WeredaLambda(this, "AccountDeletionSweep", {
+      functionName: `${prefix}-account-deletion-sweep`,
+      description: "Finish or abort started account deletions within 24 hours (ACC-02)",
+      handlerName: "AccountDeletionFunction",
+      environment: accountDeletionEnv,
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 512,
+      reservedConcurrentExecutions: 1,
+    });
+
+    for (const fn of [accountDeletionFn.function, accountDeletionSweepFn.function]) {
+      props.usersTable.grant(fn, "dynamodb:GetItem", "dynamodb:UpdateItem");
+      props.cropsTable.grant(fn, "dynamodb:Query", "dynamodb:GetItem", "dynamodb:UpdateItem");
+      props.tripsTable.grant(fn, "dynamodb:Query", "dynamodb:GetItem", "dynamodb:UpdateItem");
+      props.ordersTable.grant(fn, "dynamodb:Query", "dynamodb:GetItem", "dynamodb:UpdateItem");
+      props.deliveriesTable.grant(fn, "dynamodb:Query", "dynamodb:UpdateItem");
+      // Escrows keep their money fields: the only write is the copied name (UpdateItem).
+      props.escrowsTable.grant(fn, "dynamodb:Query", "dynamodb:UpdateItem");
+      // The payment_review blocker reads the order's payment trail; escrow-audit is never written.
+      props.escrowAuditTable.grant(fn, "dynamodb:Query");
+      // The checkout slot behind the payment_failed and payment_review rules (GetItem only).
+      props.escrowIdempotencyTable.grant(fn, "dynamodb:GetItem");
+      // Append-only: the started, deleted and aborted rows and one order_cancelled per order.
+      props.transactionAuditTable.grant(fn, "dynamodb:PutItem");
+      props.ratingsTable.grant(fn, "dynamodb:Query", "dynamodb:GetItem", "dynamodb:UpdateItem");
+      props.messagesTable.grant(fn, "dynamodb:Query", "dynamodb:DeleteItem");
+      props.intentsTable.grant(fn, "dynamodb:Query", "dynamodb:DeleteItem");
+      props.matchEventsTable.grant(fn, "dynamodb:Query", "dynamodb:DeleteItem");
+      props.deviceTokensTable.grant(fn, "dynamodb:Query", "dynamodb:DeleteItem");
+      // Step 6 revokes every refresh token, step 12 deletes the user (username = sub).
+      this.grantCognito(fn, [
+        "cognito-idp:AdminUserGlobalSignOut",
+        "cognito-idp:AdminDeleteUser",
+      ]);
+      fn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ["sns:DeleteEndpoint"],
+          resources: [fcmEndpointArnPattern],
+        }),
+      );
+    }
+    // The sweep alone scans the users table (filtered, twice a day) and reads the account's
+    // audit trail for the reapply action after a backup restore.
+    props.usersTable.grant(accountDeletionSweepFn.function, "dynamodb:Scan");
+    accountDeletionSweepFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [props.transactionAuditTable.tableArn],
+      }),
+    );
+
+    // Every 6 hours: a deletion is due one hour after its request, so its first sweep comes at
+    // most 7 hours in and three runs try it within the contract's 24 hours.
+    new events.Rule(this, "AccountDeletionSweepSchedule", {
+      ruleName: `${prefix}-account-deletion-sweep`,
+      description: "Finish or abort started account deletions every 6 hours (ACC-02)",
+      schedule: events.Schedule.rate(cdk.Duration.hours(6)),
+      targets: [
+        new targets.LambdaFunction(accountDeletionSweepFn.function, {
+          // Wrapped as `body`, like the escrow and order crons (Review C3).
+          event: events.RuleTargetInput.fromObject({
+            body: JSON.stringify({ action: "sweep" }),
+          }),
+        }),
+      ],
+    });
+
     // ─── HTTP API Gateway ────────────────────────────────────────────
 
     // CORS origins: prod uses exact subdomains, dev allows localhost + wildcard
@@ -1632,6 +1737,21 @@ export class ApiStack extends cdk.Stack {
       integration: new integrations.HttpLambdaIntegration(
         "DeviceTokensInt",
         deviceTokenFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    // ACC-02: the caller deletes their own account. The browser preflight needs DELETE in the
+    // CORS allowMethods above.
+    httpApi.addRoutes({
+      path: "/user/account",
+      methods: [apigateway.HttpMethod.DELETE],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration(
+        "AccountDeletionInt",
+        accountDeletionFn.function,
         {
           payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
         },

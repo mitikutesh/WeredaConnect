@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.25.0
+1.26.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -161,6 +161,7 @@ When the client receives `status: "conflict"`:
 | `SYNC_AUTH` | Authentication failed | Re-authenticate, retry |
 | `SYNC_RATE_LIMIT` | Too many requests | Back off, retry with exponential delay |
 | `SYNC_SERVER_ERROR` | Server failure | Retry with exponential backoff |
+| `ACCOUNT_004` (HTTP 410, whole request) | The caller's account is being or has been deleted (1.26.0) | Stop this sync, no retry counted, the operations stay queued. `cognito_pending` or `completed`: never resend while the app runs, wipe and go to login; `in_progress`: a later sync may resend. See Deleted accounts (1.26.0) |
 
 ---
 
@@ -630,10 +631,29 @@ generic `errorOrderRefused` text (1.10.0).
 
 ---
 
+## Deleted accounts (1.26.0, ACC-02)
+
+Account deletion is `account-deletion.md` 1.2.0. It is online only and never goes through
+`/sync`. What changes here:
+
+| Case | Server answer | Client |
+|---|---|---|
+| The caller's users row carries `deletionState` (`in_progress`, `cognito_pending` or `completed`), read strongly consistent | The whole request answers HTTP `410` with `{"error":{"code":"ACCOUNT_004","message":"This account has been deleted.","deletionState":"<state>"}}`. No operation is applied, no idempotency key is recorded | Not retried within that sync and no retry counted; the operations stay queued and the sync stops (`account-deletion.md` 1.3.0, ACC-03). `cognito_pending` or `completed`: that user's batches are not sent again while the app runs, and the device wipes its local data and goes to login. `in_progress`: nothing is wiped and a later sync may send the batch again, because the deletion can still abort at step 9 and the user then keeps the account; Profile > Delete account resumes the deletion (a "Finish deleting" prompt is a follow-up). Web gets the error from its API client and applies the same rule |
+| The caller's row cannot be read | The whole request answers HTTP `503` `SYNC_SERVER_ERROR`; nothing applied | Retry with backoff, as for any server error |
+| A message create whose recipient's row carries `deletionState` | Op-level `error`: `SYNC_VALIDATION: The recipient has deleted their account.` | Permanent under the `SYNC_VALIDATION` rule |
+| A rating create whose ratee's row carries `deletionState` | Op-level `error`: `SYNC_VALIDATION: The rated user has deleted their account.` | Permanent under the `SYNC_VALIDATION` rule |
+| An order `payment_submitted` whose buyer, farmer or trucker row carries `deletionState` (`order-lifecycle.md` 1.26.0) | Op-level `error`: `ORDER_VALIDATION: A party to this order has deleted their account.`, nothing written | Permanent under the `ORDER_*` rule: the order is reverted |
+
+A deleted user's crop listings and trips come down to other devices as tombstones (`deletedAt`
+set, copied names `Deleted user`), so browse drops them as it drops any deleted listing.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.26.0 | 2026-10-23 | Deleted accounts (ACC-02, `account-deletion.md` 1.2.0): a batch from an account that is being or has been deleted answers HTTP `410 ACCOUNT_004` with `error.deletionState` and nothing is applied (the client stops that sync without counting a retry; for `cognito_pending` and `completed` it never resends and wipes, for `in_progress` a later sync may resend because the deletion can still abort); a batch whose caller row cannot be read answers `503 SYNC_SERVER_ERROR`; a message to, or a rating about, an account with `deletionState` is op-level `SYNC_VALIDATION`; a `payment_submitted` for an order of such an account is `ORDER_VALIDATION` (`order-lifecycle.md` 1.26.0) |
 | 1.25.0 | 2026-10-23 | Risk tier built on the server (FRD-04, the 1.9.0 rules): `FRAUD_ACCOUNT_HELD:` on crop, trip and order create and on order `payment_submitted` for a caller at risk tier CRITICAL (a truncated score read included), nothing written; MEDIUM and HIGH raise `AUTH_040:` and `AUTH_041:` at any amount (Fayda first); the caller's tier only, read once per batch; an unreadable score or a missing fraud-signals table is LOW; the position of each check; `AUTH_041:` text amount-neutral; clients unchanged |
 | 1.24.0 | 2026-10-23 | Payment total refusal (FUP-22): the live gateway's refusal of a `payment_submitted` whose total is outside 100 to 500,000 ETB is `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` with the same sentence (it was `ORDER_VALIDATION`); permanent under the `ORDER_*` rule, nothing written; clients match the code and, for one release, the old text; same gate, bounds and order; clients before 1.24.0 show the generic refusal |
 | 1.23.0 | 2026-10-23 | Listing text refusal (FUP-49): `CROP_CONTACT_IN_TEXT` and `TRIP_CONTACT_IN_TEXT` for a crop listing or trip whose buyer-visible text holds a phone number (`crop-listing-api.md` 1.4.0, `trip-listing-api.md` 1.5.0), nothing written; deterministic, permanent on the mobile queue, not reverted, explained in en, am and om; web shows the same text; the forms run the same check before queueing; older clients retry it |
@@ -661,4 +681,4 @@ generic `errorOrderRefused` text (1.10.0).
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 1.25.0
+**Version**: 1.26.0

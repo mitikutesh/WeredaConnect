@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.25.0
+1.26.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -185,6 +185,7 @@ leg), so it carries the checks `POST /escrow/initiate` already made:
 | `orderTotal` up to and including 10,000 ETB and the token's `auth_time` older than the step-up window | `AUTH_040: Please sign in again ...` |
 | `orderTotal` above 10,000 ETB and the buyer's last Fayda login (`POST /user/fayda-link`) older than the step-up window; at risk tier LOW a fresh password does not count | `AUTH_041: Confirm it's you with Fayda to continue with this payment.` (amount-neutral since 1.25.0) |
 | buyer's risk tier CRITICAL, or the score read truncated; checked before KYC (1.9.0; built in 1.25.0, FRD-04) | `FRAUD_ACCOUNT_HELD: Your account is under review. Some actions are paused. Contact support.` |
+| the order's buyer, farmer or trucker is being or has been deleted (`deletionState` on the users row, read strongly consistent); checked after the risk tier and before the KYC rows, nothing written (1.26.0, ACC-02, `account-deletion.md` 1.2.0) | `ORDER_VALIDATION: A party to this order has deleted their account.` |
 | buyer's risk tier MEDIUM and the password not fresh, at any amount; above 10,000 ETB after the Fayda row above (1.9.0; built in 1.25.0, FRD-04) | `AUTH_040: ...` |
 | buyer's risk tier HIGH: Fayda login not fresh, then password not fresh, at any amount (1.9.0; built in 1.25.0, FRD-04) | `AUTH_041: ...` first, then `AUTH_040: ...` on the retry |
 | live gateway (`TELEBIRR_MOCK` off) and `orderTotal` outside 100 to 500,000 ETB, what one Telebirr payment can take (1.7.0; its own code since 1.24.0, FUP-22, it was `ORDER_VALIDATION` with the same sentence; bank transfers are ESC-46) | `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: This order total (X ETB) is outside what one Telebirr payment can take (100 to 500000 ETB).` |
@@ -523,6 +524,7 @@ its stock. Ratings stay blocked, and contact closes at `dispute_resolved`
 
 ## Changelog
 
+- **1.26.0 (2026-10-23)**: Deleted parties (ACC-02, `account-deletion.md` 1.2.0): a `payment_submitted` for an order whose buyer, farmer or trucker is being or has been deleted is refused with `ORDER_VALIDATION: A party to this order has deleted their account.`, read strongly consistent, after the risk tier check and before KYC, nothing written; permanent under the `ORDER_*` rule (the client reverts the order). The same refusal on `POST /escrow/order-checkout` and `POST /escrow/initiate` is `422 ESCROW_030` (`escrow-protocol.md` 1.28.0). A user's deletion also cancels their unpaid orders with `cancelReason = account_deleted`. No status or client change.
 - **1.25.0 (2026-10-23)**: Risk tiers built (FRD-04, the 1.9.0 rules; `escrow-protocol.md` 1.27.0, `sync-protocol.md` 1.25.0, `auth-api.md` 2.10.0): a buyer at risk tier CRITICAL (a truncated score read included) gets `FRAUD_ACCOUNT_HELD` on order create and on `payment_submitted` (before KYC), nothing written; MEDIUM adds the fresh password at any amount, HIGH the Fayda login and then the password at any amount; the buyer's tier only, read once per batch, LOW when it cannot be read; the user-action gates go live on deploy, not behind `FRAUD_HOLD_ENABLED`; a party at CRITICAL is a settlement hold trigger like a suspended one (behind the flag, shipped off: the sweep skips the settlement), and an unscored party skips it; `AUTH_041` text names no amount. No order status, field or client change.
 - **1.24.0 (2026-10-23)**: Live payment total code (FUP-22): with the live gateway a `payment_submitted` whose total (rounded to the cent) is outside 100 to 500,000 ETB is refused with `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` and the same sentence (it was `ORDER_VALIDATION`), so clients match a code, not English text; same gate, bounds and place among the payment gates, nothing written; permanent under the `ORDER_*` rule (`sync-protocol.md` 1.24.0). Clients match the code and, for one release, the old text; clients before this release revert the order and show the generic refusal. App builds now read CI's `ENVIRONMENT=prod` as production (it fell back to development), and a release build with an unknown value gets the production settings, so it is live.
 - **1.23.0 (2026-10-23)**: Transport cancel and dispute race (FUP-32): the transport-failure cancel writes the order and the escrow refund arm in one transaction, the escrow conditioned on a plain hold, so a dispute that froze the money after the check refuses the cancel (`ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.`, nothing written) instead of leaving a cancelled order over frozen money; once armed, no dispute can freeze the refund (`escrow-protocol.md` 1.25.0). No order status, field or code change.

@@ -250,4 +250,70 @@ public class UserRepositoryTests
         Assert.Null(restored.BuyerType);
         Assert.Null(restored.CompanyName);
     }
+
+
+    // --- ACC-02: deleting and deleted accounts ---
+
+    [Fact]
+    public async Task UpdateUserAsync_NeverWritesADeletingOrDeletedRow()
+    {
+        UpdateItemRequest? sent = null;
+        _mockDynamoDb.UpdateItemAsync(Arg.Do<UpdateItemRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        await _repository.UpdateUserAsync(CreateTestUser(), 1);
+
+        Assert.Equal("#v = :expectedVersion AND attribute_not_exists(#deletionState)", sent!.ConditionExpression);
+        Assert.Equal("deletionState", sent.ExpressionAttributeNames["#deletionState"]);
+    }
+
+    [Fact]
+    public void FromItem_Tombstone_WithoutPhoneOrWoreda_DoesNotThrow()
+    {
+        var item = new Dictionary<string, AttributeValue>
+        {
+            { "userId", new AttributeValue { S = "user-123" } },
+            { "role", new AttributeValue { S = "farmer" } },
+            { "deletionState", new AttributeValue { S = "completed" } },
+            { "deletionRequestedAt", new AttributeValue { S = "2026-10-23T10:00:00Z" } },
+            { "deletedAt", new AttributeValue { S = "2026-10-23T10:00:05Z" } },
+            { "createdAt", new AttributeValue { S = "2026-01-01T00:00:00Z" } },
+            { "updatedAt", new AttributeValue { S = "2026-10-23T10:00:05Z" } },
+            { "version", new AttributeValue { N = "5" } }
+        };
+
+        var user = UserRepository.FromItem(item);
+
+        Assert.Equal("", user.PhoneNumber);
+        Assert.Equal("", user.Woreda);
+        Assert.Equal("completed", user.DeletionState);
+        Assert.Equal("2026-10-23T10:00:00Z", user.DeletionRequestedAt);
+        Assert.Equal("2026-10-23T10:00:05Z", user.DeletedAt);
+        Assert.False(user.IsPhoneVerified);
+    }
+
+    [Fact]
+    public void DeletionFields_AreNeverSerializedToClients()
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            CreateTestUser() with { DeletionState = "in_progress", DeletedAt = "x", DeletionRequestedAt = "y" },
+            AppJsonContext.Default.UserDto);
+
+        Assert.DoesNotContain("deletion", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("deletedAt", json);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task GetUserByIdAsync_ConsistentReadOnlyWhenAsked(bool consistent)
+    {
+        GetItemRequest? sent = null;
+        _mockDynamoDb.GetItemAsync(Arg.Do<GetItemRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new GetItemResponse { Item = UserRepository.ToItem(CreateTestUser()) });
+
+        await _repository.GetUserByIdAsync("user-123", consistent);
+
+        Assert.Equal(consistent, sent!.ConsistentRead);
+    }
 }

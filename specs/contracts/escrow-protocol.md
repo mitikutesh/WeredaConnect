@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.27.0
+1.28.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -308,6 +308,8 @@ If the same `idempotencyKey` is received again, return the cached result with `2
 | `429` | `ESCROW_011` | Rate limit exceeded |
 | `403` | `AUTH_040` / `AUTH_041` | Step-up required (1.4.0 payment tiers; from 1.7.0 also raised by the caller's risk tier, built in 1.27.0, FRD-04). See Additions in 1.3.0, 1.7.0 and 1.27.0 |
 | `403` | `FRAUD_ACCOUNT_HELD` | Caller's risk tier is CRITICAL; nothing held (1.7.0; built in 1.27.0, FRD-04) |
+| `410` | `ACCOUNT_004` | The caller's account is being or has been deleted; carries `error.deletionState`; nothing read or held (1.28.0, ACC-02) |
+| `422` | `ESCROW_030` | The buyer, farmer or trucker of the delivery's order is being or has been deleted (1.28.0, ACC-02) |
 | `500` | `ESCROW_012` | Internal server error |
 | `503` | `ESCROW_012` | Buyer profile could not be read for the Fayda step-up check (amount above 10,000 ETB, 1.4.0; from 1.27.0 also at any amount when the caller's risk tier is HIGH); nothing held, safe to retry |
 | `502` | `ESCROW_013` | Telebirr gateway error (upstream failure) |
@@ -490,6 +492,7 @@ is answered like a lost race. See "Additions in 1.25.0".
 | `422` | `ESCROW_INVALID_TRANSITION` | Escrow is in any state but `escrowed` or `disputed` (a `held` escrow is refused too, 1.7.0), also when it moved there between the read and the write (1.12.0) |
 | `500` | `ESCROW_012` | Internal server error |
 | `503` | `ESCROW_012` | The escrow (or an admin caller's profile) could not be read for the step-up check; the dispute did not run and nothing was written, safe to retry (1.24.0; before, a Lambda error that API Gateway answered `502` without a code) |
+| `410` | `ACCOUNT_004` | The caller's account is being or has been deleted; carries `error.deletionState`; nothing written (1.28.0, ACC-02) |
 
 ---
 
@@ -1424,7 +1427,8 @@ Success (`200`):
 | `404` | `ESCROW_033` | Order not found |
 | `409` | `ESCROW_024` | The order is already funded |
 | `409` | `ESCROW_030` | The order is not waiting for payment (status other than `payment_submitted`), or its payment time ran out (20 hours after `paymentSubmittedAt`) |
-| `422` | `ESCROW_030` | The order cannot be paid online (missing farmer, or buyer and farmer are the same account) |
+| `422` | `ESCROW_030` | The order cannot be paid online (missing farmer, or buyer and farmer are the same account; from 1.28.0 also a buyer, farmer or trucker who is being or has been deleted, checked after the other order checks and before the slot, so an open checkout is not returned either) |
+| `410` | `ACCOUNT_004` | The caller's account is being or has been deleted; carries `error.deletionState` (1.28.0, ACC-02) |
 | `400` | `ESCROW_001` | `orderTotal` is outside what Telebirr takes in one payment (100 to 500,000 ETB) |
 | `409` | `ESCROW_031` | No hosted checkout in this environment (mock payments) |
 | `409` | `ESCROW_032` | A checkout for this order is already open but cannot be returned (Telebirr's answer was lost, or another request is opening it); retry after `openUntil` or in a moment |
@@ -3758,10 +3762,32 @@ Builds the risk tier of 1.7.0. Design: `specs/architecture/fraud-detection-archi
 
 ---
 
+## Additions in 1.28.0 (account deletion, ACC-02)
+
+Design: `account-deletion.md` 1.2.0 (Effects on Other Endpoints). No escrow status, field or client change.
+
+- **Caller refused**: `POST /escrow/initiate`, `POST /escrow/order-checkout` and `POST /escrow/dispute` answer
+  `410 ACCOUNT_004` (`{"error":{"code":"ACCOUNT_004","message":"This account has been deleted.","deletionState":"..."}}`)
+  when the caller's users row, read strongly consistent, carries `deletionState`; checked first, before any other
+  check or read. A row that cannot be read answers `503 ESCROW_012`, nothing written. Reads (`GET /escrow/*`) stay
+  open; the admin routes are not affected.
+- **Counterparty refused**: an order (or, on initiate, the delivery's order) whose buyer, farmer or trucker is being
+  or has been deleted cannot be paid: `422 ESCROW_030` `This order cannot be paid online.`, the code clients already
+  show for an order that cannot be paid online. On `order-checkout` it is one of the order checks, after the 1.27.0
+  CRITICAL and velocity checks and before the checkout slot and any Telebirr call (an open checkout is not returned).
+  On `initiate` it runs in the user validation, after the 1.27.0 gates, once the delivery and its order named the
+  parties (the trucker from the order, else the delivery). A failed read answers `500 ESCROW_012`, nothing held.
+- **Deleted payees**: a refund to a buyer whose row is a tombstone (no phone) goes to the buyer id, as for a buyer
+  without a profile; the manual payout queue shows no `payeePhone` for a deleted payee, who stays not payable
+  (`ESCROW_029`: no verified phone).
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.28.0 | 2026-10-23 | Account deletion (ACC-02, `account-deletion.md` 1.2.0): `POST /escrow/initiate`, `/escrow/order-checkout` and `/escrow/dispute` answer `410 ACCOUNT_004` to a caller whose account is being or has been deleted (a row that cannot be read: `503 ESCROW_012`); initiate and order-checkout answer `422 ESCROW_030` for an order whose buyer, farmer or trucker is being or has been deleted, after the 1.27.0 gates and before any slot, hold or Telebirr call; a refund to a deleted buyer goes to the buyer id, never an empty phone; the manual payout queue shows no phone for a deleted payee; no client change |
 | 1.27.0 | 2026-10-23 | Risk tier gates built (FRD-04, the 1.7.0 rules): `POST /escrow/initiate` refuses a caller at risk tier CRITICAL with `403 FRAUD_ACCOUNT_HELD` after the role check and before the step-up and velocity, and the step-up takes the tier (MEDIUM the password at any amount, HIGH Fayda and then the password at any amount); `POST /escrow/order-checkout` refuses CRITICAL before velocity and any Telebirr call; an unreadable score or a missing fraud service is LOW at these gates; the settlement sweeps hold (flag on) or skip (flag off) the escrow of a party at CRITICAL (`holdReason: risk_critical`, tier and score in the `fraud_hold` audit metadata) and skip, flag on or off, one whose score cannot be read (`reason=score_unavailable`); escrow-cron reads the fraud-signals table and logs `RISK_TABLE_UNCONFIGURED` once per run without it, flag on or off; `AUTH_041` text amount-neutral; admin routes not gated; no client change |
 | 1.26.0 | 2026-10-23 | Dispute alarms (FUP-27): `DISPUTE_PROPAGATION_FAILED` (a dispute mirror leg that failed) is counted in the escrow, sync and escrow-cron log groups, the Lambdas that run the mirror, by the new alarm `dispute-propagation-failed` (money alarm shape); the line is written through the money alarm sink with its `legs` defanged like the verdict lines (the `dispute_propagation_failed` audit row keeps them raw); the sync Lambda logs `DELIVERY_DISPUTE_FROZEN escrowId=.. orderId=.. deliveryId=..` once a delivery dispute froze its escrow, counted into the `escrow-dispute-rate` metric with the escrow Lambda's `POST /escrow/dispute` audit line (an escrow already disputed, a refused or undecided freeze and the repairs of pre-1.12.0 disputes are not counted); no API, error code or client change (1.18.0 and 1.20.0 to 1.25.0 are in flight) |
 | 1.25.0 | 2026-10-23 | Transport cancel and dispute race (FUP-32): the buyer's transport-failure cancel writes the order and the refund arm (`expiresAt`, `refundReason`) on each held escrow in one `TransactWriteItems`, the escrow item conditioned on a plain hold, so a freeze that landed after the check refuses the cancel (`ORDER_CANCEL_NOT_ALLOWED`) and nothing is written; every freeze write requires `attribute_not_exists(refundReason)`: `POST /escrow/dispute` on an `escrowed` escrow with a scheduled refund answers `409 ESCROW_INVALID_TRANSITION` (also after a lost race or a `TransactionConflictException`, key freed), a delivery dispute is refused (`DELIVERY_DISPUTE_REFUSED`, audit `dispute_refused_refund_scheduled`), the escrow-cron legacy freeze blocks with the permanent reason `freeze_refund_scheduled` (alarmed once, not asked again); `refund_scheduled` audit row after the commit, a failed row logged `ORDER_ESCROW_REFUND_AUDIT_FAILED` (not alarmed); no client change (`order-lifecycle.md` 1.23.0) |
@@ -3802,5 +3828,5 @@ Builds the risk tier of 1.7.0. Design: `specs/architecture/fraud-detection-archi
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 1.27.0
+**Version**: 1.28.0
 **Status**: Draft (Phase R4)

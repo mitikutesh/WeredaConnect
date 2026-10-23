@@ -664,6 +664,13 @@ public sealed class CognitoAuthService : ICognitoAuthService
             ]
         }));
 
+    public Task<AuthResult<bool>> AdminDeleteUserAsync(string username)
+        => AdminCallAsync(() => _cognito.AdminDeleteUserAsync(new AdminDeleteUserRequest
+        {
+            UserPoolId = _userPoolId,
+            Username = username
+        }));
+
     /// <summary>Shared error mapping for the admin account-control calls.</summary>
     private async Task<AuthResult<bool>> AdminCallAsync(Func<Task> call)
     {

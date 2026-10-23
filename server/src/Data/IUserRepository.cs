@@ -19,12 +19,20 @@ public interface IUserRepository
     Task<UserDto?> GetUserByIdAsync(string userId);
 
     /// <summary>
+    /// Get a user by primary key with a strongly consistent read when <paramref name="consistentRead"/>
+    /// is true. ACC-02: the refusals for a deleting account read the row this way, so a write that
+    /// races the start of a deletion sees it.
+    /// </summary>
+    Task<UserDto?> GetUserByIdAsync(string userId, bool consistentRead);
+
+    /// <summary>
     /// Get a user by phone number via PhoneIndex GSI.
     /// </summary>
     Task<UserDto?> GetUserByPhoneAsync(string phone);
 
     /// <summary>
-    /// Update a user with optimistic concurrency (version check).
+    /// Update a user with optimistic concurrency (version check). Refused like a version conflict
+    /// once the row carries <c>deletionState</c> (ACC-02).
     /// </summary>
     Task<AuthResult<UserDto>> UpdateUserAsync(UserDto user, int expectedVersion);
 

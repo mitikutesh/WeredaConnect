@@ -160,4 +160,34 @@ public class RefreshFunctionTests
 
         Assert.Equal(200, response.StatusCode);
     }
+
+    [Theory]
+    [InlineData("cognito_pending")]
+    [InlineData("completed")]
+    public async Task FunctionHandler_DeletedAccount_Returns401Auth014_AndRevokesTheToken(string state)
+    {
+        var (fn, _) = FunctionWithProfile(Profile("user-1", suspended: false) with
+        {
+            PhoneNumber = "",
+            Woreda = "",
+            DeletionState = state
+        });
+
+        var response = await fn.FunctionHandler(MakeRequest(new { refreshToken = "refresh-token" }), _context);
+
+        Assert.Equal(401, response.StatusCode);
+        Assert.Contains("AUTH_014", response.Body);
+        Assert.DoesNotContain("new-access", response.Body);
+        await _mockAuth.Received(1).LogoutAsync("refresh-token");
+    }
+
+    [Fact]
+    public async Task FunctionHandler_DeletionInProgress_StillRefreshes()
+    {
+        var (fn, _) = FunctionWithProfile(Profile("user-1", suspended: false) with { DeletionState = "in_progress" });
+
+        var response = await fn.FunctionHandler(MakeRequest(new { refreshToken = "refresh-token" }), _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
 }

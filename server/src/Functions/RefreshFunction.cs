@@ -108,6 +108,18 @@ public class RefreshFunction
         {
             var sub = AuthHelper.GetSubFromJwt(tokens.IdToken);
             var user = sub != null ? await _userRepository.GetUserByIdAsync(sub) : null;
+
+            // ACC-02: a deleted account (or one whose Cognito user is being deleted) gets no new
+            // tokens; it answers like a bad credential, as login does.
+            if (user?.DeletionState is AccountDeletionPolicy.CognitoPending or AccountDeletionPolicy.Completed)
+            {
+                await _authService.LogoutAsync(refreshRequest.RefreshToken);
+                AuditLogger.LogSecurity("REFRESH_BLOCKED", userId: user.UserId, detail: "deleted",
+                    correlationId: AuditLogger.GetCorrelationId(request), outcome: "failure",
+                    sourceIp: AuditLogger.GetSourceIp(request));
+                return LambdaResponse.Error(401, "AUTH_014", "Invalid phone number or password.");
+            }
+
             if (user?.Suspended == true)
             {
                 await _authService.LogoutAsync(refreshRequest.RefreshToken);

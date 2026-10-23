@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.Services;
 
 namespace WeredaConnect.Server.Validation;
 
@@ -357,6 +358,17 @@ public static partial class RequestValidator
                 Field = "displayName",
                 Code = "AUTH_007",
                 Message = "Display name must not exceed 100 characters."
+            });
+        }
+
+        // ACC-02: the name copied onto a deleted user's rows; a live user may not look deleted.
+        if (AccountDeletionPolicy.IsSentinelName(request.DisplayName))
+        {
+            errors.Add(new ValidationError
+            {
+                Field = "displayName",
+                Code = "AUTH_007",
+                Message = "This display name is not available."
             });
         }
 
