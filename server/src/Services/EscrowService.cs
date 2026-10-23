@@ -2659,11 +2659,13 @@ public sealed class EscrowService
     /// <paramref name="fence"/> on the order as the sweep read it. Once held: one escrow-audit row
     /// <c>fraud_hold</c> at the hold time (written only if absent) and one transaction-audit row.
     /// Best-effort audit: the escrow row itself carries the hold fields. Nothing else is written when
-    /// the hold loses its condition.
+    /// the hold loses its condition. FRD-04: a hold the party's risk tier decided carries that party's
+    /// <paramref name="risk"/> (tier, score, enforcement score, truncated) in both audit rows' metadata,
+    /// never on the escrow row (section 18.2).
     /// </summary>
     public async Task<EscrowHoldWrite> HoldForReviewAsync(
         Dictionary<string, object> escrow, string fromStatus, string heldFor, string holdReason, string party,
-        string sweep, OrderFence? fence = null, ILambdaContext? context = null)
+        string sweep, OrderFence? fence = null, ILambdaContext? context = null, RiskScoreResult? risk = null)
     {
         _auditContext = null;
         var escrowId = GetString(escrow, "escrowId");
@@ -2676,6 +2678,11 @@ public sealed class EscrowService
         }
 
         var metadata = $"holdReason={holdReason};heldFor={heldFor};party={party};sweep={sweep}";
+        if (risk != null)
+        {
+            metadata += $";tier={risk.Tier.ToString().ToLowerInvariant()};score={risk.Score}"
+                        + $";enforcementScore={risk.EnforcementScore};truncated={(risk.Truncated ? "true" : "false")}";
+        }
         try
         {
             await EnsureAuditAsync(escrowId, heldAt, "fraud_hold", fromStatus, EscrowHoldFields.Status, SystemActor,

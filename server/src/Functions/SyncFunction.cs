@@ -49,6 +49,10 @@ public partial class SyncFunction
     // auth_time of the current request's token (Lambda handles one request at a
     // time per instance, so a field is safe); consumed by the payment step-up gate.
     private long? _requestAuthTime;
+
+    // FRD-04: the caller's risk score, read at most once per batch (null without a fraud
+    // service). Set at the top of FunctionHandler, like the auth_time above.
+    private RiskScoreMemo? _batchRiskScores;
     private readonly IIntentRepository? _intentRepo;
     private readonly IMatchEventRepository? _matchEventRepo;
     // Optional: when the escrows table is provisioned, confirming a delivery
@@ -682,6 +686,7 @@ public partial class SyncFunction
 
         var authenticatedRole = AuthHelper.GetClaim(request, "custom:role");
         _requestAuthTime = AuthHelper.GetAuthTime(request);
+        _batchRiskScores = _fraudService == null ? null : new RiskScoreMemo(_fraudService);
 
         // Per-user rate limiting (F-11 Finding 3)
         // Record unconditionally to prevent request flooding via invalid operations
@@ -1971,6 +1976,23 @@ public partial class SyncFunction
         }
     }
 
+    /// <summary>
+    /// FRD-04 (fraud-detection-architecture.md 17.1): the caller's risk tier at a user gate, read once per
+    /// batch. LOW without a fraud service, and for anything but a computed score (section 14.4).
+    /// </summary>
+    private async Task<RiskTier> CallerRiskTierAsync(string userId)
+        => _batchRiskScores == null
+            ? RiskTier.Low
+            : RiskGatePolicy.TierAtUserGate(await _batchRiskScores.GetAsync(userId));
+
+    /// <summary>FRD-04: a create or a payment refused because the caller's risk tier is CRITICAL; nothing written.</summary>
+    private static SyncOperationResult AccountHeldResult(SyncOperationRequest operation) => new()
+    {
+        OperationId = operation.OperationId,
+        Status = "error",
+        Message = RiskGatePolicy.SyncMessage
+    };
+
     /// <summary>Minimum resolved listings before a farmer gets a computed reliability.</summary>
     private const int MinListingsForReliability = 3;
 
@@ -2131,6 +2153,13 @@ public partial class SyncFunction
                             Status = "error",
                             Message = ContactInTextRefusal("CROP_CONTACT_IN_TEXT", createContactFields)
                         };
+                    }
+
+                    // FRD-04 (fraud-detection-architecture.md 17.1): after the field rules and before the
+                    // listing checks below, so an account under review writes no velocity signal either.
+                    if (await CallerRiskTierAsync(authenticatedUserId!) == RiskTier.Critical)
+                    {
+                        return AccountHeldResult(operation);
                     }
 
                     // ── Fraud detection (F-14) ──
@@ -2551,6 +2580,12 @@ public partial class SyncFunction
                             Status = "error",
                             Message = ContactInTextRefusal("TRIP_CONTACT_IN_TEXT", createContactFields)
                         };
+                    }
+
+                    // FRD-04 (fraud-detection-architecture.md 17.1): after the field rules, before the write.
+                    if (await CallerRiskTierAsync(authenticatedUserId!) == RiskTier.Critical)
+                    {
+                        return AccountHeldResult(operation);
                     }
 
                     NormalizeDepartureDate(operation.Data);
@@ -5612,6 +5647,13 @@ public partial class SyncFunction
 
         KeepServerCancelCodesReserved(operation.Data);
 
+        // FRD-04 (fraud-detection-architecture.md 17.1): after the field rules, before the listing and
+        // trip reads and the write. Only the buyer's tier: the counterparty's is never revealed (section 17).
+        if (await CallerRiskTierAsync(authenticatedUserId!) == RiskTier.Critical)
+        {
+            return AccountHeldResult(operation);
+        }
+
         // SIM-05: the client's copy of the listing and trip is not trusted. Load both,
         // bind every party, price and quantity to the server's records, and compute the
         // money fields from those records only.
@@ -5863,9 +5905,17 @@ public partial class SyncFunction
             // the real money path, so the checks /escrow/initiate makes (both parties
             // phone-verified, Fayda above 10,000 ETB) and the payment step-up (a fresh
             // password up to 10,000 ETB, AUTH_040; a fresh Fayda login above, AUTH_041)
-            // run here, before any money moves.
+            // run here, before any money moves. FRD-04: the buyer's risk tier comes first
+            // (fraud-detection-architecture.md 17.1): CRITICAL pays nothing, MEDIUM and HIGH
+            // add proofs to the step-up.
             if (newStatus == "payment_submitted")
             {
+                var riskTier = await CallerRiskTierAsync(authenticatedUserId!);
+                if (riskTier == RiskTier.Critical)
+                {
+                    return AccountHeldResult(operation);
+                }
+
                 var orderTotal = ReadDecimal(existingOrder, "orderTotal");
                 var (kycError, buyer) = await CheckPaymentKycAsync(authenticatedUserId!, orderFarmerId, orderTotal, context);
                 if (kycError != null)
@@ -5878,7 +5928,8 @@ public partial class SyncFunction
                     };
                 }
 
-                var stepUpError = StepUpPolicy.CheckPayment(_requestAuthTime, buyer?.FaydaAuthenticatedAt, orderTotal);
+                var stepUpError = StepUpPolicy.CheckPayment(
+                    _requestAuthTime, buyer?.FaydaAuthenticatedAt, orderTotal, tier: riskTier);
                 if (stepUpError != null)
                 {
                     return new SyncOperationResult

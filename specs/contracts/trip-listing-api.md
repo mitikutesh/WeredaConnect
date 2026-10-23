@@ -1,7 +1,7 @@
 # Trip Listing API Contract
 
 ## Version
-1.5.0
+1.6.0
 
 ## Parties
 - **Mobile** (client) — truckers creating and browsing trip listings
@@ -303,6 +303,9 @@ Invalid transitions return `422 Unprocessable Entity`:
    - A create, or an update that changes one of these fields, is refused with `TRIP_CONTACT_IN_TEXT: Remove the phone number from <fields>. Contact opens after payment is held in escrow.` and nothing is written. `<fields>` lists the fields that hold a number, comma-separated, in the order `vehicleDescription`, `vehiclePlate`, `fromWoreda`, `toWoreda`. The check runs after the `TRIP_VALIDATION` field rules, so one payload always gets the same answer. Clients treat the code as permanent (`sync-protocol.md` 1.23.0).
    - On update, a value equal to the stored one is an unchanged echo and is not checked, so a trip stored before 1.5.0 can still change status.
    - The detector is the one defined in `crop-listing-api.md` 1.4.0 rule 6b (mobile numbers with or without `0`, `251`, `00251`; spaces, dots, dashes, parentheses between digit groups; dates, prices and plates such as `3-AA-12345` are not numbers).
+11. **Account under review** (1.6.0, FRD-04):
+   - A create from a trucker at risk tier CRITICAL (`specs/architecture/fraud-detection-architecture.md` sections 16 and 17) is refused with `FRAUD_ACCOUNT_HELD: Your account is under review. Some actions are paused. Contact support.` and nothing is written. The check runs after the field rules above (rule 10 included) and before the write. Permanent on clients like every `FRAUD_*` code (`sync-protocol.md` 1.9.0, 1.25.0). The tier is never returned.
+   - Updates and deletes of existing trips are not gated. A score that cannot be read is LOW (the create goes on).
 
 ### Client-Side Validation
 
@@ -440,9 +443,10 @@ Common route patterns:
 | 1.3.0 | 2026-10-06 | Update: a changed `departureDate` must be in the future and within 30 days like on create (SIM-60); an unchanged echo of the stored date is accepted. Create and update: `departureDate` must be ISO 8601 date and time (`Z`, an offset, or no zone read as UTC); blank or any other shape is refused; it is stored as UTC with milliseconds |
 | 1.4.0 | 2026-10-17 | `GET /trips` and `GET /trips/{id}` return `truckerPhone` only to the trip's trucker and admins; buyers get none (ESC-48). `/sync` conflict data for the owner still carries it (shipped clients read it as required). Clients read `truckerPhone ?? ''` |
 | 1.5.0 | 2026-10-23 | No phone number in trip text (FUP-49): a `vehicleDescription`, `vehiclePlate`, `fromWoreda` or `toWoreda` that holds an Ethiopian mobile number is refused with `TRIP_CONTACT_IN_TEXT` on create and on an update that changes it (an unchanged echo is accepted), nothing written; permanent on clients; the trip form runs the same check first; detector as `crop-listing-api.md` 1.4.0; `vehiclePlate` and `vehicleDescription` added to the TripDto table |
+| 1.6.0 | 2026-10-23 | Account under review (FRD-04, rule 11): a create from a trucker at risk tier CRITICAL is refused with `FRAUD_ACCOUNT_HELD` after the field rules and before the write, nothing written; permanent on clients (already handled since `sync-protocol.md` 1.18.0); updates and deletes not gated |
 
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 1.5.0
+**Version**: 1.6.0
 **Status**: Draft (Phase R4.1)

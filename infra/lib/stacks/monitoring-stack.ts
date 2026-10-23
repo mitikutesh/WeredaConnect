@@ -361,8 +361,9 @@ export class MonitoringStack extends cdk.Stack {
       defaultValue: 0,
     });
     // FRD-03: a settlement sweep left an escrow unsettled because of the fraud risk gate, one
-    // line per escrow per hourly run: a suspended party while FRAUD_HOLD_ENABLED is off, or a
-    // party row it could not read. Counted from the FRD-03 deploy, so no settlement waits unseen.
+    // line per escrow per hourly run: a suspended party (FRD-04: or one at risk tier CRITICAL)
+    // while FRAUD_HOLD_ENABLED is off, or a party row or risk score it could not read. Counted
+    // from the FRD-03 deploy, so no settlement waits unseen.
     new logs.MetricFilter(this, 'RiskSettlementSkippedFilter', {
       logGroup: escrowCronLogGroup,
       filterPattern: logs.FilterPattern.literal('"RISK_SETTLEMENT_SKIPPED"'),
@@ -1105,14 +1106,15 @@ export class MonitoringStack extends cdk.Stack {
       'Risk Settlement Skipped',
       'A settlement sweep left an escrow unsettled because of the fraud risk gate ' +
         '(RISK_SETTLEMENT_SKIPPED in the escrow-cron log group, one line per escrow per hourly run, ' +
-        'with escrowId, sweep, reason and holdReason; FRD-03). No money moved. reason=flag_off: a ' +
-        'buyer, farmer or trucker of the escrow is suspended (holdReason=account_suspended) and ' +
-        'FRAUD_HOLD_ENABLED is off, so the payout or refund waits. Find the suspended party from ' +
-        'the escrow in the admin app. Exits: unsuspend the party if the suspension was not about ' +
-        'fraud (the next run settles as before), or settle the escrow by hand with POST ' +
-        '/escrow/release or /escrow/refund as an admin in the admin group. reason=user_read_failed: ' +
-        'a party user row could not be read (IAM, throttling, the users table); fix the cause and ' +
-        'the next run decides again.',
+        'with escrowId, sweep, reason and holdReason; FRD-03, FRD-04). No money moved. reason=flag_off: ' +
+        'FRAUD_HOLD_ENABLED is off and a buyer, farmer or trucker of the escrow is suspended ' +
+        '(holdReason=account_suspended) or at risk tier CRITICAL (risk_critical), so the payout or refund ' +
+        'waits. Find the party from the escrow in the admin app. Exits: unsuspend the party if the ' +
+        'suspension was not about fraud, or approve the signals behind the tier in Fraud Review (the ' +
+        'next run settles as before), or settle the escrow by hand with POST /escrow/release or ' +
+        '/escrow/refund as an admin in the admin group. reason=user_read_failed or score_unavailable: a ' +
+        'party user row or risk score could not be read (IAM, throttling, the users or fraud-signals ' +
+        'table); fix the cause and the next run decides again.',
     );
 
     // Persistence alarm: one blocked run is a transient retry, a block in three of four hourly
