@@ -49,7 +49,7 @@
     <!-- Database Access (AOT-Compatible) -->
     <!-- ❌ BANNED: Entity Framework Core -->
     <!-- ✅ USE: Dapper -->
-    <PackageReference Include="Dapper" Version="2.1.1" />
+    <PackageReference Include="Dapper" Version="2.1.89" />
 
     <!-- JWT Validation (AOT-Compatible) -->
     <!-- ❌ BANNED: Microsoft.AspNetCore.Authentication.JwtBearer -->
