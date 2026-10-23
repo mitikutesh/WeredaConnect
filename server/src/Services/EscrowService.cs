@@ -224,6 +224,18 @@ public sealed class EscrowService
     {
         _auditContext = auditContext;
 
+        // 0. FUP-36: live Telebirr refuses this path's merch_order_id (the client idempotency key,
+        //    colons included), so the call could only end in a gateway error or an escrow stuck in
+        //    "initiated". Refused before any read or write: no idempotency, escrow or audit row is
+        //    left behind, and the order is paid through the ESC-01 checkout instead. The mock and
+        //    the local simulator (IsLiveTelebirr false) keep the path as it was.
+        if (_telebirrGateway.IsLiveTelebirr)
+        {
+            return EscrowResult<InitiateEscrowResponse>.Failure(
+                422, "ESCROW_039",
+                "Online escrow payment for a delivery is not available here. Pay this order from its order page instead.");
+        }
+
         // 1. Validate buyerId matches JWT sub → ESCROW_006
         if (!string.Equals(request.BuyerId, authenticatedUserId, StringComparison.Ordinal))
         {

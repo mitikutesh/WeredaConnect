@@ -205,6 +205,54 @@ public class EscrowServiceTests
     }
 
     [Fact]
+    public async Task InitiateAsync_LiveTelebirr_Returns422Escrow039BeforeAnyWrite()
+    {
+        // FUP-36: live Telebirr refuses this path's merch_order_id (the client idempotency key),
+        // so the server refuses first and leaves nothing behind.
+        _mockTelebirrGateway.IsLiveTelebirr.Returns(true);
+        var request = MakeInitiateRequest();
+
+        var result = await _service.InitiateAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(422, result.Error!.HttpStatus);
+        Assert.Equal("ESCROW_039", result.Error.Code);
+        // Before any read as well: a replayed idempotency key gets the 422, never the cached 200.
+        await _mockIdempotencyRepo.DidNotReceive().GetAsync(Arg.Any<string>());
+        await _mockEscrowRepo.DidNotReceive().GetByDeliveryIdAsync(Arg.Any<string>());
+        await _mockIdempotencyRepo.DidNotReceive().StoreAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+        await _mockEscrowRepo.DidNotReceive().CreateAsync(Arg.Any<Dictionary<string, object>>());
+        await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+        await _mockTelebirrGateway.DidNotReceive().HoldFundsAsync(Arg.Any<HoldFundsRequest>());
+    }
+
+    [Fact]
+    public async Task InitiateAsync_HostedCheckoutGatewayNotLive_StillOpensThePayment()
+    {
+        // The local simulator: a hosted checkout (toPayUrl now, webhook later) that is not live
+        // Telebirr. The legacy path keeps working against it (FUP-36).
+        _mockTelebirrGateway.SupportsHostedCheckout.Returns(true);
+        _mockTelebirrGateway.IsLiveTelebirr.Returns(false);
+        _mockTelebirrGateway.HoldFundsAsync(Arg.Any<HoldFundsRequest>()).Returns(new HoldFundsResponse
+        {
+            Success = true,
+            TelebirrRef = "PENDING-WEBHOOK",
+            ToPayUrl = "http://127.0.0.1:8790/payment/web/paygate?prepay_id=p1",
+            PrepayId = "p1"
+        });
+        var request = MakeInitiateRequest();
+
+        var result = await _service.InitiateAsync(request, BuyerId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("initiated", result.Value!.Status);
+        Assert.Equal("http://127.0.0.1:8790/payment/web/paygate?prepay_id=p1", result.Value.ToPayUrl);
+        await _mockTelebirrGateway.Received(1).HoldFundsAsync(
+            Arg.Is<HoldFundsRequest>(r => r.TransactionRef == request.IdempotencyKey));
+    }
+
+    [Fact]
     public async Task InitiateAsync_DuplicateIdempotency_ReturnsCachedResult()
     {
         var request = MakeInitiateRequest();
@@ -614,7 +662,8 @@ public class EscrowServiceTests
         userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
         var alarms = new List<string>();
         var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
-            userRepo, orderRepo) { AlarmLog = alarms.Add };
+            userRepo, orderRepo)
+        { AlarmLog = alarms.Add };
         var escrow = MakeResolvedDispute(resolution);
         escrow["orderId"] = "order-1";
         escrow.Remove("deliveryId");
@@ -662,7 +711,8 @@ public class EscrowServiceTests
         orderRepo.GetByIdAsync("order-1", true).ThrowsAsync(new ProvisionedThroughputExceededException("throttled"));
         var alarms = new List<string>();
         var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
-            _mockUserRepo, orderRepo) { AlarmLog = alarms.Add };
+            _mockUserRepo, orderRepo)
+        { AlarmLog = alarms.Add };
         var escrow = MakeResolvedDispute(resolution);
         escrow["orderId"] = "order-1";
         _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrow);
@@ -814,7 +864,8 @@ public class EscrowServiceTests
             .Returns(failure == "restock" ? StockRestoreResult.Failed : StockRestoreResult.Restored);
         var alarms = new List<string>();
         var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
-            _mockUserRepo, orderRepo, cropRepo: crops) { AlarmLog = alarms.Add };
+            _mockUserRepo, orderRepo, cropRepo: crops)
+        { AlarmLog = alarms.Add };
         var escrow = MakeResolvedDispute("buyer_wins");
         escrow["orderId"] = "order-1";
         escrow.Remove("deliveryId");
@@ -897,7 +948,8 @@ public class EscrowServiceTests
         userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
         var alarms = new List<string>();
         var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
-            userRepo, orderRepo) { AlarmLog = alarms.Add };
+            userRepo, orderRepo)
+        { AlarmLog = alarms.Add };
         var escrow = MakeResolvedDispute("farmer_wins");
         escrow["orderId"] = "order-1";
         escrow.Remove("deliveryId");

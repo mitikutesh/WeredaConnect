@@ -110,6 +110,11 @@ reachable by the simulator's webhook POST. Two options:
    ```
    The script fetches the `toPayUrl`, completes payment on the simulator, and
    polls `GET /escrow/{id}` until it flips to `escrowed`.
+   Since escrow-protocol 1.18.0 (FUP-36) the server refuses `POST /escrow/initiate`
+   with `422 ESCROW_039` unless the simulator's `baseUrl` host is loopback or
+   `host.docker.internal`, so a tunnel-exposed simulator counts as live Telebirr
+   and this option only works through the order checkout
+   (`POST /escrow/order-checkout`).
 2. **Component tests** (no deployment): `TelebirrWebhookFunctionTests` feeds the
    handler a simulator-signed notification and asserts the `initiated → escrowed`
    transition, plus every rejection path (bad signature / stale timestamp /

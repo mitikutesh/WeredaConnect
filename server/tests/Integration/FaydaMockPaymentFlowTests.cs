@@ -258,11 +258,12 @@ public class FaydaMockPaymentFlowTests : IClassFixture<FaydaMockProvider>
                     EntityType = "order",
                     EntityId = OrderId,
                     Action = "update",
+                    // TELEBIRR_MOCK is unset here, so the live gates run: only the Telebirr rail
+                    // is fundable (FUP-20) and a live payment carries no CBE reference (ESC-44).
                     Data = new Dictionary<string, object>
                     {
                         { "status", "payment_submitted" },
-                        { "paymentMethod", "cbe_transfer" },
-                        { "cbeTransactionId", "MOCK-CBE-24D367A5" },
+                        { "paymentMethod", "telebirr" },
                         { "version", 1 }
                     }
                 }
