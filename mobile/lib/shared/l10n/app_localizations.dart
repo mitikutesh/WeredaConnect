@@ -5481,6 +5481,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Please update the app. This change is kept on your phone and will be sent after the update.'**
   String get errorAppUpdateRequiredKept;
+
+  /// A crop or trip text field that buyers read holds a phone number. Shown under the field and when the server refuses the listing (CROP_CONTACT_IN_TEXT / TRIP_CONTACT_IN_TEXT, FUP-49)
+  ///
+  /// In en, this message translates to:
+  /// **'Phone numbers are not allowed here. Remove the number: contact opens after payment is held in escrow.'**
+  String get errorContactInText;
 }
 
 class _AppLocalizationsDelegate

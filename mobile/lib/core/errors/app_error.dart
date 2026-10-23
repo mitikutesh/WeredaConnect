@@ -128,6 +128,10 @@ enum AppErrorCode {
   /// (mobile): it is kept on the phone and sent after the update.
   appUpdateRequiredKept,
 
+  /// FUP-49: crop or trip text that buyers read held a phone number
+  /// (`CROP_CONTACT_IN_TEXT` / `TRIP_CONTACT_IN_TEXT`); nothing was saved.
+  contactInText,
+
   /// The server refused a queued change (not an order) for good, so it was
   /// never saved there.
   changeNotSaved,
@@ -228,6 +232,9 @@ AppErrorCode mapErrorToCode(Object error) {
     SyncRejectedException(:final message)
         when isContactLockedMessage(message) =>
       AppErrorCode.contactLocked,
+    SyncRejectedException(:final message)
+        when isContactInTextMessage(message) =>
+      AppErrorCode.contactInText,
     OrderCancelNotAllowedException() => AppErrorCode.orderCancelNotAllowed,
     OrderActionNotAllowedException() => AppErrorCode.orderRefused,
     AlreadyRatedException() => AppErrorCode.alreadyRated,
@@ -303,6 +310,7 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.cropHasActiveOrders => l10n.errorCropHasActiveOrders,
     AppErrorCode.appUpdateRequired => l10n.errorAppUpdateRequired,
     AppErrorCode.appUpdateRequiredKept => l10n.errorAppUpdateRequiredKept,
+    AppErrorCode.contactInText => l10n.errorContactInText,
     AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
@@ -386,6 +394,9 @@ AppErrorCode syncRejectionErrorCode({
   }
   if (isContactLockedMessage(message)) {
     return AppErrorCode.contactLocked;
+  }
+  if (isContactInTextMessage(message)) {
+    return AppErrorCode.contactInText;
   }
   return isRevertableRejectionMessage(message)
       ? AppErrorCode.orderRefused

@@ -1,7 +1,7 @@
 # Trip Listing API Contract
 
 ## Version
-1.4.0
+1.5.0
 
 ## Parties
 - **Mobile** (client) — truckers creating and browsing trip listings
@@ -221,6 +221,8 @@ GET /trips/trip-101
 | `truckerPhone` | string | Yes | E.164 format | Trucker's number, server-stamped at create; returned only to the owning trucker and admins (1.4.0) |
 | `fromWoreda` | string | Yes | 1-100 chars | Origin district (Ethiopian woreda) |
 | `toWoreda` | string | Yes | 1-100 chars | Destination district (Ethiopian woreda) |
+| `vehiclePlate` | string | No | Free text, no phone number (1.5.0) | Plate of the truck |
+| `vehicleDescription` | string | No | Free text, no phone number (1.5.0) | Make, model, size of the truck |
 | `departureDate` | string (ISO 8601) | Yes | — | Scheduled departure date and time (UTC) |
 | `capacity` | number | Yes | 0.1-1000 | Available capacity in quintals (100kg) |
 | `pricePerQuintal` | number | Yes | 0.01-10000 | Transport price per quintal in ETB |
@@ -296,6 +298,11 @@ Invalid transitions return `422 Unprocessable Entity`:
 9. **Matched Listings**:
    - Each listing ID must reference an existing crop listing
    - Can only add listings when transitioning to `matched` status
+10. **No phone number in trip text** (1.5.0, FUP-49):
+   - `vehicleDescription`, `vehiclePlate`, `fromWoreda` and `toWoreda` must not hold an Ethiopian mobile number. Buyers read them before any order, and contact opens only after the money is held in escrow (1.4.0, ESC-48).
+   - A create, or an update that changes one of these fields, is refused with `TRIP_CONTACT_IN_TEXT: Remove the phone number from <fields>. Contact opens after payment is held in escrow.` and nothing is written. `<fields>` lists the fields that hold a number, comma-separated, in the order `vehicleDescription`, `vehiclePlate`, `fromWoreda`, `toWoreda`. The check runs after the `TRIP_VALIDATION` field rules, so one payload always gets the same answer. Clients treat the code as permanent (`sync-protocol.md` 1.23.0).
+   - On update, a value equal to the stored one is an unchanged echo and is not checked, so a trip stored before 1.5.0 can still change status.
+   - The detector is the one defined in `crop-listing-api.md` 1.4.0 rule 6b (mobile numbers with or without `0`, `251`, `00251`; spaces, dots, dashes, parentheses between digit groups; dates, prices and plates such as `3-AA-12345` are not numbers).
 
 ### Client-Side Validation
 
@@ -401,6 +408,7 @@ Common route patterns:
 ### Data Privacy
 - Phone numbers returned only to the owning trucker and admins, never to buyers (1.4.0, ESC-48: no contact before the money is held)
 - Trucker identity visible only through name (not phone) in browse results
+- Trip text carries no phone number (1.5.0, FUP-49, rule 10)
 
 ---
 
@@ -431,9 +439,10 @@ Common route patterns:
 | 1.2.1 | 2026-10-01 | Browse: cancelled trips (status update or soft delete) are never listed, matching the detail 404; `status=cancelled` returns an empty page (SIM-31) |
 | 1.3.0 | 2026-10-06 | Update: a changed `departureDate` must be in the future and within 30 days like on create (SIM-60); an unchanged echo of the stored date is accepted. Create and update: `departureDate` must be ISO 8601 date and time (`Z`, an offset, or no zone read as UTC); blank or any other shape is refused; it is stored as UTC with milliseconds |
 | 1.4.0 | 2026-10-17 | `GET /trips` and `GET /trips/{id}` return `truckerPhone` only to the trip's trucker and admins; buyers get none (ESC-48). `/sync` conflict data for the owner still carries it (shipped clients read it as required). Clients read `truckerPhone ?? ''` |
+| 1.5.0 | 2026-10-23 | No phone number in trip text (FUP-49): a `vehicleDescription`, `vehiclePlate`, `fromWoreda` or `toWoreda` that holds an Ethiopian mobile number is refused with `TRIP_CONTACT_IN_TEXT` on create and on an update that changes it (an unchanged echo is accepted), nothing written; permanent on clients; the trip form runs the same check first; detector as `crop-listing-api.md` 1.4.0; `vehiclePlate` and `vehicleDescription` added to the TripDto table |
 
 ---
 
-**Last Updated**: 2026-10-17
-**Version**: 1.4.0
+**Last Updated**: 2026-10-23
+**Version**: 1.5.0
 **Status**: Draft (Phase R4.1)
