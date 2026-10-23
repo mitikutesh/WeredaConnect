@@ -2568,6 +2568,7 @@
   "orderCheckoutNotSent": "ክፍያዎ አልተላከም። ማንነትዎን እንዲያረጋግጡ ከተጠየቁ፣ ካረጋገጡ በኋላ እንደገና ይላካል፤ ካልሆነ እንደገና ለመክፈል ትዕዛዙን ይክፈቱ።",
   "orderCheckoutCheckingPayment": "ክፍያዎን በማረጋገጥ ላይ...",
   "paymentTotalOutOfRange": "ቴሌብር በአንድ ክፍያ ከ100 እስከ 500,000 ብር ይቀበላል። የዚህ ትዕዛዝ ጠቅላላ ዋጋ ከዚህ ውጭ ስለሆነ በቴሌብር ሊከፈል አይችልም።",
+  "paymentMethodUnavailable": "ይህ የክፍያ ዘዴ ገና አይገኝም። በቴሌብር ይክፈሉ።",
   "continuePayment": "ክፍያውን ይቀጥሉ",
   "payAgain": "እንደገና ይክፈሉ",
   "orderPickupDeadline": "የማንሳት የመጨረሻ ቀን",
