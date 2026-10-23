@@ -29,10 +29,13 @@ public interface IOrderRepository
     /// checked and incremented, new <c>updatedAt</c>), also only while it is still
     /// <paramref name="expectedStatus"/>, and write <paramref name="linkedItems"/> (conditional writes
     /// to other tables) in the same DynamoDB transaction: all of it lands or none of it. A linked
-    /// item's failed condition is reported over the order's. Returns the order as written (the row
-    /// read strongly consistent before the write, with the update applied), so nothing can fail
-    /// after the commit. A transaction cancelled for any other reason (a conflicting transaction,
-    /// throttling) throws, with nothing written.
+    /// item's failed condition is reported over the order's. Returns the order as written: the row
+    /// read strongly consistent before the write, with the update applied (a transaction returns no
+    /// item, and a read after the commit could fail after the money moved). Unlike
+    /// <see cref="UpdateAsync"/>'s <c>ALL_NEW</c>, it can miss a field written without a version bump
+    /// between that read and the commit, such as a delivery slot claim (<c>activeDeliveryId</c>);
+    /// callers that act on such fields read the row again. A transaction cancelled for any other
+    /// reason (a conflicting transaction, throttling) throws, with nothing written.
     /// </summary>
     Task<OrderLinkedWriteResult> TryUpdateWithAsync(
         string orderId,
