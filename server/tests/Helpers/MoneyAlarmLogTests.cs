@@ -25,6 +25,8 @@ public class MoneyAlarmLogTests
         "TELEBIRR_INBOX_REPLAY_RUN",
         // FRD-03: RISK_SETTLEMENT_SKIPPED is counted from FRD-03, RISK_HOLD_ORDER_MISMATCH by FRD-16.
         "RISK_SETTLEMENT_SKIPPED", "RISK_HOLD_ORDER_MISMATCH",
+        // FRD-04: counted by FRD-16 from the day FRAUD_HOLD_ENABLED is turned on.
+        "RISK_TABLE_UNCONFIGURED",
         // FUP-27: the dispute mirror's failed legs, and a sync delivery dispute's freeze (dispute rate).
         "DISPUTE_PROPAGATION_FAILED", "DELIVERY_DISPUTE_FROZEN"
     };
@@ -94,6 +96,13 @@ public class MoneyAlarmLogTests
             .Should().Equal("RISK_SETTLEMENT_SKIPPED");
         TokensIn(MoneyAlarmLog.RiskHoldOrderMismatch($"escrow-order-{Hostile}", "refund", Hostile))
             .Should().Equal("RISK_HOLD_ORDER_MISMATCH");
+
+        // FRD-04: a party score that could not be read, and a gate that reads no tier while the flag is on.
+        MoneyAlarmLog.RiskSettlementSkipped("e-1", "auto-release", "score_unavailable", null)
+            .Should().Be("RISK_SETTLEMENT_SKIPPED escrowId=e-1 sweep=auto-release reason=score_unavailable holdReason=-");
+        MoneyAlarmLog.RiskTableUnconfigured("auto_release_and_refund")
+            .Should().Be("RISK_TABLE_UNCONFIGURED action=auto_release_and_refund");
+        TokensIn(MoneyAlarmLog.RiskTableUnconfigured("auto_release_and_refund")).Should().Equal("RISK_TABLE_UNCONFIGURED");
     }
 
     [Fact]

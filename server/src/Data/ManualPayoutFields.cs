@@ -183,7 +183,7 @@ internal static class EscrowHoldFields
     /// <summary>Reserved: the FRD-05 reject action's suspension, which FRD-05 defines.</summary>
     public const string ReasonFraudConfirmed = "fraud_confirmed";
 
-    /// <summary>Reserved: a party at risk tier CRITICAL, which FRD-04 reads.</summary>
+    /// <summary>A party at risk tier CRITICAL, a truncated score read included (FRD-04).</summary>
     public const string ReasonRiskCritical = "risk_critical";
 
     public const string ForRelease = "release";

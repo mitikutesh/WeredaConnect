@@ -21,7 +21,8 @@ namespace WeredaConnect.Server.Helpers;
 /// TRUCKER_PAYOUT_OVERDUE escrowId=&lt;id&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
 /// DISPUTE_NO_ESCROW orderId=&lt;id&gt; deliveryId=&lt;id&gt;
 /// ORDER_MONEY_MISMATCH orderId=&lt;id&gt; escrowId=&lt;id&gt; orderStatus=&lt;s&gt; escrowStatus=&lt;s&gt; reason=&lt;reason&gt;
-/// RISK_SETTLEMENT_SKIPPED escrowId=&lt;id&gt; sweep=&lt;auto-release|auto-refund|dispute&gt; reason=&lt;flag_off|user_read_failed&gt; holdReason=&lt;reason&gt;
+/// RISK_SETTLEMENT_SKIPPED escrowId=&lt;id&gt; sweep=&lt;auto-release|auto-refund|dispute&gt; reason=&lt;flag_off|user_read_failed|score_unavailable&gt; holdReason=&lt;reason&gt;
+/// RISK_TABLE_UNCONFIGURED action=&lt;action&gt;
 /// RISK_HOLD_ORDER_MISMATCH escrowId=&lt;id&gt; heldFor=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// DISPUTE_PROPAGATION_FAILED escrowId=&lt;id&gt; orderId=&lt;id&gt; deliveryId=&lt;id&gt; legs=&lt;legs&gt;
 /// DELIVERY_DISPUTE_FROZEN escrowId=&lt;id&gt; orderId=&lt;id&gt; deliveryId=&lt;id&gt;
@@ -29,10 +30,13 @@ namespace WeredaConnect.Server.Helpers;
 /// <para>
 /// The two risk lines (FRD-03, fraud-detection-architecture.md section 18). Escrow-cron logs
 /// <c>RISK_SETTLEMENT_SKIPPED</c> each run a settlement sweep leaves an escrow unsettled because of the
-/// risk gate: a trigger while <c>FRAUD_HOLD_ENABLED</c> is off, or a party row it could not read; the
-/// <c>risk-settlement-skipped</c> alarm counts it from the FRD-03 deploy. The escrow Lambda logs
-/// <c>RISK_HOLD_ORDER_MISMATCH</c> each time an admin refund of a held escrow is refused because its order
-/// cannot follow the refund; FRD-16 adds its alarm.
+/// risk gate: a trigger while <c>FRAUD_HOLD_ENABLED</c> is off, a party row it could not read, or (FRD-04)
+/// a party risk score it could not read; the <c>risk-settlement-skipped</c> alarm counts it from the FRD-03
+/// deploy. The escrow Lambda logs <c>RISK_HOLD_ORDER_MISMATCH</c> each time an admin refund of a held
+/// escrow is refused because its order cannot follow the refund; FRD-16 adds its alarm. FRD-04:
+/// escrow-cron logs <c>RISK_TABLE_UNCONFIGURED</c> once per settlement run while <c>FRAUD_HOLD_ENABLED</c>
+/// is on and its gate reads no risk tier (no <c>FRAUD_SIGNALS_TABLE</c>), so a CRITICAL party is not held
+/// (section 14.4); FRD-16 adds its alarm.
 /// </para>
 /// <para>
 /// FUP-27. The propagation line is logged by the escrow service's dispute mirror when the delivery
@@ -123,6 +127,7 @@ public static class MoneyAlarmLog
     public const string DisputeNoEscrowToken = "DISPUTE_NO_ESCROW";
     public const string OrderMoneyMismatchToken = "ORDER_MONEY_MISMATCH";
     public const string RiskSettlementSkippedToken = "RISK_SETTLEMENT_SKIPPED";
+    public const string RiskTableUnconfiguredToken = "RISK_TABLE_UNCONFIGURED";
     public const string RiskHoldOrderMismatchToken = "RISK_HOLD_ORDER_MISMATCH";
     public const string DisputePropagationFailedToken = "DISPUTE_PROPAGATION_FAILED";
     public const string DeliveryDisputeFrozenToken = "DELIVERY_DISPUTE_FROZEN";
@@ -188,6 +193,10 @@ public static class MoneyAlarmLog
     /// <summary>FRD-03: a settlement sweep left an escrow unsettled for this run because of the risk gate.</summary>
     public static string RiskSettlementSkipped(string? escrowId, string? sweep, string? reason, string? holdReason)
         => $"{RiskSettlementSkippedToken} escrowId={LogId(escrowId)} sweep={Safe(sweep)} reason={Safe(reason)} holdReason={Safe(holdReason)}";
+
+    /// <summary>FRD-04: the flag is on but the settlement gate reads no risk tier, so only suspended parties are held.</summary>
+    public static string RiskTableUnconfigured(string? action)
+        => $"{RiskTableUnconfiguredToken} action={Safe(action)}";
 
     /// <summary>FRD-03: an admin refund of a held escrow was refused because its order cannot follow the refund.</summary>
     public static string RiskHoldOrderMismatch(string? escrowId, string? heldFor, string? legs)
