@@ -1,6 +1,6 @@
 import 'package:wereda_connect/core/models/payment.dart';
 
-// FRD-13 (escrow-protocol.md 1.32.0): the server pays an escrow out no
+// FRD-13 (escrow-protocol.md 1.33.0): the server pays an escrow out no
 // earlier than its `releaseNotBefore`, the end of the dispute window or, for
 // a new or flagged payee, a later payout delay. Only the farmer's and the
 // trucker's reads carry the date, and the screens never say why it is later.

@@ -13,7 +13,7 @@ using Xunit;
 namespace WeredaConnect.Server.Tests.Functions;
 
 /// <summary>
-/// FRD-13 (fraud-detection-architecture.md 17.5, escrow-protocol.md 1.32.0) in escrow-cron: the auto-release
+/// FRD-13 (fraud-detection-architecture.md 17.5, escrow-protocol.md 1.33.0) in escrow-cron: the auto-release
 /// pays nothing before an escrow's <c>releaseNotBefore</c> and pays after it; an escrow stamped before FRD-13
 /// settles as before; the dispute sweep is not delayed; the trucker retry waits for the delay and does not count
 /// the delay as overdue; the stamp repair writes the date.

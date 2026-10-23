@@ -492,7 +492,8 @@ public sealed record EscrowDto
     /// <summary>
     /// FRD-13: the earliest time the hourly auto-release may pay this escrow out (ISO 8601): the payout delay
     /// of a new or flagged payee, never before <see cref="DisputeWindowEndsAt"/>; for an escrow confirmed
-    /// before FRD-13, its dispute window end. Party reads fill it for the farmer and the trucker only.
+    /// before FRD-13, its dispute window end. Party reads fill it for the farmer and the trucker only, and only
+    /// while the escrow is <c>escrowed</c>.
     /// </summary>
     public string? ReleaseNotBefore { get; init; }
     public string? ReleasedAt { get; init; }

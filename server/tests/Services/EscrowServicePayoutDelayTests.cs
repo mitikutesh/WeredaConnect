@@ -10,7 +10,7 @@ using Xunit;
 namespace WeredaConnect.Server.Tests.Services;
 
 /// <summary>
-/// FRD-13 (escrow-protocol.md 1.32.0) in the escrow service: an admin release is not delayed; the trucker
+/// FRD-13 (escrow-protocol.md 1.33.0) in the escrow service: an admin release is not delayed; the trucker
 /// retry waits for <c>releaseNotBefore</c> after the payout gate has spoken; the farmer and the trucker read
 /// the expected payout date on their escrow and history, the buyer never does.
 /// </summary>
@@ -211,19 +211,43 @@ public class EscrowServicePayoutDelayTests
     }
 
     [Theory]
+    [InlineData("held")]
+    [InlineData("released")]
+    [InlineData("disputed")]
+    public async Task GetById_NoDateOnceTheEscrowIsNotEscrowed(string status)
+    {
+        // FUP-61 answers held as escrowed to an app without the build header: a held escrow must carry no
+        // date, or that app would promise a payout the hold has frozen.
+        var escrow = Escrow();
+        escrow["status"] = status;
+
+        var byId = await _service.GetByIdAsync("esc-1", FarmerId);
+        var history = await HistoryRowAsync(escrow, "farmer", FarmerId);
+
+        byId.Value!.ReleaseNotBefore.Should().BeNull();
+        history.ReleaseNotBefore.Should().BeNull();
+    }
+
+    private async Task<EscrowSummaryDto> HistoryRowAsync(Dictionary<string, object> escrow, string role, string userId)
+    {
+        var page = (new List<Dictionary<string, object>> { escrow }, (Dictionary<string, AttributeValue>?)null);
+        _escrows.QueryByFarmerAsync(FarmerId, null, 20, null).Returns(page);
+        _escrows.QueryByTruckerAsync(TruckerId, null, 20, null).Returns(page);
+        _escrows.QueryByBuyerAsync(BuyerId, null, 20, null).Returns(page);
+        var result = await _service.GetHistoryAsync(userId, null, role, null, null, 20, null);
+        return result.Value!.Escrows.Should().ContainSingle().Subject;
+    }
+
+    [Theory]
     [InlineData("farmer", ReleaseNotBefore)]
     [InlineData("trucker", ReleaseNotBefore)]
     [InlineData("buyer", null)]
     public async Task History_OnlyThePayeesRowsCarryTheDate(string role, string? expected)
     {
-        var page = (new List<Dictionary<string, object>> { Escrow() }, (Dictionary<string, AttributeValue>?)null);
         var userId = role switch { "farmer" => FarmerId, "trucker" => TruckerId, _ => BuyerId };
-        _escrows.QueryByFarmerAsync(FarmerId, null, 20, null).Returns(page);
-        _escrows.QueryByTruckerAsync(TruckerId, null, 20, null).Returns(page);
-        _escrows.QueryByBuyerAsync(BuyerId, null, 20, null).Returns(page);
 
-        var result = await _service.GetHistoryAsync(userId, null, role, null, null, 20, null);
+        var row = await HistoryRowAsync(Escrow(), role, userId);
 
-        result.Value!.Escrows.Should().ContainSingle().Which.ReleaseNotBefore.Should().Be(expected);
+        row.ReleaseNotBefore.Should().Be(expected);
     }
 }

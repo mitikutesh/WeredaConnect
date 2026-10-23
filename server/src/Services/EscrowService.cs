@@ -6086,12 +6086,12 @@ public sealed class EscrowService
     }
 
     /// <summary>
-    /// FRD-13: the payees (the farmer and the trucker) see when the payout is due. The buyer does not: the date
-    /// can be later for a new or flagged payee, which would hint at the counterparty's risk.
+    /// FRD-13: the payees (the farmer and the trucker) see when the payout of an escrowed escrow is due. The buyer
+    /// does not: the date can be later for a new or flagged payee, which would hint at the counterparty's risk.
     /// </summary>
     private static EscrowDto ForReader(EscrowDto dto, Dictionary<string, object> item, string authenticatedUserId)
         => IsParty(item, "farmerId", authenticatedUserId) || IsParty(item, "truckerId", authenticatedUserId)
-            ? dto with { ReleaseNotBefore = PayoutDelayPolicy.EffectiveReleaseNotBefore(item) }
+            ? dto with { ReleaseNotBefore = PayoutDelayPolicy.PayeeReleaseNotBefore(item) }
             : dto;
 
     /// <summary>
@@ -6313,7 +6313,7 @@ public sealed class EscrowService
             RefundPending = IsRefundPending(item),
             RefundReason = GetStringOrNull(item, "refundReason"),
             // FRD-13: a farmer's or trucker's history row is their own payout; the buyer's carries no date.
-            ReleaseNotBefore = isBuyer ? null : PayoutDelayPolicy.EffectiveReleaseNotBefore(item)
+            ReleaseNotBefore = isBuyer ? null : PayoutDelayPolicy.PayeeReleaseNotBefore(item)
         };
     }
 

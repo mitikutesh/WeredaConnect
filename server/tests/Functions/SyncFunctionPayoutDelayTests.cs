@@ -11,7 +11,7 @@ using Xunit;
 namespace WeredaConnect.Server.Tests.Functions;
 
 /// <summary>
-/// FRD-13 (escrow-protocol.md 1.32.0): confirming a delivery stamps the escrow's <c>releaseNotBefore</c> in the
+/// FRD-13 (escrow-protocol.md 1.33.0): confirming a delivery stamps the escrow's <c>releaseNotBefore</c> in the
 /// same write as <c>deliveryConfirmedAt</c> and <c>disputeWindowEndsAt</c>. Trusted payees are paid when the
 /// 48 hour window ends; a flagged trucker (named by the delivery when the escrow has none yet) makes the escrow
 /// wait 72 hours from the confirm. Uses the delivery rig of <see cref="SyncFunctionTests"/>.

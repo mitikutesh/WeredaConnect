@@ -96,7 +96,7 @@ internal readonly record struct PayoutDelayDecision(
 }
 
 /// <summary>
-/// FRD-13 (fraud-detection-architecture.md section 17.5, escrow-protocol.md 1.32.0): the risk-based payout
+/// FRD-13 (fraud-detection-architecture.md section 17.5, escrow-protocol.md 1.33.0): the risk-based payout
 /// delay. At delivery confirm each payee (the farmer, and the trucker when the escrow has a trucker leg) is
 /// classed from data the server already has: the risk score (Source before Tier, section 14.4), the account
 /// age on the users row and the payee's completed escrows. One release pays both legs, so the escrow waits
@@ -273,6 +273,14 @@ internal sealed class PayoutDelayPolicy
 
         return string.IsNullOrEmpty(Str(escrow, "deliveryConfirmedAt")) ? null : Str(escrow, "disputeWindowEndsAt");
     }
+
+    /// <summary>
+    /// What a payee (the farmer or the trucker) reads: <see cref="EffectiveReleaseNotBefore"/> while the escrow is
+    /// <c>escrowed</c>, else nothing. Any other status pays nothing at that date, and since FUP-61 an app without
+    /// the build header reads a <c>held</c> escrow as <c>escrowed</c>, so a held escrow must not carry a date.
+    /// </summary>
+    public static string? PayeeReleaseNotBefore(Dictionary<string, object> escrow)
+        => Str(escrow, "status") == "escrowed" ? EffectiveReleaseNotBefore(escrow) : null;
 
     private static DateTime? ParseUtc(string? value) =>
         DateTime.TryParse(value, CultureInfo.InvariantCulture,

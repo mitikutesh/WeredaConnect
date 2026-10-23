@@ -421,6 +421,18 @@ public class PayoutDelayPolicyTests
             { "disputeWindowEndsAt", "2026-10-25T12:00:00Z" }
         }).Should().Be("2026-10-25T12:00:00Z", "an escrow confirmed before FRD-13 is paid when its window ends");
 
+        // A payee reads the date only while the escrow is escrowed.
+        var confirmed = new Dictionary<string, object>
+        {
+            { "status", "escrowed" },
+            { "releaseNotBefore", "2026-10-26T12:00:00Z" },
+            { "deliveryConfirmedAt", "2026-10-23T12:00:00Z" }
+        };
+        PayoutDelayPolicy.PayeeReleaseNotBefore(confirmed).Should().Be("2026-10-26T12:00:00Z");
+        confirmed["status"] = "held";
+        PayoutDelayPolicy.PayeeReleaseNotBefore(confirmed).Should().BeNull();
+        PayoutDelayPolicy.EffectiveReleaseNotBefore(confirmed).Should().Be("2026-10-26T12:00:00Z", "admins still read it");
+
         // A dispute sets a window without a confirmed delivery: no payout date then.
         PayoutDelayPolicy.EffectiveReleaseNotBefore(new Dictionary<string, object>
         {
