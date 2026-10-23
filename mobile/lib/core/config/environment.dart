@@ -1,6 +1,8 @@
 /// Environment configuration for API endpoints and feature flags
 library;
 
+import 'package:flutter/foundation.dart';
+
 /// Environment types
 enum AppEnvironment {
   development,
@@ -22,13 +24,38 @@ class Environment {
   });
 
   /// Current environment (set via --dart-define at build time)
-  static AppEnvironment get current {
-    const env =
-        String.fromEnvironment('ENVIRONMENT', defaultValue: 'development');
-    return AppEnvironment.values.firstWhere(
-      (e) => e.name == env,
-      orElse: () => AppEnvironment.development,
-    );
+  static AppEnvironment get current =>
+      environmentFor(const String.fromEnvironment('ENVIRONMENT'));
+
+  /// [current] for a raw `ENVIRONMENT` define (FUP-22). CI and
+  /// `scripts/deploy.sh` pass `dev`, `staging` or `prod`; the enum names are
+  /// accepted too, in any case and with surrounding spaces. No define (a local
+  /// run) is development. Before FUP-22 only the enum names matched, so a
+  /// `prod` build ran with the development settings.
+  ///
+  /// Any other value is a build mistake. When [strict] (debug builds) it
+  /// throws, so the app fails at startup instead of guessing. Otherwise
+  /// (profile and release builds) it gets the production settings, the most
+  /// restrictive ones: a typo must not ship development settings.
+  static AppEnvironment environmentFor(
+    String rawEnvironment, {
+    bool strict = kDebugMode,
+  }) {
+    final known = switch (rawEnvironment.trim().toLowerCase()) {
+      '' || 'dev' || 'development' => AppEnvironment.development,
+      'staging' => AppEnvironment.staging,
+      'prod' || 'production' => AppEnvironment.production,
+      _ => null,
+    };
+    if (known != null) return known;
+    if (strict) {
+      throw ArgumentError.value(
+        rawEnvironment,
+        'ENVIRONMENT',
+        'Unknown build environment; use dev, staging or prod',
+      );
+    }
+    return AppEnvironment.production;
   }
 
   /// Whether this build pays orders through the live Telebirr checkout
@@ -40,12 +67,16 @@ class Environment {
       );
 
   /// [telebirrLive] for a raw `ENVIRONMENT` define. A production build is
-  /// always live: the server refuses mock payments there. CI passes `prod`,
-  /// which [current] does not recognise, so the raw value is read here.
-  static bool telebirrLiveFor(String rawEnvironment, {required bool define}) {
-    final env = rawEnvironment.trim().toLowerCase();
-    return define || env == 'prod' || env == 'production';
-  }
+  /// always live: the server refuses mock payments there. The environment is
+  /// read through [environmentFor], so this always agrees with [current].
+  static bool telebirrLiveFor(
+    String rawEnvironment, {
+    required bool define,
+    bool strict = kDebugMode,
+  }) =>
+      define ||
+      environmentFor(rawEnvironment, strict: strict) ==
+          AppEnvironment.production;
 
   /// Configuration for current environment
   static Environment get config {

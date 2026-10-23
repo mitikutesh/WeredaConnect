@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.23.0
+1.24.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -580,10 +580,33 @@ removed locally is a follow-up.
 
 ---
 
+## Payment total refusal (1.24.0, FUP-22)
+
+With the live gateway (`TELEBIRR_MOCK` off) one Telebirr payment takes 100 to 500,000 ETB
+(`order-lifecycle.md` 1.24.0, Payment gates). An order update to `payment_submitted` whose
+`orderTotal`, rounded to the cent, is outside that range is refused with
+`ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: This order total (X ETB) is outside what one Telebirr payment can take (100 to 500000 ETB).`
+Before 1.24.0 the same refusal was `ORDER_VALIDATION:` with the same sentence, and clients had
+to read the English text. The gate, its bounds and its place among the payment gates (after KYC
+and step-up, before any write) are unchanged. Mock mode (dev, staging) skips it as before.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE:` | Permanent under the `ORDER_*` rule above: mark rejected, never resent, revert the local order (re-read `GET /orders/{id}`), show `paymentTotalOutOfRange` (en, am, om). | Failure with the same message, shown inline as `paymentTotalOutOfRange`. |
+| `ORDER_VALIDATION:` with the sentence above (servers before 1.24.0) | Same as the row above; matched for one more release. | Same. |
+
+Live builds check the total before they send it (`order-lifecycle.md` 1.13.0), so the refusal
+comes back only after a total changed since that check or from a demo build pointed at a live
+server. Clients older than 1.24.0 do not know the code: they revert the order and show the
+generic `errorOrderRefused` text (1.10.0).
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.24.0 | 2026-10-23 | Payment total refusal (FUP-22): the live gateway's refusal of a `payment_submitted` whose total is outside 100 to 500,000 ETB is `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` with the same sentence (it was `ORDER_VALIDATION`); permanent under the `ORDER_*` rule, nothing written; clients match the code and, for one release, the old text; same gate, bounds and order; clients before 1.24.0 show the generic refusal |
 | 1.23.0 | 2026-10-23 | Listing text refusal (FUP-49): `CROP_CONTACT_IN_TEXT` and `TRIP_CONTACT_IN_TEXT` for a crop listing or trip whose buyer-visible text holds a phone number (`crop-listing-api.md` 1.4.0, `trip-listing-api.md` 1.5.0), nothing written; deterministic, permanent on the mobile queue, not reverted, explained in en, am and om; web shows the same text; the forms run the same check before queueing; older clients retry it |
 | 1.20.0 | 2026-10-23 | Legacy listing side effect (FUP-18): mobile no longer queues a `cropListing` update on delivery create and confirm (the server cannot route it and refuses non-owners anyway) nor flips its local listing copy; `cropListing` operations already queued are removed at app start, the one exception to invariant 1; no server change |
 | 1.19.0 | 2026-10-23 | QR gate money check (FUP-42, `delivery-verification-api.md` 1.17.0): `deferred` is also sent for a delivery `pickedUp`/`delivered` with no nonce on record when the escrow that decides whether it needs the QR cannot be read (message `DELIVERY_NONCE_PENDING: ...`, nothing written, never hard-failed, alarmed on the server); such a delivery whose order escrow is not linked to it is now `deferred` too, where it passed. Clients unchanged: mobile re-queues `deferred` without using a retry, web shows its QR-pending message. |
@@ -608,4 +631,4 @@ removed locally is a follow-up.
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 1.23.0
+**Version**: 1.24.0

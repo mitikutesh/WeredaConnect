@@ -5896,7 +5896,7 @@ public partial class SyncFunction
                 if (!IsMockPaymentsEnabled()
                     && (roundedTotal < LiveMinPaymentEtb || roundedTotal > LiveMaxPaymentEtb))
                 {
-                    return OrderValidationError(operation,
+                    return PaymentTotalOutOfRange(operation,
                         $"This order total ({roundedTotal} ETB) is outside what one Telebirr payment can take "
                         + $"({LiveMinPaymentEtb} to {LiveMaxPaymentEtb} ETB).");
                 }
@@ -7478,6 +7478,18 @@ public partial class SyncFunction
         OperationId = operation.OperationId,
         Status = "error",
         Message = $"ORDER_VALIDATION: {message}"
+    };
+
+    /// <summary>
+    /// FUP-22: the live gateway's refusal of a payment whose total one Telebirr payment cannot take.
+    /// Its own code so clients match it without reading the English text (sync-protocol.md 1.24.0);
+    /// deterministic, so permanent under the <c>ORDER_*</c> rule. Nothing was written.
+    /// </summary>
+    private static SyncOperationResult PaymentTotalOutOfRange(SyncOperationRequest operation, string message) => new()
+    {
+        OperationId = operation.OperationId,
+        Status = "error",
+        Message = $"ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: {message}"
     };
 
     /// <summary>

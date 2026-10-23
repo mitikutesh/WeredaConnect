@@ -3,8 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wereda_connect/core/config/environment.dart';
 
 /// ESC-44: which builds show the live Telebirr payment. CI passes
-/// `ENVIRONMENT=prod`, which `Environment.current` does not recognise (it
-/// falls back to development), so the raw define is read.
+/// `ENVIRONMENT=prod`; since FUP-22 the define is read through
+/// `Environment.environmentFor`, like `Environment.current`
+/// (environment_current_test.dart).
 void main() {
   group('Environment.telebirrLiveFor', () {
     const cases = <(String, bool, bool)>[
