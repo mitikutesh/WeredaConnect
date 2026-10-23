@@ -950,6 +950,55 @@ void main() {
         expect((result as EscrowError).code, 'ESCROW_014');
       });
 
+      test(
+          'keeps the server code on a 422: ESCROW_039 is the live refusal of '
+          'the delivery path (FUP-36)', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(
+          const ServerException(
+            'Online payment for a delivery is not available here.',
+            422,
+            'ESCROW_039',
+          ),
+        );
+
+        final result = await repository.initiatePayment(
+          deliveryId: 'del-001',
+          buyerId: 'buyer-001',
+          farmerId: 'farmer-001',
+          amount: 15000.0,
+        );
+
+        expect((result as EscrowError).code, 'ESCROW_039');
+      });
+
+      test('a 500 without a server code still reads as ESCROW_CLIENT',
+          () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(const ServerException('Internal error', 500));
+
+        final result = await repository.initiatePayment(
+          deliveryId: 'del-001',
+          buyerId: 'buyer-001',
+          farmerId: 'farmer-001',
+          amount: 15000.0,
+        );
+
+        expect((result as EscrowError).code, 'ESCROW_CLIENT');
+      });
+
       test('maps RateLimitException to ESCROW_011', () async {
         when(() => connectivityMonitor.isConnected())
             .thenAnswer((_) async => true);

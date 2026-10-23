@@ -238,6 +238,12 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
     public bool SupportsHostedCheckout => true;
 
     /// <summary>
+    /// FUP-36: this class serves both the local simulator and real Telebirr; only the configured
+    /// base URL tells them apart, and anything that is not the developer's own machine is live.
+    /// </summary>
+    public bool IsLiveTelebirr => !_config.IsLocalSimulator;
+
+    /// <summary>
     /// Sign a fresh H5 checkout URL for an existing prepay_id (same payment, new nonce and
     /// timestamp). Built locally like the original URL; no Telebirr call is made.
     /// </summary>

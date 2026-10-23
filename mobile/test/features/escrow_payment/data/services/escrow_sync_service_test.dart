@@ -237,6 +237,33 @@ void main() {
         expect(intent.retryCount, 1);
       });
 
+      test(
+          'a 422 ESCROW_039 (delivery payment refused on live Telebirr, '
+          'FUP-36) is retried as a failure, never completed', () async {
+        await _insertTestIntent(isar);
+
+        // Nothing was held server-side, so this must never read as a success
+        // the way a 409 does (below); it follows the ordinary retry path.
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(
+          const ServerException(
+            'Online payment for a delivery is not available here.',
+            422,
+            'ESCROW_039',
+          ),
+        );
+
+        await syncService.processQueuedIntents();
+
+        final intent = await isar.paymentIntents.where().findFirst();
+        expect(intent!.status, IntentStatus.pendingSync);
+        expect(intent.retryCount, 1);
+      });
+
       test('marks intent completed on 409 conflict, not failed (M4)', () async {
         await _insertTestIntent(isar);
 

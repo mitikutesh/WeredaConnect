@@ -116,7 +116,9 @@ class WebEscrowRepository extends BaseEscrowRepository {
           'Telebirr is currently unavailable. Please try later.',
         );
       }
-      return EscrowError('ESCROW_SERVER', e.message);
+      // FUP-36: a status the client does not type (422 ESCROW_039, ESCROW_010)
+      // still carries the server's own code; keep it so the screen localizes it.
+      return EscrowError(escrowCodeOf(e, 'ESCROW_SERVER'), e.message);
     }
     if (e is NetworkException) return EscrowError('ESCROW_NETWORK', e.message);
     return EscrowError('ESCROW_CLIENT', e.message);
