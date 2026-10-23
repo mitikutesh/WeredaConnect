@@ -20,9 +20,13 @@ const _blockers = [
   AccountDeletionBlocker(type: 'future_type', id: 'x'),
 ];
 
+/// The account the screen was opened for.
+const _me = 'user-1';
+
 void main() {
   late MockAccountDeletionRepository repository;
   late bool online;
+  late bool sameAccount;
   late int deleted;
   late int missing;
   late List<Duration> waits;
@@ -30,6 +34,7 @@ void main() {
   setUp(() {
     repository = MockAccountDeletionRepository();
     online = true;
+    sameAccount = true;
     deleted = 0;
     missing = 0;
     waits = [];
@@ -38,7 +43,9 @@ void main() {
   AccountDeletionBloc build() {
     final bloc = AccountDeletionBloc(
       repository: repository,
+      userId: _me,
       isOnline: () async => online,
+      isSameAccount: () async => sameAccount,
       onDeleted: () => deleted++,
       onAccountMissing: () => missing++,
       wait: (d) async => waits.add(d),
@@ -49,7 +56,7 @@ void main() {
 
   void answer(List<DeleteAccountResult> results) {
     final queue = [...results];
-    when(() => repository.deleteAccount())
+    when(() => repository.deleteAccount(userId: _me))
         .thenAnswer((_) async => queue.removeAt(0));
   }
 
@@ -80,14 +87,16 @@ void main() {
       const AccountDeletionSubmitting(),
       const AccountDeletionFailed(AccountDeletionFailure.offline),
     ]);
-    verifyNever(() => repository.deleteAccount());
+    verifyNever(() => repository.deleteAccount(userId: _me));
     expect(deleted, 0);
   });
 
   test('a connectivity check that throws counts as offline', () async {
     final bloc = AccountDeletionBloc(
       repository: repository,
+      userId: _me,
       isOnline: () async => throw StateError('no plugin'),
+      isSameAccount: () async => true,
       onDeleted: () => deleted++,
       onAccountMissing: () => missing++,
     );
@@ -99,7 +108,7 @@ void main() {
       states.last,
       const AccountDeletionFailed(AccountDeletionFailure.offline),
     );
-    verifyNever(() => repository.deleteAccount());
+    verifyNever(() => repository.deleteAccount(userId: _me));
   });
 
   test('success: starts the wipe once, then reports success', () async {
@@ -149,7 +158,7 @@ void main() {
     final states = await request(bloc);
 
     expect(states.last, const AccountDeletionSucceeded());
-    verify(() => repository.deleteAccount()).called(2);
+    verify(() => repository.deleteAccount(userId: _me)).called(2);
     expect(deleted, 1);
   });
 
@@ -199,7 +208,7 @@ void main() {
       states.last,
       const AccountDeletionFailed(AccountDeletionFailure.incomplete),
     );
-    verify(() => repository.deleteAccount())
+    verify(() => repository.deleteAccount(userId: _me))
         .called(AccountDeletionBloc.maxResumeAttempts + 1);
     expect(waits, hasLength(AccountDeletionBloc.maxResumeAttempts));
     expect(deleted, 0);
@@ -212,7 +221,9 @@ void main() {
     late AccountDeletionBloc bloc;
     bloc = AccountDeletionBloc(
       repository: repository,
+      userId: _me,
       isOnline: () async => true,
+      isSameAccount: () async => true,
       onDeleted: () => deleted++,
       onAccountMissing: () => missing++,
       // The user leaves the screen while the app waits to resume.
@@ -220,12 +231,79 @@ void main() {
     );
 
     bloc.add(const AccountDeletionRequested());
-    await untilCalled(() => repository.deleteAccount());
+    await untilCalled(() => repository.deleteAccount(userId: _me));
     await Future<void>.delayed(const Duration(milliseconds: 50));
 
     expect(bloc.isClosed, isTrue);
-    verify(() => repository.deleteAccount()).called(2);
+    verify(() => repository.deleteAccount(userId: _me)).called(2);
     expect(deleted, 1);
+  });
+
+  // Review item 1: the request carries whatever session the device holds.
+  test('another account signed in: nothing is sent, nothing is wiped',
+      () async {
+    sameAccount = false;
+    answer([const DeleteAccountDone()]);
+    final bloc = build();
+
+    final states = await request(bloc);
+
+    expect(states, [
+      const AccountDeletionSubmitting(),
+      const AccountDeletionIdle(),
+    ]);
+    verifyNever(() => repository.deleteAccount(userId: any(named: 'userId')));
+    expect(deleted, 0);
+  });
+
+  test('the account changed during a resume: stops before sending again',
+      () async {
+    final queue = <DeleteAccountResult>[
+      const DeleteAccountPending(),
+      const DeleteAccountDone(),
+    ];
+    when(() => repository.deleteAccount(userId: _me)).thenAnswer((_) async {
+      // The user signs out, and someone else signs in, while it waits.
+      sameAccount = false;
+      return queue.removeAt(0);
+    });
+    final bloc = build();
+
+    final states = await request(bloc);
+
+    expect(states.last, const AccountDeletionIdle());
+    verify(() => repository.deleteAccount(userId: _me)).called(1);
+    expect(deleted, 0);
+  });
+
+  test('a confirmed deletion still wipes if the user signed out meanwhile',
+      () async {
+    when(() => repository.deleteAccount(userId: _me)).thenAnswer((_) async {
+      sameAccount = false;
+      return const DeleteAccountDone();
+    });
+    final bloc = build();
+
+    await request(bloc);
+
+    expect(deleted, 1, reason: 'the server confirmed this account is gone');
+  });
+
+  test('a failing account check counts as another account', () async {
+    final bloc = AccountDeletionBloc(
+      repository: repository,
+      userId: _me,
+      isOnline: () async => true,
+      isSameAccount: () async => throw StateError('storage'),
+      onDeleted: () => deleted++,
+      onAccountMissing: () => missing++,
+    );
+    addTearDown(bloc.close);
+
+    final states = await request(bloc);
+
+    expect(states.last, const AccountDeletionIdle());
+    verifyNever(() => repository.deleteAccount(userId: any(named: 'userId')));
   });
 
   test('resume delay is capped', () {
@@ -279,7 +357,8 @@ void main() {
 
   test('a second request while one is running is ignored', () async {
     final pending = Completer<DeleteAccountResult>();
-    when(() => repository.deleteAccount()).thenAnswer((_) => pending.future);
+    when(() => repository.deleteAccount(userId: _me))
+        .thenAnswer((_) => pending.future);
     final bloc = build();
 
     bloc.add(const AccountDeletionRequested());
@@ -289,7 +368,7 @@ void main() {
     pending.complete(const DeleteAccountDone());
     await bloc.stream.firstWhere((s) => s is AccountDeletionSucceeded);
 
-    verify(() => repository.deleteAccount()).called(1);
+    verify(() => repository.deleteAccount(userId: _me)).called(1);
     expect(deleted, 1);
   });
 }

@@ -1,37 +1,81 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/account/data/repositories/account_deletion_repository.dart';
-import 'package:wereda_connect/features/account/presentation/bloc/account_deletion_bloc.dart';
 import 'package:wereda_connect/features/account/presentation/screens/delete_account_screen.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
 
 class MockAccountDeletionRepository extends Mock
     implements AccountDeletionRepository {}
 
+class MockAuthBloc extends Mock implements AuthBloc {}
+
+class FakeAuthEvent extends Fake implements AuthEvent {}
+
+const _me = 'farmer-1';
+const _phone = '+251911234567';
+
+/// The screen runs its production wiring against a mocked AuthBloc: the
+/// deleted account, the sign-out and the account check all go through it.
 void main() {
   late MockAccountDeletionRepository repository;
+  late MockAuthBloc auth;
+  late List<AuthEvent> authEvents;
+  late bool signedInAsMe;
   late bool online;
-  late int deleted;
   late int passwordPrompts;
   late bool passwordConfirmed;
 
+  setUpAll(() => registerFallbackValue(FakeAuthEvent()));
+
   setUp(() {
     repository = MockAccountDeletionRepository();
+    auth = MockAuthBloc();
+    authEvents = [];
+    signedInAsMe = true;
+    when(() => auth.state).thenReturn(
+      const AuthAuthenticated(
+        userId: _me,
+        tokens: AuthTokens(accessToken: 'a', refreshToken: 'r', idToken: 'i'),
+        role: UserRole.farmer,
+        phoneNumber: _phone,
+      ),
+    );
+    when(() => auth.stream).thenAnswer((_) => const Stream.empty());
+    when(() => auth.add(any())).thenAnswer(
+      (invocation) =>
+          authEvents.add(invocation.positionalArguments.first as AuthEvent),
+    );
+    when(() => auth.isSignedInAs(any())).thenAnswer(
+      (invocation) async =>
+          signedInAsMe && invocation.positionalArguments.first == _me,
+    );
     online = true;
-    deleted = 0;
     passwordPrompts = 0;
     passwordConfirmed = true;
   });
 
+  /// How many times the AuthBloc was told this account is deleted.
+  int deletedWipes() => authEvents
+      .where(
+        (e) => e == const AuthAccountDeleted(userId: _me, phoneNumber: _phone),
+      )
+      .length;
+
   void answer(List<DeleteAccountResult> results) {
     final queue = [...results];
-    when(() => repository.deleteAccount())
+    when(() => repository.deleteAccount(userId: _me))
         .thenAnswer((_) async => queue.removeAt(0));
   }
 
@@ -43,28 +87,26 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
-      MaterialApp(
-        // The app's delegates: om has no Material localizations of its own.
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          FallbackMaterialLocalizationsDelegate(),
-          GlobalWidgetsLocalizations.delegate,
-          FallbackCupertinoLocalizationsDelegate(),
-        ],
-        supportedLocales: AppLocalizations.supportedLocales,
-        locale: locale,
-        home: DeleteAccountScreen(
-          createBloc: (_) => AccountDeletionBloc(
+      BlocProvider<AuthBloc>.value(
+        value: auth,
+        child: MaterialApp(
+          // The app's delegates: om has no Material localizations of its own.
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            FallbackMaterialLocalizationsDelegate(),
+            GlobalWidgetsLocalizations.delegate,
+            FallbackCupertinoLocalizationsDelegate(),
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: locale,
+          home: DeleteAccountScreen(
             repository: repository,
             isOnline: () async => online,
-            onDeleted: () => deleted++,
-            onAccountMissing: () {},
-            wait: (_) async {},
+            confirmPassword: (_) async {
+              passwordPrompts++;
+              return passwordConfirmed;
+            },
           ),
-          confirmPassword: (_) async {
-            passwordPrompts++;
-            return passwordConfirmed;
-          },
         ),
       ),
     );
@@ -118,8 +160,8 @@ void main() {
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
 
-    verifyNever(() => repository.deleteAccount());
-    expect(deleted, 0);
+    verifyNever(() => repository.deleteAccount(userId: _me));
+    expect(deletedWipes(), 0);
   });
 
   testWidgets('confirmed: deletes, starts the wipe and says so',
@@ -129,14 +171,15 @@ void main() {
 
     await deleteAndConfirm(tester);
 
-    verify(() => repository.deleteAccount()).called(1);
-    expect(deleted, 1);
+    verify(() => repository.deleteAccount(userId: _me)).called(1);
+    expect(deletedWipes(), 1);
     expect(find.text('Your account was deleted.'), findsOneWidget);
   });
 
   testWidgets('shows progress while the request runs', (tester) async {
     final pending = Completer<DeleteAccountResult>();
-    when(() => repository.deleteAccount()).thenAnswer((_) => pending.future);
+    when(() => repository.deleteAccount(userId: _me))
+        .thenAnswer((_) => pending.future);
     await pump(tester);
 
     await tester.tap(button);
@@ -187,7 +230,7 @@ void main() {
     // Types this version does not know share one generic line.
     expect(find.text('Other active items: 2'), findsOneWidget);
     expect(find.text('And 3 more.'), findsOneWidget);
-    expect(deleted, 0);
+    expect(deletedWipes(), 0);
   });
 
   testWidgets('offline: explains it and retries without asking again',
@@ -204,15 +247,15 @@ void main() {
       ),
       findsOneWidget,
     );
-    verifyNever(() => repository.deleteAccount());
+    verifyNever(() => repository.deleteAccount(userId: _me));
 
     online = true;
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
 
     expect(find.text('Delete your account?'), findsNothing);
-    verify(() => repository.deleteAccount()).called(1);
-    expect(deleted, 1);
+    verify(() => repository.deleteAccount(userId: _me)).called(1);
+    expect(deletedWipes(), 1);
   });
 
   testWidgets('network error: never a success, offers a retry', (tester) async {
@@ -227,7 +270,7 @@ void main() {
     );
     expect(find.text('Your account was deleted.'), findsNothing);
     expect(find.text('Retry'), findsOneWidget);
-    expect(deleted, 0);
+    expect(deletedWipes(), 0);
   });
 
   testWidgets('step-up: asks for the password and sends the request again',
@@ -238,8 +281,8 @@ void main() {
     await deleteAndConfirm(tester);
 
     expect(passwordPrompts, 1);
-    verify(() => repository.deleteAccount()).called(2);
-    expect(deleted, 1);
+    verify(() => repository.deleteAccount(userId: _me)).called(2);
+    expect(deletedWipes(), 1);
   });
 
   testWidgets('step-up cancelled: nothing more is sent', (tester) async {
@@ -250,8 +293,8 @@ void main() {
     await deleteAndConfirm(tester);
 
     expect(passwordPrompts, 1);
-    verify(() => repository.deleteAccount()).called(1);
-    expect(deleted, 0);
+    verify(() => repository.deleteAccount(userId: _me)).called(1);
+    expect(deletedWipes(), 0);
     expect(tester.widget<FilledButton>(button).onPressed, isNotNull);
   });
 
@@ -264,5 +307,40 @@ void main() {
 
     expect(find.textContaining('Contact support'), findsOneWidget);
     expect(tester.widget<FilledButton>(button).onPressed, isNull);
+  });
+
+  // Review item 4: the production wiring, not an injected callback.
+  testWidgets('200: tells the AuthBloc exactly this account is deleted',
+      (tester) async {
+    answer([const DeleteAccountDone()]);
+    await pump(tester);
+
+    await deleteAndConfirm(tester);
+
+    expect(authEvents, [
+      const AuthAccountDeleted(userId: _me, phoneNumber: _phone),
+    ]);
+  });
+
+  testWidgets('AUTH_013: signs out, wipes nothing', (tester) async {
+    answer([const DeleteAccountFailed(AccountDeletionFailure.accountNotFound)]);
+    await pump(tester);
+
+    await deleteAndConfirm(tester);
+
+    expect(authEvents, [const AuthLogoutRequested()]);
+  });
+
+  testWidgets('another account holds the stored session: nothing is sent',
+      (tester) async {
+    signedInAsMe = false;
+    answer([const DeleteAccountDone()]);
+    await pump(tester);
+
+    await deleteAndConfirm(tester);
+
+    verify(() => auth.isSignedInAs(_me)).called(1);
+    verifyNever(() => repository.deleteAccount(userId: any(named: 'userId')));
+    expect(authEvents, isEmpty);
   });
 }

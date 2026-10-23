@@ -188,6 +188,25 @@ void main() {
     });
   });
 
+  // ACC-03: an account deleted after it signed out.
+  test('forgetStoredUser removes only that account\'s stored counters',
+      () async {
+    final tracker = newTracker();
+    await tracker.initialize();
+    tracker
+      ..setUser('user-a')
+      ..addDownloaded(500)
+      ..setUser('user-b')
+      ..addDownloaded(70);
+    await Future<void>.delayed(Duration.zero);
+
+    await DataUsageTracker.forgetStoredUser('user-a');
+
+    expect(tracker.bytesDownloaded, 70, reason: 'user-b is still counted');
+    tracker.setUser('user-a');
+    expect(tracker.totalBytes, 0);
+  });
+
   group('byte estimates', () {
     test('estimateBodyBytes handles strings, bytes, JSON and null', () {
       expect(estimateBodyBytes(null), 0);

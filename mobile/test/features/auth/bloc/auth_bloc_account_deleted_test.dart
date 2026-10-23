@@ -199,6 +199,8 @@ void main() {
   late MockOfflineAuthCache cache;
   late int tokenDeletes;
   late List<String> forgottenMarkers;
+  late List<String> forgottenUsage;
+  late StreamController<String> accountGone;
 
   setUpAll(() async {
     await Isar.initializeIsarCore(download: true);
@@ -229,6 +231,8 @@ void main() {
     _storage.clear();
     tokenDeletes = 0;
     forgottenMarkers = [];
+    forgottenUsage = [];
+    accountGone = StreamController<String>.broadcast();
     dir = Directory.systemTemp.createTempSync('account_deleted_test_');
     isar = await Isar.open(
       [
@@ -264,6 +268,7 @@ void main() {
   });
 
   tearDown(() async {
+    await accountGone.close();
     await isar.close(deleteFromDisk: true);
     if (dir.existsSync()) dir.deleteSync(recursive: true);
   });
@@ -283,7 +288,9 @@ void main() {
       isar: database,
       pushTokenDeleter: pushTokenDeleter ?? () async => tokenDeletes++,
       forgetReadMarkers: (userId) async => forgottenMarkers.add(userId),
+      forgetDataUsage: (userId) async => forgottenUsage.add(userId),
       sessionExpired: const Stream.empty(),
+      accountGone: accountGone.stream,
     );
     addTearDown(bloc.close);
     return bloc;
@@ -445,7 +452,9 @@ void main() {
       authService: service,
       offlineCache: cache,
       forgetReadMarkers: (userId) async => forgottenMarkers.add(userId),
+      forgetDataUsage: (userId) async => forgottenUsage.add(userId),
       sessionExpired: const Stream.empty(),
+      accountGone: const Stream.empty(),
     );
     addTearDown(bloc.close);
     await signIn(bloc);
@@ -482,22 +491,73 @@ void main() {
     );
   });
 
-  test('a late answer for another account wipes nothing', () async {
+  // Review item 6: the answer came after that account signed out, or after
+  // another one signed in. Only the deleted account's local data goes.
+  test(
+      'a deleted account that is not signed in: its rows go, the session '
+      'and push token of the signed-in one stay', () async {
     await seed();
     final bloc = build(database: isar);
     await signIn(bloc);
 
-    bloc.add(const AuthAccountDeleted(userId: _other));
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    bloc.add(
+      const AuthAccountDeleted(userId: _other, phoneNumber: '+251911000002'),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 100));
 
     expect(bloc.state, isA<AuthAuthenticated>());
-    expect(await isar.cropListings.count(), 2);
+    expect(
+      (await isar.cropListings.where().findAll()).map((c) => c.listingId),
+      ['c-me'],
+    );
+    expect(
+      (await isar.users.where().findAll()).map((u) => u.userId),
+      [_me],
+    );
     expect(_storage['current_user_phone'], _phone);
-    verifyNever(() => cache.forgetAccount(any()));
+    verify(() => cache.forgetAccount('+251911000002')).called(1);
+    verifyNever(() => cache.forgetAccount(_phone));
+    expect(tokenDeletes, 0);
+    expect(forgottenMarkers, [_other]);
+    expect(forgottenUsage, [_other]);
+  });
+
+  test('the same user signed out before the answer: its rows still go',
+      () async {
+    when(() => cache.clearCredentials(any())).thenAnswer((_) async {});
+    when(
+      () => service.logout(
+        phoneNumber: any(named: 'phoneNumber'),
+        accessToken: any(named: 'accessToken'),
+        refreshToken: any(named: 'refreshToken'),
+        clearCache: any(named: 'clearCache'),
+      ),
+    ).thenAnswer((_) async {});
+    final bloc = build(database: isar);
+    await signIn(bloc);
+    bloc.add(const AuthLogoutRequested());
+    await waitFor(bloc, (s) => s is AuthUnauthenticated);
+    // Logout keeps listings, trips and buying intents; deletion does not.
+    await seed();
+
+    bloc.add(const AuthAccountDeleted(userId: _me, phoneNumber: _phone));
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    expect(bloc.state, const AuthUnauthenticated());
+    expect(
+      (await isar.cropListings.where().findAll()).map((c) => c.listingId),
+      ['c-x'],
+    );
+    expect(
+      (await isar.buyerIntents.where().findAll()).map((i) => i.intentId),
+      ['bi-x'],
+    );
+    verify(() => cache.forgetAccount(_phone)).called(1);
+    expect(forgottenUsage, [_me]);
     expect(tokenDeletes, 0);
   });
 
-  test('ignored when nobody is signed in', () async {
+  test('nobody signed in: no session change, no push token change', () async {
     final bloc = build(database: isar);
 
     bloc.add(const AuthAccountDeleted(userId: _me));
@@ -506,6 +566,74 @@ void main() {
     expect(bloc.state, const AuthInitial());
     verifyNever(() => cache.forgetAccount(any()));
     expect(tokenDeletes, 0);
+    expect(forgottenMarkers, [_me]);
+  });
+
+  // Review item 2: a 410 ACCOUNT_004 from /sync or any other write.
+  group('410 ACCOUNT_004', () {
+    for (final state in ['completed', 'cognito_pending', '']) {
+      test('"$state" wipes the signed-in account', () async {
+        await seed();
+        final bloc = build(database: isar);
+        await signIn(bloc);
+
+        accountGone.add(state);
+        await waitFor(bloc, (s) => s is AuthAccountWiped);
+
+        expect(
+          (await isar.cropListings.where().findAll()).map((c) => c.listingId),
+          ['c-x'],
+        );
+        expect(_storage.containsKey('current_user_phone'), isFalse);
+        verify(() => cache.forgetAccount(_phone)).called(1);
+        expect(tokenDeletes, 1);
+      });
+    }
+
+    test('in_progress keeps everything (the deletion can still abort)',
+        () async {
+      await seed();
+      final bloc = build(database: isar);
+      await signIn(bloc);
+
+      accountGone.add('in_progress');
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(bloc.state, isA<AuthAuthenticated>());
+      expect(await isar.cropListings.count(), 2);
+      verifyNever(() => cache.forgetAccount(any()));
+    });
+
+    test('ignored when the stored session is another account (web tab)',
+        () async {
+      await seed();
+      final bloc = build(database: isar);
+      await signIn(bloc);
+      // Another tab signed in a different account in the shared storage.
+      _storage[AuthBloc.currentUserIdKey] = _other;
+
+      accountGone.add('completed');
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(bloc.state, isA<AuthAuthenticated>());
+      expect(await isar.cropListings.count(), 2);
+      verifyNever(() => cache.forgetAccount(any()));
+    });
+  });
+
+  group('isSignedInAs', () {
+    test('true only for the signed-in user with a matching stored session',
+        () async {
+      final bloc = build(database: isar);
+      expect(await bloc.isSignedInAs(_me), isFalse, reason: 'signed out');
+
+      await signIn(bloc);
+      expect(await bloc.isSignedInAs(_me), isTrue);
+      expect(await bloc.isSignedInAs(_other), isFalse);
+
+      _storage[AuthBloc.currentUserIdKey] = _other;
+      expect(await bloc.isSignedInAs(_me), isFalse, reason: 'other tab');
+    });
   });
 
   test('a plain logout still emits AuthUnauthenticated, not AuthAccountWiped',

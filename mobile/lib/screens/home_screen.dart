@@ -2319,6 +2319,9 @@ class _SyncStatusSheetState extends State<_SyncStatusSheet> {
         SyncBatchStatus.authError => 'Authentication error',
         SyncBatchStatus.rateLimited => 'Rate limited — try later',
         SyncBatchStatus.error => result.errorMessage ?? 'Error',
+        // The account is being deleted: the AuthBloc wipes or the user
+        // finishes the deletion from Profile.
+        SyncBatchStatus.accountDeleted => null,
       };
     });
   }

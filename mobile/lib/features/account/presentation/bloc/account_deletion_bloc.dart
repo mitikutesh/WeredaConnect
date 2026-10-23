@@ -13,10 +13,18 @@ import 'package:wereda_connect/features/account/presentation/bloc/account_deleti
 /// sent again automatically with backoff. On success [onDeleted] wipes the
 /// device and signs out; a missing server account ([onAccountMissing]) only
 /// signs out. No other outcome touches local data.
+///
+/// The request carries whatever session the device holds when it is sent,
+/// so [isSameAccount] must confirm it is still [userId]'s before the first
+/// send and before every resume (another account may have signed in on a
+/// shared phone, or in another tab on web); otherwise the bloc stops without
+/// sending. A `200` naming another account is not a success.
 class AccountDeletionBloc
     extends Bloc<AccountDeletionEvent, AccountDeletionState> {
   final AccountDeletionRepository _repository;
+  final String _userId;
   final Future<bool> Function() _isOnline;
+  final Future<bool> Function() _isSameAccount;
   final void Function() _onDeleted;
   final void Function() _onAccountMissing;
   final Future<void> Function(Duration) _wait;
@@ -30,12 +38,16 @@ class AccountDeletionBloc
 
   AccountDeletionBloc({
     required AccountDeletionRepository repository,
+    required String userId,
     required Future<bool> Function() isOnline,
+    required Future<bool> Function() isSameAccount,
     required void Function() onDeleted,
     required void Function() onAccountMissing,
     Future<void> Function(Duration)? wait,
   })  : _repository = repository,
+        _userId = userId,
         _isOnline = isOnline,
+        _isSameAccount = isSameAccount,
         _onDeleted = onDeleted,
         _onAccountMissing = onAccountMissing,
         _wait = wait ?? Future<void>.delayed,
@@ -51,6 +63,14 @@ class AccountDeletionBloc
   static Duration resumeDelay(int retryAfterSeconds, int attempt) {
     final seconds = retryAfterSeconds * pow(2, attempt - 1);
     return Duration(seconds: min(seconds.toInt(), maxResumeDelay.inSeconds));
+  }
+
+  Future<bool> _stillSameAccount() async {
+    try {
+      return await _isSameAccount();
+    } on Object {
+      return false;
+    }
   }
 
   Future<void> _onRequested(
@@ -73,7 +93,11 @@ class AccountDeletionBloc
 
     var resumes = 0;
     while (true) {
-      final result = await _repository.deleteAccount();
+      if (!await _stillSameAccount()) {
+        emit(const AccountDeletionIdle());
+        return;
+      }
+      final result = await _repository.deleteAccount(userId: _userId);
       switch (result) {
         case DeleteAccountDone():
           _onDeleted();
@@ -100,7 +124,8 @@ class AccountDeletionBloc
           resumes++;
           emit(const AccountDeletionSubmitting(finishing: true));
           // Keeps going if the screen was closed meanwhile: the server has
-          // started, so a finished deletion must still wipe the device.
+          // started, so a finished deletion must still wipe the device. It
+          // stops at the next account check once the user signed out.
           await _wait(resumeDelay(retryAfterSeconds, resumes));
         case DeleteAccountFailed(:final reason):
           if (reason == AccountDeletionFailure.accountNotFound) {

@@ -1016,7 +1016,11 @@ class _RateCounterpartiesSectionState
       children: [
         if (!_farmerRated && order.farmerId.isNotEmpty) ...[
           OutlinedButton.icon(
-            onPressed: () => _rate(order.farmerId, 'farmer', order.farmerName),
+            onPressed: () => _rate(
+              order.farmerId,
+              'farmer',
+              partyDisplayName(order.farmerName, l10n),
+            ),
             icon: const Icon(Icons.star_outline),
             label: Text(l10n.rateFarmer),
             style: OutlinedButton.styleFrom(
@@ -1030,7 +1034,7 @@ class _RateCounterpartiesSectionState
             onPressed: () => _rate(
               order.truckerId!,
               'trucker',
-              order.truckerName ?? '',
+              partyDisplayName(order.truckerName, l10n),
             ),
             icon: const Icon(Icons.star_outline),
             label: Text(l10n.rateTrucker),

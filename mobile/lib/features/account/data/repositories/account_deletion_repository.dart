@@ -32,8 +32,9 @@ enum AccountDeletionFailure {
   /// The device has no network, so nothing was sent.
   offline,
 
-  /// The request got no answer. The server may or may not have deleted the
-  /// account; sending it again is safe (a finished deletion replays `200`).
+  /// No usable answer (none at all, or a gateway error). The server may or
+  /// may not have started the deletion; sending it again is safe (a started
+  /// one resumes, a finished one replays `200`).
   network,
 
   /// The server started the deletion but kept answering `503 ACCOUNT_005`.
@@ -57,8 +58,9 @@ sealed class DeleteAccountResult extends Equatable {
   List<Object?> get props => [];
 }
 
-/// `200`, or `410 ACCOUNT_004` in a state other than `in_progress`: the
-/// account is gone and the device must wipe what it holds.
+/// `200` naming the expected account, or `410 ACCOUNT_004` in a state other
+/// than `in_progress`: the account is gone and the device must wipe what it
+/// holds.
 final class DeleteAccountDone extends DeleteAccountResult {
   const DeleteAccountDone();
 }
@@ -115,7 +117,10 @@ class AccountDeletionRepository {
 
   AccountDeletionRepository({Dio? dio}) : _dio = dio ?? ApiClient().dio;
 
-  Future<DeleteAccountResult> deleteAccount() async {
+  /// Deletes the account of the stored session, which the caller checked is
+  /// [userId]. A `200` for any other account is not a success: it would wipe
+  /// the wrong account's data.
+  Future<DeleteAccountResult> deleteAccount({required String userId}) async {
     try {
       final response = await _dio.delete<dynamic>(
         ApiConfig.userAccountEndpoint,
@@ -124,7 +129,7 @@ class AccountDeletionRepository {
       // Only an explicit confirmation counts: an unexpected 2xx body must
       // never read as a deleted account.
       final body = decodeJsonMap(response.data);
-      return body?['deleted'] == true
+      return body?['deleted'] == true && body?['userId'] == userId
           ? const DeleteAccountDone()
           : const DeleteAccountFailed(AccountDeletionFailure.unexpected);
     } on DioException catch (e) {
@@ -172,8 +177,8 @@ class AccountDeletionRepository {
             retryAfter is num && retryAfter > 0 ? retryAfter.ceil() : 2,
       );
     }
-    if (status == 410 && code == 'ACCOUNT_004') {
-      return details['deletionState'] == 'in_progress'
+    if (status == 410 && code == accountGoneCode) {
+      return details['deletionState'] == deletionInProgressState
           ? const DeleteAccountPending()
           : const DeleteAccountDone();
     }
@@ -182,6 +187,11 @@ class AccountDeletionRepository {
     }
     if (status == 404 && code == 'AUTH_013') {
       return const DeleteAccountFailed(AccountDeletionFailure.accountNotFound);
+    }
+    // A gateway error or a crash: the deletion may have started. Only
+    // AUTH_007 says it failed before any write.
+    if (status != null && status >= 500 && code != 'AUTH_007') {
+      return const DeleteAccountFailed(AccountDeletionFailure.network);
     }
     return const DeleteAccountFailed(AccountDeletionFailure.unexpected);
   }

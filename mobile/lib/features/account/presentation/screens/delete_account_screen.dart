@@ -22,23 +22,37 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 /// password prompt is the AUTH_040 step-up used for payments. On success the
 /// AuthBloc wipes the device and the app returns to the login screen.
 class DeleteAccountScreen extends StatelessWidget {
-  /// Builds the bloc; tests inject one.
-  final AccountDeletionBloc Function(BuildContext context)? createBloc;
+  /// Sends the request; defaults to the app's API client (tests inject one).
+  final AccountDeletionRepository? repository;
+
+  /// Whether the device is online; defaults to the platform check.
+  final Future<bool> Function()? isOnline;
 
   /// Asks for the password again (AUTH_040). Defaults to [showStepUpDialog].
   final Future<bool> Function(BuildContext context)? confirmPassword;
 
-  const DeleteAccountScreen({this.createBloc, this.confirmPassword, super.key});
+  const DeleteAccountScreen({
+    this.repository,
+    this.isOnline,
+    this.confirmPassword,
+    super.key,
+  });
 
-  static AccountDeletionBloc _createBloc(BuildContext context) {
+  AccountDeletionBloc _createBloc(BuildContext context) {
     final auth = context.read<AuthBloc>();
     final session = auth.state;
-    // The account this screen deletes: the wipe must never hit another one.
+    // The account this screen deletes. Every send is checked against it,
+    // and only its data is wiped.
     final userId = session is AuthAuthenticated ? session.userId : '';
+    final phone = session is AuthAuthenticated ? session.phoneNumber : null;
     return AccountDeletionBloc(
-      repository: AccountDeletionRepository(),
-      isOnline: ConnectivityMonitor(dio: ApiClient().dio).isConnected,
-      onDeleted: () => auth.add(AuthAccountDeleted(userId: userId)),
+      repository: repository ?? AccountDeletionRepository(),
+      userId: userId,
+      isOnline:
+          isOnline ?? ConnectivityMonitor(dio: ApiClient().dio).isConnected,
+      isSameAccount: () => auth.isSignedInAs(userId),
+      onDeleted: () =>
+          auth.add(AuthAccountDeleted(userId: userId, phoneNumber: phone)),
       onAccountMissing: () => auth.add(const AuthLogoutRequested()),
     );
   }
@@ -46,7 +60,7 @@ class DeleteAccountScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocProvider<AccountDeletionBloc>(
-      create: createBloc ?? _createBloc,
+      create: _createBloc,
       child: _DeleteAccountView(
         confirmPassword: confirmPassword ?? showStepUpDialog,
       ),

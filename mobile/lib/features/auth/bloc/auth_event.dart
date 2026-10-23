@@ -142,17 +142,33 @@ class AuthLogoutRequested extends AuthEvent {
   List<Object?> get props => [clearCache];
 }
 
-/// The server deleted [userId]'s account (account-deletion.md): wipe
-/// everything this device holds for it and sign out. Sends nothing to the
-/// server. Ignored unless [userId] is the signed-in user, so a late answer
-/// can never wipe an account that signed in since.
+/// The server confirmed [userId]'s account is deleted (account-deletion.md):
+/// remove what this device holds for it. Sends nothing to the server. When
+/// that user is signed in, the session ends too; otherwise (it signed out,
+/// or another account signed in, before the answer came) only its local data
+/// goes and the current session is left alone.
 class AuthAccountDeleted extends AuthEvent {
   final String userId;
 
-  const AuthAccountDeleted({required this.userId});
+  /// The account's phone, which keys its offline credential cache.
+  final String? phoneNumber;
+
+  const AuthAccountDeleted({required this.userId, this.phoneNumber});
 
   @override
-  List<Object?> get props => [userId];
+  List<Object?> get props => [userId, phoneNumber];
+}
+
+/// A request was refused with `410 ACCOUNT_004`: the signed-in account is
+/// being or has been deleted. For any [deletionState] but `in_progress` the
+/// signed-in account is wiped as for [AuthAccountDeleted].
+class AuthAccountGone extends AuthEvent {
+  final String deletionState;
+
+  const AuthAccountGone({required this.deletionState});
+
+  @override
+  List<Object?> get props => [deletionState];
 }
 
 /// Event to request password reset (sends verification code).

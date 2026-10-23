@@ -1,7 +1,7 @@
 # Account Deletion Contract
 
 ## Version
-1.1.0
+1.3.0
 
 ## Parties
 - **Mobile / Web** (client, ACC-03): Profile > "Delete account" flow, step-up re-auth, local wipe. Mobile and web are a platform pair and ship together.
@@ -335,10 +335,19 @@ Without this a buyer could fund an order of a farmer mid-deletion and the payout
 
 - Entry: Profile > "Delete account" for Farmer, Trucker and Buyer alike. The screen explains what is deleted (profile, phone, Fayda link, listings, messages, device tokens, intents) and what is kept anonymized (orders, deliveries, escrow and audit records).
 - The call is online only. Offline, show the localized offline message and do not enqueue anything.
-- Flow: explain, confirm, `DELETE /user/account`. On `409` show the blockers (a `payment_review` blocker shows "contact support"). On `AUTH_040` ask for the password, log in again, retry. On `503` retry automatically with backoff.
-- On `200`, or on `410 ACCOUNT_004` with a state other than `in_progress`, wipe local state: Isar `clearAllData` (web stub no-op), the sync queue (mobile and web), auth storage (secure and web), the offline auth cache (both), the FCM token, shared_preferences keys (message read markers, per-account data usage), unsynced drafts. Then navigate to login.
+- Flow: explain, confirm, `DELETE /user/account`. On `409` show the blockers (a `payment_review` blocker shows "contact support"). On `AUTH_040` ask for the password, log in again, retry. On `503` retry automatically with backoff (1.3.0: the server's `retryAfterSeconds`, doubled per try, 4 tries, then a manual retry; a started deletion keeps resuming after the screen is closed). A gateway error (`502`, `503`, `504` without an `ACCOUNT_` code) or a `500` other than `AUTH_007` says the result is unknown and offers the same retry.
+- Right account only (1.3.0). The request carries whatever session the device holds when it is sent. Before the first send and before every resume the client checks that the account the screen was opened for is still the signed-in one and the one in the stored session (on web every tab shares that storage); otherwise it stops without sending. A `200` whose `userId` is not that account is not a success and wipes nothing.
+- On `200` for that account, or on `410 ACCOUNT_004` with a state other than `in_progress`, wipe local state (1.3.0, replaces "Isar `clearAllData`"):
+  - Isar (mobile; web has no local database): the deleted user's rows only. Deliveries, payments and orders where they are a party, messages they sent or received, ratings they gave or received, their crop listings, trips, buying intents and payment intents, their conversation read markers and their users row. The sync queue loses every operation whose idempotency key starts with `{userId}:`. Other accounts' rows and queued work on a shared phone, and other users' public listings and trips, stay. The database stays open: `IsarService.clearAllData` would close the database every repository holds, drop the encryption key of every account on the phone, and leave the non-PII rows readable (no file encryption in Isar 3.1).
+  - Secure storage (localStorage on web): the 5 session keys `current_user_phone`, `current_user_id`, `access_token`, `id_token`, `refresh_token`.
+  - Offline auth cache (mobile and web): `forgetAccount(phone)`, which removes the cached tokens, password hash, salt, session timestamp and profile, and on mobile the offline-login counter `rate_limit_<phone>`.
+  - FCM: the token is deleted on the device only (`FirebaseMessaging.deleteToken`). No `DELETE /device-tokens`: the server already removed the rows and endpoints.
+  - shared_preferences: the web read markers `msg_read_<conversationId>` of conversations the user is part of, and the user's data usage counters (`data_downloaded_bytes`, `data_uploaded_bytes`, `data_tracking_since`, suffixed with the hash of the `userId`).
+  - No server call. Then go to login.
+- If that account is no longer signed in when the `200` arrives (it signed out, or another account signed in), only its local data above is removed; the current session and its FCM token are left alone (1.3.0).
+- `410 ACCOUNT_004` from any other endpoint (1.3.0). Mobile `/sync` (`sync_executor`): nothing is retried and no retry is counted; the operations stay queued for the wipe; the sync stops. For `cognito_pending` and `completed` that user's batches are not sent again while the app runs; for `in_progress` (which can still abort) the next sync may send them. Web (`/sync` calls through the API client, which every web write uses) and every other REST call: the caller gets the error. In both cases the app wipes as above when the state is not `in_progress` and the stored session is still the signed-in account; `in_progress` changes nothing yet (Profile > Delete account resumes the deletion; a "Finish deleting" prompt is a follow-up).
 - Map the sentinel to the `deletedUser` key in all 3 arb files (en, am, om). Deletion screen, confirm and blocker strings (one per blocker type, including `payment_review`) in all 3 languages.
-- Known limit: another device still offline can log in from its cached hash until it next reaches the server, then receives `410` or `AUTH_014` and wipes.
+- Known limit: another device still offline can log in from its cached hash until it next reaches the server, then receives `410` on its next write and wipes. A refresh refused with `AUTH_014` only signs it out (1.3.0): the client cannot tell it from any other refused refresh, so it keeps the local data as for an expired session.
 - e2e tests use throwaway accounts. The shared dev test users (`+2519001000xx`) are never deleted.
 
 ## Admin Obligations (ACC-05)
@@ -392,10 +401,11 @@ Open for legal review: the retention period for financial records and a purge jo
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.3.0 | 2026-10-23 | Client wipe and refusals as built (ACC-03): the user-scoped Isar wipe, the 5 session keys, `forgetAccount` with `rate_limit_<phone>`, a local FCM `deleteToken` only, `msg_read_*` and data usage keys replace "Isar `clearAllData`"; other accounts' rows and public listings stay; the right-account check before every send and the `userId` check of the `200`; a `200` for an account no longer signed in wipes only its local data; resume backoff; gateway errors read as unknown; `410 ACCOUNT_004` from `/sync` and other endpoints is terminal (no retry counted, final states not resent) and wipes unless `in_progress`; `AUTH_014` on refresh does not wipe |
 | 1.1.0 | 2026-10-23 | `payment_review` resolution defined (FUP-02, `escrow-protocol.md` 1.20.0): one blocker per unapplied payment (by payment_order_id, or merch_order_id for a nameless one), lifted by the `order_payment_refunded_manual` row naming that payment whenever it was written, not by any later row of the order; a payment that funded the order never blocks; the admin endpoint that records the refund exists, so the blocker is no longer permanent and "contact support" now leads to a resolution; escrow-idempotency's per-table row lists the refund claim rows (400 days) |
 | 1.0.0 | 2026-10-06 | Initial contract (ACC-01): endpoint, error codes, blocked-while-active rule, deletion steps, sweep, per-table policy for all 20 tables, retention, client and admin obligations |
 
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 1.1.0
+**Version**: 1.3.0

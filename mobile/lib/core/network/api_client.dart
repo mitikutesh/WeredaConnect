@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:dio/dio.dart';
 import 'package:intl/intl.dart' show DateFormat;
 
+import 'package:wereda_connect/core/auth/session_signals.dart';
 import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/network/json_body.dart';
@@ -310,6 +311,12 @@ class ApiClient {
               error.response?.statusMessage ??
               'Server error';
           final code = _extractErrorCode(data);
+
+          // A write from an account that is being or has been deleted (web
+          // /sync calls, escrow, device tokens). The AuthBloc decides whether
+          // to wipe; the caller still gets the error.
+          final goneState = accountGoneState(statusCode, data);
+          if (goneState != null) SessionSignals.instance.accountGone(goneState);
 
           if (statusCode == 400) {
             return ValidationException(message, statusCode, code);

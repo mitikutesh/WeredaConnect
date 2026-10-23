@@ -6,6 +6,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import 'package:wereda_connect/core/auth/session_signals.dart';
 import 'package:wereda_connect/core/models/sync_operation.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
@@ -99,6 +100,10 @@ enum SyncBatchStatus {
 
   /// Unknown or unrecoverable error.
   error,
+
+  /// The server refused the batch because the account is being or has been
+  /// deleted (`410 ACCOUNT_004`). Nothing was applied and nothing is retried.
+  accountDeleted,
 }
 
 /// Result of processing a sync batch.
@@ -268,6 +273,9 @@ class SyncBatchResult {
 /// - Network/timeout → revert to pending without retry count increment
 /// - 401 → revert (AuthInterceptor should have refreshed token)
 /// - 429 → revert (rate limited, try again later)
+/// - 410 `ACCOUNT_004` (account being or already deleted) → revert without a
+///   retry, stop this sync and raise [SessionSignals.accountGone]; for a
+///   finished deletion this user's operations are never sent again
 /// - Other → mark failed with retry count increment
 ///
 /// Ethiopian context:
@@ -287,6 +295,7 @@ class SyncExecutor {
   final VoidCallback? _onSyncComplete;
   final GetCurrentUserIdCallback? _getCurrentUserId;
   final SecurityEvents _securityEvents;
+  final SessionSignals _sessionSignals;
   final KycRejectionHandler? _onKycRequired;
   final PermanentRejectionHandler? _onPermanentRejection;
 
@@ -307,6 +316,13 @@ class SyncExecutor {
   /// a restart sends them once more. Only these wait: every other entity,
   /// delivery handoffs included, keeps syncing.
   final Set<String> _heldForUpdate = {};
+
+  /// Users whose account the server reported deleted for good
+  /// (`410 ACCOUNT_004` in a state other than `in_progress`). Their batches
+  /// can only get the same answer, so they are not sent again; the AuthBloc
+  /// wipes the operations. A deletion still `in_progress` can abort, so it
+  /// only stops the current sync.
+  final Set<String?> _deletedAccounts = {};
 
   static String _entityKey(SyncOperation op) =>
       '${op.entityType}:${op.entityId}';
@@ -359,6 +375,7 @@ class SyncExecutor {
     VoidCallback? onSyncComplete,
     GetCurrentUserIdCallback? getCurrentUserId,
     SecurityEvents? securityEvents,
+    SessionSignals? sessionSignals,
     KycRejectionHandler? onKycRequired,
     PermanentRejectionHandler? onPermanentRejection,
   })  : _syncQueue = syncQueue,
@@ -371,6 +388,7 @@ class SyncExecutor {
         _onSyncComplete = onSyncComplete,
         _getCurrentUserId = getCurrentUserId,
         _securityEvents = securityEvents ?? SecurityEvents.instance,
+        _sessionSignals = sessionSignals ?? SessionSignals.instance,
         _onKycRequired = onKycRequired,
         _onPermanentRejection = onPermanentRejection;
 
@@ -488,6 +506,9 @@ class SyncExecutor {
         // Queue is empty
         if (result.status == SyncBatchStatus.empty) break;
 
+        // The account is being or has been deleted: never retry here.
+        if (result.status == SyncBatchStatus.accountDeleted) break;
+
         // Only deferrals remain (server can't verify yet — e.g. a QR secret hasn't
         // synced). No forward progress is possible this session, so stop WITHOUT
         // backoff, retries, or a failure result. The ops stay pending and the next
@@ -560,6 +581,9 @@ class SyncExecutor {
   /// Returns [SyncBatchResult] with counts of succeeded/conflicted/failed.
   Future<SyncBatchResult> executeBatch() async {
     final currentUserId = await _getCurrentUserId?.call();
+    if (_deletedAccounts.contains(currentUserId)) {
+      return const SyncBatchResult(status: SyncBatchStatus.accountDeleted);
+    }
     // While an entity is held, read past its operations (the queue holds at
     // most maxQueueSize) so they cannot starve newer ones.
     final pending = (await _syncQueue.getPendingOperationsForUser(
@@ -601,7 +625,7 @@ class SyncExecutor {
       // by the caller from the SyncBatchResult instead.
       return await _processResponse(pending, response.data!);
     } on DioException catch (e) {
-      return await _handleDioError(e, pending);
+      return await _handleDioError(e, pending, currentUserId);
     } on Object catch (e) {
       await _markBatchFailed(pending);
       return SyncBatchResult(
@@ -836,6 +860,7 @@ class SyncExecutor {
   Future<SyncBatchResult> _handleDioError(
     DioException error,
     List<SyncOperation> operations,
+    String? currentUserId,
   ) async {
     switch (error.type) {
       case DioExceptionType.connectionTimeout:
@@ -854,6 +879,24 @@ class SyncExecutor {
 
       case DioExceptionType.badResponse:
         final statusCode = error.response?.statusCode;
+
+        // 410 ACCOUNT_004 (sync-protocol.md 1.26.0): nothing was applied and
+        // the same batch can only get the same answer. Keep the operations
+        // without burning a retry (a wipe or the user's own deletion settles
+        // them) and let the AuthBloc decide whether to wipe.
+        final goneState = accountGoneState(statusCode, error.response?.data);
+        if (goneState != null) {
+          await _revertBatchToPending(operations);
+          if (goneState != deletionInProgressState) {
+            _deletedAccounts.add(currentUserId);
+          }
+          _sessionSignals.accountGone(goneState);
+          return SyncBatchResult(
+            total: operations.length,
+            status: SyncBatchStatus.accountDeleted,
+            errorMessage: accountGoneCode,
+          );
+        }
 
         if (statusCode == 401 || statusCode == 403) {
           // AuthInterceptor should have handled refresh.

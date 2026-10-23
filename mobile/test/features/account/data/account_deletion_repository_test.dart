@@ -62,6 +62,9 @@ class _StubAdapter implements HttpClientAdapter {
   return (repo: AccountDeletionRepository(dio: dio), adapter: adapter);
 }
 
+/// The account the screen deletes.
+const _me = 'u-1';
+
 Map<String, dynamic> _error(String code, [Map<String, dynamic>? extra]) => {
       'error': {'code': code, 'message': 'server text', ...?extra},
     };
@@ -98,13 +101,13 @@ void main() {
       final built = _build(
         body: {
           'deleted': true,
-          'userId': 'u-1',
+          'userId': _me,
           'deletionState': 'completed',
           'deletedAt': '2026-10-06T09:15:02.000Z',
         },
       );
 
-      await built.repo.deleteAccount();
+      await built.repo.deleteAccount(userId: _me);
 
       expect(built.adapter.requests, hasLength(1));
       final request = built.adapter.requests.single;
@@ -119,18 +122,44 @@ void main() {
     final platform = plain ? 'web (String body)' : 'mobile (decoded body)';
 
     group(platform, () {
-      test('200 with deleted: true is done', () async {
+      test('200 with deleted: true for this account is done', () async {
         final built = _build(
           plain: plain,
-          body: {'deleted': true, 'deletionState': 'completed'},
+          body: {
+            'deleted': true,
+            'userId': _me,
+            'deletionState': 'completed',
+          },
         );
-        expect(await built.repo.deleteAccount(), const DeleteAccountDone());
+        expect(
+          await built.repo.deleteAccount(userId: _me),
+          const DeleteAccountDone(),
+        );
       });
+
+      // The request carries whatever session the device holds: a 200 for
+      // another account must never wipe this one's data.
+      for (final userId in ['u-2', null]) {
+        test('a 200 naming ${userId ?? 'no'} account is not done', () async {
+          final built = _build(
+            plain: plain,
+            body: {
+              'deleted': true,
+              if (userId != null) 'userId': userId,
+              'deletionState': 'completed',
+            },
+          );
+          expect(
+            await built.repo.deleteAccount(userId: _me),
+            const DeleteAccountFailed(AccountDeletionFailure.unexpected),
+          );
+        });
+      }
 
       test('a 200 without deleted: true is never read as done', () async {
         final built = _build(plain: plain, body: {'ok': true});
         expect(
-          await built.repo.deleteAccount(),
+          await built.repo.deleteAccount(userId: _me),
           const DeleteAccountFailed(AccountDeletionFailure.unexpected),
         );
       });
@@ -139,7 +168,7 @@ void main() {
           () async {
         final built = _build(plain: plain, status: 409, body: _blockedBody);
 
-        final result = await built.repo.deleteAccount();
+        final result = await built.repo.deleteAccount(userId: _me);
 
         expect(
           result,
@@ -184,7 +213,7 @@ void main() {
         final built =
             _build(plain: plain, status: 403, body: _error('AUTH_040'));
         expect(
-          await built.repo.deleteAccount(),
+          await built.repo.deleteAccount(userId: _me),
           const DeleteAccountStepUpRequired(),
         );
       });
@@ -199,7 +228,7 @@ void main() {
           },
         );
         expect(
-          await built.repo.deleteAccount(),
+          await built.repo.deleteAccount(userId: _me),
           const DeleteAccountPending(retryAfterSeconds: 5),
         );
       });
@@ -210,7 +239,10 @@ void main() {
           status: 410,
           body: _error('ACCOUNT_004', {'deletionState': 'completed'}),
         );
-        expect(await built.repo.deleteAccount(), const DeleteAccountDone());
+        expect(
+          await built.repo.deleteAccount(userId: _me),
+          const DeleteAccountDone(),
+        );
       });
 
       test('410 ACCOUNT_004 in_progress resumes like a 503', () async {
@@ -219,14 +251,17 @@ void main() {
           status: 410,
           body: _error('ACCOUNT_004', {'deletionState': 'in_progress'}),
         );
-        expect(await built.repo.deleteAccount(), const DeleteAccountPending());
+        expect(
+          await built.repo.deleteAccount(userId: _me),
+          const DeleteAccountPending(),
+        );
       });
 
       test('403 ACCOUNT_003 is a suspended account', () async {
         final built =
             _build(plain: plain, status: 403, body: _error('ACCOUNT_003'));
         expect(
-          await built.repo.deleteAccount(),
+          await built.repo.deleteAccount(userId: _me),
           const DeleteAccountFailed(AccountDeletionFailure.suspended),
         );
       });
@@ -235,7 +270,7 @@ void main() {
         final built =
             _build(plain: plain, status: 404, body: _error('AUTH_013'));
         expect(
-          await built.repo.deleteAccount(),
+          await built.repo.deleteAccount(userId: _me),
           const DeleteAccountFailed(AccountDeletionFailure.accountNotFound),
         );
       });
@@ -248,16 +283,34 @@ void main() {
       (500, 'AUTH_007'),
       (403, 'AUTH_041'),
       (409, 'SOMETHING_ELSE'),
-      (502, null),
     ]) {
       test('$status $code is unexpected', () async {
+        final built = _build(status: status, body: _error(code));
+        expect(
+          await built.repo.deleteAccount(userId: _me),
+          const DeleteAccountFailed(AccountDeletionFailure.unexpected),
+        );
+      });
+    }
+
+    // The deletion may have started: say "cannot tell" and let a retry
+    // resume it.
+    for (final (status, code) in [
+      (502, null),
+      (503, null),
+      (504, null),
+      (500, null),
+      (503, 'SERVICE_UNAVAILABLE'),
+    ]) {
+      test('$status ${code ?? 'without a code'} is a network failure',
+          () async {
         final built = _build(
           status: status,
           body: code == null ? null : _error(code),
         );
         expect(
-          await built.repo.deleteAccount(),
-          const DeleteAccountFailed(AccountDeletionFailure.unexpected),
+          await built.repo.deleteAccount(userId: _me),
+          const DeleteAccountFailed(AccountDeletionFailure.network),
         );
       });
     }
@@ -265,7 +318,7 @@ void main() {
     test('503 ACCOUNT_005 without a hint waits the default 2 s', () async {
       final built = _build(status: 503, body: _error('ACCOUNT_005'));
       expect(
-        await built.repo.deleteAccount(),
+        await built.repo.deleteAccount(userId: _me),
         const DeleteAccountPending(),
       );
     });
@@ -280,7 +333,7 @@ void main() {
           () async {
         final built = _build(error: type);
         expect(
-          await built.repo.deleteAccount(),
+          await built.repo.deleteAccount(userId: _me),
           const DeleteAccountFailed(AccountDeletionFailure.network),
         );
       });
@@ -290,7 +343,7 @@ void main() {
         () async {
       final built = _build(error: DioExceptionType.badCertificate);
       expect(
-        await built.repo.deleteAccount(),
+        await built.repo.deleteAccount(userId: _me),
         const DeleteAccountFailed(AccountDeletionFailure.unexpected),
       );
     });

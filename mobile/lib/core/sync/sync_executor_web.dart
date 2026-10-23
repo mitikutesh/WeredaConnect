@@ -35,6 +35,7 @@ enum SyncBatchStatus {
   authError,
   rateLimited,
   error,
+  accountDeleted,
 }
 
 /// Result of processing a sync batch.

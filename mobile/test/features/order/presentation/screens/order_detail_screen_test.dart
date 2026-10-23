@@ -10,6 +10,7 @@ import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
@@ -25,6 +26,7 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart
 import 'package:wereda_connect/features/order/presentation/screens/order_detail_screen.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
+import 'package:wereda_connect/features/rating/presentation/bloc/rating_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 class MockOrderBloc extends Mock implements OrderBloc {}
@@ -199,7 +201,7 @@ void main() {
     );
   }
 
-  Widget buildScreen(Order order) {
+  Widget buildScreen(Order order, {Locale locale = const Locale('en')}) {
     when(() => orderBloc.state).thenReturn(SingleOrderLoaded(order: order));
     return MultiBlocProvider(
       providers: [
@@ -208,11 +210,11 @@ void main() {
         BlocProvider<DeliveryBloc>.value(value: deliveryBloc),
         BlocProvider<RatingBloc>.value(value: ratingBloc),
       ],
-      child: const MaterialApp(
+      child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        locale: Locale('en'),
-        home: OrderDetailScreen(orderId: 'order-001'),
+        locale: locale,
+        home: const OrderDetailScreen(orderId: 'order-001'),
       ),
     );
   }
@@ -706,6 +708,32 @@ void main() {
         expect(find.text('Rate Farmer'), findsNothing);
       });
     }
+
+    // ACC-03: a deleted farmer is shown as the localized "Deleted user" on
+    // the order and in the rating dialog.
+    testWidgets('am: a deleted farmer reads in Amharic, also when rating',
+        (tester) async {
+      tallView(tester);
+      stubAuth(UserRole.buyer, _buyerId);
+      when(() => ratingBloc.state).thenReturn(const RatingInitial());
+      await tester.pumpWidget(
+        buildScreen(
+          _makeOrder(status: OrderStatus.settled)
+            ..farmerName = deletedUserSentinel,
+          locale: const Locale('am'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final am = lookupAppLocalizations(const Locale('am'));
+
+      expect(find.text(am.deletedUser), findsOneWidget);
+
+      await tester.tap(find.text(am.rateFarmer));
+      await tester.pumpAndSettle();
+
+      expect(find.text(am.deletedUser), findsNWidgets(2));
+      expect(find.text(deletedUserSentinel), findsNothing);
+    });
 
     testWidgets('the farmer never sees the rate section on a disbursing order',
         (tester) async {
