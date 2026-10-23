@@ -1528,6 +1528,14 @@
   "@escrowErrorPayoutInProgress": {
     "description": "Error when a dispute is raised on a payment an admin is already paying out by hand (ESCROW_038)"
   },
+  "escrowErrorDeliveryPaymentUnavailable": "ለማድረሻ የመስመር ላይ ክፍያ እዚህ አይገኝም። በምትኩ ይህን ትዕዛዝ ከትዕዛዙ ገጽ ይክፈሉ።",
+  "@escrowErrorDeliveryPaymentUnavailable": {
+    "description": "Error when the legacy delivery escrow payment is refused on live Telebirr; the order is paid through its checkout (ESCROW_039)"
+  },
+  "escrowErrorDisputeBeforePickup": "ክርክር ማንሳት የሚቻለው እቃው ከተጫነ በኋላ ብቻ ነው። ከዚያ በፊት ትዕዛዙን ይሰርዙ ወይም ድጋፍ ሰጪን ያግኙ።",
+  "@escrowErrorDisputeBeforePickup": {
+    "description": "Error when a dispute is raised before the goods are picked up (ESCROW_041)"
+  },
   "escrowErrorInvalidTransition": "ይህ ድርጊት በአሁኑ የክፍያ ሁኔታ አይፈቀድም።",
   "@escrowErrorInvalidTransition": {
     "description": "Error when escrow state transition is invalid"
@@ -2537,6 +2545,7 @@
   "faydaRetrying": "አሁንም ከፋይዳ ጋር ለመገናኘት እየሞከርን ነው ({attempt}/{total})...",
   "kycFarmerPhoneMessage": "የገበሬው ስልክ ቁጥር ገና ስላልተረጋገጠ ይህ ክፍያ አልተላከም። ገበሬው ካረጋገጠ በኋላ መክፈል ይችላሉ።",
   "kycFarmerFaydaMessage": "ከ10,000 ብር በላይ ለሆኑ ክፍያዎች ገበሬውም የተረጋገጠ የፋይዳ መታወቂያ ሊኖረው ይገባል፣ ስለዚህ ይህ ክፍያ አልተላከም። ገበሬው ካረጋገጠ በኋላ መክፈል ይችላሉ።",
+  "kycFarmerNotVerifiedMessage": "የገበሬው ማንነት ገና ስላልተረጋገጠ ይህ ክፍያ አልተላከም። ገበሬው ካረጋገጠ በኋላ መክፈል ይችላሉ።",
   "kycUnavailableMessage": "አሁን የማንነት ማረጋገጫን ማየት አልቻልንም፣ ስለዚህ ይህ ክፍያ አልተላከም። እባክዎ ቆይተው እንደገና ይሞክሩ።",
   "kycPaymentNotSent": "ክፍያው አልተላከም። ማንነትዎ አልተረጋገጠም።",
   "kycPaymentResubmitted": "ማንነትዎ ተረጋግጧል። ክፍያዎ እንደገና ይላካል።",
@@ -2568,6 +2577,7 @@
   "orderCheckoutNotSent": "ክፍያዎ አልተላከም። ማንነትዎን እንዲያረጋግጡ ከተጠየቁ፣ ካረጋገጡ በኋላ እንደገና ይላካል፤ ካልሆነ እንደገና ለመክፈል ትዕዛዙን ይክፈቱ።",
   "orderCheckoutCheckingPayment": "ክፍያዎን በማረጋገጥ ላይ...",
   "paymentTotalOutOfRange": "ቴሌብር በአንድ ክፍያ ከ100 እስከ 500,000 ብር ይቀበላል። የዚህ ትዕዛዝ ጠቅላላ ዋጋ ከዚህ ውጭ ስለሆነ በቴሌብር ሊከፈል አይችልም።",
+  "paymentMethodUnavailable": "ይህ የክፍያ ዘዴ ገና አይገኝም። በቴሌብር ይክፈሉ።",
   "continuePayment": "ክፍያውን ይቀጥሉ",
   "payAgain": "እንደገና ይክፈሉ",
   "orderPickupDeadline": "የማንሳት የመጨረሻ ቀን",
@@ -2575,5 +2585,15 @@
   "orderTransportFailedPartyHint": "ሰብሉ በጊዜው አልተነሳም። ገዢው አሁን ይህን ትዕዛዝ መሰረዝ ይችላል።",
   "cancelOrderTransportFailedBody": "የትራንስፖርትና የመድረክ ኮሚሽንን ጨምሮ የከፈሉት ሁሉ ይመለስልዎታል።",
   "errorOrderCancelNotAllowed": "ይህ ትዕዛዝ አሁን ሊሰረዝ አይችልም። መሰረዝ የሚቻለው ሰብሉ በጊዜው ካልተነሳና ምንም ካልተወሰደ ብቻ ነው።",
+  "errorDeadlinePassed": "ጊዜው አልፏል። የዚህ እርምጃ ጊዜ አብቅቷል።",
+  "errorTripNotEligible": "ያ የጭነት መኪና ከእንግዲህ አይገኝም። እንደገና ይምረጡ።",
+  "errorTransportAttemptsExceeded": "ለዚህ ትዕዛዝ ሌላ የጭነት መኪና መሞከር አይቻልም። ሰብሉን ራስዎ ይውሰዱ፣ ወይም ትዕዛዙን ሰርዘው የከፈሉትን ገንዘብ በሙሉ መመለስ ይችላሉ።",
+  "errorTripCapacityExceeded": "ይህ የጭነት መኪና ለዚህ ትዕዛዝ ቦታ የለውም። ሌላ የጭነት መኪና ይምረጡ።",
+  "errorReputationRestricted": "መለያዎ ለጊዜው ይህን ማድረግ አይችልም፣ ስለዚህ ይህ ለውጥ አልተቀመጠም። ያሉዎት ትዕዛዞች ይቀጥላሉ።",
+  "errorCounterpartyRestricted": "ይህ ገበሬ ወይም የጭነት መኪና ሹፌር አሁን አዲስ ትዕዛዝ መቀበል አይችልም፣ ስለዚህ ትዕዛዙ አልገባም። እባክዎ ሌላ ይምረጡ።",
+  "errorTripHasBookings": "ይህ ጉዞ የተያዙ ትዕዛዞች ስላሉት ይህ ለውጥ ሊደረግ አይችልም።",
+  "errorCropHasActiveOrders": "ይህ ዝርዝር ክፍት ትዕዛዞች አሉት። መጀመሪያ እነሱን ያስተናግዱ።",
+  "errorAppUpdateRequired": "ለመቀጠል እባክዎ መተግበሪያውን ያዘምኑ። ይህ ለውጥ አልተቀመጠም።",
+  "errorAppUpdateRequiredKept": "እባክዎ መተግበሪያውን ያዘምኑ። ይህ ለውጥ በስልክዎ ላይ ተቀምጧል፣ ከዝማኔው በኋላ ይላካል።",
   "errorContactInText": "እዚህ ስልክ ቁጥር አይፈቀድም። ቁጥሩን ያስወግዱ፤ ክፍያው በኢስክሮ ከተያዘ በኋላ መገናኘት ይቻላል።"
 }

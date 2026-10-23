@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
@@ -59,7 +60,7 @@ class SuggestedTripCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${trip.truckerName} · ${dateFormat.format(trip.departureDate)}',
+                    '${trip.truckerName} · ${dateFormat.format(dayInEthiopia(trip.departureDate))}',
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,

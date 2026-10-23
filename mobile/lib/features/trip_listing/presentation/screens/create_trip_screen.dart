@@ -423,7 +423,12 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
   Widget _buildRouteStep(AppLocalizations l10n) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
+      // Same layout, but the fields paint bottom-up (list reversed, laid out
+      // upward). Flutter 3.38 puts a PlaceSelector's suggestion list at the
+      // field's own place in the semantics tree, so on web a field painted
+      // after it (the date) sat above the list and took the click (SIM-59).
+      verticalDirection: VerticalDirection.up,
+      children: <Widget>[
         if (_recentRoutes.isNotEmpty) ...[
           Text(
             l10n.quickFill,
@@ -511,7 +516,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
             ),
           ),
         ),
-      ],
+      ].reversed.toList(),
     );
   }
 

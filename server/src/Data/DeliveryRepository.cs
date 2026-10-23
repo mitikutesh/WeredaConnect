@@ -459,6 +459,72 @@ public sealed class DeliveryRepository : IDeliveryRepository
         }
     }
 
+    /// <inheritdoc />
+    public async Task<bool> TryCloseForVerdictAsync(
+        string deliveryId, string fromStatus, string toStatus, string resolution, string resolvedAt, string? cancelReason)
+    {
+        var existing = await GetItemAsync(deliveryId, consistentRead: true);
+        if (existing == null)
+        {
+            return false;
+        }
+
+        var tripId = existing.TryGetValue("tripId", out var tripAttr) ? tripAttr.S ?? "" : "";
+        var now = DateTime.UtcNow.ToString("o");
+        var names = new Dictionary<string, string>
+        {
+            { "#status", "status" }, { "#updated", "updatedAt" }, { "#v", "version" },
+            { "#resolution", "disputeResolution" }, { "#resolvedAt", "disputeResolvedAt" }
+        };
+        var values = new Dictionary<string, AttributeValue>
+        {
+            { ":to", new AttributeValue { S = toStatus } },
+            { ":from", new AttributeValue { S = fromStatus } },
+            { ":resolution", new AttributeValue { S = resolution } },
+            { ":resolvedAt", new AttributeValue { S = resolvedAt } },
+            { ":now", new AttributeValue { S = now } },
+            { ":one", new AttributeValue { N = "1" } }
+        };
+        var set = "#status = :to, #updated = :now, #resolution = :resolution, #resolvedAt = :resolvedAt";
+        if (toStatus == "cancelled")
+        {
+            names["#cancelReason"] = "cancelReason";
+            names["#cancelledAt"] = "cancelledAt";
+            values[":cancelReason"] = new AttributeValue { S = cancelReason ?? "" };
+            set += ", #cancelReason = :cancelReason, #cancelledAt = :now";
+        }
+        else
+        {
+            // The goods count as delivered; keep a real confirmation time if the handoff had one.
+            names["#confirmedAt"] = "confirmedAt";
+            set += ", #confirmedAt = if_not_exists(#confirmedAt, :now)";
+        }
+
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "deliveryId", new AttributeValue { S = deliveryId } },
+                { "tripId", new AttributeValue { S = tripId } }
+            },
+            UpdateExpression = "SET " + set + " ADD #v :one",
+            ConditionExpression = "#status = :from AND attribute_not_exists(#resolution)",
+            ExpressionAttributeNames = names,
+            ExpressionAttributeValues = values
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// Query for an item by deliveryId (partition key). Since sort key is createdAt,
     /// we query with limit 1 to get the single matching item.

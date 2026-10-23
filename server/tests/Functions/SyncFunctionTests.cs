@@ -3536,7 +3536,7 @@ public class SyncFunctionTests
         {
             SetupListing(quantityQuintals: 60);
             var orderRepo = Substitute.For<IOrderRepository>();
-            orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+            orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
             {
                 { "orderId", "order-001" }, { "buyerId", "buyer-001" }, { "farmerId", "farmer-001" },
                 { "listingId", "listing-001" }, { "quantity", 500.0 },
@@ -3663,7 +3663,10 @@ public class SyncFunctionTests
             { "commissionAmount", 113.75 }, { "orderTotal", 2448.75 },
             { "status", status }, { "version", version.ToString() }
         };
+        // Both read modes: order updates read it strongly consistent (FUP-21), the delivery
+        // paths that advance or size the order still read it eventually consistent.
         _mockOrderRepo.GetByIdAsync("order-001").Returns(order);
+        _mockOrderRepo.GetByIdAsync("order-001", true).Returns(order);
         return order;
     }
 
@@ -3964,7 +3967,7 @@ public class SyncFunctionTests
         // created -> payment_submitted hop must be accepted (not rejected as an
         // invalid transition). Regression for the "An error occurred" bug.
         var orderRepo = Substitute.For<IOrderRepository>();
-        orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+        orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
         {
             { "orderId", "order-001" },
             { "buyerId", "buyer-001" },
@@ -4015,7 +4018,7 @@ public class SyncFunctionTests
         // escrow release moved the order to disbursing. The transition check runs before the version
         // check, so the answer is a permanent ORDER_VALIDATION (the client reverts to the server row).
         var orderRepo = Substitute.For<IOrderRepository>();
-        orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+        orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
         {
             { "orderId", "order-001" },
             { "buyerId", "buyer-001" },
@@ -4054,7 +4057,7 @@ public class SyncFunctionTests
         // farmer's rejection bounced as an invalid transition. Pin it, including
         // the server-stamped respondedAt side-effect.
         var orderRepo = Substitute.For<IOrderRepository>();
-        orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+        orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
         {
             { "orderId", "order-001" },
             { "buyerId", "buyer-001" },
@@ -4111,7 +4114,7 @@ public class SyncFunctionTests
         try
         {
             var orderRepo = Substitute.For<IOrderRepository>();
-            orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+            orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
             {
                 { "orderId", "order-001" },
                 { "buyerId", "buyer-001" },
@@ -4182,7 +4185,7 @@ public class SyncFunctionTests
         // expired NOW so the hourly auto-refund cron pays it out (order-lifecycle.md
         // invariant 2).
         var orderRepo = Substitute.For<IOrderRepository>();
-        orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+        orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
         {
             { "orderId", "order-001" },
             { "buyerId", "buyer-001" },
@@ -5213,6 +5216,27 @@ public class SyncFunctionTests
             (string)e["entityType"] == "delivery" && (string)e["action"] == "dispute" && (string)e["actor"] == "buyer-001"));
     }
 
+    [Theory]
+    [InlineData("pending")]
+    [InlineData("pickedUp")]
+    [InlineData("inTransit")]
+    public async Task DeliveryUpdate_Disputed_BeforeDelivery_IsRefused_AndNothingIsFrozen(string deliveryStatus)
+    {
+        // FUP-16: a dispute through sync starts only from a delivered handoff (pickup comes earlier),
+        // so a dispute before pickup is impossible on this path; POST /escrow/dispute has ESCROW_041.
+        var rig = DisputeFunction(OrderEscrowRow(), orderStatus: "accepted");
+        SetupDeliveryQuery(DeliveryItemForOrder(status: deliveryStatus));
+
+        var response = await SendDeliveryDisputeAsync(rig.Function);
+
+        // The message is JSON-escaped: 'pending' arrives as \u0027pending\u0027.
+        Assert.Contains("DELIVERY_INVALID_TRANSITION", response.Body);
+        Assert.Contains($"\\u0027{deliveryStatus}\\u0027 to \\u0027disputed\\u0027", response.Body);
+        await DidNotWriteTheEscrow(rig.EscrowRepo);
+        await DidNotWriteTheDelivery();
+        await DidNotWriteTheOrder();
+    }
+
     [Fact]
     public async Task DeliveryUpdate_Disputed_OrderLeftBehindItsDelivery_IsAdvancedThenDisputed()
     {
@@ -5637,7 +5661,7 @@ public class SyncFunctionTests
         try
         {
             var orderRepo = Substitute.For<IOrderRepository>();
-            orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+            orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
             {
                 { "orderId", "order-001" },
                 { "buyerId", "buyer-001" },
@@ -6125,17 +6149,23 @@ public class SyncFunctionTests
         Version = 1
     };
 
+    /// <summary>The substitutes behind the last <see cref="PaymentFunction"/>, for "nothing written" checks.</summary>
+    private IOrderRepository? _paymentOrderRepo;
+    private ITransactionAuditRepository? _paymentAuditRepo;
+
     private SyncFunction PaymentFunction(
         decimal orderTotal, UserDto buyer, UserDto farmer, string fromStatus = "created")
     {
         var orderRepo = Substitute.For<IOrderRepository>();
-        orderRepo.GetByIdAsync("order-pay").Returns(new Dictionary<string, object>
+        orderRepo.GetByIdAsync("order-pay", true).Returns(new Dictionary<string, object>
         {
             { "orderId", "order-pay" },
             { "buyerId", "buyer-001" },
             { "farmerId", "farmer-001" },
             { "status", fromStatus },
             { "orderTotal", orderTotal },
+            // What the mobile create stores on every order (a default, not a payment claim).
+            { "paymentMethod", "cbe_transfer" },
             { "version", "1" }
         });
         orderRepo.UpdateAsync("order-pay", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
@@ -6150,9 +6180,12 @@ public class SyncFunctionTests
         userRepo.GetUserByIdAsync("buyer-001").Returns(buyer);
         userRepo.GetUserByIdAsync("farmer-001").Returns(farmer);
 
+        _paymentOrderRepo = orderRepo;
+        _paymentAuditRepo = Substitute.For<ITransactionAuditRepository>();
+
         return new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
             "test-trips-table", "test-deliveries-table",
-            userRepo: userRepo, orderRepo: orderRepo);
+            userRepo: userRepo, orderRepo: orderRepo, transactionAuditRepo: _paymentAuditRepo);
     }
 
     private static SyncOperationRequest PaymentOp() => new()
@@ -6169,6 +6202,18 @@ public class SyncFunctionTests
             { "version", 1 }
         }
     };
+
+    /// <summary>A payment with the given method; <c>null</c> sends no <c>paymentMethod</c> at all.</summary>
+    private static SyncOperationRequest PaymentOpWith(string? paymentMethod)
+    {
+        var data = new Dictionary<string, object> { { "status", "payment_submitted" }, { "version", 1 } };
+        if (paymentMethod != null)
+        {
+            data["paymentMethod"] = paymentMethod;
+        }
+
+        return PaymentOp() with { Data = data };
+    }
 
     [Fact]
     public async Task PaymentSubmitted_UnverifiedBuyerPhone_IsRejectedWithKycError()
@@ -6339,6 +6384,119 @@ public class SyncFunctionTests
 
             Assert.DoesNotContain("ORDER_VALIDATION", response.Body);
             Assert.Contains("\"status\":\"success\"", response.Body);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TELEBIRR_MOCK", null);
+        }
+    }
+
+    // ===== FUP-20: live payments take Telebirr only (bank transfers wait for ESC-46) =====
+
+    private const string CbeUnavailableMessage =
+        "ORDER_PAYMENT_METHOD_UNAVAILABLE: Bank transfer (cbe_transfer) is not available yet. Pay with Telebirr.";
+
+    private async Task AssertNoPaymentWrites()
+    {
+        await _paymentOrderRepo!.DidNotReceive().UpdateAsync(
+            Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await _paymentAuditRepo!.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+        await _mockSyncMeta.DidNotReceive().StoreIdempotencyKeyAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
+    }
+
+    [Theory]
+    [InlineData("created")]
+    [InlineData("pending_payment")]
+    [InlineData("payment_failed")]
+    public async Task PaymentSubmitted_LiveCbeTransfer_IsRefusedBeforeAnyWrite(string fromStatus)
+    {
+        // A demo build pointed at a live server: nothing could ever fund this order, so the
+        // payment clock must not start and no row may say a payment was submitted.
+        var function = PaymentFunction(2_000m, PaymentParty("buyer-001"), PaymentParty("farmer-001"),
+            fromStatus: fromStatus);
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOpWith("cbe_transfer")), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"status\":\"error\"", response.Body);
+        Assert.Contains(CbeUnavailableMessage, response.Body);
+        Assert.DoesNotContain("\"status\":\"success\"", response.Body);
+        await AssertNoPaymentWrites();
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_LiveUnknownMethod_IsRefusedTheSameWay()
+    {
+        // Only telebirr has a live funding path; any other value is refused, naming it.
+        var function = PaymentFunction(2_000m, PaymentParty("buyer-001"), PaymentParty("farmer-001"));
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOpWith("mpesa")), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+        Assert.Contains("ORDER_PAYMENT_METHOD_UNAVAILABLE: Payment method", response.Body);
+        Assert.Contains("mpesa", response.Body);
+        Assert.DoesNotContain("\"status\":\"success\"", response.Body);
+        await AssertNoPaymentWrites();
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_LiveTelebirr_IsNotRefusedByTheMethodGate()
+    {
+        // The stored create-time default is cbe_transfer; the update's telebirr is what counts.
+        var function = PaymentFunction(2_000m, PaymentParty("buyer-001"), PaymentParty("farmer-001"));
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOpWith("telebirr")), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        Assert.DoesNotContain("ORDER_PAYMENT_METHOD_UNAVAILABLE", response.Body);
+        await _paymentOrderRepo!.Received(1).UpdateAsync("order-pay",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "payment_submitted"), 1);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_LiveWithoutMethod_IsLeftToTheCheckout()
+    {
+        // An update without paymentMethod claims no bank transfer and the stored value is only
+        // the create-time default, so the checkout can still fund this order.
+        var function = PaymentFunction(2_000m, PaymentParty("buyer-001"), PaymentParty("farmer-001"));
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOpWith(null)), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        Assert.DoesNotContain("ORDER_PAYMENT_METHOD_UNAVAILABLE", response.Body);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_MockCbeTransfer_IsStillAutoFunded()
+    {
+        // Dev and staging (TELEBIRR_MOCK) fund every method; the demo CBE rail is unchanged.
+        Environment.SetEnvironmentVariable("TELEBIRR_MOCK", "true");
+        try
+        {
+            var function = PaymentFunction(2_000m, PaymentParty("buyer-001"), PaymentParty("farmer-001"));
+            var op = PaymentOpWith("cbe_transfer");
+            op.Data!["cbeTransactionId"] = "MOCK-CBE-order-pay";
+
+            var response = await function.FunctionHandler(
+                MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer",
+                    authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+            Assert.Contains("\"status\":\"success\"", response.Body);
+            Assert.DoesNotContain("ORDER_PAYMENT_METHOD_UNAVAILABLE", response.Body);
+            await _paymentOrderRepo!.Received(1).UpdateAsync("order-pay",
+                Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "payment_submitted"), 1);
+            await _paymentOrderRepo!.Received(1).UpdateAsync("order-pay",
+                Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "funded"), 2);
         }
         finally
         {
@@ -6551,7 +6709,7 @@ public class SyncFunctionTests
     public async Task PaymentSubmitted_NoUserRepository_FailsClosed()
     {
         var orderRepo = Substitute.For<IOrderRepository>();
-        orderRepo.GetByIdAsync("order-pay").Returns(new Dictionary<string, object>
+        orderRepo.GetByIdAsync("order-pay", true).Returns(new Dictionary<string, object>
         {
             { "orderId", "order-pay" },
             { "buyerId", "buyer-001" },

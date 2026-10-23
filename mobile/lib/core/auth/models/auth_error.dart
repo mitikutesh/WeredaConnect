@@ -69,6 +69,9 @@ class AuthErrorCode {
   // Login: account suspended by an administrator (server returns 403 AUTH_025).
   static const accountSuspended = 'AUTH_025';
 
+  // Logout: the refresh token in the body belongs to another user (403).
+  static const refreshTokenNotOwned = 'AUTH_026';
+
   // Step-up: the session is too old for a high-value money action.
   static const stepUpRequired = 'AUTH_040';
 
@@ -163,6 +166,7 @@ extension AuthErrorCodeExtension on String {
       case AuthErrorCode.missingRefreshToken:
         return 'Session data missing. Please log in again';
       case AuthErrorCode.refreshTokenExpired:
+      case AuthErrorCode.refreshTokenNotOwned:
         return 'Session expired. Please log in again';
       case AuthErrorCode.refreshTokenRevoked:
         return 'Session revoked. Please log in again';
