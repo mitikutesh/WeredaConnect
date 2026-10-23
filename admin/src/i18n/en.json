@@ -242,11 +242,13 @@
     "result_approve": "Signal approved. It no longer counts toward this user's risk score.",
     "result_reject": "Signal rejected. User {userId} is suspended (fraud confirmed).",
     "result_sessionsNotEnded": "The sign-in service was not updated, so the user may stay signed in until the session expires.",
-    "result_whitelist": "Signal whitelisted. This user's soft signals (GPS and price) do not count until {date}.",
+    "result_whitelist": "Signal whitelisted. This signal no longer counts, and this user's soft signals (GPS and price) do not count until {date}.",
     "openEscrows": "Open escrows (read-only)",
     "openEscrowsHint": "Nothing was held now. The next settlement sweep holds each of these escrows when it comes due.",
     "noOpenEscrows": "This user has no open escrows.",
-    "openEscrowsIncomplete": "This list may be incomplete. Check the Escrows page."
+    "openEscrowsIncomplete": "This list may be incomplete. Check the Escrows page.",
+    "error_ADMIN_006": "This signal was not found, or it is not a signal. Reload the page.",
+    "error_ADMIN_007": "The user of this signal was not found, so no account was suspended. The signal is still pending."
   },
   "users": {
     "title": "Users",
@@ -563,8 +565,6 @@
     "ADMIN_014": "Choose Farmer Wins or Buyer Wins.",
     "ADMIN_015": "The order cannot follow this verdict as it is. Choose what happens to it.",
     "ADMIN_016": "That choice does not fit the order's current state. Reload the page and check the order.",
-    "ADMIN_006": "Fraud signal not found. Reload the page.",
-    "ADMIN_007": "The user of this signal was not found, so no account was suspended.",
     "ADMIN_009": "Unknown action.",
     "ADMIN_017": "This suspend reason is reserved for the Fraud Review reject action."
   },

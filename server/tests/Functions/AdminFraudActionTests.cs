@@ -20,9 +20,10 @@ namespace WeredaConnect.Server.Tests.Functions;
 /// FRD-05 (fraud-detection-architecture.md sections 14.2, 18.1, 19, 20): the side effects of the admin's
 /// review actions on a fraud signal. <c>approve</c> stops the signal counting, <c>reject</c> suspends the user
 /// as <c>fraud_confirmed</c> through the one suspend path and lists the open escrows without holding any,
-/// <c>whitelist</c> writes the <c>~whitelist</c> row; every action writes its transaction-audit row. What the
-/// admin writes is fed back through the readers (the risk score, the settlement gate), so the test proves the
-/// writer and the reader agree.
+/// <c>whitelist</c> writes the <c>~whitelist</c> row; every action writes its transaction-audit row. The row is
+/// checked first and the side effect comes before the review stamp, so a failure in between leaves the signal
+/// pending for a retry. What the admin writes is fed back through the readers (the risk score, the settlement
+/// gate), so the test proves the writer and the reader agree.
 /// </summary>
 public class AdminFraudActionTests
 {
@@ -36,26 +37,48 @@ public class AdminFraudActionTests
     private readonly IAmazonDynamoDB _ddb = Substitute.For<IAmazonDynamoDB>();
     private readonly ICognitoAuthService _cognito = Substitute.For<ICognitoAuthService>();
     private readonly TestLambdaContext _context = new();
-    private readonly List<UpdateItemRequest> _updates = new();
-    private readonly List<PutItemRequest> _puts = new();
-    private readonly List<QueryRequest> _queries = new();
-    private readonly List<ScanRequest> _scans = new();
 
     /// <summary>The pages each escrow party index answers with, in turn; an index without any answers empty.</summary>
     private readonly Dictionary<string, Queue<QueryResponse>> _escrowPages = new();
 
+    /// <summary>What the consistent read of the signal row returns; null is a missing row.</summary>
+    private Dictionary<string, AttributeValue>? _signalRow = new()
+    {
+        { "userId", new AttributeValue { S = UserId } },
+        { "signalKey", new AttributeValue { S = "k" } }
+    };
+
+    // One-shot failures (a throttle or a timeout, not a condition), cleared when they fire.
+    private Exception? _failNextUserUpdate;
+    private Exception? _failNextUserRead;
+    private Exception? _failNextWhitelistPut;
+
     public AdminFraudActionTests()
     {
-        _ddb.UpdateItemAsync(Arg.Do<UpdateItemRequest>(_updates.Add), Arg.Any<CancellationToken>())
-            .Returns(new UpdateItemResponse());
-        _ddb.PutItemAsync(Arg.Do<PutItemRequest>(_puts.Add), Arg.Any<CancellationToken>())
-            .Returns(new PutItemResponse());
+        _ddb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.ArgAt<UpdateItemRequest>(0).TableName == UsersTable && Take(ref _failNextUserUpdate) is { } ex
+                ? Task.FromException<UpdateItemResponse>(ex)
+                : Task.FromResult(new UpdateItemResponse()));
+        _ddb.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.ArgAt<PutItemRequest>(0).TableName == FraudTable && Take(ref _failNextWhitelistPut) is { } ex
+                ? Task.FromException<PutItemResponse>(ex)
+                : Task.FromResult(new PutItemResponse()));
         _ddb.GetItemAsync(Arg.Any<GetItemRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new GetItemResponse
+            .Returns(ci =>
             {
-                Item = new Dictionary<string, AttributeValue> { { "phoneNumber", new AttributeValue { S = Phone } } }
+                if (ci.ArgAt<GetItemRequest>(0).TableName == FraudTable)
+                {
+                    return Task.FromResult(new GetItemResponse { Item = _signalRow });
+                }
+
+                return Take(ref _failNextUserRead) is { } ex
+                    ? Task.FromException<GetItemResponse>(ex)
+                    : Task.FromResult(new GetItemResponse
+                    {
+                        Item = new Dictionary<string, AttributeValue> { { "phoneNumber", new AttributeValue { S = Phone } } }
+                    });
             });
-        _ddb.QueryAsync(Arg.Do<QueryRequest>(_queries.Add), Arg.Any<CancellationToken>())
+        _ddb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
             .Returns(ci => Task.FromResult(
                 _escrowPages.TryGetValue(ci.ArgAt<QueryRequest>(0).IndexName, out var pages) && pages.Count > 0
                     ? pages.Dequeue()
@@ -91,18 +114,54 @@ public class AdminFraudActionTests
 
     private static JsonElement Json(APIGatewayProxyResponse response) => JsonDocument.Parse(response.Body).RootElement;
 
-    private UpdateItemRequest SignalUpdate => _updates.Single(u => u.TableName == FraudTable);
+    private static string ErrorCode(APIGatewayProxyResponse response) =>
+        Json(response).GetProperty("error").GetProperty("code").GetString()!;
 
-    private IEnumerable<UpdateItemRequest> UserUpdates => _updates.Where(u => u.TableName == UsersTable);
+    private static Exception? Take(ref Exception? failure)
+    {
+        var next = failure;
+        failure = null;
+        return next;
+    }
 
-    private PutItemRequest? WhitelistPut => _puts.SingleOrDefault(p => p.TableName == FraudTable);
+    /// <summary>Every request of one kind the client received, failed ones included, in order.</summary>
+    private List<T> Requests<T>() => _ddb.ReceivedCalls().Select(c => c.GetArguments()[0]).OfType<T>().ToList();
 
-    private List<string> AuditActions => _puts
+    /// <summary>The client calls as <c>Method:table</c>, in order.</summary>
+    private List<string> Trace => _ddb.ReceivedCalls()
+        .Select(c => $"{c.GetMethodInfo().Name}:" + (c.GetArguments()[0] switch
+        {
+            GetItemRequest r => r.TableName,
+            UpdateItemRequest r => r.TableName,
+            PutItemRequest r => r.TableName,
+            QueryRequest r => r.TableName,
+            ScanRequest r => r.TableName,
+            _ => ""
+        }))
+        .ToList();
+
+    private List<UpdateItemRequest> Updates => Requests<UpdateItemRequest>();
+
+    private List<PutItemRequest> Puts => Requests<PutItemRequest>();
+
+    private List<QueryRequest> Queries => Requests<QueryRequest>();
+
+    private List<ScanRequest> Scans => Requests<ScanRequest>();
+
+    private UpdateItemRequest SignalUpdate => Updates.Single(u => u.TableName == FraudTable);
+
+    private IEnumerable<UpdateItemRequest> UserUpdates => Updates.Where(u => u.TableName == UsersTable);
+
+    private List<PutItemRequest> WhitelistPuts => Puts.Where(p => p.TableName == FraudTable).ToList();
+
+    private PutItemRequest? WhitelistPut => WhitelistPuts.SingleOrDefault();
+
+    private List<string> AuditActions => Puts
         .Where(p => p.TableName == TxAuditTable)
         .Select(p => p.Item["action"].S)
         .ToList();
 
-    private string? AuditMetadata(string action) => _puts
+    private string? AuditMetadata(string action) => Puts
         .Where(p => p.TableName == TxAuditTable && p.Item["action"].S == action)
         .Select(p => p.Item.TryGetValue("metadata", out var m) ? m.S : null)
         .Single();
@@ -167,33 +226,56 @@ public class AdminFraudActionTests
         var response = await ActAsync(action);
 
         response.StatusCode.Should().Be(400);
-        Json(response).GetProperty("error").GetProperty("code").GetString().Should().Be("ADMIN_009");
-        _updates.Should().BeEmpty();
-        _puts.Should().BeEmpty();
+        ErrorCode(response).Should().Be("ADMIN_009");
+        _ddb.ReceivedCalls().Should().BeEmpty();
         await _cognito.DidNotReceiveWithAnyArgs().AdminDisableUserAsync(default!);
     }
 
     [Theory]
-    [InlineData("approve")]
-    [InlineData("reject")]
-    [InlineData("whitelist")]
-    public async Task ACreditOrWhitelistRow_Returns404Admin006_WithNoSideEffect(string action)
+    [InlineData("approve", "whitelist")]
+    [InlineData("reject", "whitelist")]
+    [InlineData("whitelist", "whitelist")]
+    [InlineData("reject", "credit")]
+    [InlineData("whitelist", "credit")]
+    [InlineData("reject", null)]
+    [InlineData("whitelist", null)]
+    public async Task ACreditOrWhitelistRow_OrAMissingOne_Returns404Admin006_BeforeAnyWrite(string action, string? recordType)
     {
-        // The condition admits signal rows only; DynamoDB refuses it on the whitelist row.
-        _ddb.UpdateItemAsync(
-                Arg.Is<UpdateItemRequest>(u => u.TableName == FraudTable
-                    && u.ConditionExpression.Contains("attribute_not_exists(#recordType) OR #recordType = :signalRecord")),
-                Arg.Any<CancellationToken>())
-            .ThrowsAsync(new ConditionalCheckFailedException("not a signal"));
+        _signalRow = recordType == null
+            ? null
+            : new Dictionary<string, AttributeValue>
+            {
+                { "userId", new AttributeValue { S = UserId } },
+                { "recordType", new AttributeValue { S = recordType } }
+            };
 
         var response = await ActAsync(action, signalKey: "~whitelist");
 
         response.StatusCode.Should().Be(404);
-        Json(response).GetProperty("error").GetProperty("code").GetString().Should().Be("ADMIN_006");
-        UserUpdates.Should().BeEmpty();
-        _puts.Should().BeEmpty();
-        _queries.Should().BeEmpty();
+        ErrorCode(response).Should().Be("ADMIN_006");
+        var read = Requests<GetItemRequest>().Single();
+        read.TableName.Should().Be(FraudTable);
+        read.ConsistentRead.Should().BeTrue();
+        read.Key["userId"].S.Should().Be(UserId);
+        read.Key["signalKey"].S.Should().Be("~whitelist");
+        Updates.Should().BeEmpty();
+        Puts.Should().BeEmpty();
+        Queries.Should().BeEmpty();
         await _cognito.DidNotReceiveWithAnyArgs().AdminDisableUserAsync(default!);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("signal")]
+    public async Task ALegacyOrMarkedSignalRow_IsReviewed(string? recordType)
+    {
+        if (recordType != null)
+        {
+            _signalRow!["recordType"] = new AttributeValue { S = recordType };
+        }
+
+        (await ActAsync("approve")).StatusCode.Should().Be(200);
+        SignalUpdate.ExpressionAttributeValues[":resolution"].S.Should().Be("approve");
     }
 
     // ──────────────────────────────────────────────
@@ -218,7 +300,7 @@ public class AdminFraudActionTests
 
         UserUpdates.Should().BeEmpty();
         WhitelistPut.Should().BeNull();
-        _queries.Should().BeEmpty();
+        Queries.Should().BeEmpty();
         await _cognito.DidNotReceiveWithAnyArgs().AdminDisableUserAsync(default!);
         AuditActions.Should().Equal("fraud_approve");
     }
@@ -261,19 +343,23 @@ public class AdminFraudActionTests
         await _cognito.Received(1).AdminGlobalSignOutAsync(Phone);
 
         // The three party indexes, each filtered on the open statuses; read only.
-        _queries.Select(q => q.IndexName).Should().Equal("BuyerStatusIndex", "FarmerStatusIndex", "TruckerStatusIndex");
-        _queries.Should().OnlyContain(q => q.TableName == EscrowsTable
+        Queries.Select(q => q.IndexName).Should().Equal("BuyerStatusIndex", "FarmerStatusIndex", "TruckerStatusIndex");
+        Queries.Should().OnlyContain(q => q.TableName == EscrowsTable
             && q.ExpressionAttributeValues[":userId"].S == UserId
             && q.FilterExpression == "#status IN (:s0, :s1, :s2, :s3)"
             && q.ExpressionAttributeValues[":s0"].S == "escrowed"
             && q.ExpressionAttributeValues[":s1"].S == "disputed"
             && q.ExpressionAttributeValues[":s2"].S == "dispute_resolved"
             && q.ExpressionAttributeValues[":s3"].S == "held");
-        _updates.Should().NotContain(u => u.TableName == EscrowsTable);
-        _puts.Should().NotContain(p => p.TableName == EscrowsTable);
+        Updates.Should().NotContain(u => u.TableName == EscrowsTable);
+        Puts.Should().NotContain(p => p.TableName == EscrowsTable);
         await _ddb.DidNotReceiveWithAnyArgs().TransactWriteItemsAsync(default!, default);
 
-        AuditActions.Should().Equal("fraud_reject", "user_suspend");
+        // Read the row, suspend, then stamp and audit the review; the escrows are read last.
+        Trace.Should().ContainInOrder(
+            $"GetItemAsync:{FraudTable}", $"UpdateItemAsync:{UsersTable}", $"UpdateItemAsync:{FraudTable}",
+            $"PutItemAsync:{TxAuditTable}", $"QueryAsync:{EscrowsTable}");
+        AuditActions.Should().Equal("user_suspend", "fraud_reject");
         AuditMetadata("fraud_reject").Should().Be("Same photos as farmer-9");
         AuditMetadata("user_suspend").Should().Be("fraud_confirmed");
     }
@@ -334,7 +420,7 @@ public class AdminFraudActionTests
     }
 
     [Fact]
-    public async Task Reject_TheUserRowIsMissing_Returns404Admin007_NoEscrowRead()
+    public async Task Reject_TheUserRowIsMissing_Returns404Admin007_TheSignalStaysPending()
     {
         _ddb.UpdateItemAsync(Arg.Is<UpdateItemRequest>(u => u.TableName == UsersTable), Arg.Any<CancellationToken>())
             .ThrowsAsync(new ConditionalCheckFailedException("no user"));
@@ -342,10 +428,61 @@ public class AdminFraudActionTests
         var response = await ActAsync("reject");
 
         response.StatusCode.Should().Be(404);
-        Json(response).GetProperty("error").GetProperty("code").GetString().Should().Be("ADMIN_007");
-        _queries.Should().BeEmpty();
-        // The rejection itself is recorded (it counts like a pending signal); a retry repeats both writes.
-        AuditActions.Should().Equal("fraud_reject");
+        ErrorCode(response).Should().Be("ADMIN_007");
+        Updates.Should().NotContain(u => u.TableName == FraudTable);
+        Queries.Should().BeEmpty();
+        AuditActions.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("profile")]
+    [InlineData("phone")]
+    public async Task Reject_ASuspendThatFails_LeavesTheSignalPending_AndTheRetryCompletesIt(string failingStep)
+    {
+        // A throttle on the profile write, or a timeout on the phone read Cognito needs.
+        if (failingStep == "profile")
+        {
+            _failNextUserUpdate = new ProvisionedThroughputExceededException("throttled");
+        }
+        else
+        {
+            _failNextUserRead = new AmazonDynamoDBException("timeout");
+        }
+
+        var first = await ActAsync("reject");
+
+        first.StatusCode.Should().Be(500);
+        ErrorCode(first).Should().Be("ADMIN_500");
+        // Still pending, so Fraud Review offers the buttons again; nothing says it was reviewed.
+        Updates.Should().NotContain(u => u.TableName == FraudTable);
+        AuditActions.Should().BeEmpty();
+
+        var retry = await ActAsync("reject");
+
+        retry.StatusCode.Should().Be(200, retry.Body);
+        Json(retry).GetProperty("suspended").GetBoolean().Should().BeTrue();
+        Updates.Count(u => u.TableName == FraudTable).Should().Be(1);
+        // The same suspension written again: the retry is idempotent.
+        UserUpdates.Should().HaveCount(2).And.OnlyContain(u =>
+            u.ExpressionAttributeValues[":suspended"].BOOL == true
+            && u.ExpressionAttributeValues[":reason"].S == "fraud_confirmed");
+        await _cognito.Received(1).AdminDisableUserAsync(Phone);
+        await _cognito.Received(1).AdminGlobalSignOutAsync(Phone);
+        AuditActions.Should().Equal("user_suspend", "fraud_reject");
+    }
+
+    [Fact]
+    public async Task Reject_TheRowGoesAwayAfterTheSuspend_Answers404_AndTheSuspensionStands()
+    {
+        _ddb.UpdateItemAsync(Arg.Is<UpdateItemRequest>(u => u.TableName == FraudTable), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("gone"));
+
+        var response = await ActAsync("reject");
+
+        response.StatusCode.Should().Be(404);
+        ErrorCode(response).Should().Be("ADMIN_006");
+        UserUpdates.Should().ContainSingle();
+        AuditActions.Should().Equal("user_suspend");
     }
 
     [Fact]
@@ -372,8 +509,8 @@ public class AdminFraudActionTests
         var response = await ActAsync("reject");
 
         Json(response).GetProperty("openEscrowsComplete").GetBoolean().Should().BeFalse();
-        _queries.Count(q => q.IndexName == "BuyerStatusIndex").Should().Be(5);
-        _queries.Should().Contain(q => q.IndexName == "TruckerStatusIndex");
+        Queries.Count(q => q.IndexName == "BuyerStatusIndex").Should().Be(5);
+        Queries.Should().Contain(q => q.IndexName == "TruckerStatusIndex");
     }
 
     [Fact]
@@ -417,8 +554,32 @@ public class AdminFraudActionTests
         body.GetProperty("whitelistUntil").GetString().Should().Be(put.Item["whitelistUntil"].S);
         SignalUpdate.ExpressionAttributeValues[":resolution"].S.Should().Be("whitelist");
         UserUpdates.Should().BeEmpty();
+        Trace.Should().ContainInOrder(
+            $"GetItemAsync:{FraudTable}", $"PutItemAsync:{FraudTable}", $"UpdateItemAsync:{FraudTable}", $"PutItemAsync:{TxAuditTable}");
         AuditActions.Should().Equal("fraud_whitelist");
         AuditMetadata("fraud_whitelist").Should().Be($"whitelistUntil={put.Item["whitelistUntil"].S};notes=Known GPS drift in Jimma");
+    }
+
+    [Fact]
+    public async Task Whitelist_APutThatFails_LeavesTheSignalPending_AndTheRetryCompletesIt()
+    {
+        _failNextWhitelistPut = new ProvisionedThroughputExceededException("throttled");
+
+        var first = await ActAsync("whitelist");
+
+        first.StatusCode.Should().Be(500);
+        // Not cleared without its whitelist row.
+        Updates.Should().BeEmpty();
+        AuditActions.Should().BeEmpty();
+
+        var retry = await ActAsync("whitelist");
+
+        retry.StatusCode.Should().Be(200, retry.Body);
+        SignalUpdate.ExpressionAttributeValues[":resolution"].S.Should().Be("whitelist");
+        // The one row written again in place: the retry is idempotent.
+        WhitelistPuts.Should().HaveCount(2).And.OnlyContain(p =>
+            p.Item["userId"].S == UserId && p.Item["signalKey"].S == "~whitelist" && p.Item["recordType"].S == "whitelist");
+        AuditActions.Should().Equal("fraud_whitelist");
     }
 
     [Fact]
@@ -466,7 +627,7 @@ public class AdminFraudActionTests
     private void ScanPages(params ScanResponse[] pages)
     {
         var queue = new Queue<ScanResponse>(pages);
-        _ddb.ScanAsync(Arg.Do<ScanRequest>(_scans.Add), Arg.Any<CancellationToken>())
+        _ddb.ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>())
             .Returns(_ => Task.FromResult(queue.Count > 0
                 ? queue.Dequeue()
                 : new ScanResponse { Items = new List<Dictionary<string, AttributeValue>>(), LastEvaluatedKey = new Dictionary<string, AttributeValue>() }));
@@ -505,8 +666,8 @@ public class AdminFraudActionTests
         var response = await Function().FunctionHandler(Get("/admin/fraud-signals"), _context);
 
         response.StatusCode.Should().Be(200);
-        _scans.Should().HaveCount(2);
-        _scans.Should().OnlyContain(s => s.TableName == FraudTable
+        Scans.Should().HaveCount(2);
+        Scans.Should().OnlyContain(s => s.TableName == FraudTable
             && s.FilterExpression == "(attribute_not_exists(#recordType) OR #recordType = :signalRecord)"
             && s.ExpressionAttributeNames["#recordType"] == "recordType"
             && s.ExpressionAttributeValues[":signalRecord"].S == "signal");
@@ -521,7 +682,7 @@ public class AdminFraudActionTests
 
         await Function().FunctionHandler(Get("/admin/fraud-signals", new Dictionary<string, string> { { "status", "pending" } }), _context);
 
-        var scan = _scans.Single();
+        var scan = Scans.Single();
         scan.FilterExpression.Should().Be("#field = :value AND (attribute_not_exists(#recordType) OR #recordType = :signalRecord)");
         scan.ExpressionAttributeNames["#field"].Should().Be("status");
         scan.ExpressionAttributeValues[":value"].S.Should().Be("pending");
@@ -536,7 +697,7 @@ public class AdminFraudActionTests
         var response = await Function().FunctionHandler(Get("/admin/dashboard/stats"), _context);
 
         response.StatusCode.Should().Be(200);
-        var count = _scans.Single(s => s.TableName == FraudTable);
+        var count = Scans.Single(s => s.TableName == FraudTable);
         count.Select.Should().Be(Select.COUNT);
         count.FilterExpression.Should().Be("(attribute_not_exists(#recordType) OR #recordType = :signalRecord)");
         count.ExpressionAttributeValues[":signalRecord"].S.Should().Be("signal");
@@ -555,8 +716,8 @@ public class AdminFraudActionTests
             Post($"/admin/users/{UserId}/action", new { action = "suspend", reason }), _context);
 
         response.StatusCode.Should().Be(400);
-        Json(response).GetProperty("error").GetProperty("code").GetString().Should().Be("ADMIN_017");
-        _updates.Should().BeEmpty();
+        ErrorCode(response).Should().Be("ADMIN_017");
+        Updates.Should().BeEmpty();
         await _cognito.DidNotReceiveWithAnyArgs().AdminDisableUserAsync(default!);
     }
 

@@ -1269,9 +1269,39 @@ public class AdminFunction
         var now = nowUtc.ToString("o");
         var adminUserId = AuthHelper.GetUserId(request) ?? "admin";
 
+        // FRD-05: the side effect comes before the review stamp, so a failure in between leaves the signal
+        // pending and the admin can act again: the user suspended or the whitelist written, never a
+        // reviewed signal without them. The row is checked first, so a bad id has no side effect.
+        if (!await IsSignalRowAsync(signalUserId, signalKey))
+        {
+            return LambdaResponse.Error(404, "ADMIN_006", "Fraud signal not found.");
+        }
+
+        // reject: the signal keeps counting, and the user is suspended through the one suspend path.
+        // Nothing is held here: the next settlement sweep that would pay or refund one of the user's
+        // escrows holds it as fraud_confirmed (section 18.1).
+        string? cognitoNote = null;
+        if (body.Action == "reject")
+        {
+            var suspension = await ApplyUserActionAsync(
+                signalUserId, new UserActionRequest { Action = "suspend", Reason = FraudConfirmedReason }, request, context);
+            if (suspension.Error != null)
+            {
+                return suspension.Error;
+            }
+
+            cognitoNote = suspension.CognitoNote;
+        }
+
+        string? whitelistUntil = null;
+        if (body.Action == "whitelist")
+        {
+            whitelistUntil = await WriteWhitelistAsync(signalUserId, nowUtc, adminUserId, body.Notes);
+        }
+
         // status becomes "reviewed" (the admin UI keys on that value); the
         // chosen verb (approve/reject/whitelist) is kept in "resolution".
-        // FRD-05: only a signal row can be reviewed; a credit or whitelist row reads as not found.
+        // Still conditional: a row that went away since the read is not recreated.
         var updateRequest = new UpdateItemRequest
         {
             TableName = _fraudSignalsTable,
@@ -1309,13 +1339,6 @@ public class AdminFunction
             return LambdaResponse.Error(404, "ADMIN_006", "Fraud signal not found.");
         }
 
-        // whitelist: the signal row validated the request, so the whitelist row follows it.
-        string? whitelistUntil = null;
-        if (body.Action == "whitelist")
-        {
-            whitelistUntil = await WriteWhitelistAsync(signalUserId, nowUtc, adminUserId, body.Notes);
-        }
-
         await TransactionAuditWriter.EmitAsync(
             TxAuditRepo(), context, signalId, "fraud", signalId,
             $"fraud_{body.Action}", null, body.Action,
@@ -1337,8 +1360,10 @@ public class AdminFunction
             Message = body.Action switch
             {
                 "approve" => "Fraud signal approved. It no longer counts toward the user's risk score.",
-                "whitelist" => $"Fraud signal whitelisted. The user's soft signals do not count until {whitelistUntil}.",
-                _ => "Fraud signal rejected."
+                "whitelist" => $"Fraud signal whitelisted. It no longer counts, and the user's soft signals do not count until {whitelistUntil}.",
+                _ => cognitoNote == null
+                    ? "Fraud signal rejected. The user is suspended (fraud_confirmed) and signed out."
+                    : $"Fraud signal rejected. The user is suspended (fraud_confirmed), but {cognitoNote}"
             },
             WhitelistUntil = whitelistUntil
         };
@@ -1348,28 +1373,38 @@ public class AdminFunction
             return LambdaResponse.Ok(response, AppJsonContext.Default.FraudActionResponse);
         }
 
-        // reject: the signal keeps counting, and the user is suspended through the one suspend path.
-        // Nothing is held here: the next settlement sweep that would pay or refund one of the user's
-        // escrows holds it as fraud_confirmed (section 18.1).
-        var suspension = await ApplyUserActionAsync(
-            signalUserId, new UserActionRequest { Action = "suspend", Reason = FraudConfirmedReason }, request, context);
-        if (suspension.Error != null)
-        {
-            return suspension.Error;
-        }
-
         var (openEscrows, complete) = await ReadOpenEscrowsAsync(signalUserId, context);
         return LambdaResponse.Ok(response with
         {
             Suspended = true,
             SuspendReason = FraudConfirmedReason,
-            SessionsEnded = suspension.CognitoNote == null,
+            SessionsEnded = cognitoNote == null,
             OpenEscrows = openEscrows,
-            OpenEscrowsComplete = complete,
-            Message = suspension.CognitoNote == null
-                ? "Fraud signal rejected. The user is suspended (fraud_confirmed) and signed out."
-                : $"Fraud signal rejected. The user is suspended (fraud_confirmed), but {suspension.CognitoNote}"
+            OpenEscrowsComplete = complete
         }, AppJsonContext.Default.FraudActionResponse);
+    }
+
+    /// <summary>
+    /// FRD-05: whether the row the action names exists and is a signal (legacy rows carry no
+    /// <c>recordType</c>), read consistently so a row written a moment ago is seen.
+    /// </summary>
+    private async Task<bool> IsSignalRowAsync(string userId, string signalKey)
+    {
+        var response = await _dynamoDb.GetItemAsync(new GetItemRequest
+        {
+            TableName = _fraudSignalsTable,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "userId", new AttributeValue { S = userId } },
+                { "signalKey", new AttributeValue { S = signalKey } }
+            },
+            ConsistentRead = true,
+            ProjectionExpression = "#u, #rt",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#u", "userId" }, { "#rt", "recordType" } }
+        });
+        return response?.Item is { Count: > 0 } item
+            && (!item.TryGetValue("recordType", out var recordType)
+                || recordType.S == FraudDetectionService.RecordTypeSignal);
     }
 
     /// <summary>

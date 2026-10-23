@@ -635,6 +635,16 @@ public class AdminFunctionTests
         var signalKey = "2026-07-11T10:00:00.0000000Z#PRICE_ANOMALY";
         var signalId = WeredaConnect.Server.Services.FraudDetectionService
             .BuildSignalId("farmer-1", signalKey);
+        // FRD-05: the row is read first; a legacy signal row carries no recordType.
+        _dynamoDb.GetItemAsync(Arg.Is<GetItemRequest>(r => r.TableName == FraudSignalsTable), Arg.Any<CancellationToken>())
+            .Returns(new GetItemResponse
+            {
+                Item = new Dictionary<string, AttributeValue>
+                {
+                    { "userId", new AttributeValue { S = "farmer-1" } },
+                    { "signalKey", new AttributeValue { S = signalKey } }
+                }
+            });
         var fn = new AdminFunction(_dynamoDb, UsersTable, FraudSignalsTable);
 
         var response = await fn.FunctionHandler(
@@ -674,8 +684,9 @@ public class AdminFunctionTests
     {
         var signalId = WeredaConnect.Server.Services.FraudDetectionService
             .BuildSignalId("farmer-1", "2026-07-11T10:00:00.0000000Z#GPS_ANOMALY");
-        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
-            .Returns<UpdateItemResponse>(_ => throw new ConditionalCheckFailedException("no item"));
+        // FRD-05: the consistent read finds no row, so nothing is written (no suspension either).
+        _dynamoDb.GetItemAsync(Arg.Any<GetItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new GetItemResponse());
         var fn = new AdminFunction(_dynamoDb, UsersTable, FraudSignalsTable);
 
         var response = await fn.FunctionHandler(
@@ -683,6 +694,7 @@ public class AdminFunctionTests
 
         response.StatusCode.Should().Be(404);
         response.Body.Should().Contain("ADMIN_006");
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
     }
 
     // ===== Account controls reach Cognito (suspend / unsuspend / change_role) =====

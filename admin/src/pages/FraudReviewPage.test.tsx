@@ -156,17 +156,30 @@ describe("FraudReviewPage", () => {
     expect(within(status).getByText("This list may be incomplete. Check the Escrows page.")).toBeTruthy();
   });
 
-  it("whitelist: shows until when soft signals do not count", async () => {
+  it("whitelist: offered on soft signals only, and says the signal no longer counts", async () => {
+    mocks.signals.data = {
+      signals: [
+        signal({ signalId: "hard", signalType: "FRAUD_DUPLICATE_LISTING" }),
+        signal({ signalId: "gps", signalType: "GPS_ANOMALY" }),
+        signal({ signalId: "price", signalType: "PRICE_ANOMALY", severity: "medium" }),
+      ],
+    };
     const user = userEvent.setup();
     render(<FraudReviewPage />);
 
-    await user.click(within(table()).getByRole("button", { name: "Whitelist" }));
+    // A whitelist would clear a hard signal for good, so the hard row offers approve and reject only.
+    const rows = within(table()).getAllByRole("row").slice(1);
+    expect(within(rows[0]).queryByRole("button", { name: "Whitelist" })).toBeNull();
+    expect(within(rows[0]).getByRole("button", { name: "Approve" })).toBeTruthy();
+    expect(within(rows[1]).getByRole("button", { name: "Whitelist" })).toBeTruthy();
+    await user.click(within(rows[2]).getByRole("button", { name: "Whitelist" }));
 
-    expect(lastMutate().vars).toEqual({ id: "sig-1", action: { action: "whitelist" } });
+    expect(lastMutate().vars).toEqual({ id: "price", action: { action: "whitelist" } });
     const until = "2026-11-22T10:00:00.0000000Z";
     succeedWith({ resolution: "whitelist", userId: "farmer-1", whitelistUntil: until });
     expect(screen.getByRole("status").textContent).toBe(
-      `Signal whitelisted. This user's soft signals (GPS and price) do not count until ${formatDateTime(until)}.`,
+      "Signal whitelisted. This signal no longer counts, and this user's soft signals (GPS and price) " +
+        `do not count until ${formatDateTime(until)}.`,
     );
   });
 
@@ -186,14 +199,24 @@ describe("FraudReviewPage", () => {
     expect(within(table()).queryByRole("button")).toBeNull();
   });
 
-  it("shows the error for a refused action", async () => {
+  it("shows this page's wording for a refused action, then the shared text", async () => {
     const user = userEvent.setup();
     render(<FraudReviewPage />);
-    await user.click(within(table()).getByRole("button", { name: "Approve" }));
+    const fail = async (err: { code: string; status: number }) => {
+      await user.click(within(table()).getByRole("button", { name: "Approve" }));
+      act(() => lastMutate().opts.onError?.(err));
+      return screen.getByRole("alert").textContent;
+    };
 
-    act(() => lastMutate().opts.onError?.({ code: "ADMIN_006" }));
-
-    expect(screen.getByRole("alert").textContent).toBe("Fraud signal not found. Reload the page.");
+    expect(await fail({ code: "ADMIN_006", status: 404 })).toBe(
+      "This signal was not found, or it is not a signal. Reload the page.",
+    );
+    expect(await fail({ code: "ADMIN_007", status: 404 })).toBe(
+      "The user of this signal was not found, so no account was suspended. The signal is still pending.",
+    );
+    // 503 ADMIN_006 is the missing table, not a missing signal.
+    expect(await fail({ code: "ADMIN_006", status: 503 })).toBe("Action failed. Please try again.");
+    expect(await fail({ code: "ADMIN_009", status: 400 })).toBe("Unknown action.");
     expect(screen.queryByRole("status")).toBeNull();
   });
 });

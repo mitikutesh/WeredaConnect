@@ -99,8 +99,6 @@ describe("fraud hold labels exist in every locale", () => {
 describe("fraud review strings exist in every locale", () => {
   const keys = [
     ...Object.keys(en.fraud).map((k) => `fraud.${k}`),
-    "errors.ADMIN_006",
-    "errors.ADMIN_007",
     "errors.ADMIN_009",
     "errors.ADMIN_017",
     "users.buyer",
@@ -121,6 +119,14 @@ describe("fraud review strings exist in every locale", () => {
     for (const locale of locales) {
       expect(t("fraud.result_reject", locale)).toContain("{userId}");
       expect(t("fraud.result_whitelist", locale)).toContain("{date}");
+    }
+  });
+
+  it("keeps the fraud wording of ADMIN_006 and ADMIN_007 off the shared error keys", () => {
+    // The user page answers its own ADMIN_007 (user not found) through errors.*.
+    for (const locale of locales) {
+      expect(t("errors.ADMIN_006", locale)).toBe("errors.ADMIN_006");
+      expect(t("errors.ADMIN_007", locale)).toBe("errors.ADMIN_007");
     }
   });
 });

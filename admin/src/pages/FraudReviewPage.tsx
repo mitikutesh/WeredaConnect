@@ -12,6 +12,11 @@ const severityVariant: Record<string, "danger" | "warning" | "default"> = {
   low: "default",
 };
 
+/* FRD-05: the soft class of the signal catalogue (fraud-detection-architecture.md section 15), as the
+ * server's FraudDetectionService.IsSoftSignal has it. A whitelist clears the signal it is given for good
+ * and skips only soft signals until its end, so it is offered on soft signals only. */
+const SOFT_SIGNAL_TYPES = new Set(["GPS_ANOMALY", "PRICE_ANOMALY"]);
+
 /* FRD-05: what a reviewed signal was decided as. */
 const resolutionVariant: Record<string, "success" | "danger" | "info"> = {
   approve: "success",
@@ -54,6 +59,11 @@ export function FraudReviewPage() {
   // Reject suspends the account, so it asks once more.
   const [confirmingReject, setConfirmingReject] = useState<string | null>(null);
 
+  function label(key: string): string | null {
+    const text = t(key);
+    return text === key ? null : text;
+  }
+
   function handleAction(id: string, action: string) {
     setErrorMsg(null);
     setResult(null);
@@ -63,10 +73,11 @@ export function FraudReviewPage() {
       {
         onSuccess: (res: unknown) => setResult((res ?? {}) as FraudActionResult),
         onError: (err: unknown) => {
-          const code = (err as { code?: string }).code;
-          const key = code ? `errors.${code}` : "errors.actionFailed";
-          const msg = t(key);
-          setErrorMsg(msg !== key ? msg : t("errors.actionFailed"));
+          const { code, status } = err as { code?: string; status?: number };
+          // This page's wording first: errors.* is shared with other pages, and ADMIN_006 also
+          // answers 503 when the signals table is not configured.
+          const scoped = code && !(code === "ADMIN_006" && status !== 404) ? label(`fraud.error_${code}`) : null;
+          setErrorMsg(scoped ?? (code ? label(`errors.${code}`) : null) ?? t("errors.actionFailed"));
         },
       },
     );
@@ -151,12 +162,14 @@ export function FraudReviewPage() {
             >
               {t("fraud.reject")}
             </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); handleAction(id, "whitelist"); }}
-              className="rounded bg-gray-500 px-2 py-1 text-xs text-white hover:opacity-90"
-            >
-              {t("fraud.whitelist")}
-            </button>
+            {SOFT_SIGNAL_TYPES.has(String(row.signalType)) && (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleAction(id, "whitelist"); }}
+                className="rounded bg-gray-500 px-2 py-1 text-xs text-white hover:opacity-90"
+              >
+                {t("fraud.whitelist")}
+              </button>
+            )}
           </div>
         );
       },

@@ -238,9 +238,9 @@ describe('ApiStack', () => {
 
     // reject: the open escrows come from the buyer, farmer and trucker indexes.
     expect(actionsOf((r) => r.includes('EscrowsTable') && r.includes('/index/*'))).toContain('dynamodb:Query');
-    // The review stamp, the whitelist row, and the list and count scans.
+    // The signal-row read, the review stamp, the whitelist row, and the list and count scans.
     expect(actionsOf((r) => r.includes('FraudSignalsTable'))).toEqual(
-      expect.arrayContaining(['dynamodb:UpdateItem', 'dynamodb:PutItem', 'dynamodb:Scan']),
+      expect.arrayContaining(['dynamodb:GetItem', 'dynamodb:UpdateItem', 'dynamodb:PutItem', 'dynamodb:Scan']),
     );
     // reject suspends through the user action path: the profile row, then Cognito on the mobile pool.
     expect(actionsOf((r) => r.includes('UsersTable'))).toEqual(
