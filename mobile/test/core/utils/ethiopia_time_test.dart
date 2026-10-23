@@ -83,14 +83,17 @@ void main() {
         DateFormat.yMMMd().format(DateTime.parse('2026-10-22T23:30:00.000Z')),
         'Oct 22, 2026',
       );
-      expect(_norm(DateFormat.yMMMd().add_jm().format(eat)),
-          'Oct 23, 2026 2:30 AM');
+      expect(
+        _norm(DateFormat.yMMMd().add_jm().format(eat)),
+        'Oct 23, 2026 2:30 AM',
+      );
     });
 
     test('keeps the time of day, not only the date', () {
       expect(
         _norm(
-            DateFormat.yMMMd().add_jm().format(at('2026-06-19T10:00:00.000Z'))),
+          DateFormat.yMMMd().add_jm().format(at('2026-06-19T10:00:00.000Z')),
+        ),
         'Jun 19, 2026 1:00 PM',
       );
     });

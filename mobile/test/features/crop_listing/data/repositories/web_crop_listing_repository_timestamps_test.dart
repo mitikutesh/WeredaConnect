@@ -60,9 +60,11 @@ void main() {
       'Oct 22, 2026',
     );
     expect(
-      _norm(DateFormat.yMMMd()
-          .add_jm()
-          .format(instantInEthiopia(listing.createdAt))),
+      _norm(
+        DateFormat.yMMMd()
+            .add_jm()
+            .format(instantInEthiopia(listing.createdAt)),
+      ),
       'Oct 23, 2026 2:30 AM',
     );
   });
