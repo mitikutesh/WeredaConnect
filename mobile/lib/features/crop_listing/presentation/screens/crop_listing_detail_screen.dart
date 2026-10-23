@@ -10,6 +10,7 @@ import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
 import 'package:wereda_connect/features/buyer/domain/services/matching_service.dart'
     if (dart.library.html) 'package:wereda_connect/features/buyer/domain/services/matching_service_web.dart';
@@ -611,7 +612,7 @@ class _DetailsCard extends StatelessWidget {
             _DetailRow(
               icon: Icons.access_time,
               label: l10n.detailCreated,
-              value: dateFormat.format(listing.createdAt),
+              value: dateFormat.format(instantInEthiopia(listing.createdAt)),
             ),
           ],
         ),

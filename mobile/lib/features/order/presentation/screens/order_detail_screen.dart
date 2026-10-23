@@ -9,6 +9,7 @@ import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -272,7 +273,8 @@ class _OrderDetailBody extends StatelessWidget {
                     const Divider(height: 16),
                     _InfoRow(
                       label: l10n.statusCreated,
-                      value: dateFormat.format(order.createdAt),
+                      value:
+                          dateFormat.format(instantInEthiopia(order.createdAt)),
                     ),
                     // ESC-06: when the crops must be collected by, for all
                     // three parties of an accepted order.
@@ -282,7 +284,7 @@ class _OrderDetailBody extends StatelessWidget {
                       _InfoRow(
                         label: l10n.orderPickupDeadline,
                         value: dateFormat.format(
-                          order.pickupDeadlineAt!.toLocal(),
+                          instantInEthiopia(order.pickupDeadlineAt!),
                         ),
                       ),
                     ],

@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/payout_expectation.dart';
@@ -526,7 +527,7 @@ class _PaymentCard extends StatelessWidget {
 
   String _subtitle(AppLocalizations l10n) {
     final reference = _reference(l10n);
-    final date = _dateFormat.format(payment.createdAt);
+    final date = _dateFormat.format(dayInEthiopia(payment.createdAt));
     return reference == null ? date : '$reference · $date';
   }
 

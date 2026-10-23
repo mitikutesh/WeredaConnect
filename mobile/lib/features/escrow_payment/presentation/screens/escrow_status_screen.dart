@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/payout_expectation.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
@@ -348,13 +349,14 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
             _InfoRow(
               icon: Icons.calendar_today,
               label: l10n.escrowCreatedLabel,
-              value: _dateFormat.format(payment.createdAt),
+              value: _dateFormat.format(instantInEthiopia(payment.createdAt)),
             ),
             if (payment.expiresAt != null)
               _InfoRow(
                 icon: Icons.timer,
                 label: l10n.escrowExpiresLabel,
-                value: _dateFormat.format(payment.expiresAt!),
+                value:
+                    _dateFormat.format(instantInEthiopia(payment.expiresAt!)),
               ),
             if (payment.telebirrRef != null)
               _InfoRow(

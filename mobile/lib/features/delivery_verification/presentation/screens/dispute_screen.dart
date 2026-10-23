@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
@@ -152,7 +153,9 @@ class _DisputeScreenState extends State<DisputeScreen> {
                     const SizedBox(height: 4),
                     Text(
                       l10n.deliveryConfirmedAtLabel(
-                        dateFormat.format(widget.delivery.confirmedAt!),
+                        dateFormat.format(
+                          instantInEthiopia(widget.delivery.confirmedAt!),
+                        ),
                       ),
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color:

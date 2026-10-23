@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_status_indicator.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -59,7 +60,7 @@ class DeliveryCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${partyDisplayName(delivery.truckerName, l10n)} \u00b7 ${dateFormat.format(delivery.createdAt)}',
+                      '${partyDisplayName(delivery.truckerName, l10n)} \u00b7 ${dateFormat.format(dayInEthiopia(delivery.createdAt))}',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color:
                             theme.colorScheme.onSurface.withValues(alpha: 0.6),

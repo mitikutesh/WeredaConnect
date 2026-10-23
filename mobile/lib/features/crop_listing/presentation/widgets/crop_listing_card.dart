@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -79,7 +80,7 @@ class CropListingCard extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          dateFormat.format(listing.createdAt),
+                          dateFormat.format(dayInEthiopia(listing.createdAt)),
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.onSurface
                                 .withValues(alpha: 0.6),

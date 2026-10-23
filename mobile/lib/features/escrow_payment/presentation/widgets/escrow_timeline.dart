@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Visual timeline of escrow state transitions.
@@ -225,6 +226,6 @@ class _TimelineStep extends StatelessWidget {
   }
 
   String _formatTimestamp(DateTime dt) {
-    return DateFormat.yMMMd().add_jm().format(dt);
+    return DateFormat.yMMMd().add_jm().format(instantInEthiopia(dt));
   }
 }
