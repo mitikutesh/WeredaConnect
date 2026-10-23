@@ -135,7 +135,7 @@ Read this table BEFORE starting work. Load only what you need — don't read eve
 - **Idempotency keys**: `{userId}:{entityType}:{entityId}:{action}:{timestamp}`
 - **Cold start**: <100ms target
 
-### Infrastructure (AWS CDK 2.170.x, Node 20)
+### Infrastructure (AWS CDK 2.273.x, Node 20)
 - **Region**: `eu-north-1` (Stockholm) for dev; `me-south-1` (Bahrain) for staging/prod
 - **Lambda**: ARM64 Graviton, 512MB, 10s timeout, reserved concurrency
 - **DynamoDB**: On-demand billing (12 tables)

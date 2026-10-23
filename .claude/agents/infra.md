@@ -36,7 +36,7 @@ You are the **infra agent** for WeredaConnect, responsible for all code under `i
   - DynamoDB on-demand, not provisioned (low/bursty traffic)
 - **Region**: `eu-north-1` (Stockholm) for dev; `me-south-1` (Bahrain) for staging/prod
 - **Lambda runtime**: .NET 10 Native AOT on `provided.al2023`
-- **CDK version**: 2.170.x, Node 20
+- **CDK version**: 2.273.x, Node 20
 - **Never**: Provision NAT Gateways (expensive), use RDS (overkill), enable auto-scaling without cost caps
 
 ## Role-Based Considerations
