@@ -41,6 +41,15 @@ public interface ITelebirrGateway
     bool SupportsHostedCheckout { get; }
 
     /// <summary>
+    /// FUP-36: true when the gateway's calls reach Ethio Telecom's Telebirr (sandbox or
+    /// production); false for the mock and for the local simulator (tools/telebirr-sandbox,
+    /// recognised by its loopback or host.docker.internal base URL). Live Telebirr takes a
+    /// merch_order_id matching <c>^[A-Za-z0-9]+$</c> only, so the legacy delivery initiate, whose
+    /// reference is the client idempotency key, is refused up front when this is true.
+    /// </summary>
+    bool IsLiveTelebirr { get; }
+
+    /// <summary>
     /// ESC-01: a freshly signed checkout URL for an open <paramref name="prepayId"/> (the same
     /// payment, new nonce and timestamp), so a buyer whose response was lost gets the same
     /// checkout back instead of a second payable one. Null when the gateway has no hosted

@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/Badge";
 import { useLocale } from "@/hooks/useLocale";
 import { useEscrowDetail, useEscrowAudit } from "@/hooks/useQuery";
 import { formatETB, formatDateTime } from "@/lib/i18n";
+import { timelineActionLabel } from "@/lib/transaction";
 
 export function EscrowDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -63,7 +64,9 @@ export function EscrowDetailPage() {
             {auditEntries.map((entry, i) => (
               <div key={i} className="flex items-start gap-3 border-l-2 border-primary/30 pl-4">
                 <div>
-                  <p className="text-sm font-medium">{String(entry.action || "")}</p>
+                  <p className="text-sm font-medium">
+                    {timelineActionLabel(String(entry.action || ""), t)}
+                  </p>
                   <p className="text-xs text-text-muted">
                     {entry.timestamp ? formatDateTime(String(entry.timestamp)) : ""}
                   </p>

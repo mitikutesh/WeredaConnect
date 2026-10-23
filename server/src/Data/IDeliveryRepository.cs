@@ -103,4 +103,15 @@ public interface IDeliveryRepository
     /// delivery is missing or no longer pending.
     /// </summary>
     Task<bool> TryCancelPendingAsync(string deliveryId);
+
+    /// <summary>
+    /// FUP-16: close a delivery that never reached <c>delivered</c> by an admin's dispute disposition,
+    /// as a system actor: from <paramref name="fromStatus"/> (<c>pending</c>, <c>pickedUp</c> or
+    /// <c>inTransit</c>) to <c>cancelled</c> (with <c>cancelReason</c> and <c>cancelledAt</c>) or to
+    /// <c>disputed</c> (the goods count as delivered: <c>confirmedAt</c> is set when missing). Both stamp
+    /// the verdict (<c>disputeResolution</c>, <c>disputeResolvedAt</c>). Conditional on the status and on
+    /// no verdict yet; the version is added to. Returns false when the delivery is missing or moved on.
+    /// </summary>
+    Task<bool> TryCloseForVerdictAsync(
+        string deliveryId, string fromStatus, string toStatus, string resolution, string resolvedAt, string? cancelReason);
 }

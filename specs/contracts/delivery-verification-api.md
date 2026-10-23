@@ -159,6 +159,27 @@ escrow does the same for an order that was never picked up (audit metadata `sour
 an admin release first advances an order left behind a `delivered` delivery; the delivery itself is
 not written by a release.
 
+An admin's dispute disposition (v1.16.0, FUP-16, `escrow-protocol.md` 1.21.0) closes a delivery that
+never reached `delivered`, as a system actor, before its order moves to `dispute_resolved`. The write is
+conditional on the status the verdict read and on no verdict yet on the delivery, adds to the version,
+writes no `deletedAt`, and stamps the server-only `disputeResolution` and `disputeResolvedAt`:
+
+| Disposition | From | To | Also written | Transaction audit |
+|-------------|------|----|--------------|-------------------|
+| `return_to_farmer` (`buyer_wins`) | `pending`, `pickedUp`, `inTransit` | `cancelled` | `cancelReason: dispute_buyer_wins`, `cancelledAt` | `delivery_cancelled` |
+| `settle_now` (`farmer_wins`) | `pending`, `pickedUp`, `inTransit` | `cancelled` | `cancelReason: dispute_farmer_wins`, `cancelledAt` | `delivery_cancelled` |
+| `delivered_anyway` (`buyer_wins`) | `pending`, `pickedUp`, `inTransit` | `disputed` | `confirmedAt` when missing (the goods count as delivered) | `dispute_resolved` |
+
+Metadata `resolution=<verdict>;disposition=<disposition>` (plus `;cancelReason=...` on a cancel). A
+handoff that lands first makes the condition fail and nothing is written; the admin is told to send the
+verdict again. The parties see the row in their usual lists with its known status; `cancelReason`,
+`cancelledAt` and the verdict fields are extra keys the apps ignore. A party's own cancel after pickup
+stays refused (`DELIVERY_CANCEL_NOT_ALLOWED`); only the admin's disposition closes a delivery on the way.
+
+A dispute through sync starts only from `delivered` (the transitions below), so a dispute before pickup
+is impossible on this path; `POST /escrow/dispute` refuses one with `ESCROW_041` (v1.16.0, the rule
+lives in the escrow contract).
+
 The hourly refund sweep does the same system cancel (v1.12.0, ESC-10, `escrow-protocol.md` 1.15.0):
 before it refunds an expired escrow paid through `POST /escrow/initiate` whose delivery is still
 `pending` and whose order is not in flight (none, or not `accepted` to `disbursing`), it cancels the
@@ -534,6 +555,9 @@ pickedUp → delivered    (buyer confirms the handoff; marking in transit is opt
 inTransit → delivered   (buyer scans trucker's QR code at dropoff)
 delivered → disputed     (any participant raises a dispute within 48 hours; the escrow is frozen first, 1.10.0)
 ```
+
+System only, never through sync (1.16.0): `pending`, `pickedUp` or `inTransit` `→ cancelled` or
+`→ disputed`, by an admin's dispute disposition (see the dispute verdict paragraphs above).
 
 Since 1.9.0 (ESC-08) nothing cancels a delivery after pickup through sync (before, `pickedUp →
 cancelled` was allowed and the trucker's delete skipped the transitions).
@@ -1028,6 +1052,7 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.13.0 | 2026-10-10 | The order follows the money (ESC-09): an admin refund of a plain escrowed order escrow cancels the order's `pending` delivery first (system actor, no `deletedAt`, audited `delivery_cancelled` with `source=admin_refund`), as the `buyer_wins` refund does; the delivery is otherwise unchanged (the order moves to `disbursing` and `settled` after the money, `order-lifecycle.md` 1.17.0). |
 | 1.14.0 | 2026-10-17 | The dispute step-up fails closed (FUP-26): it is decided before the freeze; an order (or a legacy delivery's `DeliveryIndex` escrow) that cannot be read answers `DELIVERY_DISPUTE_RETRY` and nothing is frozen or written, where the step-up was skipped before; a missing order, or a total that is missing, unreadable, zero or negative, needs a fresh password (`AUTH_040`); a legacy delivery without an `orderId` is sized by its indexed escrow (`auth-api.md` 2.8.0). |
 | 1.15.0 | 2026-10-17 | Contact only after the money is held (ESC-48): `GET /deliveries/{id}` and every delivery row in `/sync` data (create, update, conflict, cancel, dispute) carry no `farmerPhone`, `truckerPhone` or `buyerPhone`; the server still stamps them at create for the admin transaction view. No shipped client reads them. |
+| 1.16.0 | 2026-10-22 | Dispute dispositions (FUP-16, `escrow-protocol.md` 1.21.0): an admin's disposition closes a delivery that never reached `delivered` as a system actor, conditional on the status read and on no verdict yet, version added to: `return_to_farmer` and `settle_now` to `cancelled` with `cancelReason` (`dispute_buyer_wins`, `dispute_farmer_wins`) and `cancelledAt`, `delivered_anyway` to `disputed` with `confirmedAt` set when missing; the verdict is stamped on both, audited in transaction-audit; a sync dispute still starts only from `delivered`, so the escrow's pickup rule (`ESCROW_041`) needs no change here. No client change: the statuses are known and the extra keys are ignored. |
 | 1.17.0 | 2026-10-23 | QR gate money check (FUP-42): with no nonce on record, a `pickedUp` or `delivered` (trucker flow and self-pickup) is money-bearing when the order's escrow `escrow-order-{orderId}` exists (strongly consistent, any status) or the `DeliveryIndex` finds an escrow; before, only the `DeliveryIndex` was asked, so an order escrow whose delivery link failed or lagged let the transition pass with no QR. A failed read answers `deferred` (`DELIVERY_NONCE_PENDING`), writes nothing, never hard-fails, and logs the alarmed `QR_GATE_UNDECIDED` (order escrow problems alarm); web shows its QR-pending text for it. Cash deliveries and the nonce checks are unchanged. No client change (`sync-protocol.md` 1.19.0). |
 
 ---

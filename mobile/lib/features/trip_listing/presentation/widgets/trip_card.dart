@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -158,7 +159,7 @@ class TripCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        dateFormat.format(trip.departureDate),
+                        dateFormat.format(dayInEthiopia(trip.departureDate)),
                         style: const TextStyle(
                           fontSize: 13,
                           color: AppTheme.textMuted,

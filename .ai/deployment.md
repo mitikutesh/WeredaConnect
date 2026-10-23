@@ -841,10 +841,30 @@ decision record `specs/decisions/telebirr-webhook-delivery-and-recovery.md`):
 |---|---|---|
 | `<prefix>-order-payment-problems` with `reason=replay_exhausted` | a verified order payment was replayed 8 times (about 4 h 20 min) and never applied; its inbox row is in the `exhausted` partition of `InboxReplayIndex` and the order hold lapses within about 75 minutes, after which the hourly order cron can fail the order | read the line's `cause=`, fix it (permissions, throttling, a bad row), then requeue the row (below) before the hold lapses. To refund instead, first read the order: if its `telebirrPaymentOrderId` is this payment it is funded, never refund it; refund only once the order has left that payment attempt |
 | `<prefix>-telebirr-inbox-replay-stalled` | no `TELEBIRR_INBOX_REPLAY_RUN` line in the webhook log group for 30 minutes: the 5-minute rule is disabled, the Lambda fails, or the `InboxReplayIndex` query fails | check the rule `<prefix>-telebirr-inbox-replay`, the webhook log group ("inbox index could not be read") and the index; pending payments are not applied until it runs again |
+| `<prefix>-telebirr-webhook-5xx` | (FUP-39) the webhook route answered 5 or more `5xx` in 15 minutes. One `500` is normal (ESC-45 D1: a verified payment not yet recorded or applied, so Telebirr sends it again, and the inbox sweep applies it); five means several payments failing, or one failing again and again | in the webhook log group: `ORDER_PAYMENT_UNPROCESSED` (no inbox row; `order-payment-problems` fires too), `ORDER_PAYMENT_REPLAY_PENDING` (the sweep retries; find the shared cause, such as throttling or permissions), "answered 500 for a retry" (the `/escrow/initiate` path, no inbox row), or no line for the request (API Gateway could not invoke the Lambda: check the route's integration, the Lambda permission and throttling in the access log `/aws/apigateway/<prefix>-http-api/access`, `routeKey` `POST /webhooks/telebirr`). A payment with no inbox row comes back only through Telebirr's retries, whose schedule is undocumented |
+| `<prefix>-telebirr-webhook-errors` | (FUP-39) the webhook Lambda failed: a crash, the 15 second timeout or an out-of-memory kill, on the public route or the 5-minute replay sweep; a deliberate `500` never counts; 3 periods of 5 minutes, it clears 10 to 15 minutes after the last error | find the RequestId in the webhook log group (REPORT line, "Task timed out"), fix the cause, then check `order-payment-problems` and the `exhausted` partition of `InboxReplayIndex` |
+| `<prefix>-telebirr-webhook-throttles` | (FUP-39) the webhook Lambda was throttled: more invocations at once than its concurrency allows (reserved 10 outside dev, the account limit in dev), on the public route or the replay sweep. A throttled notification never ran and is recorded nowhere; a throttled sweep run is retried by Lambda. 3 periods of 5 minutes, it clears 10 to 15 minutes after the last throttle | check the webhook Lambda's `ConcurrentExecutions` and the access log for a burst on `POST /webhooks/telebirr` (a flood is refused by the signature check but still uses concurrency); raise the reserved concurrency only for real payment volume; then check `order-payment-problems` |
 
-The API-wide `<prefix>-high-api-5xx-rate` alarm can also fire when the webhook answers `500` (a verified
-payment not yet applied, so Telebirr sends it again) at low traffic: check the webhook log group for
-`ORDER_PAYMENT_REPLAY_PENDING` before anything else; the inbox sweep applies those payments.
+Since FUP-39 the API-wide `<prefix>-high-api-5xx-rate` alarm leaves the webhook route out (detailed
+metrics on that one route only, subtracted from the API totals), so a webhook `500` no longer pages it;
+the three alarms above watch the route. A broken route integration or invoke permission (API Gateway
+never reaches the Lambda, so no Lambda error or throttle) is seen only by the 5xx volume alarm: at one
+or two payments per 15 minutes it does not page.
+
+**After the first deploy with the live gateway on**, check that the route's metrics exist under the
+dimensions the alarms read. Send one request to the webhook first (a real payment, or an empty `POST`,
+which the webhook refuses with `200`); a new metric can take up to 15 minutes to be listed:
+
+```bash
+aws cloudwatch list-metrics --namespace AWS/ApiGateway --metric-name Count \
+  --dimensions Name=ApiId,Value=<apiId> Name=Resource,Value=/webhooks/telebirr
+```
+
+The result must show the dimensions `Method=POST` and `Stage=$default` next to that `Resource`. If it is
+empty or the values differ, two alarms degrade with no error anywhere: `<prefix>-high-api-5xx-rate`
+subtracts nothing and pages on the webhook's deliberate `500`s again (as before FUP-39; it never hides
+another route's `5xx`), and `<prefix>-telebirr-webhook-5xx` never fires. Fix the dimension values in
+`webhookRouteMetric` (`infra/lib/stacks/monitoring-stack.ts`) to match what the command shows.
 
 ```bash
 P=wereda-connect-dev   # or -staging, -prod
