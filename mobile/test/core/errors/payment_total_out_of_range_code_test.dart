@@ -11,6 +11,8 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
+import '../../helpers/wait_for.dart';
+
 class _MockApiClient extends Mock implements ApiClient {}
 
 /// FUP-22: the live gateway's refusal of a payment total one Telebirr payment
@@ -114,10 +116,7 @@ void main() {
       bloc.add(
         const SubmitPayment(orderId: 'ord-1', paymentMethod: 'telebirr'),
       );
-      final deadline = DateTime.now().add(const Duration(seconds: 5));
-      while (states.length < 2 && DateTime.now().isBefore(deadline)) {
-        await Future<void>.delayed(const Duration(milliseconds: 5));
-      }
+      await waitForStates(states, 2);
       await sub.cancel();
       await bloc.close();
       return states;

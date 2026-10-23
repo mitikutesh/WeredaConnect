@@ -14,6 +14,8 @@ import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 
+import '../../helpers/wait_for.dart';
+
 class _FakeConnectivitySource implements ConnectivitySource {
   // Closed in tearDown.
   // ignore: close_sinks
@@ -26,14 +28,6 @@ class _FakeConnectivitySource implements ConnectivitySource {
   @override
   Future<List<ConnectivityResult>> checkConnectivity() async =>
       [ConnectivityResult.wifi];
-}
-
-/// Polls [condition] for up to 5 seconds instead of sleeping a fixed time.
-Future<void> _waitFor(bool Function() condition) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 5));
-  while (!condition() && DateTime.now().isBefore(deadline)) {
-    await Future<void>.delayed(const Duration(milliseconds: 5));
-  }
 }
 
 const _held = 'FRAUD_ACCOUNT_HELD: Your account is under review. Some actions '
@@ -154,7 +148,7 @@ void main() {
       ]);
 
       final result = await executor.executeBatch();
-      await _waitFor(() => rejections().isNotEmpty);
+      await waitFor(() => rejections().isNotEmpty);
 
       expect(result.failed, 1);
       expect(result.operationErrors['op-1'], _held);

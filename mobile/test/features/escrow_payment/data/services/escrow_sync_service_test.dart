@@ -18,6 +18,8 @@ import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/escrow_payment/data/services/escrow_sync_service.dart';
 
+import '../../../../helpers/wait_for.dart';
+
 class MockApiClient extends Mock implements ApiClient {}
 
 class MockConnectivityMonitor extends Mock implements ConnectivityMonitor {}
@@ -529,7 +531,11 @@ void main() {
 
         // Emit connectivity restored event
         controller.add([ConnectivityResult.wifi]);
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await waitFor(
+          () async =>
+              (await isar.paymentIntents.where().findFirst())!.status ==
+              IntentStatus.completed,
+        );
 
         verify(
           () => apiClient.post<Map<String, dynamic>>(

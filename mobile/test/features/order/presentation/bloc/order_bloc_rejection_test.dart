@@ -10,6 +10,8 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart'
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 
+import '../../../../helpers/wait_for.dart';
+
 class _MockOrderRepository extends Mock implements BaseOrderRepository {}
 
 class _MockApiClient extends Mock implements ApiClient {}
@@ -28,15 +30,6 @@ const _createOrder = CreateOrder(
   truckerName: 'Trucker',
   transportCost: 100,
 );
-
-/// Polls until [states] holds [count] entries (5s cap) instead of sleeping a
-/// fixed time; the expects below then report what actually arrived.
-Future<void> waitForStates(List<OrderState> states, int count) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 5));
-  while (states.length < count && DateTime.now().isBefore(deadline)) {
-    await Future<void>.delayed(const Duration(milliseconds: 5));
-  }
-}
 
 /// ESC-12: a refused order action ends in an explained OrderError, never in
 /// the success state that pops the screen (web throws from /sync, mobile from

@@ -17,6 +17,8 @@ import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_blo
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_event.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_state.dart';
 
+import '../../../../helpers/wait_for.dart';
+
 /// Fake [MarketplaceSync] that seeds Isar with one matching crop + trip,
 /// standing in for the real API-backed pull. Verifies that the BLoC pulls the
 /// marketplace before matching.
@@ -176,7 +178,7 @@ void main() {
           deliveryWoreda: 'AddisAbeba',
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await waitForStates(states, 2);
       await sub.cancel();
       return states;
     }
@@ -189,6 +191,7 @@ void main() {
         matchingService: matchingService,
         marketplaceSync: sync,
       );
+      addTearDown(bloc.close);
 
       final states = await runCreate(bloc);
 
@@ -201,7 +204,6 @@ void main() {
       // in-memory intent object carried by the state.
       final persisted = await repository.getIntentById(created.intent.intentId);
       expect(persisted?.matchCount, 1);
-      await bloc.close();
     });
 
     test(
@@ -213,6 +215,7 @@ void main() {
         matchingService: matchingService,
         marketplaceSync: sync,
       );
+      addTearDown(bloc.close);
 
       // An intent exists, but its cached count is stale (0) until a refresh.
       final intent = await repository.createIntent(
@@ -227,7 +230,7 @@ void main() {
       final states = <BuyerIntentState>[];
       final sub = bloc.stream.listen(states.add);
       bloc.add(const RefreshAllMatches(buyerId: 'buyer-1'));
-      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await waitForStates(states, 1);
       await sub.cancel();
 
       expect(sync.pullAllCount, 1);
@@ -238,7 +241,6 @@ void main() {
         1,
         reason: 'count recomputed against the freshly pulled marketplace',
       );
-      await bloc.close();
     });
 
     test(
@@ -249,12 +251,12 @@ void main() {
         matchingService: matchingService,
         // marketplaceSync intentionally omitted (mirrors the broken state).
       );
+      addTearDown(bloc.close);
 
       final states = await runCreate(bloc);
 
       final created = states.whereType<BuyerIntentCreated>().single;
       expect(created.matches, isEmpty);
-      await bloc.close();
     });
 
     test(
@@ -281,11 +283,12 @@ void main() {
         matchingService: matchingService,
         marketplaceSync: failing,
       );
+      addTearDown(bloc.close);
 
       final states = <BuyerIntentState>[];
       final sub = bloc.stream.listen(states.add);
       bloc.add(const RefreshAllMatches(buyerId: 'buyer-1'));
-      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await waitForStates(states, 1);
       await sub.cancel();
 
       expect(failing.pullAllCount, 1);
@@ -296,7 +299,6 @@ void main() {
         3,
         reason: 'a failed pull must NOT overwrite the cached count (with 0)',
       );
-      await bloc.close();
     });
 
     test('C1: a failed pull on create still emits matches but flags them stale',
@@ -307,13 +309,13 @@ void main() {
         matchingService: matchingService,
         marketplaceSync: failing,
       );
+      addTearDown(bloc.close);
 
       final created =
           (await runCreate(bloc)).whereType<BuyerIntentCreated>().single;
 
       expect(failing.pullAllCount, 1);
       expect(created.isStale, isTrue);
-      await bloc.close();
     });
 
     test(
@@ -327,6 +329,7 @@ void main() {
         matchingService: _ThrowingMatchingService(),
         marketplaceSync: _FakeMarketplaceSync(isar),
       );
+      addTearDown(bloc.close);
 
       final states = await runCreate(bloc);
 
@@ -343,7 +346,6 @@ void main() {
       final active = await repository.getActiveIntents('buyer-1');
       expect(active, hasLength(1));
       expect(active.first.intentId, created.intent.intentId);
-      await bloc.close();
     });
 
     test(
@@ -364,11 +366,12 @@ void main() {
         matchingService: _ThrowingMatchingService(),
         marketplaceSync: _FakeMarketplaceSync(isar),
       );
+      addTearDown(bloc.close);
 
       final states = <BuyerIntentState>[];
       final sub = bloc.stream.listen(states.add);
       bloc.add(LoadMatchResults(intentId: intent.intentId));
-      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await waitForStates(states, 2);
       await sub.cancel();
 
       expect(
@@ -380,7 +383,6 @@ void main() {
       expect(loaded.matches, isEmpty);
       expect(loaded.isStale, isTrue);
       expect(loaded.intent.intentId, intent.intentId);
-      await bloc.close();
     });
 
     test('I5: FulfillIntent emits a terminal ActiveIntentsLoaded', () async {
@@ -395,11 +397,12 @@ void main() {
         repository: repository,
         matchingService: matchingService,
       );
+      addTearDown(bloc.close);
 
       final states = <BuyerIntentState>[];
       final sub = bloc.stream.listen(states.add);
       bloc.add(FulfillIntent(intentId: intent.intentId, buyerId: 'buyer-1'));
-      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await waitForStates(states, 1);
       await sub.cancel();
 
       final loaded = states.whereType<ActiveIntentsLoaded>().last;
@@ -408,7 +411,6 @@ void main() {
         isEmpty,
         reason: 'a fulfilled intent leaves the active list',
       );
-      await bloc.close();
     });
 
     test('I5: DeleteIntent emits a terminal ActiveIntentsLoaded', () async {
@@ -423,16 +425,16 @@ void main() {
         repository: repository,
         matchingService: matchingService,
       );
+      addTearDown(bloc.close);
 
       final states = <BuyerIntentState>[];
       final sub = bloc.stream.listen(states.add);
       bloc.add(DeleteIntent(intentId: intent.intentId, buyerId: 'buyer-1'));
-      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await waitForStates(states, 1);
       await sub.cancel();
 
       final loaded = states.whereType<ActiveIntentsLoaded>().last;
       expect(loaded.intents, isEmpty);
-      await bloc.close();
     });
   });
 }

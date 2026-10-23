@@ -258,12 +258,10 @@ void main() {
           headers: {'Authorization': 'Bearer expired-token'},
         );
 
-        expect(
-          () => dio.get<dynamic>('/protected'),
+        await expectLater(
+          dio.get<dynamic>('/protected'),
           throwsA(isA<DioException>()),
         );
-
-        await Future<void>.delayed(const Duration(milliseconds: 100));
 
         // Verify tokens were cleared
         final bearerToken = await fakeStorage.read(key: 'id_token');
@@ -293,12 +291,10 @@ void main() {
           headers: {'Authorization': 'Bearer expired-token'},
         );
 
-        expect(
-          () => testDio.get<dynamic>('/protected'),
+        await expectLater(
+          testDio.get<dynamic>('/protected'),
           throwsA(isA<DioException>()),
         );
-
-        await Future<void>.delayed(const Duration(milliseconds: 100));
 
         // Verify tokens were cleared
         final bearerToken = await testStorage.read(key: 'id_token');
@@ -329,12 +325,10 @@ void main() {
           headers: {'Authorization': 'Bearer expired-token'},
         );
 
-        expect(
-          () => testDio.get<dynamic>('/protected'),
+        await expectLater(
+          testDio.get<dynamic>('/protected'),
           throwsA(isA<DioException>()),
         );
-
-        await Future<void>.delayed(const Duration(milliseconds: 100));
 
         // Verify tokens were cleared
         final bearerToken = await testStorage.read(key: 'id_token');
@@ -366,12 +360,10 @@ void main() {
           headers: {'Authorization': 'Bearer expired-token'},
         );
 
-        expect(
-          () => testDio.get<dynamic>('/protected'),
+        await expectLater(
+          testDio.get<dynamic>('/protected'),
           throwsA(isA<DioException>()),
         );
-
-        await Future<void>.delayed(const Duration(milliseconds: 100));
 
         // Tokens preserved — transient errors (network timeout) should not
         // clear tokens because the refresh token is likely still valid.

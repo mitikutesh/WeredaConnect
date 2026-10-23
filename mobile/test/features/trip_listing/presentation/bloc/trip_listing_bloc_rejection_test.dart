@@ -17,6 +17,8 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 
+import '../../../../helpers/wait_for.dart';
+
 class _MockApiClient extends Mock implements ApiClient {}
 
 CreateTrip _create() => CreateTrip(
@@ -40,10 +42,7 @@ Future<List<TripListingState>> _run(
   final states = <TripListingState>[];
   final sub = bloc.stream.listen(states.add);
   bloc.add(event);
-  final deadline = DateTime.now().add(const Duration(seconds: 5));
-  while (states.length < 2 && DateTime.now().isBefore(deadline)) {
-    await Future<void>.delayed(const Duration(milliseconds: 5));
-  }
+  await waitForStates(states, 2);
   await Future<void>.delayed(Duration.zero);
   await sub.cancel();
   await bloc.close();

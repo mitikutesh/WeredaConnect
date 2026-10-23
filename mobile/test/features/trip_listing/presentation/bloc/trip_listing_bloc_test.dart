@@ -15,16 +15,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 
-/// Wait (bounded) until [states] holds at least [count] emissions. A fixed
-/// 100ms sleep is flaky on slow CI runners — CreateTrip was observed emitting
-/// only Loading within the window. Falls through on timeout so the following
-/// expect reports the actual emissions.
-Future<void> waitForStates(List<TripListingState> states, int count) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 10));
-  while (states.length < count && DateTime.now().isBefore(deadline)) {
-    await Future<void>.delayed(const Duration(milliseconds: 10));
-  }
-}
+import '../../../../helpers/wait_for.dart';
 
 void main() {
   group('TripListingBloc', () {
@@ -71,8 +62,10 @@ void main() {
 
     test('emits [Loading, Loaded] on LoadTrips', () async {
       final bloc = TripListingBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <TripListingState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(const LoadTrips(truckerId: 'trucker-001'));
       await waitForStates(states, 2);
@@ -81,15 +74,14 @@ void main() {
       expect(states[0], isA<TripListingLoading>());
       expect(states[1], isA<TripsLoaded>());
       expect((states[1] as TripsLoaded).trips, isEmpty);
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test('emits [Loading, Created] on CreateTrip', () async {
       final bloc = TripListingBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <TripListingState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(
         CreateTrip(
@@ -109,9 +101,6 @@ void main() {
       expect(states[0], isA<TripListingLoading>());
       expect(states[1], isA<TripCreated>());
       expect((states[1] as TripCreated).trip.fromWoreda, 'Bishoftu');
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test('emits [Loading, Loaded] on CancelTrip', () async {
@@ -128,8 +117,10 @@ void main() {
       );
 
       final bloc = TripListingBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <TripListingState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       // Load trips first so the BLoC has them in state for optimistic update
       bloc.add(const LoadTrips(truckerId: 'trucker-001'));
@@ -151,9 +142,6 @@ void main() {
       // Trip should be cancelled now via optimistic update
       final loaded = states[1] as TripsLoaded;
       expect(loaded.trips.first.status, TripStatus.cancelled);
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test('emits Loaded with filtered list on FilterTrips', () async {
@@ -182,8 +170,10 @@ void main() {
       );
 
       final bloc = TripListingBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <TripListingState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(
         const FilterTrips(
@@ -200,9 +190,6 @@ void main() {
       expect(loaded.fromWoredaFilter, 'Bishoftu');
       expect(loaded.trips.length, 1);
       expect(loaded.trips.first.fromWoreda, 'Bishoftu');
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test('FilterTrips with no filters loads trucker trips', () async {
@@ -220,8 +207,10 @@ void main() {
       );
 
       final bloc = TripListingBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <TripListingState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(
         const FilterTrips(truckerId: 'trucker-001'),
@@ -232,17 +221,16 @@ void main() {
       expect(states[1], isA<TripsLoaded>());
       final loaded = states[1] as TripsLoaded;
       expect(loaded.trips.length, 1);
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     // --- Edge Case: Load Empty Trucker ---
 
     test('LoadTrips for nonexistent trucker emits empty list', () async {
       final bloc = TripListingBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <TripListingState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(const LoadTrips(truckerId: 'nonexistent-trucker'));
       await waitForStates(states, 2);
@@ -251,17 +239,16 @@ void main() {
       expect(states[0], isA<TripListingLoading>());
       expect(states[1], isA<TripsLoaded>());
       expect((states[1] as TripsLoaded).trips, isEmpty);
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     // --- Edge Case: Sequential Events ---
 
     test('Create then Load shows the created trip', () async {
       final bloc = TripListingBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <TripListingState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       // Create a trip
       bloc.add(
@@ -291,9 +278,6 @@ void main() {
         (states[3] as TripsLoaded).trips.first.fromWoreda,
         'Bishoftu',
       );
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     // --- Edge Case: FilterTrips with toWoreda Only ---
@@ -323,8 +307,10 @@ void main() {
       );
 
       final bloc = TripListingBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <TripListingState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       // NOTE: trucker-002's trip here goes to Hawassa, so the destination
       // filter excludes it either way — this case alone does NOT prove
@@ -345,9 +331,6 @@ void main() {
       expect(loaded.toWoredaFilter, 'Addis Ababa');
       expect(loaded.trips.length, 1);
       expect(loaded.trips.first.toWoreda, 'Addis Ababa');
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     // --- Role visibility: Trucker MUST NOT see other truckers' trips ---
@@ -384,8 +367,10 @@ void main() {
         );
 
         final bloc = TripListingBloc(repository: repository);
+        addTearDown(bloc.close);
         final states = <TripListingState>[];
         final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
 
         bloc.add(
           const FilterTrips(truckerId: 'trucker-001', toWoreda: 'Addis Ababa'),
@@ -401,9 +386,6 @@ void main() {
           reason: "trucker-002's trip to the same destination must not leak",
         );
         expect(loaded.trips.any((t) => t.truckerId == 'trucker-002'), isFalse);
-
-        await subscription.cancel();
-        await bloc.close();
       },
     );
 
@@ -435,8 +417,10 @@ void main() {
         );
 
         final bloc = TripListingBloc(repository: repository);
+        addTearDown(bloc.close);
         final states = <TripListingState>[];
         final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
 
         bloc.add(const FilterTrips(truckerId: 'trucker-001'));
         await waitForStates(states, 2);
@@ -446,9 +430,6 @@ void main() {
         expect(loaded.trips.length, 1);
         expect(loaded.trips.every((t) => t.truckerId == 'trucker-001'), isTrue);
         expect(loaded.trips.any((t) => t.truckerId == 'trucker-002'), isFalse);
-
-        await subscription.cancel();
-        await bloc.close();
       },
     );
 
@@ -467,8 +448,10 @@ void main() {
       );
 
       final bloc = TripListingBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <TripListingState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       // Load trips first so the BLoC has them in state for optimistic update
       bloc.add(const LoadTrips(truckerId: 'trucker-001'));
@@ -490,17 +473,16 @@ void main() {
       final loaded = states[1] as TripsLoaded;
       expect(loaded.trips.length, 1);
       expect(loaded.trips.first.status, TripStatus.cancelled);
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     // --- Edge Case: Multilingual Trip ---
 
     test('CreateTrip with Amharic names preserves characters', () async {
       final bloc = TripListingBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <TripListingState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(
         CreateTrip(
@@ -520,9 +502,6 @@ void main() {
       final created = states[1] as TripCreated;
       expect(created.trip.fromWoreda, 'ቢሾፍቱ');
       expect(created.trip.toWoreda, 'አዲስ አበባ');
-
-      await subscription.cancel();
-      await bloc.close();
     });
   });
 }

@@ -7,6 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:web/web.dart' as web;
 import 'package:wereda_connect/core/auth/fayda_callback_links.dart';
 
+import '../../helpers/wait_for.dart';
+
 // Browser only: `flutter test --platform chrome test/core/auth/fayda_callback_links_web_test.dart`.
 void main() {
   test('the web callback page is on this origin', () {
@@ -23,7 +25,7 @@ void main() {
     sender.postMessage(
       '${Uri.base.origin}/fayda-callback.html?code=c-1&state=st-1'.toJS,
     );
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await waitFor(() => received.isNotEmpty);
 
     expect(received, [
       Uri.parse('${Uri.base.origin}/fayda-callback.html?code=c-1&state=st-1'),

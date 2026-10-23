@@ -8,6 +8,8 @@ import 'package:wereda_connect/features/account/presentation/bloc/account_deleti
 import 'package:wereda_connect/features/account/presentation/bloc/account_deletion_event.dart';
 import 'package:wereda_connect/features/account/presentation/bloc/account_deletion_state.dart';
 
+import '../../../helpers/wait_for.dart';
+
 class MockAccountDeletionRepository extends Mock
     implements AccountDeletionRepository {}
 
@@ -233,10 +235,7 @@ void main() {
     );
 
     bloc.add(const AccountDeletionRequested());
-    await untilCalled(
-      () => repository.deleteAccount(userId: _me, bearer: _token),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await waitFor(() => deleted == 1);
 
     expect(bloc.isClosed, isTrue);
     verify(() => repository.deleteAccount(userId: _me, bearer: _token))

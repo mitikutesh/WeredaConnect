@@ -2,20 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/core/security/security_events.dart';
 
+import '../../helpers/wait_for.dart';
+
 SyncOperationRejected _rejected(String orderId) => SyncOperationRejected(
       entityType: 'order',
       entityId: orderId,
       action: 'update',
       message: 'ORDER_VALIDATION: no',
     );
-
-/// Polls [condition] for up to 5 seconds instead of sleeping a fixed time.
-Future<void> _waitFor(bool Function() condition) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 5));
-  while (!condition() && DateTime.now().isBefore(deadline)) {
-    await Future<void>.delayed(const Duration(milliseconds: 5));
-  }
-}
 
 /// ESC-12: the first sync can run before the signed-in shell mounts its
 /// listener, so a rejection raised then must still be explained.
@@ -27,7 +21,7 @@ void main() {
 
     final received = <SecurityEvent>[];
     final sub = events.events.listen(received.add);
-    await _waitFor(() => received.length >= 2);
+    await waitFor(() => received.length >= 2);
     await sub.cancel();
 
     expect(
@@ -46,7 +40,7 @@ void main() {
 
     final received = <SecurityEvent>[];
     final sub = events.events.listen(received.add);
-    await _waitFor(
+    await waitFor(
       () => received.length >= SecurityEvents.maxUndeliveredRejections,
     );
     await Future<void>.delayed(Duration.zero);
@@ -61,7 +55,7 @@ void main() {
     final events = SecurityEvents.forTesting()..emit(_rejected('o-1'));
     final first = <SecurityEvent>[];
     final firstSub = events.events.listen(first.add);
-    await _waitFor(() => first.isNotEmpty);
+    await waitFor(() => first.isNotEmpty);
     await firstSub.cancel();
 
     final second = <SecurityEvent>[];
@@ -92,7 +86,7 @@ void main() {
     final sub = events.events.listen(received.add);
 
     events.emit(_rejected('o-1'));
-    await _waitFor(() => received.isNotEmpty);
+    await waitFor(() => received.isNotEmpty);
     await sub.cancel();
 
     expect(received, hasLength(1));
@@ -173,14 +167,14 @@ void main() {
       final fired = <void>[];
       final sub = events.onAppUpdateRequired.listen(fired.add);
       events.emit(appTooOld('trip'));
-      await _waitFor(() => fired.isNotEmpty);
+      await waitFor(() => fired.isNotEmpty);
       await sub.cancel();
 
       expect(fired, hasLength(1));
       // The refusal itself is still kept for the snackbar.
       final received = <SecurityEvent>[];
       final eventsSub = events.events.listen(received.add);
-      await _waitFor(() => received.length >= 2);
+      await waitFor(() => received.length >= 2);
       await eventsSub.cancel();
       expect(received, hasLength(2));
     });
