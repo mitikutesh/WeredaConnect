@@ -236,6 +236,10 @@ class EscrowDetailResponse {
   final String? telebirrRef;
   final Map<String, dynamic>? dispute;
   final String? disputeWindowEndsAt;
+
+  /// FRD-13: earliest payout (ISO 8601); sent to the farmer and the trucker
+  /// only.
+  final String? releaseNotBefore;
   final String? releasedAt;
   final String? refundedAt;
   final String? completedAt;
@@ -263,6 +267,7 @@ class EscrowDetailResponse {
     this.refundReason,
     this.dispute,
     this.disputeWindowEndsAt,
+    this.releaseNotBefore,
     this.releasedAt,
     this.refundedAt,
     this.completedAt,
@@ -297,6 +302,7 @@ class EscrowDetailResponse {
       telebirrRef: json['telebirrRef'] as String?,
       dispute: json['dispute'] as Map<String, dynamic>?,
       disputeWindowEndsAt: json['disputeWindowEndsAt'] as String?,
+      releaseNotBefore: json['releaseNotBefore'] as String?,
       releasedAt: json['releasedAt'] as String?,
       refundedAt: json['refundedAt'] as String?,
       completedAt: json['completedAt'] as String?,
@@ -369,6 +375,9 @@ class EscrowSummary {
   final bool refundPending;
   final String? refundReason;
 
+  /// FRD-13: earliest payout; on the farmer's and the trucker's history only.
+  final String? releaseNotBefore;
+
   const EscrowSummary({
     required this.escrowId,
     required this.deliveryId,
@@ -388,6 +397,7 @@ class EscrowSummary {
     this.expiresAt,
     this.refundPending = false,
     this.refundReason,
+    this.releaseNotBefore,
   });
 
   factory EscrowSummary.fromJson(Map<String, dynamic> json) {
@@ -412,6 +422,7 @@ class EscrowSummary {
       expiresAt: json['expiresAt'] as String?,
       refundPending: json['refundPending'] as bool? ?? false,
       refundReason: json['refundReason'] as String?,
+      releaseNotBefore: json['releaseNotBefore'] as String?,
     );
   }
 }

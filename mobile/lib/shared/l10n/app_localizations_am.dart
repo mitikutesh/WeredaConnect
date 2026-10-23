@@ -1520,6 +1520,11 @@ class AppLocalizationsAm extends AppLocalizations {
   String get escrowDescUnknown => 'የዚህን ክፍያ የቅርብ ጊዜ ሁኔታ ለማየት መተግበሪያውን ያዘምኑ።';
 
   @override
+  String escrowPayoutExpectedOn(String date) {
+    return 'ክፍያው በ$date ይጠበቃል';
+  }
+
+  @override
   String get escrowStatusRefundPending => 'ተመላሽ በመጠበቅ ላይ';
 
   @override

@@ -1573,6 +1573,11 @@ class AppLocalizationsOm extends AppLocalizations {
       'Haala kaffaltii kanaa isa dhiyoo ilaaluuf appii haaromsaa.';
 
   @override
+  String escrowPayoutExpectedOn(String date) {
+    return 'Kaffaltiin $date irratti eegama';
+  }
+
+  @override
   String get escrowStatusRefundPending => 'Deebii Eegamaa Jira';
 
   @override

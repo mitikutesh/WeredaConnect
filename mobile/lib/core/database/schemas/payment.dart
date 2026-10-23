@@ -80,6 +80,11 @@ class Payment {
   /// Dispute deadline (deliveryConfirmedAt + 48 hours)
   DateTime? disputeWindowEndsAt;
 
+  /// Earliest payout (FRD-13): the payout delay of a new or flagged payee,
+  /// never before [disputeWindowEndsAt]. Only the farmer's and the trucker's
+  /// reads carry it; the buyer's never do.
+  DateTime? releaseNotBefore;
+
   /// When funds were released to farmer
   DateTime? releasedAt;
 

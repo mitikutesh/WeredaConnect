@@ -187,6 +187,16 @@ public class EscrowCronFunction
     private int _riskSkips;
 
     /// <summary>
+    /// FRD-13 (fraud-detection-architecture.md 17.5): classes the payees when the stamp repair confirms a delivery, so
+    /// the escrow gets its <c>releaseNotBefore</c>. The Lambda wires it; without one (the test constructor) the repair
+    /// stamps as before. The auto-release and the trucker retry read the stored value either way.
+    /// </summary>
+    internal PayoutDelayPolicy? PayoutDelay { get; init; }
+
+    /// <summary>FRD-13: confirmed escrows past their dispute window that wait for their payout delay this run.</summary>
+    private int _payoutsDelayed;
+
+    /// <summary>
     /// ESC-09: order partitions the order-money sweep reads, in this order: where money moves first
     /// (delivered, disbursing, disputed), then the logistics statuses a lagging order may sit in.
     /// </summary>
@@ -314,6 +324,7 @@ public class EscrowCronFunction
         FraudHoldEnabled = string.Equals(
             Environment.GetEnvironmentVariable("FRAUD_HOLD_ENABLED"), "true", StringComparison.OrdinalIgnoreCase);
         OrdersTableName = ordersTable;
+        PayoutDelay = new PayoutDelayPolicy(fraudService, userRepo, _escrowRepo);
     }
 
     /// <summary>
@@ -426,6 +437,7 @@ public class EscrowCronFunction
         _sweepsTruncated.Clear();
         _fraudHolds = 0;
         _riskSkips = 0;
+        _payoutsDelayed = 0;
         RiskGate?.BeginRun();
         // FRD-04 (fraud-detection-architecture.md 14.4): a gate without the signals table stops suspended
         // parties only. Flag on or off (off, the skip is what keeps a CRITICAL party unpaid), a CRITICAL
@@ -475,6 +487,7 @@ public class EscrowCronFunction
             { "pendingDeliveriesCancelled", _pendingDeliveriesCancelled.ToString() },
             { "fraudHolds", _fraudHolds.ToString() },
             { "riskSettlementsSkipped", _riskSkips.ToString() },
+            { "payoutsDelayed", _payoutsDelayed.ToString() },
             { "sweepsTruncated", _sweepsTruncated.Count == 0 ? "-" : string.Join(",", _sweepsTruncated) },
             { "ordersMoved", orders.Moved.ToString() },
             { "ordersSettled", orders.Settled.ToString() },
@@ -495,6 +508,7 @@ public class EscrowCronFunction
             + $"{_releaseBlocked} releases and {_refundBlocked} refunds blocked, {_disputesFrozen} disputed trades frozen, "
             + $"{_pendingDeliveriesCancelled} pending deliveries cancelled before a refund, "
             + $"{_fraudHolds} escrows held for review, {_riskSkips} settlements skipped by the risk gate, "
+            + $"{_payoutsDelayed} payouts waiting for their payout delay, "
             + $"orders: {orders.Moved} moved, {orders.Settled} settled, {orders.Mismatches} mismatched, {orders.Failed} failed.");
 
         return new APIGatewayProxyResponse
@@ -657,6 +671,14 @@ public class EscrowCronFunction
                         DateTimeStyles.RoundtripKind, out var windowEnd) || now <= windowEnd)
                 {
                     continue; // dispute window still open
+                }
+
+                // FRD-13: the payout delay of a new or flagged payee (never before the window). An escrow
+                // stamped before FRD-13 has none and settles as before.
+                if (PayoutDelayPolicy.ReleaseNotBeforeOf(escrow) is { } notBefore && now < notBefore)
+                {
+                    _payoutsDelayed++;
+                    continue;
                 }
 
                 sweep.CountRow();
@@ -1681,6 +1703,12 @@ public class EscrowCronFunction
             var pendingSince = ParseUtc(GetStringOrNull(row, TruckerPayoutFields.PendingSince))
                                ?? ParseUtc(GetStringOrNull(row, "releasedAt"))
                                ?? ParseUtc(GetStringOrNull(row, "updatedAt"));
+            // FRD-13: a leg is owed from the end of its payout delay, so waiting for it never alarms.
+            if (pendingSince is { } owedFrom && PayoutDelayPolicy.ReleaseNotBeforeOf(row) is { } notBefore && notBefore > owedFrom)
+            {
+                pendingSince = notBefore;
+            }
+
             var age = pendingSince is { } at ? now - at : MoneyAlarmLog.QueueAlarmAfter; // unreadable time: overdue
             if (age >= MoneyAlarmLog.QueueAlarmAfter)
             {
@@ -2874,18 +2902,34 @@ public class EscrowCronFunction
         {
             var confirmedAt = (delivery!.TryGetValue("confirmedAt", out var ca) ? ca?.ToString() : null)
                 ?? DateTime.UtcNow.ToString("o");
-            var windowEnd = (DateTime.TryParse(confirmedAt, CultureInfo.InvariantCulture,
-                DateTimeStyles.RoundtripKind, out var cdt) ? cdt : DateTime.UtcNow).AddHours(48).ToString("o");
+            var windowBase = DateTime.TryParse(confirmedAt, CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind, out var cdt) ? cdt : DateTime.UtcNow;
+            var fields = new Dictionary<string, object>
+            {
+                { "deliveryConfirmedAt", confirmedAt },
+                { "disputeWindowEndsAt", windowBase.AddHours(48).ToString("o") }
+            };
+
+            // FRD-13: the same payout delay as the stamp at delivery confirm (sync).
+            PayoutDelayDecision? delay = null;
+            if (PayoutDelay != null)
+            {
+                delay = await PayoutDelay.DecideAsync(escrow, GetStringOrNull(delivery, "truckerId"), windowBase,
+                    windowBase.AddHours(48), DateTime.UtcNow);
+                fields[PayoutDelayPolicy.ReleaseNotBeforeField] = delay.Value.ReleaseNotBeforeIso;
+            }
+
             await _escrowRepo.UpdateStatusAsync(
                 escrowId,
                 GetString(escrow, "createdAt"),
                 newStatus: "escrowed",
                 expectedCurrentStatus: "escrowed",
-                additionalFields: new Dictionary<string, object>
-                {
-                    { "deliveryConfirmedAt", confirmedAt },
-                    { "disputeWindowEndsAt", windowEnd }
-                });
+                additionalFields: fields);
+            if (delay is { } decided)
+            {
+                context.Logger.LogInformation(decided.LogLine(escrowId));
+            }
+
             context.Logger.LogWarning(
                 $"Escrow {MoneyAlarmLog.LogId(escrowId)}: delivery {MoneyAlarmLog.LogId(deliveryId)} was delivered but escrow was unstamped; "
                 + "stamped now to trigger auto-release (refund averted).");

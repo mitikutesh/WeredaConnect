@@ -61,6 +61,9 @@ public partial class SyncFunction
 
     /// <summary>FRD-08: update and delete version conflicts in one batch that make a <c>STALE_VERSION_BURST</c>.</summary>
     internal const int StaleVersionBurstThreshold = 10;
+
+    // FRD-13: the payees' payout-delay classes, read at most once per batch (with _batchRiskScores).
+    private PayoutDelayBatch? _batchPayoutDelays;
     private readonly IIntentRepository? _intentRepo;
     private readonly IMatchEventRepository? _matchEventRepo;
     // Optional: when the escrows table is provisioned, confirming a delivery
@@ -75,6 +78,13 @@ public partial class SyncFunction
 
     /// <summary>FRD-03: the escrows table the accept's transaction checks (<c>ESCROWS_TABLE</c>).</summary>
     internal string? EscrowsTableName { get; init; }
+
+    /// <summary>
+    /// FRD-13 (fraud-detection-architecture.md 17.5): classes the farmer and the trucker when a delivery is
+    /// confirmed, so the stamp gives the escrow its <c>releaseNotBefore</c>. The Lambda wires it; without one (the
+    /// test constructor) the stamp writes only the two fields it wrote before.
+    /// </summary>
+    internal PayoutDelayPolicy? PayoutDelay { get; init; }
 
     /// <summary>FRD-03: the farmer's accept of an order whose escrow is held for review (order-lifecycle 1.22.0).</summary>
     private const string OrderUnderReviewMessage = "This order is under review and cannot be accepted. Contact support.";
@@ -565,6 +575,7 @@ public partial class SyncFunction
         EscrowsTableName = escrowsTable;
         FraudHoldEnabled = string.Equals(
             Environment.GetEnvironmentVariable("FRAUD_HOLD_ENABLED"), "true", StringComparison.OrdinalIgnoreCase);
+        PayoutDelay = new PayoutDelayPolicy(_fraudService, _userRepo, _escrowRepo);
 
         // Optional: unified transaction-audit trail (order/delivery transitions).
         var txAuditTable = Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE");
@@ -697,6 +708,7 @@ public partial class SyncFunction
         _batchRiskScores = _fraudService == null ? null : new RiskScoreMemo(_fraudService);
         _batchSignals.Clear();
         _batchStaleConflicts = 0;
+        _batchPayoutDelays = new PayoutDelayBatch(_batchRiskScores);
 
         // Per-user rate limiting (F-11 Finding 3)
         // Record unconditionally to prevent request flooding via invalid operations
@@ -5200,7 +5212,9 @@ public partial class SyncFunction
                             && operation.Data.TryGetValue("status", out var confirmedStatusObj)
                             && confirmedStatusObj?.ToString() == "delivered")
                         {
-                            await StampEscrowDeliveryConfirmedAsync(operation.EntityId, now, context);
+                            await StampEscrowDeliveryConfirmedAsync(operation.EntityId, now,
+                                existing.TryGetValue("truckerId", out var stampTruckerAttr) ? stampTruckerAttr.S : null,
+                                context);
                         }
 
                         return new SyncOperationResult
@@ -5546,12 +5560,14 @@ public partial class SyncFunction
     /// <summary>
     /// Stamp the escrow linked to a confirmed delivery with deliveryConfirmedAt +
     /// disputeWindowEndsAt (now + 48h) so the auto-release cron settles to the
-    /// farmer and the auto-refund cron skips it. Idempotent: only stamps an
+    /// farmer and the auto-refund cron skips it. FRD-13: with the payout delay's
+    /// releaseNotBefore in the same write (the trucker named by the delivery when the
+    /// escrow has none yet). Idempotent: only stamps an
     /// "escrowed" escrow that has not already been confirmed. Best-effort — errors
     /// are logged, never thrown, so a confirmed delivery is never rolled back.
     /// </summary>
     private async Task StampEscrowDeliveryConfirmedAsync(
-        string deliveryId, string confirmedAt, ILambdaContext context)
+        string deliveryId, string confirmedAt, string? deliveryTruckerId, ILambdaContext context)
     {
         if (_escrowRepo == null)
         {
@@ -5588,20 +5604,36 @@ public partial class SyncFunction
                 ? confirmedDt
                 : DateTime.UtcNow;
             var disputeWindowEndsAt = windowBase.AddHours(48).ToString("o");
+            var fields = new Dictionary<string, object>
+            {
+                { "deliveryConfirmedAt", confirmedAt },
+                { "disputeWindowEndsAt", disputeWindowEndsAt }
+            };
+
+            // FRD-13: the payees' payout delay, never before the window. The policy never throws, and a
+            // payee it cannot read gets the longest delay.
+            PayoutDelayDecision? delay = null;
+            if (PayoutDelay != null)
+            {
+                delay = await PayoutDelay.DecideAsync(escrow, deliveryTruckerId, windowBase, windowBase.AddHours(48),
+                    DateTime.UtcNow, _batchPayoutDelays);
+                fields[PayoutDelayPolicy.ReleaseNotBeforeField] = delay.Value.ReleaseNotBeforeIso;
+            }
 
             await _escrowRepo.UpdateStatusAsync(
                 escrowId,
                 createdAt,
                 newStatus: "escrowed",
                 expectedCurrentStatus: "escrowed",
-                additionalFields: new Dictionary<string, object>
-                {
-                    { "deliveryConfirmedAt", confirmedAt },
-                    { "disputeWindowEndsAt", disputeWindowEndsAt }
-                });
+                additionalFields: fields);
+
+            if (delay is { } decided)
+            {
+                context.Logger.LogInformation(decided.LogLine(escrowId));
+            }
 
             context.Logger.LogInformation(
-                $"Escrow {MoneyAlarmLog.LogId(escrowId)} stamped for delivery {MoneyAlarmLog.LogId(deliveryId)}; auto-release scheduled after 48h dispute window.");
+                $"Escrow {MoneyAlarmLog.LogId(escrowId)} stamped for delivery {MoneyAlarmLog.LogId(deliveryId)}; auto-release scheduled after the 48h dispute window and any payout delay.");
         }
         catch (Exception ex)
         {

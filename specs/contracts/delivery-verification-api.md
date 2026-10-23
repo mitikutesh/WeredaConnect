@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.17.0
+1.19.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -569,7 +569,7 @@ Invalid transitions return `422 Unprocessable Entity`:
 - `cancelled → *` (terminal state)
 - `disputed → cancelled` (disputes follow separate resolution flow)
 
-**Dispute Window**: Disputes must be raised within 48 hours of `confirmedAt`. After 48 hours, the `delivered` status becomes final and escrow is released automatically.
+**Dispute Window**: Disputes must be raised within 48 hours of `confirmedAt`. After 48 hours, the `delivered` status becomes final and escrow is released automatically, later when the payout delay applies (1.19.0: the `delivered` transition stamps the escrow's `releaseNotBefore` with its `deliveryConfirmedAt` and `disputeWindowEndsAt`, `escrow-protocol.md` 1.33.0).
 
 ---
 
@@ -1054,9 +1054,10 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.15.0 | 2026-10-17 | Contact only after the money is held (ESC-48): `GET /deliveries/{id}` and every delivery row in `/sync` data (create, update, conflict, cancel, dispute) carry no `farmerPhone`, `truckerPhone` or `buyerPhone`; the server still stamps them at create for the admin transaction view. No shipped client reads them. |
 | 1.16.0 | 2026-10-22 | Dispute dispositions (FUP-16, `escrow-protocol.md` 1.21.0): an admin's disposition closes a delivery that never reached `delivered` as a system actor, conditional on the status read and on no verdict yet, version added to: `return_to_farmer` and `settle_now` to `cancelled` with `cancelReason` (`dispute_buyer_wins`, `dispute_farmer_wins`) and `cancelledAt`, `delivered_anyway` to `disputed` with `confirmedAt` set when missing; the verdict is stamped on both, audited in transaction-audit; a sync dispute still starts only from `delivered`, so the escrow's pickup rule (`ESCROW_041`) needs no change here. No client change: the statuses are known and the extra keys are ignored. |
 | 1.17.0 | 2026-10-23 | QR gate money check (FUP-42): with no nonce on record, a `pickedUp` or `delivered` (trucker flow and self-pickup) is money-bearing when the order's escrow `escrow-order-{orderId}` exists (strongly consistent, any status) or the `DeliveryIndex` finds an escrow; before, only the `DeliveryIndex` was asked, so an order escrow whose delivery link failed or lagged let the transition pass with no QR. A failed read answers `deferred` (`DELIVERY_NONCE_PENDING`), writes nothing, never hard-fails, and logs the alarmed `QR_GATE_UNDECIDED` (order escrow problems alarm); web shows its QR-pending text for it. Cash deliveries and the nonce checks are unchanged. No client change (`sync-protocol.md` 1.19.0). |
+| 1.19.0 | 2026-10-23 | Payout delay (FRD-13, `escrow-protocol.md` 1.33.0): the `delivered` transition stamps the linked escrow's `releaseNotBefore` in the same write as `deliveryConfirmedAt` and `disputeWindowEndsAt` (the trucker named by the delivery when the escrow has none yet); the automatic release waits for it. The dispute window and the delivery's own fields are unchanged; no client change on deliveries. |
 
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 1.17.0
+**Version**: 1.19.0
 **Status**: Draft (Phase R4.2)

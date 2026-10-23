@@ -104,6 +104,48 @@ void main() {
     });
   });
 
+  group('WebEscrowRepository expected payout date (FRD-13)', () {
+    test('parses releaseNotBefore on the escrow detail', () async {
+      when(
+        () => api.get<Map<String, dynamic>>('/escrow/by-delivery/del-001'),
+      ).thenAnswer(
+        (_) async => {
+          ...escrowDto(),
+          'releaseNotBefore': '2026-02-24T10:00:00.0000000Z',
+        },
+      );
+
+      final result = await repo.getEscrowByDelivery('del-001');
+
+      expect(result!.releaseNotBefore, DateTime.utc(2026, 2, 24, 10));
+    });
+
+    test('parses it on history rows; absent (the buyer) is null', () async {
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/escrow/history',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'escrows': [
+            {...escrowDto(), 'releaseNotBefore': '2026-02-24T10:00:00Z'},
+            escrowDto(escrowId: 'esc-002'),
+          ],
+          'hasMore': false,
+        },
+      );
+
+      final rows = await repo.refreshHistory(
+        userId: 'farmer-001',
+        roleFilter: 'farmer',
+      );
+
+      expect(rows[0].releaseNotBefore, DateTime.utc(2026, 2, 24, 10));
+      expect(rows[1].releaseNotBefore, isNull);
+    });
+  });
+
   group('WebEscrowRepository.getEscrowByDelivery (F-33)', () {
     test('calls the by-delivery endpoint and returns that escrow', () async {
       when(

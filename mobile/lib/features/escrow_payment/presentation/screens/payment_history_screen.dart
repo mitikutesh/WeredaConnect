@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/escrow_payment/domain/payout_expectation.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
@@ -14,6 +15,7 @@ import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/escrow_status_screen.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/amount_display.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/widgets/payout_expected_text.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/pending_intent_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
@@ -528,9 +530,16 @@ class _PaymentCard extends StatelessWidget {
     return reference == null ? date : '$reference · $date';
   }
 
+  /// FRD-13: the farmer's and the trucker's own payout day; never on a
+  /// buyer's row.
+  DateTime? get _payoutAt => viewerRole == 'farmer' || viewerRole == 'trucker'
+      ? expectedPayoutAt(payment)
+      : null;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final payoutAt = _payoutAt;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -556,6 +565,10 @@ class _PaymentCard extends StatelessWidget {
                             theme.colorScheme.onSurface.withValues(alpha: 0.6),
                       ),
                     ),
+                    if (payoutAt != null) ...[
+                      const SizedBox(height: 4),
+                      PayoutExpectedText(payoutAt: payoutAt),
+                    ],
                   ],
                 ),
               ),

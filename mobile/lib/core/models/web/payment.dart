@@ -21,6 +21,7 @@ class Payment {
   late DateTime updatedAt;
   DateTime? expiresAt;
   DateTime? disputeWindowEndsAt;
+  DateTime? releaseNotBefore;
   DateTime? releasedAt;
   DateTime? refundedAt;
   DateTime? completedAt;

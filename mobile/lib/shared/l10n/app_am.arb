@@ -1903,6 +1903,16 @@
   },
   "escrowDescHeld": "መድረኩ እስኪገመግመው ድረስ ክፍያው ቆሟል። ገንዘቡ በጥበቃ ላይ ነው።",
   "escrowDescUnknown": "የዚህን ክፍያ የቅርብ ጊዜ ሁኔታ ለማየት መተግበሪያውን ያዘምኑ።",
+  "escrowPayoutExpectedOn": "ክፍያው በ{date} ይጠበቃል",
+  "@escrowPayoutExpectedOn": {
+    "description": "Escrow detail and payment list, farmer and trucker only: the earliest day the payout is sent (FRD-13). Never says why the day is later than usual",
+    "placeholders": {
+      "date": {
+        "type": "String",
+        "example": "Oct 26, 2026"
+      }
+    }
+  },
   "escrowStatusRefundPending": "ተመላሽ በመጠበቅ ላይ",
   "@escrowStatusRefundPending": {
     "description": "Status label for an escrowed hold whose refund is on its way (order cancelled or hold expired)"

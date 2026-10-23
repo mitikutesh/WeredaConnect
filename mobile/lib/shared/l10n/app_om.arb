@@ -1912,6 +1912,16 @@
   },
   "escrowDescHeld": "Hanga waltajjiin ilaalutti kaffaltiin dhaabbateera. Maallaqni nagaan jira.",
   "escrowDescUnknown": "Haala kaffaltii kanaa isa dhiyoo ilaaluuf appii haaromsaa.",
+  "escrowPayoutExpectedOn": "Kaffaltiin {date} irratti eegama",
+  "@escrowPayoutExpectedOn": {
+    "description": "Escrow detail and payment list, farmer and trucker only: the earliest day the payout is sent (FRD-13). Never says why the day is later than usual",
+    "placeholders": {
+      "date": {
+        "type": "String",
+        "example": "Oct 26, 2026"
+      }
+    }
+  },
   "escrowStatusRefundPending": "Deebii Eegamaa Jira",
   "@escrowStatusRefundPending": {
     "description": "Status label for an escrowed hold whose refund is on its way (order cancelled or hold expired)"
