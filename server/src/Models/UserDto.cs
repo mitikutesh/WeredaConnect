@@ -43,6 +43,17 @@ public sealed record UserDto
     // Buyer-only identity fields (F-32); null for farmers/truckers.
     public string? BuyerType { get; init; }
     public string? CompanyName { get; init; }
+    /// <summary>
+    /// ACC-02: <c>in_progress</c>, <c>cognito_pending</c> or <c>completed</c> once the user asked
+    /// to delete the account (account-deletion.md); null on a live account. Server-side only.
+    /// </summary>
+    [JsonIgnore]
+    public string? DeletionState { get; init; }
+    [JsonIgnore]
+    public string? DeletionRequestedAt { get; init; }
+    /// <summary>ACC-02: when the personal data was erased (the tombstone write). Server-side only.</summary>
+    [JsonIgnore]
+    public string? DeletedAt { get; init; }
     public required string CreatedAt { get; init; }
     public required string UpdatedAt { get; init; }
     public required int Version { get; init; }

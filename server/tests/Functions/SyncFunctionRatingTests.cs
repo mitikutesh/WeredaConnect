@@ -224,4 +224,50 @@ public class SyncFunctionRatingTests
         await _ratings.DidNotReceive().CreateAsync(Arg.Any<string>(),
             Arg.Any<Dictionary<string, object>>());
     }
+
+    // --- ACC-02: no rating for a deleted account ---
+
+    private SyncFunction WithRatee(string? deletionState)
+    {
+        var users = Substitute.For<IUserRepository>();
+        users.GetUserByIdAsync("farmer-1").Returns(new UserDto
+        {
+            UserId = "farmer-1",
+            PhoneNumber = deletionState == null ? "+251900000002" : "",
+            Role = "farmer",
+            Woreda = deletionState == null ? "Adama" : "",
+            IsPhoneVerified = deletionState == null,
+            DeletionState = deletionState,
+            CreatedAt = "2026-01-01T00:00:00Z",
+            UpdatedAt = "2026-01-01T00:00:00Z",
+            Version = 1,
+        });
+        return new SyncFunction(_meta, _crop, _ddb, "trips", "deliveries",
+            userRepo: users, orderRepo: _orders, ratingRepo: _ratings);
+    }
+
+    [Theory]
+    [InlineData("in_progress")]
+    [InlineData("completed")]
+    public async Task RatingForAnAccountBeingOrAlreadyDeleted_IsRefused(string state)
+    {
+        OrderReturns(status: "settled");
+
+        var response = await WithRatee(state).FunctionHandler(Req(RatingOp(), "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("SYNC_VALIDATION", response.Body);
+        await _ratings.DidNotReceive().CreateAsync(Arg.Any<string>(),
+            Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task RatingForALiveAccount_StillSucceeds_WithTheUsersTable()
+    {
+        OrderReturns(status: "settled");
+
+        var response = await WithRatee(null).FunctionHandler(Req(RatingOp(), "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("success", response.Body);
+        await _ratings.Received(1).CreateAsync("order-1:farmer-1", Arg.Any<Dictionary<string, object>>());
+    }
 }

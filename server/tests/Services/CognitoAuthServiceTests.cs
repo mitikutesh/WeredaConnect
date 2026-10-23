@@ -301,4 +301,45 @@ public class CognitoAuthServiceTests
 
         Assert.True(result.IsSuccess); // Idempotent — already revoked is fine
     }
+
+
+    // --- ACC-02: AdminDeleteUserAsync ---
+
+    [Fact]
+    public async Task AdminDeleteUserAsync_DeletesByTheGivenUsername()
+    {
+        _mockCognito.AdminDeleteUserAsync(Arg.Any<AdminDeleteUserRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new AdminDeleteUserResponse());
+
+        var result = await _service.AdminDeleteUserAsync("sub-123");
+
+        Assert.True(result.IsSuccess);
+        await _mockCognito.Received(1).AdminDeleteUserAsync(
+            Arg.Is<AdminDeleteUserRequest>(r => r.Username == "sub-123" && r.UserPoolId == "eu-north-1_TestPool"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AdminDeleteUserAsync_UserAlreadyGone_Is404()
+    {
+        _mockCognito.AdminDeleteUserAsync(Arg.Any<AdminDeleteUserRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new UserNotFoundException("gone"));
+
+        var result = await _service.AdminDeleteUserAsync("sub-123");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(404, result.Error!.HttpStatus);
+    }
+
+    [Fact]
+    public async Task AdminDeleteUserAsync_WithoutAUserPool_FailsInsteadOfPretending()
+    {
+        var service = new CognitoAuthService(_mockCognito, ClientId);
+
+        var result = await service.AdminDeleteUserAsync("sub-123");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(500, result.Error!.HttpStatus);
+        await _mockCognito.DidNotReceiveWithAnyArgs().AdminDeleteUserAsync(default!, default);
+    }
 }

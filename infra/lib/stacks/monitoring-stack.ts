@@ -1438,6 +1438,49 @@ export class MonitoringStack extends cdk.Stack {
     escrowCronErrorsAlarm.addAlarmAction(snsAction);
     escrowCronErrorsAlarm.addOkAction(snsAction);
 
+    // ACC-02: every started account deletion must finish or abort within 24 hours. The 12 hourly
+    // sweep logs ACCOUNT_DELETION_STUCK when it fails on a deletion requested more than 13 hours
+    // ago (its second run on that row). 13 one-hour periods, 1 datapoint: the next run's line
+    // lands inside the window, so a row that stays stuck keeps one ALARM episode.
+    const accountDeletionSweepLogGroup = logs.LogGroup.fromLogGroupName(
+      this,
+      'AccountDeletionSweepLogGroup',
+      `/aws/lambda/${prefix}-account-deletion-sweep`,
+    );
+    new logs.MetricFilter(this, 'AccountDeletionStuckFilter', {
+      logGroup: accountDeletionSweepLogGroup,
+      filterPattern: logs.FilterPattern.literal('"ACCOUNT_DELETION_STUCK"'),
+      metricNamespace,
+      metricName: 'AccountDeletionStuck',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+    const accountDeletionStuckAlarm = new cloudwatch.Alarm(this, 'AccountDeletionStuck', {
+      alarmName: `${prefix}-account-deletion-stuck`,
+      alarmDescription:
+        'A started account deletion failed in two sweep runs and will miss its 24 hour bound ' +
+        '(ACCOUNT_DELETION_STUCK in the account-deletion-sweep log group, with userId, state and ' +
+        'requestedAt; account-deletion.md). state=in_progress: personal data may still be in the ' +
+        'users row; cognito_pending: the Cognito user may still exist. Read the ' +
+        'ACCOUNT_DELETION_INCOMPLETE lines for the failing step (Cognito, SNS or DynamoDB error) and ' +
+        'fix its cause; every step is idempotent, so the next run or a manual invoke of the sweep ' +
+        'with {"body": "{\\"action\\":\\"sweep\\"}"} resumes it. Never edit the users row by hand.',
+      metric: new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: 'AccountDeletionStuck',
+        statistic: 'Sum',
+        period: cdk.Duration.hours(1),
+        label: 'Account Deletion Stuck',
+      }),
+      threshold: 0,
+      evaluationPeriods: 13,
+      datapointsToAlarm: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    accountDeletionStuckAlarm.addAlarmAction(snsAction);
+    accountDeletionStuckAlarm.addOkAction(snsAction);
+
     // ─── Alarm Status Widget (summary at bottom of dashboard) ────────
     dashboard.addWidgets(
       new cloudwatch.AlarmStatusWidget({
@@ -1463,6 +1506,7 @@ export class MonitoringStack extends cdk.Stack {
           disputePropagationFailedAlarm,
           orderMoneyMismatchAlarm,
           riskSettlementSkippedAlarm,
+          accountDeletionStuckAlarm,
           ...(orderPaymentProblemsAlarm ? [orderPaymentProblemsAlarm] : []),
           ...(webhook5xxAlarm ? [webhook5xxAlarm] : []),
           ...(webhookErrorsAlarm ? [webhookErrorsAlarm] : []),

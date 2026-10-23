@@ -657,4 +657,28 @@ public class FaydaVerifyFunctionTests
 
         Assert.Equal(401, response.StatusCode);
     }
+
+    // ===== ACC-02: a deleting or deleted account links no Fayda identity =====
+
+    [Theory]
+    [InlineData("/user/fayda-start", "in_progress")]
+    [InlineData("/user/fayda-link", "in_progress")]
+    [InlineData("/user/fayda-link", "completed")]
+    public async Task UserFaydaRoutes_ForADeletingAccount_Return410_BeforeAnyStateOrExchange(string path, string state)
+    {
+        _mockAuthState.ConsumeAsync(StateKey).Returns(StateRow("link", userId: "user-7"));
+        _mockRepo.GetUserByIdAsync("user-7", true).Returns(LinkingUser() with { DeletionState = state });
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(path.EndsWith("link") ? VerifyBody() : null, path, userId: "user-7"), _context);
+
+        Assert.Equal(410, response.StatusCode);
+        Assert.Contains("ACCOUNT_004", response.Body);
+        Assert.Contains(state, response.Body);
+        await _mockAuthState.DidNotReceive().ConsumeAsync(Arg.Any<string>());
+        await _mockAuthState.DidNotReceive().PutAsync(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>>(), Arg.Any<int>());
+        await _mockFayda.DidNotReceive().ExchangeCodeAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>());
+        await _mockRepo.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+    }
 }

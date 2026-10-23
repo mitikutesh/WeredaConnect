@@ -159,4 +159,24 @@ public class TransactionAuditWriterTests
         written.Should().BeFalse("the caller logs which order lost its row");
         ((TestLambdaLogger)_context.Logger).Buffer.ToString().Should().Contain("transaction-audit write failed (non-fatal)");
     }
+
+
+    // ===== ACC-02: the checked write =====
+
+    [Fact]
+    public async Task EmitOnceCheckedAsync_ReportsWrittenOrExisting_AndThrowsOnAFailedWrite()
+    {
+        var repo = Substitute.For<ITransactionAuditRepository>();
+        repo.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>())
+            .Returns(Task.FromResult(true), Task.FromResult(false),
+                Task.FromException<bool>(new InvalidOperationException("throttled")));
+
+        Task<bool> Write() => TransactionAuditWriter.EmitOnceCheckedAsync(
+            repo, "account-user-1", "account", "user-1", "account_deleted", "cognito_pending", "completed",
+            Ctx(), "2026-10-23T10:00:00.0000000Z");
+
+        (await Write()).Should().BeTrue();
+        (await Write()).Should().BeFalse("the row already exists");
+        await FluentActions.Awaiting(Write).Should().ThrowAsync<InvalidOperationException>();
+    }
 }

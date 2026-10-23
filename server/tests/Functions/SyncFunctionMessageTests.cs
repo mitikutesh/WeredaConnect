@@ -472,4 +472,56 @@ public class SyncFunctionMessageTests
 
         Assert.StartsWith("MESSAGE_VALIDATION", result.Message);
     }
+
+    // --- ACC-02: deleted accounts ---
+
+    [Theory]
+    [InlineData("in_progress")]
+    [InlineData("completed")]
+    public async Task Message_ToARecipientWhoDeletedTheirAccount_IsRefused(string state)
+    {
+        OrderWith();
+        _users.GetUserByIdAsync("farmer-1")
+            .Returns(User("farmer-1", "farmer", "+251900000002", "Farmer One") with { DeletionState = state });
+
+        var result = await Send(MessageOp(), "buyer-1", "buyer");
+
+        Assert.Equal("error", result.Status);
+        Assert.StartsWith("SYNC_VALIDATION", result.Message);
+        await AssertNothingStored();
+    }
+
+    [Theory]
+    [InlineData("in_progress")]
+    [InlineData("cognito_pending")]
+    [InlineData("completed")]
+    public async Task AnyBatch_FromADeletingOrDeletedAccount_Is410_AndNothingRuns(string state)
+    {
+        OrderWith();
+        _users.GetUserByIdAsync("buyer-1", true)
+            .Returns(User("buyer-1", "buyer", "+251900000001", "Buyer One") with { DeletionState = state });
+
+        var response = await _fn.FunctionHandler(Req(MessageOp(), "buyer-1", "buyer"), _ctx);
+
+        Assert.Equal(410, response.StatusCode);
+        using var body = JsonDocument.Parse(response.Body);
+        var error = body.RootElement.GetProperty("error");
+        Assert.Equal("ACCOUNT_004", error.GetProperty("code").GetString());
+        Assert.Equal(state, error.GetProperty("deletionState").GetString());
+        await AssertNothingStored();
+        await _meta.DidNotReceiveWithAnyArgs().IdempotencyKeyExistsAsync(default!);
+    }
+
+    [Fact]
+    public async Task Batch_WhenTheCallersAccountCannotBeRead_IsARetryable503()
+    {
+        OrderWith();
+        _users.GetUserByIdAsync("buyer-1", true).ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        var response = await _fn.FunctionHandler(Req(MessageOp(), "buyer-1", "buyer"), _ctx);
+
+        Assert.Equal(503, response.StatusCode);
+        Assert.Contains("SYNC_SERVER_ERROR", response.Body);
+        await AssertNothingStored();
+    }
 }

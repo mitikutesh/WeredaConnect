@@ -1,7 +1,7 @@
 # Account Deletion Contract
 
 ## Version
-1.1.0
+1.2.0
 
 ## Parties
 - **Mobile / Web** (client, ACC-03): Profile > "Delete account" flow, step-up re-auth, local wipe. Mobile and web are a platform pair and ship together.
@@ -388,14 +388,45 @@ Open for legal review: the retention period for financial records and a purge jo
 3. Ban evasion: suspended users cannot self-delete, so no hash of the phone or Fayda id is kept. The FRD epic may revisit.
 4. Admin-initiated deletion (support requests from the ACC-04 page, suspended users, users stuck on `payment_review`) is out of scope and needs its own task.
 
+## Implementation Status (1.2.0, ACC-02)
+
+Built: `server/src/Functions/AccountDeletionFunction.cs`, `Services/AccountDeletionService.cs`, `Services/AccountDeletionPolicy.cs`, `Data/AccountDeletionRepository.cs`, `Helpers/AccountDeletionGuard.cs`; infrastructure in `infra/lib/stacks/api-stack.ts` and `monitoring-stack.ts`. The wire shape of this contract (route, body, responses, codes, statuses) is unchanged.
+
+- `DELETE /user/account` (JWT authorizer, payload 1.0) runs the Order of checks, the blocker check, deletion steps 5 to 14 and the resume rules. Lambda `{prefix}-account-deletion`, 30 seconds, reserved concurrency 5.
+- The Completion Sweep runs in its own Lambda `{prefix}-account-deletion-sweep` with the same handler (5 minutes, reserved concurrency 1), from the EventBridge rule `{prefix}-account-deletion-sweep` every 12 hours with `body.action = "sweep"`. `{"action":"reapply","userIds":[...]}` is accepted by a direct invoke. An API Gateway request (it always carries a request context) never reaches either action.
+- Caller-side `410 ACCOUNT_004` (with `error.deletionState`, read strongly consistent): `POST /sync` (whole request), `POST /escrow/initiate`, `POST /escrow/order-checkout`, `POST /escrow/dispute`, `POST /user/fayda-start`, `POST /user/fayda-link` (checked before the state is read or the code exchanged), `POST /device-tokens`. `DELETE /device-tokens` stays open so a logout can still unregister a phone; `/escrow/release` and `/escrow/refund` are admin routes, not writes for the caller. When the caller's row cannot be read the endpoint answers its own retryable error (`503 SYNC_SERVER_ERROR`, `503 ESCROW_012`, `500 DEVICE_TOKEN_SERVER_ERROR`) and writes nothing.
+- Login and refresh answer `401 AUTH_014` for a `cognito_pending` or `completed` row (refresh also revokes the refresh token); `in_progress` logs in (`auth-api.md` 2.11.0).
+- Sync creates naming a deleted counterparty: a message to a recipient whose row has `deletionState`, and a rating about such a ratee, are op-level `SYNC_VALIDATION` (`sync-protocol.md` 1.26.0).
+- Registration refuses a `displayName` equal to the sentinel (trimmed, any case) with `400 AUTH_007`. There is no profile update endpoint; `fullName` comes from Fayda and is not checked.
+- `UserRepository` maps a tombstone (no phone, no woreda) and every profile write (`UpdateUserAsync`) is conditional on `attribute_not_exists(deletionState)`, so no write can put personal data back on a deleting or deleted row.
+- Alarm `{prefix}-account-deletion-stuck` on `ACCOUNT_DELETION_STUCK` in the sweep log group.
+
+How the implementation reads points this contract leaves open:
+
+1. A request stops starting writes 24 seconds in (API Gateway ends it at 30) or when the Lambda has 4 seconds left, and answers `503 ACCOUNT_005`; the 503 also carries a `Retry-After: 2` header. A request that runs out of time before step 5 answers `500 AUTH_007` (nothing was written).
+2. Every party index is queried whatever the user's role (an admin role change can leave rows under another role). Escrow and delivery index rows are used as read; a non-terminal order is re-read strongly consistent.
+3. `payment_review` goes through `UnappliedPayments.Evaluate`, the function `HasOpen` wraps, so the 409 lists one blocker per open payment; its `status` is that payment's first unapplied action.
+4. "Fails on twice": the sweep logs `ACCOUNT_DELETION_STUCK` when it fails on a row whose `deletionRequestedAt` is at least 13 hours old, that is a row the previous 12 hourly run had too. No counter is stored (the tombstone allowlist stays as it is).
+5. `account_deletion_started` and `account_deleted` name the user as `actor` with their role, whoever runs the step. `order_cancelled` rows have actor `system` and `cancelReason=account_deleted` in `metadata`; `account_deletion_aborted` has the actor of the run (the user on a request, `system` in the sweep). The `account_deleted` metadata holds the counts of rows that invocation wrote, plus `resumed=true` when it resumed a started deletion.
+6. A copied name becomes the sentinel only on a row that has that field (no field is added to a money record). Orders and deliveries also get a new `updatedAt` so pulls see the change, without a `version` bump; escrows get no other change. Withdrawn and scrubbed listings take `version + 1` and a new `updatedAt`. A listing already withdrawn and scrubbed is not written again.
+7. `reapply` acts only on a userId whose row is `completed` or whose `account-{userId}` trail holds `account_deleted`, so a mistyped id cannot erase a live account; a row still `in_progress` or `cognito_pending` without that audit row is left to the sweep. It reruns steps 10 and 11 (step 10 there includes the step 7 listing rule), ends `completed` and keeps the original `deletedAt`, so it writes no second `account_deleted` row.
+
+Not built yet (follow-ups):
+
+- The counterparty money entry refusals of Effects on Other Endpoints (the `/sync` transition to `payment_submitted`, `POST /escrow/order-checkout` and `POST /escrow/initiate` refused when a party of the order has `deletionState`) and their rows in `order-lifecycle.md` and `escrow-protocol.md`. Until then the window is an order created between steps 5 and 7, missed by the indexes at steps 8 and 9, and paid before step 11; after step 11 the existing payment KYC gate refuses an order of a deleted farmer, because the tombstone has no `isPhoneVerified` (a deleted trucker is not checked).
+- Login and refresh on `cognito_pending` do not retry steps 12 and 13 themselves; the client's retry of `DELETE /user/account` or the next sweep run does.
+- No S3 call for `profilePhotoRef`: nothing writes that field today. Add the delete when an upload pipeline lands.
+- `escrow-protocol.md` does not list the `410 ACCOUNT_004` of `POST /escrow/*` yet; this section is its reference.
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.2.0 | 2026-10-23 | Built (ACC-02): Implementation Status added: the endpoint, the steps, the sweep Lambda and its 12 hourly rule, `reapply`, the caller-side `410 ACCOUNT_004` endpoints, login and refresh `AUTH_014`, the sync refusals of a deleted counterparty, the sentinel display name refusal, the stuck alarm; seven points the contract left open (request time budget, party indexes, one `payment_review` blocker per payment, the stateless stuck rule, audit actors and counts, where scrubs write, `reapply` guard); the counterparty money entry refusals, the login and refresh retry of steps 12 and 13 and the `profilePhotoRef` delete are listed as not built. No wire change |
 | 1.1.0 | 2026-10-23 | `payment_review` resolution defined (FUP-02, `escrow-protocol.md` 1.20.0): one blocker per unapplied payment (by payment_order_id, or merch_order_id for a nameless one), lifted by the `order_payment_refunded_manual` row naming that payment whenever it was written, not by any later row of the order; a payment that funded the order never blocks; the admin endpoint that records the refund exists, so the blocker is no longer permanent and "contact support" now leads to a resolution; escrow-idempotency's per-table row lists the refund claim rows (400 days) |
 | 1.0.0 | 2026-10-06 | Initial contract (ACC-01): endpoint, error codes, blocked-while-active rule, deletion steps, sweep, per-table policy for all 20 tables, retention, client and admin obligations |
 
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 1.1.0
+**Version**: 1.2.0

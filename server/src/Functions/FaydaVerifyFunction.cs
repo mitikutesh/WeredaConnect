@@ -134,6 +134,13 @@ public class FaydaVerifyFunction
             {
                 return LambdaResponse.Error(401, "AUTH_031", "Authentication required.");
             }
+
+            // ACC-02: no Fayda link for an account that is being or has been deleted.
+            var gone = await AccountDeletionGuard.RefuseIfDeletingAsync(_userRepository, userId);
+            if (gone != null)
+            {
+                return gone;
+            }
         }
 
         FaydaStartRequest? body = null;
@@ -252,6 +259,13 @@ public class FaydaVerifyFunction
         if (string.IsNullOrEmpty(userId))
         {
             return LambdaResponse.Error(401, "AUTH_031", "Authentication required.");
+        }
+
+        // ACC-02: checked before the code is exchanged, so the single-use state is not spent.
+        var gone = await AccountDeletionGuard.RefuseIfDeletingAsync(_userRepository, userId);
+        if (gone != null)
+        {
+            return gone;
         }
 
         var parsed = ParseVerifyBody(request, out var faydaRequest);
