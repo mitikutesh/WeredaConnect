@@ -11,6 +11,9 @@ class SyncOperation {
   late SyncStatus status;
   late int retryCount;
   late DateTime createdAt;
+
+  /// Mirrors the Isar schema: rejected for good and the local row reverted.
+  bool reverted = false;
 }
 
 /// Status of a sync operation.

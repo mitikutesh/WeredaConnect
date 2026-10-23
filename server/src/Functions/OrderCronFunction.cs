@@ -120,8 +120,9 @@ public class OrderCronFunction
     }
 
     /// <summary>
-    /// Auto-cancel orders in "created" or "pending_payment" status older than 24 hours.
-    /// These are orders where the buyer never completed payment.
+    /// Auto-cancel orders left in "created" or "pending_payment" status for 24 hours.
+    /// These are orders where the buyer never completed payment. A "created" order counts from
+    /// createdAt, a "pending_payment" order from when it last entered that status (ESC-47).
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleAutoCancelExpiredAsync(ILambdaContext context)
     {
@@ -164,10 +165,24 @@ public class OrderCronFunction
         string status, string createdBefore, DateTime now, ILambdaContext context)
     {
         var orders = await _orderRepo.QueryByStatusForCronAsync(status, createdBefore);
+        var threshold = now.AddHours(-ExpirationHours);
         var cancelledCount = 0;
 
         foreach (var order in orders)
         {
+            // ESC-47: a pending_payment order gets its 24 hours from when it entered that status
+            // (pendingPaymentAt, stamped by sync), so a buyer who retries a failed payment on an old
+            // order through pending_payment is not cancelled at the next run. createdAt is never
+            // later, so the query's createdAt filter stays a safe pre-filter; orders from before
+            // the stamp keep counting from createdAt.
+            if (status == "pending_payment"
+                && DateTime.TryParse(GetString(order, "pendingPaymentAt"), CultureInfo.InvariantCulture,
+                    DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var enteredAt)
+                && enteredAt > threshold)
+            {
+                continue;
+            }
+
             var orderId = GetString(order, "orderId");
             var version = GetInt(order, "version");
 
