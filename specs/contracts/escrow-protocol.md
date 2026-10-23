@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.19.0
+1.24.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -471,6 +471,7 @@ that is already `disputed` when the request reads it answers `409 ESCROW_020` to
 | `409` | `ESCROW_INVALID_TRANSITION` | A release or refund holds the settlement lock (1.9.0), or the escrow changed while the dispute was written and is still `escrowed`: try again (1.12.0) |
 | `422` | `ESCROW_INVALID_TRANSITION` | Escrow is in any state but `escrowed` or `disputed` (a `held` escrow is refused too, 1.7.0), also when it moved there between the read and the write (1.12.0) |
 | `500` | `ESCROW_012` | Internal server error |
+| `503` | `ESCROW_012` | The escrow (or an admin caller's profile) could not be read for the step-up check; the dispute did not run and nothing was written, safe to retry (1.24.0; before, a Lambda error that API Gateway answered `502` without a code) |
 
 ---
 
@@ -1299,7 +1300,8 @@ the buyer's last Fayda login (`POST /user/fayda-link`) is within the window. A f
 does not satisfy the Fayda tier. When the buyer's profile cannot be read for that check the
 response is `503 ESCROW_012` (nothing held; safe to retry). `POST /escrow/dispute` returns `403 AUTH_040` when the
 escrow's amount is at or above the step-up threshold and `auth_time` is older than the window.
-See auth-api.md 2.4.0.
+When the escrow cannot be read for that check the response is `503 ESCROW_012` (nothing
+written; safe to retry; 1.24.0, FUP-44). See auth-api.md 2.4.0.
 
 ### Payout destination and identity at release
 Release and refund send money to the **registered phone** of the party, read from the
@@ -3039,6 +3041,7 @@ and override fields are server-only.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.24.0 | 2026-10-23 | The dispute step-up read fails closed with a typed answer (FUP-44): when `POST /escrow/dispute` cannot read the escrow (or an admin caller's profile) to decide the step-up, it answers `503 ESCROW_012` with nothing written (no escrow write, no escrow-audit row, no idempotency record), so the same request can be retried; before, the exception escaped the handler and API Gateway answered `502` without a code; no new read or write (1.20.0 to 1.23.0 belong to other tickets still in flight) |
 | 1.19.0 | 2026-10-23 | The funding's transaction-audit row survives a failed write (ESC-47 item 2): the `payment_verified` row of a Telebirr order funding is keyed by the order's `paymentVerifiedAt` and written with a conditional put on the funding delivery; a redelivery of the same payment (fresh, or an inbox replay) writes it when it is missing, in every order status, after its stock and escrow repair and after reading the order's trail (a row under any timestamp counts; the webhook Lambda gets `dynamodb:Query` on the transaction-audit base table); an unreadable trail writes nothing, and a failed read or write logs `ORDER_PAYMENT_BOOKKEEPING_FAILED step=payment_verified_audit` with the order and payment ids; no client change (1.18.0 is FUP-36's, in flight) |
 | 1.17.0 | 2026-10-10 | The order follows the money (ESC-09): every escrow money writer moves the order after its write (`disbursing` once the release is committed, `settled` once `completed` with no leg owed, a verdict escrow's order stays `dispute_resolved`), status-conditioned with `ADD version`; the hourly order-money sweep (`CronRunBudget`, now also the budget of ESC-10's paged sweeps with their limits unchanged; skip marker `moneySweepSkip`, escrow-audit `order_money_mismatch`/`order_money_ahead` once at `createdAt + 7/8` ticks) repairs and backfills; alarm `order-money-mismatch` (`ORDER_MONEY_MISMATCH`); Part B: an admin release of a plain escrowed order escrow needs a delivered order (`422`, no override), an admin refund cancels a pre-pickup order first and schedules the refund, refuses goods on the move unless overridden (`refundOverride*`) |
 | 1.16.0 | 2026-10-10 | Telebirr live dialect, webhook answers and inbox replay (ESC-45): the flat documented notify (one map verified and read, `data` envelope, nested `biz_content`, `transId` alias only without `trans_id`, duplicate keys and nested values refused), PSS or PKCS#1 accepted inbound, `notify_time` freshness by digit range with a 48 h late window on the order path only; `500` for verified notifications not recorded or not applied for a retryable reason, small JSON bodies; inbox rows carry `orderId`, the stored payment fields and a replay queue (sparse `InboxReplayIndex`); a 5-minute sweep replays them with claim, backoff and a conditional give-up after 8 attempts (`replay_exhausted`), heartbeat and stalled alarm; `ORDER_PAYMENT_REPLAY_PENDING` not alarmed; order `paymentHoldUntil` (order-lifecycle 1.16.0); every gateway call bounded by the run's deadline (`TELEBIRR_NO_TIME`, `TELEBIRR_TOKEN` definite); token path `/payment/v1/token`, timestamps in seconds; `/escrow/initiate` not usable live and cancels only on `Failed`, `Failure`, `Expired`; no payer field in the documented notify |
