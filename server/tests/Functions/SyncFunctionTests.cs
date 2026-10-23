@@ -15,7 +15,7 @@ using Xunit;
 
 namespace WeredaConnect.Server.Tests.Functions;
 
-public class SyncFunctionTests
+public partial class SyncFunctionTests
 {
     private readonly ISyncMetadataRepository _mockSyncMeta;
     private readonly ICropRepository _mockCropRepo;
