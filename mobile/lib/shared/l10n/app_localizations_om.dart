@@ -959,6 +959,12 @@ class AppLocalizationsOm extends AppLocalizations {
   String get escrowStatusRefunded => 'Deebifameera';
 
   @override
+  String get escrowStatusHeld => 'Ilaalamaa Jira';
+
+  @override
+  String get escrowStatusUnknown => 'Haalli Hin Beekamu';
+
+  @override
   String get escrowProtectionInfo =>
       'Kaffaltiin keessan geejjibni mirkanaa\'uu hanga gahutti nagaan qabama.';
 
@@ -1375,6 +1381,10 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String get fraudAccountHeld =>
+      'Herregni keessan ilaalamaa waan jiruuf, gochi kun yeroof dhaabbateera. Deeggarsa qunnamaa.';
+
+  @override
   String get profileSaved => 'Profaayiliin haaromfame';
 
   @override
@@ -1545,6 +1555,14 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get escrowDescRefunded => 'Maallaqni bitaadhaaf deebi\'eera';
+
+  @override
+  String get escrowDescHeld =>
+      'Hanga waltajjiin ilaalutti kaffaltiin dhaabbateera. Maallaqni nagaan jira.';
+
+  @override
+  String get escrowDescUnknown =>
+      'Haala kaffaltii kanaa isa dhiyoo ilaaluuf appii haaromsaa.';
 
   @override
   String get escrowStatusRefundPending => 'Deebii Eegamaa Jira';
@@ -2738,7 +2756,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get faydaStepUpMessage =>
-      'Kaffaltiin qarshii 10,000 ol ta\'e jecha iccitii osoo hin taane Faayidaan mirkaneessuu barbaada. Isin ta\'uu keessan Faayidaan mirkaneessaa, kaffaltiin keessan battaluma sanatti itti fufa.';
+      'Kaffaltiin kun jecha iccitii osoo hin taane Faayidaan mirkaneessuu barbaada. Isin ta\'uu keessan Faayidaan mirkaneessaa, kaffaltiin keessan battaluma sanatti itti fufa.';
 
   @override
   String get stepUpTitle => 'Isin ta\'uu keessan mirkaneessaa';

@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.17.0
+1.23.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -1613,6 +1613,38 @@ returned. The `AUTH_041` message becomes amount-neutral; clients key on the code
 
 ---
 
+## Additions in 1.23.0 (client handling of `held` and `FRAUD_ACCOUNT_HELD`, FRD-06)
+
+Mobile and web together, no server change. This is the client half of the `held` rollout condition
+in §Additions in 1.7.0 ("Client compatibility"); protecting installs older than FRD-06 on the escrow
+reads is still owed before `FRAUD_HOLD_ENABLED` is turned on.
+
+- **Status is an open set.** Every escrow the client reads (`GET /escrow/{id}`,
+  `GET /escrow/by-delivery/{deliveryId}`, `GET /escrow/history`, the initiate answers and the
+  payment rows in `/sync` conflict data) goes through one tolerant parser: a known name maps to
+  itself, `dispute_resolved` reads as `disputed` (the money is still frozen and the party has
+  nothing to do), and any other value reads as a neutral "Status Unknown" with no actions and a hint
+  to update the app. Mobile no longer fails the history refresh or the detail on such a value, and
+  web no longer shows it as `initiated`. Payment rows are never sent back, so the server's value is
+  never overwritten.
+- **`held` reads "Under Review"** (en, am, om) on the escrow badge, detail and timeline, with no
+  actions (a dispute needs `escrowed`). Order detail and the order list show the same badge to the
+  buyer, the farmer and the trucker when the order's escrow is `held`: the detail reads
+  `GET /escrow/escrow-order-{orderId}` (statuses that can hold money only), the list reads
+  `GET /escrow/history?status=held&role=<caller's role>&limit=50` once per load. The server filters
+  within its page, so a held escrow older than the party's 50 newest is flagged on the order detail
+  but not in the list. While held, the farmer is not offered Accept on a funded order and the buyer
+  is not offered the transport-failure cancel (the server refuses both); Reject and the cancel of a
+  funded order stay. A read that fails shows no badge; the server still refuses what `held` forbids.
+- **`FRAUD_ACCOUNT_HELD`**: the `403` on `/escrow/initiate` and `/escrow/order-checkout` keeps its
+  code (it was shown as "sign in again" and as "not authorized") and shows "Your account is under
+  review, so this action is paused. Contact support." A queued `/escrow/initiate` intent (mobile,
+  offline payment) fails at once instead of being retried three times, and the same text is shown.
+- **`AUTH_041` on `POST /escrow/dispute`** opens the Fayda login and sends the dispute again (the
+  server sends only `AUTH_040` there today). The Fayda prompt no longer names an amount.
+
+---
+
 ## Additions in 1.8.0 (fail-closed payouts and the manual payout queue, ESC-02)
 
 ### Gateway rule
@@ -3026,6 +3058,7 @@ and override fields are server-only.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.23.0 | 2026-10-23 | Client handling (FRD-06): one tolerant status parser on mobile and web (`dispute_resolved` reads as `disputed`, any unknown value as a neutral "Status Unknown" with no actions); `held` shown as "Under Review" on escrow and order screens for all three parties (order detail reads the order escrow, the order list one `status=held` history page), farmer Accept and the transport-failure cancel hidden while held; `FRAUD_ACCOUNT_HELD` keeps its code and its own text on initiate and order checkout, a queued intent fails at once; `AUTH_041` on dispute opens the Fayda login; no server change |
 | 1.17.0 | 2026-10-10 | The order follows the money (ESC-09): every escrow money writer moves the order after its write (`disbursing` once the release is committed, `settled` once `completed` with no leg owed, a verdict escrow's order stays `dispute_resolved`), status-conditioned with `ADD version`; the hourly order-money sweep (`CronRunBudget`, now also the budget of ESC-10's paged sweeps with their limits unchanged; skip marker `moneySweepSkip`, escrow-audit `order_money_mismatch`/`order_money_ahead` once at `createdAt + 7/8` ticks) repairs and backfills; alarm `order-money-mismatch` (`ORDER_MONEY_MISMATCH`); Part B: an admin release of a plain escrowed order escrow needs a delivered order (`422`, no override), an admin refund cancels a pre-pickup order first and schedules the refund, refuses goods on the move unless overridden (`refundOverride*`) |
 | 1.16.0 | 2026-10-10 | Telebirr live dialect, webhook answers and inbox replay (ESC-45): the flat documented notify (one map verified and read, `data` envelope, nested `biz_content`, `transId` alias only without `trans_id`, duplicate keys and nested values refused), PSS or PKCS#1 accepted inbound, `notify_time` freshness by digit range with a 48 h late window on the order path only; `500` for verified notifications not recorded or not applied for a retryable reason, small JSON bodies; inbox rows carry `orderId`, the stored payment fields and a replay queue (sparse `InboxReplayIndex`); a 5-minute sweep replays them with claim, backoff and a conditional give-up after 8 attempts (`replay_exhausted`), heartbeat and stalled alarm; `ORDER_PAYMENT_REPLAY_PENDING` not alarmed; order `paymentHoldUntil` (order-lifecycle 1.16.0); every gateway call bounded by the run's deadline (`TELEBIRR_NO_TIME`, `TELEBIRR_TOKEN` definite); token path `/payment/v1/token`, timestamps in seconds; `/escrow/initiate` not usable live and cancels only on `Failed`, `Failure`, `Expired`; no payer field in the documented notify |
 | 1.15.0 | 2026-10-10 | Sweep hygiene (ESC-10): the auto-release, auto-refund, dispute-settlement and reconciliation sweeps page through their whole partition (pages of 100) within a budget per sweep (50 pages, 1,000 rows that needed I/O, a time limit counted from the run start, the trucker reserve kept), with confirmation and lock skips in the filter and `sweep_truncated` when a limit stops one; a blocked settlement stores `settlementBlockReason`/`settlementBlockReasonAt` by compare-and-set and is audited once per reason (`release_blocked_kyc` from the sweeps, metadata `code=ESCROW_029;reason=<reason>`; admin attempts each time; new `auto_release_blocked`, `auto_refund_blocked` with one alarm line when first stored); the released and refunded writes clear it; the auto-release reads the delivery and order first (FUP-28): delivered and an order in flight or none pays, a disputed trade is frozen through the 1.12.0 path (this escrow only) and its delivery and order follow, a resolved dispute and every mismatch block; an expired `/escrow/initiate` escrow follows its delivery and order: goods moving or an order in flight hold it (extended to the 21-day cap, then the admin queue, or `ADMIN_QUEUE_OVERDUE reason=no_order` without an order), a pending delivery is cancelled before the refund, a double escrow or missing row blocks; an admin queue entry stamps only the escrow it owns; reconciliation rows are isolated; new run summary keys; no client change |
@@ -3055,6 +3088,6 @@ and override fields are server-only.
 
 ---
 
-**Last Updated**: 2026-10-10
-**Version**: 1.17.0
+**Last Updated**: 2026-10-23
+**Version**: 1.23.0
 **Status**: Draft (Phase R4)

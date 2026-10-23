@@ -29,11 +29,15 @@ class RaiseDisputeScreen extends StatefulWidget {
   final String deliveryId;
   final DateTime? disputeWindowEndsAt;
 
+  /// Replaces the Fayda screen the AUTH_041 prompt opens (tests).
+  final WidgetBuilder? faydaVerificationScreen;
+
   const RaiseDisputeScreen({
     required this.escrowId,
     required this.amount,
     required this.deliveryId,
     this.disputeWindowEndsAt,
+    this.faydaVerificationScreen,
     super.key,
   });
 
@@ -50,6 +54,20 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
     if (event == null) return;
     final ok = await showStepUpDialog(context);
     if (ok && context.mounted) {
+      context.read<EscrowBloc>().add(event);
+    }
+  }
+
+  /// AUTH_041: only a fresh Fayda login satisfies the server; the password
+  /// prompt would loop. A verified login sends the same dispute again.
+  Future<void> _retryAfterFaydaStepUp(BuildContext context) async {
+    final event = _lastDispute;
+    if (event == null) return;
+    final outcome = await showFaydaStepUpDialog(
+      context,
+      verificationScreen: widget.faydaVerificationScreen,
+    );
+    if (outcome == StepUpOutcome.verified && context.mounted) {
       context.read<EscrowBloc>().add(event);
     }
   }
@@ -133,6 +151,9 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
           // High-value escrow with an old session: confirm the password,
           // then raise the same dispute again.
           _retryAfterStepUp(context);
+        } else if (state is EscrowError &&
+            state.code == faydaStepUpRequiredCode) {
+          _retryAfterFaydaStepUp(context);
         } else if (state is EscrowError) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(

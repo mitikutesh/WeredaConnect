@@ -108,7 +108,12 @@ OrderCheckoutFailed orderCheckoutFailureOf(ApiException e) {
 /// [fallback] for the HTTP class. SIM-24: a 409 is `ESCROW_009` (a second
 /// escrow on the delivery) or `ESCROW_024` (funds already held for the order);
 /// the status alone cannot tell them apart and the UI keys its copy on the code.
+/// `FRAUD_ACCOUNT_HELD` (a 403) is kept too: the account is under review, which
+/// is not "sign in again".
 String escrowCodeOf(ApiException e, String fallback) {
   final code = e.code;
-  return code != null && code.startsWith('ESCROW_') ? code : fallback;
+  return code != null &&
+          (code.startsWith('ESCROW_') || code == fraudAccountHeldCode)
+      ? code
+      : fallback;
 }

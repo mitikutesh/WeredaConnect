@@ -45,6 +45,8 @@ String localizeEscrowError(
     'ESCROW_038' => l10n.escrowErrorPayoutInProgress,
     'ESCROW_INVALID_TRANSITION' => l10n.escrowErrorInvalidTransition,
     'ESCROW_OFFLINE' => l10n.escrowErrorOffline,
+    // The account is under review (403 on initiate and order checkout).
+    'FRAUD_ACCOUNT_HELD' => l10n.fraudAccountHeld,
     _ => l10n.escrowErrorGeneric,
   };
 }

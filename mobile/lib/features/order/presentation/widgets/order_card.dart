@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
@@ -18,6 +20,10 @@ class OrderCard extends StatelessWidget {
   final VoidCallback? onReject;
   final bool isFarmerView;
 
+  /// The order's escrow is held for review (FRD-06): an "Under Review" chip,
+  /// and no Accept, which the server refuses while it is held (Reject stays).
+  final bool underReview;
+
   const OrderCard({
     required this.order,
     super.key,
@@ -25,6 +31,7 @@ class OrderCard extends StatelessWidget {
     this.onAccept,
     this.onReject,
     this.isFarmerView = false,
+    this.underReview = false,
   });
 
   @override
@@ -85,7 +92,16 @@ class OrderCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  _OrderStatusChip(status: order.status, l10n: l10n),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      _OrderStatusChip(status: order.status, l10n: l10n),
+                      if (underReview) ...[
+                        const SizedBox(height: 4),
+                        const EscrowStatusBadge(status: PaymentStatus.held),
+                      ],
+                    ],
+                  ),
                 ],
               ),
               // Show accept/reject buttons only once the order is funded (buyer
@@ -113,7 +129,7 @@ class OrderCard extends StatelessWidget {
                           child: Text(l10n.rejectOrder),
                         ),
                       ),
-                    if (onAccept != null) ...[
+                    if (onAccept != null && !underReview) ...[
                       const SizedBox(width: 8),
                       Flexible(
                         child: FilledButton(

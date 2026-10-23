@@ -955,6 +955,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get escrowStatusRefunded => 'Refunded';
 
   @override
+  String get escrowStatusHeld => 'Under Review';
+
+  @override
+  String get escrowStatusUnknown => 'Status Unknown';
+
+  @override
   String get escrowProtectionInfo =>
       'Your payment is held safely until delivery is confirmed.';
 
@@ -1375,6 +1381,10 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get fraudAccountHeld =>
+      'Your account is under review, so this action is paused. Contact support.';
+
+  @override
   String get profileSaved => 'Profile updated';
 
   @override
@@ -1543,6 +1553,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get escrowDescRefunded => 'Funds returned to buyer';
+
+  @override
+  String get escrowDescHeld =>
+      'Payment paused while the platform reviews it. The money stays safe.';
+
+  @override
+  String get escrowDescUnknown =>
+      'Update the app to see the latest status of this payment.';
 
   @override
   String get escrowStatusRefundPending => 'Refund Pending';
@@ -2720,7 +2738,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get faydaStepUpMessage =>
-      'Payments above 10,000 ETB need a Fayda login, not your password. Confirm it\'s you with Fayda and your payment continues right after.';
+      'This payment needs a Fayda login, not your password. Confirm it\'s you with Fayda and your payment continues right after.';
 
   @override
   String get stepUpTitle => 'Confirm it\'s you';

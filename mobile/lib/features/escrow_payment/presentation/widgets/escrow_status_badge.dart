@@ -14,6 +14,8 @@ StatusKind escrowStatusKind(PaymentStatus status) {
     PaymentStatus.cancelled => StatusKind.neutral,
     PaymentStatus.disputed => StatusKind.error,
     PaymentStatus.refunded => StatusKind.info,
+    PaymentStatus.held => StatusKind.warning,
+    PaymentStatus.unknown => StatusKind.neutral,
   };
 }
 
@@ -100,6 +102,8 @@ class EscrowStatusBadge extends StatelessWidget {
       PaymentStatus.cancelled => Icons.cancel,
       PaymentStatus.disputed => Icons.warning,
       PaymentStatus.refunded => Icons.replay,
+      PaymentStatus.held => Icons.pause_circle_outline,
+      PaymentStatus.unknown => Icons.help_outline,
     };
   }
 
@@ -112,6 +116,8 @@ class EscrowStatusBadge extends StatelessWidget {
       PaymentStatus.cancelled => l10n.escrowStatusCancelled,
       PaymentStatus.disputed => l10n.escrowStatusDisputed,
       PaymentStatus.refunded => l10n.escrowStatusRefunded,
+      PaymentStatus.held => l10n.escrowStatusHeld,
+      PaymentStatus.unknown => l10n.escrowStatusUnknown,
     };
   }
 
@@ -127,6 +133,8 @@ class EscrowStatusBadge extends StatelessWidget {
       PaymentStatus.cancelled => l10n.escrowDescCancelled,
       PaymentStatus.disputed => l10n.escrowDescDisputed,
       PaymentStatus.refunded => l10n.escrowDescRefunded,
+      PaymentStatus.held => l10n.escrowDescHeld,
+      PaymentStatus.unknown => l10n.escrowDescUnknown,
     };
   }
 }

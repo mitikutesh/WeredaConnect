@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.15.0
+1.18.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -292,6 +292,17 @@ so only the message needs FRD-06: the batch error message names only
 directly, handle the code in FRD-06 too. Design:
 `specs/architecture/fraud-detection-architecture.md` 3.0.0, section 17.
 
+### Client handling (1.18.0, FRD-06)
+
+| Code | Mobile client (sync queue) | Web client (calls `/sync` directly) |
+|------|----------------------------|-------------------------------------|
+| `FRAUD_ACCOUNT_HELD:` | Permanent, as before. A refused order operation is reverted as in 1.10.0 (a refused create removes the local order, a refused `payment_submitted` puts the server's order back); a refused crop or trip create keeps its local row, like the other `FRAUD_*` codes. For every entity and action the user is told, in en, am and om: "Your account is under review, so this action is paused. Contact support." The batch result's error message picks the code too. | The refused call fails with the same text (crop, trip and order create, payment). |
+| `AUTH_041:` | Unchanged: kept pending, the Fayda login opens, the operation goes again after it. The prompt no longer names an amount, since the server may ask at any amount. | Unchanged: the payment screen opens the Fayda login and sends the same payment again, with the same prompt. |
+
+The escrow routes (`/escrow/initiate`, `/escrow/order-checkout`, `/escrow/dispute`) and the
+escrow `held` status are covered in `escrow-protocol.md` 1.23.0. Clients older than 1.18.0 show
+a generic refusal for `FRAUD_ACCOUNT_HELD` and do not retry it either.
+
 ---
 
 ## Permanent order rejections (1.10.0, ESC-12 part A)
@@ -434,6 +445,7 @@ times) and keep their local copy.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.18.0 | 2026-10-23 | Client handling of fraud codes (FRD-06): `FRAUD_ACCOUNT_HELD` gets its own text in en, am and om on mobile (every entity and action, and the batch error message) and on web; order operations keep the 1.10.0 revert, crop and trip creates keep their local row; the `AUTH_041` prompt no longer names an amount; no server change |
 | 1.15.0 | 2026-10-17 | Message contact refusal (ESC-48): `MESSAGE_CONTACT_LOCKED` for a message into a `crop` or `trip` thread, or into an `order` or `delivery` thread whose order's contact is not open; permanent, the mobile client removes its local copy and explains it in en, am and om; a refused resend of a message the sender already stored answers `duplicate`; message rows in `/sync` data carry no phone; delivery rows in `/sync` data carry no phone (`delivery-verification-api.md` 1.15.0) |
 | 1.14.0 | 2026-10-17 | Delivery dispute step-up fails closed (FUP-26): when the order (or a legacy delivery's `DeliveryIndex` escrow) that sizes the step-up cannot be read, the dispute answers `DELIVERY_DISPUTE_RETRY` before the freeze and nothing is written (it was let through without the step-up); a missing order, or a total that is missing, unreadable, zero or negative, answers `AUTH_040` to a stale session at any amount; clients unchanged (`DELIVERY_DISPUTE_RETRY` retried, `AUTH_040` kept pending) |
 | 1.13.0 | 2026-10-10 | Order cancel refusal (ESC-06): `ORDER_CANCEL_NOT_ALLOWED` is sent for a buyer cancel of an `accepted` order before its pickup deadline, after pickup or while its money is being settled; permanent (server-clock dependent, never resent), its own localized message on mobile and web; the cancel's read and write failures are unprefixed and retried; a delivery create on an order that no longer takes one is refused with `DELIVERY_VALIDATION`; order rows carry `pickupDeadlineAt` |
@@ -452,5 +464,5 @@ times) and keep their local copy.
 
 ---
 
-**Last Updated**: 2026-10-17
-**Version**: 1.15.0
+**Last Updated**: 2026-10-23
+**Version**: 1.18.0

@@ -1228,6 +1228,14 @@
   "@escrowStatusRefunded": {
     "description": "Status label when escrow payment has been refunded"
   },
+  "escrowStatusHeld": "Under Review",
+  "@escrowStatusHeld": {
+    "description": "Status label when the platform froze the payment for a review (escrow status held); shown to the buyer, farmer and trucker on payment and order screens. Neutral wording: never mention fraud"
+  },
+  "escrowStatusUnknown": "Status Unknown",
+  "@escrowStatusUnknown": {
+    "description": "Status label for a payment status this app version does not know yet"
+  },
 
   "escrowProtectionInfo": "Your payment is held safely until delivery is confirmed.",
   "@escrowProtectionInfo": {
@@ -1806,6 +1814,10 @@
       }
     }
   },
+  "fraudAccountHeld": "Your account is under review, so this action is paused. Contact support.",
+  "@fraudAccountHeld": {
+    "description": "The server refused a new listing, trip, order or a payment because the account is under review (FRAUD_ACCOUNT_HELD); nothing was saved and trying again gives the same answer. Neutral wording: never mention fraud or blame"
+  },
 
   "@@profileSection": "=== Profile Feature ===",
 
@@ -2040,6 +2052,14 @@
   "escrowDescRefunded": "Funds returned to buyer",
   "@escrowDescRefunded": {
     "description": "Status description for refunded escrow"
+  },
+  "escrowDescHeld": "Payment paused while the platform reviews it. The money stays safe.",
+  "@escrowDescHeld": {
+    "description": "Status description for a payment the platform froze for a review (escrow status held); only an admin can release or refund it"
+  },
+  "escrowDescUnknown": "Update the app to see the latest status of this payment.",
+  "@escrowDescUnknown": {
+    "description": "Status description for a payment status this app version does not know yet"
   },
   "escrowStatusRefundPending": "Refund Pending",
   "@escrowStatusRefundPending": {
@@ -3429,9 +3449,9 @@
       }
     }
   },
-  "faydaStepUpMessage": "Payments above 10,000 ETB need a Fayda login, not your password. Confirm it's you with Fayda and your payment continues right after.",
+  "faydaStepUpMessage": "This payment needs a Fayda login, not your password. Confirm it's you with Fayda and your payment continues right after.",
   "@faydaStepUpMessage": {
-    "description": "Fayda step-up dialog (AUTH_041): a payment above 10,000 ETB needs a fresh Fayda login instead of the password"
+    "description": "Fayda step-up dialog (AUTH_041): this payment needs a fresh Fayda login instead of the password. No amount: the server asks for it above 10,000 ETB and may ask at any amount"
   },
   "stepUpTitle": "Confirm it's you",
   "@stepUpTitle": {

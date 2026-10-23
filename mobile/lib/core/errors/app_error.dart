@@ -34,6 +34,11 @@ enum AppErrorCode {
   /// The payment needs Fayda KYC or a verified phone (ORDER_KYC_REQUIRED).
   kycRequired,
 
+  /// The account is under review (`FRAUD_ACCOUNT_HELD`): a create or a
+  /// payment was refused and nothing was written. Only support can lift it,
+  /// so it is never retried.
+  accountHeld,
+
   /// The server refused an order change for good (any other `ORDER_*`
   /// rejection), or a local guard refused it; nothing was changed.
   orderRefused,
@@ -120,6 +125,11 @@ AppErrorCode mapErrorToCode(Object error) {
     SyncRejectedException(:final message) when isKycRequiredMessage(message) =>
       AppErrorCode.kycRequired,
     SyncRejectedException(:final message)
+        when isFraudAccountHeldMessage(message) =>
+      AppErrorCode.accountHeld,
+    // REST answers it as a 403 with the code (escrow routes).
+    ApiException(code: fraudAccountHeldCode) => AppErrorCode.accountHeld,
+    SyncRejectedException(:final message)
         when isPaymentTotalOutOfRangeMessage(message) =>
       AppErrorCode.paymentTotalOutOfRange,
     SyncConflictException() => AppErrorCode.conflict,
@@ -171,6 +181,7 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.stepUpRequired => l10n.stepUpRequiredMessage,
     AppErrorCode.faydaStepUpRequired => l10n.faydaStepUpMessage,
     AppErrorCode.kycRequired => l10n.kycRequiredFaydaMessage,
+    AppErrorCode.accountHeld => l10n.fraudAccountHeld,
     AppErrorCode.orderRefused => l10n.errorOrderRefused,
     AppErrorCode.paymentTotalOutOfRange => l10n.paymentTotalOutOfRange,
     AppErrorCode.orderNotPlaced => l10n.errorOrderNotPlaced,
@@ -200,6 +211,8 @@ AppErrorCode syncRejectionErrorCode({
   required String action,
   required String message,
 }) {
+  // The real reason for any entity and action: the account is under review.
+  if (isFraudAccountHeldMessage(message)) return AppErrorCode.accountHeld;
   if (entityType == 'order') {
     if (action == 'create') return AppErrorCode.orderNotPlaced;
     if (isOrderCancelNotAllowedMessage(message)) {

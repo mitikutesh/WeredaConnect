@@ -1,6 +1,7 @@
 import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/models/payment_status_wire.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_config.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
@@ -571,7 +572,7 @@ class EscrowRepository extends BaseEscrowRepository {
           response.amount > 0 ? response.commission / response.amount : 0.025
       ..farmerPayout = response.farmerPayout
       ..telebirrRef = response.telebirrRef
-      ..status = PaymentStatus.values.byName(response.status)
+      ..status = paymentStatusFromWire(response.status)
       ..createdAt = DateTime.parse(response.createdAt)
       ..updatedAt = DateTime.parse(response.createdAt)
       ..expiresAt = DateTime.parse(response.expiresAt)
@@ -595,7 +596,7 @@ class EscrowRepository extends BaseEscrowRepository {
       ..refundPending = response.refundPending
       ..refundReason = response.refundReason
       ..telebirrRef = response.telebirrRef
-      ..status = PaymentStatus.values.byName(response.status)
+      ..status = paymentStatusFromWire(response.status)
       ..createdAt = DateTime.parse(response.createdAt)
       ..updatedAt = DateTime.parse(response.updatedAt)
       ..expiresAt = DateTime.parse(response.expiresAt)
@@ -641,7 +642,7 @@ class EscrowRepository extends BaseEscrowRepository {
       ..expiresAt = summary.expiresAt != null
           ? DateTime.tryParse(summary.expiresAt!)
           : null
-      ..status = PaymentStatus.values.byName(summary.status)
+      ..status = paymentStatusFromWire(summary.status)
       ..createdAt = DateTime.parse(summary.createdAt)
       ..updatedAt = DateTime.parse(summary.createdAt)
       ..completedAt = summary.completedAt != null

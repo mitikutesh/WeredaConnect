@@ -29,8 +29,12 @@ enum CheckoutIssue {
   /// `401`: the session is gone.
   sessionExpired,
 
-  /// `403`: not this buyer's order, not a buyer, or the account is held.
+  /// `403`: not this buyer's order, or not a buyer.
   unauthorized,
+
+  /// `403 FRAUD_ACCOUNT_HELD`: the account is under review; no Telebirr
+  /// checkout was opened.
+  accountHeld,
 
   /// `ESCROW_032`: a payment is being set up, or Telebirr's answer was lost;
   /// blocked until the old checkout ends (up to about 130 minutes).

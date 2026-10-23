@@ -6,6 +6,7 @@ import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
+import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -19,6 +20,10 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_detail_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_generate_screen.dart';
+import 'package:wereda_connect/features/escrow_payment/domain/escrow_hold.dart';
+import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
 import 'package:wereda_connect/features/messaging/presentation/screens/conversation_screen.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
@@ -50,6 +55,24 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   /// ESC-48: the order is read from the server at most once per screen to
   /// fetch the parties' phones of an open order the device has none for.
   bool _contactPullTried = false;
+
+  /// FRD-06: the order's escrow is held for review.
+  bool _underReview = false;
+
+  /// Statuses at which the order's escrow can be held: the money is in
+  /// escrow and waits to settle, or the order was refused, cancelled or
+  /// disputed and its money waits for the refund or the verdict.
+  static const _holdableStatuses = {
+    OrderStatus.funded,
+    OrderStatus.accepted,
+    OrderStatus.pickupConfirmed,
+    OrderStatus.inTransit,
+    OrderStatus.delivered,
+    OrderStatus.disputed,
+    OrderStatus.disputeResolved,
+    OrderStatus.cancelled,
+    OrderStatus.rejected,
+  };
 
   @override
   void initState() {
@@ -87,6 +110,22 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     }
   }
 
+  /// FRD-06: read whether the order's escrow is held; the parties then see
+  /// "Under Review" and lose the actions the server refuses while it is.
+  Future<void> _checkHold(Order order) async {
+    var held = false;
+    if (_holdableStatuses.contains(order.status)) {
+      final BaseEscrowRepository repository;
+      try {
+        repository = context.read<EscrowBloc>().repository;
+      } on Object {
+        return; // No escrow side above this screen.
+      }
+      held = await isOrderEscrowHeld(repository, order.orderId);
+    }
+    if (mounted && held != _underReview) setState(() => _underReview = held);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -116,6 +155,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             );
           } else if (state is SingleOrderLoaded) {
             _pullForContact(state.order);
+            _checkHold(state.order);
           }
         },
         builder: (context, state) {
@@ -123,7 +163,10 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (state is SingleOrderLoaded) {
-            return _OrderDetailBody(order: state.order);
+            return _OrderDetailBody(
+              order: state.order,
+              underReview: _underReview,
+            );
           }
           if (state is OrderError) {
             return Center(child: Text(localizeErrorCode(state.code, l10n)));
@@ -138,7 +181,10 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 class _OrderDetailBody extends StatelessWidget {
   final Order order;
 
-  const _OrderDetailBody({required this.order});
+  /// The order's escrow is held for review (FRD-06).
+  final bool underReview;
+
+  const _OrderDetailBody({required this.order, this.underReview = false});
 
   @override
   Widget build(BuildContext context) {
@@ -173,6 +219,12 @@ class _OrderDetailBody extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // FRD-06: the money is frozen until an admin decides.
+            if (underReview) ...[
+              const EscrowStatusBadge(status: PaymentStatus.held, large: true),
+              const SizedBox(height: 24),
+            ],
+
             // ── Order info card ─────────────────────────────────
             Card(
               margin: EdgeInsets.zero,
@@ -342,7 +394,8 @@ class _OrderDetailBody extends StatelessWidget {
       widgets.add(const SizedBox(height: 12));
     }
 
-    // Farmer + funded → Accept / Reject
+    // Farmer + funded → Accept / Reject. Under review the server refuses the
+    // accept (FRD-03), so only Reject is offered.
     if (userRole == UserRole.farmer && order.status == OrderStatus.funded) {
       widgets.add(
         Row(
@@ -365,23 +418,25 @@ class _OrderDetailBody extends StatelessWidget {
                 child: Text(l10n.rejectOrder),
               ),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: FilledButton(
-                onPressed: () {
-                  context.read<OrderBloc>().add(
-                        AcceptOrder(
-                          orderId: order.orderId,
-                          farmerId: userId,
-                        ),
-                      );
-                },
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
+            if (!underReview) ...[
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  onPressed: () {
+                    context.read<OrderBloc>().add(
+                          AcceptOrder(
+                            orderId: order.orderId,
+                            farmerId: userId,
+                          ),
+                        );
+                  },
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                  child: Text(l10n.acceptOrder),
                 ),
-                child: Text(l10n.acceptOrder),
               ),
-            ),
+            ],
           ],
         ),
       );
@@ -423,11 +478,13 @@ class _OrderDetailBody extends StatelessWidget {
 
     // ESC-06: nobody collected the crops by the pickup deadline, a transport
     // failure. The buyer may cancel for a full refund; the farmer and the
-    // trucker are told the buyer can.
-    final transportFailed = isTransportFailureCancelOpen(
-      order,
-      DateTime.now().toUtc(),
-    );
+    // trucker are told the buyer can. Not while the escrow is under review:
+    // the server refuses that cancel (ORDER_CANCEL_NOT_ALLOWED).
+    final transportFailed = !underReview &&
+        isTransportFailureCancelOpen(
+          order,
+          DateTime.now().toUtc(),
+        );
     if (transportFailed) {
       widgets.add(
         _TransportFailureNotice(

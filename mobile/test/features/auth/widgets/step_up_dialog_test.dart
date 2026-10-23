@@ -219,7 +219,7 @@ void main() {
       await tester.tap(find.text('pay'));
       await settle(tester);
       expect(
-        find.textContaining('Payments above 10,000 ETB need a Fayda login'),
+        find.textContaining('This payment needs a Fayda login'),
         findsOneWidget,
       );
       // No password here: above 10,000 ETB only Fayda counts.
