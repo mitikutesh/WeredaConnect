@@ -1977,11 +1977,13 @@ through the money alarm sink, before the `dispute_propagation_failed` audit row)
 which the delivery or the order did not follow a frozen escrow. Three Lambdas run the mirror, and
 a filter on each of their log groups counts the line: escrow (`POST /escrow/dispute`, and its
 repair of a dispute already frozen), sync (a delivery dispute) and escrow-cron (a sweep that freezes
-a trade disputed before 1.12.0). `legs` is the failed-legs text defanged like the verdict lines
-(`LogId`, `,` as `.`, brackets dropped: `delivery:[TimeoutException],order:conflict` logs
-`delivery:TimeoutException.order:conflict`); the audit row keeps it raw. The money is frozen, so nothing pays
-out; the order may still show `delivered` and stay open to ratings until a repeated dispute or the
-admin verdict (1.9.0) moves it. Before 1.26.0 no filter counted the line.
+a trade disputed before 1.12.0). `legs` is the failed-legs text through `MoneyAlarmLog.LogLegs`:
+the characters `LogId` keeps, `_` as `-`, `,` as `.`, brackets dropped, cut at 200 characters (not
+64, so three legs with long exception names survive): `delivery:[TimeoutException],order:conflict`
+logs `delivery:TimeoutException.order:conflict`; the audit row keeps it raw. The money is frozen, so
+nothing pays out; the order may still show `delivered` and stay open to ratings until a party's
+repeated dispute (skipped while a manual payout or a settlement lock is open) or the admin verdict
+(1.9.0, the operator's lever) moves it. Before 1.26.0 no filter counted the line.
 
 `DELIVERY_DISPUTE_FROZEN` is logged by the sync Lambda (`LogWarning`) once a delivery dispute
 froze its escrow (outcome `Frozen` in 1.12.0's freeze), before the delivery write. It is counted

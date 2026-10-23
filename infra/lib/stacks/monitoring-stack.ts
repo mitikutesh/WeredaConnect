@@ -1009,10 +1009,11 @@ export class MonitoringStack extends cdk.Stack {
         'disputed), so nothing pays out, but the order may still show delivered and stay open to ' +
         'ratings. legs lookup:<error> or delivery:<error>: a read or write failed (throttling, IAM); ' +
         'order:conflict: three version conflicts in a row; order:<code>: the order write was ' +
-        'refused. Fix the cause, then check the trade in /transactions/<orderId>. A repeated ' +
-        'dispute (POST /escrow/dispute, or the delivery dispute sent again through sync) runs the ' +
-        'mirror again, and the admin verdict moves the order and delivery before it settles ' +
-        '(ESC-03). Never edit the rows by hand (FUP-27).',
+        'refused. Fix the cause, then check the trade in /transactions/<orderId>. Only a party\'s ' +
+        'repeated dispute (POST /escrow/dispute again, or the delivery dispute resent through sync) ' +
+        're-runs the mirror, and not while a manual payout or a settlement lock is open. Your lever ' +
+        'is the admin verdict (POST /admin/disputes/{id}/resolve): it moves the order and delivery, ' +
+        'again before it settles (ESC-03). Never edit the rows by hand (FUP-27).',
     );
 
     const orderMoneyMismatchAlarm = moneyLogAlarm(

@@ -37,6 +37,34 @@ public class MoneyAlarmLogDisputeTests
     }
 
     [Fact]
+    public void DisputePropagationFailed_ThreeLongLegs_AreNotCutAt64()
+    {
+        // Review of FUP-27: with the 64 character id cap the second leg of two throttled reads was
+        // cut to "order:Provisione". Legs get 200 characters.
+        const string legs = "lookup:[ProvisionedThroughputExceededException],"
+            + "delivery:[ProvisionedThroughputExceededException],order:[ProvisionedThroughputExceededException]";
+
+        var line = MoneyAlarmLog.DisputePropagationFailed("escrow-001", "ord-1", "del-1", legs);
+
+        line.Should().EndWith(
+            " legs=lookup:ProvisionedThroughputExceededException.delivery:ProvisionedThroughputExceededException"
+            + ".order:ProvisionedThroughputExceededException");
+    }
+
+    [Fact]
+    public void LogLegs_KeepsTheSafeCharacters_DefangsAndCutsAt200()
+    {
+        MoneyAlarmLog.LogLegs("order:ORDER_NOT_FOUND,delivery:[x y]\nDELIVERY_DISPUTE_FROZEN=1")
+            .Should().Be("order:ORDER-NOT-FOUND.delivery:xyDELIVERY-DISPUTE-FROZEN1");
+        MoneyAlarmLog.LogLegs(new string('a', 300)).Should().Be(new string('a', 200));
+        MoneyAlarmLog.LogLegs(null).Should().Be("-");
+        MoneyAlarmLog.LogLegs("[ ]").Should().Be("-");
+        var hostile = MoneyAlarmLog.LogLegs($"order:{Hostile}");
+        TokensIn(hostile).Should().BeEmpty();
+        hostile.Should().MatchRegex("^[A-Za-z0-9.:-]{1,200}$");
+    }
+
+    [Fact]
     public void DisputePropagationFailed_MissingIdsBecomeDash()
     {
         // The mirror may know neither the order nor the delivery when its lookup failed.

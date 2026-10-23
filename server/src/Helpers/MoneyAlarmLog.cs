@@ -9,7 +9,8 @@ namespace WeredaConnect.Server.Helpers;
 /// <remarks>
 /// <para>
 /// Line formats (one line each; ids go through <see cref="LogId"/>, the other fields keep
-/// <c>[A-Za-z0-9-_.:]</c>; every field is cut at 64 characters and an empty one is <c>-</c>):
+/// <c>[A-Za-z0-9-_.:]</c>; every field is cut at 64 characters, the propagation line's legs at 200,
+/// and an empty one is <c>-</c>):
 /// </para>
 /// <code>
 /// ESCROW_SETTLEMENT_FAILED escrowId=&lt;id&gt; action=&lt;action&gt; outcome=&lt;failed|unknown&gt; code=&lt;code&gt;
@@ -27,9 +28,9 @@ namespace WeredaConnect.Server.Helpers;
 /// FUP-27. The propagation line is logged by the escrow service's dispute mirror when the delivery
 /// or order behind a frozen dispute did not follow it, from the three Lambdas that run the mirror:
 /// escrow (<c>POST /escrow/dispute</c> and its repeat), sync (a delivery dispute) and escrow-cron (a
-/// sweep that froze a disputed trade). <c>legs</c> is the mirror's failed-legs text like the verdict
-/// lines (defanged, <c>,</c> as <c>.</c>); the escrow-audit row <c>dispute_propagation_failed</c> keeps
-/// it raw. The frozen line is logged by the sync Lambda (with <c>LogWarning</c>) once a delivery
+/// sweep that froze a disputed trade). <c>legs</c> is the mirror's failed-legs text through
+/// <see cref="LogLegs"/> (defanged, <c>,</c> as <c>.</c>, cut at 200 characters, not 64); the
+/// escrow-audit row <c>dispute_propagation_failed</c> keeps it raw. The frozen line is logged by the sync Lambda (with <c>LogWarning</c>) once a delivery
 /// dispute froze its escrow, and nowhere else: its filter feeds the escrow dispute-rate metric that
 /// the escrow Lambda's <c>ESCROW</c>/<c>DISPUTE</c> audit line feeds too. It is a rate, not a failure.
 /// </para>
@@ -199,7 +200,7 @@ public static class MoneyAlarmLog
     /// </summary>
     public static string DisputePropagationFailed(string? escrowId, string? orderId, string? deliveryId, string? legs)
         => $"{DisputePropagationFailedToken} escrowId={LogId(escrowId)} orderId={LogId(orderId)} "
-           + $"deliveryId={LogId(deliveryId)} legs={LogId(legs?.Replace(',', '.'))}";
+           + $"deliveryId={LogId(deliveryId)} legs={LogLegs(legs)}";
 
     /// <summary>
     /// FUP-27: a delivery dispute through sync froze its escrow. Counted with the escrow Lambda's
@@ -215,6 +216,13 @@ public static class MoneyAlarmLog
     /// <c>-</c>. No space, newline or underscore survives, so the value cannot spell an alarm token.
     /// </summary>
     public static string LogId(string? value) => Safe(Defang(value));
+
+    /// <summary>
+    /// FUP-27: a failed-legs text (<c>leg:[reason],leg:reason</c>) for one field: the same characters
+    /// as <see cref="LogId"/> (<c>_</c> becomes <c>-</c>, brackets and spaces dropped), <c>,</c> becomes
+    /// <c>.</c>, cut at 200 characters instead of 64 so three legs with long exception names survive.
+    /// </summary>
+    public static string LogLegs(string? legs) => Safe(Defang(legs?.Replace(',', '.')), MaxTextLength);
 
     /// <summary>
     /// Free text that may echo client input (an exception or error message) for the same log
@@ -246,8 +254,9 @@ public static class MoneyAlarmLog
     /// Keep <c>[A-Za-z0-9-_.:]</c>, cut at 64 characters, empty becomes <c>-</c>. A field can
     /// never hold a space or a newline, so it cannot add a second field or break the line.
     /// Only for server values (actions, codes, references); client-influenced ids use <see cref="LogId"/>.
+    /// <paramref name="maxLength"/> is longer only for <see cref="LogLegs"/>.
     /// </summary>
-    private static string Safe(string? value)
+    private static string Safe(string? value, int maxLength = MaxFieldLength)
     {
         if (string.IsNullOrEmpty(value))
         {
@@ -257,7 +266,7 @@ public static class MoneyAlarmLog
         var safe = new string(value
             .Where(c => c is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9')
                 or '-' or '_' or '.' or ':')
-            .Take(MaxFieldLength)
+            .Take(maxLength)
             .ToArray());
         return safe.Length == 0 ? "-" : safe;
     }
