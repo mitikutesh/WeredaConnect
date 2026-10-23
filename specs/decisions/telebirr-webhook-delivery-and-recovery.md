@@ -150,6 +150,13 @@ line (one per run, none when the index query failed) for 30 minutes. The API-wid
 `{prefix}-high-api-5xx-rate` alarm can page on webhook 500s when traffic is low; accepted (a 500 means
 DynamoDB trouble on a money path), unchanged.
 
+Amended by FUP-39 (2026-10-23): the API-wide alarm leaves the webhook route out (detailed metrics on that
+one route only, subtracted from the API totals), so a single deliberate 500 pages nowhere, as above. The
+route has two alarms of its own: `{prefix}-telebirr-webhook-5xx` (5 or more 5xx in 15 minutes: several
+payments failing, or API Gateway unable to invoke the Lambda) and `{prefix}-telebirr-webhook-errors` (any
+Lambda error: a crash, timeout or out-of-memory kill, never a deliberate 500). The count of 5 is to be
+revisited with sandbox item 2 (Telebirr's retry interval).
+
 ### D6. Gateway calls bounded by the remaining time
 `GatewayDeadline` (an `AsyncLocal` deadline) is set per invocation by the escrow Lambda (remaining time
 minus 5 s) and escrow-cron (minus 30 s). The live gateway sends every request through one bounded path:

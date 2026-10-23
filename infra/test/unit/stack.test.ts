@@ -624,6 +624,42 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     expect(JSON.stringify(rules)).not.toContain('telebirr-inbox-replay');
   });
 
+  type StageResource = {
+    DependsOn?: string[];
+    Properties: { DefaultRouteSettings?: unknown; RouteSettings?: unknown };
+  };
+  function defaultStage(t: Template): StageResource {
+    const stages = Object.entries(t.findResources('AWS::ApiGatewayV2::Stage')).filter(([id]) =>
+      id.startsWith('HttpApiDefaultStage'),
+    );
+    expect(stages).toHaveLength(1);
+    return stages[0][1] as StageResource;
+  }
+  const STAGE_THROTTLING = { ThrottlingBurstLimit: 50, ThrottlingRateLimit: 25 };
+
+  test('ON: detailed metrics on the webhook route only, throttling kept, stage after the route (FUP-39)', () => {
+    // The monitoring stack subtracts this route's 5xx and Count from the API-wide 5xx rate.
+    // Detailed metrics are billed per metric, so no other route gets them.
+    const t = buildTemplate(true);
+    const stage = defaultStage(t);
+    expect(stage.Properties.DefaultRouteSettings).toEqual(STAGE_THROTTLING);
+    expect(stage.Properties.RouteSettings).toEqual({
+      'POST /webhooks/telebirr': { ...STAGE_THROTTLING, DetailedMetricsEnabled: true },
+    });
+    // API Gateway refuses route settings for a route key that does not exist yet.
+    const routeIds = Object.keys(
+      t.findResources('AWS::ApiGatewayV2::Route', { Properties: { RouteKey: 'POST /webhooks/telebirr' } }),
+    );
+    expect(routeIds).toHaveLength(1);
+    expect(stage.DependsOn).toEqual(expect.arrayContaining(routeIds));
+  });
+
+  test('OFF: no route settings, so no detailed metrics anywhere (FUP-39)', () => {
+    const stage = defaultStage(buildTemplate(false));
+    expect(stage.Properties.DefaultRouteSettings).toEqual(STAGE_THROTTLING);
+    expect(stage.Properties.RouteSettings).toBeUndefined();
+  });
+
   test('ON: the webhook may query the InboxReplayIndex (ESC-45)', () => {
     const policies = buildTemplate(true).findResources('AWS::IAM::Policy');
     const webhook = Object.entries(policies).filter(([id]) => id.startsWith('TelebirrWebhookFunction'));
@@ -934,6 +970,180 @@ describe('MonitoringStack', () => {
     const template = monitoringTemplate(false);
     const filters = template.findResources('AWS::Logs::MetricFilter');
     expect(JSON.stringify(filters)).not.toContain('telebirr-webhook');
+  });
+
+  // ─── FUP-39: the webhook's deliberate 500s stay out of the API-wide 5xx rate ─────────
+  type MetricQuery = {
+    Id: string;
+    Expression?: string;
+    MetricStat?: {
+      Metric: { MetricName: string; Namespace: string; Dimensions: Array<{ Name: string; Value: string }> };
+      Period: number;
+      Stat: string;
+    };
+  };
+  type AlarmResource = {
+    Properties: {
+      AlarmName: string;
+      Threshold: number;
+      ComparisonOperator: string;
+      EvaluationPeriods: number;
+      Metrics: MetricQuery[];
+    };
+  };
+  function alarmNamed(template: Template, alarmName: string): AlarmResource {
+    const alarms = Object.values(template.findResources('AWS::CloudWatch::Alarm')) as AlarmResource[];
+    const hit = alarms.find((a) => a.Properties.AlarmName === alarmName);
+    if (!hit) {
+      throw new Error(`no alarm ${alarmName}`);
+    }
+    return hit;
+  }
+  // The webhook route's own API Gateway metrics (HTTP API detailed metrics dimensions).
+  const WEBHOOK_ROUTE_DIMENSIONS = [
+    { Name: 'ApiId', Value: 'testapi123' },
+    { Name: 'Method', Value: 'POST' },
+    { Name: 'Resource', Value: '/webhooks/telebirr' },
+    { Name: 'Stage', Value: '$default' },
+  ];
+  const API_DIMENSIONS = [{ Name: 'ApiId', Value: 'testapi123' }];
+
+  // One 5 minute period of API Gateway datapoints. A route field left out means the webhook
+  // had no traffic, so CloudWatch has no datapoint for it.
+  type Period = { apiErrors: number; apiRequests: number; routeErrors?: number; routeRequests?: number };
+
+  // Minimal model of CloudWatch metric math for the API alarm's expression: arithmetic counts
+  // a missing datapoint as 0 (AWS docs, "Missing values in a time series are treated as 0") and
+  // IF picks a branch per datapoint. Each query's value comes from what it measures (its
+  // metric name and whether it carries the route dimensions), not from its Id.
+  function apiRate(alarm: AlarmResource, period: Period): number {
+    const expression = alarm.Properties.Metrics.find((q) => q.Expression)?.Expression ?? '';
+    expect(expression).toMatch(/^[A-Za-z0-9_ ()+\-*/<>=,.]+$/);
+    const metrics = alarm.Properties.Metrics.filter((q) => q.MetricStat);
+    const values = metrics.map((q) => {
+      const stat = q.MetricStat!;
+      const onRoute = stat.Metric.Dimensions.some((d) => d.Name === 'Resource');
+      const isErrors = stat.Metric.MetricName === '5xx';
+      const value = onRoute
+        ? isErrors ? period.routeErrors : period.routeRequests
+        : isErrors ? period.apiErrors : period.apiRequests;
+      return value ?? 0;
+    });
+    const IF = (condition: unknown, whenTrue: number, whenFalse: number) => (condition ? whenTrue : whenFalse);
+    // Safe to evaluate: the stack's own expression, checked above to hold only ids, numbers and operators.
+    const evaluate = new Function('IF', ...metrics.map((q) => q.Id), `return ${expression};`);
+    return evaluate(IF, ...values) as number;
+  }
+
+  test('FUP-39 OFF: the API-wide 5xx alarm is unchanged (no webhook route, no route metrics)', () => {
+    const alarm = alarmNamed(monitoringTemplate(false), 'wereda-connect-dev-high-api-5xx-rate');
+    expect(alarm.Properties.Metrics.find((q) => q.Expression)?.Expression).toBe(
+      'IF(requests > 0, errors / requests * 100, 0)',
+    );
+    const stats = alarm.Properties.Metrics.filter((q) => q.MetricStat).map((q) => q.MetricStat!);
+    expect(stats.map((m) => m.Metric.MetricName).sort()).toEqual(['5xx', 'Count']);
+    for (const m of stats) {
+      expect(m.Metric.Dimensions).toEqual(API_DIMENSIONS);
+    }
+  });
+
+  test('FUP-39 ON: the API-wide 5xx alarm subtracts the webhook route and still counts every other 5xx', () => {
+    const template = monitoringTemplate(true);
+    const alarm = alarmNamed(template, 'wereda-connect-dev-high-api-5xx-rate');
+    expect(alarm.Properties.Threshold).toBe(5);
+    expect(alarm.Properties.ComparisonOperator).toBe('GreaterThanThreshold');
+    expect(alarm.Properties.EvaluationPeriods).toBe(1);
+    const stats = alarm.Properties.Metrics.filter((q) => q.MetricStat).map((q) => q.MetricStat!);
+    expect(stats).toHaveLength(4);
+    for (const m of stats) {
+      expect(m.Metric.Namespace).toBe('AWS/ApiGateway');
+      expect(m.Period).toBe(300);
+      expect(m.Stat).toBe('Sum');
+      // The API-wide totals keep the ApiId dimension alone; the route metrics are exactly the
+      // webhook route's.
+      expect([API_DIMENSIONS, WEBHOOK_ROUTE_DIMENSIONS]).toContainEqual(m.Metric.Dimensions);
+    }
+    expect(stats.filter((m) => m.Metric.Dimensions.length === 1).map((m) => m.Metric.MetricName).sort())
+      .toEqual(['5xx', 'Count']);
+    expect(stats.filter((m) => m.Metric.Dimensions.length === 4).map((m) => m.Metric.MetricName).sort())
+      .toEqual(['5xx', 'Count']);
+
+    const old = alarmNamed(monitoringTemplate(false), 'wereda-connect-dev-high-api-5xx-rate');
+    // Low traffic, the only 5xx is the webhook's deliberate 500: the old rate paged, this one does not.
+    const lowTraffic = { apiErrors: 1, apiRequests: 10, routeErrors: 1, routeRequests: 1 };
+    expect(apiRate(old, lowTraffic)).toBeGreaterThan(5);
+    expect(apiRate(alarm, lowTraffic)).toBe(0);
+    // Only webhook traffic in the period, all 500s: 0, no division by zero.
+    expect(apiRate(alarm, { apiErrors: 3, apiRequests: 3, routeErrors: 3, routeRequests: 3 })).toBe(0);
+    // Real 5xx on other routes next to webhook 500s: 1 of the 18 other requests is over 5 %.
+    expect(apiRate(alarm, { apiErrors: 3, apiRequests: 20, routeErrors: 2, routeRequests: 2 })).toBeGreaterThan(5);
+    // No webhook traffic (no route datapoints): the same rate as before FUP-39.
+    const noWebhook = { apiErrors: 3, apiRequests: 40 };
+    expect(apiRate(alarm, noWebhook)).toBe(apiRate(old, noWebhook));
+    expect(apiRate(alarm, noWebhook)).toBeGreaterThan(5);
+    // Webhook requests that succeed do not dilute the rate of the other routes.
+    expect(apiRate(alarm, { apiErrors: 1, apiRequests: 18, routeErrors: 0, routeRequests: 2 })).toBeCloseTo(6.25);
+    expect(apiRate(alarm, { apiErrors: 0, apiRequests: 100, routeErrors: 0, routeRequests: 4 })).toBe(0);
+  });
+
+  test('FUP-39 ON: webhook 5xx volume pages on its own count threshold', () => {
+    const template = monitoringTemplate(true);
+    const notifiesTopic = Match.arrayWith([Match.objectLike({ Ref: Match.stringLikeRegexp('^AlarmTopic') })]);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-telebirr-webhook-5xx',
+      Metrics: [
+        Match.objectLike({
+          MetricStat: Match.objectLike({
+            Metric: Match.objectLike({
+              MetricName: '5xx',
+              Namespace: 'AWS/ApiGateway',
+              Dimensions: WEBHOOK_ROUTE_DIMENSIONS,
+            }),
+            Period: 900,
+            Stat: 'Sum',
+          }),
+        }),
+      ],
+      Threshold: 5,
+      ComparisonOperator: 'GreaterThanOrEqualToThreshold',
+      EvaluationPeriods: 1,
+      TreatMissingData: 'notBreaching',
+      AlarmActions: notifiesTopic,
+      OKActions: notifiesTopic,
+    });
+  });
+
+  test('FUP-39 ON: any webhook Lambda error pages (crash, timeout, out of memory; never a deliberate 500)', () => {
+    const template = monitoringTemplate(true);
+    const notifiesTopic = Match.arrayWith([Match.objectLike({ Ref: Match.stringLikeRegexp('^AlarmTopic') })]);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-telebirr-webhook-errors',
+      Metrics: [
+        Match.objectLike({
+          MetricStat: Match.objectLike({
+            Metric: Match.objectLike({
+              MetricName: 'Errors',
+              Namespace: 'AWS/Lambda',
+              Dimensions: [{ Name: 'FunctionName', Value: 'wereda-connect-dev-telebirr-webhook' }],
+            }),
+            Period: 300,
+            Stat: 'Sum',
+          }),
+        }),
+      ],
+      Threshold: 1,
+      ComparisonOperator: 'GreaterThanOrEqualToThreshold',
+      EvaluationPeriods: 3,
+      DatapointsToAlarm: 1,
+      TreatMissingData: 'notBreaching',
+      AlarmActions: notifiesTopic,
+      OKActions: notifiesTopic,
+    });
+  });
+
+  test('FUP-39 OFF: no webhook alarms (the route and the Lambda do not exist)', () => {
+    const alarms = monitoringTemplate(false).findResources('AWS::CloudWatch::Alarm');
+    expect(JSON.stringify(alarms)).not.toContain('telebirr-webhook');
   });
 
   // ─── ESC-13 money alarms ─────────────────────────────────────────────
