@@ -236,6 +236,27 @@ public class FraudRiskScoreTests
     }
 
     [Fact]
+    public async Task Whitelist_EndsAtWhitelistUntil()
+    {
+        // Active while whitelistUntil is after now; at the instant itself it no longer applies.
+        var result = await ScoreRowsAsync(
+            Whitelist(Now),
+            Signal("GPS_ANOMALY", Now.AddMinutes(-1)));
+
+        result.Score.Should().Be(25);
+    }
+
+    [Fact]
+    public async Task Whitelist_ActiveOneTickBeforeItsEnd()
+    {
+        var result = await ScoreRowsAsync(
+            Whitelist(Now.AddTicks(1)),
+            Signal("GPS_ANOMALY", Now.AddMinutes(-1)));
+
+        result.Score.Should().Be(0);
+    }
+
+    [Fact]
     public async Task Whitelist_RowWithoutAnEndIsIgnored()
     {
         var result = await ScoreRowsAsync(
@@ -399,6 +420,17 @@ public class FraudRiskScoreTests
     }
 
     [Fact]
+    public async Task Advisory_RowsInOneHourAreDeduplicated()
+    {
+        var result = await ScoreRowsAsync(
+            Signal(FraudDetectionService.AdvisorySignalType, Now.AddMinutes(-1), weight: 4),
+            Signal(FraudDetectionService.AdvisorySignalType, Now.AddMinutes(-2), weight: 4));
+
+        result.Score.Should().Be(4);
+        result.EnforcementScore.Should().Be(0);
+    }
+
+    [Fact]
     public async Task Advisory_TotalIsCappedAtTheAdvisoryCap()
     {
         var result = await ScoreRowsAsync(
@@ -431,6 +463,26 @@ public class FraudRiskScoreTests
         result.Score.Should().Be(130);
         result.Truncated.Should().BeFalse();
         _alarms.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Read_EarlyExitIgnoresAdvisoryWeight()
+    {
+        // 125 of signals plus 10 of advisory is 135, but only the 125 counts toward the stop at
+        // 130, so the credits on page 2 are read and the user ends HIGH, not CRITICAL.
+        Pages(
+            Page(PageKey("k1"),
+                Signal(FraudDetectionService.AdvisorySignalType, Now.AddMinutes(-1), weight: 10),
+                Signal("FRAUD_DUPLICATE_LISTING", Now.AddMinutes(-2), weight: 125)),
+            Page(null, Enumerable.Range(1, 6).Select(i => Credit(Now.AddHours(-i))).ToArray()));
+
+        var result = await ScoreAsync();
+
+        _queries.Should().HaveCount(2);
+        result.Score.Should().Be(105);
+        result.EnforcementScore.Should().Be(95);
+        result.Tier.Should().Be(RiskTier.High);
+        result.Truncated.Should().BeFalse();
     }
 
     [Fact]
@@ -591,11 +643,53 @@ public class FraudRiskScoreTests
     }
 
     [Fact]
-    public async Task Rows_UnknownRecordTypeIsNotASignal()
+    public async Task Rows_UnknownRecordTypeCountsAsASignalAndIsReported()
     {
-        var result = await ScoreRowsAsync(Signal("FRAUD_DUPLICATE_LISTING", Now.AddMinutes(-1), recordType: "note"));
+        var result = await ScoreRowsAsync(
+            Signal("FRAUD_DUPLICATE_LISTING", Now.AddMinutes(-1), recordType: "note"),
+            Signal("FRAUD_VELOCITY_EXCEEDED", Now.AddMinutes(-2), recordType: "note_v2"),
+            Signal("PRICE_ANOMALY", Now.AddMinutes(-3), recordType: "signal"));
 
-        result.Score.Should().Be(0);
+        result.Score.Should().Be(45);
+        result.Source.Should().Be(RiskScoreSource.Computed);
+        _alarms.Should().ContainSingle().Which.Should().Be(
+            $"{FraudDetectionService.RiskScoreUnknownRecordToken} userId=user-risk-1 rows=2 recordType=note");
+    }
+
+    [Fact]
+    public async Task Rows_MistypedCreditCountsAsASignalAtWeightZeroAndIsReported()
+    {
+        var credit = Credit(Now.AddMinutes(-1));
+        credit["recordType"] = new AttributeValue { S = "Credit_X" };
+
+        var result = await ScoreRowsAsync(credit, Signal("FRAUD_DUPLICATE_LISTING", Now.AddMinutes(-2)));
+
+        // Read as a credit it would make the score 15; as a signal its -5 counts as 0.
+        result.Score.Should().Be(20);
+        _alarms.Should().ContainSingle().Which.Should().Be(
+            $"{FraudDetectionService.RiskScoreUnknownRecordToken} userId=user-risk-1 rows=1 recordType=Credit-X");
+    }
+
+    [Fact]
+    public async Task Rows_UnknownRecordTypeIsReportedOnEarlyExitAndTruncation()
+    {
+        Pages(Page(PageKey("k1"), Signal("FRAUD_DUPLICATE_LISTING", Now.AddMinutes(-1), weight: 130, recordType: "note")));
+        var early = await ScoreAsync();
+
+        early.Tier.Should().Be(RiskTier.Critical);
+        _alarms.Should().ContainSingle().Which.Should().StartWith(FraudDetectionService.RiskScoreUnknownRecordToken + " ");
+
+        _alarms.Clear();
+        _queries.Clear();
+        Pages(
+            Page(PageKey("k1"), Signal("FRAUD_DUPLICATE_LISTING", Now.AddMinutes(-1), recordType: "note")),
+            Page(PageKey("k2")));
+        var truncated = await ScoreAsync();
+
+        truncated.Truncated.Should().BeTrue();
+        _alarms.Should().HaveCount(2);
+        _alarms.Should().Contain(line => line.StartsWith(FraudDetectionService.RiskScoreTruncatedToken + " "));
+        _alarms.Should().Contain(line => line.StartsWith(FraudDetectionService.RiskScoreUnknownRecordToken + " "));
     }
 
     [Fact]
@@ -652,6 +746,32 @@ public class FraudRiskScoreTests
     }
 
     [Fact]
+    public async Task Memo_EmptyOrNullUserIdGoesToTheServiceUncachedAndDoesNotThrow()
+    {
+        var memo = new RiskScoreMemo(_service);
+
+        var results = new[] { await memo.GetAsync(null), await memo.GetAsync(""), await memo.GetAsync("") };
+
+        results.Should().OnlyContain(r => r.Source == RiskScoreSource.Unavailable && r.Tier == RiskTier.Low);
+        await _ddb.DidNotReceiveWithAnyArgs().QueryAsync(default(QueryRequest)!, default);
+        _alarms.Should().HaveCount(3).And.OnlyContain(line => line.StartsWith(FraudDetectionService.RiskScoreUnavailableToken + " "));
+    }
+
+    [Fact]
+    public async Task Memo_EmptyUserIdIsPassedAsEmpty()
+    {
+        var fraud = Substitute.For<IFraudDetectionService>();
+        fraud.GetUserRiskScoreAsync(Arg.Any<string>())
+            .Returns(Task.FromResult(RiskScoreResult.Unscored(RiskScoreSource.Unavailable)));
+        var memo = new RiskScoreMemo(fraud);
+
+        await memo.GetAsync(null);
+        await memo.GetAsync(null);
+
+        await fraud.Received(2).GetUserRiskScoreAsync(string.Empty);
+    }
+
+    [Fact]
     public async Task Memo_NewMemoReadsAgain()
     {
         _ddb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
@@ -695,10 +815,21 @@ public class FraudRiskScoreTests
     [InlineData("RISK_CREDIT_CAP", "-5")]
     [InlineData("RISK_ADVISORY_CAP", "")]
     [InlineData("RISK_MAX_PAGES", "0")]
+    [InlineData("RISK_MAX_PAGES", "-3")]
     [InlineData("RISK_TIER_CRITICAL", "1.5")]
     public void Settings_InvalidOrOutOfRangeValueKeepsTheDefault(string name, string value)
     {
         SettingsFrom((name, value)).Should().Be(RiskScoreSettings.Default);
+    }
+
+    [Theory]
+    [InlineData("10", 10)]
+    [InlineData("11", 10)]
+    [InlineData("1000000", 10)]
+    [InlineData("1", 1)]
+    public void Settings_PageCountIsCappedAtTen(string value, int expected)
+    {
+        SettingsFrom(("RISK_MAX_PAGES", value)).MaxPages.Should().Be(expected);
     }
 
     [Fact]

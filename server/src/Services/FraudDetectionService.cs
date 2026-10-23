@@ -36,6 +36,7 @@ public sealed class FraudDetectionService : IFraudDetectionService
     internal const int DefaultRiskCreditCap = 30;
     internal const int DefaultRiskAdvisoryCap = 10;
     internal const int DefaultRiskMaxPages = 2;
+    internal const int RiskMaxPagesCap = 10;
 
     /// <summary>AI reviewer output (FRD-19): capped, and left out of the enforcement score.</summary>
     internal const string AdvisorySignalType = "AI_ADVISORY";
@@ -45,6 +46,9 @@ public sealed class FraudDetectionService : IFraudDetectionService
 
     /// <summary>Log alarm token: rows were left after the page cap and the user was scored CRITICAL.</summary>
     public const string RiskScoreTruncatedToken = "RISK_SCORE_TRUNCATED";
+
+    /// <summary>Log alarm token: rows with an unknown <c>recordType</c> were read and counted as signals.</summary>
+    public const string RiskScoreUnknownRecordToken = "RISK_SCORE_UNKNOWN_RECORD";
 
     public FraudDetectionService(
         IAmazonDynamoDB dynamoDb,
@@ -324,7 +328,7 @@ public sealed class FraudDetectionService : IFraudDetectionService
                     calculator.Add(row);
                     if (calculator.ReachedCritical)
                     {
-                        return calculator.Result(truncated: false);
+                        return Finish(truncated: false);
                     }
                 }
 
@@ -337,10 +341,10 @@ public sealed class FraudDetectionService : IFraudDetectionService
                 // Fail closed: newest-first, a burst in the current hour (deduplicated to one)
                 // could otherwise push older weight out of the read.
                 AlarmLog($"{RiskScoreTruncatedToken} userId={MoneyAlarmLog.LogId(userId)} pages={pages}");
-                return calculator.Result(truncated: true);
+                return Finish(truncated: true);
             }
 
-            return calculator.Result(truncated: false);
+            return Finish(truncated: false);
         }
         catch (Exception ex)
         {
@@ -348,6 +352,16 @@ public sealed class FraudDetectionService : IFraudDetectionService
             // settlement sweep sees Source == Unavailable and skips the escrow (section 14.4).
             AlarmLog($"{RiskScoreUnavailableToken} userId={MoneyAlarmLog.LogId(userId)} error={MoneyAlarmLog.LogId(ex.GetType().Name)}");
             return RiskScoreResult.Unscored(RiskScoreSource.Unavailable);
+        }
+
+        RiskScoreResult Finish(bool truncated)
+        {
+            if (calculator.UnknownRecordRows > 0)
+            {
+                AlarmLog($"{RiskScoreUnknownRecordToken} userId={MoneyAlarmLog.LogId(userId)} rows={calculator.UnknownRecordRows} recordType={MoneyAlarmLog.LogId(calculator.FirstUnknownRecordType)}");
+            }
+
+            return calculator.Result(truncated);
         }
     }
 

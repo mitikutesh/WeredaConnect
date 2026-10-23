@@ -20,8 +20,15 @@ public sealed class RiskScoreMemo
         _fraudService = fraudService ?? throw new ArgumentNullException(nameof(fraudService));
     }
 
-    public Task<RiskScoreResult> GetAsync(string userId)
+    public Task<RiskScoreResult> GetAsync(string? userId)
     {
+        if (string.IsNullOrEmpty(userId))
+        {
+            // Nothing to key on: straight to the service, which answers Unavailable and logs it
+            // on every call, so a caller bug is never hidden behind a memoized answer.
+            return _fraudService.GetUserRiskScoreAsync(string.Empty);
+        }
+
         if (!_scores.TryGetValue(userId, out var score))
         {
             score = _fraudService.GetUserRiskScoreAsync(userId);

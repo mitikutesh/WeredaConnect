@@ -58,7 +58,8 @@ public interface IFraudDetectionService
     /// The user's risk score and tier (fraud-detection-architecture.md sections 14 and 16), from
     /// one Query of the user's fraud-signals partition over the scoring window. Never throws:
     /// an unconfigured table or a failed read gives LOW, with <see cref="RiskScoreResult.Source"/>
-    /// saying which, and a read cut at the page cap gives CRITICAL. Use a
+    /// saying which, and a read cut at the page cap gives CRITICAL. Check Source before Tier:
+    /// an Unavailable result carries Tier Low, and a settlement sweep must skip it. Use a
     /// <see cref="RiskScoreMemo"/> to read each user once per batch or sweep.
     /// </summary>
     Task<RiskScoreResult> GetUserRiskScoreAsync(string userId);

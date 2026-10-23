@@ -31,8 +31,9 @@ internal sealed record RiskScoreSettings(
     /// <summary>
     /// A value that is not an integer in range keeps its default. The window is capped at
     /// <see cref="FraudDetectionService.SignalTtlDays"/>, since the table's TTL deletes older rows
-    /// anyway. Tier bounds that are not strictly increasing all fall back, so one typo cannot
-    /// reorder the tiers.
+    /// anyway, and the page count at <see cref="FraudDetectionService.RiskMaxPagesCap"/>, so a
+    /// typo cannot turn one score into a long read. Tier bounds that are not strictly increasing
+    /// all fall back, so one typo cannot reorder the tiers.
     /// </summary>
     internal static RiskScoreSettings From(Func<string, string?> env)
     {
@@ -52,7 +53,7 @@ internal sealed record RiskScoreSettings(
             critical,
             Read(env, "RISK_CREDIT_CAP", Default.CreditCap, min: 0),
             Read(env, "RISK_ADVISORY_CAP", Default.AdvisoryCap, min: 0),
-            Read(env, "RISK_MAX_PAGES", Default.MaxPages, min: 1));
+            Math.Min(Read(env, "RISK_MAX_PAGES", Default.MaxPages, min: 1), FraudDetectionService.RiskMaxPagesCap));
     }
 
     private static int Read(Func<string, string?> env, string name, int fallback, int min) =>
@@ -94,6 +95,12 @@ internal sealed class RiskScoreCalculator
     /// </summary>
     public bool ReachedCritical => _signalWeight >= (long)_settings.TierCritical + _settings.CreditCap;
 
+    /// <summary>Rows read whose <c>recordType</c> the scorer does not know; counted as signals.</summary>
+    public int UnknownRecordRows { get; private set; }
+
+    /// <summary>The first unknown <c>recordType</c> read, for the log line.</summary>
+    public string? FirstUnknownRecordType { get; private set; }
+
     public void Add(Dictionary<string, AttributeValue> row)
     {
         var signalKey = Str(row, "signalKey");
@@ -102,7 +109,8 @@ internal sealed class RiskScoreCalculator
             return;
         }
 
-        switch (Str(row, "recordType"))
+        var recordType = Str(row, "recordType");
+        switch (recordType)
         {
             case "whitelist":
                 // Its key "~whitelist" sorts after every ISO key, so a newest-first read
@@ -119,7 +127,11 @@ internal sealed class RiskScoreCalculator
             case null or "signal":
                 break; // rows without recordType are legacy signal rows
             default:
-                return; // not a signal row (section 14.2 counts signal rows only)
+                // A row kind this scorer does not know counts as a signal (fails closed), and
+                // the caller logs it, so a new writer the scorer was not taught about shows up.
+                UnknownRecordRows++;
+                FirstUnknownRecordType ??= recordType;
+                break;
         }
 
         if (!InWindow(signalKey))
