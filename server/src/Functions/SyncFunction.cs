@@ -5806,6 +5806,16 @@ public partial class SyncFunction
             return AccountHeldResult(operation);
         }
 
+        // FUP-99: buyerName is shown to the farmer before escrow, so it comes from the
+        // buyer's profile, never the client, which inherits the FUP-52 phone screen on the
+        // profile fields. farmerName is stamped from the listing (BindOrderToListing) and
+        // truckerName from the trip (BindOrderToTrip).
+        var buyerNameError = await StampOrderBuyerNameAsync(operation.Data, authenticatedUserId!, context);
+        if (buyerNameError != null)
+        {
+            return OrderValidationError(operation, buyerNameError);
+        }
+
         // SIM-05: the client's copy of the listing and trip is not trusted. Load both,
         // bind every party, price and quantity to the server's records, and compute the
         // money fields from those records only.
@@ -7455,6 +7465,40 @@ public partial class SyncFunction
 
         data[nameKey] = name.Trim();
         data[phoneKey] = owner.PhoneNumber;
+        return null;
+    }
+
+    /// <summary>
+    /// FUP-99: the order's buyerName is shown to the farmer before escrow, so it is stamped
+    /// from the buyer's profile (display name, else the Fayda legal name), never kept from
+    /// the client. This inherits the FUP-52 phone screen applied to the profile fields.
+    /// Orders carry no buyerPhone, so only the name is set. Returns null when stamped, else
+    /// a validation message. Mirrors <see cref="StampOwnerContactAsync"/> for listings.
+    /// </summary>
+    private async Task<string?> StampOrderBuyerNameAsync(
+        Dictionary<string, object> data, string buyerId, ILambdaContext context)
+    {
+        if (_userRepo == null)
+        {
+            context.Logger.LogError("Cannot stamp buyerName: user repository not configured.");
+            return "Your profile could not be read. Please try again later.";
+        }
+
+        var buyer = await _userRepo.GetUserByIdAsync(buyerId);
+        if (buyer == null)
+        {
+            return "Your profile could not be read. Please try again later.";
+        }
+
+        var name = !string.IsNullOrWhiteSpace(buyer.DisplayName) ? buyer.DisplayName
+            : !string.IsNullOrWhiteSpace(buyer.FullName) ? buyer.FullName
+            : null;
+        if (name == null)
+        {
+            return "Add your name to your profile before placing an order.";
+        }
+
+        data["buyerName"] = name.Trim();
         return null;
     }
 

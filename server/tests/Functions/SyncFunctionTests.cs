@@ -3337,6 +3337,39 @@ public partial class SyncFunctionTests
     }
 
     [Fact]
+    public async Task OrderCreate_BuyerName_IsStampedFromProfile_NotClient()
+    {
+        // FUP-99: buyerName is shown to the farmer before escrow, so the server stamps it
+        // from the buyer's profile and ignores the client value, which inherits the FUP-52
+        // phone screen on the profile fields.
+        SetupListing();
+        SetupOrderCreateSucceeds();
+        _mockUserRepo.GetUserByIdAsync("buyer-001").Returns(new UserDto
+        {
+            UserId = "buyer-001",
+            PhoneNumber = "+251933333333",
+            DisplayName = "Real Buyer",
+            Role = "buyer",
+            Woreda = "Jimma",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-16T10:00:00Z",
+            UpdatedAt = "2026-02-16T10:00:00Z",
+            Version = 1
+        });
+
+        var op = MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "buyerName", "Spoofed Name (fake)" }
+        });
+
+        var body = await CreateOrderAsBuyer(op);
+
+        Assert.Contains("success", body);
+        Assert.NotNull(_createdOrder);
+        Assert.Equal("Real Buyer", _createdOrder!["buyerName"]);
+    }
+
+    [Fact]
     public async Task OrderCreate_ListingNotFound_ReturnsValidationError()
     {
         _mockCropRepo.GetByIdAsync("listing-001").Returns((Dictionary<string, object>?)null);
