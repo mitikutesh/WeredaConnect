@@ -4405,9 +4405,14 @@ public partial class SyncFunction
                                 {
                                     // FUP-42: an unknown answer is never cash. Nothing is written and the
                                     // op stays queued without using a retry. No 14-day hard fail here:
-                                    // the delivery may carry no money at all.
-                                    context.Logger.LogWarning(
-                                        $"QR gate for delivery {MoneyAlarmLog.LogId(operation.EntityId)} undecided, deferred: [{ex.GetType().Name}] {MoneyAlarmLog.LogText(ex.Message)}");
+                                    // the delivery may carry no money at all. A read that keeps failing
+                                    // would defer for ever, so the token is alarmed (order escrow problems).
+                                    var gateOrderId = existing.TryGetValue("orderId", out var gateOrderAttr)
+                                        ? gateOrderAttr.S : null;
+                                    context.Logger.LogError(
+                                        $"QR_GATE_UNDECIDED deliveryId={MoneyAlarmLog.LogId(operation.EntityId)} "
+                                        + $"orderId={MoneyAlarmLog.LogId(gateOrderId)} reason={ex.GetType().Name} "
+                                        + $"detail={MoneyAlarmLog.LogText(ex.Message)}");
                                     return new SyncOperationResult
                                     {
                                         OperationId = operation.OperationId,

@@ -61,7 +61,7 @@ Each contract file follows this structure:
 | User Entity | `user-entity.md` | 1.1.0 | Mobile, Backend, Infrastructure |
 | Rating API | `rating-api.md` | 1.1.0 | Mobile, Backend, Infrastructure |
 | Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 1.20.0 | Mobile, Backend, Admin |
-| Delivery Verification API | `delivery-verification-api.md` | 1.18.0 | Mobile, Backend |
+| Delivery Verification API | `delivery-verification-api.md` | 1.17.0 | Mobile, Backend |
 | Account Deletion | `account-deletion.md` | 1.0.0 | Mobile, Backend, Infrastructure, Admin |
 
 ---

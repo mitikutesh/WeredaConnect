@@ -43,6 +43,8 @@ public sealed class SyncFunctionQrGateTests
     private readonly ICropRepository _crops = Substitute.For<ICropRepository>();
     private readonly TestLambdaContext _context = new();
 
+    private string Logs => ((TestLambdaLogger)_context.Logger).Buffer.ToString();
+
     public SyncFunctionQrGateTests()
     {
         _syncMeta.IdempotencyKeyExistsAsync(Arg.Any<string>()).Returns(false);
@@ -68,6 +70,41 @@ public sealed class SyncFunctionQrGateTests
         await _escrow.DidNotReceive().GetByIdAsync(Arg.Any<string>());
         // Found by its key, so the index is not asked.
         await _escrow.DidNotReceive().GetByDeliveryIdAsync(Arg.Any<string>());
+    }
+
+    [Theory]
+    [InlineData("pending", "pickedUp", TruckerId, "trucker")]
+    [InlineData("pickedUp", "delivered", BuyerId, "buyer")]
+    public async Task UnlinkedOrderEscrow_SecretStoreOn_NoSecretRow_IsDeferred(
+        string from, string to, string userId, string role)
+    {
+        // As production runs: the secret store is configured and has no row for this delivery.
+        SetupDelivery(TruckDelivery(from));
+        SetupUnlinkedOrderEscrow();
+        _qrSecrets.GetAsync(DeliveryId).Returns((DeliveryQrSecret?)null);
+
+        var result = await SendAsync(to, userId, role, true);
+
+        result.GetProperty("status").GetString().Should().Be("deferred");
+        result.GetProperty("message").GetString().Should().StartWith(NoncePending);
+        await AssertNothingWrittenAsync();
+        await _qrSecrets.Received(1).GetAsync(DeliveryId);
+    }
+
+    [Fact]
+    public async Task UnlinkedOrderEscrow_SecretStoreOn_OnRecordNonceAndMatchingScan_IsStillDeferred()
+    {
+        // A pre-SIM-41 row may carry a nonce anyone could have written: with the store on it is not
+        // trusted, so a scan that echoes it proves nothing and the money check decides.
+        var item = TruckDelivery("pending");
+        item["qrNonce"] = new AttributeValue { S = "on-record-nonce" };
+        SetupDelivery(item);
+        SetupUnlinkedOrderEscrow();
+
+        var result = await SendAsync("pickedUp", TruckerId, "trucker", true, ("scannedQrNonce", "on-record-nonce"));
+
+        result.GetProperty("status").GetString().Should().Be("deferred");
+        await AssertNothingWrittenAsync();
     }
 
     [Fact]
@@ -184,6 +221,7 @@ public sealed class SyncFunctionQrGateTests
         await _dynamoDb.Received(1).UpdateItemAsync(
             Arg.Is<UpdateItemRequest>(r => r.TableName == DeliveriesTable), Arg.Any<CancellationToken>());
         await _escrow.Received(1).GetByIdAsync(OrderEscrowId, true);
+        Logs.Should().NotContain("QR_GATE_UNDECIDED");
     }
 
     [Fact]
@@ -221,6 +259,9 @@ public sealed class SyncFunctionQrGateTests
         await AssertNothingWrittenAsync();
         // An undecided gate is never a pass through the index either.
         await _escrow.DidNotReceive().GetByDeliveryIdAsync(Arg.Any<string>());
+        // Alarmed (order escrow problems), so a read that keeps failing does not defer unseen.
+        Logs.Should().Contain(
+            "QR_GATE_UNDECIDED deliveryId=del-fup42 orderId=order-fup42 reason=ProvisionedThroughputExceededException detail=");
     }
 
     [Fact]
@@ -235,6 +276,33 @@ public sealed class SyncFunctionQrGateTests
         result.GetProperty("status").GetString().Should().Be("deferred");
         result.GetProperty("message").GetString().Should().StartWith(NoncePending);
         await AssertNothingWrittenAsync();
+        Logs.Should().Contain("QR_GATE_UNDECIDED deliveryId=del-fup42 orderId=order-fup42 reason=AmazonDynamoDBException");
+    }
+
+    [Fact]
+    public async Task ReadFails_ForALegacyDeliveryWithoutAnOrder_LogsADashForTheOrder()
+    {
+        SetupDelivery(TruckDelivery("pending", orderId: null));
+        _escrow.GetByDeliveryIdAsync(DeliveryId).ThrowsAsync(new TimeoutException("slow"));
+
+        var result = await SendAsync("pickedUp", TruckerId, "trucker");
+
+        result.GetProperty("status").GetString().Should().Be("deferred");
+        Logs.Should().Contain("QR_GATE_UNDECIDED deliveryId=del-fup42 orderId=- reason=TimeoutException");
+    }
+
+    [Fact]
+    public async Task ReadFails_ExceptionTextCannotSpellAnAlarmToken()
+    {
+        // The detail is free text (it may echo input): MoneyAlarmLog.LogText turns _ into -.
+        SetupDelivery(TruckDelivery("pending"));
+        _escrow.GetByIdAsync(OrderEscrowId, true)
+            .ThrowsAsync(new AmazonDynamoDBException("ORDER_ESCROW_LINK_FAILED spoof"));
+
+        await SendAsync("pickedUp", TruckerId, "trucker");
+
+        Logs.Should().Contain("detail=ORDER-ESCROW-LINK-FAILED spoof");
+        Logs.Should().NotContain("ORDER_ESCROW_LINK_FAILED");
     }
 
     [Fact]
