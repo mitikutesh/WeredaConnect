@@ -191,8 +191,9 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
           } else if (state is OrderError &&
               state.code == AppErrorCode.faydaStepUpRequired) {
             _retryAfterFaydaStepUp();
-          } else if (state is OrderError &&
-              state.code == AppErrorCode.kycRequired) {
+          } else if (state is OrderError && isKycErrorCode(state.code)) {
+            // Every KYC refusal opens the dialog: it offers Fayda only when
+            // the buyer must verify, and names the farmer otherwise (SIM-49).
             _retryAfterKyc(state.message);
           } else if (state is OrderError) {
             ScaffoldMessenger.of(context).showSnackBar(

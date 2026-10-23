@@ -34,6 +34,17 @@ public sealed class TelebirrConfig
     public string? HttpProxy { get; init; }
 
     /// <summary>
+    /// FUP-36: true when <see cref="BaseUrl"/> addresses the local Telebirr simulator
+    /// (tools/telebirr-sandbox): a loopback host (localhost, 127.0.0.0/8, ::1) or
+    /// host.docker.internal. Anything else, including a base URL that does not parse or a
+    /// simulator exposed through a tunnel, counts as live Telebirr (fail closed).
+    /// </summary>
+    public bool IsLocalSimulator =>
+        Uri.TryCreate(BaseUrl, UriKind.Absolute, out var uri)
+        && (uri.IsLoopback
+            || string.Equals(uri.Host, "host.docker.internal", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
     /// Parse the credentials JSON. <paramref name="notifyUrl"/> and
     /// <paramref name="allowedSourceIps"/> come from the deployment (env/params),
     /// not the credentials blob; pass overrides for local testing.

@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.15.0
+1.16.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -298,8 +298,9 @@ directly, handle the code in FRD-06 too. Design:
 
 Every `ORDER_*` operation error except `ORDER_KYC_REQUIRED` is permanent: sending
 the same payload again gets the same answer. Today the server sends
-`ORDER_VALIDATION:` and `ORDER_UNAUTHORIZED:`; the planned `ORDER_DEADLINE_PASSED`,
-`ORDER_CANCEL_NOT_ALLOWED`, `ORDER_ACTION_NOT_ALLOWED`, `ORDER_TRIP_NOT_ELIGIBLE` and
+`ORDER_VALIDATION:`, `ORDER_UNAUTHORIZED:`, `ORDER_CANCEL_NOT_ALLOWED:` (1.13.0) and
+`ORDER_PAYMENT_METHOD_UNAVAILABLE:` (1.16.0); the planned `ORDER_DEADLINE_PASSED`,
+`ORDER_ACTION_NOT_ALLOWED`, `ORDER_TRIP_NOT_ELIGIBLE` and
 `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED` fall under the same rule. `ORDER_KYC_REQUIRED`
 keeps its own revert and Fayda prompt (1.4.0, 1.5.0).
 
@@ -430,10 +431,34 @@ times) and keep their local copy.
 
 ---
 
+## Payment method refusal (1.16.0, FUP-20)
+
+With the live gateway (`TELEBIRR_MOCK` off) only the Telebirr checkout funds an order
+(`order-lifecycle.md` 1.19.0, Payment gates). An order update to `payment_submitted` whose
+`paymentMethod` is present and not `telebirr` is refused with
+`ORDER_PAYMENT_METHOD_UNAVAILABLE: Bank transfer (cbe_transfer) is not available yet. Pay with Telebirr.`
+(for any other value: `ORDER_PAYMENT_METHOD_UNAVAILABLE: Payment method '<value>' is not available yet. Pay with Telebirr.`).
+It is decided after the KYC, step-up and Telebirr total gates and before any write: no
+`paymentSubmittedAt`, no transaction-audit row, no idempotency key. Only the update's own
+value is checked, never the stored one (the mobile create writes `cbe_transfer` as a default
+on every order); an update without a `paymentMethod` is left to the checkout. Mock mode (dev,
+staging) still funds every method. Bank transfers return with ESC-46.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `ORDER_PAYMENT_METHOD_UNAVAILABLE:` | Permanent under the `ORDER_*` rule above: mark rejected, never resent, revert the local order (re-read `GET /orders/{id}`), show `paymentMethodUnavailable` (en, am, om). | Failure with the same message, shown on the payment screen. |
+
+Live builds never send it (they show the Telebirr rail only, `order-lifecycle.md` 1.13.0); it
+comes from a demo build pointed at a live server. Clients older than 1.16.0 revert the order
+and show the generic `errorOrderRefused` text (1.10.0).
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.16.0 | 2026-10-22 | Payment method refusal (FUP-20): `ORDER_PAYMENT_METHOD_UNAVAILABLE` for a live `payment_submitted` whose `paymentMethod` is present and not `telebirr` (bank transfers wait for ESC-46); decided after the other payment gates and before any write (no payment clock, audit row or idempotency key); only the update's value counts, an update without a method is left to the checkout; mock mode unchanged; permanent, with its own text in en, am and om on mobile and web |
 | 1.15.0 | 2026-10-17 | Message contact refusal (ESC-48): `MESSAGE_CONTACT_LOCKED` for a message into a `crop` or `trip` thread, or into an `order` or `delivery` thread whose order's contact is not open; permanent, the mobile client removes its local copy and explains it in en, am and om; a refused resend of a message the sender already stored answers `duplicate`; message rows in `/sync` data carry no phone; delivery rows in `/sync` data carry no phone (`delivery-verification-api.md` 1.15.0) |
 | 1.14.0 | 2026-10-17 | Delivery dispute step-up fails closed (FUP-26): when the order (or a legacy delivery's `DeliveryIndex` escrow) that sizes the step-up cannot be read, the dispute answers `DELIVERY_DISPUTE_RETRY` before the freeze and nothing is written (it was let through without the step-up); a missing order, or a total that is missing, unreadable, zero or negative, answers `AUTH_040` to a stale session at any amount; clients unchanged (`DELIVERY_DISPUTE_RETRY` retried, `AUTH_040` kept pending) |
 | 1.13.0 | 2026-10-10 | Order cancel refusal (ESC-06): `ORDER_CANCEL_NOT_ALLOWED` is sent for a buyer cancel of an `accepted` order before its pickup deadline, after pickup or while its money is being settled; permanent (server-clock dependent, never resent), its own localized message on mobile and web; the cancel's read and write failures are unprefixed and retried; a delivery create on an order that no longer takes one is refused with `DELIVERY_VALIDATION`; order rows carry `pickupDeadlineAt` |

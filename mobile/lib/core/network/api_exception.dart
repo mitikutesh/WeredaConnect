@@ -166,6 +166,19 @@ bool isPaymentTotalOutOfRangeMessage(String? message) =>
     message.startsWith('ORDER_VALIDATION:') &&
     message.contains('outside what one Telebirr payment can take');
 
+/// Sync rejection prefix when the live gateway refuses a payment method it
+/// cannot fund (FUP-20, sync-protocol.md 1.16.0): a bank transfer
+/// (`cbe_transfer`) until ESC-46 builds CBE verification, or any method other
+/// than `telebirr`. Nothing was written; the buyer pays with Telebirr.
+const String orderPaymentMethodUnavailableCode =
+    'ORDER_PAYMENT_METHOD_UNAVAILABLE';
+
+/// Whether a /sync per-operation error message refuses the payment method
+/// (`ORDER_PAYMENT_METHOD_UNAVAILABLE: ...`). Permanent like every `ORDER_*`
+/// refusal: the local payment is undone.
+bool isPaymentMethodUnavailableMessage(String? message) =>
+    message != null && message.startsWith(orderPaymentMethodUnavailableCode);
+
 /// Request validation error (400)
 final class ValidationException extends ApiException {
   const ValidationException(

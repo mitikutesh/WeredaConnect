@@ -125,4 +125,27 @@ void main() {
       findsNothing,
     );
   });
+
+  // SIM-50: 25 Oct picked in Addis Ababa comes back from the server as
+  // 2026-10-24T21:00:00.000Z; the trucker and every buyer see 25 Oct.
+  for (final viewer in [
+    ('trucker-001', UserRole.trucker),
+    ('buyer-001', UserRole.buyer),
+  ]) {
+    testWidgets('${viewer.$2.name} sees the departure day the trucker picked',
+        (tester) async {
+      tallView(tester);
+      signIn(viewer.$1, viewer.$2);
+
+      await tester.pumpWidget(
+        buildScreen(
+          _trip()..departureDate = DateTime.parse('2026-10-24T21:00:00.000Z'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Oct 25, 2026'), findsOneWidget);
+      expect(find.text('Oct 24, 2026'), findsNothing);
+    });
+  }
 }

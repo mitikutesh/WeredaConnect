@@ -121,6 +121,9 @@ public sealed class MockTelebirrGateway : ITelebirrGateway
     /// <summary>The mock holds synchronously; mock orders are funded at payment submit.</summary>
     public bool SupportsHostedCheckout => false;
 
+    /// <summary>The mock never reaches Telebirr (FUP-36).</summary>
+    public bool IsLiveTelebirr => false;
+
     /// <summary>No hosted checkout, so no URL to rebuild.</summary>
     public string? BuildCheckoutUrl(string prepayId) => null;
 }

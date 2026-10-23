@@ -122,6 +122,22 @@ void main() {
     });
   });
 
+  // FUP-20: a live bank transfer is refused; the buyer is told to pay with
+  // Telebirr instead of seeing the generic refusal.
+  group('ORDER_PAYMENT_METHOD_UNAVAILABLE', () {
+    test('submitPayment ends in paymentMethodUnavailable, never success',
+        () async {
+      final states = await run(
+        'submitPayment',
+        const SyncRejectedException(
+          'ORDER_PAYMENT_METHOD_UNAVAILABLE: Bank transfer (cbe_transfer) is '
+          'not available yet. Pay with Telebirr.',
+        ),
+      );
+      expectError(states, AppErrorCode.paymentMethodUnavailable);
+    });
+  });
+
   group('other refusals', () {
     for (final action in actions.keys) {
       test('$action: a version race on web is a conflict', () async {
