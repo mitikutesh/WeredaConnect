@@ -3536,7 +3536,7 @@ public class SyncFunctionTests
         {
             SetupListing(quantityQuintals: 60);
             var orderRepo = Substitute.For<IOrderRepository>();
-            orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+            orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
             {
                 { "orderId", "order-001" }, { "buyerId", "buyer-001" }, { "farmerId", "farmer-001" },
                 { "listingId", "listing-001" }, { "quantity", 500.0 },
@@ -3663,7 +3663,10 @@ public class SyncFunctionTests
             { "commissionAmount", 113.75 }, { "orderTotal", 2448.75 },
             { "status", status }, { "version", version.ToString() }
         };
+        // Both read modes: order updates read it strongly consistent (FUP-21), the delivery
+        // paths that advance or size the order still read it eventually consistent.
         _mockOrderRepo.GetByIdAsync("order-001").Returns(order);
+        _mockOrderRepo.GetByIdAsync("order-001", true).Returns(order);
         return order;
     }
 
@@ -3964,7 +3967,7 @@ public class SyncFunctionTests
         // created -> payment_submitted hop must be accepted (not rejected as an
         // invalid transition). Regression for the "An error occurred" bug.
         var orderRepo = Substitute.For<IOrderRepository>();
-        orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+        orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
         {
             { "orderId", "order-001" },
             { "buyerId", "buyer-001" },
@@ -4015,7 +4018,7 @@ public class SyncFunctionTests
         // escrow release moved the order to disbursing. The transition check runs before the version
         // check, so the answer is a permanent ORDER_VALIDATION (the client reverts to the server row).
         var orderRepo = Substitute.For<IOrderRepository>();
-        orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+        orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
         {
             { "orderId", "order-001" },
             { "buyerId", "buyer-001" },
@@ -4054,7 +4057,7 @@ public class SyncFunctionTests
         // farmer's rejection bounced as an invalid transition. Pin it, including
         // the server-stamped respondedAt side-effect.
         var orderRepo = Substitute.For<IOrderRepository>();
-        orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+        orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
         {
             { "orderId", "order-001" },
             { "buyerId", "buyer-001" },
@@ -4111,7 +4114,7 @@ public class SyncFunctionTests
         try
         {
             var orderRepo = Substitute.For<IOrderRepository>();
-            orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+            orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
             {
                 { "orderId", "order-001" },
                 { "buyerId", "buyer-001" },
@@ -4182,7 +4185,7 @@ public class SyncFunctionTests
         // expired NOW so the hourly auto-refund cron pays it out (order-lifecycle.md
         // invariant 2).
         var orderRepo = Substitute.For<IOrderRepository>();
-        orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+        orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
         {
             { "orderId", "order-001" },
             { "buyerId", "buyer-001" },
@@ -5637,7 +5640,7 @@ public class SyncFunctionTests
         try
         {
             var orderRepo = Substitute.For<IOrderRepository>();
-            orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+            orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
             {
                 { "orderId", "order-001" },
                 { "buyerId", "buyer-001" },
@@ -6129,7 +6132,7 @@ public class SyncFunctionTests
         decimal orderTotal, UserDto buyer, UserDto farmer, string fromStatus = "created")
     {
         var orderRepo = Substitute.For<IOrderRepository>();
-        orderRepo.GetByIdAsync("order-pay").Returns(new Dictionary<string, object>
+        orderRepo.GetByIdAsync("order-pay", true).Returns(new Dictionary<string, object>
         {
             { "orderId", "order-pay" },
             { "buyerId", "buyer-001" },
@@ -6551,7 +6554,7 @@ public class SyncFunctionTests
     public async Task PaymentSubmitted_NoUserRepository_FailsClosed()
     {
         var orderRepo = Substitute.For<IOrderRepository>();
-        orderRepo.GetByIdAsync("order-pay").Returns(new Dictionary<string, object>
+        orderRepo.GetByIdAsync("order-pay", true).Returns(new Dictionary<string, object>
         {
             { "orderId", "order-pay" },
             { "buyerId", "buyer-001" },
