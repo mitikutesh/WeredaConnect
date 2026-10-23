@@ -37,6 +37,9 @@ class SyncQueue {
 
   Future<int> retryFailed() async => 0;
 
+  /// No queue on web, so no legacy operation to drop.
+  Future<int> dropLegacyCropListingOperations() async => 0;
+
   /// No queue on web, so nothing is ever rejected.
   static bool isRejected(SyncOperation op) => false;
 
@@ -45,6 +48,9 @@ class SyncQueue {
     String entityId,
   ) async =>
       0;
+
+  /// No queue on web, so nothing is ever reverted.
+  Future<int> markRevertedFor(String entityType, String entityId) async => 0;
 }
 
 /// Exception thrown when the sync queue is full.

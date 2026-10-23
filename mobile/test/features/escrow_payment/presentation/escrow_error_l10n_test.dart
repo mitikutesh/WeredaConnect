@@ -38,6 +38,44 @@ void main() {
       }
     });
 
+    test(
+        'ESCROW_039 (delivery payment refused on live Telebirr, FUP-36) has '
+        'its own message in all three languages', () async {
+      for (final code in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(code));
+        final message = localizeEscrowError(l10n, 'ESCROW_039', 'raw');
+
+        expect(
+          message,
+          l10n.escrowErrorDeliveryPaymentUnavailable,
+          reason: code,
+        );
+        expect(message, isNot(l10n.escrowErrorGeneric), reason: code);
+        expect(
+          message,
+          isNot(l10n.orderCheckoutConfirmedAutomatically),
+          reason: code,
+        );
+      }
+    });
+
+    test(
+        'ESCROW_041 (dispute before pickup, FUP-16) has its own message in '
+        'all three languages', () async {
+      for (final code in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(code));
+        final message = localizeEscrowError(l10n, 'ESCROW_041', 'raw');
+
+        expect(message, l10n.escrowErrorDisputeBeforePickup, reason: code);
+        expect(message, isNot(l10n.escrowErrorGeneric), reason: code);
+        expect(
+          message,
+          isNot(l10n.escrowErrorDisputeWindowExpired),
+          reason: code,
+        );
+      }
+    });
+
     test('the SIM-04 initiate codes no longer fall through to generic',
         () async {
       final l10n = await AppLocalizations.delegate.load(const Locale('en'));

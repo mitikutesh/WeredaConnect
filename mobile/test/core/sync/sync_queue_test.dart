@@ -423,6 +423,61 @@ void main() {
       expect(await syncQueue.retryFailed(), 0);
     });
 
+    // ESC-12 part B (sync-protocol.md 1.17.0): a reverted crop listing or trip
+    // refusal is not a "Sync failed" item.
+    test(
+        'markRevertedFor flags only that entity\'s rejected ops and takes them '
+        'out of the failed count', () async {
+      Future<void> add(String id, String entityType, String entityId) =>
+          syncQueue.enqueue(
+            userId: 'user-001',
+            entityType: entityType,
+            entityId: entityId,
+            action: 'update-$id',
+            data: '{}',
+            operationId: id,
+          );
+      await add('op-rejected', 'crop_listing', 'crop-1');
+      await add('op-exhausted', 'crop_listing', 'crop-1');
+      await add('op-pending', 'crop_listing', 'crop-1');
+      await add('op-other-entity', 'crop_listing', 'crop-2');
+      await add('op-other-type', 'trip', 'crop-1');
+      await syncQueue.markAsRejected('op-rejected');
+      for (var i = 0; i < SyncQueue.maxRetries; i++) {
+        await syncQueue.markAsFailed('op-exhausted');
+      }
+      await syncQueue.markAsRejected('op-other-entity');
+      await syncQueue.markAsRejected('op-other-type');
+      // Nothing is flagged until a revert says so; old rows read false.
+      expect((await syncQueue.getOperation('op-pending'))!.reverted, isFalse);
+      expect(await syncQueue.getFailedCount(), 4);
+
+      expect(await syncQueue.markRevertedFor('crop_listing', 'crop-1'), 1);
+
+      expect((await syncQueue.getOperation('op-rejected'))!.reverted, isTrue);
+      for (final id in [
+        'op-exhausted',
+        'op-pending',
+        'op-other-entity',
+        'op-other-type',
+      ]) {
+        expect(
+          (await syncQueue.getOperation(id))!.reverted,
+          isFalse,
+          reason: id,
+        );
+      }
+      expect(await syncQueue.getFailedCount(), 3);
+      // Flagged once; still rejected, so a reconnect does not resend it.
+      expect(await syncQueue.markRevertedFor('crop_listing', 'crop-1'), 0);
+      expect(
+        SyncQueue.isRejected((await syncQueue.getOperation('op-rejected'))!),
+        isTrue,
+      );
+      expect(await syncQueue.retryFailed(), 1); // only the exhausted op
+      expect(await syncQueue.getFailedCount(), 2);
+    });
+
     test('duplicate idempotency key throws DuplicateOperationException',
         () async {
       await syncQueue.enqueue(

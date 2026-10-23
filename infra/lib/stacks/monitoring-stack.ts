@@ -5,6 +5,7 @@ import * as cloudwatch_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import { EnvironmentConfig } from '../config/environments';
+import { TELEBIRR_WEBHOOK_PATH } from './api-stack';
 
 export interface MonitoringStackProps extends cdk.StackProps {
   readonly envConfig: EnvironmentConfig;
@@ -39,7 +40,9 @@ interface DynamoTableDef {
  * S2-04 Phase 2: Audit Logging — compliance observability layer.
  *
  * Cost: ~$7/month (1 dashboard @ $3 + 12 alarms @ $0.10 + 9 custom metrics from the log
- * filters @ $0.30; the live gateway adds 1 alarm and 1 metric). Metric filters are free.
+ * filters @ $0.30). The live gateway adds 5 alarms and 2 metrics on the API alarm ($0.70),
+ * 2 log metrics ($0.60) and the webhook route's 6 detailed API Gateway metrics (at most
+ * $1.80, billed only for hours with webhook traffic; FUP-39). Metric filters are free.
  *
  * References Lambda functions and DynamoDB tables by name (no cross-stack refs needed).
  */
@@ -566,30 +569,73 @@ export class MonitoringStack extends cdk.Stack {
 
     // ─── Alarms ──────────────────────────────────────────────────────
 
+    // The live Telebirr gateway: the webhook route, its Lambda and its log group exist only
+    // with this flag (same flag as api-stack).
+    const telebirrLive =
+      (envConfig.enableTelebirrLive ?? false) ||
+      this.node.tryGetContext('enableTelebirrLive') === 'true';
+
+    // The webhook route's own API Gateway metrics. They exist because api-stack enables
+    // detailed metrics on that one route (FUP-39).
+    const webhookRouteMetric = (metricName: string, period: cdk.Duration, label?: string) =>
+      new cloudwatch.Metric({
+        namespace: 'AWS/ApiGateway',
+        metricName,
+        dimensionsMap: {
+          ApiId: props.apiId,
+          Method: 'POST',
+          Resource: TELEBIRR_WEBHOOK_PATH,
+          Stage: '$default',
+        },
+        statistic: 'Sum',
+        period,
+        label,
+      });
+
     // Alarm 1: High API Gateway 5xx Error Rate (>5% of requests for 5 min)
+    // FUP-39: the webhook answers 500 on purpose when a verified payment is not yet recorded
+    // or applied, so Telebirr sends it again (ESC-45 D1). At low traffic one such answer is
+    // over 5 % of all requests, so with the live gateway the rate leaves that route out; the
+    // webhook alarms below watch it. Metric math counts a missing datapoint as 0: with no
+    // webhook traffic the rate is the plain API rate, and a period with only webhook
+    // traffic gives 0.
+    const api5xxMetrics: Record<string, cloudwatch.IMetric> = {
+      errors: new cloudwatch.Metric({
+        namespace: 'AWS/ApiGateway',
+        metricName: '5xx',
+        dimensionsMap: { ApiId: props.apiId },
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(5),
+      }),
+      requests: new cloudwatch.Metric({
+        namespace: 'AWS/ApiGateway',
+        metricName: 'Count',
+        dimensionsMap: { ApiId: props.apiId },
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(5),
+      }),
+    };
+    let api5xxExpression = 'IF(requests > 0, errors / requests * 100, 0)';
+    if (telebirrLive) {
+      api5xxMetrics.webhookErrors = webhookRouteMetric('5xx', cdk.Duration.minutes(5));
+      api5xxMetrics.webhookRequests = webhookRouteMetric('Count', cdk.Duration.minutes(5));
+      api5xxExpression =
+        'IF(requests - webhookRequests > 0, ' +
+        '(errors - webhookErrors) / (requests - webhookRequests) * 100, 0)';
+    }
     const api5xxAlarm = new cloudwatch.Alarm(this, 'HighApiErrorRate', {
       alarmName: `${prefix}-high-api-5xx-rate`,
       alarmDescription:
         'API Gateway 5xx errors exceed 5% of total requests for 5 minutes. ' +
-        'Check Lambda errors and CloudWatch logs for root cause.',
+        'Check Lambda errors and CloudWatch logs for root cause.' +
+        (telebirrLive
+          ? ` The Telebirr webhook route (POST ${TELEBIRR_WEBHOOK_PATH}) is left out: it answers ` +
+            '500 on purpose for retryable failures; the telebirr-webhook-5xx, -errors and ' +
+            '-throttles alarms watch it (FUP-39).'
+          : ''),
       metric: new cloudwatch.MathExpression({
-        expression: 'IF(requests > 0, errors / requests * 100, 0)',
-        usingMetrics: {
-          errors: new cloudwatch.Metric({
-            namespace: 'AWS/ApiGateway',
-            metricName: '5xx',
-            dimensionsMap: { ApiId: props.apiId },
-            statistic: 'Sum',
-            period: cdk.Duration.minutes(5),
-          }),
-          requests: new cloudwatch.Metric({
-            namespace: 'AWS/ApiGateway',
-            metricName: 'Count',
-            dimensionsMap: { ApiId: props.apiId },
-            statistic: 'Sum',
-            period: cdk.Duration.minutes(5),
-          }),
-        },
+        expression: api5xxExpression,
+        usingMetrics: api5xxMetrics,
         period: cdk.Duration.minutes(5),
         label: '5xx Error Rate %',
       }),
@@ -967,10 +1013,14 @@ export class MonitoringStack extends cdk.Stack {
       'A dispute verdict was not settled because its order or delivery is in a status the ' +
         'verdict cannot follow (DISPUTE_VERDICT_ORDER_MISMATCH in the escrow or escrow-cron log ' +
         'group, with escrowId, op and legs; escrow-audit row dispute_verdict_mismatch, once a ' +
-        'day). Usually a dispute raised before delivery: the order is still accepted, ' +
-        'pickup_confirmed or in_transit. No money moved; the escrow stays dispute_resolved and ' +
-        'the hourly sweep tries again. Bring the order (and its delivery) to a status the ' +
-        'verdict can follow, or settle the case by hand, then the next sweep settles it (ESC-03).',
+        'day). Since FUP-16 a new verdict the order cannot follow is refused at the admin ' +
+        'page, so this is a verdict recorded before then, a disposition that did not finish, or ' +
+        'an order that moved since. No money moved; the escrow stays dispute_resolved and the ' +
+        'hourly sweep tries again. Open Disputes > Awaiting settlement and record (or send ' +
+        'again) a disposition: return_to_farmer or delivered_anyway for buyer_wins, settle_now ' +
+        'or wait_for_delivery for farmer_wins. A recorded wait_for_delivery is not alarmed (it ' +
+        'logs DISPUTE_VERDICT_WAITING_FOR_DELIVERY). If no disposition fits (ADMIN_016), repair ' +
+        'the order by hand (ESC-03, FUP-16).',
     );
 
     const orderMoneyMismatchAlarm = moneyLogAlarm(
@@ -1054,13 +1104,14 @@ export class MonitoringStack extends cdk.Stack {
     );
 
     // ESC-01: live order payments. The Telebirr webhook (and its log group) only
-    // exists when the live gateway is on, same flag as api-stack. Any payment the
+    // exists when the live gateway is on (telebirrLive above). Any payment the
     // webhook could not apply is money the platform holds for a manual refund, and
-    // the webhook always answers 200, so its Lambda Errors metric never shows it.
-    const telebirrLive =
-      (envConfig.enableTelebirrLive ?? false) ||
-      this.node.tryGetContext('enableTelebirrLive') === 'true';
+    // the webhook answers it with a normal response (200, or ESC-45's 500), never a
+    // Lambda error, so its Lambda Errors metric never shows it.
     let orderPaymentProblemsAlarm: cloudwatch.Alarm | undefined;
+    let webhook5xxAlarm: cloudwatch.Alarm | undefined;
+    let webhookErrorsAlarm: cloudwatch.Alarm | undefined;
+    let webhookThrottlesAlarm: cloudwatch.Alarm | undefined;
     if (telebirrLive) {
       const webhookLogGroup = logs.LogGroup.fromLogGroupName(
         this,
@@ -1154,6 +1205,106 @@ export class MonitoringStack extends cdk.Stack {
       );
       inboxReplayStalledAlarm.addAlarmAction(snsAction);
       inboxReplayStalledAlarm.addOkAction(snsAction);
+
+      // FUP-39: the webhook route is outside the API-wide 5xx rate, so these two page for it.
+      // Volume: one payment's retryable 500 (ESC-45 D1) is replayed by the inbox sweep within
+      // about 7 minutes (due 2 minutes after receipt, sweep every 5) and its redeliveries then
+      // get 200, so it leaves a few 500s at most. Five in 15 minutes means several payments
+      // failing, or one failing past its replays. It catches what has no log token: API Gateway
+      // unable to invoke the Lambda, throttling, the catch-all after verification. Revisit the
+      // count once the sandbox run shows Telebirr's retry interval (decision record, item 2).
+      webhook5xxAlarm = new cloudwatch.Alarm(this, 'TelebirrWebhook5xx', {
+        alarmName: `${prefix}-telebirr-webhook-5xx`,
+        alarmDescription:
+          `The Telebirr webhook route (POST ${TELEBIRR_WEBHOOK_PATH}) answered 5 or more 5xx in ` +
+          '15 minutes (FUP-39; the API-wide high-api-5xx-rate alarm leaves this route out). One ' +
+          '500 is normal: the webhook answers 500 on purpose when a verified payment is not yet ' +
+          'recorded or applied, so Telebirr sends it again, and the inbox sweep applies it ' +
+          '(ESC-45). Five or more: several payments failing, or one failing again and again. Look ' +
+          'in the webhook log group: ' +
+          'ORDER_PAYMENT_UNPROCESSED (no inbox row; order-payment-problems fires too), ' +
+          'ORDER_PAYMENT_REPLAY_PENDING (the sweep retries; find the shared cause), "answered 500 ' +
+          'for a retry" (the /escrow/initiate path, no inbox row), or no line for the request ' +
+          '(API Gateway could not invoke the Lambda: integration, permission or throttling; see ' +
+          'telebirr-webhook-errors and the API access log). A payment with no inbox row is ' +
+          'recovered only by Telebirr\'s retries, whose schedule is undocumented: act quickly.',
+        metric: webhookRouteMetric('5xx', cdk.Duration.minutes(15), 'Telebirr Webhook 5xx'),
+        threshold: 5,
+        evaluationPeriods: 1,
+        comparisonOperator:
+          cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+      webhook5xxAlarm.addAlarmAction(snsAction);
+      webhook5xxAlarm.addOkAction(snsAction);
+
+      // A crash, timeout or out-of-memory kill of the webhook Lambda, on the public route or
+      // the replay sweep. A deliberate 500 is a normal return, never a Lambda error, so this
+      // fires only on real failures, at any traffic (the API-wide rate did that before FUP-39
+      // only at low traffic). The aggregate LambdaErrors alarm is full (10 metrics). 3 periods,
+      // 1 datapoint: a sweep crash and Lambda's two async retries stay one episode.
+      webhookErrorsAlarm = new cloudwatch.Alarm(this, 'TelebirrWebhookErrors', {
+        alarmName: `${prefix}-telebirr-webhook-errors`,
+        alarmDescription:
+          'The Telebirr webhook Lambda failed (FUP-39): a crash, the 15 second timeout or an ' +
+          'out-of-memory kill, on the public notification route or on the 5 minute inbox replay ' +
+          'sweep. A deliberate 500 never counts here. A notification that failed before its inbox ' +
+          'write is recorded nowhere and only Telebirr\'s retries can bring it back. Find the ' +
+          'RequestId in the webhook log group (REPORT line, "Task timed out"), fix the cause, then ' +
+          'check order-payment-problems and the exhausted partition of InboxReplayIndex. Clears ' +
+          '10 to 15 minutes after the last error.',
+        metric: new cloudwatch.Metric({
+          namespace: 'AWS/Lambda',
+          metricName: 'Errors',
+          dimensionsMap: { FunctionName: `${prefix}-telebirr-webhook` },
+          statistic: 'Sum',
+          period: cdk.Duration.minutes(5),
+          label: 'Telebirr Webhook Errors',
+        }),
+        threshold: 1,
+        evaluationPeriods: 3,
+        datapointsToAlarm: 1,
+        comparisonOperator:
+          cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+      webhookErrorsAlarm.addAlarmAction(snsAction);
+      webhookErrorsAlarm.addOkAction(snsAction);
+
+      // A throttled invocation is not a Lambda error, so the alarm above never counts it, and at
+      // one or two payments per 15 minutes the route's 5xx stays under the volume alarm's count.
+      // Any throttle pages: a throttled notification is recorded nowhere. The limit is the reserved
+      // concurrency of 10 outside dev and the account's concurrency in dev (lambda-construct skips
+      // reserved concurrency there). Same window as the errors alarm, so a burst stays one episode.
+      webhookThrottlesAlarm = new cloudwatch.Alarm(this, 'TelebirrWebhookThrottles', {
+        alarmName: `${prefix}-telebirr-webhook-throttles`,
+        alarmDescription:
+          'The Telebirr webhook Lambda was throttled (FUP-39): more invocations at once than its ' +
+          'concurrency allows (reserved 10 outside dev, the account limit in dev), on the public ' +
+          'notification route or the 5 minute inbox replay sweep. A throttled notification never ' +
+          'ran, so it is recorded nowhere: Telebirr ' +
+          'gets an error and only its retries can bring the payment back. A throttled sweep run is ' +
+          'retried by Lambda. Check the ConcurrentExecutions of the webhook Lambda and the API ' +
+          'access log for a burst on POST /webhooks/telebirr (a flood is refused by the signature ' +
+          'check but still uses concurrency); raise the reserved concurrency only for real payment ' +
+          'volume. Then check order-payment-problems. Clears 10 to 15 minutes after the last throttle.',
+        metric: new cloudwatch.Metric({
+          namespace: 'AWS/Lambda',
+          metricName: 'Throttles',
+          dimensionsMap: { FunctionName: `${prefix}-telebirr-webhook` },
+          statistic: 'Sum',
+          period: cdk.Duration.minutes(5),
+          label: 'Telebirr Webhook Throttles',
+        }),
+        threshold: 1,
+        evaluationPeriods: 3,
+        datapointsToAlarm: 1,
+        comparisonOperator:
+          cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+      webhookThrottlesAlarm.addAlarmAction(snsAction);
+      webhookThrottlesAlarm.addOkAction(snsAction);
     }
 
     // Alarm 7: Order Cron Errors — the scheduled unpaid-order auto-cancel must never
@@ -1254,6 +1405,9 @@ export class MonitoringStack extends cdk.Stack {
           orderMoneyMismatchAlarm,
           riskSettlementSkippedAlarm,
           ...(orderPaymentProblemsAlarm ? [orderPaymentProblemsAlarm] : []),
+          ...(webhook5xxAlarm ? [webhook5xxAlarm] : []),
+          ...(webhookErrorsAlarm ? [webhookErrorsAlarm] : []),
+          ...(webhookThrottlesAlarm ? [webhookThrottlesAlarm] : []),
         ],
         width: 24,
         height: 3,

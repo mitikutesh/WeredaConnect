@@ -129,8 +129,21 @@ export const escrowStatusLabel = (status: string, t: Translate) =>
 export const deliveryStatusLabel = (status: string, t: Translate) =>
   labelOrRaw(t, `transactions.delivery_${status}`, status);
 
-export const timelineActionLabel = (action: string, t: Translate) =>
-  labelOrRaw(t, `transactions.action_${action}`, action);
+/** "some_new_action" reads "Some new action": the words, without the snake_case. */
+function humanize(raw: string): string {
+  const words = raw.replace(/_+/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * FUP-35: an audit action the server writes before the admin has a label for it (a newer
+ * server, or a PR that adds an action without one) still reads as words, never snake_case.
+ */
+export const timelineActionLabel = (action: string, t: Translate) => {
+  const key = `transactions.action_${action}`;
+  const label = t(key);
+  return label === key ? humanize(action) : label;
+};
 
 /** ESC-06: why an order waits in the admin stuck-order queue (hold_cap). */
 export const adminQueueLabel = (reason: string, t: Translate) =>

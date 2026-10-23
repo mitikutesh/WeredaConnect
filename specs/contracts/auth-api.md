@@ -1,7 +1,7 @@
 # Authentication API Contract
 
 ## Version
-2.8.0
+2.9.0
 
 ## Parties
 - **Mobile** (client) -- registers users, authenticates online/offline, manages cached tokens
@@ -330,12 +330,21 @@ Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6...
 |--------|-----------|-------------|
 | `400` | `AUTH_017` | Missing refresh token |
 | `401` | `AUTH_020` | Invalid or expired access token, or no caller identity in the request |
-| `403` | `AUTH_026` | The refresh token belongs to another user; nothing revoked (2.7.0) |
+| `403` | `AUTH_026` | The refresh token belongs to another user; nothing revoked (2.7.0). The app retries once with a bearer minted from the refresh token (2.9.0) |
 | `429` | `AUTH_006` | Rate limit exceeded (API), or Cognito throttled the owner lookup or the revoke; nothing is revoked when the lookup is throttled |
 | `500` | `AUTH_007` | Internal server error |
 | `503` | `AUTH_008` | Cognito unavailable during the owner lookup or the revoke; nothing is revoked when the lookup fails (2.7.0) |
 
 Clients treat every logout error as non-fatal and clear the local session anyway (the token expires on its own).
+
+#### Client sequence (2.9.0)
+
+1. The app reads the live access and refresh tokens from storage (the token-refresh interceptor rewrites those slots; the copy held since login is stale after 15 minutes) and starts the call before it clears the local session. The call never reads or writes the stored token slots and bypasses the interceptor, and the local clear never waits on the call: logout stays local-first, and the app stops waiting after 5 seconds.
+2. When the access token is missing or past its `exp` (30-second margin), the app first mints one with `POST /auth/refresh` and the same refresh token. Minted tokens serve this call only and are never stored. A refused refresh means the refresh token is already inactive, so nothing is sent.
+3. A `401` (the gateway answers `{"message":"Unauthorized"}` to an expired bearer) or a `403 AUTH_026` on a held bearer is retried once with a minted bearer, which always belongs to the refresh token's owner. Other errors are not retried.
+4. Offline, or without a refresh token, nothing is sent.
+
+Before 2.9.0 the app cleared the session first and sent the access token from login, so any session older than 15 minutes got a `401` and its refresh token stayed live until it expired (SIM-55).
 
 ---
 
@@ -529,7 +538,7 @@ After a successful online login or registration, the mobile client stores the fo
 | `AUTH_020` | 401 | Invalid access token | Attempt token refresh, then redirect to login |
 | `AUTH_021` | 400 | Missing Fayda verification token on register (required since 2.2.0) | Send the user back to the Fayda step |
 | `AUTH_025` | 403 | Account suspended (login, verify-otp, refresh) | Show "contact support", clear the session |
-| `AUTH_026` | 403 | Refresh token belongs to another user (logout, 2.7.0) | Clear the local session anyway |
+| `AUTH_026` | 403 | Refresh token belongs to another user (logout, 2.7.0) | Retry the logout once with a bearer minted from the refresh token (2.9.0), then clear the local session anyway |
 | `AUTH_009` | 400 | OTP code missing (2.1.0) | Show validation error on the code field |
 | `AUTH_011` | 400 | OTP code format invalid, not 6 digits (2.1.0) | Show validation error on the code field |
 | `AUTH_012` | 400 | OTP code invalid, expired or attempts exhausted (2.1.0) | Offer resend |
@@ -893,6 +902,7 @@ so a failed or refused verification leaves the payment blocked.
 |---------|------|--------|
 | 1.0.0 | 2026-02-12 | Initial contract: registration, OTP, login, refresh, logout, offline auth, rate limits |
 | 2.0.0 | 2026-03-02 | Replace SMS OTP with Fayda OIDC: add `POST /auth/fayda-verify`, remove `POST /auth/verify-otp`, registration returns tokens directly, add FAYDA_001-004 error codes, remove AUTH_009-012 |
+| 2.9.0 | 2026-10-23 | Client logout sequence (SIM-55): the app starts `POST /auth/logout` with the live stored tokens before it clears the session and never waits on it to clear; a missing or expired access token is first replaced by one minted with `POST /auth/refresh` (never stored); a `401` or `403 AUTH_026` is retried once with a minted bearer; the app maps `AUTH_026`. Server unchanged |
 | 2.8.0 | 2026-10-17 | The `/sync` delivery dispute step-up fails closed (FUP-26): an order (or a legacy delivery's escrow) that cannot be read answers `DELIVERY_DISPUTE_RETRY` and nothing is written, where the step-up was skipped before; a missing order, or a missing, unreadable, zero or negative total, needs the fresh password at any amount; a legacy delivery without an `orderId` is sized by its `DeliveryIndex` escrow; the total is rounded to the cent like the escrow amount |
 | 2.7.0 | 2026-10-06 | Logout is bound to the caller (SIM-60): the refresh token's owner is resolved with `InitiateAuth REFRESH_TOKEN_AUTH` and must equal the bearer's `sub`, else `403 AUTH_026` and nothing is revoked; an inactive token answers `200` without a revoke; `503 AUTH_008` when Cognito is unavailable. The `/auth/logout` integration moved to payload 1.0 so the handler sees the claims |
 | 2.6.0 | 2026-10-06 | Risk tier step-up (planned FRD-04): `AUTH_040` at any amount for MEDIUM, `AUTH_041` then `AUTH_040` at any amount for HIGH, new `FRAUD_ACCOUNT_HELD` (403) for CRITICAL on payments and on crop, trip and order create; `AUTH_041` text amount-neutral; header version corrected (it read 2.3.0 while the footer read 2.4.0) |
@@ -903,5 +913,5 @@ so a failed or refused verification leaves the payment blocked.
 
 ---
 
-**Last Updated**: 2026-10-17
-**Version**: 2.8.0
+**Last Updated**: 2026-10-23
+**Version**: 2.9.0

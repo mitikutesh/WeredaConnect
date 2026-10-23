@@ -44,6 +44,41 @@ describe("manual payout strings exist in every locale", () => {
   });
 });
 
+/* FUP-02: the unapplied payments page, its error codes and the two timeline rows a recorded
+ * refund writes (escrow-audit and transaction-audit). */
+describe("unapplied payment strings exist in every locale", () => {
+  const unappliedKeys = Object.keys(en.unapplied).map((k) => `unapplied.${k}`);
+  const keys = [
+    ...unappliedKeys,
+    "nav.unappliedPayments",
+    "errors.ESCROW_015",
+    "errors.ESCROW_036",
+    "errors.ESCROW_040",
+    "errors.ESCROW_042",
+    "errors.ESCROW_043",
+    "errors.ESCROW_044",
+    "transactions.action_order_payment_refunded_manual",
+    "transactions.action_admin_payment_refunded_manual",
+  ];
+
+  for (const locale of locales) {
+    it(`${locale} has every unapplied key, the nav label, the error codes and the timeline labels`, () => {
+      expect(keys.filter((key) => t(key, locale) === key)).toEqual([]);
+    });
+  }
+
+  it("keeps the placeholders the page fills in", () => {
+    for (const locale of locales) {
+      expect(t("unapplied.paymentUnknown", locale)).toContain("{merchOrderId}");
+      expect(t("unapplied.confirmRefund", locale)).toContain("{amount}");
+      expect(t("unapplied.confirmRefund", locale)).toContain("{payment}");
+      expect(t("unapplied.confirmRefund", locale)).toContain("{ref}");
+      expect(t("unapplied.reason_status", locale)).toContain("{status}");
+      expect(t("unapplied.reason_error", locale)).toContain("{code}");
+    }
+  });
+});
+
 /* FRD-03: an escrow held for fraud review, and its audit actions, are labelled in every locale. */
 describe("fraud hold labels exist in every locale", () => {
   const keys = [
@@ -67,6 +102,52 @@ describe("delivery cancel audit label exists in every locale", () => {
     it(`${locale} labels action_delivery_cancelled`, () => {
       const key = "transactions.action_delivery_cancelled";
       expect(t(key, locale)).not.toBe(key);
+    });
+  }
+});
+
+/* FUP-16: the dispute disposition panel, its error codes and the new timeline actions. */
+describe("dispute disposition strings exist in every locale", () => {
+  const disputeKeys = [
+    "tabOpen",
+    "tabAwaiting",
+    "awaitingHint",
+    "chooseDisposition",
+    "saved",
+    "verdict_farmer_wins",
+    "verdict_buyer_wins",
+    "dispositionTitle",
+    "caseGoodsMoving",
+    "caseBeforeDelivery",
+    "dispositionLegend",
+    "disposition_return_to_farmer",
+    "disposition_delivered_anyway",
+    "disposition_settle_now",
+    "disposition_wait_for_delivery",
+    "dispositionHint_return_to_farmer",
+    "dispositionHint_delivered_anyway",
+    "dispositionHint_settle_now",
+    "dispositionHint_wait_for_delivery",
+    "dispositionReason",
+    "dispositionReasonHint",
+    "confirmDisposition",
+    "recordedChoice",
+    "noChoice",
+    "loadMore",
+  ].map((k) => `disputes.${k}`);
+  const otherKeys = [
+    "errors.ADMIN_015",
+    "errors.ADMIN_016",
+    "transactions.action_dispute_resolved_goods_returned",
+    "transactions.action_dispute_resolved_delivered_anyway",
+    "transactions.action_dispute_resolved_settled_early",
+    "transactions.action_dispute_resolved_waiting_for_delivery",
+    "common.cancel",
+  ];
+  for (const locale of locales) {
+    it(`${locale} has every disposition key`, () => {
+      const missing = [...disputeKeys, ...otherKeys].filter((key) => t(key, locale) === key);
+      expect(missing).toEqual([]);
     });
   }
 });
