@@ -134,7 +134,7 @@ describe("UnappliedPaymentsPage", () => {
     expect(within(row).getByRole("link", { name: "ord-1" }).getAttribute("href")).toBe("/transactions/ord-1");
     expect(within(row).getByText("Cancelled")).toBeTruthy();
     expect(within(row).getByText("Did not match the order")).toBeTruthy();
-    expect(within(row).getByText("status_cancelled")).toBeTruthy();
+    expect(within(row).getByText("The order was Cancelled")).toBeTruthy();
     expect(within(row).getByText("1,500.00 Birr")).toBeTruthy();
     expect((within(row).getByLabelText("Amount refunded (ETB)") as HTMLInputElement).value).toBe("1500");
   });
@@ -223,6 +223,51 @@ describe("UnappliedPaymentsPage", () => {
     expect(within(row).getByText("Could not be processed")).toBeTruthy();
     expect(within(row).queryByRole("button", { name: "Record refund" })).toBeNull();
     expect(within(row).queryByLabelText("Refund transaction ID")).toBeNull();
+  });
+
+  it("labels every reason code the webhook writes, and an unknown one as a processing failure", () => {
+    mocks.payments.data = pages({
+      payments: [
+        cancelledOrderPayment({ paymentOrderId: "TB-A", reasons: ["no_payment_order_id", "order_missing"] }),
+        cancelledOrderPayment({ paymentOrderId: "TB-B", reasons: ["already_paid", "currency", "amount", "payer"] }),
+        cancelledOrderPayment({ paymentOrderId: "TB-C", reasons: ["order_changed", "stale_checkout", "stale_notify_time"] }),
+        cancelledOrderPayment({ paymentOrderId: "TB-D", reasons: ["replay_exhausted:TimeoutException", "TimeoutException"] }),
+      ],
+    });
+    renderPage();
+
+    expect(within(rowFor("TB-A")).getByText("Telebirr sent no payment order ID, The order does not exist")).toBeTruthy();
+    expect(
+      within(rowFor("TB-B")).getByText(
+        "The order was already paid, Paid in another currency, Paid a different amount, Paid from another phone",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(rowFor("TB-C")).getByText(
+        "The order changed after checkout, Paid on an earlier checkout, The notice arrived too late",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(rowFor("TB-D")).getByText(
+        "Processing gave up after repeated tries, Processing failed (TimeoutException)",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says a reference conflict is about this order", async () => {
+    mocks.mutate.mockImplementation((_vars, opts) => {
+      opts?.onError?.({ code: "ESCROW_036" });
+      opts?.onSettled?.();
+    });
+    renderPage();
+    const row = rowFor("TB-PAY-1");
+    const user = await fillRefund(row);
+    await user.click(within(row).getByRole("button", { name: "Record refund" }));
+    await user.click(within(row).getByRole("button", { name: "Yes, record it" }));
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "This reference conflicts with one already recorded for this order. Reload and check.",
+    );
   });
 
   it("shows the localized message for a server error code", async () => {

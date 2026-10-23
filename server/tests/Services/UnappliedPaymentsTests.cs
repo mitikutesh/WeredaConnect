@@ -127,6 +127,9 @@ public class UnappliedPaymentsTests
         payment.PaymentOrderId.Should().BeNull();
         payment.MerchOrderId.Should().Be(Merch);
         payment.IsOpen.Should().BeTrue();
+        // Not final: a later notice for the same checkout that names the payment is a new inbox
+        // row and may still fund the order.
+        payment.HasFinalVerdict.Should().BeFalse();
 
         // The admin found the payment in the portal by its merch_order_id.
         trail.Add(Refund("TB-PAY-FROM-PORTAL"));

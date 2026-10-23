@@ -40,16 +40,44 @@ public interface IEscrowAuditRepository
     /// <summary>
     /// FUP-02: one page of a table Scan (at most <paramref name="pageSize"/> rows evaluated)
     /// filtered to rows whose action is one of <paramref name="actions"/>. Returns the distinct
-    /// escrow ids in scan order and the page's LastEvaluatedKey (null when the scan is done).
-    /// The table has no index on the action, so the admin queue pages through the whole table.
+    /// escrow ids in scan order, each with the timestamp of its last matching row on the page,
+    /// and the page's LastEvaluatedKey (null when the scan is done). The table has no index on
+    /// the action, so the admin queue pages through the whole table.
     /// </summary>
     Task<EscrowAuditKeyPage> ScanKeysWithActionsAsync(
         IReadOnlyCollection<string> actions,
         Dictionary<string, Amazon.DynamoDBv2.Model.AttributeValue>? exclusiveStartKey,
         int pageSize);
+
+    /// <summary>
+    /// FUP-02: append an audit entry and put a claim row in another table in one transaction,
+    /// each only if absent. The claim makes the entry exclusive across concurrent writers whose
+    /// entries have different timestamps. Nothing is written unless both are.
+    /// </summary>
+    Task<AuditClaimWriteResult> AppendWithClaimAsync(
+        Dictionary<string, object> auditEntry, string claimTable, Dictionary<string, object> claimItem);
 }
+
+/// <summary>FUP-02: an escrow id found on a filtered Scan page and the timestamp of its last matching row there.</summary>
+public sealed record EscrowAuditKeyHit(string EscrowId, string LastTimestamp);
 
 /// <summary>FUP-02: the escrow ids found on one filtered Scan page, and where the scan stopped.</summary>
 public sealed record EscrowAuditKeyPage(
-    List<string> EscrowIds,
+    List<EscrowAuditKeyHit> Hits,
     Dictionary<string, Amazon.DynamoDBv2.Model.AttributeValue>? LastEvaluatedKey);
+
+/// <summary>FUP-02: outcome of <see cref="IEscrowAuditRepository.AppendWithClaimAsync"/>.</summary>
+public enum AuditClaimWriteResult
+{
+    /// <summary>Both rows were written.</summary>
+    Written,
+
+    /// <summary>The claim row exists: another writer holds it. Nothing was written.</summary>
+    ClaimTaken,
+
+    /// <summary>An audit row already has this key (same timestamp). Nothing was written.</summary>
+    EntryExists,
+
+    /// <summary>Another transaction on the same rows was in flight. Nothing was written.</summary>
+    Contended
+}

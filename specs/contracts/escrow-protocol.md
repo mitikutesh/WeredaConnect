@@ -3052,6 +3052,11 @@ The webhook's escrow-audit rows under `escrow-order-{orderId}`: `order_payment_u
   payment_order_id (for a nameless payment, the order's `telebirrMerchOrderId` is its
   merch_order_id). This is the `unprocessed` row whose payment the inbox replay applied later; its
   money is in the order's escrow.
+- A payment is decided for good only when it is named and has an `unmatched` or `duplicate` row:
+  the inbox keeps that verdict per payment_order_id. A payment with only `unprocessed` rows can
+  still be applied by a redelivery or the inbox replay, and a nameless payment can still arrive again
+  as a notice that names it, which is a new inbox row and can fund the order. Neither is refunded
+  while its order is still `payment_submitted`.
 - Captured amount: the rows' `amount` (the checkout amount, which is what Telebirr charges); for
   `reason=amount` the `webhook=` value of the `webhook_amount_mismatch` row written just before;
   unknown for `reason=currency`, for a give-up row (it carries no amount) and when the rows disagree.
@@ -3061,11 +3066,13 @@ The webhook's escrow-audit rows under `escrow-order-{orderId}`: `order_payment_u
 ### GET /admin/payments/unapplied
 Admin pool. Query `limit` (1 to 50, default 20) and `nextToken`. The escrow-audit table has no index
 on the action, so the call pages through a filtered Scan: at most 4 pages of 500 rows per call
-(2,000 rows, the bound of the F-35 audit feed). It stops early once it has `limit` payments; the last
-page read can add a few more. Every order found is re-read with a Query, so its answer is exact. A
-response can be empty while `nextToken` is set: keep loading until `nextToken` is null. Items come in
-table scan order. The signed token carries the scan position and the order already read in full,
-which the next call skips.
+(2,000 rows, the bound of the F-35 audit feed) and the trails of at most 50 orders (one Query each,
+sequential, so a page dense with unapplied rows cannot run the Lambda out of time). It stops early
+once it has `limit` payments; the last page read can add a few more. Every order found is re-read
+with a Query, so its answer is exact. A response can be empty while `nextToken` is set: keep loading
+until `nextToken` is null. Items come in table scan order. The signed token carries the scan position
+and the order already read in full, which the next call skips; when the 50-order cap stops a call,
+the position is the last row of the last order read, so the next call resumes right after it.
 
 ```json
 {
@@ -3093,9 +3100,9 @@ which the next call skips.
 
 `paymentOrderId` and `capturedAmount` are left out when unknown, `orderStatus` and `buyerId` when the
 order is missing. Resolved payments and payments that funded their order are not listed.
-`mayStillApply` is true when the payment has only `order_payment_unprocessed` rows and its order is
-still `payment_submitted`: a redelivery or the inbox replay may still apply it, so it is not refunded
-yet (the record call refuses it). Errors: `400 ESCROW_023` invalid token (also a token of another
+`mayStillApply` is true when the payment is not decided for good (only `order_payment_unprocessed`
+rows, or a payment the webhook could not name) and its order is still `payment_submitted`: Telebirr
+may still deliver it to the order, so it is not refunded yet (the record call refuses it). Errors: `400 ESCROW_023` invalid token (also a token of another
 admin list), `503 ADMIN_004` tables not configured.
 
 ### POST /admin/payments/{orderId}/refund-manual
@@ -3129,10 +3136,10 @@ The call reads the order's escrow-audit trail and the order strongly consistent,
 | `400` | `ADMIN_005` | body is not JSON |
 | `403` | `ESCROW_015` | caller not in the admin group |
 | `404` | `ESCROW_042` | no captured payment with this payment_order_id on this order (with `merchOrderId`: no nameless payment of that checkout either), or a malformed order id |
-| `409` | `ESCROW_036` | this payment's refund was already recorded with another `telebirrRef`, or this `telebirrRef` was recorded for another payment of the order (the 1.8.0 code for a reference conflict) |
+| `409` | `ESCROW_036` | this payment's refund was already recorded with another `telebirrRef`, this `telebirrRef` was recorded for another payment of the order, or another admin is recording this payment at this moment (the 1.8.0 code for a reference conflict) |
 | `409` | `ESCROW_043` | `amount` differs from the captured amount (the message names it, field `amount`) |
-| `409` | `ESCROW_044` | the payment funded the order (its money is in the order's escrow), or it has only `unprocessed` rows while the order is still `payment_submitted` |
-| `503` | `ADMIN_004` | escrow-audit or orders table not configured |
+| `409` | `ESCROW_044` | the payment funded the order (its money is in the order's escrow), or it is not decided for good (only `unprocessed` rows, or nameless) while the order is still `payment_submitted` |
+| `503` | `ADMIN_004` | escrow-audit, orders or (for this call) escrow-idempotency table not configured |
 
 `ESCROW_041` is not used here (reserved by FUP-16). When the captured amount is unknown, the admin's
 amount is recorded without a check and the answer says `amountChecked: false`: refusing would leave the
@@ -3155,13 +3162,22 @@ payment open for good.
 ```
 
 ### Rows written
-- escrow-audit, under `escrow-order-{orderId}`, with a conditional put
-  (`attribute_not_exists(escrowId)`, still append-only; a timestamp collision tries the next instant):
-  action `order_payment_refunded_manual`, `fromState` and `toState` empty (as the webhook's rows),
-  `actor` = the admin id, `timestamp` = now, `telebirrRef` = the refund's portal transaction id,
-  `metadata` = `paymentOrderId=<id>;amount=<n>` as reserved in 1.8.0, then `;merchOrderId=<id>` when
-  the payment's checkout is known, plus the attributes `reason` (the admin's text), `ipAddress` and
-  `correlationId`. `amount` is invariant with at most two decimals (`1500`, `1500.5`).
+- One `TransactWriteItems` of two puts, each only if absent; nothing is written unless both are:
+  - escrow-audit, under `escrow-order-{orderId}` (`attribute_not_exists(escrowId)`, still
+    append-only; a timestamp collision tries the next instant): action
+    `order_payment_refunded_manual`, `fromState` and `toState` empty (as the webhook's rows),
+    `actor` = the admin id, `timestamp` = now, `telebirrRef` = the refund's portal transaction id,
+    `metadata` = `paymentOrderId=<id>;amount=<n>` as reserved in 1.8.0, then `;merchOrderId=<id>`
+    when the payment's checkout is known, plus the attributes `reason` (the admin's text),
+    `ipAddress` and `correlationId`. `amount` is invariant with at most two decimals (`1500`,
+    `1500.5`).
+  - the claim row `refund-claim#{orderId}#{payment}` in escrow-idempotency (`{payment}` is the
+    payment_order_id, or `merch:{merch_order_id}` for a nameless payment) with `escrowId`,
+    `status = refund_recorded`, `paymentOrderId`, `telebirrRef`, `claimedBy` and `claimedAt`, and no
+    `expiresAt` (it is kept; no buyer data). It makes the record exclusive: of two admins recording
+    one payment at once, exactly one writes. The other answers from the row it then reads strongly
+    consistent: `alreadyRecorded` with the same `telebirrRef`, else `409 ESCROW_036`, also while the
+    winner's transaction is still in flight.
 - transaction-audit (best effort, like the other admin rows): `admin_payment_refunded_manual`,
   `transactionId` = the order id, `entityType` = `escrow`, `entityId` = `escrow-order-{orderId}`,
   metadata `paymentOrderId=..;telebirrRef=..;amount=..;amountChecked=true|false;reason=..`.
@@ -3177,12 +3193,15 @@ Admin only. The farmer, trucker and buyer apps (mobile and web) are unchanged. T
 new actions.
 
 ### Infrastructure
-Two routes on the admin authorizer. No new grant: the admin Lambda already reads and writes
-escrow-audit, reads orders and writes transaction-audit.
+Two routes on the admin authorizer. The admin Lambda already reads and writes escrow-audit, reads
+orders and writes transaction-audit; it gains `ESCROW_IDEMPOTENCY_TABLE` and `dynamodb:PutItem` (only)
+on escrow-idempotency for the claim row. IAM has no separate transaction action: each Put of a
+`TransactWriteItems` needs `PutItem` on its table, and `ConditionCheckItem` is needed only for
+condition-check items, which this transaction does not use.
 
 ### Not in 1.20.0 (known limits)
-- No claim step: two admins recording the same payment at the same instant can both write a row, as
-  in the manual payout queue. A replay or any later attempt sees the first row.
+- `ESCROW_036` catches a refund reference reused within one order only; the same portal reference
+  recorded on two orders is not detected (there is no index on it).
 - The list is a table Scan; at volume a full pass takes many calls. A sparse index written by the
   webhook is the scale path (a webhook change and a backfill).
 - No check of the references against Telebirr (no API).
@@ -3196,7 +3215,7 @@ escrow-audit, reads orders and writes transaction-audit.
 
 | Version | Date | Change |
 |---------|------|--------|
-| 1.20.0 | 2026-10-23 | Manual refund of an unapplied payment (FUP-02; 1.18.0 FUP-36 and 1.19.0 ESC-47 are in flight): `GET /admin/payments/unapplied` (filtered Scan of escrow-audit, at most 4 pages of 500 rows per call, signed token that skips the order already read) and `POST /admin/payments/{orderId}/refund-manual` (admin group only) write the reserved `order_payment_refunded_manual` row (metadata `paymentOrderId=..;amount=..` then `;merchOrderId=..`, attribute `reason`) and transaction-audit `admin_payment_refunded_manual`; a payment is matched by its payment_order_id, a nameless one by its merch_order_id, whenever the rows were written; a payment that funded the order, or may still fund it, is refused (`409 ESCROW_044`) and not listed (funded) or flagged `mayStillApply`; the amount is checked against the captured amount when the rows record it (`409 ESCROW_043`, else `amountChecked: false`); `400 ESCROW_040`, `404 ESCROW_042`, `409 ESCROW_036` reused for a reference conflict; a replay answers `alreadyRecorded` and writes nothing; `ESCROW_041` left to FUP-16; `account-deletion.md` 1.1.0 uses the same rule; admin page in en/am/om; no client change |
+| 1.20.0 | 2026-10-23 | Manual refund of an unapplied payment (FUP-02; 1.18.0 FUP-36 and 1.19.0 ESC-47 are in flight): `GET /admin/payments/unapplied` (filtered Scan of escrow-audit, at most 4 pages of 500 rows per call, signed token that skips the order already read) and `POST /admin/payments/{orderId}/refund-manual` (admin group only) write the reserved `order_payment_refunded_manual` row (metadata `paymentOrderId=..;amount=..` then `;merchOrderId=..`, attribute `reason`) and transaction-audit `admin_payment_refunded_manual`; a payment is matched by its payment_order_id, a nameless one by its merch_order_id, whenever the rows were written; a payment that funded the order, or may still fund it (only `unprocessed` rows, or nameless, while the order is `payment_submitted`), is refused (`409 ESCROW_044`) and not listed (funded) or flagged `mayStillApply`; the record is exclusive per payment (one `TransactWriteItems` with a kept claim row `refund-claim#{orderId}#{payment}` in escrow-idempotency; the admin Lambda gains `PutItem` there only); the list reads at most 50 order trails per call and resumes after the last one; the amount is checked against the captured amount when the rows record it (`409 ESCROW_043`, else `amountChecked: false`); `400 ESCROW_040`, `404 ESCROW_042`, `409 ESCROW_036` reused for a reference conflict; a replay, or a second admin with the same reference, answers `alreadyRecorded` and writes nothing; `ESCROW_041` left to FUP-16; `account-deletion.md` 1.1.0 uses the same rule; admin page in en/am/om; no client change |
 | 1.17.0 | 2026-10-10 | The order follows the money (ESC-09): every escrow money writer moves the order after its write (`disbursing` once the release is committed, `settled` once `completed` with no leg owed, a verdict escrow's order stays `dispute_resolved`), status-conditioned with `ADD version`; the hourly order-money sweep (`CronRunBudget`, now also the budget of ESC-10's paged sweeps with their limits unchanged; skip marker `moneySweepSkip`, escrow-audit `order_money_mismatch`/`order_money_ahead` once at `createdAt + 7/8` ticks) repairs and backfills; alarm `order-money-mismatch` (`ORDER_MONEY_MISMATCH`); Part B: an admin release of a plain escrowed order escrow needs a delivered order (`422`, no override), an admin refund cancels a pre-pickup order first and schedules the refund, refuses goods on the move unless overridden (`refundOverride*`) |
 | 1.16.0 | 2026-10-10 | Telebirr live dialect, webhook answers and inbox replay (ESC-45): the flat documented notify (one map verified and read, `data` envelope, nested `biz_content`, `transId` alias only without `trans_id`, duplicate keys and nested values refused), PSS or PKCS#1 accepted inbound, `notify_time` freshness by digit range with a 48 h late window on the order path only; `500` for verified notifications not recorded or not applied for a retryable reason, small JSON bodies; inbox rows carry `orderId`, the stored payment fields and a replay queue (sparse `InboxReplayIndex`); a 5-minute sweep replays them with claim, backoff and a conditional give-up after 8 attempts (`replay_exhausted`), heartbeat and stalled alarm; `ORDER_PAYMENT_REPLAY_PENDING` not alarmed; order `paymentHoldUntil` (order-lifecycle 1.16.0); every gateway call bounded by the run's deadline (`TELEBIRR_NO_TIME`, `TELEBIRR_TOKEN` definite); token path `/payment/v1/token`, timestamps in seconds; `/escrow/initiate` not usable live and cancels only on `Failed`, `Failure`, `Expired`; no payer field in the documented notify |
 | 1.15.0 | 2026-10-10 | Sweep hygiene (ESC-10): the auto-release, auto-refund, dispute-settlement and reconciliation sweeps page through their whole partition (pages of 100) within a budget per sweep (50 pages, 1,000 rows that needed I/O, a time limit counted from the run start, the trucker reserve kept), with confirmation and lock skips in the filter and `sweep_truncated` when a limit stops one; a blocked settlement stores `settlementBlockReason`/`settlementBlockReasonAt` by compare-and-set and is audited once per reason (`release_blocked_kyc` from the sweeps, metadata `code=ESCROW_029;reason=<reason>`; admin attempts each time; new `auto_release_blocked`, `auto_refund_blocked` with one alarm line when first stored); the released and refunded writes clear it; the auto-release reads the delivery and order first (FUP-28): delivered and an order in flight or none pays, a disputed trade is frozen through the 1.12.0 path (this escrow only) and its delivery and order follow, a resolved dispute and every mismatch block; an expired `/escrow/initiate` escrow follows its delivery and order: goods moving or an order in flight hold it (extended to the 21-day cap, then the admin queue, or `ADMIN_QUEUE_OVERDUE reason=no_order` without an order), a pending delivery is cancelled before the refund, a double escrow or missing row blocks; an admin queue entry stamps only the escrow it owns; reconciliation rows are isolated; new run summary keys; no client change |

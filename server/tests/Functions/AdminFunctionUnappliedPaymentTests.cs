@@ -25,6 +25,7 @@ public class AdminFunctionUnappliedPaymentTests
     private const string DeliveriesTable = "deliveries-test";
     private const string AuditTable = "escrow-audit-test";
     private const string TxAuditTable = "transaction-audit-test";
+    private const string IdempotencyTable = "escrow-idempotency-test";
     private const string Merch = "WCO0123456789ABCDEF01234567001";
 
     private readonly IAmazonDynamoDB _db = Substitute.For<IAmazonDynamoDB>();
@@ -33,13 +34,15 @@ public class AdminFunctionUnappliedPaymentTests
     public AdminFunctionUnappliedPaymentTests()
     {
         _db.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>()).Returns(new PutItemResponse());
+        _db.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new TransactWriteItemsResponse());
         ScanReturns();
         TrailReturns();
         OrderReturns(null);
     }
 
     private AdminFunction Function() =>
-        new(_db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable);
+        new(_db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable, IdempotencyTable);
 
     private static AttributeValue S(string v) => new() { S = v };
 
@@ -105,7 +108,12 @@ public class AdminFunctionUnappliedPaymentTests
         => AuditRow("order_payment_refunded_manual", "2026-10-21T09:00:00.0000000Z", telebirrRef,
             $"paymentOrderId={paymentOrderId};amount=1500;merchOrderId={Merch}", actor: "admin-0");
 
-    private static Dictionary<string, AttributeValue> Order(string status, string? fundedBy = null)
+    private static Dictionary<string, AttributeValue> Nameless(string reason = "no_payment_order_id")
+        => AuditRow("order_payment_unmatched", "2026-10-20T08:00:00.0000000Z", null,
+            $"orderId=ord-1,merchOrderId={Merch},amount=1500,reason={reason}");
+
+    private static Dictionary<string, AttributeValue> Order(
+        string status, string? fundedBy = null, string? fundedMerch = null)
     {
         var order = new Dictionary<string, AttributeValue>
         {
@@ -117,6 +125,11 @@ public class AdminFunctionUnappliedPaymentTests
         if (fundedBy != null)
         {
             order["telebirrPaymentOrderId"] = S(fundedBy);
+        }
+
+        if (fundedMerch != null)
+        {
+            order["telebirrMerchOrderId"] = S(fundedMerch);
         }
 
         return order;
@@ -135,6 +148,28 @@ public class AdminFunctionUnappliedPaymentTests
         => _db.QueryAsync(Arg.Is<QueryRequest>(q => q.TableName == AuditTable), Arg.Any<CancellationToken>())
             .Returns(new QueryResponse { Items = rows.ToList() });
 
+    /// <summary>The first trail read sees <paramref name="before"/>, every later one <paramref name="after"/>.</summary>
+    private void TrailReturnsThen(
+        Dictionary<string, AttributeValue>[] before, Dictionary<string, AttributeValue>[] after)
+        => _db.QueryAsync(Arg.Is<QueryRequest>(q => q.TableName == AuditTable), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = before.ToList() }, new QueryResponse { Items = after.ToList() });
+
+    /// <summary>The refund transaction is cancelled with these per-item reason codes (row, claim).</summary>
+    private void TransactionCancelled(string rowCode, string claimCode)
+        => _db.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromException<TransactWriteItemsResponse>(new TransactionCanceledException("cancelled")
+            {
+                CancellationReasons = new List<CancellationReason>
+                {
+                    new() { Code = rowCode },
+                    new() { Code = claimCode },
+                },
+            }));
+
+    private static Put AuditPut(TransactWriteItemsRequest t) => t.TransactItems[0].Put;
+
+    private static Put ClaimPut(TransactWriteItemsRequest t) => t.TransactItems[1].Put;
+
     private void OrderReturns(Dictionary<string, AttributeValue>? order)
         => _db.QueryAsync(Arg.Is<QueryRequest>(q => q.TableName == OrdersTable), Arg.Any<CancellationToken>())
             .Returns(new QueryResponse
@@ -144,13 +179,21 @@ public class AdminFunctionUnappliedPaymentTests
                     : new List<Dictionary<string, AttributeValue>> { order },
             });
 
-    private static Dictionary<string, AttributeValue> ScanHit(string escrowId = "escrow-order-ord-1")
-        => new() { ["escrowId"] = S(escrowId), ["action"] = S("order_payment_unmatched") };
+    private static Dictionary<string, AttributeValue> ScanHit(
+        string escrowId = "escrow-order-ord-1", string timestamp = "2026-10-20T08:00:00.0000000Z")
+        => new()
+        {
+            ["escrowId"] = S(escrowId),
+            ["timestamp"] = S(timestamp),
+            ["action"] = S("order_payment_unmatched"),
+        };
 
     private async Task NothingWritten()
     {
         await _db.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
         await _db.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+        await _db.DidNotReceive().TransactWriteItemsAsync(
+            Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>());
     }
 
     // ── GET /admin/payments/unapplied ─────────────────────────────
@@ -339,16 +382,24 @@ public class AdminFunctionUnappliedPaymentTests
         body.Amount.Should().Be(1500m);
         body.RecordedBy.Should().Be("admin-1");
 
-        await _db.Received(1).PutItemAsync(
-            Arg.Is<PutItemRequest>(p => p.TableName == AuditTable
-                                        && p.Item["escrowId"].S == "escrow-order-ord-1"
-                                        && p.Item["action"].S == "order_payment_refunded_manual"
-                                        && p.Item["telebirrRef"].S == "TB-REFUND-9"
-                                        && p.Item["metadata"].S == $"paymentOrderId=TB-PAY-1;amount=1500;merchOrderId={Merch}"
-                                        && p.Item["actor"].S == "admin-1"
-                                        && p.Item["reason"].S == "Order was cancelled before the payment arrived"
-                                        && p.Item["timestamp"].S == body.RecordedAt
-                                        && p.ConditionExpression == "attribute_not_exists(escrowId)"),
+        // The reserved row and its claim commit together, each only if absent.
+        await _db.Received(1).TransactWriteItemsAsync(
+            Arg.Is<TransactWriteItemsRequest>(t => t.TransactItems.Count == 2
+                && AuditPut(t).TableName == AuditTable
+                && AuditPut(t).Item["escrowId"].S == "escrow-order-ord-1"
+                && AuditPut(t).Item["action"].S == "order_payment_refunded_manual"
+                && AuditPut(t).Item["telebirrRef"].S == "TB-REFUND-9"
+                && AuditPut(t).Item["metadata"].S == $"paymentOrderId=TB-PAY-1;amount=1500;merchOrderId={Merch}"
+                && AuditPut(t).Item["actor"].S == "admin-1"
+                && AuditPut(t).Item["reason"].S == "Order was cancelled before the payment arrived"
+                && AuditPut(t).Item["timestamp"].S == body.RecordedAt
+                && AuditPut(t).ConditionExpression == "attribute_not_exists(escrowId)"
+                && ClaimPut(t).TableName == IdempotencyTable
+                && ClaimPut(t).Item["idempotencyKey"].S == "refund-claim#ord-1#TB-PAY-1"
+                && ClaimPut(t).Item["telebirrRef"].S == "TB-REFUND-9"
+                && ClaimPut(t).Item["claimedBy"].S == "admin-1"
+                && !ClaimPut(t).Item.ContainsKey("expiresAt")
+                && ClaimPut(t).ConditionExpression == "attribute_not_exists(idempotencyKey)"),
             Arg.Any<CancellationToken>());
         await _db.Received(1).PutItemAsync(
             Arg.Is<PutItemRequest>(p => p.TableName == TxAuditTable
@@ -359,7 +410,7 @@ public class AdminFunctionUnappliedPaymentTests
             Arg.Any<CancellationToken>());
         // The payment was never applied: no order, escrow or other table changes.
         await _db.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
-        await _db.Received(2).PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
+        await _db.Received(1).PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
         // The trail and the order are read strongly consistent.
         await _db.Received().QueryAsync(
             Arg.Is<QueryRequest>(q => q.TableName == AuditTable && q.ConsistentRead == true), Arg.Any<CancellationToken>());
@@ -519,9 +570,10 @@ public class AdminFunctionUnappliedPaymentTests
                 RefundBody(paymentOrderId: "TB-PAY-PORTAL", merchOrderId: Merch)), _context);
 
         withMerch.StatusCode.Should().Be(200);
-        await _db.Received(1).PutItemAsync(
-            Arg.Is<PutItemRequest>(p => p.TableName == AuditTable
-                                        && p.Item["metadata"].S == $"paymentOrderId=TB-PAY-PORTAL;amount=1500;merchOrderId={Merch}"),
+        await _db.Received(1).TransactWriteItemsAsync(
+            Arg.Is<TransactWriteItemsRequest>(t =>
+                AuditPut(t).Item["metadata"].S == $"paymentOrderId=TB-PAY-PORTAL;amount=1500;merchOrderId={Merch}"
+                && ClaimPut(t).Item["idempotencyKey"].S == $"refund-claim#ord-1#merch:{Merch}"),
             Arg.Any<CancellationToken>());
     }
 
@@ -600,6 +652,188 @@ public class AdminFunctionUnappliedPaymentTests
         list.StatusCode.Should().Be(503);
         record.StatusCode.Should().Be(503);
         list.Body.Should().Contain("ADMIN_004");
+
+        // Listing works without the claim table; recording does not.
+        var noClaims = new AdminFunction(_db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable);
+        (await noClaims.FunctionHandler(Request("GET", "/admin/payments/unapplied"), _context)).StatusCode.Should().Be(200);
+        var unclaimed = await noClaims.FunctionHandler(
+            Request("POST", "/admin/payments/ord-1/refund-manual", RefundBody()), _context);
+        unclaimed.StatusCode.Should().Be(503);
+        unclaimed.Body.Should().Contain("ADMIN_004");
+        await NothingWritten();
+    }
+
+    // ── Review fixes ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task Refund_NamelessPayment_WhileTheOrderWaits_Returns409Escrow044()
+    {
+        // A later notice for the same checkout that names the payment is a new inbox row and may
+        // still fund the order: refunding now could refund money the order then holds.
+        TrailReturns(Nameless());
+        OrderReturns(Order("payment_submitted"));
+
+        var response = await Function().FunctionHandler(
+            Request("POST", "/admin/payments/ord-1/refund-manual",
+                RefundBody(paymentOrderId: "TB-PAY-PORTAL", merchOrderId: Merch)), _context);
+
+        response.StatusCode.Should().Be(409);
+        response.Body.Should().Contain("ESCROW_044").And.Contain("still waits");
+        await NothingWritten();
+    }
+
+    [Theory]
+    [InlineData("payment_failed")]
+    [InlineData("cancelled")]
+    public async Task Refund_NamelessPayment_AfterTheOrderMovedOn_IsRecordable(string status)
+    {
+        TrailReturns(Nameless());
+        OrderReturns(Order(status));
+
+        var response = await Function().FunctionHandler(
+            Request("POST", "/admin/payments/ord-1/refund-manual",
+                RefundBody(paymentOrderId: "TB-PAY-PORTAL", merchOrderId: Merch)), _context);
+
+        response.StatusCode.Should().Be(200);
+        await _db.Received(1).TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task List_NamelessPaymentWhileTheOrderWaits_IsFlaggedMayStillApply()
+    {
+        ScanReturns(new List<Dictionary<string, AttributeValue>> { ScanHit() });
+        TrailReturns(Nameless());
+        OrderReturns(Order("payment_submitted"));
+
+        var response = await Function().FunctionHandler(Request("GET", "/admin/payments/unapplied"), _context);
+
+        var payment = JsonSerializer.Deserialize(response.Body, AppJsonContext.Default.UnappliedPaymentListResponse)!
+            .Payments.Should().ContainSingle().Subject;
+        payment.PaymentOrderId.Should().BeNull();
+        payment.MayStillApply.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Refund_NamelessPaymentOfTheFundingCheckout_Returns409Escrow044()
+    {
+        // The order was funded through this checkout by a payment the admin did not name:
+        // the payment's own funded flag refuses it.
+        TrailReturns(Nameless());
+        OrderReturns(Order("funded", fundedBy: "TB-PAY-FUNDING", fundedMerch: Merch));
+
+        var response = await Function().FunctionHandler(
+            Request("POST", "/admin/payments/ord-1/refund-manual",
+                RefundBody(paymentOrderId: "TB-PAY-OTHER", merchOrderId: Merch)), _context);
+
+        response.StatusCode.Should().Be(409);
+        response.Body.Should().Contain("ESCROW_044").And.Contain("funded the order");
+        await NothingWritten();
+    }
+
+    [Fact]
+    public async Task Refund_NamelessPaymentGivenTheOrdersFundingPaymentId_Returns409Escrow044()
+    {
+        // Another checkout funded the order; the admin types that funding payment's id for the
+        // nameless payment: refusing keeps the order's own money from being recorded as refunded.
+        TrailReturns(Nameless());
+        OrderReturns(Order("funded", fundedBy: "TB-PAY-FUNDING", fundedMerch: "WCO0123456789ABCDEF01234567002"));
+
+        var response = await Function().FunctionHandler(
+            Request("POST", "/admin/payments/ord-1/refund-manual",
+                RefundBody(paymentOrderId: "TB-PAY-FUNDING", merchOrderId: Merch)), _context);
+
+        response.StatusCode.Should().Be(409);
+        response.Body.Should().Contain("ESCROW_044").And.Contain("funded the order");
+        await NothingWritten();
+    }
+
+    [Fact]
+    public async Task Refund_ClaimTakenByAnotherAdminWithTheSameReference_AnswersAlreadyRecorded()
+    {
+        TrailReturnsThen(new[] { Unmatched() }, new[] { Unmatched(), RefundRow(telebirrRef: "TB-REFUND-9") });
+        OrderReturns(Order("cancelled"));
+        TransactionCancelled("None", "ConditionalCheckFailed");
+
+        var response = await Function().FunctionHandler(
+            Request("POST", "/admin/payments/ord-1/refund-manual", RefundBody()), _context);
+
+        response.StatusCode.Should().Be(200);
+        var body = JsonSerializer.Deserialize(response.Body, AppJsonContext.Default.RecordManualRefundResponse)!;
+        body.AlreadyRecorded.Should().BeTrue();
+        body.RecordedBy.Should().Be("admin-0");
+        await _db.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
+        await _db.Received(2).QueryAsync(
+            Arg.Is<QueryRequest>(q => q.TableName == AuditTable && q.ConsistentRead == true), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Refund_ClaimTakenByAnotherAdminWithAnotherReference_Returns409Escrow036()
+    {
+        TrailReturnsThen(new[] { Unmatched() }, new[] { Unmatched(), RefundRow(telebirrRef: "TB-REFUND-OTHER") });
+        OrderReturns(Order("cancelled"));
+        TransactionCancelled("None", "ConditionalCheckFailed");
+
+        var response = await Function().FunctionHandler(
+            Request("POST", "/admin/payments/ord-1/refund-manual", RefundBody()), _context);
+
+        response.StatusCode.Should().Be(409);
+        response.Body.Should().Contain("ESCROW_036");
+        await _db.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Refund_TransactionInFlightOnTheClaim_Returns409Escrow036_NoTxAudit()
+    {
+        TrailReturns(Unmatched());
+        OrderReturns(Order("cancelled"));
+        TransactionCancelled("None", "TransactionConflict");
+
+        var response = await Function().FunctionHandler(
+            Request("POST", "/admin/payments/ord-1/refund-manual", RefundBody()), _context);
+
+        response.StatusCode.Should().Be(409);
+        response.Body.Should().Contain("ESCROW_036").And.Contain("right now");
+        await _db.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Refund_RowTimestampTaken_TriesTheNextInstant()
+    {
+        TrailReturns(Unmatched());
+        OrderReturns(Order("cancelled"));
+        var cancelled = new TransactionCanceledException("cancelled")
+        {
+            CancellationReasons = new List<CancellationReason> { new() { Code = "ConditionalCheckFailed" }, new() { Code = "None" } },
+        };
+        _db.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromException<TransactWriteItemsResponse>(cancelled), _ => Task.FromResult(new TransactWriteItemsResponse()));
+
+        var response = await Function().FunctionHandler(
+            Request("POST", "/admin/payments/ord-1/refund-manual", RefundBody()), _context);
+
+        response.StatusCode.Should().Be(200);
+        await _db.Received(2).TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task List_StopsAfterFiftyTrailReads_AndResumesRightAfterTheLastOrderRead()
+    {
+        var hits = Enumerable.Range(1, 60)
+            .Select(i => ScanHit($"escrow-order-o{i:00}", $"2026-10-20T08:00:{i:00}.0000000Z"))
+            .ToList();
+        ScanReturns(hits);
+
+        var response = await Function().FunctionHandler(Request("GET", "/admin/payments/unapplied"), _context);
+
+        response.StatusCode.Should().Be(200);
+        await _db.Received(50).QueryAsync(
+            Arg.Is<QueryRequest>(q => q.TableName == AuditTable), Arg.Any<CancellationToken>());
+        await _db.Received(1).ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>());
+        var token = JsonSerializer.Deserialize(response.Body, AppJsonContext.Default.UnappliedPaymentListResponse)!.NextToken;
+        var key = PaginationTokenHelper.DecodeNextToken(token!)!;
+        key["escrowId"].S.Should().Be("escrow-order-o50");
+        key["timestamp"].S.Should().Be("2026-10-20T08:00:50.0000000Z");
+        key["_handledEscrowId"].S.Should().Be("escrow-order-o50");
     }
 
     [Fact]

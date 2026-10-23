@@ -192,6 +192,29 @@ describe('ApiStack', () => {
     }
   });
 
+  test('admin Lambda can put the refund claim row and nothing else on escrow-idempotency (FUP-02)', () => {
+    const policies = template.findResources('AWS::IAM::Policy');
+    const actions = Object.keys(policies)
+      .filter((key) => key.startsWith('AdminFunctionServiceRole'))
+      .flatMap(
+        (id) =>
+          policies[id].Properties.PolicyDocument.Statement as Array<{
+            Action: string | string[];
+            Resource: unknown;
+          }>,
+      )
+      .filter((s) => JSON.stringify(s.Resource).includes('EscrowIdempotencyTable'))
+      .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+    // TransactWriteItems is authorized per item: a conditional Put needs PutItem only.
+    expect(actions).toEqual(['dynamodb:PutItem']);
+
+    const admin = Object.values(template.findResources('AWS::Lambda::Function')).find(
+      (fn) => fn.Properties?.FunctionName === 'wereda-connect-dev-admin',
+    );
+    expect(admin).toBeDefined();
+    expect(admin!.Properties.Environment.Variables.ESCROW_IDEMPOTENCY_TABLE).toBeDefined();
+  });
+
   test('unapplied payment routes sit on the admin authorizer (FUP-02)', () => {
     const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
     const adminAuthorizerId = Object.entries(authorizers)

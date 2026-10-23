@@ -49,6 +49,9 @@ public class AdminFunction
     private readonly string _deliveriesTable;
     private readonly string _paymentsTable;
 
+    // FUP-02: the refund claim rows of the unapplied payment queue (PutItem only).
+    private readonly string _escrowIdempotencyTable;
+
     // Account controls that must reach Cognito (disable, global sign-out, role
     // attribute); null in tests that only exercise DynamoDB behaviour.
     private readonly ICognitoAuthService? _cognitoAuth;
@@ -73,6 +76,7 @@ public class AdminFunction
         _ordersTable = Environment.GetEnvironmentVariable("ORDERS_TABLE") ?? "";
         _deliveriesTable = Environment.GetEnvironmentVariable("DELIVERIES_TABLE") ?? "";
         _paymentsTable = Environment.GetEnvironmentVariable("PAYMENTS_TABLE") ?? "";
+        _escrowIdempotencyTable = Environment.GetEnvironmentVariable("ESCROW_IDEMPOTENCY_TABLE") ?? "";
     }
 
     /// <summary>
@@ -95,6 +99,7 @@ public class AdminFunction
         _ordersTable = "";
         _deliveriesTable = "";
         _paymentsTable = "";
+        _escrowIdempotencyTable = "";
     }
 
     /// <summary>
@@ -109,7 +114,8 @@ public class AdminFunction
         string escrowsTable,
         string deliveriesTable,
         string escrowAuditTable,
-        string transactionAuditTable = "")
+        string transactionAuditTable = "",
+        string escrowIdempotencyTable = "")
     {
         _dynamoDb = dynamoDb;
         _usersTable = usersTable;
@@ -122,6 +128,7 @@ public class AdminFunction
         _cropsTable = "";
         _tripsTable = "";
         _paymentsTable = "";
+        _escrowIdempotencyTable = escrowIdempotencyTable;
     }
 
     /// <summary>
@@ -744,7 +751,8 @@ public class AdminFunction
         return new UnappliedPaymentService(
             new EscrowAuditRepository(_dynamoDb, _escrowAuditTable),
             new OrderRepository(_dynamoDb, _ordersTable),
-            TxAuditRepo());
+            TxAuditRepo(),
+            _escrowIdempotencyTable);
     }
 
     /// <summary>GET /admin/payments/unapplied?limit=&amp;nextToken= (a bounded Scan; see the service).</summary>

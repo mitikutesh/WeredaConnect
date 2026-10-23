@@ -198,8 +198,12 @@ public sealed class EscrowAuditRepository : IEscrowAuditRepository
             // Limit counts rows evaluated before the filter, so it bounds the read cost of a page.
             Limit = pageSize,
             FilterExpression = $"#action IN ({string.Join(", ", placeholders)})",
-            ProjectionExpression = "escrowId, #action",
-            ExpressionAttributeNames = new Dictionary<string, string> { { "#action", "action" } },
+            ProjectionExpression = "escrowId, #ts, #action",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#action", "action" },
+                { "#ts", "timestamp" }
+            },
             ExpressionAttributeValues = values
         };
         if (exclusiveStartKey != null)
@@ -208,19 +212,105 @@ public sealed class EscrowAuditRepository : IEscrowAuditRepository
         }
 
         var response = await _dynamoDb.ScanAsync(request);
-        var escrowIds = new List<string>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        // Rows of one escrow id are contiguous in scan order, so its last row on the page is the
+        // key a caller can resume after.
+        var hits = new List<EscrowAuditKeyHit>();
         foreach (var item in response.Items ?? new List<Dictionary<string, AttributeValue>>())
         {
-            if (item.TryGetValue("escrowId", out var id) && !string.IsNullOrEmpty(id.S) && seen.Add(id.S))
+            if (!item.TryGetValue("escrowId", out var id) || string.IsNullOrEmpty(id.S))
             {
-                escrowIds.Add(id.S);
+                continue;
+            }
+
+            var timestamp = item.TryGetValue("timestamp", out var ts) ? ts.S ?? "" : "";
+            var index = hits.FindIndex(h => h.EscrowId == id.S);
+            if (index < 0)
+            {
+                hits.Add(new EscrowAuditKeyHit(id.S, timestamp));
+            }
+            else
+            {
+                hits[index] = hits[index] with { LastTimestamp = timestamp };
             }
         }
 
         return new EscrowAuditKeyPage(
-            escrowIds,
+            hits,
             response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null);
+    }
+
+    /// <inheritdoc />
+    public async Task<AuditClaimWriteResult> AppendWithClaimAsync(
+        Dictionary<string, object> auditEntry, string claimTable, Dictionary<string, object> claimItem)
+    {
+        var request = new TransactWriteItemsRequest
+        {
+            TransactItems = new List<TransactWriteItem>
+            {
+                new()
+                {
+                    Put = new Put
+                    {
+                        TableName = _tableName,
+                        Item = ToItem(auditEntry),
+                        // Still append-only: an existing row with this key is never overwritten.
+                        ConditionExpression = "attribute_not_exists(escrowId)"
+                    }
+                },
+                new()
+                {
+                    Put = new Put
+                    {
+                        TableName = claimTable,
+                        Item = ToItem(claimItem),
+                        ConditionExpression = "attribute_not_exists(idempotencyKey)"
+                    }
+                }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.TransactWriteItemsAsync(request);
+            return AuditClaimWriteResult.Written;
+        }
+        catch (TransactionCanceledException ex)
+        {
+            // Reasons are per item, in request order: 0 the audit row, 1 the claim.
+            var reasons = ex.CancellationReasons ?? new List<CancellationReason>();
+            string? Code(int index) => reasons.Count > index ? reasons[index]?.Code : null;
+            if (Code(1) == "ConditionalCheckFailed")
+            {
+                return AuditClaimWriteResult.ClaimTaken;
+            }
+
+            if (Code(0) == "ConditionalCheckFailed")
+            {
+                return AuditClaimWriteResult.EntryExists;
+            }
+
+            if (reasons.Any(r => r?.Code == "TransactionConflict"))
+            {
+                return AuditClaimWriteResult.Contended;
+            }
+
+            // Throttling or a validation error: nothing was written, so a retry is safe.
+            throw;
+        }
+    }
+
+    private static Dictionary<string, AttributeValue> ToItem(Dictionary<string, object> entry)
+    {
+        var item = new Dictionary<string, AttributeValue>();
+        foreach (var kvp in entry)
+        {
+            if (kvp.Value != null)
+            {
+                item[kvp.Key] = DynamoDbHelper.ToAttributeValue(kvp.Value);
+            }
+        }
+
+        return item;
     }
 
     private static string GetTimestamp(Dictionary<string, object> item) =>

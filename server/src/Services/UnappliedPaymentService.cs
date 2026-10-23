@@ -21,6 +21,16 @@ public sealed class UnappliedPaymentService
     internal const int MaxScanPagesPerCall = 4;
 
     /// <summary>
+    /// Orders whose trail one list call reads (one Query each, sequential). Past it the call stops
+    /// and its token resumes right after the last order read, so a page dense with unapplied rows
+    /// cannot run the Lambda out of time.
+    /// </summary>
+    internal const int MaxTrailQueriesPerCall = 50;
+
+    /// <summary>Prefix of the claim row in escrow-idempotency that makes a refund record exclusive.</summary>
+    internal const string ClaimPrefix = "refund-claim#";
+
+    /// <summary>
     /// Extra field in the signed nextToken: the partition the previous call already read in full
     /// (with a Query), so its remaining rows at the start of the next Scan page are skipped.
     /// Table attributes never start with an underscore.
@@ -33,25 +43,32 @@ public sealed class UnappliedPaymentService
     private readonly IEscrowAuditRepository _auditRepo;
     private readonly IOrderRepository _orderRepo;
     private readonly ITransactionAuditRepository? _txAuditRepo;
+    private readonly string? _claimTable;
     private readonly int _scanPageSize;
+    private readonly int _maxTrailQueries;
 
+    /// <param name="claimTable">escrow-idempotency, where the refund claim row goes; the record call needs it.</param>
     /// <param name="scanPageSize">Rows per Scan page; only tests pass a smaller one, to cross page boundaries.</param>
+    /// <param name="maxTrailQueries">Trail reads per list call; only tests pass a smaller one.</param>
     public UnappliedPaymentService(
         IEscrowAuditRepository auditRepo, IOrderRepository orderRepo, ITransactionAuditRepository? txAuditRepo,
-        int scanPageSize = ScanPageSize)
+        string? claimTable, int scanPageSize = ScanPageSize, int maxTrailQueries = MaxTrailQueriesPerCall)
     {
         _auditRepo = auditRepo ?? throw new ArgumentNullException(nameof(auditRepo));
         _orderRepo = orderRepo ?? throw new ArgumentNullException(nameof(orderRepo));
         _txAuditRepo = txAuditRepo;
+        _claimTable = string.IsNullOrEmpty(claimTable) ? null : claimTable;
         _scanPageSize = scanPageSize;
+        _maxTrailQueries = Math.Max(1, maxTrailQueries);
     }
 
     /// <summary>
     /// GET /admin/payments/unapplied. The escrow-audit table has no index on the action, so this
     /// pages through a filtered Scan: each call reads at most <see cref="MaxScanPagesPerCall"/>
-    /// pages and stops early once it has <paramref name="limit"/> payments (the last page read
-    /// can add a few more). Every order found is re-read with a Query, so a refund row anywhere
-    /// in its trail is seen. Pages can be empty while <c>nextToken</c> is set.
+    /// pages and the trails of at most <see cref="MaxTrailQueriesPerCall"/> orders, and stops early
+    /// once it has <paramref name="limit"/> payments (the last page read can add a few more). Every
+    /// order found is re-read with a Query, so a refund row anywhere in its trail is seen. Pages can
+    /// be empty while <c>nextToken</c> is set.
     /// </summary>
     public async Task<EscrowResult<UnappliedPaymentListResponse>> ListAsync(int limit, string? nextToken)
     {
@@ -83,28 +100,54 @@ public sealed class UnappliedPaymentService
         var payments = new List<UnappliedPaymentDto>();
         var lastKey = startKey;
         var pages = 0;
+        var trailQueries = 0;
         do
         {
             var page = await _auditRepo.ScanKeysWithActionsAsync(
                 UnappliedPayments.UnappliedActions, lastKey, _scanPageSize);
             pages++;
-            foreach (var escrowId in page.EscrowIds)
+            Dictionary<string, AttributeValue>? resumeAfter = null;
+            var cut = false;
+            foreach (var hit in page.Hits)
             {
-                if (handled.Add(escrowId))
+                if (handled.Contains(hit.EscrowId))
                 {
-                    payments.AddRange(await OpenPaymentsAsync(escrowId));
+                    continue;
                 }
+
+                // The page started under the cap, so at least one order of it was read before a cut.
+                if (trailQueries >= _maxTrailQueries && resumeAfter != null)
+                {
+                    cut = true;
+                    break;
+                }
+
+                handled.Add(hit.EscrowId);
+                trailQueries++;
+                payments.AddRange(await OpenPaymentsAsync(hit.EscrowId));
+                resumeAfter = new Dictionary<string, AttributeValue>
+                {
+                    ["escrowId"] = new AttributeValue { S = hit.EscrowId },
+                    ["timestamp"] = new AttributeValue { S = hit.LastTimestamp }
+                };
             }
 
-            lastKey = page.LastEvaluatedKey;
-        } while (lastKey != null && payments.Count < limit && pages < MaxScanPagesPerCall);
+            // A cut resumes the Scan right after the last row of the last order read (a real item
+            // key); that order's remaining rows are skipped as handled.
+            lastKey = cut ? resumeAfter : page.LastEvaluatedKey;
+            if (cut)
+            {
+                break;
+            }
+        } while (lastKey != null && payments.Count < limit && pages < MaxScanPagesPerCall
+                 && trailQueries < _maxTrailQueries);
 
         string? token = null;
         if (lastKey != null)
         {
             var tokenKey = new Dictionary<string, AttributeValue>(lastKey);
-            // A partition cut by the page boundary continues at the start of the next page; it
-            // was already read in full, so the next call must not list it again.
+            // A partition cut by the page boundary (or by the trail cap) continues at the start of
+            // the next page; it was already read in full, so the next call must not list it again.
             if (lastKey.TryGetValue("escrowId", out var lastId) && lastId.S != null && handled.Contains(lastId.S))
             {
                 tokenKey[HandledKeyField] = new AttributeValue { S = lastId.S };
@@ -124,7 +167,8 @@ public sealed class UnappliedPaymentService
     /// <summary>
     /// POST /admin/payments/{orderId}/refund-manual: record that an admin refunded a captured
     /// payment in the merchant portal. Admin group only. A replay with the same reference answers
-    /// <c>alreadyRecorded</c> and writes nothing.
+    /// <c>alreadyRecorded</c> and writes nothing. The row is written together with a claim row per
+    /// payment, so of two admins recording one payment at once exactly one writes.
     /// </summary>
     public async Task<EscrowResult<RecordManualRefundResponse>> RecordRefundAsync(
         string orderId, RecordManualRefundRequest body, string actorUserId, bool adminGroupVerified,
@@ -133,6 +177,11 @@ public sealed class UnappliedPaymentService
         if (!adminGroupVerified)
         {
             return Fail(403, "ESCROW_015", "Only an admin in the admin group can record a manual refund.");
+        }
+
+        if (_claimTable == null)
+        {
+            return Fail(503, "ADMIN_004", "Escrow idempotency table not configured.");
         }
 
         if (!IsSafeOrderId(orderId))
@@ -180,40 +229,27 @@ public sealed class UnappliedPaymentService
         var trail = await _auditRepo.GetAuditTrailAsync(escrowId, consistentRead: true);
         var order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
         var fundedPaymentOrderId = GetOrNull(order, "telebirrPaymentOrderId");
-        var payments = UnappliedPayments.Evaluate(trail, fundedPaymentOrderId, GetOrNull(order, "telebirrMerchOrderId"));
+        var fundedMerchOrderId = GetOrNull(order, "telebirrMerchOrderId");
 
-        var target = payments.FirstOrDefault(p => p.PaymentOrderId == paymentOrderId)
-                     ?? (merchOrderId.Length > 0
-                         ? payments.FirstOrDefault(p => p.PaymentOrderId == null && p.MerchOrderId == merchOrderId)
-                         : null);
+        UnappliedPayment? Find(IReadOnlyList<Dictionary<string, object>> rows)
+        {
+            var payments = UnappliedPayments.Evaluate(rows, fundedPaymentOrderId, fundedMerchOrderId);
+            return payments.FirstOrDefault(p => p.PaymentOrderId == paymentOrderId)
+                   ?? (merchOrderId.Length > 0
+                       ? payments.FirstOrDefault(p => p.PaymentOrderId == null && p.MerchOrderId == merchOrderId)
+                       : null);
+        }
+
+        var target = Find(trail);
         if (target == null)
         {
             return Fail(404, "ESCROW_042",
                 "No captured payment with this payment order id waits for a manual refund on this order.");
         }
 
-        if (target.Refund is { } recorded)
+        if (target.Refund != null)
         {
-            if (!string.Equals(recorded.TelebirrRef, telebirrRef, StringComparison.Ordinal))
-            {
-                return Fail(409, "ESCROW_036",
-                    "The refund of this payment was already recorded with a different reference.");
-            }
-
-            return EscrowResult<RecordManualRefundResponse>.Success(new RecordManualRefundResponse
-            {
-                OrderId = orderId,
-                EscrowId = escrowId,
-                PaymentOrderId = recorded.PaymentOrderId ?? paymentOrderId,
-                MerchOrderId = recorded.MerchOrderId,
-                TelebirrRef = recorded.TelebirrRef,
-                Amount = recorded.Amount,
-                AmountChecked = target.CapturedAmount != null,
-                RecordedAt = recorded.RecordedAt,
-                RecordedBy = recorded.RecordedBy,
-                Message = "Already recorded.",
-                AlreadyRecorded = true
-            });
+            return Replay(orderId, escrowId, paymentOrderId, telebirrRef, target);
         }
 
         if (trail.Any(r => Get(r, "action") == UnappliedPayments.RefundedManual
@@ -229,6 +265,8 @@ public sealed class UnappliedPaymentService
                 "This payment funded the order: its money is held in the order's escrow and settles there. Do not refund it here.");
         }
 
+        // Not decided for good (only unprocessed rows, or a payment the webhook could not name) and
+        // the order still waits for a payment: Telebirr may still deliver it to the order.
         if (!target.HasFinalVerdict && GetOrNull(order, "status") == "payment_submitted")
         {
             return Fail(409, "ESCROW_044",
@@ -244,7 +282,20 @@ public sealed class UnappliedPaymentService
 
         var paymentMerchOrderId = target.MerchOrderId ?? NullIfEmpty(merchOrderId);
         var metadata = UnappliedPayments.RefundMetadata(paymentOrderId, amount, paymentMerchOrderId);
-        var recordedAt = await AppendRefundRowAsync(escrowId, actorUserId, telebirrRef, metadata, reason, auditContext);
+        var claimKey = $"{ClaimPrefix}{orderId}#{target.PaymentOrderId ?? "merch:" + target.MerchOrderId}";
+        var (written, recordedAt) = await AppendRefundRowAsync(
+            escrowId, actorUserId, telebirrRef, metadata, reason, auditContext, claimKey, paymentOrderId);
+        if (written != AuditClaimWriteResult.Written)
+        {
+            // Another admin claimed this payment first, or is claiming it now: answer from what is
+            // recorded, read strongly consistent (the claim and its row commit together).
+            var claimed = Find(await _auditRepo.GetAuditTrailAsync(escrowId, consistentRead: true));
+            return claimed?.Refund != null
+                ? Replay(orderId, escrowId, paymentOrderId, telebirrRef, claimed)
+                : Fail(409, "ESCROW_036",
+                    "Another admin is recording the refund of this payment right now. Reload and check before trying again.");
+        }
+
         var amountChecked = target.CapturedAmount != null;
 
         await TransactionAuditWriter.EmitAsync(
@@ -323,11 +374,43 @@ public sealed class UnappliedPaymentService
     }
 
     /// <summary>
-    /// The refund row: append-only, written with a conditional put so it never overwrites a row
-    /// that happens to share its timestamp (then it tries the next instant).
+    /// A payment whose refund is already recorded: the same reference is a replay (nothing is
+    /// written), another one is a conflict.
     /// </summary>
-    private async Task<string> AppendRefundRowAsync(
-        string escrowId, string actor, string telebirrRef, string metadata, string reason, AuditContext auditContext)
+    private static EscrowResult<RecordManualRefundResponse> Replay(
+        string orderId, string escrowId, string paymentOrderId, string telebirrRef, UnappliedPayment target)
+    {
+        var recorded = target.Refund!;
+        if (!string.Equals(recorded.TelebirrRef, telebirrRef, StringComparison.Ordinal))
+        {
+            return Fail(409, "ESCROW_036",
+                "The refund of this payment was already recorded with a different reference.");
+        }
+
+        return EscrowResult<RecordManualRefundResponse>.Success(new RecordManualRefundResponse
+        {
+            OrderId = orderId,
+            EscrowId = escrowId,
+            PaymentOrderId = recorded.PaymentOrderId ?? paymentOrderId,
+            MerchOrderId = recorded.MerchOrderId,
+            TelebirrRef = recorded.TelebirrRef,
+            Amount = recorded.Amount,
+            AmountChecked = target.CapturedAmount != null,
+            RecordedAt = recorded.RecordedAt,
+            RecordedBy = recorded.RecordedBy,
+            Message = "Already recorded.",
+            AlreadyRecorded = true
+        });
+    }
+
+    /// <summary>
+    /// The refund row and its claim row in escrow-idempotency, in one transaction: the row never
+    /// overwrites one that shares its timestamp (then it tries the next instant), and the claim
+    /// (<c>refund-claim#{orderId}#{payment}</c>, kept) lets only one writer record a payment.
+    /// </summary>
+    private async Task<(AuditClaimWriteResult Result, string Timestamp)> AppendRefundRowAsync(
+        string escrowId, string actor, string telebirrRef, string metadata, string reason, AuditContext auditContext,
+        string claimKey, string paymentOrderId)
     {
         for (var attempt = 0; attempt < 3; attempt++)
         {
@@ -355,9 +438,20 @@ public sealed class UnappliedPaymentService
                 entry["correlationId"] = auditContext.CorrelationId!;
             }
 
-            if (await _auditRepo.AppendIfAbsentAsync(entry))
+            var claim = new Dictionary<string, object>
             {
-                return timestamp;
+                { "idempotencyKey", claimKey },
+                { "escrowId", escrowId },
+                { "status", "refund_recorded" },
+                { "paymentOrderId", paymentOrderId },
+                { "telebirrRef", telebirrRef },
+                { "claimedBy", actor },
+                { "claimedAt", timestamp }
+            };
+            var result = await _auditRepo.AppendWithClaimAsync(entry, _claimTable!, claim);
+            if (result != AuditClaimWriteResult.EntryExists)
+            {
+                return (result, timestamp);
             }
         }
 

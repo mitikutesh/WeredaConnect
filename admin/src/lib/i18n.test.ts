@@ -73,6 +73,8 @@ describe("unapplied payment strings exist in every locale", () => {
       expect(t("unapplied.confirmRefund", locale)).toContain("{amount}");
       expect(t("unapplied.confirmRefund", locale)).toContain("{payment}");
       expect(t("unapplied.confirmRefund", locale)).toContain("{ref}");
+      expect(t("unapplied.reason_status", locale)).toContain("{status}");
+      expect(t("unapplied.reason_error", locale)).toContain("{code}");
     }
   });
 });

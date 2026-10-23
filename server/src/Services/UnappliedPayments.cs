@@ -113,7 +113,11 @@ public static class UnappliedPayments
                 FirstSeenAt = Get(groupRows[0], "timestamp"),
                 LastSeenAt = Get(groupRows[^1], "timestamp"),
                 CapturedAmount = CapturedAmount(groupRows, rows),
-                HasFinalVerdict = groupRows.Any(r => Get(r, "action") is Unmatched or Duplicate),
+                // Only a named payment can be final: the inbox keeps a verdict per payment_order_id,
+                // so a later notice for the same checkout that carries one is a new inbox row and
+                // may still fund the order.
+                HasFinalVerdict = paymentOrderId != null
+                                  && groupRows.Any(r => Get(r, "action") is Unmatched or Duplicate),
                 FundedOrder = funded,
                 Refund = refund
             });
@@ -263,8 +267,9 @@ public sealed record UnappliedPayment
     public decimal? CapturedAmount { get; init; }
 
     /// <summary>
-    /// The webhook decided this payment (<c>unmatched</c> or <c>duplicate</c>). With only
-    /// <c>unprocessed</c> rows a redelivery or the inbox replay may still apply it.
+    /// The webhook decided this payment for good: a named payment with an <c>unmatched</c> or
+    /// <c>duplicate</c> row. With only <c>unprocessed</c> rows a redelivery or the inbox replay may
+    /// still apply it, and a nameless payment may still arrive again as a notice that names it.
     /// </summary>
     public required bool HasFinalVerdict { get; init; }
 

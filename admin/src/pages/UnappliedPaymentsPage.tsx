@@ -26,7 +26,8 @@ interface UnappliedPayment {
   currency: string;
   orderStatus?: string;
   buyerId?: string;
-  /* Only "could not be processed" rows and the order still waits for a payment. */
+  /* Not decided for good (only "could not be processed" rows, or Telebirr never named the
+   * payment) and the order still waits for a payment: Telebirr may still deliver it. */
   mayStillApply: boolean;
 }
 
@@ -80,6 +81,18 @@ export function UnappliedPaymentsPage() {
   function label(key: string, fallback: string): string {
     const text = t(key);
     return text === key ? fallback : text;
+  }
+
+  /* The webhook's reason codes. status_<s> names the order status it found; replay_exhausted
+   * carries its cause after a colon; anything else unknown is an exception type name. */
+  function reasonLabel(reason: string): string {
+    if (reason.startsWith("status_")) {
+      return fill(t("unapplied.reason_status"), { status: orderStatusLabel(reason.slice(7), t) });
+    }
+    if (reason.startsWith("replay_exhausted")) {
+      return t("unapplied.reason_replay_exhausted");
+    }
+    return label(`unapplied.reason_${reason}`, fill(t("unapplied.reason_error"), { code: reason }));
   }
 
   function formFor(row: Row): RefundForm {
@@ -149,7 +162,12 @@ export function UnappliedPaymentsPage() {
         },
         onError: (err: unknown) => {
           const code = (err as { code?: string }).code;
-          setErrorMsg(code ? label(`errors.${code}`, t("errors.actionFailed")) : t("errors.actionFailed"));
+          // A page-specific text first (ESCROW_036 is about this order here, not an escrow).
+          setErrorMsg(
+            code
+              ? label(`unapplied.error_${code}`, label(`errors.${code}`, t("errors.actionFailed")))
+              : t("errors.actionFailed"),
+          );
           setConfirming(null);
         },
         onSettled: () => setSubmitting(null),
@@ -203,7 +221,7 @@ export function UnappliedPaymentsPage() {
             </div>
           ))}
           {row.payment.reasons.length > 0 && (
-            <p className="text-xs text-text-muted">{row.payment.reasons.join(", ")}</p>
+            <p className="max-w-56 text-xs text-text-muted">{row.payment.reasons.map(reasonLabel).join(", ")}</p>
           )}
         </div>
       ),

@@ -26,11 +26,15 @@ public sealed class UnappliedPaymentDynamoDbTests
 
     private IAmazonDynamoDB Ddb => _db.Client;
 
-    private UnappliedPaymentService Service(int pageSize = UnappliedPaymentService.ScanPageSize) => new(
+    private UnappliedPaymentService Service(
+        int pageSize = UnappliedPaymentService.ScanPageSize,
+        int maxTrailQueries = UnappliedPaymentService.MaxTrailQueriesPerCall) => new(
         new EscrowAuditRepository(Ddb, _db.EscrowAudit),
         new OrderRepository(Ddb, _db.Orders),
         new TransactionAuditRepository(Ddb, _db.TransactionAudit),
-        pageSize);
+        _db.Idempotency,
+        pageSize,
+        maxTrailQueries);
 
     private static AttributeValue S(string value) => new() { S = value };
 
@@ -84,9 +88,13 @@ public sealed class UnappliedPaymentDynamoDbTests
             },
         });
 
-    [LocalDynamoDbFact]
-    public async Task Paging_through_two_row_pages_lists_each_open_payment_exactly_once()
+    [LocalDynamoDbTheory]
+    [InlineData(2, UnappliedPaymentService.MaxTrailQueriesPerCall)]
+    [InlineData(500, 1)]
+    public async Task Paging_lists_each_open_payment_exactly_once(int pageSize, int maxTrailQueries)
     {
+        // (2, 50): partitions cut by two-row Scan pages. (500, 1): every call stops after one
+        // order's trail and resumes right after that order's last row.
         // A: the unapplied row sits after two filler rows. B: refunded, never listed. C: two
         // duplicates between filler rows. D: funded by its payment, never listed.
         var a = Order("a");
@@ -123,7 +131,7 @@ public sealed class UnappliedPaymentDynamoDbTests
             ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":s"] = S("funded"), [":p"] = S($"TBD{_run}") },
         });
 
-        var service = Service(pageSize: 2);
+        var service = Service(pageSize, maxTrailQueries);
         var seen = new List<UnappliedPaymentDto>();
         string? token = null;
         var calls = 0;
@@ -185,5 +193,41 @@ public sealed class UnappliedPaymentDynamoDbTests
         var order = await new OrderRepository(Ddb, _db.Orders).GetByIdAsync(orderId, consistentRead: true);
         order!["status"].Should().Be("cancelled", "recording a refund moves nothing");
         order["version"].ToString().Should().Be("3");
+
+        var claim = await Ddb.GetItemAsync(new GetItemRequest
+        {
+            TableName = _db.Idempotency,
+            Key = new Dictionary<string, AttributeValue> { ["idempotencyKey"] = S($"refund-claim#{orderId}#{paymentOrderId}") },
+            ConsistentRead = true,
+        });
+        claim.Item["telebirrRef"].S.Should().Be($"TBREFUND{_run}");
+        claim.Item.Should().NotContainKey("expiresAt");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task Two_admins_recording_one_payment_at_once_write_one_row()
+    {
+        var orderId = Order("race");
+        var paymentOrderId = $"TBRACE{_run}";
+        await PutUnappliedAsync(orderId, UnappliedPayments.Duplicate, 1, paymentOrderId);
+        await PutOrderAsync(orderId, "funded");
+        var audit = new AuditContext { Actor = "admin-fup02", ActorRole = "admin" };
+        RecordManualRefundRequest Request(string reference) => new()
+        {
+            PaymentOrderId = paymentOrderId,
+            TelebirrRef = reference,
+            Amount = 1500m,
+            Reason = "Second payment for a funded order; refunded",
+        };
+
+        // Both read the trail before either writes: the claim decides.
+        var results = await Task.WhenAll(Enumerable.Range(0, 6).Select(i =>
+            Service().RecordRefundAsync(orderId, Request($"TBREF{i}{_run}"), $"admin-{i}", true, audit, null)));
+
+        results.Count(r => r.IsSuccess && !r.Value!.AlreadyRecorded).Should().Be(1);
+        results.Where(r => !r.IsSuccess).Should().OnlyContain(r => r.Error!.Code == "ESCROW_036");
+        var trail = await new EscrowAuditRepository(Ddb, _db.EscrowAudit)
+            .GetAuditTrailAsync($"escrow-order-{orderId}", consistentRead: true);
+        trail.Count(r => (string)r["action"] == UnappliedPayments.RefundedManual).Should().Be(1);
     }
 }
