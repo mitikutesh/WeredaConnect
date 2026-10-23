@@ -310,9 +310,11 @@ public class EscrowFunction
                     outcome: "failure", errorCode: result.Error?.Code);
             }
 
+            // FUP-61: a replay answers the row as it is now, which can be held or settled by a verdict.
             return MapResult(result,
                 value => value.IsDuplicate
-                    ? LambdaResponse.Ok(value, AppJsonContext.Default.InitiateEscrowResponse)
+                    ? LambdaResponse.Ok(
+                        EscrowStatusCompat.ForCaller(value, request), AppJsonContext.Default.InitiateEscrowResponse)
                     : LambdaResponse.Created(value, AppJsonContext.Default.InitiateEscrowResponse));
         }
         catch (Exception ex)
@@ -572,8 +574,10 @@ public class EscrowFunction
                 outcome: result.IsSuccess ? "success" : "failure",
                 errorCode: result.Error?.Code);
 
+            // FUP-61: a replay answers the row as it is now, which can be settled by a verdict or held.
             return MapResult(result,
-                value => LambdaResponse.Ok(value, AppJsonContext.Default.DisputeEscrowResponse));
+                value => LambdaResponse.Ok(
+                    EscrowStatusCompat.ForCaller(value, request), AppJsonContext.Default.DisputeEscrowResponse));
         }
         catch (Exception ex)
         {
@@ -704,8 +708,10 @@ public class EscrowFunction
             var result = await _escrowService.GetHistoryAsync(
                 userId, status, role, fromDate, toDate, limit, nextToken);
 
+            // FUP-61: old apps get statuses they parse; the status filter still matches the stored value.
             return MapResult(result,
-                value => LambdaResponse.Ok(value, AppJsonContext.Default.GetEscrowHistoryResponse));
+                value => LambdaResponse.Ok(
+                    EscrowStatusCompat.ForCaller(value, request), AppJsonContext.Default.GetEscrowHistoryResponse));
         }
         catch (Exception ex)
         {
@@ -741,8 +747,9 @@ public class EscrowFunction
         {
             var role = GetAuthenticatedUserRole(request);
             var result = await _escrowService.GetByIdAsync(escrowId, userId, role);
+            // FUP-61: old apps get a status they parse (held reads escrowed).
             return MapResult(result,
-                value => LambdaResponse.Ok(value, AppJsonContext.Default.EscrowDto));
+                value => LambdaResponse.Ok(EscrowStatusCompat.ForCaller(value, request), AppJsonContext.Default.EscrowDto));
         }
         catch (Exception ex)
         {
@@ -780,8 +787,9 @@ public class EscrowFunction
         {
             var role = GetAuthenticatedUserRole(request);
             var result = await _escrowService.GetByDeliveryAsync(deliveryId, userId, role);
+            // FUP-61: old apps get a status they parse (held reads escrowed).
             return MapResult(result,
-                value => LambdaResponse.Ok(value, AppJsonContext.Default.EscrowDto));
+                value => LambdaResponse.Ok(EscrowStatusCompat.ForCaller(value, request), AppJsonContext.Default.EscrowDto));
         }
         catch (Exception ex)
         {
