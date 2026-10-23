@@ -1,0 +1,83 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import DownloadCTA from '../../components/DownloadCTA.astro';
+import { t, localePath } from '../../i18n';
+import om from '../../i18n/om.json';
+
+const locale = 'om';
+const d = om.deleteAccount;
+const email = t(locale, 'contact.info.email');
+---
+
+<Layout
+  locale={locale}
+  title={`${t(locale, 'deleteAccount.title')} | WeredaConnect`}
+  description={t(locale, 'deleteAccount.subtitle')}
+>
+  <section class="bg-gradient-to-br from-primary-dark to-primary text-white py-16 md:py-20">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 text-center">
+      <h1 class="text-3xl md:text-4xl font-bold mb-4 animate-on-scroll">{t(locale, 'deleteAccount.title')}</h1>
+      <p class="text-white/80 max-w-2xl mx-auto animate-on-scroll">{t(locale, 'deleteAccount.subtitle')}</p>
+    </div>
+  </section>
+
+  <section class="py-16 bg-surface">
+    <div class="max-w-3xl mx-auto px-4 sm:px-6 space-y-12">
+      <p class="text-text-muted leading-relaxed animate-on-scroll">{t(locale, 'deleteAccount.intro')}</p>
+
+      <div class="animate-on-scroll">
+        <h2 class="text-2xl font-bold mb-4 text-primary">{t(locale, 'deleteAccount.how.title')}</h2>
+        <ol class="list-decimal list-inside space-y-2 text-text-muted leading-relaxed">
+          {d.how.steps.map((s) => (<li>{s}</li>))}
+        </ol>
+        <p class="text-sm text-text-muted mt-4">{t(locale, 'deleteAccount.how.note')}</p>
+      </div>
+
+      <div class="animate-on-scroll bg-cream rounded-xl p-6">
+        <h2 class="text-xl font-bold mb-2">{t(locale, 'deleteAccount.noApp.title')}</h2>
+        <p class="text-text-muted leading-relaxed">
+          {t(locale, 'deleteAccount.noApp.text')}{' '}
+          <a href={`mailto:${email}`} class="text-primary hover:underline">{email}</a>
+        </p>
+      </div>
+
+      <div class="animate-on-scroll">
+        <h2 class="text-2xl font-bold mb-4 text-accent">{t(locale, 'deleteAccount.deleted.title')}</h2>
+        <p class="text-text-muted leading-relaxed mb-3">{t(locale, 'deleteAccount.deleted.intro')}</p>
+        <ul class="list-disc list-inside space-y-1 text-text-muted">
+          {d.deleted.items.map((s) => (<li>{s}</li>))}
+        </ul>
+      </div>
+
+      <div class="animate-on-scroll">
+        <h2 class="text-2xl font-bold mb-4 text-primary-light">{t(locale, 'deleteAccount.kept.title')}</h2>
+        <p class="text-text-muted leading-relaxed">{t(locale, 'deleteAccount.kept.text')}</p>
+      </div>
+
+      <div class="animate-on-scroll">
+        <h2 class="text-2xl font-bold mb-4 text-primary">{t(locale, 'deleteAccount.timeline.title')}</h2>
+        <ul class="list-disc list-inside space-y-2 text-text-muted leading-relaxed">
+          {d.timeline.items.map((s) => (<li>{s}</li>))}
+        </ul>
+      </div>
+
+      <div class="animate-on-scroll">
+        <h2 class="text-2xl font-bold mb-4 text-accent">{t(locale, 'deleteAccount.blocked.title')}</h2>
+        <p class="text-text-muted leading-relaxed">{t(locale, 'deleteAccount.blocked.text')}</p>
+      </div>
+
+      <div class="animate-on-scroll border-t border-border-light pt-8">
+        <h2 class="text-xl font-bold mb-2">{t(locale, 'deleteAccount.questions.title')}</h2>
+        <p class="text-text-muted leading-relaxed">
+          {t(locale, 'deleteAccount.questions.text')}{' '}
+          <a href={`mailto:${email}`} class="text-primary hover:underline">{email}</a>
+        </p>
+        <p class="text-sm text-text-muted mt-3">
+          <a href={localePath(locale, '/privacy/')} class="text-primary hover:underline">{t(locale, 'footer.privacy')}</a>
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <DownloadCTA locale={locale} />
+</Layout>

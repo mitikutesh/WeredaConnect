@@ -1,0 +1,93 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { t, localePath } from '../i18n';
+import en from '../i18n/en.json';
+
+const locale = 'en';
+const p = en.privacyPolicy;
+const email = t(locale, 'contact.info.email');
+---
+
+<Layout
+  locale={locale}
+  title={`${t(locale, 'privacyPolicy.title')} | WeredaConnect`}
+  description={t(locale, 'privacyPolicy.intro')}
+>
+  <section class="bg-gradient-to-br from-primary-dark to-primary text-white py-16 md:py-20">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 text-center">
+      <h1 class="text-3xl md:text-4xl font-bold mb-3 animate-on-scroll">{t(locale, 'privacyPolicy.title')}</h1>
+      <p class="text-white/70 text-sm animate-on-scroll">{t(locale, 'privacyPolicy.updated')}</p>
+    </div>
+  </section>
+
+  <section class="py-16 bg-surface">
+    <div class="max-w-3xl mx-auto px-4 sm:px-6 space-y-10">
+      <p class="text-text-muted leading-relaxed animate-on-scroll">{t(locale, 'privacyPolicy.intro')}</p>
+
+      <div class="animate-on-scroll">
+        <h2 class="text-xl font-bold mb-3 text-primary">{t(locale, 'privacyPolicy.collect.title')}</h2>
+        <p class="text-text-muted leading-relaxed mb-3">{t(locale, 'privacyPolicy.collect.intro')}</p>
+        <ul class="list-disc list-inside space-y-1 text-text-muted">
+          {p.collect.items.map((s) => (<li>{s}</li>))}
+        </ul>
+      </div>
+
+      <div class="animate-on-scroll">
+        <h2 class="text-xl font-bold mb-3 text-primary">{t(locale, 'privacyPolicy.use.title')}</h2>
+        <ul class="list-disc list-inside space-y-1 text-text-muted">
+          {p.use.items.map((s) => (<li>{s}</li>))}
+        </ul>
+      </div>
+
+      <div class="animate-on-scroll">
+        <h2 class="text-xl font-bold mb-3 text-primary">{t(locale, 'privacyPolicy.share.title')}</h2>
+        <p class="text-text-muted leading-relaxed">{t(locale, 'privacyPolicy.share.text')}</p>
+      </div>
+
+      <div class="animate-on-scroll">
+        <h2 class="text-xl font-bold mb-3 text-primary">{t(locale, 'privacyPolicy.retention.title')}</h2>
+        <p class="text-text-muted leading-relaxed">{t(locale, 'privacyPolicy.retention.text')}</p>
+      </div>
+
+      <div class="animate-on-scroll">
+        <h2 class="text-xl font-bold mb-3 text-primary">{t(locale, 'privacyPolicy.rights.title')}</h2>
+        <p class="text-text-muted leading-relaxed">{t(locale, 'privacyPolicy.rights.text')}</p>
+      </div>
+
+      <div class="animate-on-scroll bg-cream rounded-xl p-6">
+        <h2 class="text-xl font-bold mb-3">{t(locale, 'privacyPolicy.deletion.title')}</h2>
+        <p class="text-text-muted leading-relaxed mb-4">{t(locale, 'privacyPolicy.deletion.text')}</p>
+        <a
+          href={localePath(locale, '/delete-account/')}
+          class="inline-flex px-5 py-2.5 bg-primary hover:bg-primary-light text-white text-sm font-semibold rounded-lg transition-colors"
+        >
+          {t(locale, 'privacyPolicy.deletion.link')}
+        </a>
+      </div>
+
+      <div class="animate-on-scroll">
+        <h2 class="text-xl font-bold mb-3 text-primary">{t(locale, 'privacyPolicy.security.title')}</h2>
+        <p class="text-text-muted leading-relaxed">{t(locale, 'privacyPolicy.security.text')}</p>
+      </div>
+
+      <div class="animate-on-scroll">
+        <h2 class="text-xl font-bold mb-3 text-primary">{t(locale, 'privacyPolicy.children.title')}</h2>
+        <p class="text-text-muted leading-relaxed">{t(locale, 'privacyPolicy.children.text')}</p>
+      </div>
+
+      <div class="animate-on-scroll">
+        <h2 class="text-xl font-bold mb-3 text-primary">{t(locale, 'privacyPolicy.changes.title')}</h2>
+        <p class="text-text-muted leading-relaxed">{t(locale, 'privacyPolicy.changes.text')}</p>
+      </div>
+
+      <div class="animate-on-scroll border-t border-border-light pt-8">
+        <h2 class="text-xl font-bold mb-3">{t(locale, 'privacyPolicy.contact.title')}</h2>
+        <p class="text-text-muted leading-relaxed">
+          {t(locale, 'privacyPolicy.contact.text')}{' '}
+          <a href={`mailto:${email}`} class="text-primary hover:underline">{email}</a>
+        </p>
+        <p class="text-sm text-text-muted mt-1">{t(locale, 'contact.info.location')}</p>
+      </div>
+    </div>
+  </section>
+</Layout>
