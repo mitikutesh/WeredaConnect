@@ -38,9 +38,11 @@ updates:
       - dependency-type: "direct"
       - dependency-type: "indirect"
     # Ignore specific packages if needed
-    # ignore:
-    #   - dependency-name: "isar"
-    #     versions: ["4.x"]
+    ignore:
+      # FUP-56: block `record` major bumps until FUP-55 upgrades Flutter.
+      # record 7 needs the newer Flutter and AGP. Remove this after FUP-55.
+      - dependency-name: "record"
+        update-types: ["version-update:semver-major"]
 
   # ============================================================================
   # Infrastructure (AWS CDK - npm/TypeScript)
