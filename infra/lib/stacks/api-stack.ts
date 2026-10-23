@@ -380,7 +380,8 @@ export class ApiStack extends cdk.Stack {
       functionName: `${prefix}-auth-refresh`,
       description: "POST /auth/refresh — refresh access token",
       handlerName: "RefreshFunction",
-      environment: cognitoEnv,
+      // FRD-08: a suspended profile's refusal is a fraud signal (weight 0).
+      environment: { ...cognitoEnv, FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName },
       reservedConcurrentExecutions: 20,
     });
     this.grantCognito(refreshFn.function, [
@@ -392,6 +393,8 @@ export class ApiStack extends cdk.Stack {
     // applies a per-IP cap.
     props.usersTable.grantReadData(refreshFn.function);
     props.rateLimitsTable.grantReadWriteData(refreshFn.function);
+    // FRD-08: append only, one conditional PutItem per refused refresh.
+    props.fraudSignalsTable.grant(refreshFn.function, "dynamodb:PutItem");
 
     const logoutFn = new WeredaLambda(this, "LogoutFunction", {
       functionName: `${prefix}-auth-logout`,
@@ -1207,6 +1210,8 @@ export class ApiStack extends cdk.Stack {
           ORDERS_TABLE: props.ordersTable.tableName,
           CROPS_TABLE: props.cropsTable.tableName,
           TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
+          // FRD-08: a verified payer mismatch is a fraud signal on the buyer.
+          FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
         },
         timeout: cdk.Duration.seconds(15),
         memorySize: 512,
@@ -1220,6 +1225,8 @@ export class ApiStack extends cdk.Stack {
       props.ordersTable.grantReadWriteData(telebirrWebhookFn.function);
       props.cropsTable.grantReadWriteData(telebirrWebhookFn.function);
       props.transactionAuditTable.grantWriteData(telebirrWebhookFn.function);
+      // FRD-08: append only (the public route reads no score and changes no review).
+      props.fraudSignalsTable.grant(telebirrWebhookFn.function, "dynamodb:PutItem");
       // ESC-47: a redelivery reads the order's trail (Query on the base table, no index) before
       // it writes a missing payment_verified row. Without it the read is denied and nothing is written.
       telebirrWebhookFn.function.addToRolePolicy(

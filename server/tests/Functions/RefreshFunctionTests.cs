@@ -112,7 +112,8 @@ public class RefreshFunctionTests
         Version = 1
     };
 
-    private (RefreshFunction fn, IUserRepository repo) FunctionWithProfile(UserDto? profile)
+    private (RefreshFunction fn, IUserRepository repo) FunctionWithProfile(
+        UserDto? profile, IFraudDetectionService? fraudService = null)
     {
         var repo = Substitute.For<IUserRepository>();
         repo.GetUserByIdAsync("user-1").Returns(profile);
@@ -123,7 +124,54 @@ public class RefreshFunctionTests
             ExpiresIn = 900
         }));
         _mockAuth.LogoutAsync(Arg.Any<string>()).Returns(AuthResult<bool>.Success(true));
-        return (new RefreshFunction(_mockAuth, repo), repo);
+        return (new RefreshFunction(_mockAuth, repo, fraudService: fraudService), repo);
+    }
+
+    // FRD-08: the suspended refusal records SUSPENDED_TOKEN_USE (weight 0) on the token's owner.
+
+    [Fact]
+    public async Task FunctionHandler_SuspendedProfile_WritesOneWeightZeroSignalOnTheTokensOwner()
+    {
+        var fraud = Substitute.For<IFraudDetectionService>();
+        var (fn, _) = FunctionWithProfile(Profile("user-1", suspended: true), fraud);
+
+        var response = await fn.FunctionHandler(MakeRequest(new { refreshToken = "refresh-token" }), _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("AUTH_025", response.Body);
+        await fraud.Received(1).RecordFraudSignalAsync(
+            "user-1", FraudDetectionService.SuspendedTokenUseSignal, Arg.Is<string?>(e => e == null), "user",
+            Arg.Any<string?>());
+        Assert.Equal(0, FraudDetectionService.SignalWeight(FraudDetectionService.SuspendedTokenUseSignal));
+    }
+
+    [Fact]
+    public async Task FunctionHandler_ActiveProfile_WritesNoSignal()
+    {
+        var fraud = Substitute.For<IFraudDetectionService>();
+        var (fn, _) = FunctionWithProfile(Profile("user-1", suspended: false), fraud);
+
+        await fn.FunctionHandler(MakeRequest(new { refreshToken = "refresh-token" }), _context);
+
+        await fraud.DidNotReceiveWithAnyArgs().RecordFraudSignalAsync(default!, default!, default, default!, default);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_SuspendedProfile_AFailingSignalWriteLeavesThe403Unchanged()
+    {
+        var (plain, _) = FunctionWithProfile(Profile("user-1", suspended: true));
+        var expected = await plain.FunctionHandler(MakeRequest(new { refreshToken = "refresh-token" }), _context);
+
+        var fraud = Substitute.For<IFraudDetectionService>();
+        fraud.RecordFraudSignalAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>())
+            .Returns<Task>(_ => throw new InvalidOperationException("table down"));
+        var (fn, _) = FunctionWithProfile(Profile("user-1", suspended: true), fraud);
+
+        var response = await fn.FunctionHandler(MakeRequest(new { refreshToken = "refresh-token" }), _context);
+
+        Assert.Equal(expected.StatusCode, response.StatusCode);
+        Assert.Equal(expected.Body, response.Body);
     }
 
     [Fact]

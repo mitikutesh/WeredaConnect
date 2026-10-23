@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.31.0
+1.32.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -1356,6 +1356,21 @@ notify carries **no payer phone**, so `TELEBIRR_REQUIRE_PAYER_MATCH` must stay o
 field (`msisdn`) ever appears it is compared with the buyer's registered phone: a mismatch is
 audited as `webhook_payer_mismatch` and, with `TELEBIRR_REQUIRE_PAYER_MATCH=true`, rejected; a
 missing payer while a match is required is audited as `webhook_payer_unbound` and rejected.
+Since 1.32.0 (FRD-08) the payer phone is compared in the users table's form: Telebirr's
+`251XXXXXXXXX` is read as `+251XXXXXXXXX`, as are `+251...`, `00251...` and `09...`. A mismatch also
+writes a fraud signal on the buyer that the escrow or checkout row names, only for a verified
+notification and only when that buyer's row and phone were read: `TELEBIRR_PAYER_MISMATCH`
+(weight 0, logged for review) when the payment is applied, `TELEBIRR_PAYER_REFUSED` (soft, weight
+5, counted once per order escrow) when `TELEBIRR_REQUIRE_PAYER_MATCH` refuses it. A notification that fails its signature, body,
+source IP or merchant check is logged and writes no signal on anyone, since anyone can post to the
+route; a missing payer writes none either. The webhook's answer and the payment outcome are the
+same whether the signal write works or fails. The phone normalization does change one outcome with
+`TELEBIRR_REQUIRE_PAYER_MATCH` on: a payment from the buyer's own wallet in the `251XXXXXXXXX` form
+was refused as a mismatch before 1.32.0 and is applied now (the documented notify carries no payer
+field, so this applies only if Telebirr adds one). `ESCROW_025` on `POST /escrow/initiate` and
+`POST /escrow/order-checkout` writes `ROLE_FORBIDDEN` (weight 25) on the caller when the token
+names another role (none without a role claim); the 403 is unchanged. Signals and weights:
+`specs/architecture/fraud-detection-architecture.md` 3.9.0, section 15.
 
 ---
 
@@ -3884,6 +3899,7 @@ Build 2 and later get the stored value.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.32.0 | 2026-10-23 | Fraud signals (FRD-08, fraud spec 3.9.0): a verified webhook payer mismatch writes `TELEBIRR_PAYER_MISMATCH` (weight 0) on the buyer of our own escrow or checkout row when the payment is applied and `TELEBIRR_PAYER_REFUSED` (soft, 5) when the payer match refuses it; the payer phone in Telebirr's `251XXXXXXXXX` form is compared as `+251XXXXXXXXX`; an unverified notification writes no signal on anyone; `ESCROW_025` writes `ROLE_FORBIDDEN` on the caller when the token names another role; answers unchanged and a failed signal write only logged; one payment outcome changes with `TELEBIRR_REQUIRE_PAYER_MATCH` on: a payment from the buyer's own wallet sent as `251XXXXXXXXX` was refused before and is applied now; no client change |
 | 1.31.0 | 2026-10-23 | Old apps read statuses they parse (FUP-61, fraud spec 3.8.0 section 18.7): the server reads `X-App-Build` (the apps send it from build 2, a separate mobile change; until then every client reads the mapped values; CORS allows it); an app without it or below build 2 reads `held` as `escrowed` and `dispute_resolved` as `disputed` on `GET /escrow/{id}`, `GET /escrow/by-delivery/{deliveryId}`, `GET /escrow/history` and the initiate and dispute replays, for every party; stored rows, filters, audit, admin and server decisions keep the stored value; `FRAUD_HOLD_ENABLED` on in dev for sync and escrow-cron, off in staging and prod |
 | 1.29.0 | 2026-10-23 | Fraud Review reject trigger built (FRD-05, the 1.7.0 rules): the admin's `reject` on a fraud signal suspends its user with the reserved `suspendReason: fraud_confirmed` through the user route's suspend path and holds nothing (the response lists the user's open escrows read-only); the settlement sweeps hold (flag on) or skip (flag off, `RISK_SETTLEMENT_SKIPPED ... holdReason=fraud_confirmed`) an escrow with such a party as `holdReason: fraud_confirmed`, ahead of `account_suspended` and `risk_critical`; `POST /admin/users/{id}/action` refuses that reason (`400 ADMIN_017`) and its `unsuspend` removes `suspendReason`; `risk-settlement-skipped` alarm text names the value; no client change |
 | 1.28.0 | 2026-10-23 | Account deletion (ACC-02, `account-deletion.md` 1.2.0): `POST /escrow/initiate`, `/escrow/order-checkout` and `/escrow/dispute` answer `410 ACCOUNT_004` to a caller whose account is being or has been deleted (a row that cannot be read: `503 ESCROW_012`); initiate and order-checkout answer `422 ESCROW_030` for an order whose buyer, farmer or trucker is being or has been deleted, after the 1.27.0 gates and before any slot, hold or Telebirr call; a refund to a deleted buyer goes to the buyer id, never an empty phone; the manual payout queue shows no phone for a deleted payee; no client change |
@@ -3927,5 +3943,5 @@ Build 2 and later get the stored value.
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 1.31.0
+**Version**: 1.32.0
 **Status**: Draft (Phase R4)

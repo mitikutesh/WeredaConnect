@@ -15,7 +15,8 @@ internal sealed record RiskScoreSettings(
     int TierCritical,
     int CreditCap,
     int AdvisoryCap,
-    int MaxPages)
+    int MaxPages,
+    int RejectTypeCap = FraudDetectionService.DefaultRiskRejectTypeCap)
 {
     public static RiskScoreSettings Default { get; } = new(
         FraudDetectionService.DefaultRiskWindowDays,
@@ -24,7 +25,8 @@ internal sealed record RiskScoreSettings(
         FraudDetectionService.DefaultRiskTierCritical,
         FraudDetectionService.DefaultRiskCreditCap,
         FraudDetectionService.DefaultRiskAdvisoryCap,
-        FraudDetectionService.DefaultRiskMaxPages);
+        FraudDetectionService.DefaultRiskMaxPages,
+        FraudDetectionService.DefaultRiskRejectTypeCap);
 
     public static RiskScoreSettings FromEnvironment() => From(Environment.GetEnvironmentVariable);
 
@@ -53,7 +55,8 @@ internal sealed record RiskScoreSettings(
             critical,
             Read(env, "RISK_CREDIT_CAP", Default.CreditCap, min: 0),
             Read(env, "RISK_ADVISORY_CAP", Default.AdvisoryCap, min: 0),
-            Math.Min(Read(env, "RISK_MAX_PAGES", Default.MaxPages, min: 1), FraudDetectionService.RiskMaxPagesCap));
+            Math.Min(Read(env, "RISK_MAX_PAGES", Default.MaxPages, min: 1), FraudDetectionService.RiskMaxPagesCap),
+            Read(env, "RISK_REJECT_TYPE_CAP", Default.RejectTypeCap, min: 0));
     }
 
     private static int Read(Func<string, string?> env, string name, int fallback, int min) =>
@@ -71,7 +74,21 @@ internal sealed class RiskScoreCalculator
     private readonly RiskScoreSettings _settings;
     private readonly DateTime _nowUtc;
     private readonly HashSet<string> _countedBuckets = new(StringComparer.Ordinal);
+
+    // FRD-08: weight counted per refused entity, which a later-read approved row of that entity can
+    // still clear, and the entities an approved row has cleared.
+    private readonly Dictionary<string, (string Type, long Weight)> _entityBuckets = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _clearedEntities = new(StringComparer.Ordinal);
+
+    // FRD-08: counted weight of the capped reject types per type, all of it and the part no later
+    // row can clear.
+    private readonly Dictionary<string, long> _cappedWeight = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, long> _cappedFixedWeight = new(StringComparer.Ordinal);
+
+    // Counted weight outside the capped types: the part no later row can clear, and the part that
+    // sits in entity buckets.
     private long _signalWeight;
+    private long _clearableWeight;
     private long _advisoryWeight;
     private long _creditWeight;
     private bool _whitelistActive;
@@ -91,9 +108,11 @@ internal sealed class RiskScoreCalculator
     /// <summary>
     /// The counted non-credit, non-advisory weight reached RISK_TIER_CRITICAL + RISK_CREDIT_CAP.
     /// Credits cannot offset more than the cap, so no unread row can lower the tier below
-    /// CRITICAL and the read may stop (section 14.3).
+    /// CRITICAL and the read may stop (section 14.3). Only weight no unread row can take back
+    /// counts here: an FRD-08 entity bucket can still be cleared by an older approved row.
     /// </summary>
-    public bool ReachedCritical => _signalWeight >= (long)_settings.TierCritical + _settings.CreditCap;
+    public bool ReachedCritical =>
+        _signalWeight + CappedSum(_cappedFixedWeight) >= (long)_settings.TierCritical + _settings.CreditCap;
 
     /// <summary>Rows read whose <c>recordType</c> the scorer does not know; counted as signals.</summary>
     public int UnknownRecordRows { get; private set; }
@@ -139,15 +158,31 @@ internal sealed class RiskScoreCalculator
             return;
         }
 
+        var signalType = Str(row, "signalType") ?? TypeFromKey(signalKey);
+
+        // FRD-08 reject types count once per refused entity over the window, since a stuck
+        // operation is retried in every hour the client reconnects.
+        var entityBucket = FraudDetectionService.CountsOncePerEntity(signalType)
+            && Str(row, "entityId") is { Length: > 0 } entityId
+                ? $"{signalType}|entity:{entityId}"
+                : null;
+
         // Only an admin's approve (false positive) or whitelist clears a signal. A reject
         // confirms fraud and keeps counting; so does any other string the action handler
         // accepts today (section 19).
         if (Str(row, "resolution") is "approve" or "whitelist")
         {
+            // FRD-08: an approved refusal clears its whole entity, newer rows of it included, so
+            // approving one row of a stuck operation clears that operation.
+            if (entityBucket != null && _clearedEntities.Add(entityBucket)
+                && _entityBuckets.Remove(entityBucket, out var counted))
+            {
+                Count(counted.Type, -counted.Weight, clearable: true);
+            }
+
             return;
         }
 
-        var signalType = Str(row, "signalType") ?? TypeFromKey(signalKey);
         if (_whitelistActive && FraudDetectionService.IsSoftSignal(signalType))
         {
             return;
@@ -155,7 +190,12 @@ internal sealed class RiskScoreCalculator
 
         // Burst dedup: an offline batch can produce many rejections of one type in one hour.
         // The first counted row read (the newest) takes the slot.
-        if (!_countedBuckets.Add($"{signalType}|{HourBucket(signalKey)}"))
+        if (entityBucket != null && _clearedEntities.Contains(entityBucket))
+        {
+            return;
+        }
+
+        if (!_countedBuckets.Add(entityBucket ?? $"{signalType}|{HourBucket(signalKey)}"))
         {
             return;
         }
@@ -165,6 +205,30 @@ internal sealed class RiskScoreCalculator
         if (signalType == FraudDetectionService.AdvisorySignalType)
         {
             _advisoryWeight += weight;
+            return;
+        }
+
+        if (entityBucket != null)
+        {
+            _entityBuckets[entityBucket] = (signalType, weight);
+        }
+
+        Count(signalType, weight, clearable: entityBucket != null);
+    }
+
+    private void Count(string signalType, long weight, bool clearable)
+    {
+        if (FraudDetectionService.IsCappedRejectType(signalType))
+        {
+            _cappedWeight[signalType] = _cappedWeight.GetValueOrDefault(signalType) + weight;
+            if (!clearable)
+            {
+                _cappedFixedWeight[signalType] = _cappedFixedWeight.GetValueOrDefault(signalType) + weight;
+            }
+        }
+        else if (clearable)
+        {
+            _clearableWeight += weight;
         }
         else
         {
@@ -172,11 +236,16 @@ internal sealed class RiskScoreCalculator
         }
     }
 
+    /// <summary>FRD-08: each capped reject type adds at most <c>RISK_REJECT_TYPE_CAP</c>.</summary>
+    private long CappedSum(Dictionary<string, long> byType) =>
+        byType.Values.Sum(w => Math.Min(w, (long)_settings.RejectTypeCap));
+
     public RiskScoreResult Result(bool truncated)
     {
         var credits = Math.Max(_creditWeight, -(long)_settings.CreditCap);
         var advisory = Math.Min(_advisoryWeight, _settings.AdvisoryCap);
-        var score = Math.Max(0, _signalWeight + advisory + credits);
+        var signalWeight = _signalWeight + _clearableWeight + CappedSum(_cappedWeight);
+        var score = Math.Max(0, signalWeight + advisory + credits);
         // CRITICAL never rests on AI weight (section 21).
         var enforcement = Math.Max(0, score - advisory);
         return new RiskScoreResult

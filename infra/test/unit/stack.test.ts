@@ -573,6 +573,38 @@ describe('ApiStack', () => {
     }
   });
 
+  test('FRD-08: every Lambda that writes reject signals has the table and PutItem on it', () => {
+    const policies = [
+      ...Object.entries(template.findResources('AWS::IAM::Policy')),
+      ...Object.entries(template.findResources('AWS::IAM::ManagedPolicy')),
+    ];
+    const signalActions = (rolePrefix: string) =>
+      policies
+        .filter(([id]) => id.startsWith(rolePrefix))
+        .flatMap(
+          ([, policy]) =>
+            policy.Properties.PolicyDocument.Statement as Array<{ Action: string | string[]; Resource: unknown }>,
+        )
+        .filter((s) => JSON.stringify(s.Resource).includes('FraudSignalsTable'))
+        .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+
+    // /sync and /escrow write the signal with a conditional PutItem (one row per user, type and hour).
+    for (const [rolePrefix, functionName] of [
+      ['SyncFunctionServiceRole', 'wereda-connect-dev-sync'],
+      ['EscrowFunctionServiceRole', 'wereda-connect-dev-escrow'],
+      ['RefreshFunctionServiceRole', 'wereda-connect-dev-auth-refresh'],
+    ]) {
+      expect([rolePrefix, signalActions(rolePrefix)]).toEqual([rolePrefix, expect.arrayContaining(['dynamodb:PutItem'])]);
+      template.hasResourceProperties('AWS::Lambda::Function', {
+        FunctionName: functionName,
+        Environment: { Variables: Match.objectLike({ FRAUD_SIGNALS_TABLE: Match.anyValue() }) },
+      });
+    }
+
+    // The refresh Lambda only appends: no read, no update of a reviewed row, no delete.
+    expect(signalActions('RefreshFunctionServiceRole')).toEqual(['dynamodb:PutItem']);
+  });
+
   test('ESC-10: escrow-cron can read the escrow audit trail the sweep freeze checks', () => {
     // The sweeps freeze a disputed trade through the ESC-07 delivery dispute path, whose refusal row
     // reads the escrow's audit trail first.
@@ -744,6 +776,23 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
         }),
       },
     });
+  });
+
+  test('ON: webhook Lambda may append a payer mismatch signal and nothing else (FRD-08)', () => {
+    const t = buildTemplate(true);
+    t.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-telebirr-webhook',
+      Environment: { Variables: Match.objectLike({ FRAUD_SIGNALS_TABLE: Match.anyValue() }) },
+    });
+    const actions = Object.entries(t.findResources('AWS::IAM::Policy'))
+      .filter(([id]) => id.startsWith('TelebirrWebhookFunction'))
+      .flatMap(
+        ([, policy]) =>
+          policy.Properties.PolicyDocument.Statement as Array<{ Action: string | string[]; Resource: unknown }>,
+      )
+      .filter((s) => JSON.stringify(s.Resource).includes('FraudSignalsTable'))
+      .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+    expect(actions).toEqual(['dynamodb:PutItem']);
   });
 
   test.each([false, true])(
