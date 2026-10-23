@@ -5805,7 +5805,10 @@ public partial class SyncFunction
                 && adObj?.ToString() is string activeDeliveryId
                 && !string.IsNullOrEmpty(activeDeliveryId))
             {
-                var activeDelivery = await GetDeliveryItemAsync(activeDeliveryId);
+                // Strongly consistent (FUP-09): the catch-up usually comes right after the
+                // delivery's confirm, which a lagging read may not show yet; a lagging read
+                // could also still say delivered after the delivery was disputed.
+                var activeDelivery = await GetDeliveryItemAsync(activeDeliveryId, consistentRead: true);
                 var activeDeliveryStatus = activeDelivery != null
                     && activeDelivery.TryGetValue("status", out var adsAttr) ? adsAttr.S : null;
                 if (activeDeliveryStatus != "delivered")
