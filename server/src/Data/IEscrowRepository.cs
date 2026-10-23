@@ -313,7 +313,7 @@ public enum EscrowHoldWrite
     /// <summary>The fenced order's version or status changed since the sweep read it: nothing held.</summary>
     OrderChanged,
 
-    /// <summary>The fenced write met a concurrent transaction or a throttle: nothing held, the next run retries.</summary>
+    /// <summary>The write met a concurrent transaction or a throttle the SDK retries did not clear: nothing held, the next run retries.</summary>
     Conflict
 }
 

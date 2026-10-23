@@ -399,6 +399,11 @@ public sealed class EscrowRepository : IEscrowRepository
         {
             // The plain write lost its condition; the re-read below decides.
         }
+        catch (Exception ex) when (ex is ProvisionedThroughputExceededException or RequestLimitExceededException)
+        {
+            // A throttle that outlived the SDK's retries: nothing was written, the next run retries.
+            return EscrowHoldWrite.Conflict;
+        }
         catch (TransactionCanceledException ex)
         {
             // Reasons are per item, in request order: 0 is the escrow, 1 the order fence.

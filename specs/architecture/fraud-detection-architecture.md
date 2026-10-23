@@ -1224,7 +1224,7 @@ Admin group only, through the existing admin routes: `held` to `released` (`POST
 | `heldFor` | Order at hold time | Admin refund |
 |-----------|--------------------|--------------|
 | `refund` | stale `funded` or terminal (auto-refund sweep), `disputed` (dispute sweep, `buyer_wins`), or no order (a delivery-initiated escrow after its 7-day delivery timeout) | The steps the sweep skipped, in its order: the auto-refund order rules (cancel a still `funded` order by version CAS and restore its listing stock first; refuse with `422 ESCROW_INVALID_TRANSITION` while the order is progressing), the `buyer_wins` refund as the dispute sweep would run it, or for a delivery-initiated escrow the refund alone |
-| `release` | `delivered` or left behind its confirmed delivery (auto-release sweep), `disputed` (dispute sweep, `farmer_wins`), or no order (a delivery-initiated escrow; the auto-release sweep does not filter by source) | Allowed, and the progressing-order rule does not apply: refusing it would leave a payout to the flagged party as the only exit (threat T4, a faked delivery by a trucker or colluding parties). The order side follows the list below |
+| `release` | `delivered` or left behind its confirmed delivery (auto-release sweep), or no order (a delivery-initiated escrow; the auto-release sweep does not filter by source); an escrow the dispute sweep held from a `farmer_wins` verdict is only released, see below | Allowed, and the progressing-order rule does not apply: refusing it would leave a payout to the flagged party as the only exit (threat T4, a faked delivery by a trucker or colluding parties). The order side follows the list below |
 
 Order side of a `heldFor: release` refund, by the order's status when the admin refunds:
 

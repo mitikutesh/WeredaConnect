@@ -200,6 +200,26 @@ public class EscrowRepositoryFraudHoldTests
         outcome.Should().Be(EscrowHoldWrite.Conflict);
     }
 
+    public static TheoryData<Exception> Throttles => new()
+    {
+        new ProvisionedThroughputExceededException("throttled"),
+        new RequestLimitExceededException("account limit")
+    };
+
+    [Theory]
+    [MemberData(nameof(Throttles))]
+    public async Task Hold_AThrottleThatOutlivesTheSdkRetries_IsATransientConflict_FencedOrNot(Exception throttle)
+    {
+        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>()).ThrowsAsync(throttle);
+        _dynamoDb.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>()).ThrowsAsync(throttle);
+
+        (await _repo.TryHoldAsync(EscrowId, CreatedAt, Hold)).Should().Be(EscrowHoldWrite.Conflict);
+        (await _repo.TryHoldAsync(EscrowId, CreatedAt, Hold, new OrderFence("orders-test", "ord-7", CreatedAt, 6, "funded")))
+            .Should().Be(EscrowHoldWrite.Conflict);
+        // Nothing is re-read: a throttled write never landed.
+        await _dynamoDb.DidNotReceiveWithAnyArgs().QueryAsync(default!, default);
+    }
+
     [Fact]
     public async Task Hold_AValidationError_IsABug_AndThrows()
     {
