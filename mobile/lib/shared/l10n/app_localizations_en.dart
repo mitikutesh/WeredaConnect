@@ -1196,6 +1196,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'This payment is already being paid out by an admin, so it can no longer be disputed. Contact support.';
 
   @override
+  String get escrowErrorDeliveryPaymentUnavailable =>
+      'Online payment for a delivery is not available here. Pay this order from its order page instead.';
+
+  @override
   String get escrowErrorInvalidTransition =>
       'This action is not allowed in the current payment state.';
 
@@ -2807,6 +2811,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Payments above 10,000 ETB need the farmer to have a verified Fayda ID too, so this payment was not sent. You can pay once the farmer verifies.';
 
   @override
+  String get kycFarmerNotVerifiedMessage =>
+      'The farmer\'s identity is not verified yet, so this payment was not sent. You can pay once the farmer verifies.';
+
+  @override
   String get kycUnavailableMessage =>
       'We could not check identity verification right now, so this payment was not sent. Please try again later.';
 
@@ -2926,6 +2934,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get paymentTotalOutOfRange =>
       'Telebirr takes 100 to 500,000 ETB in one payment. This order\'s total is outside that, so it can\'t be paid with Telebirr.';
+
+  @override
+  String get paymentMethodUnavailable =>
+      'This payment method isn\'t available yet. Pay with Telebirr.';
 
   @override
   String get continuePayment => 'Continue payment';

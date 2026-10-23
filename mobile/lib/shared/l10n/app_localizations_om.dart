@@ -1201,6 +1201,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Kaffaltiin kun bulchaan kaffalamaa waan jiruuf, amma komiin itti ka\'uu hin danda\'u. Deeggarsa qunnamaa.';
 
   @override
+  String get escrowErrorDeliveryPaymentUnavailable =>
+      'Kaffaltiin online geejjibsiisaaf asitti hin argamu. Qooda isaa ajaja kana fuula ajajaa irraa kaffalaa.';
+
+  @override
   String get escrowErrorInvalidTransition =>
       'Gochi kun haala kaffaltii ammaa keessatti hin hayyamamu.';
 
@@ -2829,6 +2833,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Kaffaltiin qarshii 10,000 ol ta\'e qonnaan bulaanis ID Faayidaa mirkanaa\'e akka qabaatu barbaada, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.';
 
   @override
+  String get kycFarmerNotVerifiedMessage =>
+      'Eenyummaan qonnaan bulaa ammallee hin mirkanoofne, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.';
+
+  @override
   String get kycUnavailableMessage =>
       'Amma mirkaneessa eenyummaa ilaaluu hin dandeenye, kanaaf kaffaltiin kun hin ergamne. Maaloo booda irra deebi\'aa yaalaa.';
 
@@ -2949,6 +2957,10 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get paymentTotalOutOfRange =>
       'Telebirr kaffaltii tokkoon qarshii 100 hanga 500,000 fudhata. Waliigalli ajaja kanaa kanaan ala waan ta\'eef, Telebirr\'n kaffalamuu hin danda\'u.';
+
+  @override
+  String get paymentMethodUnavailable =>
+      'Malli kaffaltii kun ammaaf hin jiru. Telebirr\'n kaffalaa.';
 
   @override
   String get continuePayment => 'Kaffaltii itti fufaa';

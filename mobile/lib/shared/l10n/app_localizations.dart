@@ -2296,6 +2296,12 @@ abstract class AppLocalizations {
   /// **'This payment is already being paid out by an admin, so it can no longer be disputed. Contact support.'**
   String get escrowErrorPayoutInProgress;
 
+  /// Error when the legacy delivery escrow payment is refused on live Telebirr; the order is paid through its checkout (ESCROW_039)
+  ///
+  /// In en, this message translates to:
+  /// **'Online payment for a delivery is not available here. Pay this order from its order page instead.'**
+  String get escrowErrorDeliveryPaymentUnavailable;
+
   /// Error when escrow state transition is invalid
   ///
   /// In en, this message translates to:
@@ -5170,6 +5176,12 @@ abstract class AppLocalizations {
   /// **'Payments above 10,000 ETB need the farmer to have a verified Fayda ID too, so this payment was not sent. You can pay once the farmer verifies.'**
   String get kycFarmerFaydaMessage;
 
+  /// Error text when the KYC gate refused a payment because the farmer (not the buyer) must verify their phone or Fayda ID first (ORDER_KYC_REQUIRED farmer_phone or farmer_fayda); offers no Fayda action to the buyer
+  ///
+  /// In en, this message translates to:
+  /// **'The farmer\'s identity is not verified yet, so this payment was not sent. You can pay once the farmer verifies.'**
+  String get kycFarmerNotVerifiedMessage;
+
   /// KYC dialog when the server could not run the identity check
   ///
   /// In en, this message translates to:
@@ -5355,6 +5367,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Telebirr takes 100 to 500,000 ETB in one payment. This order\'s total is outside that, so it can\'t be paid with Telebirr.'**
   String get paymentTotalOutOfRange;
+
+  /// Live payments: the server refused the chosen payment method (ORDER_PAYMENT_METHOD_UNAVAILABLE, FUP-20; a bank transfer or any method other than Telebirr); only Telebirr can fund an order until CBE verification exists
+  ///
+  /// In en, this message translates to:
+  /// **'This payment method isn\'t available yet. Pay with Telebirr.'**
+  String get paymentMethodUnavailable;
 
   /// Order detail button (buyer, payment submitted): open the order's Telebirr checkout
   ///

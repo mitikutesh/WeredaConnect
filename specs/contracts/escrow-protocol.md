@@ -255,10 +255,12 @@ With the real Telebirr gateway, fund collection is **asynchronous** (C2B H5 chec
 
 Since 1.16.0 this `/escrow/initiate` path is **not usable with live Telebirr**: its merch_order_id
 is the client idempotency key (`{userId}:{entityType}:{entityId}:{action}:{timestamp}`), which breaks
-Telebirr's documented `^[A-Za-z0-9]+$` (ESC-45, follow-up filed). Live payments use the order
-checkout (§Additions in 1.5.0). The webhook still serves this path: only `Failed`, `Failure` or
-`Expired` cancel the escrow (a `Pending` or `Paying` notification changes nothing), and only a
-notification at most 300 s old is processed.
+Telebirr's documented `^[A-Za-z0-9]+$` (ESC-45). Since 1.18.0 the server **refuses it up front with
+`422 ESCROW_039`** whenever its gateway is live Telebirr (FUP-36, §Additions in 1.18.0): nothing is
+written, and the buyer pays the order through the order checkout (§Additions in 1.5.0). The mock
+gateway and the local simulator are unchanged. The webhook still serves this path: only `Failed`,
+`Failure` or `Expired` cancel the escrow (a `Pending` or `Paying` notification changes nothing), and
+only a notification at most 300 s old is processed.
 
 If the buyer never completes payment, the escrow stays `initiated` and the
 reconciliation cron cancels it only **after** the Telebirr payment window
@@ -302,6 +304,7 @@ If the same `idempotencyKey` is received again, return the cached result with `2
 | `409` | `ESCROW_009` | Escrow already exists for this delivery (a second delivery-initiated escrow) |
 | `409` | `ESCROW_024` | Funds for this order are already held in escrow (order-funded escrow, see §Order-Funded Escrow; takes precedence over `ESCROW_009` when that record is already linked to this delivery) |
 | `422` | `ESCROW_010` | Delivery is not in a valid state for payment (must be pending or pickedUp) |
+| `422` | `ESCROW_039` | Live Telebirr: this path is refused before any read or write; pay the order through `POST /escrow/order-checkout` (1.18.0, FUP-36) |
 | `429` | `ESCROW_011` | Rate limit exceeded |
 | `403` | `AUTH_040` / `AUTH_041` | Step-up required (1.4.0 payment tiers; from 1.7.0 also raised by the caller's risk tier, planned FRD-04). See Additions in 1.3.0 and 1.7.0 |
 | `403` | `FRAUD_ACCOUNT_HELD` | Caller's risk tier is CRITICAL; nothing held (1.7.0, planned FRD-04) |
@@ -3035,11 +3038,57 @@ and override fields are server-only.
 
 ---
 
+## Additions in 1.18.0 (legacy delivery initiate refused on live Telebirr, FUP-36)
+
+Before 1.18.0 a buyer who reached `POST /escrow/initiate` with the live gateway got a gateway
+refusal (`502 ESCROW_013`) after the idempotency, escrow and audit rows were written, or, when
+Telebirr's answer was lost, an `initiated` escrow that could never be paid: the path's
+merch_order_id is the client idempotency key, and live Telebirr takes `^[A-Za-z0-9]+$` only.
+
+### The rule
+
+- `POST /escrow/initiate` answers `422 ESCROW_039` ("Online escrow payment for a delivery is not
+  available here. Pay this order from its order page instead.") as its first check whenever the
+  gateway is live Telebirr. No idempotency row, escrow row, escrow-audit row or payment-velocity
+  count is written, and Telebirr is not called; the handler's audit log line (outcome `failure`,
+  code `ESCROW_039`) is the only trace. The role, step-up and velocity gates in front of the
+  service still run first, as for every other initiate answer.
+- "Live Telebirr" (`ITelebirrGateway.IsLiveTelebirr`): false for the mock gateway
+  (`TELEBIRR_MOCK=true`); for the real gateway class false only when the configured `baseUrl` host
+  is loopback (`localhost`, `127.0.0.0/8`, `::1`) or `host.docker.internal`, which is how the local
+  simulator (`tools/telebirr-sandbox`) is reached. Every other host, a `baseUrl` that does not
+  parse, and a simulator exposed through a tunnel count as live (fail closed).
+- `422`, not `409`: the mobile intent queue completes any `409` on this path as "funds already
+  held" (SIM-24), which a refusal must never read as. A queued intent that meets `ESCROW_039` is
+  retried like any other failure (3 attempts) and then shown as failed.
+- Unchanged: the mock and the simulator (`initiate` holds synchronously, or returns `toPayUrl` for
+  the simulator's checkout), `POST /escrow/order-checkout`, the webhook (it still serves this path
+  for escrows that exist), the escrow cron.
+
+### Client
+
+Mobile and web show `ESCROW_039` with its own message in en, am and om
+(`escrowErrorDeliveryPaymentUnavailable`). A `422` whose body carries an `ESCROW_*` code now keeps
+that code in both repositories (before, `ESCROW_010` and this code fell to the generic text). The
+mobile delivery payment flow itself is not removed: mock deployments still use it. Hiding it when
+the server is live is ESC-46 / ESC-23.
+
+### Not in 1.18.0 (known limits)
+
+- `.ai/telebirr-testing.md` Tier 2d option 1 (a deployed server with a tunnel-exposed simulator)
+  and `scripts/e2e_full_flow.py --telebirr-sim-url` drive `/escrow/initiate` and are refused under
+  the host rule; the order checkout works there. Either move them to the checkout or give the
+  simulator an explicit marker in its credentials.
+- Retiring the path once ESC-46 / ESC-23 remove the client flow.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
 | 1.19.0 | 2026-10-23 | The funding's transaction-audit row survives a failed write (ESC-47 item 2): the `payment_verified` row of a Telebirr order funding is keyed by the order's `paymentVerifiedAt` and written with a conditional put on the funding delivery; a redelivery of the same payment (fresh, or an inbox replay) writes it when it is missing, in every order status, after its stock and escrow repair and after reading the order's trail (a row under any timestamp counts; the webhook Lambda gets `dynamodb:Query` on the transaction-audit base table); an unreadable trail writes nothing, and a failed read or write logs `ORDER_PAYMENT_BOOKKEEPING_FAILED step=payment_verified_audit` with the order and payment ids; no client change (1.18.0 is FUP-36's, in flight) |
+| 1.18.0 | 2026-10-22 | Legacy delivery initiate refused on live Telebirr (FUP-36): `POST /escrow/initiate` answers `422 ESCROW_039` before any read or write whenever the gateway is live Telebirr (`ITelebirrGateway.IsLiveTelebirr`: not the mock, and the real gateway's `baseUrl` host not loopback or `host.docker.internal`); mock and local simulator unchanged; clients show `ESCROW_039` in en, am, om and keep any `ESCROW_*` code on an untyped `422` |
 | 1.17.0 | 2026-10-10 | The order follows the money (ESC-09): every escrow money writer moves the order after its write (`disbursing` once the release is committed, `settled` once `completed` with no leg owed, a verdict escrow's order stays `dispute_resolved`), status-conditioned with `ADD version`; the hourly order-money sweep (`CronRunBudget`, now also the budget of ESC-10's paged sweeps with their limits unchanged; skip marker `moneySweepSkip`, escrow-audit `order_money_mismatch`/`order_money_ahead` once at `createdAt + 7/8` ticks) repairs and backfills; alarm `order-money-mismatch` (`ORDER_MONEY_MISMATCH`); Part B: an admin release of a plain escrowed order escrow needs a delivered order (`422`, no override), an admin refund cancels a pre-pickup order first and schedules the refund, refuses goods on the move unless overridden (`refundOverride*`) |
 | 1.16.0 | 2026-10-10 | Telebirr live dialect, webhook answers and inbox replay (ESC-45): the flat documented notify (one map verified and read, `data` envelope, nested `biz_content`, `transId` alias only without `trans_id`, duplicate keys and nested values refused), PSS or PKCS#1 accepted inbound, `notify_time` freshness by digit range with a 48 h late window on the order path only; `500` for verified notifications not recorded or not applied for a retryable reason, small JSON bodies; inbox rows carry `orderId`, the stored payment fields and a replay queue (sparse `InboxReplayIndex`); a 5-minute sweep replays them with claim, backoff and a conditional give-up after 8 attempts (`replay_exhausted`), heartbeat and stalled alarm; `ORDER_PAYMENT_REPLAY_PENDING` not alarmed; order `paymentHoldUntil` (order-lifecycle 1.16.0); every gateway call bounded by the run's deadline (`TELEBIRR_NO_TIME`, `TELEBIRR_TOKEN` definite); token path `/payment/v1/token`, timestamps in seconds; `/escrow/initiate` not usable live and cancels only on `Failed`, `Failure`, `Expired`; no payer field in the documented notify |
 | 1.15.0 | 2026-10-10 | Sweep hygiene (ESC-10): the auto-release, auto-refund, dispute-settlement and reconciliation sweeps page through their whole partition (pages of 100) within a budget per sweep (50 pages, 1,000 rows that needed I/O, a time limit counted from the run start, the trucker reserve kept), with confirmation and lock skips in the filter and `sweep_truncated` when a limit stops one; a blocked settlement stores `settlementBlockReason`/`settlementBlockReasonAt` by compare-and-set and is audited once per reason (`release_blocked_kyc` from the sweeps, metadata `code=ESCROW_029;reason=<reason>`; admin attempts each time; new `auto_release_blocked`, `auto_refund_blocked` with one alarm line when first stored); the released and refunded writes clear it; the auto-release reads the delivery and order first (FUP-28): delivered and an order in flight or none pays, a disputed trade is frozen through the 1.12.0 path (this escrow only) and its delivery and order follow, a resolved dispute and every mismatch block; an expired `/escrow/initiate` escrow follows its delivery and order: goods moving or an order in flight hold it (extended to the 21-day cap, then the admin queue, or `ADMIN_QUEUE_OVERDUE reason=no_order` without an order), a pending delivery is cancelled before the refund, a double escrow or missing row blocks; an admin queue entry stamps only the escrow it owns; reconciliation rows are isolated; new run summary keys; no client change |
@@ -3069,6 +3118,6 @@ and override fields are server-only.
 
 ---
 
-**Last Updated**: 2026-10-10
-**Version**: 1.17.0
+**Last Updated**: 2026-10-23
+**Version**: 1.19.0
 **Status**: Draft (Phase R4)

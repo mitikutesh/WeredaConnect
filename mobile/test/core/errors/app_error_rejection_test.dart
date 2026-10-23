@@ -206,6 +206,7 @@ void main() {
         AppErrorCode.deliveryDisputeRefused,
         AppErrorCode.deliveryDisputeExpired,
         AppErrorCode.orderCancelNotAllowed,
+        AppErrorCode.paymentMethodUnavailable,
       ]) {
         final text = localizeErrorCode(code, l10n);
         expect(text, isNotEmpty, reason: '$locale $code');
@@ -309,6 +310,54 @@ void main() {
             localizeErrorCode(AppErrorCode.paymentTotalOutOfRange, l10n);
         expect(text, l10n.paymentTotalOutOfRange, reason: locale);
         expect(text, isNot(l10n.errorOrderRefused), reason: locale);
+      }
+    });
+  });
+
+  group('live payment method refusal (FUP-20)', () {
+    const message = 'ORDER_PAYMENT_METHOD_UNAVAILABLE: Bank transfer '
+        '(cbe_transfer) is not available yet. Pay with Telebirr.';
+
+    test('web: the inline error has its own code', () {
+      expect(
+        mapErrorToCode(const SyncRejectedException(message)),
+        AppErrorCode.paymentMethodUnavailable,
+      );
+    });
+
+    test('mobile: the rejection snackbar has its own code', () {
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'order',
+          action: 'update',
+          message: message,
+        ),
+        AppErrorCode.paymentMethodUnavailable,
+      );
+      // Only a payment gets this code; a refused create still reads as
+      // "not placed".
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'order',
+          action: 'create',
+          message: message,
+        ),
+        AppErrorCode.orderNotPlaced,
+      );
+    });
+
+    test('still a permanent order refusal the queue reverts', () {
+      expect(isRevertableRejectionMessage(message), isTrue);
+    });
+
+    test('says to pay with Telebirr in all three languages', () async {
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        final text =
+            localizeErrorCode(AppErrorCode.paymentMethodUnavailable, l10n);
+        expect(text, l10n.paymentMethodUnavailable, reason: locale);
+        expect(text, isNot(l10n.errorOrderRefused), reason: locale);
+        expect(text, isNot(l10n.paymentTotalOutOfRange), reason: locale);
       }
     });
   });

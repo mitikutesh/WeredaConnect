@@ -1548,6 +1548,10 @@
   "@escrowErrorPayoutInProgress": {
     "description": "Error when a dispute is raised on a payment an admin is already paying out by hand (ESCROW_038)"
   },
+  "escrowErrorDeliveryPaymentUnavailable": "Online payment for a delivery is not available here. Pay this order from its order page instead.",
+  "@escrowErrorDeliveryPaymentUnavailable": {
+    "description": "Error when the legacy delivery escrow payment is refused on live Telebirr; the order is paid through its checkout (ESCROW_039)"
+  },
   "escrowErrorInvalidTransition": "This action is not allowed in the current payment state.",
   "@escrowErrorInvalidTransition": {
     "description": "Error when escrow state transition is invalid"
@@ -3538,6 +3542,10 @@
   "@kycFarmerFaydaMessage": {
     "description": "KYC dialog when the farmer has no verified Fayda ID (buyer cannot fix it)"
   },
+  "kycFarmerNotVerifiedMessage": "The farmer's identity is not verified yet, so this payment was not sent. You can pay once the farmer verifies.",
+  "@kycFarmerNotVerifiedMessage": {
+    "description": "Error text when the KYC gate refused a payment because the farmer (not the buyer) must verify their phone or Fayda ID first (ORDER_KYC_REQUIRED farmer_phone or farmer_fayda); offers no Fayda action to the buyer"
+  },
   "kycUnavailableMessage": "We could not check identity verification right now, so this payment was not sent. Please try again later.",
   "@kycUnavailableMessage": {
     "description": "KYC dialog when the server could not run the identity check"
@@ -3671,6 +3679,10 @@
   "paymentTotalOutOfRange": "Telebirr takes 100 to 500,000 ETB in one payment. This order's total is outside that, so it can't be paid with Telebirr.",
   "@paymentTotalOutOfRange": {
     "description": "Live payments: the order total is outside what one Telebirr payment takes (ORDER_VALIDATION / ESCROW_001)"
+  },
+  "paymentMethodUnavailable": "This payment method isn't available yet. Pay with Telebirr.",
+  "@paymentMethodUnavailable": {
+    "description": "Live payments: the server refused the chosen payment method (ORDER_PAYMENT_METHOD_UNAVAILABLE, FUP-20; a bank transfer or any method other than Telebirr); only Telebirr can fund an order until CBE verification exists"
   },
   "continuePayment": "Continue payment",
   "@continuePayment": {
