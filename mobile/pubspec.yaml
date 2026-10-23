@@ -61,7 +61,7 @@ dependencies:
   flutter_image_compress: ^2.5.1
 
   # Audio Recording & Playback
-  record: ^7.1.2
+  record: ^6.2.1
   just_audio: ^0.10.6
   audio_session: ^0.2.4
 
