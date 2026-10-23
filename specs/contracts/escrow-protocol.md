@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.21.0
+1.22.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -83,7 +83,7 @@ Also:
 | `disputed` | Buyer or farmer raised a dispute within 48 hours of delivery | No |
 | `refunded` | Funds returned to buyer's Telebirr account | Yes |
 | `dispute_resolved` | Admin verdict recorded (`disputeResolution`); the hourly sweep settles it (1.3.0) | No |
-| `held` | Frozen for fraud review by a settlement sweep; only an admin release or refund leaves it (1.7.0, planned FRD-03) | No |
+| `held` | Frozen for fraud review by a settlement sweep; only an admin release or refund leaves it (1.7.0; written from 1.22.0, FRD-03) | No |
 
 An escrow waiting in the manual payout queue (1.8.0) keeps the status it had when it was
 queued (`escrowed`, `disputed` or `dispute_resolved`); the queue is a flag on the row, not a
@@ -105,10 +105,10 @@ state.
 | `disputed` | `dispute_resolved` | Admin verdict (`POST /admin/disputes/{id}/resolve`, 1.3.0) | Admin |
 | `dispute_resolved` | `released` | `farmer_wins`, settled by the hourly sweep (1.3.0) or an admin release (1.9.0) | System/Admin |
 | `dispute_resolved` | `refunded` | `buyer_wins`, settled by the hourly sweep (1.3.0) or an admin refund (1.9.0) | System/Admin |
-| `escrowed` | `held` | Settlement sweep finds a party suspended or at risk tier CRITICAL (1.7.0, planned FRD-03) | System |
-| `dispute_resolved` | `held` | Same trigger at dispute settlement (1.7.0, planned FRD-03) | System |
-| `held` | `released` | Admin decision (1.7.0, planned FRD-03) | Admin |
-| `held` | `refunded` | Admin decision (1.7.0, planned FRD-03) | Admin |
+| `escrowed` | `held` | Settlement sweep finds a party suspended (1.22.0, FRD-03) or at risk tier CRITICAL (planned FRD-04) | System |
+| `dispute_resolved` | `held` | Same trigger at dispute settlement (1.22.0, FRD-03) | System |
+| `held` | `released` | Admin decision, admin group only, with a reason (1.22.0, FRD-03) | Admin |
+| `held` | `refunded` | Admin decision, admin group only, with a reason (1.22.0, FRD-03) | Admin |
 
 Invalid transitions return `422 Unprocessable Entity` with error code `ESCROW_INVALID_TRANSITION`.
 Since 1.9.0 a `disputed` escrow is never released or refunded directly: the admin records a
@@ -348,6 +348,7 @@ Triggers release of escrowed funds to the farmer. This is an **internal trigger*
 | `trigger` | string | Yes | Enum: `delivery_confirmed`, `dispute_resolved`, `admin_override` | What triggered the release |
 | `deliveryId` | string (UUID) | Yes | Must match the escrow's delivery | Delivery verification reference |
 | `idempotencyKey` | string | Yes | Format: `{actor}:{escrowId}:{action}:{timestamp}` | Prevents duplicate releases |
+| `reason` | string | For a `held` escrow | 10-500 chars (1.22.0) | Why the admin releases a held escrow; audited with the decision, ignored otherwise |
 
 #### Success Response
 
@@ -371,10 +372,11 @@ Triggers release of escrowed funds to the farmer. This is an **internal trigger*
 |--------|-----------|-------------|
 | `400` | `ESCROW_003` | Invalid idempotency key format |
 | `401` | `ESCROW_005` | Invalid or expired JWT token |
-| `403` | `ESCROW_015` | Unauthorized to release (not system/admin) |
+| `400` | `ESCROW_VALIDATION` | A `held` escrow without a `reason` of 10 to 500 characters (1.22.0) |
+| `403` | `ESCROW_015` | Unauthorized to release (not system/admin), or a `held` escrow from outside the admin group (1.22.0) |
 | `404` | `ESCROW_016` | Escrow not found |
-| `503` | `ESCROW_012` | The order or delivery behind a verdict could not be read; nothing moved, retry (1.9.0) |
-| `422` | `ESCROW_INVALID_TRANSITION` | Escrow is not `escrowed` or `dispute_resolved`, or its verdict is `buyer_wins` (1.9.0; before 1.9.0 `disputed` was accepted too); from 1.7.0 the admin may also settle `held` (planned FRD-03); from 1.17.0 an admin release of a plain `escrowed` order escrow whose order is not `delivered` or `disbursing` (nor left behind a delivered delivery), no override |
+| `503` | `ESCROW_012` | The order or delivery behind a verdict could not be read; nothing moved, retry (1.9.0); from 1.22.0 also: the decision on a `held` escrow could not be audited |
+| `422` | `ESCROW_INVALID_TRANSITION` | Escrow is not `escrowed` or `dispute_resolved`, or its verdict is `buyer_wins` (1.9.0; before 1.9.0 `disputed` was accepted too); from 1.22.0 an admin in the admin group may also settle `held`, checked on the status it was held from, and the system caller never (FRD-03); from 1.17.0 an admin release of a plain `escrowed` order escrow whose order is not `delivered` or `disbursing` (nor left behind a delivered delivery), no override |
 | `503` | `ESCROW_012` | From 1.17.0 also: the order behind an admin release could not be read, or changed while it was advanced to `delivered`; nothing moved, retry |
 | `202` | `ESCROW_034` | The release is waiting in the manual payout queue and this call made no payout (1.8.0); with reason `GATEWAY_OUTCOME_UNKNOWN` an earlier gateway call may have paid (1.10.0) |
 | `502` | `ESCROW_013` | Telebirr gateway error (a definite refusal, retried by the next sweep); from 1.10.0 also an unknown outcome whose queue write failed: not retried, the lock stays |
@@ -501,7 +503,7 @@ Refunds escrowed funds to the buyer. Triggered by admin (a `buyer_wins` dispute 
 |-------|------|----------|-------------|-------------|
 | `escrowId` | string (UUID) | Yes | Must reference an existing escrow | Escrow to refund |
 | `trigger` | string | Yes | Enum: `dispute_resolved`, `delivery_timeout`, `admin_override` | What triggered the refund |
-| `reason` | string | No | 0-500 chars; 10-500 with `overrideOrderMismatch` | Explanation for audit trail |
+| `reason` | string | No | 0-500 chars; 10-500 with `overrideOrderMismatch` and, required, for a `held` escrow (1.22.0) | Explanation for audit trail |
 | `idempotencyKey` | string | Yes | Format: `{actor}:{escrowId}:{action}:{timestamp}` | Prevents duplicate refunds |
 | `overrideOrderMismatch` | boolean | No | Admin group only (1.9.0) | Refund a `buyer_wins` verdict although its order cannot follow it (goods already moving); audited with the admin and the reason, the order is flagged. Deprecated for verdicts from 1.21.0 (record `return_to_farmer` on the verdict instead); still the tool for an ESC-09 Part B refund of a plain `escrowed` escrow |
 
@@ -526,11 +528,11 @@ Refunds escrowed funds to the buyer. Triggered by admin (a `buyer_wins` dispute 
 |--------|-----------|-------------|
 | `400` | `ESCROW_003` | Invalid idempotency key format |
 | `401` | `ESCROW_005` | Invalid or expired JWT token |
-| `400` | `ESCROW_VALIDATION` | `overrideOrderMismatch` without a `reason` of 10 to 500 characters (1.9.0) |
-| `403` | `ESCROW_021` | Unauthorized to refund (not admin/system), or `overrideOrderMismatch` from outside the admin group (1.9.0) |
+| `400` | `ESCROW_VALIDATION` | `overrideOrderMismatch` without a `reason` of 10 to 500 characters (1.9.0), or a `held` escrow without one (1.22.0) |
+| `403` | `ESCROW_021` | Unauthorized to refund (not admin/system), or `overrideOrderMismatch` from outside the admin group (1.9.0), or a `held` escrow from outside the admin group (1.22.0) |
 | `404` | `ESCROW_016` | Escrow not found |
 | `503` | `ESCROW_012` | The order or delivery behind a verdict could not be read; nothing moved, retry (1.9.0) |
-| `422` | `ESCROW_INVALID_TRANSITION` | Escrow is not `escrowed` or `dispute_resolved`, its verdict is `farmer_wins`, or its order cannot follow the verdict and no override was given (1.9.0; before 1.9.0 `disputed` was accepted too); from 1.7.0 the admin may also settle `held` (planned FRD-03), except a `heldFor: refund` order escrow whose order is progressing; from 1.17.0 an admin refund of a plain `escrowed` order escrow whose goods are moving or delivered (no `overrideOrderMismatch`), or whose order is anything but `funded`, `accepted`, `cancelled`, `rejected`, `pickup_confirmed`, `in_transit` or `delivered` (no override) |
+| `422` | `ESCROW_INVALID_TRANSITION` | Escrow is not `escrowed` or `dispute_resolved`, its verdict is `farmer_wins`, or its order cannot follow the verdict and no override was given (1.9.0; before 1.9.0 `disputed` was accepted too); from 1.22.0 an admin in the admin group may also settle `held`, except when its order cannot follow the refund (`RISK_HOLD_ORDER_MISMATCH`, §Additions in 1.22.0), and the system caller never (FRD-03); from 1.17.0 an admin refund of a plain `escrowed` order escrow whose goods are moving or delivered (no `overrideOrderMismatch`), or whose order is anything but `funded`, `accepted`, `cancelled`, `rejected`, `pickup_confirmed`, `in_transit` or `delivered` (no override) |
 | `503` | `ESCROW_012` | From 1.17.0 also: before an admin refund of a plain `escrowed` order escrow, its order could not be read, or a pre-pickup order could not be cancelled or its stock given back; nothing moved, retry |
 | `202` | `ESCROW_034` | The refund is waiting in the manual payout queue and this call made no payout (1.8.0); with reason `GATEWAY_OUTCOME_UNKNOWN` an earlier gateway call may have paid (1.10.0) |
 | `502` | `ESCROW_013` | Telebirr gateway error (a definite refusal, retried by the next sweep); from 1.10.0 also an unknown outcome whose queue write failed: not retried, the lock stays |
@@ -708,7 +710,7 @@ Refund pending (SIM-20): `refundPending` is `true` while a row is still `escrowe
 | `truckerPayout` | number | No | Transport leg of amount; null without a trucker split | Net amount the trucker receives on release (ETB) |
 | `truckerId` | string (UUID) | No | References User entity; stamped at creation from the order, or backfilled at delivery linkage | Trucker paid out of this escrow (the truck the order was bound to) |
 | `currency` | string | Yes | Fixed: `"ETB"` | Ethiopian Birr |
-| `status` | enum | Yes | See State Machine; clients tolerate unknown values (1.7.0) | Current escrow state; `held` from 1.7.0 (planned FRD-03) |
+| `status` | enum | Yes | See State Machine; clients tolerate unknown values (1.7.0) | Current escrow state; `held` written from 1.22.0 (FRD-03) |
 | `telebirrRef` | string | No | Null until Telebirr confirms | Telebirr transaction reference |
 | `telebirrHoldRef` | string | No | Null until hold succeeds | Reference for the hold operation |
 | `telebirrReleaseRef` | string | No | Null until release succeeds | Reference for the release operation |
@@ -725,7 +727,7 @@ Refund pending (SIM-20): `refundPending` is `true` while a row is still `escrowe
 | `refundedAt` | string (ISO 8601) | No | Set on refund | When funds were refunded |
 | `refundPending` | boolean | Yes | `status = escrowed` and (`refundReason` set or `expiresAt` passed) | Money still held but going back to the buyer; label "Refund pending" (SIM-20) |
 | `refundReason` | string | No | Set when a cancelled/rejected order schedules its refund | Why the refund was scheduled |
-| `holdReason` | string | No | Admin responses only (1.7.0, planned FRD-03) | `fraud_confirmed`, `account_suspended` or `risk_critical` |
+| `holdReason` | string | No | Admin responses only (1.7.0; written from 1.22.0, FRD-03) | `account_suspended` (1.22.0); `fraud_confirmed` (FRD-05) and `risk_critical` (FRD-04) planned |
 | `heldAt` | string (ISO 8601) | No | Admin responses only | When the sweep held the escrow |
 | `heldBy` | string | No | Admin responses only | `system` |
 | `heldFromStatus` | string | No | Admin responses only | `escrowed` or `dispute_resolved` |
@@ -1133,7 +1135,7 @@ A scheduled Lambda (every 6 hours) runs reconciliation:
 | **Fayda ID check** | Mandatory for high-value transactions (> 10,000 ETB) |
 | **IP geolocation** | Log client IP for forensic analysis (not blocking) |
 | **Risk tier gate** | Planned (FRD-04): MEDIUM and HIGH add step-up on initiate at any amount; CRITICAL refuses with `FRAUD_ACCOUNT_HELD`. `specs/architecture/fraud-detection-architecture.md` section 17 |
-| **Fraud hold** | Planned (FRD-03): a settlement sweep moves the escrow of a suspended or CRITICAL party to `held` instead of paying out. Same document, section 18 |
+| **Fraud hold** | 1.22.0 (FRD-03): a settlement sweep moves the escrow of a suspended party to `held` instead of paying out, behind `FRAUD_HOLD_ENABLED`; a CRITICAL party is planned (FRD-04). Same document, section 18 |
 
 ### Authorization Matrix
 
@@ -1216,7 +1218,7 @@ A scheduled Lambda runs every hour:
    delivery is `delivered` and the order agrees (§Additions in 1.15.0), and the sweep pages through every
    escrowed row
 4. Log audit entry with `actor = system`
-5. From 1.7.0 (planned FRD-03, FRD-04): between steps 2 and 3 the sweep checks every party's risk tier and suspension; on a trigger the escrow becomes `held` and no money moves
+5. From 1.22.0 (FRD-03): between steps 2 and 3 the sweep checks every party's suspension (the risk tier is planned, FRD-04); on a trigger the escrow becomes `held` and no money moves (§Additions in 1.22.0)
 
 ### Auto-Refund (Cron)
 
@@ -1555,8 +1557,9 @@ its log line (and was answered `500`).
 
 ## Additions in 1.7.0 (fraud hold and risk tiers; planned FRD-03, FRD-04)
 
-Design: `specs/architecture/fraud-detection-architecture.md` 3.0.0, sections 14 to 23. Nothing in
-this section is deployed; it is the contract the FRD tasks implement. "The sweep" below means the
+Design: `specs/architecture/fraud-detection-architecture.md` 3.0.0, sections 14 to 23. This section is
+the contract the FRD tasks implement. 1.22.0 builds the `held` status for a suspended party (FRD-03,
+§Additions in 1.22.0); the risk tier, `FRAUD_ACCOUNT_HELD` and `fraud_confirmed` are still planned. "The sweep" below means the
 three hourly sweeps of `EscrowCronFunction` (`AutoReleaseAsync`, `AutoRefundAsync`,
 `SettleResolvedDisputesAsync`), the only system paths that move money out.
 
@@ -1882,12 +1885,10 @@ matching rule are in §Additions in 1.20.0.
   verifies. 1.11.0: a trucker leg recorded on an escrow without `truckerId` takes the order's
   trucker when the delivery names the same one, and the list shows that trucker.
 - FRD-03 (`held`, 1.7.0): a queued escrow keeps its settlement lock, so the hold write
-  (`attribute_not_exists(settlementLock)`) never holds it, and the cron queries already skip
-  it. The reverse case is open: when FRD-03 lets an admin settle a `held` escrow and the live
-  gateway queues that settlement, `held` must join the statuses a queued payout may close from
-  (`escrowed`, `disputed`, `dispute_resolved`), or the queue close fails its condition and the
-  leg can never be recorded. Any other later sweep that moves escrows by status must skip rows
-  with `manualPayout = open` the same way.
+  (`attribute_not_exists(settlementLock) AND attribute_not_exists(manualPayout)`) never holds it,
+  and the cron queries already skip it. The reverse case is closed in 1.22.0: an admin release or
+  refund of a `held` escrow that the gateway queues closes from `held` too. Any other later sweep
+  that moves escrows by status must skip rows with `manualPayout = open` the same way.
 - A leg that stays blocked keeps `${prefix}-manual-payouts-overdue` in ALARM for as long as it
   waits. While the alarm is already in ALARM, a new overdue payout does not change its state,
   so it is not announced separately: read the `MANUAL_PAYOUT_OVERDUE` lines or the admin page
@@ -2325,8 +2326,8 @@ Clients (mobile and web) see no change: the escrow keeps its status.
 - Audit rows after a settled status (`release`, `complete`, `refund`) can still be lost in a crash;
   the escrow row keeps the references.
 - A locked row still sits in the auto-release window until the next recovery run (at most an hour).
-- `held` (FRD-03) is not a recovery status; when FRD-03 lets an admin settle a held escrow it joins
-  the list.
+- `held` joins the recovery statuses in 1.22.0 (FRD-03): an admin release or refund of a held escrow
+  that died under its lock is parked like any other.
 - ESC-20 (ledger) replaces the whole-escrow lock, this recovery step and the reason with per-leg
   rows (`sent`, status check, `manual`).
 
@@ -3452,10 +3453,110 @@ known before, and the apps ignore the new keys. No role-visibility change.
 
 ---
 
+## Additions in 1.22.0 (the fraud hold, FRD-03)
+
+Builds the `held` status of 1.7.0 for one trigger and leaves the others to their tasks. Design:
+`specs/architecture/fraud-detection-architecture.md` section 18. It ships with
+`FRAUD_HOLD_ENABLED=false` on escrow-cron: with the flag off no escrow is written `held`.
+
+### Entry: the risk gate in the sweeps
+- Each of the three settlement sweeps asks the gate at the 1.7.0 position, before the first
+  money-related side effect: auto-release after its order and delivery check (1.15.0) and before the
+  payout resolution, the lock and Telebirr; auto-refund of an order escrow after the order read, the
+  progressing-order extension and the not-refundable skip, and before the stock repair, the order
+  cancel, the restock and the refund; auto-refund of an `/escrow/initiate` escrow after its delivery
+  and order check and before its pending delivery is cancelled; dispute settlement after reading the
+  verdict and before its order and delivery hops.
+- The gate reads the user row of the buyer, the farmer, and the trucker, once per user per run. An
+  escrow with a trucker leg but no `truckerId` takes its trucker the way the release does (the order's,
+  when the delivery names the same one). Built trigger: a party with `suspended = true`
+  (`holdReason: account_suspended`). Not built: `fraud_confirmed` (FRD-05 defines the reject action's
+  value) and `risk_critical` (FRD-04 reads the tier). A party without a user row is not suspended.
+- Flag on, a trigger writes the hold. Flag off, the sweep skips the escrow for this run and logs
+  `RISK_SETTLEMENT_SKIPPED escrowId=<id> sweep=<auto-release|auto-refund|dispute> reason=flag_off holdReason=<reason>`.
+  A user row that cannot be read skips it with `reason=user_read_failed`, flag on or off. Either way
+  nothing is settled for that escrow on that run, and the next hourly run decides again. Every skip line
+  is alarmed (`risk-settlement-skipped`, escrow-cron, from this deploy): the exits are to unsuspend the
+  party or to settle the escrow by hand as an admin in the admin group.
+- The hold write is conditional on `status = heldFromStatus AND attribute_not_exists(settlementLock)
+  AND attribute_not_exists(manualPayout)` and adds 1 to `version`. For an order escrow in the
+  auto-refund sweep it is one `TransactWriteItems` with a `ConditionCheck` that the order's `status`
+  and `version` are still what the sweep read. A lost condition holds nothing (`ESCROW_FRAUD_HOLD_LOST`
+  in the log); after an accept in between, the next run pushes the expiry as before. A concurrent
+  transaction or a throttle on the fenced write also holds nothing and is retried next run, without a
+  settlement failure line. A failed condition whose consistent re-read shows this very hold (same
+  `heldAt`) counts as held.
+- Audit: escrow-audit `fraud_hold` at `heldAt` (written once), metadata
+  `holdReason=<r>;heldFor=<release|refund>;party=<buyer|farmer|trucker>;sweep=<sweep>`, and one
+  transaction-audit row `fraud_hold` (entity `escrow`; the transaction is the order, else the escrow).
+  Run summary keys `fraudHolds` and `riskSettlementsSkipped`.
+
+### Exits: `POST /escrow/release` and `POST /escrow/refund`
+- Admin group only. A marketplace admin role is refused with `403 ESCROW_015` (release) or
+  `403 ESCROW_021` (refund); the system caller with `422 ESCROW_INVALID_TRANSITION`.
+- `reason` is required, 10 to 500 characters (`400 ESCROW_VALIDATION`, field `reason`); the release
+  request gains the optional `reason` field for it.
+- The checks run on the status the escrow was held from: a verdict still decides the direction (held
+  from `dispute_resolved` with `farmer_wins` only releases, with `buyer_wins` only refunds; the other exit
+  is `422`) and its order and delivery are repaired first as for any verdict settlement (1.9.0); held from
+  `escrowed`, a release needs a delivered order as any admin release does (1.17.0). A suspended farmer
+  who won a dispute therefore stays held until an admin releases (fraud spec 18.3, threat T4).
+- A refund of an escrow held from `escrowed` follows `heldFor`:
+  - `refund`, order escrow: a still `funded` order is cancelled first (`cancelReason: escrow_refunded`,
+    pending delivery, slot, stock); `rejected` refunds as it is; `cancelled` gets its stock back first when
+    its cancel promised it. Any other order status, or a missing order, is refused
+    (`422 ESCROW_INVALID_TRANSITION`, alarm token `RISK_HOLD_ORDER_MISMATCH`). The refund is not armed on
+    the escrow for the sweeps, which never select `held`: a gateway refusal waits for the admin's retry.
+  - `refund`, `/escrow/initiate` escrow: the refund alone.
+  - `release`: the dispute path. The order goes `delivered` to `disputed` to `dispute_resolved` (or
+    `disputed` to `dispute_resolved`; an order left at `accepted`, `pickup_confirmed` or `in_transit`
+    behind a delivered delivery is advanced first) and the delivery takes the verdict; then the escrow
+    records `disputeResolution: buyer_wins`, `disputeResolvedBy` and `disputeResolvedAt` while still
+    `held`, and the refund moves it `held` to `refunded`. No stock is restored. A leg that cannot follow
+    is refused (`422`, `RISK_HOLD_ORDER_MISMATCH`, nothing written); an order already `dispute_resolved`
+    is a retry when this escrow or its delivery already carries `buyer_wins`. A failed read, hop or
+    verdict write refuses with `503 ESCROW_012` (hops already made stay, and the retry goes on from
+    there). No order behind the escrow: the refund alone.
+- Before the order is checked or moved and before the lock, the decision is audited: escrow-audit
+  `fraud_hold_release` or `fraud_hold_refund` (`held` to `held`, metadata
+  `reason=<text>;holdReason=<r>;heldFor=<f>;heldFromStatus=<s>`; a failed write refuses with
+  `503 ESCROW_012`, nothing moved) and the same action in transaction-audit. The usual `release` or
+  `refund` row, from `held`, follows the money.
+- The lock takes `held` for these two admin routes only; the settled write is `held` to `released` or
+  `refunded`. A gateway that cannot pay out queues the settlement as for any other (`202 ESCROW_034`,
+  the escrow stays `held`), and the manual payout close accepts `held`. A lock on a `held` row older than
+  15 minutes is parked by the recovery step like any other.
+
+### Other paths
+- `held` counts as active: `/escrow/initiate` for a delivery whose escrow is held gets `ESCROW_024`
+  (order escrow) or `ESCROW_009`; delivery linkage and refund scheduling do nothing on `held`; the sweeps'
+  double-escrow check counts it.
+- The farmer's `accepted` on an order whose `escrow-order-{orderId}` is `held` is refused with
+  `ORDER_VALIDATION: This order is under review and cannot be accepted. Contact support.`
+  (`order-lifecycle.md` 1.22.0); an order escrow that cannot be read refuses the accept for now with an
+  unprefixed, transient error. With `FRAUD_HOLD_ENABLED` on (the sync Lambda reads it too), the accept
+  is one `TransactWriteItems` with a `ConditionCheck` that the order escrow is not `held`, so a hold
+  written after the read wins and the order is not written.
+- `POST /escrow/dispute` and a sync delivery dispute on `held` are refused as before (1.7.0, 1.12.0).
+- Parties read `status: held` only. The admin escrow list and detail add `holdReason`, `heldAt`,
+  `heldBy`, `heldFromStatus` and `heldFor`; the admin app labels `held` "Under review" and the three
+  audit actions, in en, am and om.
+
+### Not in 1.22.0
+- `fraud_confirmed` (FRD-05); `risk_critical` and `RISK_TABLE_UNCONFIGURED` (FRD-04); the alarm on
+  `RISK_HOLD_ORDER_MISMATCH` (FRD-16); the held queue and release or refund actions in the admin app
+  (FRD-07).
+- The client parser and badge for `held` (FRD-06). The flag stays off until FRD-06 ships (1.7.0).
+- The hourly trucker leg retry (1.11.0) still pays a released escrow's trucker leg to a suspended
+  trucker: `held` never applies to a released escrow (FUP-29).
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.22.0 | 2026-10-23 | Fraud hold (FRD-03): the three settlement sweeps ask a risk gate before the first money side effect; a suspended buyer, farmer or trucker holds the escrow (`held`, `holdReason: account_suspended`, `heldAt`, `heldBy: system`, `heldFromStatus`, `heldFor`) behind `FRAUD_HOLD_ENABLED`, shipped off (the sweep only skips: `RISK_SETTLEMENT_SKIPPED reason=flag_off`); an unreadable party row skips (`reason=user_read_failed`); every skip is alarmed (`risk-settlement-skipped`); the hold write loses to a lock or a queued payout, and the auto-refund hold of an order escrow is fenced on the order's version and status in one transaction; admin-group exits with a required `reason` (10 to 500; `reason` added to the release request), checked on the held-from status, the refund by `heldFor` (order cancel and restock, or the dispute path to `dispute_resolved` with `buyer_wins`; `RISK_HOLD_ORDER_MISMATCH` and `422` when the order cannot follow); audit `fraud_hold`, `fraud_hold_release`, `fraud_hold_refund` in escrow-audit and transaction-audit; `held` in the active set, the lock (admin only), the manual payout close and the stale lock recovery; the farmer's accept of an order whose escrow is held refused (`ORDER_VALIDATION`; with the flag on, fenced on the escrow in one transaction); a held verdict keeps its direction; admin-only hold fields on the admin escrow reads; no client change |
 | 1.21.0 | 2026-10-22 | Dispute dispositions and the pickup rule (FUP-16; 1.18.0, 1.19.0 and 1.20.0 belong to FUP-36, ESC-47 and FUP-02, in flight): the verdict endpoint decides the order and delivery before writing and records a verdict they cannot follow only with a `disposition` and a `reason` (`422 ADMIN_015` without one, `422 ADMIN_016` when none fits or the chosen one does not, `400 ADMIN_014` for a bad value or reason, `503 ESCROW_012` on a failed read); `return_to_farmer` and `delivered_anyway` for `buyer_wins` with the goods moving, `settle_now` (after pickup) and `wait_for_delivery` for `farmer_wins` before delivery; the disposition is stored on the escrow in the verdict write (`disputeDisposition*`), audited once (`dispute_resolved_goods_returned`, `dispute_resolved_delivered_anyway`, `dispute_resolved_settled_early`, `dispute_resolved_waiting_for_delivery`, escrow audit at the choice time plus four ticks, plus transaction audit; shown on the admin `DisputeDto`), then closes the delivery (`cancelled` with `cancelReason: dispute_<verdict>`, or `disputed`) and the order (`dispute_resolved`) as a system actor, without restoring stock; a replay records a new choice (conditional on the one it read, `409 ADMIN_010`) or repairs the recorded one; the settlement mirror accepts a delivery cancelled under the same verdict and never treats its order as before pickup; a recorded `wait_for_delivery` is refused without the alarm (`DISPUTE_VERDICT_WAITING_FOR_DELIVERY`); status-filtered admin lists read on past filtered-out pages (25-page budget, `nextToken`); `overrideOrderMismatch` deprecated for verdicts; `POST /escrow/dispute` refused before pickup (`422 ESCROW_041`, `503 ESCROW_012` on a failed read), localized in the apps; admin Disputes page with an awaiting-settlement tab and the disposition choice |
 | 1.20.0 | 2026-10-23 | Manual refund of an unapplied payment (FUP-02; 1.18.0 FUP-36 and 1.19.0 ESC-47 are in flight): `GET /admin/payments/unapplied` (filtered Scan of escrow-audit, at most 4 pages of 500 rows per call, signed token that skips the order already read) and `POST /admin/payments/{orderId}/refund-manual` (admin group only) write the reserved `order_payment_refunded_manual` row (metadata `paymentOrderId=..;amount=..` then `;merchOrderId=..`, attribute `reason`) and transaction-audit `admin_payment_refunded_manual`; a payment is matched by its payment_order_id, a nameless one by its merch_order_id, whenever the rows were written; a payment that funded the order, or may still fund it (only `unprocessed` rows, or nameless, while the order is `payment_submitted`), is refused (`409 ESCROW_044`) and not listed (funded) or flagged `mayStillApply`; the record is exclusive per payment (one `TransactWriteItems` with a claim row `refund-claim#{orderId}#{payment}` in escrow-idempotency, 400-day TTL; the admin Lambda gains `PutItem` there only); the list reads at most 50 order trails per call and resumes after the last one; the amount is checked against the captured amount when the rows record it (`409 ESCROW_043`, else `amountChecked: false`); `400 ESCROW_040`, `404 ESCROW_042`, `409 ESCROW_036` reused for a reference conflict; a replay, or a second admin with the same reference, answers `alreadyRecorded` and writes nothing; `ESCROW_041` left to FUP-16; `account-deletion.md` 1.1.0 uses the same rule; admin page in en/am/om; no client change |
 | 1.19.0 | 2026-10-23 | The funding's transaction-audit row survives a failed write (ESC-47 item 2): the `payment_verified` row of a Telebirr order funding is keyed by the order's `paymentVerifiedAt` and written with a conditional put on the funding delivery; a redelivery of the same payment (fresh, or an inbox replay) writes it when it is missing, in every order status, after its stock and escrow repair and after reading the order's trail (a row under any timestamp counts; the webhook Lambda gets `dynamodb:Query` on the transaction-audit base table); an unreadable trail writes nothing, and a failed read or write logs `ORDER_PAYMENT_BOOKKEEPING_FAILED step=payment_verified_audit` with the order and payment ids; no client change (1.18.0 is FUP-36's, in flight) |
@@ -3490,5 +3591,5 @@ known before, and the apps ignore the new keys. No role-visibility change.
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 1.21.0
+**Version**: 1.22.0
 **Status**: Draft (Phase R4)

@@ -57,8 +57,20 @@ internal sealed class FaultyEscrowRepository : IEscrowRepository
     public Task CreateAsync(Dictionary<string, object> escrow) => _inner.CreateAsync(escrow);
     public Task<Dictionary<string, object>?> GetByIdAsync(string escrowId) => _inner.GetByIdAsync(escrowId);
     public Task<Dictionary<string, object>?> GetByIdAsync(string escrowId, bool consistentRead) => _inner.GetByIdAsync(escrowId, consistentRead);
-    public Task<bool> TryAcquireSettlementLockAsync(string escrowId, string createdAt, string op, string expectedStatus)
-        => _inner.TryAcquireSettlementLockAsync(escrowId, createdAt, op, expectedStatus);
+    public Task<bool> TryAcquireSettlementLockAsync(string escrowId, string createdAt, string op, string expectedStatus, bool allowHeld = false)
+        => _inner.TryAcquireSettlementLockAsync(escrowId, createdAt, op, expectedStatus, allowHeld);
+    /// <summary>FRD-03: called with the escrowId before each hold write; may change another row first (an accept racing the hold).</summary>
+    public Func<string, Task>? OnHold { get; init; }
+
+    public async Task<EscrowHoldWrite> TryHoldAsync(string escrowId, string createdAt, EscrowHoldRequest hold, OrderFence? fence = null)
+    {
+        if (OnHold != null)
+        {
+            await OnHold(escrowId);
+        }
+
+        return await _inner.TryHoldAsync(escrowId, createdAt, hold, fence);
+    }
     public Task ReleaseSettlementLockAsync(string escrowId, string createdAt) => _inner.ReleaseSettlementLockAsync(escrowId, createdAt);
     public Task<List<Dictionary<string, object>>> QueryStaleSettlementLocksAsync(string status, string lockedBefore, int limit = 50)
         => _inner.QueryStaleSettlementLocksAsync(status, lockedBefore, limit);

@@ -79,6 +79,22 @@ describe("unapplied payment strings exist in every locale", () => {
   });
 });
 
+/* FRD-03: an escrow held for fraud review, and its audit actions, are labelled in every locale. */
+describe("fraud hold labels exist in every locale", () => {
+  const keys = [
+    "escrows.held",
+    "transactions.escrow_held",
+    "transactions.action_fraud_hold",
+    "transactions.action_fraud_hold_release",
+    "transactions.action_fraud_hold_refund",
+  ];
+  for (const locale of locales) {
+    it(`${locale} labels the held status and its actions`, () => {
+      expect(keys.filter((key) => t(key, locale) === key)).toEqual([]);
+    });
+  }
+});
+
 /* ESC-08: a party's cancel (and the system cancel of a dispute verdict) is audited as
  * delivery_cancelled; without a label the transaction timeline shows the raw key. */
 describe("delivery cancel audit label exists in every locale", () => {

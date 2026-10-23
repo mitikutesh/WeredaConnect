@@ -461,6 +461,50 @@ describe('ApiStack', () => {
     }
   });
 
+  test('FRD-03: escrow-cron ships with the fraud hold off and the grants its hold write needs', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-escrow-cron',
+      Environment: { Variables: Match.objectLike({ FRAUD_HOLD_ENABLED: 'false' }) },
+    });
+
+    // A large role spills into an overflow managed policy, so read both kinds.
+    const policies = [
+      ...Object.entries(template.findResources('AWS::IAM::Policy')),
+      ...Object.entries(template.findResources('AWS::IAM::ManagedPolicy')),
+    ];
+    const actionsOn = (rolePrefix: string, tableId: string) =>
+      policies
+        .filter(([id]) => id.startsWith(rolePrefix))
+        .flatMap(
+          ([, policy]) =>
+            policy.Properties.PolicyDocument.Statement as Array<{
+              Action: string | string[];
+              Resource: unknown;
+            }>,
+        )
+        .filter((s) => JSON.stringify(s.Resource).includes(tableId))
+        .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+
+    // The hold is one TransactWriteItems: an UpdateItem on the escrow and a ConditionCheckItem on the
+    // order (the auto-refund fence). IAM checks each item's own action.
+    expect(actionsOn('EscrowCronFunctionServiceRole', 'EscrowsTable')).toEqual(
+      expect.arrayContaining(['dynamodb:UpdateItem', 'dynamodb:Query']),
+    );
+    expect(actionsOn('EscrowCronFunctionServiceRole', 'OrdersTable')).toContain('dynamodb:ConditionCheckItem');
+    // The risk gate reads every party's user row.
+    expect(actionsOn('EscrowCronFunctionServiceRole', 'UsersTable')).toContain('dynamodb:GetItem');
+    // The farmer's accept checks the order escrow for a hold (a strongly consistent Query) and, with
+    // the flag on, writes the order in one transaction with a ConditionCheckItem on that escrow.
+    expect(actionsOn('SyncFunctionServiceRole', 'EscrowsTable')).toEqual(
+      expect.arrayContaining(['dynamodb:Query', 'dynamodb:ConditionCheckItem']),
+    );
+    expect(actionsOn('SyncFunctionServiceRole', 'OrdersTable')).toContain('dynamodb:UpdateItem');
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-sync',
+      Environment: { Variables: Match.objectLike({ FRAUD_HOLD_ENABLED: 'false' }) },
+    });
+  });
+
   test('ESC-10: escrow-cron can read the escrow audit trail the sweep freeze checks', () => {
     // The sweeps freeze a disputed trade through the ESC-07 delivery dispute path, whose refusal row
     // reads the escrow's audit trail first.
@@ -1227,6 +1271,7 @@ describe('MonitoringStack', () => {
     'wereda-connect-dev-admin-queue-overdue',
     'wereda-connect-dev-dispute-verdict-order-mismatch',
     'wereda-connect-dev-dispute-verdict-settlement-blocked',
+    'wereda-connect-dev-risk-settlement-skipped',
   ];
 
   // The exact lines the server writes (server/src/Helpers/MoneyAlarmLog.cs and
@@ -1572,6 +1617,42 @@ describe('MonitoringStack', () => {
     });
   });
 
+  test('FRD-03: a settlement the fraud risk gate skipped alarms on its first line (escrow-cron only)', () => {
+    const template = monitoringTemplate(false);
+    const filter = metricFilter(template, ESCROW_CRON_LG, 'RiskSettlementSkipped');
+    expect(filter.Properties.MetricTransformations[0].MetricValue).toBe('1');
+    for (const reason of ['flag_off holdReason=account_suspended', 'user_read_failed holdReason=-']) {
+      const line = `RISK_SETTLEMENT_SKIPPED escrowId=escrow-order-ord-1 sweep=auto-refund reason=${reason}`;
+      expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, true]);
+      const prefixed = `2026-10-23T10:00:00.000Z\t4f1c7a2e-req\twarn\t${line}`;
+      expect([prefixed, cloudWatchTermsMatch(filter.Properties.FilterPattern, prefixed)]).toEqual([prefixed, true]);
+    }
+    // Negatives: the hold itself, a lost hold, the admin-exit mismatch line and every other money token.
+    for (const line of [
+      'ESCROW_FRAUD_HOLD escrowId=escrow-order-ord-1 holdReason=account_suspended heldFor=refund sweep=auto-refund',
+      'ESCROW_FRAUD_HOLD_LOST escrowId=escrow-order-ord-1 outcome=OrderChanged sweep=auto-refund; the next run decides again.',
+      'RISK_HOLD_ORDER_MISMATCH escrowId=escrow-order-ord-1 heldFor=release legs=order:mismatch:in-transit',
+      SETTLEMENT_LINE,
+      PAYOUT_LINE,
+      QUEUE_LINE,
+      TRUCKER_LINE,
+      MISMATCH_LINE,
+      BLOCKED_LINE,
+    ]) {
+      expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, false]);
+    }
+    expect(() => metricFilter(template, ESCROW_LG, 'RiskSettlementSkipped')).toThrow();
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-risk-settlement-skipped',
+      Metrics: [customMetric('RiskSettlementSkipped', 900)],
+      Threshold: 0,
+      ComparisonOperator: 'GreaterThanThreshold',
+      EvaluationPeriods: 5,
+      DatapointsToAlarm: 1,
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
   test('ESC-03: a settlement blocked in three of four hourly periods alarms (escrow-cron only)', () => {
     const template = monitoringTemplate(false);
     const filter = metricFilter(template, ESCROW_CRON_LG, 'DisputeVerdictSettlementBlocked');
@@ -1703,7 +1784,7 @@ describe('MonitoringStack', () => {
     const money = [
       'EscrowSettlementFailures', 'OrderEscrowProblems', 'ManualPayoutsOverdue', 'AdminQueueOverdue',
       'OrderPaymentProblems', 'DisputeVerdictOrderMismatch', 'DisputeVerdictSettlementBlocked',
-      'EscrowSettlementUnknownOutcomes', 'TruckerPayoutsOverdue',
+      'EscrowSettlementUnknownOutcomes', 'TruckerPayoutsOverdue', 'RiskSettlementSkipped',
     ];
     return (Object.values(template.findResources('AWS::Logs::MetricFilter')) as MetricFilterResource[])
       .filter((f) => groups.includes(f.Properties.LogGroupName) && money.includes(f.Properties.MetricTransformations[0].MetricName))
@@ -1719,7 +1800,7 @@ describe('MonitoringStack', () => {
 
   test('ESC-13: every money filter needs a term with an underscore (the server defangs client text by turning _ into -)', () => {
     const patterns = moneyFilterPatterns(monitoringTemplate(true));
-    expect(patterns.length).toBe(12);
+    expect(patterns.length).toBe(13);
     for (const pattern of patterns) {
       const terms = filterTerms(pattern);
       // Alternatives: every term must carry one. All required (ESC-05's unknown filter pairs the
@@ -1798,6 +1879,7 @@ describe('MonitoringStack', () => {
         'AdminQueueOverdue',
         'DisputeVerdictOrderMismatch',
         'DisputeVerdictSettlementBlocked',
+        'RiskSettlementSkipped',
       ]) {
         expect(body).toMatch(new RegExp(`"Fn::GetAtt":\\["${logicalId}[0-9A-F]+","Arn"\\]`));
       }

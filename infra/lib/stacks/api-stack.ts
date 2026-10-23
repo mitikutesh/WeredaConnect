@@ -463,6 +463,10 @@ export class ApiStack extends cdk.Stack {
         // lands in the immutable escrow-audit ledger. Without this env the leg is
         // disabled (orders still fund; escrow records aren't created here).
         ESCROW_AUDIT_TABLE: props.escrowAuditTable.tableName,
+        // FRD-03: on, the farmer's accept is one transaction with a check that the order's escrow
+        // is not held (a sweep may hold it between the read and the write). Same value as on
+        // escrow-cron; both are turned on together after FRD-06.
+        FRAUD_HOLD_ENABLED: "false",
         ...(syncTelebirrMock ? { TELEBIRR_MOCK: "true" } : {}),
       },
       timeout: cdk.Duration.seconds(30),
@@ -1094,6 +1098,10 @@ export class ApiStack extends cdk.Stack {
         COMMISSION_RATE_PARAM: commissionRateParam.parameterName,
         DISPUTE_WINDOW_PARAM: disputeWindowParam.parameterName,
         ESCROW_TIMEOUT_PARAM: escrowTimeoutParam.parameterName,
+        // FRD-03: off, a sweep that finds a suspended party skips that settlement and logs
+        // RISK_SETTLEMENT_SKIPPED; on, it writes the escrow status `held`. Turn on only once every
+        // client parses `held` (FRD-06 on web and in both stores, fraud-detection-architecture.md 18.7).
+        FRAUD_HOLD_ENABLED: "false",
         ...(envConfig.isProd || enableTelebirrLive ? {} : { TELEBIRR_MOCK: "true" }),
       },
       timeout: cdk.Duration.minutes(5),

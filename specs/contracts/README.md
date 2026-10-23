@@ -60,8 +60,8 @@ Each contract file follows this structure:
 | Authentication API | `auth-api.md` | 2.9.0 | Mobile, Backend, Infrastructure |
 | User Entity | `user-entity.md` | 1.1.0 | Mobile, Backend, Infrastructure |
 | Rating API | `rating-api.md` | 1.1.0 | Mobile, Backend, Infrastructure |
-| Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 1.21.0 | Mobile, Backend, Admin |
-| Escrow Protocol (Telebirr integration) | `escrow-protocol.md` | 1.21.0 | Mobile, Backend, Telebirr Gateway, Admin |
+| Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 1.22.0 | Mobile, Backend, Admin |
+| Escrow Protocol (Telebirr integration) | `escrow-protocol.md` | 1.22.0 | Mobile, Backend, Telebirr Gateway, Admin |
 | Delivery Verification API | `delivery-verification-api.md` | 1.17.0 | Mobile, Backend |
 | Account Deletion | `account-deletion.md` | 1.1.0 | Mobile, Backend, Infrastructure, Admin |
 

@@ -137,9 +137,11 @@ public class EscrowRepositoryManualPayoutTests
         ok.Should().BeTrue();
         _update!.ConditionExpression.Should().Be(
             "#marker = :open AND #op = :op AND #legStatus = :pending"
-            + " AND (#status = :escrowed OR #status = :disputed OR #status = :disputeResolved"
+            + " AND (#status = :escrowed OR #status = :disputed OR #status = :disputeResolved OR #status = :held"
             + " OR (#status = :released AND #fromStatus = :released))"
             + " AND #other0 = :paid");
+        // FRD-03: an admin release or refund of a held escrow that the gateway queued closes from held.
+        _update.ExpressionAttributeValues[":held"].S.Should().Be("held");
         Name(_update, "#legStatus").Should().Be("manualTruckerStatus");
         Name(_update, "#other0").Should().Be("manualFarmerStatus");
         Name(_update, "#fromStatus").Should().Be("manualPayoutFromStatus");

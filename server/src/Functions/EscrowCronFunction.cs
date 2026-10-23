@@ -161,6 +161,30 @@ public class EscrowCronFunction
     internal Func<CronRunBudget> BudgetFactory { get; init; } = CronRunBudget.StartNew;
 
     /// <summary>
+    /// FRD-03 (fraud-detection-architecture.md 17.2, 18): the risk gate the three settlement sweeps ask
+    /// before an escrow's first money-related side effect. The Lambda wires the party suspension gate;
+    /// without one (the test constructor) the sweeps settle as before.
+    /// </summary>
+    internal ISettlementRiskGate? RiskGate { get; init; }
+
+    /// <summary>
+    /// FRD-03: <c>FRAUD_HOLD_ENABLED</c>. On, a gate trigger writes <c>held</c>; off (the default), the sweep
+    /// only skips the escrow for the run and logs <c>RISK_SETTLEMENT_SKIPPED reason=flag_off</c>. Turned on
+    /// only once every client parses <c>held</c> (FRD-06, section 18.7).
+    /// </summary>
+    internal bool FraudHoldEnabled { get; init; }
+
+    /// <summary>FRD-03: the orders table the auto-refund sweep fences its hold on (<c>ORDERS_TABLE</c>).</summary>
+    internal string? OrdersTableName { get; init; }
+
+    /// <summary>FRD-03: the skip reason when a trigger finds <see cref="FraudHoldEnabled"/> off.</summary>
+    internal const string RiskSkipFlagOff = "flag_off";
+
+    /// <summary>FRD-03: escrows this run held, and settlements the risk gate skipped (flag off or a party read failure).</summary>
+    private int _fraudHolds;
+    private int _riskSkips;
+
+    /// <summary>
     /// ESC-09: order partitions the order-money sweep reads, in this order: where money moves first
     /// (delivered, disbursing, disputed), then the logistics statuses a lagging order may sit in.
     /// </summary>
@@ -273,6 +297,14 @@ public class EscrowCronFunction
         _transactionAuditRepo = txAuditRepo;
         _escrowService = new EscrowService(_escrowRepo, _auditRepo, idempotencyRepo, _telebirrGateway, userRepo,
             _orderRepo, _deliveryRepo, transactionAuditRepo: txAuditRepo, cropRepo: _cropRepo);
+
+        // FRD-03: the sweeps hold the escrow of a suspended party; without a users table every check
+        // fails closed (the settlement is skipped and logged), so it is never paid out blind.
+        RiskGate = new PartySuspensionGate(userRepo,
+            async escrow => (await _escrowService.ResolveTruckerIdAsync(escrow)).TruckerId);
+        FraudHoldEnabled = string.Equals(
+            Environment.GetEnvironmentVariable("FRAUD_HOLD_ENABLED"), "true", StringComparison.OrdinalIgnoreCase);
+        OrdersTableName = ordersTable;
     }
 
     /// <summary>
@@ -383,6 +415,9 @@ public class EscrowCronFunction
         _disputesFrozen = 0;
         _pendingDeliveriesCancelled = 0;
         _sweepsTruncated.Clear();
+        _fraudHolds = 0;
+        _riskSkips = 0;
+        RiskGate?.BeginRun();
         // First and self-contained, so a failing sweep below can never skip the overdue alarm lines.
         var overdueCount = await ReportOverdueManualPayoutsAsync(context);
         // ESC-06: the admin queue owns the capped order escrows the sweeps no longer see.
@@ -421,6 +456,8 @@ public class EscrowCronFunction
             { "refundBlocked", _refundBlocked.ToString() },
             { "disputesFrozen", _disputesFrozen.ToString() },
             { "pendingDeliveriesCancelled", _pendingDeliveriesCancelled.ToString() },
+            { "fraudHolds", _fraudHolds.ToString() },
+            { "riskSettlementsSkipped", _riskSkips.ToString() },
             { "sweepsTruncated", _sweepsTruncated.Count == 0 ? "-" : string.Join(",", _sweepsTruncated) },
             { "ordersMoved", orders.Moved.ToString() },
             { "ordersSettled", orders.Settled.ToString() },
@@ -440,6 +477,7 @@ public class EscrowCronFunction
             + $"{queueOverdue + _adminQueueOverdue} admin queue entries overdue, {queueCleared} cleared, "
             + $"{_releaseBlocked} releases and {_refundBlocked} refunds blocked, {_disputesFrozen} disputed trades frozen, "
             + $"{_pendingDeliveriesCancelled} pending deliveries cancelled before a refund, "
+            + $"{_fraudHolds} escrows held for review, {_riskSkips} settlements skipped by the risk gate, "
             + $"orders: {orders.Moved} moved, {orders.Settled} settled, {orders.Mismatches} mismatched, {orders.Failed} failed.");
 
         return new APIGatewayProxyResponse
@@ -479,6 +517,14 @@ public class EscrowCronFunction
                 if (resolution is "farmer_wins" or "buyer_wins")
                 {
                     sweep.CountRow();
+
+                    // FRD-03: the risk gate, before the verdict's order and delivery hops and the money.
+                    if (await HoldsSettlementAsync(escrow, "dispute_resolved",
+                            resolution == "farmer_wins" ? EscrowHoldFields.ForRelease : EscrowHoldFields.ForRefund,
+                            "dispute", null, context))
+                    {
+                        continue;
+                    }
                 }
 
                 switch (resolution)
@@ -602,6 +648,12 @@ public class EscrowCronFunction
 
                 // ESC-10: never pay a trade whose delivery is not delivered or whose order disagrees.
                 if (await CheckReleaseTradeAsync(escrow, context) != TradeCheck.Proceed)
+                {
+                    continue;
+                }
+
+                // FRD-03: the risk gate, before the payout resolution, its audit row, the lock and Telebirr.
+                if (await HoldsSettlementAsync(escrow, "escrowed", EscrowHoldFields.ForRelease, "auto-release", null, context))
                 {
                     continue;
                 }
@@ -792,6 +844,15 @@ public class EscrowCronFunction
                         continue;
                     }
 
+                    // FRD-03: the risk gate, before the stock repair, the order cancel, the restock and the
+                    // refund. The hold is fenced on the order as read, like the cancel below, so a farmer's
+                    // accept in between holds nothing and the next run pushes the expiry instead.
+                    if (await HoldsSettlementAsync(baseRow!, "escrowed", EscrowHoldFields.ForRefund, "auto-refund",
+                            FenceOn(fundedOrder!, orderStatus), context))
+                    {
+                        continue;
+                    }
+
                     // ESC-06: a buyer's transport-failure cancel gives the stock back before the
                     // money (the sync cancel restores it best-effort; this repairs a restore that
                     // did not land). Fails closed like the dispute verdict's cancel-then-refund.
@@ -821,6 +882,13 @@ public class EscrowCronFunction
                         // SIM-13: the cancelled order's goods go back on the market.
                         await TryRestoreListingStockAsync(fundedOrder, context);
                     }
+                }
+                else if (!isInitiateEscrow
+                         && await HoldsSettlementAsync(baseRow!, "escrowed", EscrowHoldFields.ForRefund, "auto-refund", null, context))
+                {
+                    // FRD-03: the risk gate for an order escrow without an order id. An /escrow/initiate
+                    // escrow passed it inside its delivery check, before its pending delivery was cancelled.
+                    continue;
                 }
 
                 // Hourly-bucketed key allows safe re-drive after a crash; Telebirr dedupes on the
@@ -2233,6 +2301,73 @@ public class EscrowCronFunction
     /// </summary>
     private CronRunSlice SweepSlice(TimeSpan until) => _runBudget.SliceUntil(until, SweepReserve);
 
+    /// <summary>
+    /// FRD-03 (fraud-detection-architecture.md 17.2, 18): the risk gate at a sweep's gate position. True when
+    /// the sweep must leave this escrow alone on this run:
+    /// <list type="bullet">
+    /// <item>a party row could not be read: <c>RISK_SETTLEMENT_SKIPPED reason=user_read_failed</c>;</item>
+    /// <item>a trigger while <see cref="FraudHoldEnabled"/> is off: <c>RISK_SETTLEMENT_SKIPPED reason=flag_off</c>,
+    /// status unchanged, no money;</item>
+    /// <item>a trigger with the flag on: the escrow is held (<see cref="EscrowService.HoldForReviewAsync"/>) and
+    /// no sweep selects it again, or the hold lost its condition to a settlement or an order change and the
+    /// next run decides again.</item>
+    /// </list>
+    /// False when there is no gate or no trigger: the sweep settles as before.
+    /// </summary>
+    private async Task<bool> HoldsSettlementAsync(
+        Dictionary<string, object> escrow, string fromStatus, string heldFor, string sweep, OrderFence? fence,
+        ILambdaContext context)
+    {
+        if (RiskGate == null)
+        {
+            return false;
+        }
+
+        var escrowId = GetString(escrow, "escrowId");
+        var decision = await RiskGate.CheckAsync(escrow);
+        if (decision.Settles)
+        {
+            return false;
+        }
+
+        if (decision.SkipReason != null || !FraudHoldEnabled)
+        {
+            _riskSkips++;
+            context.Logger.LogWarning(MoneyAlarmLog.RiskSettlementSkipped(
+                escrowId, sweep, decision.SkipReason ?? RiskSkipFlagOff, decision.HoldReason));
+            return true;
+        }
+
+        var outcome = await _escrowService.HoldForReviewAsync(
+            escrow, fromStatus, heldFor, decision.HoldReason!, decision.Party ?? "-", sweep, fence, context);
+        // EscrowChanged, OrderChanged or Conflict: nothing held and nothing settled; the next run decides again.
+        if (outcome == EscrowHoldWrite.Held)
+        {
+            _fraudHolds++;
+            context.Logger.LogWarning(
+                $"ESCROW_FRAUD_HOLD escrowId={MoneyAlarmLog.LogId(escrowId)} holdReason={decision.HoldReason} heldFor={heldFor} sweep={sweep}");
+        }
+        else
+        {
+            context.Logger.LogInformation(
+                $"ESCROW_FRAUD_HOLD_LOST escrowId={MoneyAlarmLog.LogId(escrowId)} outcome={outcome} sweep={sweep}; the next run decides again.");
+        }
+
+        return true;
+    }
+
+    /// <summary>FRD-03: the fence of an auto-refund hold: the order's key, and the version and status this run read.</summary>
+    private OrderFence FenceOn(Dictionary<string, object> order, string orderStatus)
+    {
+        var version = 1;
+        if (order.TryGetValue("version", out var vObj))
+        {
+            _ = int.TryParse(vObj?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out version);
+        }
+
+        return new OrderFence(OrdersTableName ?? "", GetString(order, "orderId"), GetString(order, "createdAt"), version, orderStatus);
+    }
+
     /// <summary>What a sweep's order and delivery check decided for one escrow (ESC-10).</summary>
     private enum TradeCheck
     {
@@ -2272,10 +2407,10 @@ public class EscrowCronFunction
            || (trade.DeliveryStatus == "disputed" && trade.Delivery != null
                && !string.IsNullOrEmpty(GetStringOrNull(trade.Delivery, "disputeResolution")));
 
-    /// <summary>Escrow statuses that hold a trade's money or paid it out, for the double-escrow check.</summary>
+    /// <summary>Escrow statuses that hold a trade's money or paid it out, for the double-escrow check (FRD-03: held too).</summary>
     private static readonly HashSet<string> MoneyHoldingEscrowStatuses = new(StringComparer.Ordinal)
     {
-        "initiated", "escrowed", "released", "disputed", "dispute_resolved"
+        "initiated", "escrowed", "released", "disputed", "dispute_resolved", "held"
     };
 
     /// <summary>
@@ -2441,29 +2576,7 @@ public class EscrowCronFunction
                 return live || trade.Order == null
                     ? await HoldLiveTradeAsync(escrow, trade.Order, orderId, now, context)
                     : await BlockSettlementAsync(escrow, "refund", "delivery_moving", trade, context);
-            case "pending":
-                if (live)
-                {
-                    return await HoldLiveTradeAsync(escrow, trade.Order, orderId, now, context);
-                }
-
-                // D3: a pickup after the refund would move goods nobody pays for, so the delivery goes first.
-                if (!await _deliveryRepo.TryCancelPendingAsync(deliveryId!))
-                {
-                    context.Logger.LogInformation(
-                        $"ESCROW_REFUND_DELIVERY_CANCEL_LOST escrowId={MoneyAlarmLog.LogId(escrowId)} deliveryId={MoneyAlarmLog.LogId(deliveryId)}; the next run decides again.");
-                    return TradeCheck.Deferred;
-                }
-
-                _pendingDeliveriesCancelled++;
-                await TransactionAuditWriter.EmitAsync(
-                    _transactionAuditRepo, context, string.IsNullOrEmpty(orderId) ? escrowId : orderId, "delivery", deliveryId!,
-                    "delivery_cancelled", "pending", "cancelled", AuditContext.ForSystem(),
-                    metadata: $"reason=escrow_expired;escrowId={escrowId}");
-                context.Logger.LogInformation(
-                    $"ESCROW_REFUND_DELIVERY_CANCELLED escrowId={MoneyAlarmLog.LogId(escrowId)} deliveryId={MoneyAlarmLog.LogId(deliveryId)}");
-                break;
-            case "cancelled":
+            case "pending" or "cancelled":
                 if (live)
                 {
                     return await HoldLiveTradeAsync(escrow, trade.Order, orderId, now, context);
@@ -2473,6 +2586,32 @@ public class EscrowCronFunction
             default:
                 return await BlockSettlementAsync(
                     escrow, "refund", $"delivery_{StatusToken(trade.DeliveryStatus)}", trade, context);
+        }
+
+        // FRD-03: the risk gate, before the pending delivery is cancelled and the refund made, so a
+        // refund the gate holds or skips leaves the delivery as it is.
+        if (await HoldsSettlementAsync(escrow, "escrowed", EscrowHoldFields.ForRefund, "auto-refund", null, context))
+        {
+            return TradeCheck.Deferred;
+        }
+
+        if (trade.DeliveryStatus == "pending")
+        {
+            // D3: a pickup after the refund would move goods nobody pays for, so the delivery goes first.
+            if (!await _deliveryRepo.TryCancelPendingAsync(deliveryId!))
+            {
+                context.Logger.LogInformation(
+                    $"ESCROW_REFUND_DELIVERY_CANCEL_LOST escrowId={MoneyAlarmLog.LogId(escrowId)} deliveryId={MoneyAlarmLog.LogId(deliveryId)}; the next run decides again.");
+                return TradeCheck.Deferred;
+            }
+
+            _pendingDeliveriesCancelled++;
+            await TransactionAuditWriter.EmitAsync(
+                _transactionAuditRepo, context, string.IsNullOrEmpty(orderId) ? escrowId : orderId, "delivery", deliveryId!,
+                "delivery_cancelled", "pending", "cancelled", AuditContext.ForSystem(),
+                metadata: $"reason=escrow_expired;escrowId={escrowId}");
+            context.Logger.LogInformation(
+                $"ESCROW_REFUND_DELIVERY_CANCELLED escrowId={MoneyAlarmLog.LogId(escrowId)} deliveryId={MoneyAlarmLog.LogId(deliveryId)}");
         }
 
         await _escrowService.ClearSettlementBlockAsync(escrow, "refund", SettlementBlockFields.GateTrade);

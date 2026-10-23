@@ -54,6 +54,18 @@ public partial class SyncFunction
     // Optional: when the escrows table is provisioned, confirming a delivery
     // stamps the linked escrow so the auto-release cron can pay the farmer.
     private readonly IEscrowRepository? _escrowRepo;
+
+    /// <summary>
+    /// FRD-03: <c>FRAUD_HOLD_ENABLED</c>, as on escrow-cron. On, the farmer's accept of an order with an
+    /// escrow is one transaction that checks the escrow is not held (<see cref="EscrowsTableName"/>).
+    /// </summary>
+    internal bool FraudHoldEnabled { get; init; }
+
+    /// <summary>FRD-03: the escrows table the accept's transaction checks (<c>ESCROWS_TABLE</c>).</summary>
+    internal string? EscrowsTableName { get; init; }
+
+    /// <summary>FRD-03: the farmer's accept of an order whose escrow is held for review (order-lifecycle 1.22.0).</summary>
+    private const string OrderUnderReviewMessage = "This order is under review and cannot be accepted. Contact support.";
     // Optional: the order-funded escrow leg (escrow record at order funding,
     // delivery linkage, refund scheduling). Constructed WITHOUT Telebirr wiring —
     // these paths never move money themselves (escrow-protocol.md §Order-funded
@@ -538,6 +550,9 @@ public partial class SyncFunction
         _escrowRepo = escrowsTable != null
             ? new EscrowRepository(_dynamoDb, escrowsTable)
             : null;
+        EscrowsTableName = escrowsTable;
+        FraudHoldEnabled = string.Equals(
+            Environment.GetEnvironmentVariable("FRAUD_HOLD_ENABLED"), "true", StringComparison.OrdinalIgnoreCase);
 
         // Optional: unified transaction-audit trail (order/delivery transitions).
         var txAuditTable = Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE");
@@ -5804,6 +5819,9 @@ public partial class SyncFunction
             return OrderValidationError(operation, string.Join(" ", updateValidationErrors));
         }
 
+        // FRD-03: set by the accept below when its write must check the escrow in the same transaction.
+        EscrowRowKey? acceptFence = null;
+
         // Validate status transition
         if (operation.Data.TryGetValue("status", out var newStatusObj))
         {
@@ -5943,6 +5961,39 @@ public partial class SyncFunction
             var nowUtc = DateTime.UtcNow;
             var now = nowUtc.ToString("o");
 
+            // FRD-03: a funded order whose escrow is held for review cannot be accepted: a delivery
+            // created after it could never link to the held escrow. Reject and cancel stay allowed. An
+            // escrow that cannot be read refuses the accept for now (transient, the client retries).
+            if (newStatus == "accepted" && _escrowRepo != null)
+            {
+                Dictionary<string, object>? orderEscrow;
+                try
+                {
+                    orderEscrow = await _escrowRepo.GetByIdAsync($"escrow-order-{operation.EntityId}", consistentRead: true);
+                }
+                catch (Exception ex)
+                {
+                    context.Logger.LogWarning(
+                        $"ORDER_ACCEPT_ESCROW_UNREAD orderId={MoneyAlarmLog.LogId(operation.EntityId)} error={ex.GetType().Name}");
+                    return TransientOrderError(operation, "The order's payment could not be checked. Please try again later.");
+                }
+
+                if (orderEscrow != null && orderEscrow.TryGetValue("status", out var orderEscrowStatus)
+                    && orderEscrowStatus?.ToString() == EscrowHoldFields.Status)
+                {
+                    return OrderValidationError(operation, OrderUnderReviewMessage);
+                }
+
+                // With the hold on, a sweep may hold the escrow between this read and the write: the
+                // write checks it again in the same transaction.
+                if (FraudHoldEnabled && orderEscrow != null && !string.IsNullOrEmpty(EscrowsTableName)
+                    && orderEscrow.TryGetValue("createdAt", out var escrowCreatedAt)
+                    && escrowCreatedAt?.ToString() is { Length: > 0 } escrowCreated)
+                {
+                    acceptFence = new EscrowRowKey(EscrowsTableName, $"escrow-order-{operation.EntityId}", escrowCreated);
+                }
+            }
+
             // ESC-06: the farmer's accept starts the pickup clock in the same write. A trip that
             // cannot be read refuses the accept for now (transient, so the client retries): no
             // accepted order is left without its deadline.
@@ -5995,7 +6046,15 @@ public partial class SyncFunction
 
         operation.Data.Remove("version"); // consumed here; the repository handles the check
 
-        var updateResult = await _orderRepo.UpdateAsync(operation.EntityId, operation.Data, version);
+        var updateResult = acceptFence != null
+            ? await _orderRepo.UpdateUnlessEscrowHeldAsync(operation.EntityId, operation.Data, version, acceptFence)
+            : await _orderRepo.UpdateAsync(operation.EntityId, operation.Data, version);
+
+        // FRD-03: a sweep held the escrow between the check and the write; nothing was written.
+        if (!updateResult.IsSuccess && updateResult.Error?.Code == OrderRepository.EscrowHeldCode)
+        {
+            return OrderValidationError(operation, OrderUnderReviewMessage);
+        }
 
         if (updateResult.IsSuccess)
         {

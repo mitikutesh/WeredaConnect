@@ -5,10 +5,23 @@ import { t as translate } from "@/lib/i18n";
 import {
   adminQueueLabel,
   deriveStage,
+  escrowStatusLabel,
+  escrowStatusVariant,
   orderStatusLabel,
   stageLabel,
   timelineActionLabel,
 } from "./transaction";
+
+describe("held escrow (FRD-03)", () => {
+  it("has a badge colour and a label, and its audit actions are labelled", () => {
+    const t = (key: string) => translate(key, "en");
+    expect(escrowStatusVariant.held).toBe("warning");
+    expect(escrowStatusLabel("held", t)).toBe("Under review");
+    expect(timelineActionLabel("fraud_hold", t)).toBe("Held for review");
+    expect(timelineActionLabel("fraud_hold_release", t)).toBe("Released after review (admin)");
+    expect(timelineActionLabel("fraud_hold_refund", t)).toBe("Refunded after review (admin)");
+  });
+});
 
 describe("deriveStage", () => {
   // Must stay in sync with the server DeriveStage (AdminFunction.cs).

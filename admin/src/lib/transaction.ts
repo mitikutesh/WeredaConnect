@@ -88,6 +88,8 @@ export const escrowStatusVariant: Record<string, Variant> = {
   dispute_resolved: "success",
   refunded: "warning",
   cancelled: "default",
+  // FRD-03: frozen for fraud review until an admin releases or refunds it.
+  held: "warning",
 };
 
 /** Delivery status → badge colour. */

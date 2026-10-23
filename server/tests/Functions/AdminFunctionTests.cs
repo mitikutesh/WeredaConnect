@@ -124,6 +124,45 @@ public class AdminFunctionTests
         return request;
     }
 
+    [Fact]
+    public async Task GetEscrow_AHeldEscrow_CarriesTheAdminOnlyHoldFields()
+    {
+        // FRD-03: the admin sees why and from what the sweep held it; party reads never carry these.
+        var db = Substitute.For<IAmazonDynamoDB>();
+        db.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == EscrowsTable), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    new()
+                    {
+                        ["escrowId"] = S("escrow-order-ord-9"), ["createdAt"] = S("2026-10-01T10:00:00Z"),
+                        ["updatedAt"] = S("2026-10-20T10:00:00Z"), ["expiresAt"] = S("2026-10-08T10:00:00Z"),
+                        ["status"] = S("held"), ["buyerId"] = S("buyer-1"), ["farmerId"] = S("farmer-1"),
+                        ["deliveryId"] = S("del-9"), ["currency"] = S("ETB"),
+                        ["holdReason"] = S("account_suspended"), ["heldAt"] = S("2026-10-20T10:00:00Z"),
+                        ["heldBy"] = S("system"), ["heldFromStatus"] = S("escrowed"), ["heldFor"] = S("release")
+                    }
+                }
+            });
+        db.BatchGetItemAsync(Arg.Any<BatchGetItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new BatchGetItemResponse
+            {
+                Responses = new Dictionary<string, List<Dictionary<string, AttributeValue>>>(),
+                UnprocessedKeys = new Dictionary<string, KeysAndAttributes>(),
+            });
+
+        var response = await TransactionFunction(db).FunctionHandler(AdminGet("/admin/escrows/escrow-order-ord-9"), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        response.Body.Should().Contain("\"status\":\"held\"")
+            .And.Contain("\"holdReason\":\"account_suspended\"")
+            .And.Contain("\"heldAt\":\"2026-10-20T10:00:00Z\"")
+            .And.Contain("\"heldBy\":\"system\"")
+            .And.Contain("\"heldFromStatus\":\"escrowed\"")
+            .And.Contain("\"heldFor\":\"release\"");
+    }
+
     private AdminFunction TransactionFunction(IAmazonDynamoDB db) =>
         new(db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable);
 
