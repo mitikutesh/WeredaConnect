@@ -311,7 +311,10 @@ public enum EscrowHoldWrite
     EscrowChanged,
 
     /// <summary>The fenced order's version or status changed since the sweep read it: nothing held.</summary>
-    OrderChanged
+    OrderChanged,
+
+    /// <summary>The fenced write met a concurrent transaction or a throttle: nothing held, the next run retries.</summary>
+    Conflict
 }
 
 /// <summary>

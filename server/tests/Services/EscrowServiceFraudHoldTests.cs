@@ -366,6 +366,44 @@ public class EscrowServiceFraudHoldTests
         await NothingMovedAsync();
     }
 
+    [Theory]
+    [InlineData("release", "delivered")]
+    [InlineData("refund", "funded")]
+    public async Task AdminRefund_ADecisionRowThatCannotBeWritten_LeavesTheOrderAsItIs(string heldFor, string orderStatus)
+    {
+        // The decision is recorded before the order is moved (dispute path) or cancelled (refund rules).
+        EscrowIs(Held(heldFor));
+        OrderIs(orderStatus, 3);
+        DeliveryIs("delivered");
+        OrderWritesSucceed();
+        _audit.AppendAsync(Arg.Is<Dictionary<string, object>>(e => S(e, "action") == "fraud_hold_refund"))
+            .ThrowsAsync(new InvalidOperationException("ddb"));
+
+        var result = await AdminRefund();
+
+        result.Error!.HttpStatus.Should().Be(503);
+        _orderWrites.Should().BeEmpty();
+        await _deliveries.DidNotReceiveWithAnyArgs().TryMarkDisputedAsync(default!, default!, default);
+        await _crops.DidNotReceiveWithAnyArgs().RestoreStockAsync(default!, default!, default);
+        await NothingMovedAsync();
+    }
+
+    [Fact]
+    public async Task AdminRelease_ADecisionRowThatCannotBeWritten_DoesNotAdvanceALaggingOrder()
+    {
+        EscrowIs(Held("release"));
+        OrderIs("in_transit", 2);
+        DeliveryIs("delivered");
+        _audit.AppendAsync(Arg.Is<Dictionary<string, object>>(e => S(e, "action") == "fraud_hold_release"))
+            .ThrowsAsync(new InvalidOperationException("ddb"));
+
+        var result = await AdminRelease();
+
+        result.Error!.HttpStatus.Should().Be(503);
+        await _orders.DidNotReceiveWithAnyArgs().TryAdvanceStatusAsync(default!, default!, default!);
+        await NothingMovedAsync();
+    }
+
     // ──────────────────────────────────────────────
     // Refund, heldFor: refund (the auto-refund sweep held it)
     // ──────────────────────────────────────────────
@@ -464,6 +502,7 @@ public class EscrowServiceFraudHoldTests
         await _crops.DidNotReceiveWithAnyArgs().RestoreStockAsync(default!, default!, default);
         Received.InOrder(() =>
         {
+            _audit.AppendAsync(Arg.Is<Dictionary<string, object>>(e => S(e, "action") == "fraud_hold_refund"));
             _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 3);
             _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4);
             // The verdict is recorded on the escrow while it stays held, before the money.

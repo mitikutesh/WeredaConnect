@@ -480,6 +480,32 @@ public sealed class FraudHoldDynamoDbTests
     }
 
     [LocalDynamoDbFact]
+    public async Task TheFencedAccept_LosesToAHoldWrittenAfterTheRead_AndWritesNothing()
+    {
+        var parties = await SeedPartiesAsync();
+        var acceptedId = await SeedOrderAsync(parties, "funded", 3);
+        var (plainEscrow, plainAt) = await SeedEscrowAsync(parties, "escrowed", $"escrow-order-{acceptedId}", acceptedId);
+        var heldId = await SeedOrderAsync(parties, "funded", 3);
+        var (heldEscrow, heldAt) = await SeedEscrowAsync(parties, "escrowed", $"escrow-order-{heldId}", heldId);
+        // The sync Lambda read both escrows as escrowed; the sweep then holds one before the write.
+        (await EscrowRepo.TryHoldAsync(heldEscrow, heldAt, HoldRequest())).Should().Be(EscrowHoldWrite.Held);
+        var accept = new Dictionary<string, object> { { "status", "accepted" } };
+
+        var refused = await OrderRepo.UpdateUnlessEscrowHeldAsync(heldId, accept, 3, new EscrowRowKey(_db.Escrows, heldEscrow, heldAt));
+        var stale = await OrderRepo.UpdateUnlessEscrowHeldAsync(acceptedId, accept, 2, new EscrowRowKey(_db.Escrows, plainEscrow, plainAt));
+        var accepted = await OrderRepo.UpdateUnlessEscrowHeldAsync(acceptedId, accept, 3, new EscrowRowKey(_db.Escrows, plainEscrow, plainAt));
+
+        refused.Error!.Code.Should().Be(OrderRepository.EscrowHeldCode);
+        var untouched = await OrderAsync(heldId);
+        Str(untouched, "status").Should().Be("funded");
+        Str(untouched, "version").Should().Be("3");
+        stale.Error!.Code.Should().Be("SYNC_CONFLICT");
+        accepted.IsSuccess.Should().BeTrue(accepted.Error?.Message);
+        Str(accepted.Value!, "status").Should().Be("accepted");
+        Str(accepted.Value!, "version").Should().Be("4");
+    }
+
+    [LocalDynamoDbFact]
     public async Task AQueuedAdminExit_ClosesFromHeld()
     {
         var parties = await SeedPartiesAsync();

@@ -187,11 +187,24 @@ public class EscrowRepositoryFraudHoldTests
         outcome.Should().Be(EscrowHoldWrite.EscrowChanged);
     }
 
-    [Fact]
-    public async Task Hold_ATransactionConflict_IsNotAConditionAndThrows()
+    [Theory]
+    [InlineData("TransactionConflict", "None")]
+    [InlineData("None", "ThrottlingError")]
+    public async Task Hold_AConcurrentTransactionOrAThrottle_IsATransientConflict_NotAFailure(string escrowCode, string orderCode)
     {
         _dynamoDb.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>())
-            .ThrowsAsync(Cancelled("TransactionConflict", "None"));
+            .ThrowsAsync(Cancelled(escrowCode, orderCode));
+
+        var outcome = await _repo.TryHoldAsync(EscrowId, CreatedAt, Hold, new OrderFence("orders-test", "ord-7", CreatedAt, 6, "funded"));
+
+        outcome.Should().Be(EscrowHoldWrite.Conflict);
+    }
+
+    [Fact]
+    public async Task Hold_AValidationError_IsABug_AndThrows()
+    {
+        _dynamoDb.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(Cancelled("ValidationError", "None"));
 
         var act = () => _repo.TryHoldAsync(EscrowId, CreatedAt, Hold, new OrderFence("orders-test", "ord-7", CreatedAt, 6, "funded"));
 

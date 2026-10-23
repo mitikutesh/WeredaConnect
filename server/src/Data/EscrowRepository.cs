@@ -405,7 +405,15 @@ public sealed class EscrowRepository : IEscrowRepository
             orderChanged = IsConditionFailure(ex.CancellationReasons, 1);
             if (!orderChanged && !IsConditionFailure(ex.CancellationReasons, 0))
             {
-                throw; // a conflict or throttle, not a condition: the caller logs it, the next run retries
+                // A concurrent transaction or a throttle is transient: nothing was written. Anything
+                // else (a validation error) is a bug and escapes to the sweep's failure line.
+                if (ex.CancellationReasons?.Any(r => r?.Code is "TransactionConflict" or "ThrottlingError"
+                        or "ProvisionedThroughputExceeded") == true)
+                {
+                    return EscrowHoldWrite.Conflict;
+                }
+
+                throw;
             }
         }
 

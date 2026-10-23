@@ -70,14 +70,18 @@ public class EscrowCronFraudHoldTests
         PartiesAre();
     }
 
-    private EscrowCronFunction Cron(bool flagOn = true, bool withGate = true)
+    private EscrowCronFunction Cron(bool flagOn = true, bool withGate = true, bool withTruckerLookup = false)
     {
         var service = new EscrowService(_escrows, _audit, _idempotency, _gateway, userRepo: null,
             orderRepo: _orders, deliveryRepo: _deliveries, transactionAuditRepo: _txAudit, cropRepo: _crops);
+        // The Lambda wires the payout's trucker lookup into the gate the same way.
+        Func<Dictionary<string, object>, Task<string?>>? lookup = withTruckerLookup
+            ? async escrow => (await service.ResolveTruckerIdAsync(escrow)).TruckerId
+            : null;
         return new EscrowCronFunction(service, _escrows, _audit, _gateway, _deliveries, _orders, _crops,
             transactionAuditRepo: _txAudit)
         {
-            RiskGate = withGate ? new PartySuspensionGate(_users) : null,
+            RiskGate = withGate ? new PartySuspensionGate(_users, lookup) : null,
             FraudHoldEnabled = flagOn,
             OrdersTableName = OrdersTable
         };
@@ -380,6 +384,96 @@ public class EscrowCronFraudHoldTests
         _holds.Should().ContainSingle();
         _holds[0].Hold.HeldFor.Should().Be("refund");
         _holds[0].Fence.Should().BeNull();
+        await NoMoneyMovedAsync();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AutoRefund_ADeliveryInitiatedEscrowWithAPendingDelivery_IsGatedBeforeTheDeliveryIsCancelled(bool flagOn)
+    {
+        PartiesAre(suspended: FarmerId);
+        var escrow = Escrow("esc-i2");
+        escrow["deliveryId"] = "del-i2";
+        _escrows.GetByIdAsync("esc-i2", true).Returns(escrow);
+        _deliveries.GetByIdAsync("del-i2", true).Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", "del-i2" }, { "status", "pending" }
+        });
+        _escrows.StubRefundSweep(escrow);
+
+        await RunAsync(Cron(flagOn));
+
+        // The delivery stays pending for a refund the gate held or skipped.
+        await _deliveries.DidNotReceiveWithAnyArgs().TryCancelPendingAsync(default!);
+        _holds.Count.Should().Be(flagOn ? 1 : 0);
+        await NoMoneyMovedAsync();
+    }
+
+    [Fact]
+    public async Task AutoRefund_ADeliveryInitiatedEscrowWithAPendingDelivery_NoSuspendedParty_CancelsItThenRefunds()
+    {
+        var escrow = Escrow("esc-i3");
+        escrow["deliveryId"] = "del-i3";
+        _escrows.GetByIdAsync("esc-i3", true).Returns(escrow);
+        _escrows.GetByIdAsync("esc-i3").Returns(escrow);
+        _deliveries.GetByIdAsync("del-i3", true).Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", "del-i3" }, { "status", "pending" }
+        });
+        _deliveries.TryCancelPendingAsync("del-i3").Returns(true);
+        _escrows.StubRefundSweep(escrow);
+
+        await RunAsync(Cron());
+
+        _holds.Should().BeEmpty();
+        await _deliveries.Received(1).TryCancelPendingAsync("del-i3");
+        await _gateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+    }
+
+    [Fact]
+    public async Task AutoRelease_ALegacyEscrowWithoutTruckerId_FindsItsTruckerAsThePayoutDoes_AndHoldsForASuspendedOne()
+    {
+        // Minted before its order had a truck: no truckerId on the escrow, a trucker leg, the order's
+        // trucker named by the delivery too. The payout would pay that trucker, so the gate checks them.
+        PartiesAre(suspended: TruckerId);
+        var escrow = Releasable("esc-t1");
+        escrow["truckerPayout"] = 500m;
+        escrow["orderId"] = "ord-t1";
+        _deliveries.GetByIdAsync("del-esc-t1", true).Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", "del-esc-t1" }, { "status", "delivered" }, { "truckerId", TruckerId }
+        });
+        _deliveries.GetByIdAsync("del-esc-t1").Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", "del-esc-t1" }, { "status", "delivered" }, { "truckerId", TruckerId }
+        });
+        var order = new Dictionary<string, object>
+        {
+            { "orderId", "ord-t1" }, { "status", "delivered" }, { "version", 6 }, { "truckerId", TruckerId }
+        };
+        _orders.GetByIdAsync("ord-t1").Returns(order);
+        _orders.GetByIdAsync("ord-t1", true).Returns(order);
+        _escrows.StubReleaseSweep(escrow);
+
+        await RunAsync(Cron(withTruckerLookup: true));
+
+        _holds.Should().ContainSingle(h => h.EscrowId == "esc-t1");
+        await NoMoneyMovedAsync();
+    }
+
+    [Fact]
+    public async Task AHoldMeetingAConcurrentTransaction_IsATransientSkip_NotASettlementFailure()
+    {
+        PartiesAre(suspended: BuyerId);
+        _escrows.TryHoldAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<EscrowHoldRequest>(), Arg.Any<OrderFence?>())
+            .Returns(EscrowHoldWrite.Conflict);
+        _escrows.StubRefundSweep(StaleOrderEscrow("ord-f9"));
+
+        await RunAsync(Cron());
+
+        Logs.Should().Contain("ESCROW_FRAUD_HOLD_LOST escrowId=escrow-order-ord-f9 outcome=Conflict");
+        Logs.Should().NotContain("ESCROW_SETTLEMENT_FAILED");
         await NoMoneyMovedAsync();
     }
 

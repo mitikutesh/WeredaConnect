@@ -24,11 +24,12 @@ namespace WeredaConnect.Server.Helpers;
 /// RISK_HOLD_ORDER_MISMATCH escrowId=&lt;id&gt; heldFor=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// </code>
 /// <para>
-/// The two risk lines (FRD-03, fraud-detection-architecture.md section 18) have no metric filter yet
-/// (FRD-16 adds the alarms). Escrow-cron logs <c>RISK_SETTLEMENT_SKIPPED</c> each run a settlement sweep
-/// leaves an escrow unsettled because of the risk gate: a trigger while <c>FRAUD_HOLD_ENABLED</c> is off,
-/// or a party row it could not read. The escrow Lambda logs <c>RISK_HOLD_ORDER_MISMATCH</c> each time an
-/// admin refund of a held escrow is refused because its order cannot follow the refund.
+/// The two risk lines (FRD-03, fraud-detection-architecture.md section 18). Escrow-cron logs
+/// <c>RISK_SETTLEMENT_SKIPPED</c> each run a settlement sweep leaves an escrow unsettled because of the
+/// risk gate: a trigger while <c>FRAUD_HOLD_ENABLED</c> is off, or a party row it could not read; the
+/// <c>risk-settlement-skipped</c> alarm counts it from the FRD-03 deploy. The escrow Lambda logs
+/// <c>RISK_HOLD_ORDER_MISMATCH</c> each time an admin refund of a held escrow is refused because its order
+/// cannot follow the refund; FRD-16 adds its alarm.
 /// </para>
 /// <para>
 /// The order-money line (ESC-09) is logged by escrow-cron's hourly order-money sweep when the order

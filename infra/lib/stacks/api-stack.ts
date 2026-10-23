@@ -457,6 +457,10 @@ export class ApiStack extends cdk.Stack {
         // lands in the immutable escrow-audit ledger. Without this env the leg is
         // disabled (orders still fund; escrow records aren't created here).
         ESCROW_AUDIT_TABLE: props.escrowAuditTable.tableName,
+        // FRD-03: on, the farmer's accept is one transaction with a check that the order's escrow
+        // is not held (a sweep may hold it between the read and the write). Same value as on
+        // escrow-cron; both are turned on together after FRD-06.
+        FRAUD_HOLD_ENABLED: "false",
         ...(syncTelebirrMock ? { TELEBIRR_MOCK: "true" } : {}),
       },
       timeout: cdk.Duration.seconds(30),

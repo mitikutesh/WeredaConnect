@@ -40,7 +40,9 @@ public interface ISettlementRiskGate
 /// FRD-03: holds the settlement of an escrow when one of its parties is suspended
 /// (<c>account_suspended</c>). Each user row is read once per run. A row that cannot be read skips the
 /// escrow for this run (<c>user_read_failed</c>, fail closed); a party without a row is not suspended,
-/// and the payout gates decide about it as before.
+/// and the payout gates decide about it as before. An escrow with a trucker leg but no <c>truckerId</c>
+/// (minted before its order had a truck) takes its trucker the way the payout does, from the order when
+/// the delivery names the same one; a lookup that throws fails closed too.
 /// </summary>
 public sealed class PartySuspensionGate : ISettlementRiskGate
 {
@@ -53,9 +55,16 @@ public sealed class PartySuspensionGate : ISettlementRiskGate
     };
 
     private readonly IUserRepository? _users;
+    private readonly Func<Dictionary<string, object>, Task<string?>>? _resolveTrucker;
     private readonly Dictionary<string, UserDto?> _readThisRun = new(StringComparer.Ordinal);
 
-    public PartySuspensionGate(IUserRepository? users) => _users = users;
+    /// <param name="users">The users table; without it every check fails closed.</param>
+    /// <param name="resolveTrucker">The payout's trucker lookup for an escrow without <c>truckerId</c>.</param>
+    public PartySuspensionGate(IUserRepository? users, Func<Dictionary<string, object>, Task<string?>>? resolveTrucker = null)
+    {
+        _users = users;
+        _resolveTrucker = resolveTrucker;
+    }
 
     public void BeginRun() => _readThisRun.Clear();
 
@@ -65,6 +74,18 @@ public sealed class PartySuspensionGate : ISettlementRiskGate
         foreach (var (field, party) in Parties)
         {
             var userId = escrow.TryGetValue(field, out var raw) ? raw?.ToString() : null;
+            if (string.IsNullOrEmpty(userId) && party == "trucker" && _resolveTrucker != null && HasTruckerLeg(escrow))
+            {
+                try
+                {
+                    userId = await _resolveTrucker(escrow);
+                }
+                catch (Exception)
+                {
+                    return SettlementGateDecision.Skip(SkipUserReadFailed, party);
+                }
+            }
+
             if (string.IsNullOrEmpty(userId))
             {
                 continue;
@@ -100,4 +121,11 @@ public sealed class PartySuspensionGate : ISettlementRiskGate
             ? SettlementGateDecision.Settle
             : SettlementGateDecision.Hold(EscrowHoldFields.ReasonAccountSuspended, suspendedParty);
     }
+
+    /// <summary>The escrow pays a trucker (<c>truckerPayout</c> above zero), as the release reads it.</summary>
+    private static bool HasTruckerLeg(Dictionary<string, object> escrow)
+        => escrow.TryGetValue("truckerPayout", out var raw)
+           && decimal.TryParse(raw?.ToString(), System.Globalization.NumberStyles.Number,
+               System.Globalization.CultureInfo.InvariantCulture, out var amount)
+           && amount > 0;
 }

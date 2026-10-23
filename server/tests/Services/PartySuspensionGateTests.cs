@@ -80,6 +80,44 @@ public class PartySuspensionGateTests
         await _users.DidNotReceive().GetUserByIdAsync("t");
     }
 
+    private static Dictionary<string, object> LegacyEscrow(decimal truckerPayout)
+        => new() { { "escrowId", "e-2" }, { "buyerId", "b" }, { "farmerId", "f" }, { "truckerPayout", truckerPayout } };
+
+    [Fact]
+    public async Task ATruckerLegWithoutTruckerId_UsesThePayoutLookup()
+    {
+        Users(trucker: true);
+        var gate = new PartySuspensionGate(_users, _ => Task.FromResult<string?>("t"));
+
+        var decision = await gate.CheckAsync(LegacyEscrow(500m));
+
+        decision.HoldReason.Should().Be("account_suspended");
+        decision.Party.Should().Be("trucker");
+    }
+
+    [Fact]
+    public async Task NoTruckerLeg_NoLookup()
+    {
+        Users(trucker: true);
+        var looked = 0;
+        var gate = new PartySuspensionGate(_users, _ => { looked++; return Task.FromResult<string?>("t"); });
+
+        (await gate.CheckAsync(LegacyEscrow(0m))).Settles.Should().BeTrue();
+        looked.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ALookupThatThrows_SkipsForTheRun()
+    {
+        Users();
+        var gate = new PartySuspensionGate(_users, _ => throw new InvalidOperationException("ddb"));
+
+        var decision = await gate.CheckAsync(LegacyEscrow(500m));
+
+        decision.SkipReason.Should().Be("user_read_failed");
+        decision.Party.Should().Be("trucker");
+    }
+
     [Fact]
     public async Task APartyWithoutAUserRow_IsNotSuspended()
     {

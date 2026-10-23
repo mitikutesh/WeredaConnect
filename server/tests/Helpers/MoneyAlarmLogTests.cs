@@ -23,7 +23,7 @@ public class MoneyAlarmLogTests
         "ORDER_STOCK_DECREMENT_FAILED", "ORDER_MONEY_MISMATCH",
         // ESC-45: the inbox replay heartbeat; a spelled one would hide a stalled sweep.
         "TELEBIRR_INBOX_REPLAY_RUN",
-        // FRD-03: the risk lines FRD-16 will count; no client value may spell them either.
+        // FRD-03: RISK_SETTLEMENT_SKIPPED is counted from FRD-03, RISK_HOLD_ORDER_MISMATCH by FRD-16.
         "RISK_SETTLEMENT_SKIPPED", "RISK_HOLD_ORDER_MISMATCH"
     };
 

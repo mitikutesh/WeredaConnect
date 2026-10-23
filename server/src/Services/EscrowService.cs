@@ -1591,6 +1591,12 @@ public sealed class EscrowService
             return ManualPayoutWaiting<ReleaseEscrowResponse>();
         }
 
+        // 4a1. FRD-03: the admin's decision and reason are on record before the order or any money moves.
+        if (heldExit && await RecordHeldExitAsync(escrowItem, "release", request.Reason!, authenticatedUserId) is { } heldAuditBlock)
+        {
+            return EscrowResult<ReleaseEscrowResponse>.Failure(heldAuditBlock.HttpStatus, heldAuditBlock.Code, heldAuditBlock.Message);
+        }
+
         // 4a2. ESC-03: the order and delivery follow the verdict before any money moves; a
         //      verdict they cannot follow is not settled.
         if (settleFrom == "dispute_resolved"
@@ -1660,12 +1666,6 @@ public sealed class EscrowService
         {
             (truckerPayoutDest, truckerBlockReason) = await ResolveTruckerPayeeAsync(
                 GetStringOrNull(escrowItem, "truckerId") ?? "", truckerPayoutAmount);
-        }
-
-        // 4d. FRD-03: the admin's decision and reason are on record before any money moves.
-        if (heldExit && await RecordHeldExitAsync(escrowItem, "release", request.Reason!, authenticatedUserId) is { } heldAuditBlock)
-        {
-            return EscrowResult<ReleaseEscrowResponse>.Failure(heldAuditBlock.HttpStatus, heldAuditBlock.Code, heldAuditBlock.Message);
         }
 
         // 5. Acquire the settlement lock BEFORE the irreversible Telebirr call. This is the
@@ -2552,9 +2552,10 @@ public sealed class EscrowService
     }
 
     /// <summary>
-    /// FRD-03: the admin's decision on a held escrow, recorded before the lock: escrow-audit
-    /// <c>fraud_hold_release</c> or <c>fraud_hold_refund</c> (each attempt; fails closed, 503, nothing
-    /// moved) and a transaction-audit row. The settlement's own rows follow as for any release or refund.
+    /// FRD-03: the admin's decision on a held escrow, recorded before its order is checked or moved and
+    /// before the lock: escrow-audit <c>fraud_hold_release</c> or <c>fraud_hold_refund</c> (each attempt;
+    /// fails closed, 503, nothing moved) and a transaction-audit row. The settlement's own rows follow as
+    /// for any release or refund.
     /// </summary>
     private async Task<SettlementBlock?> RecordHeldExitAsync(
         Dictionary<string, object> escrow, string op, string reason, string actor)
@@ -3318,6 +3319,12 @@ public sealed class EscrowService
             return ManualPayoutWaiting<RefundEscrowResponse>();
         }
 
+        // 4a1. FRD-03: the admin's decision and reason are on record before the order or any money moves.
+        if (heldExit && await RecordHeldExitAsync(escrowItem, "refund", request.Reason!, authenticatedUserId) is { } heldAuditBlock)
+        {
+            return EscrowResult<RefundEscrowResponse>.Failure(heldAuditBlock.HttpStatus, heldAuditBlock.Code, heldAuditBlock.Message);
+        }
+
         // 4a2. ESC-03: the order and delivery follow the verdict before any money moves; a
         //      verdict they cannot follow is not settled.
         if (settleFrom == "dispute_resolved"
@@ -3349,12 +3356,6 @@ public sealed class EscrowService
         // ESC-05: the refund phone is read before the lock, so nothing can fail between the lock
         // and the gateway call.
         var buyerPhone = await ResolveRefundPhoneAsync(GetString(escrowItem, "buyerId"));
-
-        // FRD-03: the admin's decision and reason are on record before any money moves.
-        if (heldExit && await RecordHeldExitAsync(escrowItem, "refund", request.Reason!, authenticatedUserId) is { } heldAuditBlock)
-        {
-            return EscrowResult<RefundEscrowResponse>.Failure(heldAuditBlock.HttpStatus, heldAuditBlock.Code, heldAuditBlock.Message);
-        }
 
         // Acquire the settlement lock BEFORE the irreversible Telebirr call. Mutual exclusion
         // across release/refund and across idempotency keys: a refund that loses the race to a
@@ -4398,7 +4399,7 @@ public sealed class EscrowService
     /// truckerId when the escrow is linked to a delivery (O3). Reads only; the caller keeps a
     /// truckerId taken from the order (<c>FromOrder</c>) with <see cref="BackfillTruckerIdAsync"/>.
     /// </summary>
-    private async Task<(string? TruckerId, bool FromOrder, string? BlockReason)> ResolveTruckerIdAsync(
+    internal async Task<(string? TruckerId, bool FromOrder, string? BlockReason)> ResolveTruckerIdAsync(
         Dictionary<string, object> escrow)
     {
         var own = GetStringOrNull(escrow, "truckerId");
