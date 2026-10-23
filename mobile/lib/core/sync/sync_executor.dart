@@ -255,8 +255,9 @@ class SyncBatchResult {
 ///   [PermanentRejectionHandler]
 /// - `error` with `APP_UPDATE_REQUIRED` on anything but an order → keep it
 ///   pending without burning a retry and never undo it (the updated build
-///   sends the same payload), explain it once, and do not send it again
-///   while this executor lives (an app update or restart starts a new one)
+///   sends the same payload), explain it once, and do not send it, or the
+///   operations queued behind it for the same entity, again while this
+///   executor lives (an app update or restart starts a new one)
 /// - `error` → mark failed (retry up to 3 times via [SyncQueue])
 ///
 /// A refused `create` also rejects the operations queued behind it for that
@@ -295,14 +296,20 @@ class SyncExecutor {
   Timer? _enqueueDebounce;
   bool _isSyncing = false;
 
-  /// Operations other than order commands that the server answered
-  /// `APP_UPDATE_REQUIRED` (sync-protocol.md 1.17.0). They stay pending for
-  /// the updated build, but sending them again from this build could only
-  /// get the same answer, so batches skip them while this executor lives.
-  /// In memory, like [SecurityEvents.appUpdateRequired]: a restart sends them
-  /// once more. Only these operations wait: everything else, delivery
-  /// handoffs included, keeps syncing.
+  /// Entities (`entityType:entityId`) with an operation, other than an order
+  /// command, that the server answered `APP_UPDATE_REQUIRED`
+  /// (sync-protocol.md 1.17.0). That operation stays pending for the updated
+  /// build, but sending it again from this build could only get the same
+  /// answer, and an operation queued behind it for the same entity (an update
+  /// after a held create) could only get a transient "not found" and burn its
+  /// retries. So batches skip every pending operation of a held entity while
+  /// this executor lives. In memory, like [SecurityEvents.appUpdateRequired]:
+  /// a restart sends them once more. Only these wait: every other entity,
+  /// delivery handoffs included, keeps syncing.
   final Set<String> _heldForUpdate = {};
+
+  static String _entityKey(SyncOperation op) =>
+      '${op.entityType}:${op.entityId}';
 
   /// Stream controller for sync batch results (for UI observation).
   final StreamController<SyncBatchResult> _resultController =
@@ -553,12 +560,13 @@ class SyncExecutor {
   /// Returns [SyncBatchResult] with counts of succeeded/conflicted/failed.
   Future<SyncBatchResult> executeBatch() async {
     final currentUserId = await _getCurrentUserId?.call();
-    // Read past the held operations so they cannot starve newer ones.
+    // While an entity is held, read past its operations (the queue holds at
+    // most maxQueueSize) so they cannot starve newer ones.
     final pending = (await _syncQueue.getPendingOperationsForUser(
       userId: currentUserId,
-      limit: batchSize + _heldForUpdate.length,
+      limit: _heldForUpdate.isEmpty ? batchSize : SyncQueue.maxQueueSize,
     ))
-        .where((op) => !_heldForUpdate.contains(op.operationId))
+        .where((op) => !_heldForUpdate.contains(_entityKey(op)))
         .take(batchSize)
         .toList();
     if (pending.isEmpty) return const SyncBatchResult.empty();
@@ -737,12 +745,13 @@ class SyncExecutor {
           // Minimum-version gate (ESC-25, spec K1): it is meant for order
           // commands. Any other operation is valid as it is, so keep it
           // pending WITHOUT burning a retry for the updated build to send,
-          // never undo it, and stop sending it from this build.
+          // never undo it, and stop sending it (and the operations queued
+          // behind it for the same entity) from this build.
           if (status == 'error' &&
               isAppUpdateRequiredMessage(message) &&
               operation.entityType != 'order') {
             await _syncQueue.revertToPending(operationId);
-            _heldForUpdate.add(operationId);
+            _heldForUpdate.add(_entityKey(operation));
             heldForUpdate.add((operation, message!));
             deferred++;
             continue;

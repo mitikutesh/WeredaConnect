@@ -1016,6 +1016,85 @@ void main() {
       );
     });
 
+    test(
+        'operations queued behind a held one for the same entity wait too; '
+        'others are sent', () async {
+      await enqueue(
+        'op-create',
+        entityType: 'crop_listing',
+        entityId: 'crop-1',
+        action: 'create',
+      );
+      replyWith([error('op-create', message)]);
+      await executor.executeBatch();
+      await _waitFor(() => rejections().isNotEmpty);
+
+      await enqueue(
+        'op-update',
+        entityType: 'crop_listing',
+        entityId: 'crop-1',
+        data: '{"version":1}',
+      );
+      await enqueue(
+        'op-trip',
+        entityType: 'trip',
+        entityId: 'trip-1',
+        action: 'create',
+      );
+      replyWith([
+        {'operationId': 'op-trip', 'status': 'success', 'serverVersion': 1},
+      ]);
+      final next = await executor.executeBatch();
+
+      expect(sentOperationIds.last, ['op-trip']);
+      expect(next.succeeded, 1);
+      final update = (await syncQueue.getOperation('op-update'))!;
+      expect(update.status, SyncStatus.pending);
+      expect(update.retryCount, 0);
+      expect((await executor.executeBatch()).status, SyncBatchStatus.empty);
+      expect(syncPosts, 2);
+    });
+
+    test('a held entity\'s queued operations cannot starve newer ones',
+        () async {
+      await enqueue(
+        'op-create',
+        entityType: 'crop_listing',
+        entityId: 'crop-1',
+        action: 'create',
+      );
+      replyWith([error('op-create', message)]);
+      await executor.executeBatch();
+      await _waitFor(() => rejections().isNotEmpty);
+
+      // More queued behind it than one batch holds, all older than the trip.
+      for (var i = 0; i < SyncExecutor.batchSize + 5; i++) {
+        await enqueue(
+          'op-update-$i',
+          entityType: 'crop_listing',
+          entityId: 'crop-1',
+          action: 'update-$i',
+          data: '{"version":1}',
+        );
+      }
+      await enqueue(
+        'op-trip',
+        entityType: 'trip',
+        entityId: 'trip-1',
+        action: 'create',
+      );
+      replyWith([
+        {'operationId': 'op-trip', 'status': 'success', 'serverVersion': 1},
+      ]);
+      await executor.executeBatch();
+
+      expect(sentOperationIds.last, ['op-trip']);
+      expect(
+        (await syncQueue.getOperation('op-trip'))!.status,
+        SyncStatus.synced,
+      );
+    });
+
     test('syncNow stops at once when only held operations remain', () async {
       adapter.onGet('/health', (server) => server.reply(200, {'status': 'ok'}));
       await enqueue(
