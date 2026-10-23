@@ -161,6 +161,11 @@ export function TransactionDetailPage() {
               <Field label={t("transactions.paymentMethod")}>{s(order.paymentMethod)}</Field>
               <Field label={t("transactions.cbeRef")}>{s(order.cbeTransactionId)}</Field>
               <Field label={t("transactions.telebirrRef")}>{s(escrow.telebirrRef)}</Field>
+              {escrow.releaseNotBefore != null && (
+                <Field label={t("transactions.releaseNotBefore")}>
+                  {formatDateTime(s(escrow.releaseNotBefore))}
+                </Field>
+              )}
               <Field label={t("transactions.releasedAt")}>
                 {escrow.releasedAt ? formatDateTime(s(escrow.releasedAt)) : ""}
               </Field>

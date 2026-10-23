@@ -307,6 +307,7 @@
     "telebirrRef": "Telebirr reference",
     "ip": "IP",
     "createdAt": "Started",
+    "releaseNotBefore": "Expected payout",
     "releasedAt": "Escrow released",
     "refundedAt": "Refunded",
     "completedAt": "Completed",
