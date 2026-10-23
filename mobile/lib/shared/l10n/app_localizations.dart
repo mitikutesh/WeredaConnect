@@ -5362,6 +5362,12 @@ abstract class AppLocalizations {
   /// **'Telebirr takes 100 to 500,000 ETB in one payment. This order\'s total is outside that, so it can\'t be paid with Telebirr.'**
   String get paymentTotalOutOfRange;
 
+  /// Live payments: the server refused the chosen payment method (ORDER_PAYMENT_METHOD_UNAVAILABLE, FUP-20; a bank transfer or any method other than Telebirr); only Telebirr can fund an order until CBE verification exists
+  ///
+  /// In en, this message translates to:
+  /// **'This payment method isn\'t available yet. Pay with Telebirr.'**
+  String get paymentMethodUnavailable;
+
   /// Order detail button (buyer, payment submitted): open the order's Telebirr checkout
   ///
   /// In en, this message translates to:
