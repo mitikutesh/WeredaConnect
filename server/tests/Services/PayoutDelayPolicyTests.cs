@@ -351,16 +351,50 @@ public class PayoutDelayPolicyTests
     }
 
     [Fact]
-    public async Task OneReadPerPayee_ThroughTheBatchMemo()
+    public async Task OneReadPerPayee_PerBatch()
     {
-        var memo = new RiskScoreMemo(_fraud);
+        // A sync batch confirming three deliveries of one farmer and one trucker reads each payee once.
+        var batch = new PayoutDelayBatch(new RiskScoreMemo(_fraud));
         var policy = Policy();
 
-        await policy.DecideAsync(Escrow(), null, Confirmed, WindowEnd, Now, memo);
-        await policy.DecideAsync(Escrow(), null, Confirmed, WindowEnd, Now, memo);
+        for (var i = 0; i < 3; i++)
+        {
+            var decision = await policy.DecideAsync(Escrow(), null, Confirmed, WindowEnd, Now, batch);
+            decision.Farmer.Should().Be(PayoutDelayClass.Trusted);
+        }
 
         await _fraud.Received(1).GetUserRiskScoreAsync(FarmerId);
         await _fraud.Received(1).GetUserRiskScoreAsync(TruckerId);
+        await _users.Received(1).GetUserByIdAsync(FarmerId);
+        await _users.Received(1).GetUserByIdAsync(TruckerId);
+        await _escrows.Received(1).QueryByFarmerAsync(FarmerId, "completed", 50, null);
+        await _escrows.Received(1).QueryByTruckerAsync(TruckerId, "completed", 50, null);
+    }
+
+    [Fact]
+    public async Task ANewBatchReadsAgain()
+    {
+        var policy = Policy();
+
+        await policy.DecideAsync(Escrow(), null, Confirmed, WindowEnd, Now, new PayoutDelayBatch(null));
+        await policy.DecideAsync(Escrow(), null, Confirmed, WindowEnd, Now, new PayoutDelayBatch(null));
+
+        await _users.Received(2).GetUserByIdAsync(FarmerId);
+    }
+
+    [Fact]
+    public async Task TheSamePersonAsFarmerAndTrucker_IsClassedPerParty()
+    {
+        // The history is counted on the party's own index, so the class is kept per (user, party).
+        var escrow = Escrow();
+        escrow["truckerId"] = FarmerId;
+        Completed(FarmerId, "trucker", 0);
+        var batch = new PayoutDelayBatch(null);
+
+        var decision = await Policy().DecideAsync(escrow, null, Confirmed, WindowEnd, Now, batch);
+
+        decision.Farmer.Should().Be(PayoutDelayClass.Trusted);
+        decision.Trucker.Should().Be(PayoutDelayClass.New);
     }
 
     [Fact]
@@ -391,6 +425,39 @@ public class PayoutDelayPolicyTests
 
         at.Should().Be(new DateTime(2026, 10, 26, 12, 0, 0, DateTimeKind.Utc));
         at!.Value.Kind.Should().Be(DateTimeKind.Utc);
+    }
+
+    [Fact]
+    public void ReleaseNotBeforeOf_AFarFutureValueIsCappedAfterConfirm()
+    {
+        // Never later than 168 hours after the confirm, so a bad row cannot hold the payout for good.
+        var at = PayoutDelayPolicy.ReleaseNotBeforeOf(new Dictionary<string, object>
+        {
+            { "releaseNotBefore", "2099-01-01T00:00:00Z" },
+            { "deliveryConfirmedAt", Confirmed.ToString("o") }
+        });
+
+        at.Should().Be(Confirmed.AddHours(PayoutDelaySettings.MaxDelayHours));
+    }
+
+    [Fact]
+    public void ReleaseNotBeforeOf_WithoutAConfirm_CapsFromTheWindowEndThenTheCreation()
+    {
+        var created = Confirmed.AddDays(-2);
+        var fromWindow = PayoutDelayPolicy.ReleaseNotBeforeOf(new Dictionary<string, object>
+        {
+            { "releaseNotBefore", "2099-01-01T00:00:00Z" },
+            { "disputeWindowEndsAt", WindowEnd.ToString("o") },
+            { "createdAt", created.ToString("o") }
+        });
+        var fromCreation = PayoutDelayPolicy.ReleaseNotBeforeOf(new Dictionary<string, object>
+        {
+            { "releaseNotBefore", "2099-01-01T00:00:00Z" },
+            { "createdAt", created.ToString("o") }
+        });
+
+        fromWindow.Should().Be(WindowEnd.AddHours(PayoutDelaySettings.MaxDelayHours));
+        fromCreation.Should().Be(created.AddHours(PayoutDelaySettings.MaxDelayHours));
     }
 
     [Fact]

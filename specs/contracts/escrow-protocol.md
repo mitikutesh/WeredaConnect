@@ -3753,7 +3753,7 @@ Builds the risk tier of 1.7.0. Design: `specs/architecture/fraud-detection-archi
   logs `RISK_TABLE_UNCONFIGURED action=auto_release_and_refund` once per run, flag on or off: with the flag
   off the `flag_off` skip is what keeps a CRITICAL party unpaid, so a missing table matters either way.
   escrow-cron now gets `FRAUD_SIGNALS_TABLE` with read access only.
-- MEDIUM and HIGH settle as before.
+- MEDIUM and HIGH settle as before (1.33.0 adds the payout delay to their auto-release).
 - The `fraud_hold` metadata (escrow-audit and transaction-audit) of a `risk_critical` hold adds
   `;tier=critical;score=<n>;enforcementScore=<n>;truncated=<true|false>` after the 1.22.0 fields.
 - Every `RISK_SETTLEMENT_SKIPPED` line is counted by the existing `risk-settlement-skipped` alarm.
@@ -3908,8 +3908,11 @@ the score and the class are never on the escrow row and never in a response.
   `PAYOUT_DELAY_FLAGGED_HOURS` 72; `unscored` takes the longest of the three. Integers from 0 to 168, else the
   default; delays not ordered trusted, new, flagged all fall back. No Lambda sets them, so the defaults apply: a
   trusted payee is paid at the window end, every other one a day later.
-- An escrow confirmed before 1.33.0 has no `releaseNotBefore` and settles as before. A stored value that does not
-  parse is read as `deliveryConfirmedAt + 168h`.
+- An escrow confirmed before 1.33.0 has no `releaseNotBefore` and settles as before. A stored value is never read
+  later than 168 hours after `deliveryConfirmedAt` (else `disputeWindowEndsAt`, else `createdAt`), and one that does
+  not parse is read as that cap: a bad row can hold neither the auto-release nor the trucker overdue alarm for good.
+- Each payee is classed once per sync batch, so a batch confirming many deliveries reads a payee's score, user row
+  and history once.
 - escrow-cron and the sync Lambda log `PAYOUT_DELAY_SET escrowId=.. releaseNotBefore=.. hours=.. farmer=<class>
   trucker=<class|->` on every stamp (not alarmed).
 
@@ -3933,15 +3936,18 @@ the score and the class are never on the escrow row and never in a response.
   `disputeWindowEndsAt`; before the delivery is confirmed there is none.
   The buyer never gets the field (left out of the JSON): the date can be later for a new or flagged payee, which
   would hint at the counterparty's risk. Admin escrow reads carry it.
-- Clients (mobile and web) show "Payout expected on (date)" (the day in Ethiopia) while the escrow is `escrowed` and
-  not refund pending, on the escrow detail and on the farmer's and the trucker's payment list, in en, am and om. An
-  older client ignores the field.
+- Clients (mobile and web) show "Payout expected on (date)" (the day in Ethiopia) while the escrow is `escrowed`,
+  not refund pending and the date is still ahead (once it has passed, nothing until the hourly payout lands), on the
+  escrow detail and on the farmer's and the trucker's payment list, in en, am and om. An older client ignores the
+  field.
 
 ### Not in 1.33.0
 - Per-leg dates (a trusted farmer waits for a new trucker and both see the same date); per-leg status is ESC-20.
+  Residual: a trusted payee who sees confirm + 72 hours can infer the other payee is not trusted, and the reverse.
 - A payee who becomes HIGH after the confirm keeps the date stamped then; CRITICAL is still held by the sweep gate
   (1.27.0).
-- The trucker retry pays a leg of an early admin release only after the date (the row does not record who released).
+- The trucker retry pays a leg of an early admin release or of a `farmer_wins` verdict only after the date (the row
+  does not record who released), although the release itself and the dispute sweep are not delayed.
 - The admin app does not show the date yet.
 
 ---

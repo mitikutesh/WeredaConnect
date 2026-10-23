@@ -53,6 +53,9 @@ public partial class SyncFunction
     // FRD-04: the caller's risk score, read at most once per batch (null without a fraud
     // service). Set at the top of FunctionHandler, like the auth_time above.
     private RiskScoreMemo? _batchRiskScores;
+
+    // FRD-13: the payees' payout-delay classes, read at most once per batch (with the memo above).
+    private PayoutDelayBatch? _batchPayoutDelays;
     private readonly IIntentRepository? _intentRepo;
     private readonly IMatchEventRepository? _matchEventRepo;
     // Optional: when the escrows table is provisioned, confirming a delivery
@@ -695,6 +698,7 @@ public partial class SyncFunction
         var authenticatedRole = AuthHelper.GetClaim(request, "custom:role");
         _requestAuthTime = AuthHelper.GetAuthTime(request);
         _batchRiskScores = _fraudService == null ? null : new RiskScoreMemo(_fraudService);
+        _batchPayoutDelays = new PayoutDelayBatch(_batchRiskScores);
 
         // Per-user rate limiting (F-11 Finding 3)
         // Record unconditionally to prevent request flooding via invalid operations
@@ -5531,7 +5535,7 @@ public partial class SyncFunction
             if (PayoutDelay != null)
             {
                 delay = await PayoutDelay.DecideAsync(escrow, deliveryTruckerId, windowBase, windowBase.AddHours(48),
-                    DateTime.UtcNow, _batchRiskScores);
+                    DateTime.UtcNow, _batchPayoutDelays);
                 fields[PayoutDelayPolicy.ReleaseNotBeforeField] = delay.Value.ReleaseNotBeforeIso;
             }
 

@@ -7,13 +7,16 @@ import 'package:wereda_connect/core/models/payment.dart';
 
 /// When the payee can expect the payout of [payment], or null when there is
 /// nothing to promise: the money is no longer held (paid out, refunded,
-/// disputed, under review), its refund to the buyer is on the way, or the
-/// server sent no date (the buyer's reads, or an older server).
-DateTime? expectedPayoutAt(Payment payment) {
+/// disputed, under review), its refund to the buyer is on the way, the server
+/// sent no date (the buyer's reads, or an older server), or the date has
+/// passed and the hourly payout has not landed yet (a past date would read as
+/// a broken promise). [now] is for tests.
+DateTime? expectedPayoutAt(Payment payment, {DateTime? now}) {
   final at = payment.releaseNotBefore;
   if (at == null ||
       payment.status != PaymentStatus.escrowed ||
-      payment.isRefundPending) {
+      payment.isRefundPending ||
+      !at.isAfter(now ?? DateTime.now())) {
     return null;
   }
   return at;

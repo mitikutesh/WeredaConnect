@@ -82,6 +82,23 @@ internal enum PayoutDelayClass
     Unscored
 }
 
+/// <summary>
+/// FRD-13: one sync batch's payee classes (and its <see cref="RiskScoreMemo"/>), so a batch of deliveries for one
+/// payee reads the users row and the history Query once. Created per batch and dropped after it, like the memo;
+/// not thread-safe, one batch handles its operations one after another.
+/// </summary>
+internal sealed class PayoutDelayBatch
+{
+    public PayoutDelayBatch(RiskScoreMemo? scores)
+    {
+        Scores = scores;
+    }
+
+    public RiskScoreMemo? Scores { get; }
+
+    internal Dictionary<(string UserId, string Party), Task<PayoutDelayClass>> Classes { get; } = new();
+}
+
 /// <summary>FRD-13: the escrow's <c>releaseNotBefore</c> and how it was reached, for the stamp and its log line.</summary>
 internal readonly record struct PayoutDelayDecision(
     DateTime ReleaseNotBefore, int DelayHours, PayoutDelayClass Farmer, PayoutDelayClass? Trucker)
@@ -132,26 +149,45 @@ internal sealed class PayoutDelayPolicy
 
     /// <summary>
     /// The payees' wait for one escrow. <paramref name="deliveryTruckerId"/> names the trucker when the
-    /// escrow row has none yet. Never throws: a payee whose data cannot be read is unscored.
+    /// escrow row has none yet. With a <paramref name="batch"/> each payee is classed once per sync batch, so
+    /// a batch of deliveries reads a payee's score, users row and history once. Never throws: a payee whose
+    /// data cannot be read is unscored.
     /// </summary>
     public async Task<PayoutDelayDecision> DecideAsync(
         Dictionary<string, object> escrow, string? deliveryTruckerId, DateTime deliveryConfirmedAt,
-        DateTime disputeWindowEndsAt, DateTime nowUtc, RiskScoreMemo? scores = null)
+        DateTime disputeWindowEndsAt, DateTime nowUtc, PayoutDelayBatch? batch = null)
     {
         var settings = _settings ?? PayoutDelaySettings.FromEnvironment();
-        var farmer = await ClassifyAsync(Str(escrow, "farmerId"), "farmer", settings, nowUtc, scores);
+        var farmer = await ClassOnceAsync(Str(escrow, "farmerId"), "farmer", settings, nowUtc, batch);
         PayoutDelayClass? trucker = null;
         if (HasTruckerLeg(escrow))
         {
             var truckerId = Str(escrow, "truckerId");
-            trucker = await ClassifyAsync(
-                string.IsNullOrEmpty(truckerId) ? deliveryTruckerId : truckerId, "trucker", settings, nowUtc, scores);
+            trucker = await ClassOnceAsync(
+                string.IsNullOrEmpty(truckerId) ? deliveryTruckerId : truckerId, "trucker", settings, nowUtc, batch);
         }
 
         var hours = Math.Max(settings.HoursFor(farmer), trucker is { } t ? settings.HoursFor(t) : 0);
         var delayed = deliveryConfirmedAt.ToUniversalTime().AddHours(hours);
         var windowEnd = disputeWindowEndsAt.ToUniversalTime();
         return new PayoutDelayDecision(delayed > windowEnd ? delayed : windowEnd, hours, farmer, trucker);
+    }
+
+    private Task<PayoutDelayClass> ClassOnceAsync(
+        string? userId, string party, PayoutDelaySettings settings, DateTime nowUtc, PayoutDelayBatch? batch)
+    {
+        if (batch == null || string.IsNullOrEmpty(userId))
+        {
+            return ClassifyAsync(userId, party, settings, nowUtc, batch?.Scores);
+        }
+
+        if (!batch.Classes.TryGetValue((userId, party), out var payee))
+        {
+            payee = ClassifyAsync(userId, party, settings, nowUtc, batch.Scores);
+            batch.Classes[(userId, party)] = payee;
+        }
+
+        return payee;
     }
 
     private async Task<PayoutDelayClass> ClassifyAsync(
@@ -239,8 +275,9 @@ internal sealed class PayoutDelayPolicy
 
     /// <summary>
     /// The stored <c>releaseNotBefore</c> of an escrow row, or null when it has none (stamped before FRD-13:
-    /// settles as before). A value that does not parse is read as <c>deliveryConfirmedAt</c> plus
-    /// <see cref="PayoutDelaySettings.MaxDelayHours"/>: later, never forever.
+    /// settles as before). Never later than <see cref="PayoutDelaySettings.MaxDelayHours"/> after the delivery
+    /// confirm (else the window end, else the escrow's <c>createdAt</c>), so a far-future or unreadable value
+    /// can hold neither the auto-release nor the trucker overdue alarm for good; an unreadable value is that cap.
     /// </summary>
     public static DateTime? ReleaseNotBeforeOf(Dictionary<string, object> escrow)
     {
@@ -250,12 +287,16 @@ internal sealed class PayoutDelayPolicy
             return null;
         }
 
+        var anchor = ParseUtc(Str(escrow, "deliveryConfirmedAt"))
+                     ?? ParseUtc(Str(escrow, "disputeWindowEndsAt"))
+                     ?? ParseUtc(Str(escrow, "createdAt"));
+        var cap = anchor?.AddHours(PayoutDelaySettings.MaxDelayHours);
         if (ParseUtc(stored) is { } notBefore)
         {
-            return notBefore;
+            return cap is { } latest && notBefore > latest ? latest : notBefore;
         }
 
-        return ParseUtc(Str(escrow, "deliveryConfirmedAt"))?.AddHours(PayoutDelaySettings.MaxDelayHours);
+        return cap;
     }
 
     /// <summary>

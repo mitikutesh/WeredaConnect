@@ -1144,8 +1144,8 @@ Attribution: today every signal is written against the authenticated caller of t
 
 | Tier | Score that decides it | Effect (section 17) |
 |------|-----------------------|---------------------|
-| LOW | full score 0 to 29 | No change from today |
-| MEDIUM | full score 30 to 59 | Fresh password on every payment, after the Fayda login above 10,000 ETB as today |
+| LOW | full score 0 to 29 | No change from today, apart from the payout delay of a payee who is not trusted yet: a score above 0, a young account or little history (section 17.5) |
+| MEDIUM | full score 30 to 59 | Fresh password on every payment, after the Fayda login above 10,000 ETB as today; the new-payee payout delay (section 17.5) |
 | HIGH | full score 60 and above, enforcement score below 100 | Fresh Fayda login and then a fresh password on every payment; the longest payout delay (section 17.5, FRD-13) |
 | CRITICAL | enforcement score 100 and above, or a truncated read | New listings, trips, orders and payments refused with `FRAUD_ACCOUNT_HELD`; settlement of the party's escrows held for an admin |
 
@@ -1173,7 +1173,7 @@ Subject of the check: the caller at a user action; every party (buyer, farmer, a
 | Buyer payment above 10,000 ETB | `AUTH_041` (today) | `AUTH_041`, then `AUTH_040` | `AUTH_041`, then `AUTH_040` | `FRAUD_ACCOUNT_HELD` |
 | `POST /escrow/order-checkout` (ESC-01) | The gates already ran at `payment_submitted` | same | same | `403 FRAUD_ACCOUNT_HELD`, no Telebirr preOrder call |
 | Create crop (farmer), trip (trucker), order (buyer) through `/sync` | allowed | allowed | allowed | `FRAUD_ACCOUNT_HELD` |
-| Cron release, refund and dispute settlement | as today | as today, tier in the audit metadata (not built yet) | as today, tier in the audit metadata (not built yet); the auto-release waits for the payout delay (section 17.5) | escrow moves to `held` (section 18); no money moves |
+| Cron release, refund and dispute settlement | refund and dispute settlement as today; the auto-release waits for the new-payee payout delay unless the payee is trusted (score 0, an old enough account, enough completed escrows; section 17.5) | refund and dispute settlement as today, tier in the audit metadata (not built yet); the auto-release waits for the new-payee payout delay (a MEDIUM payee is never trusted, section 17.5) | refund and dispute settlement as today, tier in the audit metadata (not built yet); the auto-release waits for the flagged payout delay (section 17.5) | escrow moves to `held` (section 18); no money moves |
 | Admin `POST /escrow/release` and `POST /escrow/refund` | not gated (the admin decides); tier in the audit metadata (not built yet) | same | same | same |
 
 Rules:
@@ -1233,7 +1233,7 @@ Built in `server/tests/Functions/SyncFunctionRiskGateTests.cs`, `EscrowFunctionR
 
 **Whose risk.** The payees: the farmer, and the trucker when the escrow has a trucker leg (the trucker on the escrow, else the one on the delivery). One release pays both legs, so the escrow waits for the later payee and both see the same date. Not taken: per-leg dates (the trucker leg cannot be paid before the farmer's, and per-leg status is ESC-20).
 
-**Classes**, from data the server already has, read once per payee (the sync batch's `RiskScoreMemo` at the sync stamp):
+**Classes**, from data the server already has, each payee classed once per sync batch (`PayoutDelayBatch`, with the batch's `RiskScoreMemo`), so a batch of deliveries reads a payee's score, users row and history once:
 
 | Class | Rule | Delay (hours after confirm, env, default) |
 |-------|------|-------------------------------------------|
@@ -1242,15 +1242,15 @@ Built in `server/tests/Functions/SyncFunctionRiskGateTests.cs`, `EscrowFunctionR
 | flagged | computed tier HIGH or CRITICAL (a CRITICAL payee's escrow is held by the gate at settlement anyway, section 17.2) | `PAYOUT_DELAY_FLAGGED_HOURS`, 72 |
 | unscored | Source before Tier (section 14.4): `Unavailable` or `TableNotConfigured`, a users row that is missing or cannot be read, or no payee to read | the longest of the three |
 
-Each delay is an integer from 0 to 168 (else its default); delays not ordered trusted, new, flagged all fall back to the defaults; read on every stamp, like `RiskScoreSettings`. No Lambda sets them, so with the 48 hour window a trusted payee is paid at the window end and every other payee a day later. A stored value that does not parse is read as `deliveryConfirmedAt + 168h`: later, never forever. The policy never throws; a read that fails gives the longer delay.
+Each delay is an integer from 0 to 168 (else its default); delays not ordered trusted, new, flagged all fall back to the defaults; read on every stamp, like `RiskScoreSettings`. No Lambda sets them, so with the 48 hour window a trusted payee is paid at the window end and every other payee a day later. A stored value is never read later than 168 hours after `deliveryConfirmedAt` (else `disputeWindowEndsAt`, else the escrow's `createdAt`), and one that does not parse is read as that cap, so a bad row can hold neither the auto-release nor the trucker overdue alarm for good. The policy never throws; a read that fails gives the longer delay.
 
 **Sweeps.** `AutoReleaseAsync` skips a row before its `releaseNotBefore` next to the window filter, before the trade check, the gate, the payout resolution and the lock (run summary `payoutsDelayed`; the row does not count against the sweep's row budget). The trucker retry defers a pending leg before it (reason `payout_delay`), after the stale lock park, the legacy park and the payout gate, and counts the leg as owed from the later of `truckerPayoutPendingSince` and `releaseNotBefore`, so `TRUCKER_PAYOUT_OVERDUE` never counts the delay. Not delayed: the admin release (a held exit included), the dispute sweep (a `farmer_wins` verdict is an admin decision), every refund, the stale lock recovery and the manual payout queue.
 
-**Display.** The escrow reads carry `releaseNotBefore` for the farmer and the trucker while the escrow is `escrowed` (FUP-61 shows a `held` escrow as `escrowed` to an app without the build header, so a held escrow carries no date), for admins always, and never for the buyer (the date can hint at the counterparty's risk, rule of section 17). Mobile and web show "Payout expected on (date)", the day in Ethiopia, while the escrow is `escrowed` and not refund pending. The class, the tier and the score are never returned; the log line `PAYOUT_DELAY_SET escrowId=.. releaseNotBefore=.. hours=.. farmer=<class> trucker=<class|->` is server-side only.
+**Display.** The escrow reads carry `releaseNotBefore` for the farmer and the trucker while the escrow is `escrowed` (FUP-61 shows a `held` escrow as `escrowed` to an app without the build header, so a held escrow carries no date), for admins always, and never for the buyer (the date can hint at the counterparty's risk, rule of section 17). Mobile and web show "Payout expected on (date)", the day in Ethiopia, while the escrow is `escrowed`, not refund pending and the date is still ahead (once it has passed nothing is shown until the hourly payout lands). The class, the tier and the score are never returned; the log line `PAYOUT_DELAY_SET escrowId=.. releaseNotBefore=.. hours=.. farmer=<class> trucker=<class|->` is server-side only.
 
-**Known limits, kept.** A payee who turns HIGH after the confirm keeps the date stamped then (CRITICAL still holds at the sweep). A trusted farmer waits for a new trucker. The trucker retry pays a pending leg of an early admin release only after the date, since the row does not record who released.
+**Known limits, kept.** A payee who turns HIGH after the confirm keeps the date stamped then (CRITICAL still holds at the sweep). A trusted farmer waits for a new trucker, and since both see the same date, a trusted payee who sees confirm + 72 hours can infer the other payee is not trusted (per-leg dates need ESC-20). The trucker retry pays a pending leg of an early admin release or of a `farmer_wins` verdict only after the date, since the row does not record who released.
 
-Tests (all in CI): `server/tests/Services/PayoutDelayPolicyTests.cs` (settings, classes, the later payee, the window floor, the stored value), `server/tests/Functions/EscrowCronPayoutDelayTests.cs` (the auto-release before and after, an older escrow, an unreadable value, the row budget, the dispute sweep, the trucker retry and its overdue age, the stamp repair), `server/tests/Services/EscrowServicePayoutDelayTests.cs` (admin release, the trucker retry and the gate, the reads per party), `server/tests/Functions/SyncFunctionPayoutDelayTests.cs` (the sync stamp), and the mobile model, repository, widget and l10n tests.
+Tests (all in CI): `server/tests/Services/PayoutDelayPolicyTests.cs` (settings, classes, the later payee, the window floor, the stored value), `server/tests/Functions/EscrowCronPayoutDelayTests.cs` (the auto-release before and after, an older escrow, an unreadable value, the row budget, the dispute sweep, the trucker retry and its overdue age, the stamp repair), `server/tests/Services/EscrowServicePayoutDelayTests.cs` (admin release, the trucker retry and the gate, the reads per party), `server/tests/Functions/SyncFunctionPayoutDelayTests.cs` (the sync stamp, one read per payee per batch), `server/tests/Functions/PayoutDelayWiringTests.cs` (the Lambda constructors wire the policy), and the mobile model, repository, widget and l10n tests.
 
 ---
 

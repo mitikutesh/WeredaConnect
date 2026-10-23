@@ -139,6 +139,69 @@ public partial class SyncFunctionTests
     }
 
     [Fact]
+    public async Task DeliveryConfirmed_ThreeDeliveriesInOneBatch_ReadEachPayeeOnce()
+    {
+        // One sync batch confirms three deliveries of the same farmer and trucker: one score, users row and
+        // history Query per payee, not one per delivery.
+        var policy = TrustingPayoutDelay();
+        var escrowRepo = Substitute.For<IEscrowRepository>();
+        var ops = new List<SyncOperationRequest>();
+        for (var i = 1; i <= 3; i++)
+        {
+            escrowRepo.GetByDeliveryIdAsync($"del-00{i}").Returns(new Dictionary<string, object>
+            {
+                { "escrowId", $"esc-00{i}" },
+                { "createdAt", "2026-02-16T10:00:00Z" },
+                { "status", "escrowed" },
+                { "buyerId", "buyer-001" },
+                { "farmerId", "farmer-001" },
+                { "truckerId", "trucker-001" },
+                { "farmerPayout", 7_300m },
+                { "truckerPayout", 500m }
+            });
+            ops.Add(new SyncOperationRequest
+            {
+                OperationId = $"op-deliver-batch-{i}",
+                IdempotencyKey = $"buyer-001:delivery:del-00{i}:update:deliver-batch",
+                EntityType = "delivery",
+                EntityId = $"del-00{i}",
+                Action = "update",
+                Data = new Dictionary<string, object>
+                {
+                    { "status", "delivered" },
+                    { "version", 1 },
+                    { "scannedQrNonce", "nonce-batch" }
+                }
+            });
+        }
+
+        var function = new SyncFunction(
+            _mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, escrowRepo: escrowRepo)
+        {
+            PayoutDelay = policy
+        };
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pickedUp", 1, "nonce-batch");
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(ops.ToArray()), "buyer-001", "buyer"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        var stamps = escrowRepo.ReceivedCalls()
+            .Where(c => c.GetMethodInfo().Name == nameof(IEscrowRepository.UpdateStatusAsync))
+            .Select(c => (Dictionary<string, object>)c.GetArguments()[4]!)
+            .ToList();
+        Assert.Equal(3, stamps.Count);
+        Assert.All(stamps, f => Assert.True(f.ContainsKey(PayoutDelayPolicy.ReleaseNotBeforeField)));
+        await _payeeScores.Received(1).GetUserRiskScoreAsync("farmer-001");
+        await _payeeScores.Received(1).GetUserRiskScoreAsync("trucker-001");
+        await _payeeUsers.Received(1).GetUserByIdAsync("farmer-001");
+        await _payeeUsers.Received(1).GetUserByIdAsync("trucker-001");
+        await _payeeEscrows.Received(1).QueryByFarmerAsync("farmer-001", "completed", 50, null);
+        await _payeeEscrows.Received(1).QueryByTruckerAsync("trucker-001", "completed", 50, null);
+    }
+
+    [Fact]
     public async Task DeliveryConfirmed_WithoutThePolicy_StampsAsBefore()
     {
         var fields = await ConfirmDeliveryWithEscrowAsync(policy: null, truckerOnEscrow: true);

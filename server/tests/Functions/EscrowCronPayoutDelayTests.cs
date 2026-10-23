@@ -195,6 +195,20 @@ public class EscrowCronPayoutDelayTests
     }
 
     [Fact]
+    public async Task AutoRelease_AFarFutureReleaseNotBefore_IsCappedAt168HoursAfterConfirm()
+    {
+        // A bad row can never hold the payout for good: 170 hours after the confirm it is paid.
+        var escrow = Confirmed("esc-far", "2099-01-01T00:00:00.0000000Z");
+        escrow["deliveryConfirmedAt"] = DateTime.UtcNow.AddHours(-170).ToString("o");
+        _escrows.StubReleaseSweep(escrow);
+
+        var summary = await RunAsync(Cron());
+
+        summary["released"].Should().Be("1");
+        await ReleasedAsync("esc-far");
+    }
+
+    [Fact]
     public async Task AutoRelease_DelayedRowDoesNotUseTheRowBudget()
     {
         // ESC-10: only rows that needed a read or a write count; a delayed row needs neither.
@@ -299,6 +313,20 @@ public class EscrowCronPayoutDelayTests
         await RunAsync(Cron());
 
         Logs.Should().Contain("TRUCKER_PAYOUT_OVERDUE escrowId=esc-t3 reason=deferred ageHours=25");
+    }
+
+    [Fact]
+    public async Task TruckerRetry_AFarFutureReleaseNotBefore_NeverSilencesTheOverdueAlarm()
+    {
+        // Confirmed 200 hours ago: the stored 2099 is read as confirm + 168 hours, 32 hours ago.
+        var row = PendingLeg("esc-t4", pendingHoursAgo: 190, releaseNotBeforeInHours: 0);
+        row[PayoutDelayPolicy.ReleaseNotBeforeField] = "2099-01-01T00:00:00.0000000Z";
+        row["deliveryConfirmedAt"] = DateTime.UtcNow.AddHours(-200).ToString("o");
+        _context.RemainingTime = EscrowCronFunction.TruckerRetryTimeReserve - TimeSpan.FromSeconds(1);
+
+        await RunAsync(Cron());
+
+        Logs.Should().Contain("TRUCKER_PAYOUT_OVERDUE escrowId=esc-t4 reason=deferred ageHours=32");
     }
 
     // ── The stamp repair ──────────────────────────────────────────────

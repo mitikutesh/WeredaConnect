@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
@@ -21,10 +22,14 @@ class MockAuthBloc extends Mock implements AuthBloc {}
 
 class FakeEscrowEvent extends Fake implements EscrowEvent {}
 
-/// 22:30 UTC on 26 Oct is 01:30 on 27 Oct in Ethiopia (UTC+3): the screens
-/// show the day in Ethiopia (SIM-50), whatever the device timezone.
-final _releaseNotBefore = DateTime.utc(2026, 10, 26, 22, 30);
-const _expectedText = 'Payout expected on Oct 27, 2026';
+/// Five days ahead at 22:30 UTC, which is 01:30 the next day in Ethiopia
+/// (UTC+3): the screens show the day in Ethiopia (SIM-50), whatever the
+/// device timezone. Relative to now, since a date that has passed is hidden.
+final _ahead = DateTime.now().toUtc().add(const Duration(days: 5));
+final _releaseNotBefore =
+    DateTime.utc(_ahead.year, _ahead.month, _ahead.day, 22, 30);
+final _expectedText = 'Payout expected on '
+    '${DateFormat.yMMMd().format(DateTime.utc(_ahead.year, _ahead.month, _ahead.day + 1))}';
 
 Payment _payment(
   PaymentStatus status, {
@@ -134,6 +139,28 @@ void main() {
           payment: _payment(
             PaymentStatus.completed,
             releaseNotBefore: _releaseNotBefore,
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(
+        host(const EscrowStatusScreen(escrowId: 'escrow-order-ord-1')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Payout expected'), findsNothing);
+    });
+
+    testWidgets('a date that has passed while still escrowed: nothing shown',
+        (tester) async {
+      tallView(tester);
+      signIn(UserRole.trucker);
+      when(() => escrowBloc.state).thenReturn(
+        EscrowDetailLoaded(
+          payment: _payment(
+            PaymentStatus.escrowed,
+            releaseNotBefore:
+                DateTime.now().toUtc().subtract(const Duration(hours: 2)),
           ),
         ),
       );

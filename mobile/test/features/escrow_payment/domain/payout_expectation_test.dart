@@ -31,16 +31,33 @@ Payment _payment(
 /// the payee and the server sent a date.
 void main() {
   final at = DateTime.utc(2026, 10, 26, 12);
+  final before = at.subtract(const Duration(hours: 1));
 
   test('an escrowed payment with a date expects its payout then', () {
     expect(
-      expectedPayoutAt(_payment(PaymentStatus.escrowed, releaseNotBefore: at)),
+      expectedPayoutAt(
+        _payment(PaymentStatus.escrowed, releaseNotBefore: at),
+        now: before,
+      ),
       at,
     );
   });
 
+  test('a date that has passed while still escrowed: nothing to show', () {
+    final payment = _payment(PaymentStatus.escrowed, releaseNotBefore: at);
+
+    expect(expectedPayoutAt(payment, now: at), isNull);
+    expect(
+      expectedPayoutAt(payment, now: at.add(const Duration(minutes: 5))),
+      isNull,
+    );
+  });
+
   test('no date (the buyer, or an older server): nothing to show', () {
-    expect(expectedPayoutAt(_payment(PaymentStatus.escrowed)), isNull);
+    expect(
+      expectedPayoutAt(_payment(PaymentStatus.escrowed), now: before),
+      isNull,
+    );
   });
 
   test('a refund on its way: nothing to show', () {
@@ -51,6 +68,7 @@ void main() {
           releaseNotBefore: at,
           refundPending: true,
         ),
+        now: before,
       ),
       isNull,
     );
@@ -61,7 +79,7 @@ void main() {
   )) {
     test('${status.name}: nothing to show', () {
       expect(
-        expectedPayoutAt(_payment(status, releaseNotBefore: at)),
+        expectedPayoutAt(_payment(status, releaseNotBefore: at), now: before),
         isNull,
       );
     });
