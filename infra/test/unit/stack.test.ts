@@ -501,10 +501,10 @@ describe('ApiStack', () => {
     }
   });
 
-  test('FRD-03: escrow-cron ships with the fraud hold off and the grants its hold write needs', () => {
+  test('FRD-03, FUP-61: dev runs escrow-cron with the fraud hold on and the grants its hold write needs', () => {
     template.hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-escrow-cron',
-      Environment: { Variables: Match.objectLike({ FRAUD_HOLD_ENABLED: 'false' }) },
+      Environment: { Variables: Match.objectLike({ FRAUD_HOLD_ENABLED: 'true' }) },
     });
 
     // A large role spills into an overflow managed policy, so read both kinds.
@@ -541,7 +541,7 @@ describe('ApiStack', () => {
     expect(actionsOn('SyncFunctionServiceRole', 'OrdersTable')).toContain('dynamodb:UpdateItem');
     template.hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-sync',
-      Environment: { Variables: Match.objectLike({ FRAUD_HOLD_ENABLED: 'false' }) },
+      Environment: { Variables: Match.objectLike({ FRAUD_HOLD_ENABLED: 'true' }) },
     });
   });
 
@@ -549,7 +549,7 @@ describe('ApiStack', () => {
     template.hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-escrow-cron',
       Environment: {
-        Variables: Match.objectLike({ FRAUD_SIGNALS_TABLE: Match.anyValue(), FRAUD_HOLD_ENABLED: 'false' }),
+        Variables: Match.objectLike({ FRAUD_SIGNALS_TABLE: Match.anyValue(), FRAUD_HOLD_ENABLED: 'true' }),
       },
     });
 
@@ -938,6 +938,21 @@ describe('ApiStack (prod security)', () => {
     });
   });
 
+  test('FUP-61: CORS allows X-App-Build, which the apps send on every request', () => {
+    template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
+      CorsConfiguration: Match.objectLike({ AllowHeaders: Match.arrayWith(['X-App-Build']) }),
+    });
+  });
+
+  test('FUP-61: prod keeps the fraud hold off on sync and escrow-cron', () => {
+    for (const functionName of ['wereda-connect-prod-sync', 'wereda-connect-prod-escrow-cron']) {
+      template.hasResourceProperties('AWS::Lambda::Function', {
+        FunctionName: functionName,
+        Environment: { Variables: Match.objectLike({ FRAUD_HOLD_ENABLED: 'false' }) },
+      });
+    }
+  });
+
   test('T-SEC-01/02: no Lambda has DEV_FAYDA_BYPASS, TELEBIRR_MOCK, or DEV_OTP_BYPASS', () => {
     const lambdas = template.findResources('AWS::Lambda::Function');
     for (const resource of Object.values(lambdas)) {
@@ -1027,6 +1042,26 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
         .Properties?.Environment?.Variables ?? {};
       expect(env).not.toHaveProperty('FAYDA_MOCK');
       expect(env).not.toHaveProperty('FAYDA_MOCK_WEB_REDIRECT_URIS');
+    }
+  });
+
+  test('FUP-61: staging keeps the fraud hold off on sync and escrow-cron', () => {
+    const template = liveTemplate(environments['staging']);
+    for (const functionName of ['wereda-connect-staging-sync', 'wereda-connect-staging-escrow-cron']) {
+      template.hasResourceProperties('AWS::Lambda::Function', {
+        FunctionName: functionName,
+        Environment: { Variables: Match.objectLike({ FRAUD_HOLD_ENABLED: 'false' }) },
+      });
+    }
+  });
+
+  test('FUP-61: fraudHoldEnabled in the config turns the hold on for both Lambdas together', () => {
+    const template = liveTemplate({ ...environments['staging'], fraudHoldEnabled: true });
+    for (const functionName of ['wereda-connect-staging-sync', 'wereda-connect-staging-escrow-cron']) {
+      template.hasResourceProperties('AWS::Lambda::Function', {
+        FunctionName: functionName,
+        Environment: { Variables: Match.objectLike({ FRAUD_HOLD_ENABLED: 'true' }) },
+      });
     }
   });
 
