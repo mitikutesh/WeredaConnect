@@ -128,4 +128,20 @@ void main() {
       expect(tokens, isNull);
     },
   );
+
+  // ACC-03: a deleted account leaves nothing in this browser; another
+  // account cached in the same browser is untouched.
+  test('forgetAccount removes only that phone\'s cache entries', () async {
+    const other = '+251911000002';
+    for (final p in [phone, other]) {
+      store[userKey(p)] = jsonEncode(cachedUser('farmer'));
+      store[tokensKey(p)] = '{}';
+      store['cached_at_$p'] = '2026-10-23T00:00:00.000Z';
+    }
+
+    await OfflineAuthCache().forgetAccount(phone);
+
+    expect(store.keys.where((k) => k.endsWith(phone)), isEmpty);
+    expect(store.keys.where((k) => k.endsWith(other)), hasLength(3));
+  });
 }

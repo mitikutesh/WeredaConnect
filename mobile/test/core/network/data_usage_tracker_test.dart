@@ -159,6 +159,52 @@ void main() {
       expect(tracker.totalBytes, 0);
       expect(tracker.trackingSince, isNull);
     });
+
+    // ACC-03: a deleted account's counters leave the device.
+    test('forgetCurrentUser removes only that account\'s counters', () async {
+      final tracker = newTracker();
+      await tracker.initialize();
+      tracker
+        ..setUser('user-b')
+        ..addDownloaded(70)
+        ..setUser('user-a')
+        ..addDownloaded(500)
+        ..addUploaded(20);
+      await Future<void>.delayed(Duration.zero);
+      final prefs = await SharedPreferences.getInstance();
+      final before = prefs.getKeys().length;
+
+      await tracker.forgetCurrentUser();
+      tracker.addDownloaded(5);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(tracker.userId, isNull);
+      expect(tracker.totalBytes, 0);
+      expect(prefs.getKeys(), hasLength(before - 3));
+      tracker.setUser('user-b');
+      expect(tracker.bytesDownloaded, 70);
+      tracker.setUser('user-a');
+      expect(tracker.totalBytes, 0, reason: 'starts over like a new account');
+    });
+  });
+
+  // ACC-03: an account deleted after it signed out.
+  test('forgetStoredUser removes only that account\'s stored counters',
+      () async {
+    final tracker = newTracker();
+    await tracker.initialize();
+    tracker
+      ..setUser('user-a')
+      ..addDownloaded(500)
+      ..setUser('user-b')
+      ..addDownloaded(70);
+    await Future<void>.delayed(Duration.zero);
+
+    await DataUsageTracker.forgetStoredUser('user-a');
+
+    expect(tracker.bytesDownloaded, 70, reason: 'user-b is still counted');
+    tracker.setUser('user-a');
+    expect(tracker.totalBytes, 0);
   });
 
   group('byte estimates', () {

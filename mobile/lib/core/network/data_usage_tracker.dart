@@ -59,10 +59,42 @@ class DataUsageTracker extends ChangeNotifier {
   void setUser(String? userId) {
     if (userId == _userId) return;
     _userId = userId;
-    _keySuffix = userId == null
-        ? null
-        : sha256.convert(utf8.encode(userId)).toString().substring(0, 16);
+    _keySuffix = userId == null ? null : _suffixFor(userId);
     _load();
+  }
+
+  static String _suffixFor(String userId) =>
+      sha256.convert(utf8.encode(userId)).toString().substring(0, 16);
+
+  /// Remove the stored counters of [userId], an account that is not the one
+  /// being counted (it was deleted after it signed out).
+  static Future<void> forgetStoredUser(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final suffix = _suffixFor(userId);
+    await Future.wait([
+      prefs.remove('$_downloadedKey:$suffix'),
+      prefs.remove('$_uploadedKey:$suffix'),
+      prefs.remove('$_sinceKey:$suffix'),
+    ]);
+  }
+
+  /// Remove the signed-in account's counters from this device (the account
+  /// was deleted) and stop counting. Stops first, so a response still in
+  /// flight cannot write them back.
+  Future<void> forgetCurrentUser() async {
+    final prefs = _prefs;
+    final suffix = _keySuffix;
+    setUser(null);
+    if (prefs == null || suffix == null) return;
+    try {
+      await Future.wait([
+        prefs.remove('$_downloadedKey:$suffix'),
+        prefs.remove('$_uploadedKey:$suffix'),
+        prefs.remove('$_sinceKey:$suffix'),
+      ]);
+    } on Object catch (e) {
+      debugPrint('[DataUsageTracker] forget failed: $e');
+    }
   }
 
   /// Record bytes received from a server response.

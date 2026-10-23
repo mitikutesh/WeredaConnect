@@ -63,7 +63,7 @@ Each contract file follows this structure:
 | Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 1.26.0 | Mobile, Backend, Admin |
 | Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 1.29.0 | Mobile, Backend, Admin, Infrastructure, Telebirr Gateway |
 | Delivery Verification API | `delivery-verification-api.md` | 1.17.0 | Mobile, Backend |
-| Account Deletion | `account-deletion.md` | 1.2.0 | Mobile, Backend, Infrastructure, Admin |
+| Account Deletion | `account-deletion.md` | 1.3.0 | Mobile, Backend, Infrastructure, Admin |
 
 ---
 

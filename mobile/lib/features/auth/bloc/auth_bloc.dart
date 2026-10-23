@@ -12,6 +12,9 @@ import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart'
     if (dart.library.html) 'package:wereda_connect/core/auth/offline_auth_cache_web.dart';
 import 'package:wereda_connect/core/auth/session_signals.dart';
+import 'package:wereda_connect/core/models/buyer_intent.dart';
+import 'package:wereda_connect/core/models/conversation_read.dart';
+import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/message.dart';
 import 'package:wereda_connect/core/models/order.dart';
@@ -19,9 +22,14 @@ import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/payment_intent.dart';
 import 'package:wereda_connect/core/models/rating.dart';
 import 'package:wereda_connect/core/models/sync_operation.dart';
+import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/messaging/data/repositories/web_message_repository.dart';
 
 /// BLoC for managing authentication state.
 ///
@@ -47,8 +55,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final OfflineAuthCache _offlineCache;
   final Isar? _isar;
   final Future<String?> Function()? _pushTokenProvider;
+  final Future<void> Function()? _pushTokenDeleter;
+  final Future<void> Function(String userId) _forgetReadMarkers;
+  final Future<void> Function(String userId) _forgetDataUsage;
   final SecurityEvents _securityEvents;
   StreamSubscription<void>? _sessionExpiredSub;
+  StreamSubscription<String>? _accountGoneSub;
   String? _currentPhoneNumber;
   bool _cancelled = false;
 
@@ -87,19 +99,32 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   /// [pushTokenProvider] returns this device's current FCM token (mobile
   /// only) so logout can ask the server to stop pushing to it.
-  /// [sessionExpired] fires when the server rejects the refresh token.
+  /// [pushTokenDeleter] drops that token on this device once the account is
+  /// deleted (mobile only).
+  /// [forgetReadMarkers] removes the web read markers of a deleted account,
+  /// [forgetDataUsage] the data usage counters of one that is not signed in.
+  /// [sessionExpired] fires when the server rejects the refresh token,
+  /// [accountGone] when it refuses a request with `410 ACCOUNT_004`.
   /// [securityEvents] defaults to the app-wide bus (tests inject one).
   AuthBloc({
     AuthService? authService,
     OfflineAuthCache? offlineCache,
     Isar? isar,
     Future<String?> Function()? pushTokenProvider,
+    Future<void> Function()? pushTokenDeleter,
+    Future<void> Function(String userId)? forgetReadMarkers,
+    Future<void> Function(String userId)? forgetDataUsage,
     Stream<void>? sessionExpired,
+    Stream<String>? accountGone,
     SecurityEvents? securityEvents,
   })  : _authService = authService ?? AuthService(),
         _offlineCache = offlineCache ?? OfflineAuthCache(),
         _isar = isar,
         _pushTokenProvider = pushTokenProvider,
+        _pushTokenDeleter = pushTokenDeleter,
+        _forgetReadMarkers =
+            forgetReadMarkers ?? WebMessageRepository.forgetReadMarkers,
+        _forgetDataUsage = forgetDataUsage ?? DataUsageTracker.forgetStoredUser,
         _securityEvents = securityEvents ?? SecurityEvents.instance,
         super(const AuthInitial()) {
     // Register event handlers
@@ -112,6 +137,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthCancelRequested>(_onAuthCancelRequested);
     on<AuthOtpAbandoned>(_onOtpAbandoned);
     on<AuthLogoutRequested>(_onAuthLogoutRequested);
+    on<AuthAccountDeleted>(_onAccountDeleted);
+    on<AuthAccountGone>(_onAccountGone);
     on<AuthForgotPasswordRequested>(_onForgotPassword);
     on<AuthResetPasswordRequested>(_onResetPassword);
     on<AuthVerifyOtpRequested>(_onVerifyOtp);
@@ -122,6 +149,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     _sessionExpiredSub =
         (sessionExpired ?? SessionSignals.instance.onSessionExpired)
             .listen((_) => add(const AuthSessionExpired()));
+    _accountGoneSub = (accountGone ?? SessionSignals.instance.onAccountGone)
+        .listen((state) => add(AuthAccountGone(deletionState: state)));
   }
 
   /// The auth service, for flows that talk to it directly (step-up dialog).
@@ -130,7 +159,38 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   @override
   Future<void> close() async {
     await _sessionExpiredSub?.cancel();
+    await _accountGoneSub?.cancel();
     return super.close();
+  }
+
+  /// The stored ID token, when it is [userId]'s own (its `sub`) and [userId]
+  /// is signed in here and in the stored session: the bearer a request that
+  /// must only ever act for [userId] sends itself. Null otherwise; on web the
+  /// stored session is shared by every tab.
+  Future<String?> bearerFor(String userId) async {
+    if (!await isSignedInAs(userId)) return null;
+    try {
+      final token = await _secureStorage.read(key: _activeIdTokenKey);
+      if (token == null || jwtSubject(token) != userId) return null;
+      return token;
+    } on Object {
+      return null;
+    }
+  }
+
+  /// Whether [userId] is signed in, here and in the stored session the API
+  /// client sends. On web every tab shares that storage, so a tab still
+  /// showing one account may hold another account's session.
+  Future<bool> isSignedInAs(String userId) async {
+    final current = state;
+    if (current is! AuthAuthenticated || current.userId != userId) {
+      return false;
+    }
+    try {
+      return await _secureStorage.read(key: currentUserIdKey) == userId;
+    } on Object {
+      return false;
+    }
   }
 
   void _clearPendingOtp() {
@@ -761,6 +821,101 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
   }
 
+  /// The account was deleted on the server: remove everything this device
+  /// holds for it (account-deletion.md, client obligations).
+  ///
+  /// Reuses the logout wipe and adds what logout keeps: the user's own
+  /// listings, trips, buyer requests, payment intents and read markers, the
+  /// users row and the offline-login counter. Other accounts on a shared
+  /// phone keep their data and queued work, so the database stays open
+  /// instead of going through IsarService.clearAllData. No server call: the
+  /// server already ended every session and removed the device tokens.
+  /// Every step is best effort, so one failure never keeps the user signed
+  /// in.
+  ///
+  /// When [userId] is signed in, the session ends with [AuthAccountWiped]
+  /// and the data usage counters go with it (see bindDataUsageToAuth). When
+  /// it is not (the answer came after it signed out, or after another
+  /// account signed in), only its local data goes: the current session, and
+  /// the push token it may now use, are left alone.
+  Future<void> _wipeDeletedAccount(
+    Emitter<AuthState> emit, {
+    required String userId,
+    String? phoneNumber,
+  }) async {
+    final current = state;
+    final session = current is AuthAuthenticated && current.userId == userId
+        ? current
+        : null;
+    final signedIn = session != null;
+    final phone = session != null
+        ? _currentPhoneNumber ?? session.phoneNumber ?? phoneNumber
+        : phoneNumber;
+
+    Future<void> step(String what, Future<void> Function() run) async {
+      try {
+        await run();
+      } on Object catch (e) {
+        debugPrint('[AuthBloc] account wipe: $what failed: $e');
+      }
+    }
+
+    if (signedIn) {
+      _clearPendingOtp();
+      emit(const AuthLoading());
+      final deleter = _pushTokenDeleter;
+      if (deleter != null) {
+        await step(
+          'push token',
+          () => deleter().timeout(pushUnregisterBudget),
+        );
+      }
+    }
+    final isar = _isar;
+    if (isar != null) {
+      await step('business data', () => _clearUserBusinessData(isar, userId));
+      await step('account data', () => _clearAccountData(isar, userId));
+    }
+    if (phone != null && phone.isNotEmpty) {
+      await step('offline cache', () => _offlineCache.forgetAccount(phone));
+    }
+    await step('read markers', () => _forgetReadMarkers(userId));
+    if (!signedIn) {
+      await step('data usage', () => _forgetDataUsage(userId));
+      return;
+    }
+    _securityEvents.clearKeptRejections();
+    await step('session', _clearSession);
+
+    emit(const AuthAccountWiped());
+  }
+
+  Future<void> _onAccountDeleted(
+    AuthAccountDeleted event,
+    Emitter<AuthState> emit,
+  ) =>
+      _wipeDeletedAccount(
+        emit,
+        userId: event.userId,
+        phoneNumber: event.phoneNumber,
+      );
+
+  /// `410 ACCOUNT_004`: wipe the signed-in account unless its deletion is
+  /// still `in_progress` (it can abort, and Profile > Delete account resumes
+  /// it). Nothing happens when the stored session belongs to another
+  /// account: on web another tab may have signed it in, and the refusal was
+  /// about that one.
+  Future<void> _onAccountGone(
+    AuthAccountGone event,
+    Emitter<AuthState> emit,
+  ) async {
+    if (event.deletionState == deletionInProgressState) return;
+    final current = state;
+    if (current is! AuthAuthenticated) return;
+    if (!await isSignedInAs(current.userId)) return;
+    await _wipeDeletedAccount(emit, userId: current.userId);
+  }
+
   /// Confirm the registration OTP; on success the session starts exactly
   /// like a login.
   Future<void> _onVerifyOtp(
@@ -1066,6 +1221,50 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           .idempotencyKeyStartsWith('$userId:')
           .findAll();
       await isar.syncOperations.deleteAll(ops.map((o) => o.id).toList());
+    });
+  }
+
+  /// Delete what a deleted account leaves after [_clearUserBusinessData]:
+  /// its own listings, trips, buyer requests and payment intents, the orders
+  /// it carried as trucker, its read markers and its users row. Listings of
+  /// other users stay (public marketplace data).
+  Future<void> _clearAccountData(Isar isar, String userId) async {
+    if (kIsWeb) return;
+    await isar.writeTxn(() async {
+      final listings =
+          await isar.cropListings.filter().farmerIdEqualTo(userId).findAll();
+      await isar.cropListings.deleteAll(listings.map((l) => l.id).toList());
+
+      final trips =
+          await isar.trips.filter().truckerIdEqualTo(userId).findAll();
+      await isar.trips.deleteAll(trips.map((t) => t.id).toList());
+
+      final intents =
+          await isar.buyerIntents.filter().buyerIdEqualTo(userId).findAll();
+      await isar.buyerIntents.deleteAll(intents.map((i) => i.id).toList());
+
+      final asBuyer =
+          await isar.paymentIntents.filter().buyerIdEqualTo(userId).findAll();
+      final asFarmer =
+          await isar.paymentIntents.filter().farmerIdEqualTo(userId).findAll();
+      final paymentIds = <int>{
+        for (final p in [...asBuyer, ...asFarmer]) p.id,
+      };
+      await isar.paymentIntents.deleteAll(paymentIds.toList());
+
+      final hauled =
+          await isar.orders.filter().truckerIdEqualTo(userId).findAll();
+      await isar.orders.deleteAll(hauled.map((o) => o.id).toList());
+
+      // `{contextType}:{contextId}:{userA}:{userB}`
+      final reads = await isar.conversationReads.where().findAll();
+      await isar.conversationReads.deleteAll([
+        for (final r in reads)
+          if (r.conversationId.split(':').skip(2).contains(userId)) r.id,
+      ]);
+
+      final users = await isar.users.filter().userIdEqualTo(userId).findAll();
+      await isar.users.deleteAll(users.map((u) => u.id).toList());
     });
   }
 }

@@ -98,6 +98,12 @@ class AuthUnauthenticated extends AuthState {
   const AuthUnauthenticated();
 }
 
+/// Signed out because the account was deleted: the device no longer holds
+/// its data. Still an [AuthUnauthenticated] for every screen and router.
+class AuthAccountWiped extends AuthUnauthenticated {
+  const AuthAccountWiped();
+}
+
 /// Error state (authentication operation failed).
 class AuthError extends AuthState {
   final String errorCode;

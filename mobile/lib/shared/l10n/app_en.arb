@@ -3779,5 +3779,180 @@
   "errorContactInText": "Phone numbers are not allowed here. Remove the number: contact opens after payment is held in escrow.",
   "@errorContactInText": {
     "description": "A crop or trip text field that buyers read holds a phone number. Shown under the field and when the server refuses the listing (CROP_CONTACT_IN_TEXT / TRIP_CONTACT_IN_TEXT, FUP-49)"
+  },
+  "deleteAccount": "Delete account",
+  "@deleteAccount": {
+    "description": "Profile menu entry and screen title: delete the signed-in account (all roles)"
+  },
+  "deleteAccountSubtitle": "Remove your account and personal data",
+  "@deleteAccountSubtitle": {
+    "description": "Profile menu subtitle under Delete account"
+  },
+  "deleteAccountWarning": "Deleting your account is permanent. It cannot be undone.",
+  "@deleteAccountWarning": {
+    "description": "Delete account screen: warning at the top"
+  },
+  "deleteAccountDeletedHeading": "What is deleted",
+  "@deleteAccountDeletedHeading": {
+    "description": "Delete account screen: heading of the list of data that is deleted"
+  },
+  "deleteAccountDeletedProfile": "Your profile, name and phone number",
+  "@deleteAccountDeletedProfile": {
+    "description": "Delete account screen: deleted item (profile, name, phone)"
+  },
+  "deleteAccountDeletedFayda": "The link to your Fayda ID",
+  "@deleteAccountDeletedFayda": {
+    "description": "Delete account screen: deleted item (Fayda link)"
+  },
+  "deleteAccountDeletedListings": "Your crop listings, trips and buying intents",
+  "@deleteAccountDeletedListings": {
+    "description": "Delete account screen: deleted item (listings, trips, buying intents)"
+  },
+  "deleteAccountDeletedMessages": "Your messages",
+  "@deleteAccountDeletedMessages": {
+    "description": "Delete account screen: deleted item (chat messages)"
+  },
+  "deleteAccountDeletedNotifications": "Notifications to your phone",
+  "@deleteAccountDeletedNotifications": {
+    "description": "Delete account screen: deleted item (push notification tokens)"
+  },
+  "deleteAccountKeptHeading": "What is kept, without your name",
+  "@deleteAccountKeptHeading": {
+    "description": "Delete account screen: heading of the records that are kept anonymized"
+  },
+  "deleteAccountKeptRecords": "Orders, deliveries and payment records",
+  "@deleteAccountKeptRecords": {
+    "description": "Delete account screen: kept item (orders, deliveries, escrow and audit records)"
+  },
+  "deleteAccountKeptReason": "Money records must be kept. Your name on them is replaced with Deleted user.",
+  "@deleteAccountKeptReason": {
+    "description": "Delete account screen: why records are kept and how the name is replaced (the same words as deletedUser)"
+  },
+  "deleteAccountNeedsInternet": "You need internet for this. You may be asked for your password.",
+  "@deleteAccountNeedsInternet": {
+    "description": "Delete account screen: online only, and the password may be asked again (AUTH_040)"
+  },
+  "deleteAccountButton": "Delete my account",
+  "@deleteAccountButton": {
+    "description": "Delete account screen: the button that opens the confirm dialog"
+  },
+  "deleteAccountConfirmTitle": "Delete your account?",
+  "@deleteAccountConfirmTitle": {
+    "description": "Confirm dialog title before the account is deleted"
+  },
+  "deleteAccountConfirmBody": "This cannot be undone. Your profile, listings and messages will be deleted.",
+  "@deleteAccountConfirmBody": {
+    "description": "Confirm dialog body before the account is deleted"
+  },
+  "deleteAccountDeleting": "Deleting your account...",
+  "@deleteAccountDeleting": {
+    "description": "Delete account screen: shown while the request runs"
+  },
+  "deleteAccountFinishing": "Finishing the deletion...",
+  "@deleteAccountFinishing": {
+    "description": "Delete account screen: the server started the deletion and the app sends it again (503 ACCOUNT_005)"
+  },
+  "deleteAccountDone": "Your account was deleted.",
+  "@deleteAccountDone": {
+    "description": "Snackbar after the account was deleted, on the way to the login screen"
+  },
+  "deleteAccountOffline": "You are offline. Connect to the internet to delete your account.",
+  "@deleteAccountOffline": {
+    "description": "Delete account screen: no network, nothing was sent (never queued)"
+  },
+  "deleteAccountNetworkError": "We could not reach the server, so we cannot tell if your account was deleted. Check your connection and try again.",
+  "@deleteAccountNetworkError": {
+    "description": "Delete account screen: the request got no answer; trying again is safe"
+  },
+  "deleteAccountIncomplete": "The deletion started but is not finished yet. Try again in a moment.",
+  "@deleteAccountIncomplete": {
+    "description": "Delete account screen: automatic retries of 503 ACCOUNT_005 ran out"
+  },
+  "deleteAccountSuspended": "This account is suspended, so it cannot be deleted here. Contact support.",
+  "@deleteAccountSuspended": {
+    "description": "Delete account screen: ACCOUNT_003, a suspended account cannot delete itself"
+  },
+  "deleteAccountFailed": "Your account could not be deleted. Try again later.",
+  "@deleteAccountFailed": {
+    "description": "Delete account screen: any other error (ACCOUNT_001, AUTH_007, unknown)"
+  },
+  "deleteAccountOtherAccount": "Another account is now signed in here, so nothing was deleted. Reload the page or reopen the app, then try again.",
+  "@deleteAccountOtherAccount": {
+    "description": "Delete account screen: the stored session is another account now (shared phone, or another tab on web), so nothing was sent"
+  },
+  "deleteAccountBlockedTitle": "You cannot delete your account yet",
+  "@deleteAccountBlockedTitle": {
+    "description": "Delete account screen: ACCOUNT_002, active items block the deletion"
+  },
+  "deleteAccountBlockedIntro": "Finish or cancel these first:",
+  "@deleteAccountBlockedIntro": {
+    "description": "Delete account screen: introduces the list of blocking items"
+  },
+  "deleteAccountBlockerOrder": "Active orders: {count}",
+  "@deleteAccountBlockerOrder": {
+    "description": "Blocker line (type order): number of active orders",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "deleteAccountBlockerEscrow": "Payments held in escrow: {count}",
+  "@deleteAccountBlockerEscrow": {
+    "description": "Blocker line (type escrow): number of payments still held",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "deleteAccountBlockerDelivery": "Open deliveries: {count}",
+  "@deleteAccountBlockerDelivery": {
+    "description": "Blocker line (type delivery): number of open deliveries",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "deleteAccountBlockerDispute": "Open disputes: {count}",
+  "@deleteAccountBlockerDispute": {
+    "description": "Blocker line (type dispute): number of open disputes",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "deleteAccountBlockerPaymentReview": "Payments waiting for a refund: {count}. Contact support to finish the refund.",
+  "@deleteAccountBlockerPaymentReview": {
+    "description": "Blocker line (type payment_review): a captured payment awaits a manual refund that only support can record",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "deleteAccountBlockerOther": "Other active items: {count}",
+  "@deleteAccountBlockerOther": {
+    "description": "Blocker line for a blocker type this app version does not know",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "deleteAccountBlockersMore": "And {count} more.",
+  "@deleteAccountBlockersMore": {
+    "description": "Blocked list: the server listed fewer items than blockerCount",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "deletedUser": "Deleted user",
+  "@deletedUser": {
+    "description": "Shown instead of the name of a party whose account was deleted (server sentinel 'Deleted user')"
   }
 }

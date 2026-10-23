@@ -3052,4 +3052,140 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get errorContactInText =>
       'Lakkoofsi bilbilaa asitti hin hayyamamu. Lakkoofsa kana haqi; quunnamtiin kan banamu erga kaffaltiin Eeskiroo keessatti qabamee booda.';
+
+  @override
+  String get deleteAccount => 'Herrega haqi';
+
+  @override
+  String get deleteAccountSubtitle =>
+      'Herrega fi odeeffannoo dhuunfaa keessan haqaa';
+
+  @override
+  String get deleteAccountWarning =>
+      'Herrega haquun yeroo hundaafi. Deebisuun hin danda\'amu.';
+
+  @override
+  String get deleteAccountDeletedHeading => 'Kan haqamu';
+
+  @override
+  String get deleteAccountDeletedProfile =>
+      'Ibsa, maqaa fi lakkoofsa bilbilaa keessan';
+
+  @override
+  String get deleteAccountDeletedFayda =>
+      'Walitti hidhamiinsa eenyummaa Faayidaa keessanii';
+
+  @override
+  String get deleteAccountDeletedListings =>
+      'Tarreewwan midhaan, imala fi fedhii bittaa keessan';
+
+  @override
+  String get deleteAccountDeletedMessages => 'Ergaawwan keessan';
+
+  @override
+  String get deleteAccountDeletedNotifications =>
+      'Beeksisa gara bilbila keessanii ergamu';
+
+  @override
+  String get deleteAccountKeptHeading => 'Kan kuufamu, maqaa keessan malee';
+
+  @override
+  String get deleteAccountKeptRecords =>
+      'Galmee ajajaa, geejjibaa fi kaffaltii';
+
+  @override
+  String get deleteAccountKeptReason =>
+      'Galmeen maallaqaa kuufamuu qaba. Maqaan keessan isaan irratti jiru Fayyadamaa haqame jedhamee bakka bu\'a.';
+
+  @override
+  String get deleteAccountNeedsInternet =>
+      'Kanaaf interneetii barbaaddu. Jecha icciitii keessan akka galchitan isin gaafatamuu danda\'a.';
+
+  @override
+  String get deleteAccountButton => 'Herrega koo haqi';
+
+  @override
+  String get deleteAccountConfirmTitle => 'Herregni keessan haa haqamu?';
+
+  @override
+  String get deleteAccountConfirmBody =>
+      'Kana deebisuun hin danda\'amu. Ibsi, tarreewwanii fi ergaawwan keessan ni haqamu.';
+
+  @override
+  String get deleteAccountDeleting => 'Herregni keessan haqamaa jira...';
+
+  @override
+  String get deleteAccountFinishing => 'Haquun xumuramaa jira...';
+
+  @override
+  String get deleteAccountDone => 'Herregni keessan haqameera.';
+
+  @override
+  String get deleteAccountOffline =>
+      'Interneetii hin qabdan. Herrega keessan haquuf interneetiin walqunnamaa.';
+
+  @override
+  String get deleteAccountNetworkError =>
+      'Sarvarii argachuu hin dandeenye, kanaaf herregni keessan haqamuu isaa beekuu hin dandeenyu. Walqunnamtii keessan mirkaneessaatii irra deebi\'aa yaalaa.';
+
+  @override
+  String get deleteAccountIncomplete =>
+      'Haquun jalqabameera garuu ammallee hin xumuramne. Yeroo muraasa booda irra deebi\'aa yaalaa.';
+
+  @override
+  String get deleteAccountSuspended =>
+      'Herregni kun dhorkameera, kanaaf asitti haqamuu hin danda\'u. Deeggarsa qunnamaa.';
+
+  @override
+  String get deleteAccountFailed =>
+      'Herregni keessan haqamuu hin dandeenye. Booda irra deebi\'aa yaalaa.';
+
+  @override
+  String get deleteAccountOtherAccount =>
+      'Asitti amma herregni biraa seeneera, kanaaf homtuu hin haqamne. Fuula irra deebi\'aa fe\'aa ykn appii irra deebi\'aa banaa, achiis irra deebi\'aa yaalaa.';
+
+  @override
+  String get deleteAccountBlockedTitle =>
+      'Herrega keessan ammallee haquu hin dandeessan';
+
+  @override
+  String get deleteAccountBlockedIntro => 'Dura kanneen xumuraa ykn haqaa:';
+
+  @override
+  String deleteAccountBlockerOrder(int count) {
+    return 'Ajajoota hojii irra jiran: $count';
+  }
+
+  @override
+  String deleteAccountBlockerEscrow(int count) {
+    return 'Kaffaltiiwwan Eeskiroo keessatti qabaman: $count';
+  }
+
+  @override
+  String deleteAccountBlockerDelivery(int count) {
+    return 'Geejjiboota hin xumuramne: $count';
+  }
+
+  @override
+  String deleteAccountBlockerDispute(int count) {
+    return 'Komiiwwan hin furamne: $count';
+  }
+
+  @override
+  String deleteAccountBlockerPaymentReview(int count) {
+    return 'Kaffaltiiwwan deebii eeggatan: $count. Deebii xumuruuf deeggarsa qunnamaa.';
+  }
+
+  @override
+  String deleteAccountBlockerOther(int count) {
+    return 'Wantoota biroo hojii irra jiran: $count';
+  }
+
+  @override
+  String deleteAccountBlockersMore(int count) {
+    return 'Fi $count dabalataa.';
+  }
+
+  @override
+  String get deletedUser => 'Fayyadamaa haqame';
 }

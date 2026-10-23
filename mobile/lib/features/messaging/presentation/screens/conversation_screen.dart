@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
@@ -202,7 +203,7 @@ class _ConversationViewState extends State<_ConversationView> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final title = (widget.counterpartName?.trim().isNotEmpty ?? false)
-        ? widget.counterpartName!.trim()
+        ? partyDisplayName(widget.counterpartName!.trim(), l10n)
         : widget.counterpartId;
 
     return Scaffold(

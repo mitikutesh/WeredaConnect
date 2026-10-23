@@ -65,6 +65,22 @@ void main() {
     });
   }
 
+  test('a wiped (deleted) account loses its counters', () async {
+    bindDataUsageToAuth(tracker, authBloc);
+    states.add(_signedIn('farmer-1', UserRole.farmer));
+    await Future<void>.delayed(Duration.zero);
+    tracker.addDownloaded(300);
+    await Future<void>.delayed(Duration.zero);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getKeys(), isNotEmpty);
+
+    states.add(const AuthAccountWiped());
+    await Future<void>.delayed(Duration.zero);
+
+    expect(tracker.userId, isNull);
+    expect(prefs.getKeys(), isEmpty);
+  });
+
   test('transient states keep the current account', () async {
     bindDataUsageToAuth(tracker, authBloc);
     states.add(_signedIn('buyer-1', UserRole.buyer));

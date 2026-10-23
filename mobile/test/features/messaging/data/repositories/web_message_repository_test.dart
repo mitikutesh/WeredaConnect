@@ -235,5 +235,24 @@ void main() {
         isEmpty,
       );
     });
+
+    // ACC-03: a deleted account's read markers leave the browser; other
+    // accounts' markers and unrelated keys stay.
+    test('forgetReadMarkers drops only the deleted user\'s markers', () async {
+      SharedPreferences.setMockInitialValues({
+        'msg_read_order:o1:buyer-1:farmer-1': '2026-10-01T00:00:00.000Z',
+        'msg_read_crop:c1:buyer-1:trucker-1': '2026-10-01T00:00:00.000Z',
+        'msg_read_order:o2:buyer-2:farmer-2': '2026-10-01T00:00:00.000Z',
+        'language_code': 'am',
+      });
+
+      await WebMessageRepository.forgetReadMarkers('buyer-1');
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getKeys(),
+        {'msg_read_order:o2:buyer-2:farmer-2', 'language_code'},
+      );
+    });
   });
 }

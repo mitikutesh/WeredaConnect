@@ -174,6 +174,8 @@ Future<void> runMobile({
     isar: IsarService.instance.isInitialized ? IsarService.instance.db : null,
     // Logout asks the server to stop pushing to this device's FCM token.
     pushTokenProvider: PushNotificationService.currentToken,
+    // A deleted account drops the token on the device too.
+    pushTokenDeleter: PushNotificationService.deleteToken,
   )..add(const AuthCheckRequested());
   bindDataUsageToAuth(dataUsageTracker, authBloc);
 

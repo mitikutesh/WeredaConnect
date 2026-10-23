@@ -3,6 +3,8 @@ library;
 
 import 'package:dio/dio.dart';
 
+import 'package:wereda_connect/core/network/json_body.dart';
+
 /// Base exception for all API errors
 sealed class ApiException implements Exception {
   const ApiException(this.message, [this.statusCode, this.code]);
@@ -52,6 +54,26 @@ const String faydaStepUpRequiredCode = 'AUTH_041';
 
 /// Sync rejection prefix when a payment needs Fayda KYC or a verified phone.
 const String orderKycRequiredCode = 'ORDER_KYC_REQUIRED';
+
+/// REST error code (HTTP 410) for a write from an account that is being or
+/// has been deleted (account-deletion.md, sync-protocol.md 1.26.0). The body
+/// carries the server's `deletionState`.
+const String accountGoneCode = 'ACCOUNT_004';
+
+/// The `deletionState` of a deletion the server started but did not finish.
+/// It can still abort, so it is the one state the client does not wipe for.
+const String deletionInProgressState = 'in_progress';
+
+/// The `deletionState` of a `410 ACCOUNT_004` answer
+/// (`{"error":{"code":"ACCOUNT_004","deletionState":"completed",...}}`), or
+/// null for any other answer. A refusal without a state reads as `''`.
+String? accountGoneState(int? statusCode, Object? body) {
+  if (statusCode != 410) return null;
+  final error = decodeJsonMap(body)?['error'];
+  if (error is! Map || error['code'] != accountGoneCode) return null;
+  final state = error['deletionState'];
+  return state is String ? state : '';
+}
 
 /// The server wants the user to confirm it is them before a money action
 /// (REST 403 `AUTH_040` for the password, `AUTH_041` for Fayda). Not an

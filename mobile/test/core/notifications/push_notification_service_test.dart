@@ -37,4 +37,11 @@ void main() {
       );
     });
   });
+
+  // ACC-03: the deletion wipe calls this whether or not push is set up.
+  test('deleteToken completes quietly when Firebase is not set up', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+
+    await expectLater(PushNotificationService.deleteToken(), completes);
+  });
 }
