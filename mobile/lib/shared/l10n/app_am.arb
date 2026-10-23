@@ -1528,6 +1528,10 @@
   "@escrowErrorPayoutInProgress": {
     "description": "Error when a dispute is raised on a payment an admin is already paying out by hand (ESCROW_038)"
   },
+  "escrowErrorDeliveryPaymentUnavailable": "ለማድረሻ የመስመር ላይ ክፍያ እዚህ አይገኝም። በምትኩ ይህን ትዕዛዝ ከትዕዛዙ ገጽ ይክፈሉ።",
+  "@escrowErrorDeliveryPaymentUnavailable": {
+    "description": "Error when the legacy delivery escrow payment is refused on live Telebirr; the order is paid through its checkout (ESCROW_039)"
+  },
   "escrowErrorInvalidTransition": "ይህ ድርጊት በአሁኑ የክፍያ ሁኔታ አይፈቀድም።",
   "@escrowErrorInvalidTransition": {
     "description": "Error when escrow state transition is invalid"

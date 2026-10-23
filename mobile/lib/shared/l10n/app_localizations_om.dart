@@ -1201,6 +1201,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Kaffaltiin kun bulchaan kaffalamaa waan jiruuf, amma komiin itti ka\'uu hin danda\'u. Deeggarsa qunnamaa.';
 
   @override
+  String get escrowErrorDeliveryPaymentUnavailable =>
+      'Kaffaltiin online geejjibsiisaaf asitti hin argamu. Qooda isaa ajaja kana fuula ajajaa irraa kaffalaa.';
+
+  @override
   String get escrowErrorInvalidTransition =>
       'Gochi kun haala kaffaltii ammaa keessatti hin hayyamamu.';
 
