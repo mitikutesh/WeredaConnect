@@ -1369,6 +1369,8 @@ A held escrow is never selected by any cron; `held` is in the active set (`ESCRO
 
 ## 19. Admin Actions (FRD-05, built)
 
+`GET /admin/fraud-signals` (`AdminFunction.HandleListFraudSignalsAsync`) is how Fraud Review reads the signals. Query parameters: `status` (optional; filters on the row's `status`, e.g. `pending` or `reviewed`), `limit` (default 20) and `nextToken` (opaque, the base64url of the DynamoDB last-evaluated key from the previous page). Response `AdminFraudSignalListResponse`: `{"signals": [FraudSignalDto, ...], "nextToken": "<token, omitted on the last page>", "total": <count on this page>}`, each row carrying its `resolution`. The scan returns signal rows only (`attribute_not_exists(recordType) OR recordType = signal`), so the credit and whitelist rows of section 20 never show, and a `status` filter that empties a page still reads on past pages, as the other filtered admin lists do since FUP-16. Without the table configured it answers an empty list. FRD-07 replaces the scan with a sparse `status` GSI.
+
 `POST /admin/fraud-signals/{id}/action` (`AdminFunction.HandleFraudActionAsync`), body `{"action": "approve" | "reject" | "whitelist", "notes": "..."}` (`notes` optional), `id` the base64url of `userId|signalKey`. Before FRD-05 it stamped `status: reviewed`, `resolution`, `reviewedBy`, `reviewedAt` and `reviewNotes` and wrote a transaction-audit row (`fraud_{action}`), with no other side effect, and stored any string as the resolution (which the score counts, section 14.2).
 
 Built by FRD-05 (2026-10-23), in this order:

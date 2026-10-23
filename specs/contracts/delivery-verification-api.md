@@ -123,6 +123,7 @@ freezes nothing), the server freezes the order's escrow **before** it writes the
 |---|---|
 | `escrowed` (frozen now) or already `disputed` | the delivery is written (`disputed`, version incremented); the order follows (`delivered → disputed`, a lagging order advanced to `delivered` first) |
 | manual payout queued, settlement in flight, any other status (`released`, `completed`, `refunded`, `initiated`, ...), or the order's escrow linked to another delivery | `DELIVERY_DISPUTE_REFUSED: <why> Contact support.` (permanent; audited on the escrow) |
+| the order's escrow has a refund scheduled (`refundReason`: an order cancel or reject, or an admin refund; FUP-32) | `DELIVERY_DISPUTE_REFUSED: The payment for this delivery is being refunded to the buyer, so it can no longer be disputed. Contact support.` (permanent) |
 | none, and the delivery has an `orderId` | `DELIVERY_DISPUTE_REFUSED: No payment is on record for this delivery's order, ...` (alarmed `DISPUTE_NO_ESCROW`) |
 | none, legacy delivery without an `orderId` | the delivery is written as before (nothing to freeze) |
 | the freeze could not be decided (an exception) | `DELIVERY_DISPUTE_RETRY: ...` (transient; nothing written) |
@@ -948,10 +949,11 @@ All core delivery verification operations work offline:
 
 ### Sync Priority
 
-Delivery operations are high-priority sync items (they affect payment release):
-1. Delivery status changes sync before crop listing updates
-2. Photo uploads sync after status changes (lower priority, larger payload)
-3. If sync queue has mixed entity types, delivery operations are processed first
+The sync queue has no per-entity priority. `SyncQueue` sends pending operations oldest
+first (FIFO, `sortByCreatedAt` in `mobile/lib/core/sync/sync_queue.dart`), so a delivery
+status change syncs after whatever was queued before it and before whatever was queued
+after it, regardless of entity type. Photo evidence is not in the sync queue at all: it
+uploads through `POST /deliveries/{id}/photos` when online, separate from `POST /sync`.
 
 ---
 

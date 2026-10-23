@@ -701,7 +701,7 @@ These rules must always hold:
 4. **Tokens are never stored in plaintext.** All tokens and password hashes must be in `flutter_secure_storage` (hardware-backed).
 5. **Failed offline attempts are bounded.** Exponential backoff from 1st failure (1min, 5min, 15min, 1hr). After 5 failed attempts, credentials are cleared and the user must go online.
 6. **Offline sessions expire.** After 48 hours without connectivity, the cached session is invalidated (stolen-device mitigation).
-7. **Logout clears tokens, not Isar data.** On logout, tokens and password hash are cleared from secure storage, but Isar data (crop listings, trips) is preserved for the next user or re-login.
+7. **Logout clears tokens and the user's private data, keeps public listings.** On logout, tokens and the password hash are cleared from secure storage, and on mobile the leaving user's own business data is wiped from Isar to stop leakage on a shared device: their deliveries, orders, payments, chat messages, ratings, pending payment intents and queued sync operations. Crop and trip listings are kept on purpose (public marketplace data, so another user on the device can still browse, offline or in mock mode). On web the Isar wipe is a no-op.
 8. **Phone number is the identity.** All authentication flows use phone number as the primary identifier, never email.
 9. **Error messages do not leak information.** Login failures return generic "invalid credentials" regardless of whether the phone number exists.
 10. **All auth endpoints are idempotent.** Retrying any request with the same parameters produces the same result (or a safe duplicate detection).

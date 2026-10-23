@@ -20,7 +20,7 @@ namespace WeredaConnect.Server.Functions;
 /// - GET  /escrow/{id}      → Get single escrow by ID
 /// - GET  /escrow/by-delivery/{deliveryId} → Get the escrow for a delivery
 ///
-/// Error codes: ESCROW_001 through ESCROW_023 (see escrow-protocol.md)
+/// Error codes: ESCROW_001 through ESCROW_044 (see escrow-protocol.md)
 /// </summary>
 public class EscrowFunction
 {

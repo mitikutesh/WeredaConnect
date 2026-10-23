@@ -322,7 +322,7 @@ User profiles sync using the standard sync protocol defined in `sync-protocol.md
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `deletionState` | String | `in_progress`, `cognito_pending` or `completed`. Absent on a live account. Set by `DELETE /user/account`; every write endpoint returns `410 ACCOUNT_004` while it is present. |
+| `deletionState` | String | `in_progress`, `cognito_pending` or `completed`. Absent on a live account. Set by `DELETE /user/account`; every write endpoint returns `410 ACCOUNT_004` while it is present (`POST /sync`, `POST /escrow/*`, `POST /user/fayda-start`, `POST /user/fayda-link` and `POST /device-tokens`; ACC-02). |
 | `deletionRequestedAt` | String (ISO-8601) | When the deletion started. The completion sweep uses it to bound retention to 24 hours. |
 | `deletedAt` | String (ISO-8601) | When personal data was erased. Present only on a tombstone. |
 
