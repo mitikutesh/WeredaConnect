@@ -213,7 +213,15 @@ class SyncBatchResult {
       failed: newFailed,
       deferred: newDeferred,
       stepUpRequired: stepUpRequired + other.stepUpRequired,
-      status: newFailed > 0 ? SyncBatchStatus.partial : SyncBatchStatus.success,
+      // FUP-107: accountDeleted is terminal (410 ACCOUNT_004); a preceding successful
+      // batch must not downgrade it to success/partial, or syncNow's aggregated status
+      // hides it.
+      status: (status == SyncBatchStatus.accountDeleted ||
+              other.status == SyncBatchStatus.accountDeleted)
+          ? SyncBatchStatus.accountDeleted
+          : newFailed > 0
+              ? SyncBatchStatus.partial
+              : SyncBatchStatus.success,
       errorMessage: other.errorMessage ?? errorMessage,
       operationErrors: {...operationErrors, ...other.operationErrors},
     );

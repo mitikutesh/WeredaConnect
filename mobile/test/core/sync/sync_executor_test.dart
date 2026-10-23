@@ -992,5 +992,15 @@ void main() {
       expect(empty.merge(result).total, 2);
       expect(result.merge(empty).total, 2);
     });
+
+    test('merge keeps accountDeleted after a successful batch (FUP-107)', () {
+      const ok = SyncBatchResult(total: 2, succeeded: 2);
+      const gone = SyncBatchResult(status: SyncBatchStatus.accountDeleted);
+
+      // accountDeleted is terminal; a preceding successful batch must not downgrade
+      // it, or syncNow's aggregated status hides it.
+      expect(ok.merge(gone).status, SyncBatchStatus.accountDeleted);
+      expect(gone.merge(ok).status, SyncBatchStatus.accountDeleted);
+    });
   });
 }
