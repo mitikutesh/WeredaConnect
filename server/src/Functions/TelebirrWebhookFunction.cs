@@ -6,6 +6,7 @@ using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
 
 namespace WeredaConnect.Server.Functions;
@@ -105,6 +106,9 @@ public class TelebirrWebhookFunction
     private readonly IWebhookInboxRepository? _inboxRepo;
     private readonly TimeProvider _clock;
 
+    // FRD-08: a verified payer mismatch is a fraud signal on the buyer. Null without FRAUD_SIGNALS_TABLE.
+    private readonly IFraudDetectionService? _fraudService;
+
     /// <summary>Default constructor for the Lambda runtime.</summary>
     public TelebirrWebhookFunction()
     {
@@ -150,6 +154,12 @@ public class TelebirrWebhookFunction
 
         _inboxRepo = new WebhookInboxRepository(dynamoDb, idempotencyTable);
         _clock = TimeProvider.System;
+
+        // FRD-08: write-only use of the signals table; the webhook runs no velocity check.
+        var fraudSignalsTable = Environment.GetEnvironmentVariable("FRAUD_SIGNALS_TABLE");
+        _fraudService = string.IsNullOrEmpty(fraudSignalsTable)
+            ? null
+            : new FraudDetectionService(dynamoDb, cropsTable ?? "", fraudSignalsTable, new RateLimitRepository(dynamoDb, ""));
     }
 
     /// <summary>Constructor for testing.</summary>
@@ -167,7 +177,8 @@ public class TelebirrWebhookFunction
         OrderFundingService? orderFunding = null,
         ITransactionAuditRepository? txAuditRepo = null,
         IWebhookInboxRepository? inboxRepo = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        IFraudDetectionService? fraudService = null)
     {
         _escrowRepo = escrowRepo;
         _auditRepo = auditRepo;
@@ -183,6 +194,7 @@ public class TelebirrWebhookFunction
         _txAuditRepo = txAuditRepo;
         _inboxRepo = inboxRepo;
         _clock = clock ?? TimeProvider.System;
+        _fraudService = fraudService;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -266,6 +278,8 @@ public class TelebirrWebhookFunction
             var renamed = TelebirrNotifyParser.WithTransIdAlias(fields);
             if (renamed == null || !_signer.VerifyFlat(renamed, parsed.Sign, out padding))
             {
+                // FRD-08: log only. Anyone can post here and name any order, so an unverified body
+                // never writes a fraud signal onto a user.
                 context.Logger.LogWarning($"Telebirr webhook: signature verification failed. fields={DescribeFields(fields)}");
                 return Ack.Done;
             }
@@ -512,7 +526,7 @@ public class TelebirrWebhookFunction
         }
 
         var buyer = string.IsNullOrEmpty(buyerId) ? null : await _userRepo.GetUserByIdAsync(buyerId);
-        var payer = Validation.RequestValidator.NormalizePhoneNumber(payerMsisdn) ?? payerMsisdn.Trim();
+        var payer = NormalizePayerPhone(payerMsisdn);
         if (buyer != null && string.Equals(buyer.PhoneNumber, payer, StringComparison.Ordinal))
         {
             return true;
@@ -521,7 +535,58 @@ public class TelebirrWebhookFunction
         context.Logger.LogWarning("Telebirr webhook: payer phone does not match the buyer's registered phone.");
         await AppendAuditAsync(escrowId, "webhook_payer_mismatch", state, state,
             metadata: $"buyer={buyerId},payerSuffix={payer[^Math.Min(4, payer.Length)..]}");
+
+        // FRD-08: the notification is verified and the buyer id comes from our own escrow or
+        // checkout row, so the evidence is about this buyer's payment. Only a buyer whose row and
+        // phone were read gets the signal; a missing row is no evidence about anyone. A payment that
+        // is applied anyway (a relative's wallet is common) weighs 0; only a refused one scores.
+        if (!string.IsNullOrEmpty(buyer?.PhoneNumber))
+        {
+            await TryRecordPayerMismatchAsync(
+                buyer.UserId,
+                _requirePayerMatch ? FraudDetectionService.TelebirrPayerRefusedSignal : FraudDetectionService.TelebirrPayerMismatchSignal,
+                escrowId, context);
+        }
+
         return !_requirePayerMatch;
+    }
+
+    /// <summary>
+    /// The payer's MSISDN in the users table's form (+251XXXXXXXXX). The documented notify carries no
+    /// payer field; if Telebirr sends one as an MSISDN of 12 digits without the plus (251XXXXXXXXX),
+    /// <c>RequestValidator.NormalizePhoneNumber</c> would not take it and every payer would read as a
+    /// mismatch.
+    /// </summary>
+    internal static string NormalizePayerPhone(string payerMsisdn)
+    {
+        var trimmed = payerMsisdn.Trim();
+        if (trimmed.Length == 12 && trimmed.StartsWith("251", StringComparison.Ordinal) && trimmed.All(char.IsAsciiDigit))
+        {
+            trimmed = "+" + trimmed;
+        }
+
+        return Validation.RequestValidator.NormalizePhoneNumber(trimmed) ?? trimmed;
+    }
+
+    /// <summary>FRD-08: best-effort; the webhook's answer and the payment outcome never depend on it.</summary>
+    private async Task TryRecordPayerMismatchAsync(string buyerId, string signalType, string escrowId, ILambdaContext context)
+    {
+        if (_fraudService == null || string.IsNullOrEmpty(buyerId))
+        {
+            return;
+        }
+
+        try
+        {
+            await _fraudService.RecordFraudSignalAsync(
+                buyerId, signalType, escrowId, "escrow",
+                "A verified Telebirr payment came from a wallet other than the buyer's registered phone.");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Failed to record fraud signal {signalType} for escrow {SafeLogId(escrowId)}: [{ex.GetType().Name}]");
+        }
     }
 
     // ─── ESC-01: live order payments ─────────────────────────────────────

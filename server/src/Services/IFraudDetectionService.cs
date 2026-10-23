@@ -36,7 +36,9 @@ public interface IFraudDetectionService
     /// Call when a check rejects (hard) or flags (soft) an operation.
     /// No-op when the signals table is not configured. Callers must treat
     /// this as best-effort: wrap in try/catch so a signal-write failure
-    /// never blocks the underlying operation.
+    /// never blocks the underlying operation. Writes at most one row per
+    /// user, type and UTC hour (FRD-08); a later call in the same hour
+    /// writes nothing and returns normally.
     /// </summary>
     Task RecordFraudSignalAsync(
         string userId, string signalType, string? entityId,

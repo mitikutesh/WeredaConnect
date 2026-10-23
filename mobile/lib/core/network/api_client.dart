@@ -7,6 +7,7 @@ import 'package:intl/intl.dart' show DateFormat;
 
 import 'package:wereda_connect/core/auth/session_signals.dart';
 import 'package:wereda_connect/core/config/environment.dart';
+import 'package:wereda_connect/core/network/api_config.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/network/json_body.dart';
 import 'package:wereda_connect/core/network/cert_pinning_stub.dart'
@@ -86,9 +87,12 @@ class ApiClient {
         // on web uses the browser's native JSON parser, which returns JS
         // objects that may fail Dart Map key lookups.
         responseType: kIsWeb ? ResponseType.plain : ResponseType.json,
+        // The refresh and retry clients copy these headers, so the build
+        // goes out on every call (FUP-61).
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          ApiConfig.appBuildHeader: '${ApiConfig.appBuild}',
         },
       ),
     );

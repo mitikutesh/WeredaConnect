@@ -9,6 +9,8 @@ using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.RateLimiting;
+using WeredaConnect.Server.Services;
 using Xunit;
 
 namespace WeredaConnect.Server.Tests.Functions;
@@ -435,6 +437,45 @@ public class SyncFunctionDeliveryRulesTests
     }
 
     [Fact]
+    public async Task Create_OnTheIdOfAnotherPartysDelivery_RecordsIdorOnTheCallerAndEchoesNothing()
+    {
+        // FRD-08: delivery ids are UUIDs made on the device, so a create that lands on a delivery of
+        // other parties is a probe: one IDOR_CREATE_CONFLICT (40) on the caller, nothing on them.
+        SetupCreate();
+        _orders.TryCreateDeliveryWithSlotAsync(OrderId, DeliveriesTable,
+                Arg.Any<Dictionary<string, AttributeValue>>(), Arg.Any<DeliverySlotHolder?>())
+            .Returns(DeliverySlotWriteResult.DeliveryExists);
+        var others = Delivery("pending");
+        foreach (var party in new[] { "farmerId", "truckerId", "buyerId" })
+        {
+            others[party] = new AttributeValue { S = OutsiderId };
+        }
+
+        SetupHolderRow(DeliveryId, others);
+        var signalsDb = Substitute.For<IAmazonDynamoDB>();
+        var written = new List<Dictionary<string, AttributeValue>>();
+        signalsDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>>() });
+        signalsDb.PutItemAsync(Arg.Do<PutItemRequest>(r => written.Add(r.Item)), Arg.Any<CancellationToken>())
+            .Returns(new PutItemResponse());
+        var function = new SyncFunction(_syncMeta, _crops, _dynamoDb, TripsTable, DeliveriesTable,
+            fraudService: new FraudDetectionService(signalsDb, "crops", "fraud-signals", Substitute.For<IRateLimitRepository>()),
+            userRepo: _users, orderRepo: _orders, transactionAuditRepo: _audit);
+
+        var result = await SendAsync(CreateOp(), TruckerId, function);
+
+        result.GetProperty("status").GetString().Should().Be("conflict");
+        (!result.TryGetProperty("serverData", out var data) || data.ValueKind == JsonValueKind.Null)
+            .Should().BeTrue("another party's delivery is never echoed");
+        var row = written.Should().ContainSingle().Subject;
+        row["userId"].S.Should().Be(TruckerId);
+        row["signalType"].S.Should().Be(FraudDetectionService.IdorCreateConflictSignal);
+        row["weight"].N.Should().Be("40");
+        row["entityId"].S.Should().Be(DeliveryId);
+        row["entityType"].S.Should().Be("delivery");
+    }
+
+    [Fact]
     public async Task Create_OrderGoneBeforeTheTransaction_IsRefused()
     {
         SetupCreate();
@@ -745,7 +786,7 @@ public class SyncFunctionDeliveryRulesTests
                 { "updatedAt", "2026-10-09T08:00:00Z" }, { "version", version }
             }), caller);
 
-    private async Task<JsonElement> SendAsync(SyncOperationRequest operation, string userId)
+    private async Task<JsonElement> SendAsync(SyncOperationRequest operation, string userId, SyncFunction? function = null)
     {
         var request = new APIGatewayProxyRequest
         {
@@ -761,7 +802,7 @@ public class SyncFunctionDeliveryRulesTests
             }
         };
 
-        var response = await _function.FunctionHandler(request, _context);
+        var response = await (function ?? _function).FunctionHandler(request, _context);
         response.StatusCode.Should().Be(200, response.Body);
         return JsonDocument.Parse(response.Body).RootElement.GetProperty("results")[0].Clone();
     }

@@ -30,6 +30,15 @@ class ApiConfig {
   /// 30s allows for slow data transfer on 3G.
   static const Duration receiveTimeout = Duration(seconds: 30);
 
+  /// This build's number: the `+N` of `version:` in pubspec.yaml. Bump both
+  /// together (a test compares them).
+  static const int appBuild = 2;
+
+  /// Sent with [appBuild] on every request. The server answers builds before
+  /// 2, which send nothing, with the escrow statuses they parse
+  /// (escrow-protocol.md 1.31.0, FUP-61).
+  static const String appBuildHeader = 'X-App-Build';
+
   // ============================================================================
   // Authentication endpoints
   // ============================================================================

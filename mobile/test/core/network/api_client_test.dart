@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
 import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_config.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 
 void main() {
@@ -15,6 +18,43 @@ void main() {
 
       // Create mock adapter for the ApiClient's dio instance
       dioAdapter = DioAdapter(dio: ApiClient().dio);
+    });
+
+    group('app build header (FUP-61)', () {
+      test('every request carries X-App-Build with this build', () async {
+        final sent = <Object?>[];
+        final recorder = InterceptorsWrapper(
+          onRequest: (options, handler) {
+            sent.add(options.headers['X-App-Build']);
+            handler.next(options);
+          },
+        );
+        ApiClient().dio.interceptors.add(recorder);
+        final body = <String, dynamic>{};
+        dioAdapter
+          ..onGet('/escrow/history', (server) => server.reply(200, body))
+          ..onPost('/sync', (server) => server.reply(200, body), data: body);
+
+        try {
+          await ApiClient().get<Map<String, dynamic>>('/escrow/history');
+          await ApiClient().post<Map<String, dynamic>>('/sync', data: body);
+        } finally {
+          ApiClient().dio.interceptors.remove(recorder);
+        }
+
+        const build = '${ApiConfig.appBuild}';
+        expect(sent, [build, build]);
+        expect(ApiConfig.appBuildHeader, 'X-App-Build');
+      });
+
+      test('appBuild is the build number in pubspec.yaml', () {
+        final pubspec = File('pubspec.yaml').readAsStringSync();
+        final match = RegExp(r'^version:\s*\S+\+(\d+)\s*$', multiLine: true)
+            .firstMatch(pubspec);
+
+        expect(match, isNotNull, reason: 'pubspec version has no +build');
+        expect(int.parse(match!.group(1)!), ApiConfig.appBuild);
+      });
     });
 
     group('GET requests', () {
