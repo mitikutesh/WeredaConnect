@@ -3876,6 +3876,10 @@
   "@deleteAccountFailed": {
     "description": "Delete account screen: any other error (ACCOUNT_001, AUTH_007, unknown)"
   },
+  "deleteAccountOtherAccount": "Another account is now signed in here, so nothing was deleted. Reload the page or reopen the app, then try again.",
+  "@deleteAccountOtherAccount": {
+    "description": "Delete account screen: the stored session is another account now (shared phone, or another tab on web), so nothing was sent"
+  },
   "deleteAccountBlockedTitle": "You cannot delete your account yet",
   "@deleteAccountBlockedTitle": {
     "description": "Delete account screen: ACCOUNT_002, active items block the deletion"

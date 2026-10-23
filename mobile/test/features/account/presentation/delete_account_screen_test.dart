@@ -25,6 +25,7 @@ class FakeAuthEvent extends Fake implements AuthEvent {}
 
 const _me = 'farmer-1';
 const _phone = '+251911234567';
+const _token = 'id-token-of-farmer-1';
 
 /// The screen runs its production wiring against a mocked AuthBloc: the
 /// deleted account, the sign-out and the account check all go through it.
@@ -57,9 +58,11 @@ void main() {
       (invocation) =>
           authEvents.add(invocation.positionalArguments.first as AuthEvent),
     );
-    when(() => auth.isSignedInAs(any())).thenAnswer(
+    when(() => auth.bearerFor(any())).thenAnswer(
       (invocation) async =>
-          signedInAsMe && invocation.positionalArguments.first == _me,
+          signedInAsMe && invocation.positionalArguments.first == _me
+              ? _token
+              : null,
     );
     online = true;
     passwordPrompts = 0;
@@ -75,7 +78,7 @@ void main() {
 
   void answer(List<DeleteAccountResult> results) {
     final queue = [...results];
-    when(() => repository.deleteAccount(userId: _me))
+    when(() => repository.deleteAccount(userId: _me, bearer: _token))
         .thenAnswer((_) async => queue.removeAt(0));
   }
 
@@ -160,7 +163,7 @@ void main() {
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
 
-    verifyNever(() => repository.deleteAccount(userId: _me));
+    verifyNever(() => repository.deleteAccount(userId: _me, bearer: _token));
     expect(deletedWipes(), 0);
   });
 
@@ -171,14 +174,15 @@ void main() {
 
     await deleteAndConfirm(tester);
 
-    verify(() => repository.deleteAccount(userId: _me)).called(1);
+    verify(() => repository.deleteAccount(userId: _me, bearer: _token))
+        .called(1);
     expect(deletedWipes(), 1);
     expect(find.text('Your account was deleted.'), findsOneWidget);
   });
 
   testWidgets('shows progress while the request runs', (tester) async {
     final pending = Completer<DeleteAccountResult>();
-    when(() => repository.deleteAccount(userId: _me))
+    when(() => repository.deleteAccount(userId: _me, bearer: _token))
         .thenAnswer((_) => pending.future);
     await pump(tester);
 
@@ -247,14 +251,15 @@ void main() {
       ),
       findsOneWidget,
     );
-    verifyNever(() => repository.deleteAccount(userId: _me));
+    verifyNever(() => repository.deleteAccount(userId: _me, bearer: _token));
 
     online = true;
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
 
     expect(find.text('Delete your account?'), findsNothing);
-    verify(() => repository.deleteAccount(userId: _me)).called(1);
+    verify(() => repository.deleteAccount(userId: _me, bearer: _token))
+        .called(1);
     expect(deletedWipes(), 1);
   });
 
@@ -281,7 +286,8 @@ void main() {
     await deleteAndConfirm(tester);
 
     expect(passwordPrompts, 1);
-    verify(() => repository.deleteAccount(userId: _me)).called(2);
+    verify(() => repository.deleteAccount(userId: _me, bearer: _token))
+        .called(2);
     expect(deletedWipes(), 1);
   });
 
@@ -293,7 +299,8 @@ void main() {
     await deleteAndConfirm(tester);
 
     expect(passwordPrompts, 1);
-    verify(() => repository.deleteAccount(userId: _me)).called(1);
+    verify(() => repository.deleteAccount(userId: _me, bearer: _token))
+        .called(1);
     expect(deletedWipes(), 0);
     expect(tester.widget<FilledButton>(button).onPressed, isNotNull);
   });
@@ -331,16 +338,30 @@ void main() {
     expect(authEvents, [const AuthLogoutRequested()]);
   });
 
-  testWidgets('another account holds the stored session: nothing is sent',
-      (tester) async {
+  testWidgets(
+      'another account holds the stored session: says so, sends '
+      'nothing, cannot retry', (tester) async {
     signedInAsMe = false;
     answer([const DeleteAccountDone()]);
     await pump(tester);
 
     await deleteAndConfirm(tester);
 
-    verify(() => auth.isSignedInAs(_me)).called(1);
-    verifyNever(() => repository.deleteAccount(userId: any(named: 'userId')));
+    verify(() => auth.bearerFor(_me)).called(1);
+    expect(
+      find.text(
+        'Another account is now signed in here, so nothing was deleted. '
+        'Reload the page or reopen the app, then try again.',
+      ),
+      findsOneWidget,
+    );
+    expect(tester.widget<FilledButton>(button).onPressed, isNull);
+    verifyNever(
+      () => repository.deleteAccount(
+        userId: any(named: 'userId'),
+        bearer: any(named: 'bearer'),
+      ),
+    );
     expect(authEvents, isEmpty);
   });
 }

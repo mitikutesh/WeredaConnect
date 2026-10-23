@@ -2,9 +2,14 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 
+import 'package:wereda_connect/core/network/auth_interceptor.dart';
 import 'package:wereda_connect/features/account/data/repositories/account_deletion_repository.dart';
+
+class MockSecureStorage extends Mock implements FlutterSecureStorage {}
 
 /// Answers every request with [status] and [body], or throws [error]; keeps
 /// what was sent.
@@ -62,8 +67,9 @@ class _StubAdapter implements HttpClientAdapter {
   return (repo: AccountDeletionRepository(dio: dio), adapter: adapter);
 }
 
-/// The account the screen deletes.
+/// The account the screen deletes, and its ID token as the screen read it.
 const _me = 'u-1';
+const _bearer = 'id-token-of-u-1';
 
 Map<String, dynamic> _error(String code, [Map<String, dynamic>? extra]) => {
       'error': {'code': code, 'message': 'server text', ...?extra},
@@ -107,7 +113,7 @@ void main() {
         },
       );
 
-      await built.repo.deleteAccount(userId: _me);
+      await built.repo.deleteAccount(userId: _me, bearer: _bearer);
 
       expect(built.adapter.requests, hasLength(1));
       final request = built.adapter.requests.single;
@@ -115,6 +121,65 @@ void main() {
       expect(request.path, '/user/account');
       expect(request.queryParameters, isEmpty);
       expect(jsonDecode(built.adapter.sentBodies.single), {'confirm': true});
+      expect(request.headers['Authorization'], 'Bearer $_bearer');
+      expect(request.extra[AuthInterceptor.ownBearerExtra], isTrue);
+    });
+  });
+
+  // Review: on web every tab shares the stored tokens, so the app's auth
+  // interceptor must neither add nor swap the bearer of this request.
+  group('own bearer, with the app\'s auth interceptor', () {
+    late int refreshes;
+
+    ({AccountDeletionRepository repo, _StubAdapter adapter}) withInterceptor({
+      int status = 200,
+      Object? body,
+    }) {
+      final adapter = _StubAdapter(status: status, body: body);
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.test'))
+        ..httpClientAdapter = adapter;
+      final storage = MockSecureStorage();
+      // Another tab signed in a different account since the check.
+      when(() => storage.read(key: any(named: 'key')))
+          .thenAnswer((_) async => 'id-token-of-another-tab');
+      refreshes = 0;
+      dio.interceptors.add(
+        AuthInterceptor(
+          storage: storage,
+          dio: dio,
+          refreshTokenCallback: (_) async {
+            refreshes++;
+            return 'refreshed-token';
+          },
+        ),
+      );
+      return (repo: AccountDeletionRepository(dio: dio), adapter: adapter);
+    }
+
+    test('sends the checked bearer, never the stored one', () async {
+      final built = withInterceptor(body: {'deleted': true, 'userId': _me});
+
+      final result =
+          await built.repo.deleteAccount(userId: _me, bearer: _bearer);
+
+      expect(result, const DeleteAccountDone());
+      expect(
+        built.adapter.requests.single.headers['Authorization'],
+        'Bearer $_bearer',
+      );
+    });
+
+    test('a 401 asks for the password; nothing is refreshed or resent',
+        () async {
+      final built =
+          withInterceptor(status: 401, body: {'message': 'Unauthorized'});
+
+      final result =
+          await built.repo.deleteAccount(userId: _me, bearer: _bearer);
+
+      expect(result, const DeleteAccountStepUpRequired());
+      expect(refreshes, 0);
+      expect(built.adapter.requests, hasLength(1));
     });
   });
 
@@ -132,7 +197,7 @@ void main() {
           },
         );
         expect(
-          await built.repo.deleteAccount(userId: _me),
+          await built.repo.deleteAccount(userId: _me, bearer: _bearer),
           const DeleteAccountDone(),
         );
       });
@@ -150,7 +215,7 @@ void main() {
             },
           );
           expect(
-            await built.repo.deleteAccount(userId: _me),
+            await built.repo.deleteAccount(userId: _me, bearer: _bearer),
             const DeleteAccountFailed(AccountDeletionFailure.unexpected),
           );
         });
@@ -159,7 +224,7 @@ void main() {
       test('a 200 without deleted: true is never read as done', () async {
         final built = _build(plain: plain, body: {'ok': true});
         expect(
-          await built.repo.deleteAccount(userId: _me),
+          await built.repo.deleteAccount(userId: _me, bearer: _bearer),
           const DeleteAccountFailed(AccountDeletionFailure.unexpected),
         );
       });
@@ -168,7 +233,8 @@ void main() {
           () async {
         final built = _build(plain: plain, status: 409, body: _blockedBody);
 
-        final result = await built.repo.deleteAccount(userId: _me);
+        final result =
+            await built.repo.deleteAccount(userId: _me, bearer: _bearer);
 
         expect(
           result,
@@ -213,7 +279,7 @@ void main() {
         final built =
             _build(plain: plain, status: 403, body: _error('AUTH_040'));
         expect(
-          await built.repo.deleteAccount(userId: _me),
+          await built.repo.deleteAccount(userId: _me, bearer: _bearer),
           const DeleteAccountStepUpRequired(),
         );
       });
@@ -228,7 +294,7 @@ void main() {
           },
         );
         expect(
-          await built.repo.deleteAccount(userId: _me),
+          await built.repo.deleteAccount(userId: _me, bearer: _bearer),
           const DeleteAccountPending(retryAfterSeconds: 5),
         );
       });
@@ -240,7 +306,7 @@ void main() {
           body: _error('ACCOUNT_004', {'deletionState': 'completed'}),
         );
         expect(
-          await built.repo.deleteAccount(userId: _me),
+          await built.repo.deleteAccount(userId: _me, bearer: _bearer),
           const DeleteAccountDone(),
         );
       });
@@ -252,7 +318,7 @@ void main() {
           body: _error('ACCOUNT_004', {'deletionState': 'in_progress'}),
         );
         expect(
-          await built.repo.deleteAccount(userId: _me),
+          await built.repo.deleteAccount(userId: _me, bearer: _bearer),
           const DeleteAccountPending(),
         );
       });
@@ -261,7 +327,7 @@ void main() {
         final built =
             _build(plain: plain, status: 403, body: _error('ACCOUNT_003'));
         expect(
-          await built.repo.deleteAccount(userId: _me),
+          await built.repo.deleteAccount(userId: _me, bearer: _bearer),
           const DeleteAccountFailed(AccountDeletionFailure.suspended),
         );
       });
@@ -270,7 +336,7 @@ void main() {
         final built =
             _build(plain: plain, status: 404, body: _error('AUTH_013'));
         expect(
-          await built.repo.deleteAccount(userId: _me),
+          await built.repo.deleteAccount(userId: _me, bearer: _bearer),
           const DeleteAccountFailed(AccountDeletionFailure.accountNotFound),
         );
       });
@@ -287,7 +353,7 @@ void main() {
       test('$status $code is unexpected', () async {
         final built = _build(status: status, body: _error(code));
         expect(
-          await built.repo.deleteAccount(userId: _me),
+          await built.repo.deleteAccount(userId: _me, bearer: _bearer),
           const DeleteAccountFailed(AccountDeletionFailure.unexpected),
         );
       });
@@ -309,16 +375,24 @@ void main() {
           body: code == null ? null : _error(code),
         );
         expect(
-          await built.repo.deleteAccount(userId: _me),
+          await built.repo.deleteAccount(userId: _me, bearer: _bearer),
           const DeleteAccountFailed(AccountDeletionFailure.network),
         );
       });
     }
 
+    test('401 asks for the password (the bearer expired)', () async {
+      final built = _build(status: 401, body: {'message': 'Unauthorized'});
+      expect(
+        await built.repo.deleteAccount(userId: _me, bearer: _bearer),
+        const DeleteAccountStepUpRequired(),
+      );
+    });
+
     test('503 ACCOUNT_005 without a hint waits the default 2 s', () async {
       final built = _build(status: 503, body: _error('ACCOUNT_005'));
       expect(
-        await built.repo.deleteAccount(userId: _me),
+        await built.repo.deleteAccount(userId: _me, bearer: _bearer),
         const DeleteAccountPending(),
       );
     });
@@ -333,7 +407,7 @@ void main() {
           () async {
         final built = _build(error: type);
         expect(
-          await built.repo.deleteAccount(userId: _me),
+          await built.repo.deleteAccount(userId: _me, bearer: _bearer),
           const DeleteAccountFailed(AccountDeletionFailure.network),
         );
       });
@@ -343,7 +417,7 @@ void main() {
         () async {
       final built = _build(error: DioExceptionType.badCertificate);
       expect(
-        await built.repo.deleteAccount(userId: _me),
+        await built.repo.deleteAccount(userId: _me, bearer: _bearer),
         const DeleteAccountFailed(AccountDeletionFailure.unexpected),
       );
     });

@@ -2625,6 +2625,7 @@
   "deleteAccountIncomplete": "ስረዛው ተጀምሯል ግን ገና አልተጠናቀቀም። ከትንሽ ቆይታ በኋላ እንደገና ይሞክሩ።",
   "deleteAccountSuspended": "ይህ መለያ ታግዷል፣ ስለዚህ እዚህ ሊሰረዝ አይችልም። ድጋፍ ሰጪን ያግኙ።",
   "deleteAccountFailed": "መለያዎ ሊሰረዝ አልቻለም። ቆይተው እንደገና ይሞክሩ።",
+  "deleteAccountOtherAccount": "እዚህ አሁን ሌላ መለያ ገብቷል፣ ስለዚህ ምንም አልተሰረዘም። ገጹን እንደገና ይጫኑ ወይም መተግበሪያውን እንደገና ይክፈቱ፣ ከዚያ እንደገና ይሞክሩ።",
   "deleteAccountBlockedTitle": "መለያዎን ገና መሰረዝ አይችሉም",
   "deleteAccountBlockedIntro": "መጀመሪያ እነዚህን ይጨርሱ ወይም ይሰርዙ፦",
   "deleteAccountBlockerOrder": "በሂደት ላይ ያሉ ትዕዛዞች፦ {count}",

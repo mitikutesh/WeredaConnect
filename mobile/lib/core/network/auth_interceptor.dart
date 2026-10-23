@@ -167,12 +167,20 @@ class AuthInterceptor extends QueuedInterceptor {
     }
   }
 
+  /// Request `extra` flag for a request that brings its own bearer, like
+  /// logout: `DELETE /user/account` sends the token of the account its
+  /// screen was opened for, read and checked right before the send.
+  static const ownBearerExtra = 'ownBearer';
+
   /// POST /auth/logout carries a bearer minted from the leaving session's
   /// own tokens and runs while that session is cleared (SIM-55). It must
   /// never read the token slots, nor refresh or clear them on a 401: by then
-  /// they may hold the next session's tokens.
+  /// they may hold the next session's tokens. The same holds for a request
+  /// flagged with [ownBearerExtra]: on web the slots are shared by every
+  /// tab, so they may hold another account's tokens.
   static bool _bringsOwnBearer(RequestOptions options) =>
-      options.path.contains('/auth/logout');
+      options.path.contains('/auth/logout') ||
+      options.extra[ownBearerExtra] == true;
 
   /// Extract the bearer token the failed request was sent with, if any.
   String? _bearerOf(RequestOptions options) {

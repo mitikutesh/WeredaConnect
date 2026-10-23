@@ -3115,6 +3115,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Your account could not be deleted. Try again later.';
 
   @override
+  String get deleteAccountOtherAccount =>
+      'Another account is now signed in here, so nothing was deleted. Reload the page or reopen the app, then try again.';
+
+  @override
   String get deleteAccountBlockedTitle => 'You cannot delete your account yet';
 
   @override

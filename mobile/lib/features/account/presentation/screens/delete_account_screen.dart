@@ -50,7 +50,7 @@ class DeleteAccountScreen extends StatelessWidget {
       userId: userId,
       isOnline:
           isOnline ?? ConnectivityMonitor(dio: ApiClient().dio).isConnected,
-      isSameAccount: () => auth.isSignedInAs(userId),
+      bearerFor: () => auth.bearerFor(userId),
       onDeleted: () =>
           auth.add(AuthAccountDeleted(userId: userId, phoneNumber: phone)),
       onAccountMissing: () => auth.add(const AuthLogoutRequested()),
@@ -224,9 +224,9 @@ class _DeleteAccountView extends StatelessWidget {
                       const SizedBox(height: 20),
                       FilledButton.icon(
                         key: const Key('delete_account_button'),
-                        onPressed: busy ||
-                                failed?.reason ==
-                                    AccountDeletionFailure.suspended
+                        // Suspended, or another account holds the session:
+                        // sending again cannot help.
+                        onPressed: busy || (failed != null && !failed.canRetry)
                             ? null
                             : retry
                                 ? () => context
@@ -261,6 +261,7 @@ class _DeleteAccountView extends StatelessWidget {
   ) =>
       switch (reason) {
         AccountDeletionFailure.offline => l10n.deleteAccountOffline,
+        AccountDeletionFailure.otherAccount => l10n.deleteAccountOtherAccount,
         AccountDeletionFailure.network => l10n.deleteAccountNetworkError,
         AccountDeletionFailure.incomplete => l10n.deleteAccountIncomplete,
         AccountDeletionFailure.suspended => l10n.deleteAccountSuspended,

@@ -2618,6 +2618,7 @@
   "deleteAccountIncomplete": "Haquun jalqabameera garuu ammallee hin xumuramne. Yeroo muraasa booda irra deebi'aa yaalaa.",
   "deleteAccountSuspended": "Herregni kun dhorkameera, kanaaf asitti haqamuu hin danda'u. Deeggarsa qunnamaa.",
   "deleteAccountFailed": "Herregni keessan haqamuu hin dandeenye. Booda irra deebi'aa yaalaa.",
+  "deleteAccountOtherAccount": "Asitti amma herregni biraa seeneera, kanaaf homtuu hin haqamne. Fuula irra deebi'aa fe'aa ykn appii irra deebi'aa banaa, achiis irra deebi'aa yaalaa.",
   "deleteAccountBlockedTitle": "Herrega keessan ammallee haquu hin dandeessan",
   "deleteAccountBlockedIntro": "Dura kanneen xumuraa ykn haqaa:",
   "deleteAccountBlockerOrder": "Ajajoota hojii irra jiran: {count}",

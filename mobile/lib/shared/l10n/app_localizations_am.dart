@@ -3018,6 +3018,10 @@ class AppLocalizationsAm extends AppLocalizations {
   String get deleteAccountFailed => 'መለያዎ ሊሰረዝ አልቻለም። ቆይተው እንደገና ይሞክሩ።';
 
   @override
+  String get deleteAccountOtherAccount =>
+      'እዚህ አሁን ሌላ መለያ ገብቷል፣ ስለዚህ ምንም አልተሰረዘም። ገጹን እንደገና ይጫኑ ወይም መተግበሪያውን እንደገና ይክፈቱ፣ ከዚያ እንደገና ይሞክሩ።';
+
+  @override
   String get deleteAccountBlockedTitle => 'መለያዎን ገና መሰረዝ አይችሉም';
 
   @override

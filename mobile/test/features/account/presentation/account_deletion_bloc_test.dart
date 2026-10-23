@@ -20,8 +20,9 @@ const _blockers = [
   AccountDeletionBlocker(type: 'future_type', id: 'x'),
 ];
 
-/// The account the screen was opened for.
+/// The account the screen was opened for, and its ID token.
 const _me = 'user-1';
+const _token = 'id-token-of-user-1';
 
 void main() {
   late MockAccountDeletionRepository repository;
@@ -45,7 +46,7 @@ void main() {
       repository: repository,
       userId: _me,
       isOnline: () async => online,
-      isSameAccount: () async => sameAccount,
+      bearerFor: () async => sameAccount ? _token : null,
       onDeleted: () => deleted++,
       onAccountMissing: () => missing++,
       wait: (d) async => waits.add(d),
@@ -56,7 +57,7 @@ void main() {
 
   void answer(List<DeleteAccountResult> results) {
     final queue = [...results];
-    when(() => repository.deleteAccount(userId: _me))
+    when(() => repository.deleteAccount(userId: _me, bearer: _token))
         .thenAnswer((_) async => queue.removeAt(0));
   }
 
@@ -87,7 +88,7 @@ void main() {
       const AccountDeletionSubmitting(),
       const AccountDeletionFailed(AccountDeletionFailure.offline),
     ]);
-    verifyNever(() => repository.deleteAccount(userId: _me));
+    verifyNever(() => repository.deleteAccount(userId: _me, bearer: _token));
     expect(deleted, 0);
   });
 
@@ -96,7 +97,7 @@ void main() {
       repository: repository,
       userId: _me,
       isOnline: () async => throw StateError('no plugin'),
-      isSameAccount: () async => true,
+      bearerFor: () async => _token,
       onDeleted: () => deleted++,
       onAccountMissing: () => missing++,
     );
@@ -108,7 +109,7 @@ void main() {
       states.last,
       const AccountDeletionFailed(AccountDeletionFailure.offline),
     );
-    verifyNever(() => repository.deleteAccount(userId: _me));
+    verifyNever(() => repository.deleteAccount(userId: _me, bearer: _token));
   });
 
   test('success: starts the wipe once, then reports success', () async {
@@ -158,7 +159,8 @@ void main() {
     final states = await request(bloc);
 
     expect(states.last, const AccountDeletionSucceeded());
-    verify(() => repository.deleteAccount(userId: _me)).called(2);
+    verify(() => repository.deleteAccount(userId: _me, bearer: _token))
+        .called(2);
     expect(deleted, 1);
   });
 
@@ -208,7 +210,7 @@ void main() {
       states.last,
       const AccountDeletionFailed(AccountDeletionFailure.incomplete),
     );
-    verify(() => repository.deleteAccount(userId: _me))
+    verify(() => repository.deleteAccount(userId: _me, bearer: _token))
         .called(AccountDeletionBloc.maxResumeAttempts + 1);
     expect(waits, hasLength(AccountDeletionBloc.maxResumeAttempts));
     expect(deleted, 0);
@@ -223,7 +225,7 @@ void main() {
       repository: repository,
       userId: _me,
       isOnline: () async => true,
-      isSameAccount: () async => true,
+      bearerFor: () async => _token,
       onDeleted: () => deleted++,
       onAccountMissing: () => missing++,
       // The user leaves the screen while the app waits to resume.
@@ -231,11 +233,14 @@ void main() {
     );
 
     bloc.add(const AccountDeletionRequested());
-    await untilCalled(() => repository.deleteAccount(userId: _me));
+    await untilCalled(
+      () => repository.deleteAccount(userId: _me, bearer: _token),
+    );
     await Future<void>.delayed(const Duration(milliseconds: 50));
 
     expect(bloc.isClosed, isTrue);
-    verify(() => repository.deleteAccount(userId: _me)).called(2);
+    verify(() => repository.deleteAccount(userId: _me, bearer: _token))
+        .called(2);
     expect(deleted, 1);
   });
 
@@ -250,9 +255,15 @@ void main() {
 
     expect(states, [
       const AccountDeletionSubmitting(),
-      const AccountDeletionIdle(),
+      const AccountDeletionFailed(AccountDeletionFailure.otherAccount),
     ]);
-    verifyNever(() => repository.deleteAccount(userId: any(named: 'userId')));
+    expect((states.last as AccountDeletionFailed).canRetry, isFalse);
+    verifyNever(
+      () => repository.deleteAccount(
+        userId: any(named: 'userId'),
+        bearer: any(named: 'bearer'),
+      ),
+    );
     expect(deleted, 0);
   });
 
@@ -262,7 +273,8 @@ void main() {
       const DeleteAccountPending(),
       const DeleteAccountDone(),
     ];
-    when(() => repository.deleteAccount(userId: _me)).thenAnswer((_) async {
+    when(() => repository.deleteAccount(userId: _me, bearer: _token))
+        .thenAnswer((_) async {
       // The user signs out, and someone else signs in, while it waits.
       sameAccount = false;
       return queue.removeAt(0);
@@ -271,14 +283,19 @@ void main() {
 
     final states = await request(bloc);
 
-    expect(states.last, const AccountDeletionIdle());
-    verify(() => repository.deleteAccount(userId: _me)).called(1);
+    expect(
+      states.last,
+      const AccountDeletionFailed(AccountDeletionFailure.otherAccount),
+    );
+    verify(() => repository.deleteAccount(userId: _me, bearer: _token))
+        .called(1);
     expect(deleted, 0);
   });
 
   test('a confirmed deletion still wipes if the user signed out meanwhile',
       () async {
-    when(() => repository.deleteAccount(userId: _me)).thenAnswer((_) async {
+    when(() => repository.deleteAccount(userId: _me, bearer: _token))
+        .thenAnswer((_) async {
       sameAccount = false;
       return const DeleteAccountDone();
     });
@@ -294,7 +311,7 @@ void main() {
       repository: repository,
       userId: _me,
       isOnline: () async => true,
-      isSameAccount: () async => throw StateError('storage'),
+      bearerFor: () async => throw StateError('storage'),
       onDeleted: () => deleted++,
       onAccountMissing: () => missing++,
     );
@@ -302,8 +319,16 @@ void main() {
 
     final states = await request(bloc);
 
-    expect(states.last, const AccountDeletionIdle());
-    verifyNever(() => repository.deleteAccount(userId: any(named: 'userId')));
+    expect(
+      states.last,
+      const AccountDeletionFailed(AccountDeletionFailure.otherAccount),
+    );
+    verifyNever(
+      () => repository.deleteAccount(
+        userId: any(named: 'userId'),
+        bearer: any(named: 'bearer'),
+      ),
+    );
   });
 
   test('resume delay is capped', () {
@@ -357,7 +382,7 @@ void main() {
 
   test('a second request while one is running is ignored', () async {
     final pending = Completer<DeleteAccountResult>();
-    when(() => repository.deleteAccount(userId: _me))
+    when(() => repository.deleteAccount(userId: _me, bearer: _token))
         .thenAnswer((_) => pending.future);
     final bloc = build();
 
@@ -368,7 +393,8 @@ void main() {
     pending.complete(const DeleteAccountDone());
     await bloc.stream.firstWhere((s) => s is AccountDeletionSucceeded);
 
-    verify(() => repository.deleteAccount(userId: _me)).called(1);
+    verify(() => repository.deleteAccount(userId: _me, bearer: _token))
+        .called(1);
     expect(deleted, 1);
   });
 }

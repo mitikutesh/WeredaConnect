@@ -5662,6 +5662,12 @@ abstract class AppLocalizations {
   /// **'Your account could not be deleted. Try again later.'**
   String get deleteAccountFailed;
 
+  /// Delete account screen: the stored session is another account now (shared phone, or another tab on web), so nothing was sent
+  ///
+  /// In en, this message translates to:
+  /// **'Another account is now signed in here, so nothing was deleted. Reload the page or reopen the app, then try again.'**
+  String get deleteAccountOtherAccount;
+
   /// Delete account screen: ACCOUNT_002, active items block the deletion
   ///
   /// In en, this message translates to:

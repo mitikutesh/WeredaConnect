@@ -163,6 +163,21 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     return super.close();
   }
 
+  /// The stored ID token, when it is [userId]'s own (its `sub`) and [userId]
+  /// is signed in here and in the stored session: the bearer a request that
+  /// must only ever act for [userId] sends itself. Null otherwise; on web the
+  /// stored session is shared by every tab.
+  Future<String?> bearerFor(String userId) async {
+    if (!await isSignedInAs(userId)) return null;
+    try {
+      final token = await _secureStorage.read(key: _activeIdTokenKey);
+      if (token == null || jwtSubject(token) != userId) return null;
+      return token;
+    } on Object {
+      return null;
+    }
+  }
+
   /// Whether [userId] is signed in, here and in the stored session the API
   /// client sends. On web every tab shares that storage, so a tab still
   /// showing one account may hold another account's session.

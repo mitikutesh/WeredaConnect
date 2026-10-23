@@ -14,17 +14,17 @@ import 'package:wereda_connect/features/account/presentation/bloc/account_deleti
 /// device and signs out; a missing server account ([onAccountMissing]) only
 /// signs out. No other outcome touches local data.
 ///
-/// The request carries whatever session the device holds when it is sent,
-/// so [isSameAccount] must confirm it is still [userId]'s before the first
-/// send and before every resume (another account may have signed in on a
-/// shared phone, or in another tab on web); otherwise the bloc stops without
-/// sending. A `200` naming another account is not a success.
+/// Each send carries [bearerFor]'s token: [userId]'s own ID token, read
+/// right before the first send and before every resume. When there is none
+/// (another account signed in on a shared phone, or in another tab on web)
+/// the bloc stops without sending and says so. A `200` naming another
+/// account is not a success.
 class AccountDeletionBloc
     extends Bloc<AccountDeletionEvent, AccountDeletionState> {
   final AccountDeletionRepository _repository;
   final String _userId;
   final Future<bool> Function() _isOnline;
-  final Future<bool> Function() _isSameAccount;
+  final Future<String?> Function() _bearerFor;
   final void Function() _onDeleted;
   final void Function() _onAccountMissing;
   final Future<void> Function(Duration) _wait;
@@ -40,14 +40,14 @@ class AccountDeletionBloc
     required AccountDeletionRepository repository,
     required String userId,
     required Future<bool> Function() isOnline,
-    required Future<bool> Function() isSameAccount,
+    required Future<String?> Function() bearerFor,
     required void Function() onDeleted,
     required void Function() onAccountMissing,
     Future<void> Function(Duration)? wait,
   })  : _repository = repository,
         _userId = userId,
         _isOnline = isOnline,
-        _isSameAccount = isSameAccount,
+        _bearerFor = bearerFor,
         _onDeleted = onDeleted,
         _onAccountMissing = onAccountMissing,
         _wait = wait ?? Future<void>.delayed,
@@ -65,11 +65,11 @@ class AccountDeletionBloc
     return Duration(seconds: min(seconds.toInt(), maxResumeDelay.inSeconds));
   }
 
-  Future<bool> _stillSameAccount() async {
+  Future<String?> _bearer() async {
     try {
-      return await _isSameAccount();
+      return await _bearerFor();
     } on Object {
-      return false;
+      return null;
     }
   }
 
@@ -93,11 +93,13 @@ class AccountDeletionBloc
 
     var resumes = 0;
     while (true) {
-      if (!await _stillSameAccount()) {
-        emit(const AccountDeletionIdle());
+      final bearer = await _bearer();
+      if (bearer == null) {
+        emit(const AccountDeletionFailed(AccountDeletionFailure.otherAccount));
         return;
       }
-      final result = await _repository.deleteAccount(userId: _userId);
+      final result =
+          await _repository.deleteAccount(userId: _userId, bearer: bearer);
       switch (result) {
         case DeleteAccountDone():
           _onDeleted();

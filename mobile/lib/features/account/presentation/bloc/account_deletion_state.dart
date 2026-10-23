@@ -49,9 +49,11 @@ class AccountDeletionFailed extends AccountDeletionState {
 
   const AccountDeletionFailed(this.reason);
 
-  /// Sending the same request again can help; for a suspended account it
-  /// cannot.
-  bool get canRetry => reason != AccountDeletionFailure.suspended;
+  /// Sending the same request again can help; for a suspended account, or
+  /// while another account holds the session, it cannot.
+  bool get canRetry =>
+      reason != AccountDeletionFailure.suspended &&
+      reason != AccountDeletionFailure.otherAccount;
 
   @override
   List<Object?> get props => [reason];

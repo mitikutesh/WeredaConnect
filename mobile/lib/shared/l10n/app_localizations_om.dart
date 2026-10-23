@@ -3141,6 +3141,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Herregni keessan haqamuu hin dandeenye. Booda irra deebi\'aa yaalaa.';
 
   @override
+  String get deleteAccountOtherAccount =>
+      'Asitti amma herregni biraa seeneera, kanaaf homtuu hin haqamne. Fuula irra deebi\'aa fe\'aa ykn appii irra deebi\'aa banaa, achiis irra deebi\'aa yaalaa.';
+
+  @override
   String get deleteAccountBlockedTitle =>
       'Herrega keessan ammallee haquu hin dandeessan';
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -618,6 +619,38 @@ void main() {
       expect(bloc.state, isA<AuthAuthenticated>());
       expect(await isar.cropListings.count(), 2);
       verifyNever(() => cache.forgetAccount(any()));
+    });
+  });
+
+  // Review: the deletion request carries this token, never the interceptor's.
+  group('bearerFor', () {
+    String jwt(String sub) {
+      String part(Map<String, dynamic> m) =>
+          base64Url.encode(utf8.encode(jsonEncode(m))).replaceAll('=', '');
+      return '${part({'alg': 'none'})}.${part({'sub': sub})}.sig';
+    }
+
+    test('the stored ID token only when it is the signed-in user\'s own',
+        () async {
+      final bloc = build(database: isar);
+      expect(await bloc.bearerFor(_me), isNull, reason: 'signed out');
+
+      await signIn(bloc);
+      _storage['id_token'] = jwt(_me);
+      expect(await bloc.bearerFor(_me), jwt(_me));
+      expect(await bloc.bearerFor(_other), isNull);
+
+      // Another tab signed in a different account: its token is stored now.
+      _storage['id_token'] = jwt(_other);
+      expect(await bloc.bearerFor(_me), isNull, reason: 'token of another');
+
+      _storage['id_token'] = jwt(_me);
+      _storage[AuthBloc.currentUserIdKey] = _other;
+      expect(await bloc.bearerFor(_me), isNull, reason: 'stored user differs');
+
+      _storage[AuthBloc.currentUserIdKey] = _me;
+      _storage['id_token'] = 'not-a-jwt';
+      expect(await bloc.bearerFor(_me), isNull, reason: 'unreadable token');
     });
   });
 

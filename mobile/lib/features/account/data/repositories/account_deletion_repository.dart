@@ -4,6 +4,7 @@ import 'package:equatable/equatable.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_config.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/network/auth_interceptor.dart';
 import 'package:wereda_connect/core/network/json_body.dart';
 
 /// One active item that blocks the deletion (`409 ACCOUNT_002`).
@@ -31,6 +32,11 @@ class AccountDeletionBlocker extends Equatable {
 enum AccountDeletionFailure {
   /// The device has no network, so nothing was sent.
   offline,
+
+  /// The stored session is no longer the account the screen was opened for
+  /// (another account signed in on this phone, or in another tab on web).
+  /// Nothing was sent.
+  otherAccount,
 
   /// No usable answer (none at all, or a gateway error). The server may or
   /// may not have started the deletion; sending it again is safe (a started
@@ -80,7 +86,8 @@ final class DeleteAccountBlocked extends DeleteAccountResult {
   List<Object?> get props => [blockers, blockerCount];
 }
 
-/// `403 AUTH_040`: the password must be entered again first.
+/// `403 AUTH_040`, or a `401` for the bearer: the password must be entered
+/// again first.
 final class DeleteAccountStepUpRequired extends DeleteAccountResult {
   const DeleteAccountStepUpRequired();
 }
@@ -109,22 +116,30 @@ final class DeleteAccountFailed extends DeleteAccountResult {
 ///
 /// Online only: the request is never put in the sync queue. Shared by mobile
 /// and web, since nothing here touches local storage. It uses the app's Dio
-/// (auth and data usage interceptors) directly because the error body
-/// carries what the screen needs: the blocker list, `retryAfterSeconds` and
-/// `deletionState`.
+/// (data usage interceptors) directly because the error body carries what
+/// the screen needs: the blocker list, `retryAfterSeconds` and
+/// `deletionState`. It brings its own bearer, so the auth interceptor never
+/// adds or swaps one.
 class AccountDeletionRepository {
   final Dio _dio;
 
   AccountDeletionRepository({Dio? dio}) : _dio = dio ?? ApiClient().dio;
 
-  /// Deletes the account of the stored session, which the caller checked is
-  /// [userId]. A `200` for any other account is not a success: it would wipe
-  /// the wrong account's data.
-  Future<DeleteAccountResult> deleteAccount({required String userId}) async {
+  /// Deletes [userId]'s account with [bearer], that account's ID token as
+  /// the caller read and checked it right before. A `200` for any other
+  /// account is not a success: it would wipe the wrong account's data.
+  Future<DeleteAccountResult> deleteAccount({
+    required String userId,
+    required String bearer,
+  }) async {
     try {
       final response = await _dio.delete<dynamic>(
         ApiConfig.userAccountEndpoint,
         data: {'confirm': true},
+        options: Options(
+          headers: {'Authorization': 'Bearer $bearer'},
+          extra: {AuthInterceptor.ownBearerExtra: true},
+        ),
       );
       // Only an explicit confirmation counts: an unexpected 2xx body must
       // never read as a deleted account.
@@ -170,6 +185,11 @@ class AccountDeletionRepository {
     if (status == 403 && code == stepUpRequiredCode) {
       return const DeleteAccountStepUpRequired();
     }
+    // The bearer expired or was refused. It is not refreshed here (on web the
+    // stored tokens may be another tab's account by now): a password login
+    // gives this account a fresh one, which a deletion needs anyway (the
+    // server wants a login within 5 minutes).
+    if (status == 401) return const DeleteAccountStepUpRequired();
     if (status == 503 && code == 'ACCOUNT_005') {
       final retryAfter = details['retryAfterSeconds'];
       return DeleteAccountPending(
