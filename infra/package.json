@@ -29,7 +29,7 @@
     "aws-cdk": "^2.1145.0",
     "jest": "^30.5.2",
     "ts-jest": "^29.4.15",
-    "typescript": "^5.7.0"
+    "typescript": "^7.0.2"
   },
   "dependencies": {
     "aws-cdk-lib": "^2.273.0",
