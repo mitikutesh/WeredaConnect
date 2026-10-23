@@ -27,6 +27,7 @@ import {
   adminQueueLabel,
   deriveStage,
 } from "@/lib/transaction";
+import { partyName } from "@/lib/user";
 
 type Row = Record<string, unknown>;
 
@@ -100,15 +101,15 @@ export function TransactionDetailPage() {
           <h3 className="mb-4 font-semibold">{t("transactions.parties")}</h3>
           <dl className="space-y-3 text-sm">
             <Field label={t("transactions.buyer")}>
-              {s(order.buyerName) || s(order.buyerId)}
+              {partyName(order.buyerName, order.buyerId, locale)}
             </Field>
             <Field label={t("transactions.buyerPhone")}>{s(delivery?.buyerPhone)}</Field>
             <Field label={t("transactions.seller")}>
-              {s(order.farmerName) || s(order.farmerId)}
+              {partyName(order.farmerName, order.farmerId, locale)}
             </Field>
             <Field label={t("transactions.sellerPhone")}>{s(delivery?.farmerPhone)}</Field>
             <Field label={t("transactions.trucker")}>
-              {s(order.truckerName) || s(order.truckerId) || t("transactions.noTrucker")}
+              {partyName(order.truckerName, order.truckerId, locale) || t("transactions.noTrucker")}
             </Field>
             <Field label={t("transactions.truckerPhone")}>{s(delivery?.truckerPhone)}</Field>
             <Field label={t("transactions.crop")}>{s(order.cropType)}</Field>

@@ -269,7 +269,8 @@
     "trucker": "Trucker",
     "buyer": "Buyer",
     "admin": "Admin",
-    "transactionHistory": "Transaction History"
+    "transactionHistory": "Transaction History",
+    "deleted": "Deleted user"
   },
   "revenue": {
     "title": "Revenue Analytics",

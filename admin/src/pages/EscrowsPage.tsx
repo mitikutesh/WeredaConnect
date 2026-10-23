@@ -7,6 +7,7 @@ import { SearchInput } from "@/components/ui/SearchInput";
 import { useLocale } from "@/hooks/useLocale";
 import { useEscrows } from "@/hooks/useQuery";
 import { formatETB, formatDate } from "@/lib/i18n";
+import { partyName } from "@/lib/user";
 
 const statusVariant: Record<string, "success" | "warning" | "danger" | "info" | "default"> = {
   initiated: "info",
@@ -35,12 +36,12 @@ export function EscrowsPage() {
     {
       key: "buyerName",
       header: t("escrows.buyer"),
-      render: (row: Record<string, unknown>) => String(row.buyerName || row.buyerId || ""),
+      render: (row: Record<string, unknown>) => partyName(row.buyerName, row.buyerId, locale),
     },
     {
       key: "farmerName",
       header: t("escrows.seller"),
-      render: (row: Record<string, unknown>) => String(row.farmerName || row.farmerId || ""),
+      render: (row: Record<string, unknown>) => partyName(row.farmerName, row.farmerId, locale),
     },
     {
       key: "amount",

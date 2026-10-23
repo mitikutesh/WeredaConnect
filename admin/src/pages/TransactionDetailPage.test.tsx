@@ -143,3 +143,48 @@ describe("TransactionDetailPage escrow payout date (FUP-112)", () => {
     expect(screen.queryByText("Expected payout")).toBeNull();
   });
 });
+
+/* ACC-05: an order whose buyer was deleted. ACC-02 wrote the "Deleted user" sentinel onto the
+ * order's buyerName and stripped the buyer's phone from the delivery, so the admin shows the
+ * anonymized name and simply omits the missing phone, without a runtime error. */
+function detailWithDeletedBuyer() {
+  return {
+    order: {
+      orderId: "ord-1",
+      status: "in_transit",
+      buyerName: "Deleted user",
+      buyerId: "buyer-1",
+      farmerName: "Abebe Kebede",
+      farmerId: "farmer-1",
+    },
+    escrow: null,
+    delivery: { farmerPhone: "+251900100001" },
+    timeline: [],
+  };
+}
+
+describe("TransactionDetailPage deleted buyer (ACC-05)", () => {
+  beforeEach(() => {
+    mocks.locale = "en";
+  });
+
+  it("shows the buyer as 'Deleted user' and omits the missing phone", () => {
+    mocks.detail.data = detailWithDeletedBuyer();
+
+    expect(() => renderPage()).not.toThrow();
+
+    expect(screen.getByText("Deleted user")).toBeTruthy();
+    expect(screen.getByText("Abebe Kebede")).toBeTruthy();
+    // The buyer phone row is hidden because the delivery no longer carries it.
+    expect(screen.queryByText("Buyer phone")).toBeNull();
+  });
+
+  it("localizes the deleted-buyer label for the admin's language", () => {
+    mocks.locale = "am";
+    mocks.detail.data = detailWithDeletedBuyer();
+
+    renderPage();
+
+    expect(screen.getByText("የተሰረዘ ተጠቃሚ")).toBeTruthy();
+  });
+});

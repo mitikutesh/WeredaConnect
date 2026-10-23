@@ -7,6 +7,7 @@ import { SearchInput } from "@/components/ui/SearchInput";
 import { useLocale } from "@/hooks/useLocale";
 import { useUsers } from "@/hooks/useQuery";
 import { formatDate } from "@/lib/i18n";
+import { userName, userPhone } from "@/lib/user";
 
 const roleVariant: Record<string, "success" | "info" | "warning" | "danger"> = {
   farmer: "success",
@@ -16,7 +17,7 @@ const roleVariant: Record<string, "success" | "info" | "warning" | "danger"> = {
 };
 
 export function UsersPage() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [search, setSearch] = useState("");
   const navigate = useNavigate();
   const { data, isLoading } = useUsers(search ? `search=${encodeURIComponent(search)}` : undefined);
@@ -25,8 +26,16 @@ export function UsersPage() {
   const users = (resp?.users as Record<string, unknown>[]) || [];
 
   const columns = [
-    { key: "displayName", header: t("users.name") },
-    { key: "phoneNumber", header: t("users.phone") },
+    {
+      key: "displayName",
+      header: t("users.name"),
+      render: (row: Record<string, unknown>) => userName(row, locale),
+    },
+    {
+      key: "phoneNumber",
+      header: t("users.phone"),
+      render: (row: Record<string, unknown>) => userPhone(row, locale),
+    },
     {
       key: "role",
       header: t("users.role"),

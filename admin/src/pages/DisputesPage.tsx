@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/Badge";
 import { useLocale } from "@/hooks/useLocale";
 import { useDisputes, useEscrowPages, useResolveDispute } from "@/hooks/useQuery";
 import { formatETB, formatDate } from "@/lib/i18n";
+import { partyName } from "@/lib/user";
 
 type Verdict = "farmer_wins" | "buyer_wins";
 type Disposition = "return_to_farmer" | "delivered_anyway" | "settle_now" | "wait_for_delivery";
@@ -94,12 +95,12 @@ export function DisputesPage() {
     {
       key: "buyerName",
       header: t("escrows.buyer"),
-      render: (row: Row) => String(row.buyerName || row.buyerId || ""),
+      render: (row: Row) => partyName(row.buyerName, row.buyerId, locale),
     },
     {
       key: "farmerName",
       header: t("escrows.seller"),
-      render: (row: Row) => String(row.farmerName || row.farmerId || ""),
+      render: (row: Row) => partyName(row.farmerName, row.farmerId, locale),
     },
     {
       key: "amount",
