@@ -253,6 +253,107 @@ public sealed class OrderRepository : IOrderRepository
     }
 
     /// <inheritdoc />
+    public async Task<OrderLinkedWriteResult> TryUpdateWithAsync(
+        string orderId,
+        Dictionary<string, object> data,
+        int expectedVersion,
+        string expectedStatus,
+        IReadOnlyList<TransactWriteItem> linkedItems)
+    {
+        var existing = await GetItemAsync(orderId, consistentRead: true);
+        if (existing == null)
+        {
+            return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.OrderNotFound);
+        }
+
+        var now = DateTime.UtcNow.ToString("o");
+        var written = new Dictionary<string, AttributeValue>(existing)
+        {
+            ["updatedAt"] = new AttributeValue { S = now },
+            ["version"] = new AttributeValue { N = (expectedVersion + 1).ToString() }
+        };
+
+        var updateParts = new List<string> { "#updated = :updated", "#v = :newVersion" };
+        var attrNames = new Dictionary<string, string>
+        {
+            { "#updated", "updatedAt" },
+            { "#v", "version" },
+            { "#expectedStatusName", "status" }
+        };
+        var attrValues = new Dictionary<string, AttributeValue>
+        {
+            { ":updated", written["updatedAt"] },
+            { ":newVersion", written["version"] },
+            { ":expectedVersion", new AttributeValue { N = expectedVersion.ToString() } },
+            { ":expectedStatus", new AttributeValue { S = expectedStatus } }
+        };
+
+        var i = 0;
+        foreach (var kvp in data)
+        {
+            if (kvp.Key is "orderId" or "version" or "createdAt" or "updatedAt")
+            {
+                continue;
+            }
+
+            var value = DynamoDbHelper.ToAttributeValue(kvp.Value);
+            attrNames[$"#f{i}"] = kvp.Key;
+            attrValues[$":f{i}"] = value;
+            updateParts.Add($"#f{i} = :f{i}");
+            written[kvp.Key] = value;
+            i++;
+        }
+
+        var items = new List<TransactWriteItem>
+        {
+            new()
+            {
+                Update = new Update
+                {
+                    TableName = _tableName,
+                    Key = new Dictionary<string, AttributeValue>
+                    {
+                        { "orderId", new AttributeValue { S = orderId } },
+                        { "createdAt", new AttributeValue { S = existing["createdAt"].S } }
+                    },
+                    UpdateExpression = "SET " + string.Join(", ", updateParts),
+                    ConditionExpression = "#v = :expectedVersion AND #expectedStatusName = :expectedStatus",
+                    ExpressionAttributeNames = attrNames,
+                    ExpressionAttributeValues = attrValues
+                }
+            }
+        };
+        items.AddRange(linkedItems);
+
+        try
+        {
+            await _dynamoDb.TransactWriteItemsAsync(new TransactWriteItemsRequest { TransactItems = items });
+        }
+        catch (TransactionCanceledException ex)
+        {
+            // Reasons are per item, in request order. A linked item that refused decides: the
+            // order's own condition is worth a retry only when everything it carries still holds.
+            for (var index = 1; index < items.Count; index++)
+            {
+                if (IsConditionFailure(ex.CancellationReasons, index))
+                {
+                    return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.LinkedItemRefused);
+                }
+            }
+
+            if (IsConditionFailure(ex.CancellationReasons, 0))
+            {
+                return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.OrderChanged);
+            }
+
+            // A conflicting transaction or throttling: nothing was written, the caller retries.
+            throw;
+        }
+
+        return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.Written, DynamoDbHelper.FromItem(written));
+    }
+
+    /// <inheritdoc />
     public async Task<Dictionary<string, object>?> GetByIdAsync(string orderId)
     {
         var item = await GetItemAsync(orderId);

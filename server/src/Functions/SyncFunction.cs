@@ -6256,6 +6256,8 @@ public partial class SyncFunction
                 "The payment for this delivery is being settled, so it can no longer be disputed.",
             DeliveryDisputeFreeze.RefusedOtherDelivery =>
                 "The payment for this order belongs to another delivery, so this one cannot be disputed.",
+            DeliveryDisputeFreeze.RefusedRefundScheduled =>
+                "The payment for this delivery is being refunded to the buyer, so it can no longer be disputed.",
             _ => $"The payment for this delivery is not held in escrow (status: {freeze.EscrowStatus}), so it can no longer be disputed."
         };
         if (refusal == null)
@@ -6637,8 +6639,9 @@ public partial class SyncFunction
     /// pickup racing in leaves the order alone: the pending delivery is cancelled, the order is
     /// cancelled (<c>cancelReason: transport_failed_buyer_cancelled</c>, the buyer's text in
     /// <c>cancelNote</c>; a version conflict re-reads and retries while the order is still
-    /// <c>accepted</c>), the delivery slot is released, the listing stock restored and the escrow
-    /// refund scheduled for the hourly sweep.
+    /// <c>accepted</c>) in one transaction with the escrow refund armed for the hourly sweep (FUP-32:
+    /// a dispute that froze the money since the check refuses the cancel), then the delivery slot is
+    /// released and the listing stock restored.
     /// </summary>
     private async Task<SyncOperationResult> ProcessTransportFailureCancelAsync(
         SyncOperationRequest operation, ILambdaContext context)
@@ -6714,17 +6717,17 @@ public partial class SyncFunction
             return TransientOrderError(operation, "Refunds are unavailable right now. Please try again later.");
         }
 
-        OrderEscrowCancelReadiness readiness;
+        OrderEscrowCancelPlan plan;
         try
         {
-            readiness = await _orderEscrowService.PrepareOrderEscrowForCancelAsync(order, "system", _batchAudit);
+            plan = await _orderEscrowService.PrepareOrderEscrowForCancelAsync(order, "system", _batchAudit);
         }
         catch (Exception ex)
         {
             return TransportCancelUnavailable(operation, context, orderId, "escrow", ex);
         }
 
-        switch (readiness)
+        switch (plan.Readiness)
         {
             case OrderEscrowCancelReadiness.Busy:
                 return CancelNotAllowed(operation, "The payment is being settled or reviewed.");
@@ -6790,14 +6793,27 @@ public partial class SyncFunction
             Dictionary<string, object>? latest;
             try
             {
-                var update = await _orderRepo.UpdateAsync(orderId, cancelFields, version);
-                if (update.IsSuccess)
+                // FUP-32: the order cancel and the refund arm are one transaction, so a dispute that
+                // froze the money after the check above can never leave a cancelled order over it.
+                var write = await _orderEscrowService.CancelOrderWithRefundAsync(
+                    orderId, cancelFields, version, "accepted", plan.Held, TransportCancelRefundReason, "system", _batchAudit);
+                if (write.Outcome == OrderLinkedWriteOutcome.Written)
                 {
-                    cancelled = update.Value;
+                    cancelled = write.Order;
                     break;
                 }
 
-                if (update.Error?.HttpStatus != 409 || attempt >= TransportCancelOrderAttempts)
+                if (write.Outcome == OrderLinkedWriteOutcome.LinkedItemRefused)
+                {
+                    // Nothing was written: the order stays accepted and the money where the dispute
+                    // or settlement put it. The pending delivery stays cancelled, as on every refusal
+                    // after it, and a replacement can be created.
+                    context.Logger.LogInformation(
+                        $"Transport cancel of order {MoneyAlarmLog.LogId(orderId)} refused: its escrow changed after the check.");
+                    return CancelNotAllowed(operation, "The payment is being settled or reviewed.");
+                }
+
+                if (write.Outcome != OrderLinkedWriteOutcome.OrderChanged || attempt >= TransportCancelOrderAttempts)
                 {
                     return TransientOrderError(operation, "The order could not be cancelled right now. Please try again later.");
                 }
@@ -6849,9 +6865,10 @@ public partial class SyncFunction
 
         await EmitTxAuditAsync(context, orderId, "order", orderId, "order_cancelled", "accepted", "cancelled",
             metadata: $"cancelReason={PickupDeadline.CancelReason}");
+        context.Logger.LogInformation(
+            $"Order escrow refund scheduled: orderId={MoneyAlarmLog.LogId(orderId)} reason={TransportCancelRefundReason}");
         await ReleaseTransportCancelSlotAsync(orderId, cancelledDeliveryId, context);
         await TryRestoreListingStockAsync(order, context);
-        await TryScheduleOrderEscrowRefundAsync(orderId, TransportCancelRefundReason, context);
 
         // ESC-48: the parties could reach each other since the farmer accepted, and this cancel
         // refunds the buyer in full, which is also how a trade agreed off the platform would end.

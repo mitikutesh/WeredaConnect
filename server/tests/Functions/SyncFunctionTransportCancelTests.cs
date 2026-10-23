@@ -20,7 +20,7 @@ namespace WeredaConnect.Server.Tests.Functions;
 /// pending delivery first, then the order, then the slot, the stock and the refund schedule.
 /// Trucker orders and self-pickup orders, for all three roles.
 /// </summary>
-public class SyncFunctionTransportCancelTests
+public partial class SyncFunctionTransportCancelTests
 {
     private const string BuyerId = "buyer-001";
     private const string FarmerId = "farmer-001";
@@ -74,6 +74,16 @@ public class SyncFunctionTransportCancelTests
                 ["status"] = "cancelled",
                 ["version"] = (call.ArgAt<int>(2) + 1).ToString()
             }));
+        // FUP-32: the transport cancel writes the order and the escrow refund arm in one transaction.
+        _orders.TryUpdateWithAsync(OrderId, Arg.Do<Dictionary<string, object>>(d => _written = d), Arg.Any<int>(),
+                Arg.Any<string>(), Arg.Any<IReadOnlyList<TransactWriteItem>>())
+            .Returns(call => new OrderLinkedWriteResult(OrderLinkedWriteOutcome.Written, new Dictionary<string, object>(_order)
+            {
+                ["status"] = "cancelled",
+                ["version"] = (call.ArgAt<int>(2) + 1).ToString()
+            }));
+        _escrows.BuildRefundArm(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(call => Arm(call.ArgAt<string>(0), call.ArgAt<string>(2)));
 
         _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == TripsTable))
             .Returns(_ => new QueryResponse
@@ -214,7 +224,8 @@ public class SyncFunctionTransportCancelTests
         Received.InOrder(() =>
         {
             _deliveries.TryCancelPendingAsync(DeliveryId);
-            _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4);
+            _orders.TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4, "accepted",
+                Arg.Any<IReadOnlyList<TransactWriteItem>>());
             _orders.ReleaseDeliverySlotAsync(OrderId, DeliveryId);
         });
         _written!["status"].Should().Be("cancelled");
@@ -222,8 +233,7 @@ public class SyncFunctionTransportCancelTests
         _written["cancelNote"].Should().Be("The truck never came.");
         _written.Should().ContainKey("cancelledAt");
         await _crops.Received(1).TryRestoreStockAsync(ListingId, OrderId, 5.0);
-        await _escrows.Received(1).UpdateStatusAsync(EscrowId, Arg.Any<string>(), "escrowed", "escrowed",
-            Arg.Is<Dictionary<string, object>>(f => (string)f["refundReason"] == "order_transport_failed"));
+        await RefundArmedInTheCancelAsync();
 
         _auditRows.Select(r => (string)r["action"]).Should().Equal("delivery_cancelled", "order_cancelled");
         _auditRows.Should().AllSatisfy(r => r["actor"].Should().Be(BuyerId));
@@ -241,8 +251,7 @@ public class SyncFunctionTransportCancelTests
         await _deliveries.DidNotReceive().TryCancelPendingAsync(Arg.Any<string>());
         _written!["cancelReason"].Should().Be("transport_failed_buyer_cancelled");
         _written.Should().NotContainKey("cancelNote");
-        await _escrows.Received(1).UpdateStatusAsync(EscrowId, Arg.Any<string>(), "escrowed", "escrowed",
-            Arg.Is<Dictionary<string, object>>(f => f.ContainsKey("refundReason")));
+        await RefundArmedInTheCancelAsync();
     }
 
     [Fact]
@@ -408,8 +417,7 @@ public class SyncFunctionTransportCancelTests
         result.GetProperty("status").GetString().Should().Be("success");
         await _escrows.Received(1).CreateAsync(Arg.Is<Dictionary<string, object>>(e =>
             (string)e["escrowId"] == EscrowId && (string)e["status"] == "escrowed"));
-        await _escrows.Received(1).UpdateStatusAsync(EscrowId, Arg.Any<string>(), "escrowed", "escrowed",
-            Arg.Is<Dictionary<string, object>>(f => (string)f["refundReason"] == "order_transport_failed"));
+        await RefundArmedInTheCancelAsync();
     }
 
     [Fact]
@@ -484,59 +492,60 @@ public class SyncFunctionTransportCancelTests
     public async Task Cancel_OrderCasConflictsAfterTheDeliveryCancel_RereadsAndRetries()
     {
         var calls = 0;
-        _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
-            .Returns(call =>
+        CancelWriteReturns(_ =>
+        {
+            calls++;
+            if (calls == 1)
             {
-                calls++;
-                if (calls == 1)
-                {
-                    // A system write moved the version after the delivery was cancelled.
-                    _order = new Dictionary<string, object>(_order) { ["version"] = "5" };
-                    return AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Version conflict.");
-                }
+                // A system write moved the version after the delivery was cancelled.
+                _order = new Dictionary<string, object>(_order) { ["version"] = "5" };
+                return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.OrderChanged);
+            }
 
-                return AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>(_order)
-                {
-                    ["status"] = "cancelled",
-                    ["version"] = "6"
-                });
+            return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.Written, new Dictionary<string, object>(_order)
+            {
+                ["status"] = "cancelled",
+                ["version"] = "6"
             });
+        });
 
         var result = await CancelAsync(BuyerId);
 
         result.GetProperty("status").GetString().Should().Be("success");
         result.GetProperty("serverVersion").GetInt32().Should().Be(6);
-        await _orders.Received(1).UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4);
-        await _orders.Received(1).UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 5);
+        await _orders.Received(1).TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4, "accepted",
+            Arg.Any<IReadOnlyList<TransactWriteItem>>());
+        await _orders.Received(1).TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 5, "accepted",
+            Arg.Any<IReadOnlyList<TransactWriteItem>>());
     }
 
     [Fact]
     public async Task Cancel_OrderMovedOnAfterTheDeliveryCancel_AnswersConflictWithTheServerRow()
     {
-        _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
-            .Returns(_ =>
-            {
-                _order = new Dictionary<string, object>(_order) { ["status"] = "disputed", ["version"] = "5" };
-                return AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Version conflict.");
-            });
+        CancelWriteReturns(_ =>
+        {
+            _order = new Dictionary<string, object>(_order) { ["status"] = "disputed", ["version"] = "5" };
+            return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.OrderChanged);
+        });
 
         var result = await CancelAsync(BuyerId);
 
         result.GetProperty("status").GetString().Should().Be("conflict");
         await _escrows.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        await _escrowAudit.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
     }
 
     [Fact]
     public async Task Cancel_OrderCasKeepsConflicting_IsTransient()
     {
-        _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
-            .Returns(AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Version conflict."));
+        CancelWriteReturns(_ => new OrderLinkedWriteResult(OrderLinkedWriteOutcome.OrderChanged));
 
         var result = await CancelAsync(BuyerId);
 
         result.GetProperty("message").GetString().Should().Be("The order could not be cancelled right now. Please try again later.");
-        await _orders.Received(3).UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await _orders.Received(3).TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>(),
+            Arg.Any<string>(), Arg.Any<IReadOnlyList<TransactWriteItem>>());
     }
 
     [Fact]
@@ -583,47 +592,47 @@ public class SyncFunctionTransportCancelTests
     [Fact]
     public async Task Cancel_DeliveryThatTookTheSlotDuringTheRetryWasPickedUp_IsRefused()
     {
-        _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
-            .Returns(_ =>
-            {
-                // A new delivery claimed the slot and was picked up between the delivery cancel and the order write.
-                _order = new Dictionary<string, object>(_order) { ["version"] = "5", ["activeDeliveryId"] = "del-new" };
-                _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable && r.IndexName == null
-                        && r.ExpressionAttributeValues.ContainsKey(":id") && r.ExpressionAttributeValues[":id"].S == "del-new"))
-                    .Returns(new QueryResponse
-                    {
-                        Items = new() { new() { { "deliveryId", new AttributeValue { S = "del-new" } }, { "status", new AttributeValue { S = "pickedUp" } } } }
-                    });
-                return AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Version conflict.");
-            });
+        CancelWriteReturns(_ =>
+        {
+            // A new delivery claimed the slot and was picked up between the delivery cancel and the order write.
+            _order = new Dictionary<string, object>(_order) { ["version"] = "5", ["activeDeliveryId"] = "del-new" };
+            _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable && r.IndexName == null
+                    && r.ExpressionAttributeValues.ContainsKey(":id") && r.ExpressionAttributeValues[":id"].S == "del-new"))
+                .Returns(new QueryResponse
+                {
+                    Items = new() { new() { { "deliveryId", new AttributeValue { S = "del-new" } }, { "status", new AttributeValue { S = "pickedUp" } } } }
+                });
+            return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.OrderChanged);
+        });
 
         var result = await CancelAsync(BuyerId);
 
         result.GetProperty("message").GetString().Should().Be("ORDER_CANCEL_NOT_ALLOWED: The crops were already picked up.");
-        await _orders.Received(1).UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await _orders.Received(1).TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>(),
+            Arg.Any<string>(), Arg.Any<IReadOnlyList<TransactWriteItem>>());
     }
 
     [Fact]
     public async Task Cancel_PendingDeliveryThatTookTheSlotDuringTheRetry_IsCancelledWithTheOrder()
     {
         var calls = 0;
-        _orders.UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
-            .Returns(_ =>
+        CancelWriteReturns(_ =>
+        {
+            if (++calls == 1)
             {
-                if (++calls == 1)
-                {
-                    _order = new Dictionary<string, object>(_order) { ["version"] = "5", ["activeDeliveryId"] = "del-new" };
-                    return AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Version conflict.");
-                }
+                _order = new Dictionary<string, object>(_order) { ["version"] = "5", ["activeDeliveryId"] = "del-new" };
+                return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.OrderChanged);
+            }
 
-                _order = new Dictionary<string, object>(_order) { ["status"] = "cancelled", ["version"] = "6" };
-                return AuthResult<Dictionary<string, object>>.Success(_order);
-            });
+            _order = new Dictionary<string, object>(_order) { ["status"] = "cancelled", ["version"] = "6" };
+            return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.Written, _order);
+        });
         _deliveries.TryCancelPendingAsync("del-new").Returns(true);
 
         (await CancelAsync(BuyerId)).GetProperty("status").GetString().Should().Be("success");
 
-        await _orders.Received(1).UpdateAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 5);
+        await _orders.Received(1).TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 5, "accepted",
+            Arg.Any<IReadOnlyList<TransactWriteItem>>());
         await _deliveries.Received(1).TryCancelPendingAsync("del-new");
     }
 
@@ -788,10 +797,34 @@ public class SyncFunctionTransportCancelTests
             System.Globalization.DateTimeStyles.AdjustToUniversal);
     }
 
+    /// <summary>FUP-32: the cancel's transaction carried exactly the order escrow's refund arm, and nothing scheduled it apart.</summary>
+    private async Task RefundArmedInTheCancelAsync()
+    {
+        await _orders.Received(1).TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>(), "accepted",
+            Arg.Is<IReadOnlyList<TransactWriteItem>>(items =>
+                items.Count == 1 && items[0].Update.UpdateExpression == Arm(EscrowId, "order_transport_failed").Update.UpdateExpression));
+        await _escrows.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        await _escrowAudit.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(a =>
+            (string)a["action"] == "refund_scheduled" && (string)a["escrowId"] == EscrowId
+            && (string)a["metadata"] == "order_transport_failed"));
+    }
+
+    /// <summary>A recognisable stand-in for <see cref="IEscrowRepository.BuildRefundArm"/>'s item.</summary>
+    private static TransactWriteItem Arm(string escrowId, string reason)
+        => new() { Update = new Update { TableName = "test-escrows-table", UpdateExpression = $"arm {escrowId} {reason}" } };
+
+    private void CancelWriteReturns(Func<NSubstitute.Core.CallInfo, OrderLinkedWriteResult> answer)
+        => _orders.TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), Arg.Any<int>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<TransactWriteItem>>())
+            .Returns(answer);
+
     private async Task NothingWritten()
     {
         await _deliveries.DidNotReceive().TryCancelPendingAsync(Arg.Any<string>());
         await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await _orders.DidNotReceive().TryUpdateWithAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>(),
+            Arg.Any<string>(), Arg.Any<IReadOnlyList<TransactWriteItem>>());
         await _orders.DidNotReceive().ReleaseDeliverySlotAsync(Arg.Any<string>(), Arg.Any<string>());
         await _crops.DidNotReceive().TryRestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
         await _escrows.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),

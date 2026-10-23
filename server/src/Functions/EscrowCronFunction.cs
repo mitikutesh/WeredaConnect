@@ -2658,10 +2658,13 @@ public class EscrowCronFunction
         return TradeCheck.Deferred;
     }
 
-    /// <summary>ESC-10: freeze refusals a later run cannot change, so the freeze is not asked again.</summary>
+    /// <summary>
+    /// ESC-10: freeze refusals a later run cannot change, so the freeze is not asked again. FUP-32: a
+    /// scheduled refund (<c>refundReason</c>) is never removed from the escrow, so it is one of them.
+    /// </summary>
     private static readonly HashSet<string> PermanentFreezeRefusals = new(StringComparer.Ordinal)
     {
-        "freeze_other_escrow", "freeze_other_delivery", "freeze_not_held", "freeze_no_escrow"
+        "freeze_other_escrow", "freeze_other_delivery", "freeze_not_held", "freeze_no_escrow", "freeze_refund_scheduled"
     };
 
     /// <summary>
@@ -2722,6 +2725,7 @@ public class EscrowCronFunction
                 DeliveryDisputeFreeze.RefusedOtherDelivery => "freeze_other_delivery",
                 DeliveryDisputeFreeze.RefusedNotHeld => "freeze_not_held",
                 DeliveryDisputeFreeze.NoEscrow => "freeze_no_escrow",
+                DeliveryDisputeFreeze.RefusedRefundScheduled => "freeze_refund_scheduled",
                 _ => "freeze_refused"
             };
         return await BlockSettlementAsync(escrow, op, reason, trade, context);

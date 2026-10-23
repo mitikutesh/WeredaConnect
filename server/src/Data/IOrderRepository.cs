@@ -28,6 +28,26 @@ public interface IOrderRepository
         int expectedVersion);
 
     /// <summary>
+    /// FUP-32: update the order like <see cref="UpdateAsync"/> (<paramref name="data"/> set, version
+    /// checked and incremented, new <c>updatedAt</c>), also only while it is still
+    /// <paramref name="expectedStatus"/>, and write <paramref name="linkedItems"/> (conditional writes
+    /// to other tables) in the same DynamoDB transaction: all of it lands or none of it. A linked
+    /// item's failed condition is reported over the order's. Returns the order as written: the row
+    /// read strongly consistent before the write, with the update applied (a transaction returns no
+    /// item, and a read after the commit could fail after the money moved). Unlike
+    /// <see cref="UpdateAsync"/>'s <c>ALL_NEW</c>, it can miss a field written without a version bump
+    /// between that read and the commit, such as a delivery slot claim (<c>activeDeliveryId</c>);
+    /// callers that act on such fields read the row again. A transaction cancelled for any other
+    /// reason (a conflicting transaction, throttling) throws, with nothing written.
+    /// </summary>
+    Task<OrderLinkedWriteResult> TryUpdateWithAsync(
+        string orderId,
+        Dictionary<string, object> data,
+        int expectedVersion,
+        string expectedStatus,
+        IReadOnlyList<TransactWriteItem> linkedItems);
+
+    /// <summary>
     /// FRD-03: <see cref="UpdateAsync"/> in one <c>TransactWriteItems</c> with a <c>ConditionCheck</c> that
     /// the order's escrow (<paramref name="escrow"/>) is not <c>held</c>, so a settlement sweep that holds it
     /// between the caller's read and this write wins. Fails with <c>409</c>
@@ -193,6 +213,29 @@ public enum DeliverySlotWriteResult
     /// <summary>ESC-06: the order no longer takes a delivery (it is not accepted, pickup_confirmed or in_transit).</summary>
     OrderNotActive,
 }
+
+/// <summary>
+/// FUP-32: what <see cref="IOrderRepository.TryUpdateWithAsync"/> did. Only <see cref="Written"/>
+/// wrote anything. <see cref="OrderChanged"/> is the zero value so an unset result never reads as
+/// success.
+/// </summary>
+public enum OrderLinkedWriteOutcome
+{
+    /// <summary>The order's version or status is no longer the expected one (re-read and decide).</summary>
+    OrderChanged = 0,
+
+    /// <summary>The order and every linked item were written.</summary>
+    Written,
+
+    /// <summary>The order does not exist.</summary>
+    OrderNotFound,
+
+    /// <summary>A linked item's condition failed (for example the escrow is no longer a plain hold).</summary>
+    LinkedItemRefused,
+}
+
+/// <summary>FUP-32: the outcome of <see cref="IOrderRepository.TryUpdateWithAsync"/>, with the order as written.</summary>
+public readonly record struct OrderLinkedWriteResult(OrderLinkedWriteOutcome Outcome, Dictionary<string, object>? Order = null);
 
 /// <summary>
 /// ESC-08: the delivery an order's slot names (<c>activeDeliveryId</c>) and when it claimed the

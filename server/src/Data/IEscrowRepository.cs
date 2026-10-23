@@ -30,7 +30,8 @@ public interface IEscrowRepository
     /// Throws ConditionalCheckFailedException if the current status doesn't match expectedCurrentStatus.
     /// A move to <c>released</c>, <c>refunded</c> or <c>disputed</c> also requires that the escrow
     /// has no open manual payout (ESC-02); a queued escrow settles only through TryCloseManualPayoutAsync.
-    /// A move to <c>disputed</c> also requires that no settlement holds the lock (ESC-03).
+    /// A move to <c>disputed</c> also requires that no settlement holds the lock (ESC-03) and that no
+    /// refund is scheduled (<c>refundReason</c>, FUP-32).
     /// ESC-04: a move to <c>completed</c> requires no open manual payout and no pending trucker leg
     /// (<c>truckerPayoutPending</c>): an escrow is completed only once every leg is paid.
     /// </summary>
@@ -40,6 +41,15 @@ public interface IEscrowRepository
     /// <param name="expectedCurrentStatus">The expected current status for optimistic concurrency. If null, no status check is performed.</param>
     /// <param name="additionalFields">Optional extra fields to update.</param>
     Task UpdateStatusAsync(string escrowId, string createdAt, string newStatus, string? expectedCurrentStatus = null, Dictionary<string, object>? additionalFields = null);
+
+    /// <summary>
+    /// FUP-32: the escrow half of an order cancel that refunds, for
+    /// <see cref="IOrderRepository.TryUpdateWithAsync"/>. The item schedules the refund for the hourly
+    /// sweep (<c>expiresAt</c> and <c>updatedAt</c> set to <paramref name="scheduledAt"/>,
+    /// <c>refundReason</c>) only while the escrow is a plain hold: <c>escrowed</c>, no settlement
+    /// lock, no open manual payout, no confirmed delivery. No I/O.
+    /// </summary>
+    TransactWriteItem BuildRefundArm(string escrowId, string createdAt, string reason, string scheduledAt);
 
     /// <summary>
     /// ESC-06: push an order escrow's <c>expiresAt</c> forward while it is still a plain
