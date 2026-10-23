@@ -2829,6 +2829,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Kaffaltiin qarshii 10,000 ol ta\'e qonnaan bulaanis ID Faayidaa mirkanaa\'e akka qabaatu barbaada, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.';
 
   @override
+  String get kycFarmerNotVerifiedMessage =>
+      'Eenyummaan qonnaan bulaa ammallee hin mirkanoofne, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.';
+
+  @override
   String get kycUnavailableMessage =>
       'Amma mirkaneessa eenyummaa ilaaluu hin dandeenye, kanaaf kaffaltiin kun hin ergamne. Maaloo booda irra deebi\'aa yaalaa.';
 

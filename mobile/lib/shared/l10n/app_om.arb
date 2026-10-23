@@ -2530,6 +2530,7 @@
   "faydaRetrying": "Ammas Faayidaa argachuuf yaalaa jirra ({attempt}/{total})...",
   "kycFarmerPhoneMessage": "Lakkoofsi bilbila qonnaan bulaa ammallee hin mirkanoofne, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.",
   "kycFarmerFaydaMessage": "Kaffaltiin qarshii 10,000 ol ta'e qonnaan bulaanis ID Faayidaa mirkanaa'e akka qabaatu barbaada, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.",
+  "kycFarmerNotVerifiedMessage": "Eenyummaan qonnaan bulaa ammallee hin mirkanoofne, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.",
   "kycUnavailableMessage": "Amma mirkaneessa eenyummaa ilaaluu hin dandeenye, kanaaf kaffaltiin kun hin ergamne. Maaloo booda irra deebi'aa yaalaa.",
   "kycPaymentNotSent": "Kaffaltiin hin ergamne. Eenyummaan keessan hin mirkanoofne.",
   "kycPaymentResubmitted": "Eenyummaan keessan mirkanaa'eera. Kaffaltiin keessan irra deebi'ee ni ergama.",

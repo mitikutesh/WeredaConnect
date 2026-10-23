@@ -5170,6 +5170,12 @@ abstract class AppLocalizations {
   /// **'Payments above 10,000 ETB need the farmer to have a verified Fayda ID too, so this payment was not sent. You can pay once the farmer verifies.'**
   String get kycFarmerFaydaMessage;
 
+  /// Error text when the KYC gate refused a payment because the farmer (not the buyer) must verify their phone or Fayda ID first (ORDER_KYC_REQUIRED farmer_phone or farmer_fayda); offers no Fayda action to the buyer
+  ///
+  /// In en, this message translates to:
+  /// **'The farmer\'s identity is not verified yet, so this payment was not sent. You can pay once the farmer verifies.'**
+  String get kycFarmerNotVerifiedMessage;
+
   /// KYC dialog when the server could not run the identity check
   ///
   /// In en, this message translates to:
