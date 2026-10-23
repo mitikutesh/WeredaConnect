@@ -153,6 +153,7 @@ void main() {
       final expires = DateTime.utc(2026, 9, 25, 10, 5);
       stubRegister(AuthResult.otpRequired(otpExpiresAt: expires));
       final bloc = build();
+      addTearDown(bloc.close);
 
       final states = await collect(bloc, register, count: 2);
 
@@ -162,7 +163,6 @@ void main() {
         AuthOtpVerificationRequired(phoneNumber: _phone, expiresAt: expires),
       );
       expect(_storage['id_token'], isNull);
-      await bloc.close();
     });
 
     test('verify-otp signs in and reuses the in-memory password + extras',
@@ -170,6 +170,7 @@ void main() {
       stubRegister(AuthResult.otpRequired());
       stubVerify(signedIn(_tokens));
       final bloc = build();
+      addTearDown(bloc.close);
       await collect(bloc, register, count: 2);
 
       final states = await collect(
@@ -194,7 +195,6 @@ void main() {
           companyName: 'Adama Grain',
         ),
       ).called(1);
-      await bloc.close();
     });
 
     test('a wrong code surfaces AUTH_012 and keeps the pending phone',
@@ -204,6 +204,7 @@ void main() {
         AuthResult.failure(AuthErrorCode.otpInvalidOrExpired, 'bad code'),
       );
       final bloc = build();
+      addTearDown(bloc.close);
       await collect(bloc, register, count: 2);
 
       final states = await collect(
@@ -224,7 +225,6 @@ void main() {
         count: 2,
       );
       expect(retry.last, isA<AuthAuthenticated>());
-      await bloc.close();
     });
 
     test('resend re-emits the OTP state with the new expiry', () async {
@@ -234,6 +234,7 @@ void main() {
         (_) async => AuthResult.otpRequired(otpExpiresAt: newExpiry),
       );
       final bloc = build();
+      addTearDown(bloc.close);
       await collect(bloc, register, count: 2);
 
       final states =
@@ -243,7 +244,6 @@ void main() {
       expect(otp.phoneNumber, _phone);
       expect(otp.expiresAt, newExpiry);
       expect(otp.resentAt, isNotNull);
-      await bloc.close();
     });
 
     test('a login for an unconfirmed account (AUTH_016) goes to OTP', () async {
@@ -259,6 +259,7 @@ void main() {
           .thenAnswer((_) async => AuthResult.otpRequired());
       stubVerify(signedIn(_tokens));
       final bloc = build();
+      addTearDown(bloc.close);
 
       final states = await collect(
         bloc,
@@ -279,7 +280,6 @@ void main() {
           password: 'Secret123',
         ),
       ).called(1);
-      await bloc.close();
     });
   });
 
@@ -306,28 +306,29 @@ void main() {
       stubRegister(AuthResult.otpRequired());
       stubVerify(signedIn(_tokens));
       final bloc = build();
+      addTearDown(bloc.close);
       await collect(bloc, register, count: 2);
 
       bloc.add(const AuthOtpAbandoned());
       await expectVerifyWithoutPassword(bloc);
-      await bloc.close();
     });
 
     test('on logout', () async {
       stubRegister(AuthResult.otpRequired());
       stubVerify(signedIn(_tokens));
       final bloc = build();
+      addTearDown(bloc.close);
       await collect(bloc, register, count: 2);
 
       bloc.add(const AuthLogoutRequested());
       await expectVerifyWithoutPassword(bloc);
-      await bloc.close();
     });
 
     test('after a successful verification', () async {
       stubRegister(AuthResult.otpRequired());
       stubVerify(signedIn(_tokens));
       final bloc = build();
+      addTearDown(bloc.close);
       await collect(bloc, register, count: 2);
       await collect(
         bloc,
@@ -336,7 +337,6 @@ void main() {
       );
 
       await expectVerifyWithoutPassword(bloc);
-      await bloc.close();
     });
   });
 
@@ -345,6 +345,7 @@ void main() {
       when(() => service.login(phoneNumber: _phone, password: 'Secret123'))
           .thenAnswer((_) async => signedIn(_tokens));
       final bloc = build();
+      addTearDown(bloc.close);
       await collect(
         bloc,
         const AuthLoginRequested(phoneNumber: _phone, password: 'Secret123'),
@@ -369,7 +370,6 @@ void main() {
       expect(_storage['refresh_token'], 'refresh-2');
       expect(_storage['current_user_phone'], _phone);
       verifyNever(() => cache.clearCredentials(any()));
-      await bloc.close();
     });
   });
 
@@ -378,6 +378,7 @@ void main() {
       when(() => service.login(phoneNumber: _phone, password: 'Secret123'))
           .thenAnswer((_) async => signedIn(_tokens));
       final bloc = build();
+      addTearDown(bloc.close);
       await collect(
         bloc,
         const AuthLoginRequested(phoneNumber: _phone, password: 'Secret123'),
@@ -391,16 +392,15 @@ void main() {
       verify(() => cache.clearCredentials(_phone)).called(1);
       expect(_storage['current_user_phone'], isNull);
       expect(_storage['id_token'], isNull);
-      await bloc.close();
     });
 
     test('is ignored when nobody is signed in', () async {
       final bloc = build();
+      addTearDown(bloc.close);
       sessionExpired.add(null);
       await Future<void>.delayed(const Duration(milliseconds: 20));
       expect(bloc.state, isA<AuthInitial>());
       verifyNever(() => cache.clearCredentials(any()));
-      await bloc.close();
     });
   });
 
@@ -425,6 +425,7 @@ void main() {
         bearerAtUnregister = _storage['id_token'];
       });
       final bloc = build(pushToken: () async => 'fcm-1');
+      addTearDown(bloc.close);
       await collect(
         bloc,
         const AuthLoginRequested(phoneNumber: _phone, password: 'Secret123'),
@@ -437,11 +438,11 @@ void main() {
       verify(() => service.unregisterDeviceToken('fcm-1')).called(1);
       expect(bearerAtUnregister, 'id-1');
       expect(_storage['id_token'], isNull);
-      await bloc.close();
     });
 
     test('a failing push-token lookup never blocks logout', () async {
       final bloc = build(pushToken: () async => throw Exception('no fcm'));
+      addTearDown(bloc.close);
       await collect(
         bloc,
         const AuthLoginRequested(phoneNumber: _phone, password: 'Secret123'),
@@ -452,7 +453,6 @@ void main() {
 
       expect(states.last, isA<AuthUnauthenticated>());
       verifyNever(() => service.unregisterDeviceToken(any()));
-      await bloc.close();
     });
   });
 
@@ -471,10 +471,10 @@ void main() {
         ..version = 1,
     );
     final bloc = build();
+    addTearDown(bloc.close);
 
     final states = await collect(bloc, const AuthCheckRequested(), count: 2);
 
     expect((states.last as AuthAuthenticated).isRestoredSession, isTrue);
-    await bloc.close();
   });
 }
