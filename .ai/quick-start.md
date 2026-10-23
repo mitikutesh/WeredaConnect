@@ -27,7 +27,7 @@ These cause build failures or bad architecture if ignored:
 - **Performance**: <3s load on 3G, sync batch <5s, cold start <100ms (currently 95ms).
 - **App size**: <50MB APK. Images: WebP, max 800px.
 - **Localization**: Every UI string must exist in English + Amharic + Afan Oromo. Use `AppLocalizations.of(context)!.keyName`, never hardcode strings.
-- **Versions**: Flutter 3.38.9, Dart 3.10.8, .NET 10 (Native AOT), Node 20, CDK 2.170.x.
+- **Versions**: Flutter 3.38.9, Dart 3.10.8, .NET 10 (Native AOT), Node 20, CDK 2.273.x.
 
 ---
 
