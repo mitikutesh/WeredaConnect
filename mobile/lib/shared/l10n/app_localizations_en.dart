@@ -3007,4 +3007,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get errorAppUpdateRequiredKept =>
       'Please update the app. This change is kept on your phone and will be sent after the update.';
+
+  @override
+  String get errorContactInText =>
+      'Phone numbers are not allowed here. Remove the number: contact opens after payment is held in escrow.';
 }

@@ -2587,5 +2587,6 @@
   "errorTripHasBookings": "Imalli kun ajajoota qabame waan qabuuf, jijjiiramni kun hin danda'amu.",
   "errorCropHasActiveOrders": "Tarreen kun ajajoota banaa qaba. Dura isaan xumuraa.",
   "errorAppUpdateRequired": "Itti fufuuf maaloo appii haaromsaa. Jijjiiramni kun hin olkaa'amne.",
-  "errorAppUpdateRequiredKept": "Maaloo appii haaromsaa. Jijjiiramni kun bilbila keessan irratti kuufameera, haaromsa booda ni ergama."
+  "errorAppUpdateRequiredKept": "Maaloo appii haaromsaa. Jijjiiramni kun bilbila keessan irratti kuufameera, haaromsa booda ni ergama.",
+  "errorContactInText": "Lakkoofsi bilbilaa asitti hin hayyamamu. Lakkoofsa kana haqi; quunnamtiin kan banamu erga kaffaltiin Eeskiroo keessatti qabamee booda."
 }

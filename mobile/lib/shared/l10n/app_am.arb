@@ -2594,5 +2594,6 @@
   "errorTripHasBookings": "ይህ ጉዞ የተያዙ ትዕዛዞች ስላሉት ይህ ለውጥ ሊደረግ አይችልም።",
   "errorCropHasActiveOrders": "ይህ ዝርዝር ክፍት ትዕዛዞች አሉት። መጀመሪያ እነሱን ያስተናግዱ።",
   "errorAppUpdateRequired": "ለመቀጠል እባክዎ መተግበሪያውን ያዘምኑ። ይህ ለውጥ አልተቀመጠም።",
-  "errorAppUpdateRequiredKept": "እባክዎ መተግበሪያውን ያዘምኑ። ይህ ለውጥ በስልክዎ ላይ ተቀምጧል፣ ከዝማኔው በኋላ ይላካል።"
+  "errorAppUpdateRequiredKept": "እባክዎ መተግበሪያውን ያዘምኑ። ይህ ለውጥ በስልክዎ ላይ ተቀምጧል፣ ከዝማኔው በኋላ ይላካል።",
+  "errorContactInText": "እዚህ ስልክ ቁጥር አይፈቀድም። ቁጥሩን ያስወግዱ፤ ክፍያው በኢስክሮ ከተያዘ በኋላ መገናኘት ይቻላል።"
 }

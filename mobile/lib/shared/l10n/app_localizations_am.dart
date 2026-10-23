@@ -2917,4 +2917,8 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get errorAppUpdateRequiredKept =>
       'እባክዎ መተግበሪያውን ያዘምኑ። ይህ ለውጥ በስልክዎ ላይ ተቀምጧል፣ ከዝማኔው በኋላ ይላካል።';
+
+  @override
+  String get errorContactInText =>
+      'እዚህ ስልክ ቁጥር አይፈቀድም። ቁጥሩን ያስወግዱ፤ ክፍያው በኢስክሮ ከተያዘ በኋላ መገናኘት ይቻላል።';
 }

@@ -941,11 +941,12 @@ class SyncExecutor {
   /// deterministic too (sync-protocol.md 1.10.0), and so are a delivery cancel
   /// refused after pickup (1.11.0), a delivery dispute that was refused or
   /// came after the 48-hour window (1.12.0, ESC-07), a message into a
-  /// thread whose contact is not open (1.15.0, ESC-48), and the ESC-12 part B
+  /// thread whose contact is not open (1.15.0, ESC-48), the ESC-12 part B
   /// codes (1.17.0): a restricted account or owner, a trip with bookings, a
   /// full trip, a listing with active orders, and an order command from an
   /// app below the minimum version (any other operation refused for the app
-  /// version was held back earlier).
+  /// version was held back earlier), and a crop listing or trip whose text
+  /// holds a phone number (1.23.0, FUP-49).
   static bool _isPermanentRejection(String? message) {
     if (message == null) return false;
     return message.startsWith('FRAUD_') ||
@@ -958,7 +959,8 @@ class SyncExecutor {
         isTripHasBookingsMessage(message) ||
         isTripCapacityExceededMessage(message) ||
         isCropHasActiveOrdersMessage(message) ||
-        isAppUpdateRequiredMessage(message);
+        isAppUpdateRequiredMessage(message) ||
+        isContactInTextMessage(message);
   }
 
   /// Whether a crop listing or trip refusal undoes the local change

@@ -216,6 +216,23 @@ public partial class SyncFunction
         "fromWoreda", "toWoreda", "departureDate", "capacity", "pricePerQuintal", "status", "matchedListings"
     };
 
+    /// <summary>
+    /// FUP-49: listing text that buyers read before any order. ESC-48 keeps contact closed until
+    /// the money is held, so none of it may carry a phone number (crop-listing-api.md 1.4.0,
+    /// trip-listing-api.md 1.5.0). The crop `woreda` is not screened here: clients send it from
+    /// the registration profile, so a refusal would lock the farmer out with nothing to fix.
+    /// </summary>
+    private static readonly string[] CropContactScreenedFields = { "description", "locationName" };
+
+    private static readonly string[] TripContactScreenedFields =
+    {
+        "vehicleDescription", "vehiclePlate", "fromWoreda", "toWoreda"
+    };
+
+    /// <summary>FUP-49: the refusal for a phone number in listing text; deterministic for a payload.</summary>
+    private static string ContactInTextRefusal(string code, List<string> fields) =>
+        $"{code}: Remove the phone number from {string.Join(", ", fields)}. Contact opens after payment is held in escrow.";
+
     private static readonly HashSet<string> AllowedDeliveryFields = new()
     {
         "tripId", "listingId", "orderId", "farmerId", "farmerName", "farmerPhone",
@@ -2088,6 +2105,19 @@ public partial class SyncFunction
                         };
                     }
 
+                    // FUP-49: no phone number in text every buyer reads.
+                    var createContactFields = Validation.ContactInText.FieldsWithPhoneNumber(
+                        operation.Data, CropContactScreenedFields);
+                    if (createContactFields.Count > 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = ContactInTextRefusal("CROP_CONTACT_IN_TEXT", createContactFields)
+                        };
+                    }
+
                     // ── Fraud detection (F-14) ──
                     if (_fraudService != null)
                     {
@@ -2252,6 +2282,21 @@ public partial class SyncFunction
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = $"CROP_VALIDATION: {string.Join(" ", updateValidationErrors)}"
+                        };
+                    }
+
+                    // FUP-49: a changed text must not carry a phone number; an unchanged echo
+                    // of the stored value is not checked.
+                    var updateContactFields = Validation.ContactInText.FieldsWithPhoneNumber(
+                        operation.Data, CropContactScreenedFields,
+                        key => existingForUpdate.TryGetValue(key, out var stored) ? stored?.ToString() : null);
+                    if (updateContactFields.Count > 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = ContactInTextRefusal("CROP_CONTACT_IN_TEXT", updateContactFields)
                         };
                     }
 
@@ -2480,6 +2525,19 @@ public partial class SyncFunction
                         };
                     }
 
+                    // FUP-49: no phone number in text every buyer reads.
+                    var createContactFields = Validation.ContactInText.FieldsWithPhoneNumber(
+                        operation.Data, TripContactScreenedFields);
+                    if (createContactFields.Count > 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = ContactInTextRefusal("TRIP_CONTACT_IN_TEXT", createContactFields)
+                        };
+                    }
+
                     NormalizeDepartureDate(operation.Data);
 
                     var now = DateTime.UtcNow.ToString("o");
@@ -2681,6 +2739,21 @@ public partial class SyncFunction
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = $"TRIP_VALIDATION: {string.Join(" ", validationErrors)}"
+                        };
+                    }
+
+                    // FUP-49: a changed text must not carry a phone number; an unchanged echo
+                    // of the stored value is not checked.
+                    var updateContactFields = Validation.ContactInText.FieldsWithPhoneNumber(
+                        operation.Data, TripContactScreenedFields,
+                        key => existing.TryGetValue(key, out var stored) ? stored.S : null);
+                    if (updateContactFields.Count > 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = ContactInTextRefusal("TRIP_CONTACT_IN_TEXT", updateContactFields)
                         };
                     }
 

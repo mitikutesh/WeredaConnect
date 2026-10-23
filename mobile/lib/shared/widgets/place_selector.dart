@@ -212,6 +212,8 @@ class _PlaceSelectorState extends State<PlaceSelector> {
                   suffixIcon:
                       const Icon(Icons.search, color: AppTheme.textMuted),
                   isDense: widget.isDense,
+                  // Long validator texts (FUP-49 phone refusal) wrap, not clip.
+                  errorMaxLines: 3,
                   border: widget.isDense ? const OutlineInputBorder() : null,
                   contentPadding: widget.contentPadding ??
                       (widget.isDense

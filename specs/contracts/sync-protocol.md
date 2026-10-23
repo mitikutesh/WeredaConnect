@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.20.0
+1.23.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -204,6 +204,7 @@ These rules must always hold:
 - Order rejections (every `ORDER_*` code except `ORDER_KYC_REQUIRED`, since 1.10.0) → Mark as permanently rejected and revert the local order (see Permanent order rejections)
 - `DELIVERY_CANCEL_NOT_ALLOWED` (since 1.11.0) → Mark as permanently rejected and revert the local delivery (see Delivery cancel)
 - `DELIVERY_DISPUTE_REFUSED` and `DELIVERY_DISPUTE_EXPIRED` (since 1.12.0) → Mark as permanently rejected and revert the local delivery (see Delivery dispute); `DELIVERY_DISPUTE_RETRY` is transient and retried
+- `CROP_CONTACT_IN_TEXT` and `TRIP_CONTACT_IN_TEXT` (since 1.23.0) → Mark as permanently rejected, not reverted (see Listing text refusal)
 
 **Retry State Management**:
 - `retryCount` field in `SyncOperation` entity tracks attempts (only incremented by server errors, not network failures)
@@ -546,10 +547,44 @@ theirs until they update, and the server answers each the same way.
 
 ---
 
+## Listing text refusal (1.23.0, FUP-49)
+
+A `crop_listing` or `trip` create, or an update that changes the text, is refused when text that
+buyers read before any order holds a phone number (`crop-listing-api.md` 1.4.0 rule 6b for
+`description`, `locationName`; `trip-listing-api.md` 1.5.0 rule 10 for
+`vehicleDescription`, `vehiclePlate`, `fromWoreda`, `toWoreda`):
+
+`CROP_CONTACT_IN_TEXT: Remove the phone number from <fields>. Contact opens after payment is held in escrow.`
+
+`TRIP_CONTACT_IN_TEXT: Remove the phone number from <fields>. Contact opens after payment is held in escrow.`
+
+Nothing is written. The answer depends only on the payload (on update, also on the stored value:
+an unchanged echo is not checked), so the same operation always gets the same answer.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `CROP_CONTACT_IN_TEXT:` or `TRIP_CONTACT_IN_TEXT:` | Permanent: mark the operation rejected (never resent, not reset by a reconnect). Not reverted: like any refused listing or trip outside the 1.17.0 revert list, the local row stays and the operation counts as failed. Explained in en, am and om with `errorContactInText` ("Phone numbers are not allowed here. Remove the number: contact opens after payment is held in escrow."). | Failure with the same text. |
+
+The crop and trip forms run the same detector before anything is queued (offline-first) and show
+the same text under the field, so the refusal comes back only for an operation queued by an older
+build, a client that skips the form, or a rule that changed on one side.
+
+`CROP_VALIDATION` and `TRIP_VALIDATION` are unchanged.
+
+Clients from before 1.23.0 do not know the codes: they retry them like any other error and keep
+their local change; every retry gets the same refusal.
+
+The crop and trip revert for permanent refusals (1.17.0, ESC-12 part B, FUP-01) reverts only the
+codes it lists. These two codes are not on that list yet; adding them so a refused create is
+removed locally is a follow-up.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.23.0 | 2026-10-23 | Listing text refusal (FUP-49): `CROP_CONTACT_IN_TEXT` and `TRIP_CONTACT_IN_TEXT` for a crop listing or trip whose buyer-visible text holds a phone number (`crop-listing-api.md` 1.4.0, `trip-listing-api.md` 1.5.0), nothing written; deterministic, permanent on the mobile queue, not reverted, explained in en, am and om; web shows the same text; the forms run the same check before queueing; older clients retry it |
 | 1.20.0 | 2026-10-23 | Legacy listing side effect (FUP-18): mobile no longer queues a `cropListing` update on delivery create and confirm (the server cannot route it and refuses non-owners anyway) nor flips its local listing copy; `cropListing` operations already queued are removed at app start, the one exception to invariant 1; no server change |
 | 1.19.0 | 2026-10-23 | QR gate money check (FUP-42, `delivery-verification-api.md` 1.17.0): `deferred` is also sent for a delivery `pickedUp`/`delivered` with no nonce on record when the escrow that decides whether it needs the QR cannot be read (message `DELIVERY_NONCE_PENDING: ...`, nothing written, never hard-failed, alarmed on the server); such a delivery whose order escrow is not linked to it is now `deferred` too, where it passed. Clients unchanged: mobile re-queues `deferred` without using a retry, web shows its QR-pending message. |
 | 1.17.0 | 2026-10-23 | Permanent trip and crop rejections (ESC-12 part B, FUP-01): `REPUTATION_RESTRICTED`, `TRIP_HAS_BOOKINGS`, `TRIP_CAPACITY_EXCEEDED` and `CROP_HAS_ACTIVE_ORDERS` are permanent on any entity, `APP_UPDATE_REQUIRED` on an order (it is sent on order commands, spec K1); the mobile client reverts a refused crop listing or trip with the order rules (create: remove; update or delete: re-read `GET /crops/{id}` or `GET /trips/{id}`, 404/403 remove, other failures restore the lowest sent version and clear the pull stamp) and leaves a reverted one out of the failed count; order refusals with these codes are reverted like any order refusal; any other operation answered `APP_UPDATE_REQUIRED` is kept pending for the updated build, never reverted, not resent by this build; a refused delivery create is removed; every section 8 code has its own text in en, am and om, `REPUTATION_RESTRICTED` on an order create names the owner; `APP_UPDATE_REQUIRED` also raises an in-memory update flag; servers may send the five codes once this client is the minimum in use |
@@ -573,4 +608,4 @@ theirs until they update, and the server answers each the same way.
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 1.20.0
+**Version**: 1.23.0
