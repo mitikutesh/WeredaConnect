@@ -2443,8 +2443,9 @@ public sealed class EscrowService
         }
 
         var legs = string.Join(",", failures);
-        Console.WriteLine(
-            $"DISPUTE_PROPAGATION_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} orderId={MoneyAlarmLog.LogId(orderId)} deliveryId={MoneyAlarmLog.LogId(deliveryId)} legs={legs}");
+        // FUP-27: the dispute-propagation-failed alarm counts this line in the escrow, sync and
+        // escrow-cron log groups (every Lambda that runs this mirror). Written before the audit row.
+        AlarmLog(MoneyAlarmLog.DisputePropagationFailed(escrowId, orderId, deliveryId, legs));
         try
         {
             await AppendAuditAsync(
