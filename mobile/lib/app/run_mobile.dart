@@ -102,6 +102,14 @@ Future<void> runMobile({
     debugPrint('[SYNC] migration failed (non-fatal): $e');
   }
 
+  // FUP-18: older builds queued a `cropListing` op on delivery create and
+  // confirm that the server cannot route; it was resent on every reconnect.
+  try {
+    await syncQueue.dropLegacyCropListingOperations();
+  } on Object catch (e) {
+    debugPrint('[SYNC] legacy cropListing cleanup failed (non-fatal): $e');
+  }
+
   // ESC-48: drop counterpart phone numbers cached by earlier versions.
   try {
     await ContactPhonePurge.run(
@@ -143,7 +151,8 @@ Future<void> runMobile({
       );
     },
     // Any other permanent order rejection: server wins, the local order goes
-    // back to the server's view (sync-protocol.md 1.10.0).
+    // back to the server's view (sync-protocol.md 1.10.0); so do refused
+    // deliveries, crop listings and trips (1.11.0, 1.12.0, 1.17.0).
     onPermanentRejection: marketplaceSync.revertRejected,
   );
   final syncWorker = SyncWorker(

@@ -205,6 +205,54 @@ public class EscrowServiceTests
     }
 
     [Fact]
+    public async Task InitiateAsync_LiveTelebirr_Returns422Escrow039BeforeAnyWrite()
+    {
+        // FUP-36: live Telebirr refuses this path's merch_order_id (the client idempotency key),
+        // so the server refuses first and leaves nothing behind.
+        _mockTelebirrGateway.IsLiveTelebirr.Returns(true);
+        var request = MakeInitiateRequest();
+
+        var result = await _service.InitiateAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(422, result.Error!.HttpStatus);
+        Assert.Equal("ESCROW_039", result.Error.Code);
+        // Before any read as well: a replayed idempotency key gets the 422, never the cached 200.
+        await _mockIdempotencyRepo.DidNotReceive().GetAsync(Arg.Any<string>());
+        await _mockEscrowRepo.DidNotReceive().GetByDeliveryIdAsync(Arg.Any<string>());
+        await _mockIdempotencyRepo.DidNotReceive().StoreAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+        await _mockEscrowRepo.DidNotReceive().CreateAsync(Arg.Any<Dictionary<string, object>>());
+        await _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+        await _mockTelebirrGateway.DidNotReceive().HoldFundsAsync(Arg.Any<HoldFundsRequest>());
+    }
+
+    [Fact]
+    public async Task InitiateAsync_HostedCheckoutGatewayNotLive_StillOpensThePayment()
+    {
+        // The local simulator: a hosted checkout (toPayUrl now, webhook later) that is not live
+        // Telebirr. The legacy path keeps working against it (FUP-36).
+        _mockTelebirrGateway.SupportsHostedCheckout.Returns(true);
+        _mockTelebirrGateway.IsLiveTelebirr.Returns(false);
+        _mockTelebirrGateway.HoldFundsAsync(Arg.Any<HoldFundsRequest>()).Returns(new HoldFundsResponse
+        {
+            Success = true,
+            TelebirrRef = "PENDING-WEBHOOK",
+            ToPayUrl = "http://127.0.0.1:8790/payment/web/paygate?prepay_id=p1",
+            PrepayId = "p1"
+        });
+        var request = MakeInitiateRequest();
+
+        var result = await _service.InitiateAsync(request, BuyerId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("initiated", result.Value!.Status);
+        Assert.Equal("http://127.0.0.1:8790/payment/web/paygate?prepay_id=p1", result.Value.ToPayUrl);
+        await _mockTelebirrGateway.Received(1).HoldFundsAsync(
+            Arg.Is<HoldFundsRequest>(r => r.TransactionRef == request.IdempotencyKey));
+    }
+
+    [Fact]
     public async Task InitiateAsync_DuplicateIdempotency_ReturnsCachedResult()
     {
         var request = MakeInitiateRequest();
@@ -614,7 +662,8 @@ public class EscrowServiceTests
         userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
         var alarms = new List<string>();
         var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
-            userRepo, orderRepo) { AlarmLog = alarms.Add };
+            userRepo, orderRepo)
+        { AlarmLog = alarms.Add };
         var escrow = MakeResolvedDispute(resolution);
         escrow["orderId"] = "order-1";
         escrow.Remove("deliveryId");
@@ -653,6 +702,47 @@ public class EscrowServiceTests
     }
 
     [Theory]
+    [InlineData("wait_for_delivery", "in_transit", false)]
+    [InlineData(null, "in_transit", true)]
+    [InlineData("wait_for_delivery", "cancelled", true)]
+    public async Task ResolvedDispute_ARecordedWaitForDelivery_IsRefusedButNotAlarmed(
+        string? disposition, string orderStatus, bool alarmed)
+    {
+        // FUP-16: an admin's explicit wait would otherwise keep the mismatch alarm in ALARM for days
+        // and hide a verdict that is really stuck. A wait whose order moved somewhere it cannot
+        // follow (cancelled) is stuck, so it alarms again.
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1", true).Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-1" }, { "status", orderStatus }, { "version", 4 }
+        });
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
+        var alarms = new List<string>();
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
+            userRepo, orderRepo) { AlarmLog = alarms.Add };
+        var escrow = MakeResolvedDispute("farmer_wins");
+        escrow["orderId"] = "order-1";
+        escrow.Remove("deliveryId");
+        if (disposition != null)
+        {
+            escrow["disputeDisposition"] = disposition;
+        }
+
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrow);
+
+        var error = (await service.ReleaseAsync(DisputeReleaseRequest(), "system")).Error;
+
+        Assert.Equal(422, error!.HttpStatus);
+        Assert.Equal("ESCROW_INVALID_TRANSITION", error.Code);
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        Assert.Equal(alarmed, alarms.Any(l => l.StartsWith("DISPUTE_VERDICT_ORDER_MISMATCH escrowId=escrow-001 op=release")));
+        // Audited once either way, so the admin timeline shows why the money waits.
+        await _mockAuditRepo.Received(1).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(e =>
+            e["action"].ToString() == "dispute_verdict_mismatch"));
+    }
+
+    [Theory]
     [InlineData("farmer_wins", "release")]
     [InlineData("buyer_wins", "refund")]
     public async Task ResolvedDispute_OrderReadFails_FailsClosed_NoLockNoGateway(string resolution, string op)
@@ -662,7 +752,8 @@ public class EscrowServiceTests
         orderRepo.GetByIdAsync("order-1", true).ThrowsAsync(new ProvisionedThroughputExceededException("throttled"));
         var alarms = new List<string>();
         var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
-            _mockUserRepo, orderRepo) { AlarmLog = alarms.Add };
+            _mockUserRepo, orderRepo)
+        { AlarmLog = alarms.Add };
         var escrow = MakeResolvedDispute(resolution);
         escrow["orderId"] = "order-1";
         _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrow);
@@ -814,7 +905,8 @@ public class EscrowServiceTests
             .Returns(failure == "restock" ? StockRestoreResult.Failed : StockRestoreResult.Restored);
         var alarms = new List<string>();
         var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
-            _mockUserRepo, orderRepo, cropRepo: crops) { AlarmLog = alarms.Add };
+            _mockUserRepo, orderRepo, cropRepo: crops)
+        { AlarmLog = alarms.Add };
         var escrow = MakeResolvedDispute("buyer_wins");
         escrow["orderId"] = "order-1";
         escrow.Remove("deliveryId");
@@ -897,7 +989,8 @@ public class EscrowServiceTests
         userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
         var alarms = new List<string>();
         var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
-            userRepo, orderRepo) { AlarmLog = alarms.Add };
+            userRepo, orderRepo)
+        { AlarmLog = alarms.Add };
         var escrow = MakeResolvedDispute("farmer_wins");
         escrow["orderId"] = "order-1";
         escrow.Remove("deliveryId");
@@ -1370,7 +1463,9 @@ public class EscrowServiceTests
         _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
         var deliveryRepo = Substitute.For<IDeliveryRepository>();
         var orderRepo = Substitute.For<IOrderRepository>();
+        // The first read is the pickup check (FUP-16), then the mirror reads and re-reads.
         orderRepo.GetByIdAsync("order-1", true).Returns(
+            MakeOrder("order-1", "delivered", 2),
             MakeOrder("order-1", "delivered", 2),
             MakeOrder("order-1", "delivered", 3));
         orderRepo.UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), 2).Returns(OrderWriteConflict());
@@ -1436,7 +1531,9 @@ public class EscrowServiceTests
         _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
         var deliveryRepo = Substitute.For<IDeliveryRepository>();
         var orderRepo = Substitute.For<IOrderRepository>();
+        // The first read is the pickup check (FUP-16), then the mirror reads and re-reads.
         orderRepo.GetByIdAsync("order-1", true).Returns(
+            MakeOrder("order-1", "delivered", 2),
             MakeOrder("order-1", "delivered", 2),
             MakeOrder("order-1", "disputed", 3));
         orderRepo.UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), 2).Returns(OrderWriteConflict());
@@ -1447,6 +1544,133 @@ public class EscrowServiceTests
         Assert.True(result.IsSuccess);
         await orderRepo.Received(1).UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
         await AssertNoPropagationFailureAudited();
+    }
+
+    // ── FUP-16: a dispute needs the goods picked up (ESCROW_041) ──
+
+    private (IOrderRepository Orders, IDeliveryRepository Deliveries) PickupRig(string? orderStatus, string? deliveryStatus)
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        if (orderStatus != null)
+        {
+            escrowItem["orderId"] = "order-1";
+        }
+
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+        var orderRepo = Substitute.For<IOrderRepository>();
+        if (orderStatus != null)
+        {
+            orderRepo.GetByIdAsync("order-1", true).Returns(MakeOrder("order-1", orderStatus, 2));
+        }
+
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        if (deliveryStatus != null)
+        {
+            deliveryRepo.GetByIdAsync(DeliveryId, true).Returns(new Dictionary<string, object>
+            {
+                { "deliveryId", DeliveryId }, { "status", deliveryStatus }
+            });
+        }
+
+        return (orderRepo, deliveryRepo);
+    }
+
+    [Theory]
+    [InlineData("funded", null)]
+    [InlineData("accepted", null)]
+    [InlineData("accepted", "pending")]
+    [InlineData("cancelled", "cancelled")]
+    [InlineData(null, "pending")]
+    public async Task DisputeAsync_BeforePickup_Returns422Escrow041_AndWritesNothing(string? orderStatus, string? deliveryStatus)
+    {
+        var (orders, deliveries) = PickupRig(orderStatus, deliveryStatus);
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders).DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(422, result.Error!.HttpStatus);
+        Assert.Equal("ESCROW_041", result.Error.Code);
+        await _mockIdempotencyRepo.DidNotReceive().StoreAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+        await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        await deliveries.DidNotReceive().TryMarkDisputedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+        await orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Theory]
+    [InlineData("pickup_confirmed", "pending")]
+    [InlineData("in_transit", null)]
+    [InlineData("accepted", "pickedUp")]
+    [InlineData("accepted", "inTransit")]
+    [InlineData("delivered", "delivered")]
+    [InlineData(null, "pickedUp")]
+    public async Task DisputeAsync_FromPickupOnward_IsAccepted(string? orderStatus, string? deliveryStatus)
+    {
+        var (orders, deliveries) = PickupRig(orderStatus, deliveryStatus);
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders).DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal("disputed", result.Value!.Status);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_TheOrdersActiveDeliveryDecides_NotTheEscrowsEarlierOne()
+    {
+        var (orders, deliveries) = PickupRig("accepted", "pending");
+        var order = MakeOrder("order-1", "accepted", 2);
+        order["activeDeliveryId"] = "delivery-002";
+        orders.GetByIdAsync("order-1", true).Returns(order);
+        deliveries.GetByIdAsync("delivery-002", true).Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", "delivery-002" }, { "status", "inTransit" }
+        });
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders).DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_PickupReadFails_Returns503_AndWritesNothing()
+    {
+        var (orders, deliveries) = PickupRig("accepted", null);
+        orders.GetByIdAsync("order-1", true).ThrowsAsync(new AmazonDynamoDBException("orders down"));
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders).DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.Equal(503, result.Error!.HttpStatus);
+        Assert.Equal("ESCROW_012", result.Error.Code);
+        await _mockIdempotencyRepo.DidNotReceive().StoreAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+        await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+    }
+
+    [Fact]
+    public async Task DisputeAsync_ConfirmedDelivery_NeedsNoPickupRead()
+    {
+        var (orders, deliveries) = PickupRig("accepted", "pending");
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        escrowItem["orderId"] = "order-1";
+        escrowItem["deliveryConfirmedAt"] = DateTime.UtcNow.AddHours(-1).ToString("o");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders).DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_NothingToJudgeBy_IsAllowedAsBefore()
+    {
+        // No order on the escrow and no delivery row: no evidence the goods are still at the farm.
+        var (orders, deliveries) = PickupRig(null, null);
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders).DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
     }
 
     [Fact]

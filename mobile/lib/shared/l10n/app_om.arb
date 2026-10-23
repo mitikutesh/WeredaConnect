@@ -1527,6 +1527,14 @@
   "@escrowErrorPayoutInProgress": {
     "description": "Error when a dispute is raised on a payment an admin is already paying out by hand (ESCROW_038)"
   },
+  "escrowErrorDeliveryPaymentUnavailable": "Kaffaltiin online geejjibsiisaaf asitti hin argamu. Qooda isaa ajaja kana fuula ajajaa irraa kaffalaa.",
+  "@escrowErrorDeliveryPaymentUnavailable": {
+    "description": "Error when the legacy delivery escrow payment is refused on live Telebirr; the order is paid through its checkout (ESCROW_039)"
+  },
+  "escrowErrorDisputeBeforePickup": "Komiin kan ka'uu danda'u erga meeshaan fe'amee booda qofa. Sana dura ajaja haqaa, ykn deeggarsa qunnamaa.",
+  "@escrowErrorDisputeBeforePickup": {
+    "description": "Error when a dispute is raised before the goods are picked up (ESCROW_041)"
+  },
   "escrowErrorInvalidTransition": "Gochi kun haala kaffaltii ammaa keessatti hin hayyamamu.",
   "@escrowErrorInvalidTransition": {
     "description": "Error when escrow state transition is invalid"
@@ -2530,6 +2538,7 @@
   "faydaRetrying": "Ammas Faayidaa argachuuf yaalaa jirra ({attempt}/{total})...",
   "kycFarmerPhoneMessage": "Lakkoofsi bilbila qonnaan bulaa ammallee hin mirkanoofne, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.",
   "kycFarmerFaydaMessage": "Kaffaltiin qarshii 10,000 ol ta'e qonnaan bulaanis ID Faayidaa mirkanaa'e akka qabaatu barbaada, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.",
+  "kycFarmerNotVerifiedMessage": "Eenyummaan qonnaan bulaa ammallee hin mirkanoofne, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.",
   "kycUnavailableMessage": "Amma mirkaneessa eenyummaa ilaaluu hin dandeenye, kanaaf kaffaltiin kun hin ergamne. Maaloo booda irra deebi'aa yaalaa.",
   "kycPaymentNotSent": "Kaffaltiin hin ergamne. Eenyummaan keessan hin mirkanoofne.",
   "kycPaymentResubmitted": "Eenyummaan keessan mirkanaa'eera. Kaffaltiin keessan irra deebi'ee ni ergama.",
@@ -2561,11 +2570,23 @@
   "orderCheckoutNotSent": "Kaffaltiin keessan hin ergamne. Yoo eenyummaa keessan akka mirkaneessitan gaafatamtan, erga mirkaneessitanii booda irra deebi'ee ni ergama; yoo hin taane, irra deebitanii kaffaluuf ajaja banaa.",
   "orderCheckoutCheckingPayment": "Kaffaltii keessan ilaalaa jirra...",
   "paymentTotalOutOfRange": "Telebirr kaffaltii tokkoon qarshii 100 hanga 500,000 fudhata. Waliigalli ajaja kanaa kanaan ala waan ta'eef, Telebirr'n kaffalamuu hin danda'u.",
+  "paymentMethodUnavailable": "Malli kaffaltii kun ammaaf hin jiru. Telebirr'n kaffalaa.",
   "continuePayment": "Kaffaltii itti fufaa",
   "payAgain": "Irra deebi'aa kaffalaa",
   "orderPickupDeadline": "Guyyaa dhumaa fudhannaa",
   "orderTransportFailedBuyerHint": "Midhaan yeroodhaan hin fudhatamne. Ajaja kana haqxanii maallaqa kaffaltan hunda deebifachuu dandeessu.",
   "orderTransportFailedPartyHint": "Midhaan yeroodhaan hin fudhatamne. Bitataan amma ajaja kana haquu danda'a.",
   "cancelOrderTransportFailedBody": "Kan kaffaltan hundi, baasii geejjibaa fi komishinii waltajjii dabalatee, isinii deebi'a.",
-  "errorOrderCancelNotAllowed": "Ajajni kun amma haqamuu hin danda'u. Kan haqamu midhaan yeroodhaan yoo hin fudhatamin fi wanti tokkollee yoo hin fudhatamin qofa."
+  "errorOrderCancelNotAllowed": "Ajajni kun amma haqamuu hin danda'u. Kan haqamu midhaan yeroodhaan yoo hin fudhatamin fi wanti tokkollee yoo hin fudhatamin qofa.",
+  "errorDeadlinePassed": "Yeroon darbeera. Yeroon tarkaanfii kanaa xumurameera.",
+  "errorTripNotEligible": "Konkolaataan fe'aa sun amma hin argamu. Irra deebi'aa filadhaa.",
+  "errorTransportAttemptsExceeded": "Ajaja kanaaf konkolaataan fe'aa biraa yaalamuu hin danda'u. Midhaan ofiin fudhadhaa, yookiin ajaja haqxanii maallaqa kaffaltan hunda deebifadhaa.",
+  "errorTripCapacityExceeded": "Konkolaataan fe'aa kun ajaja kanaaf iddoo hin qabu. Konkolaataa fe'aa biraa filadhaa.",
+  "errorReputationRestricted": "Herregni keessan yeroo ammaaf kana gochuu hin danda'u, kanaaf jijjiiramni kun hin olkaa'amne. Ajajni keessan kan amma jiran itti fufu.",
+  "errorCounterpartyRestricted": "Qonnaan bultaan yookiin konkolaataan fe'aa kun amma ajaja haaraa fudhachuu hin danda'u, kanaaf ajajni hin galmoofne. Maaloo kan biraa filadhaa.",
+  "errorTripHasBookings": "Imalli kun ajajoota qabame waan qabuuf, jijjiiramni kun hin danda'amu.",
+  "errorCropHasActiveOrders": "Tarreen kun ajajoota banaa qaba. Dura isaan xumuraa.",
+  "errorAppUpdateRequired": "Itti fufuuf maaloo appii haaromsaa. Jijjiiramni kun hin olkaa'amne.",
+  "errorAppUpdateRequiredKept": "Maaloo appii haaromsaa. Jijjiiramni kun bilbila keessan irratti kuufameera, haaromsa booda ni ergama.",
+  "errorContactInText": "Lakkoofsi bilbilaa asitti hin hayyamamu. Lakkoofsa kana haqi; quunnamtiin kan banamu erga kaffaltiin Eeskiroo keessatti qabamee booda."
 }

@@ -50,9 +50,11 @@ typedef KycRejectionHandler = Future<void> Function(
 /// Called once per entity when the server refused an operation for good and
 /// the local change must be undone: any `ORDER_*` rejection but
 /// `ORDER_KYC_REQUIRED`, any other permanent rejection of an order
-/// operation (sync-protocol.md 1.10.0), and a delivery cancel refused after
-/// pickup (1.11.0). [message] is the server message, or empty when the whole
-/// batch was refused (HTTP 400/422).
+/// operation (sync-protocol.md 1.10.0), a delivery cancel refused after
+/// pickup (1.11.0), and a crop listing or trip change refused by reputation,
+/// bookings, active orders or the minimum app version (1.17.0). [message] is
+/// the server message, or empty when the whole batch was refused (HTTP
+/// 400/422).
 typedef PermanentRejectionHandler = Future<void> Function(
   SyncOperation operation,
   String message,
@@ -113,6 +115,8 @@ class SyncBatchResult {
   /// Operations the server could not verify YET (status `deferred`) — e.g. a
   /// delivery pickup/confirm whose QR secret hasn't synced up. Re-queued without
   /// burning a retry; NOT counted as a failure (so no backoff / failure UI).
+  /// Also counts operations other than order commands held for an app update
+  /// (`APP_UPDATE_REQUIRED`, sync-protocol.md 1.17.0).
   final int deferred;
 
   /// Operations the server refused until the user re-authenticates
@@ -241,10 +245,19 @@ class SyncBatchResult {
 ///   [KycRejectionHandler], ask the UI to offer Fayda verification
 /// - `error` with any other `ORDER_*` code, `FRAUD_*`, `SYNC_VALIDATION`,
 ///   `DELIVERY_ORDER_REQUIRED`, `DELIVERY_CANCEL_NOT_ALLOWED`,
-///   `DELIVERY_DISPUTE_REFUSED` or `DELIVERY_DISPUTE_EXPIRED` → reject
-///   (never retried) and explain through a [SyncOperationRejected] event; a
-///   refused order change, delivery cancel or delivery dispute is first undone
-///   via [PermanentRejectionHandler]
+///   `DELIVERY_DISPUTE_REFUSED`, `DELIVERY_DISPUTE_EXPIRED`,
+///   `MESSAGE_CONTACT_LOCKED`, `REPUTATION_RESTRICTED`, `TRIP_HAS_BOOKINGS`,
+///   `TRIP_CAPACITY_EXCEEDED`, `CROP_HAS_ACTIVE_ORDERS`, or
+///   `APP_UPDATE_REQUIRED` on an order → reject (never retried) and explain
+///   through a [SyncOperationRejected] event; a refused order change, delivery
+///   cancel or delivery dispute, and a crop listing or trip change refused by
+///   one of the ESC-12 part B codes, is first undone via
+///   [PermanentRejectionHandler]
+/// - `error` with `APP_UPDATE_REQUIRED` on anything but an order → keep it
+///   pending without burning a retry and never undo it (the updated build
+///   sends the same payload), explain it once, and do not send it, or the
+///   operations queued behind it for the same entity, again while this
+///   executor lives (an app update or restart starts a new one)
 /// - `error` → mark failed (retry up to 3 times via [SyncQueue])
 ///
 /// A refused `create` also rejects the operations queued behind it for that
@@ -282,6 +295,21 @@ class SyncExecutor {
   StreamSubscription<void>? _enqueueSubscription;
   Timer? _enqueueDebounce;
   bool _isSyncing = false;
+
+  /// Entities (`entityType:entityId`) with an operation, other than an order
+  /// command, that the server answered `APP_UPDATE_REQUIRED`
+  /// (sync-protocol.md 1.17.0). That operation stays pending for the updated
+  /// build, but sending it again from this build could only get the same
+  /// answer, and an operation queued behind it for the same entity (an update
+  /// after a held create) could only get a transient "not found" and burn its
+  /// retries. So batches skip every pending operation of a held entity while
+  /// this executor lives. In memory, like [SecurityEvents.appUpdateRequired]:
+  /// a restart sends them once more. Only these wait: every other entity,
+  /// delivery handoffs included, keeps syncing.
+  final Set<String> _heldForUpdate = {};
+
+  static String _entityKey(SyncOperation op) =>
+      '${op.entityType}:${op.entityId}';
 
   /// Stream controller for sync batch results (for UI observation).
   final StreamController<SyncBatchResult> _resultController =
@@ -532,9 +560,15 @@ class SyncExecutor {
   /// Returns [SyncBatchResult] with counts of succeeded/conflicted/failed.
   Future<SyncBatchResult> executeBatch() async {
     final currentUserId = await _getCurrentUserId?.call();
-    final pending = await _syncQueue.getPendingOperationsForUser(
+    // While an entity is held, read past its operations (the queue holds at
+    // most maxQueueSize) so they cannot starve newer ones.
+    final pending = (await _syncQueue.getPendingOperationsForUser(
       userId: currentUserId,
-    );
+      limit: _heldForUpdate.isEmpty ? batchSize : SyncQueue.maxQueueSize,
+    ))
+        .where((op) => !_heldForUpdate.contains(_entityKey(op)))
+        .take(batchSize)
+        .toList();
     if (pending.isEmpty) return const SyncBatchResult.empty();
 
     // Mark all as syncing to prevent concurrent processing
@@ -619,6 +653,7 @@ class SyncExecutor {
     var faydaStepUpRequired = false;
     final operationErrors = <String, String>{};
     final rejected = <(SyncOperation, String?)>[];
+    final heldForUpdate = <(SyncOperation, String)>[];
 
     // Build lookup map for O(1) access by operationId
     final opMap = {for (final op in operations) op.operationId: op};
@@ -707,6 +742,20 @@ class SyncExecutor {
             faydaStepUpRequired |= isFaydaStepUpRequiredMessage(message);
             continue;
           }
+          // Minimum-version gate (ESC-25, spec K1): it is meant for order
+          // commands. Any other operation is valid as it is, so keep it
+          // pending WITHOUT burning a retry for the updated build to send,
+          // never undo it, and stop sending it (and the operations queued
+          // behind it for the same entity) from this build.
+          if (status == 'error' &&
+              isAppUpdateRequiredMessage(message) &&
+              operation.entityType != 'order') {
+            await _syncQueue.revertToPending(operationId);
+            _heldForUpdate.add(_entityKey(operation));
+            heldForUpdate.add((operation, message!));
+            deferred++;
+            continue;
+          }
           // KYC gate (ORDER_KYC_REQUIRED): replaying the same payload can't
           // pass until the buyer verifies, so reject it and let the caller
           // undo the optimistic local change; the buyer pays again after.
@@ -752,6 +801,7 @@ class SyncExecutor {
     }
 
     await _settleRejections(rejected);
+    _announceHeldForUpdate(heldForUpdate);
 
     if (stepUpRequired > 0) {
       // One prompt for the batch. Fayda wins: after a Fayda login the
@@ -890,8 +940,13 @@ class SyncExecutor {
   /// `ORDER_*` code but `ORDER_KYC_REQUIRED` (matched earlier) is
   /// deterministic too (sync-protocol.md 1.10.0), and so are a delivery cancel
   /// refused after pickup (1.11.0), a delivery dispute that was refused or
-  /// came after the 48-hour window (1.12.0, ESC-07), and a message into a
-  /// thread whose contact is not open (1.15.0, ESC-48).
+  /// came after the 48-hour window (1.12.0, ESC-07), a message into a
+  /// thread whose contact is not open (1.15.0, ESC-48), the ESC-12 part B
+  /// codes (1.17.0): a restricted account or owner, a trip with bookings, a
+  /// full trip, a listing with active orders, and an order command from an
+  /// app below the minimum version (any other operation refused for the app
+  /// version was held back earlier), and a crop listing or trip whose text
+  /// holds a phone number (1.23.0, FUP-49).
   static bool _isPermanentRejection(String? message) {
     if (message == null) return false;
     return message.startsWith('FRAUD_') ||
@@ -899,21 +954,86 @@ class SyncExecutor {
         message.startsWith('DELIVERY_ORDER_REQUIRED') ||
         isRevertableRejectionMessage(message) ||
         isRevertableDeliveryRejectionMessage(message) ||
-        isContactLockedMessage(message);
+        isContactLockedMessage(message) ||
+        isReputationRestrictedMessage(message) ||
+        isTripHasBookingsMessage(message) ||
+        isTripCapacityExceededMessage(message) ||
+        isCropHasActiveOrdersMessage(message) ||
+        isAppUpdateRequiredMessage(message) ||
+        isContactInTextMessage(message);
   }
+
+  /// Whether a crop listing or trip refusal undoes the local change
+  /// (sync-protocol.md 1.17.0). Only the codes that say what the server
+  /// holds: a `CROP_*` or `TRIP_*` prefix alone is not deterministic.
+  static bool _isRevertableListingOrTripRejection(
+    String entityType,
+    String? message,
+  ) =>
+      switch (entityType) {
+        'crop_listing' => isRevertableListingRejectionMessage(message),
+        'trip' => isRevertableTripRejectionMessage(message),
+        _ => false,
+      };
+
+  /// Whether the client undoes the local change of a refused [operation]
+  /// through [PermanentRejectionHandler]: any order refusal, any `ORDER_*`
+  /// code, a refused delivery cancel or dispute, a message into a closed
+  /// thread, and a crop listing or trip refused by an ESC-12 part B code.
+  static bool _revertsLocalChange(SyncOperation operation, String? message) =>
+      operation.entityType == 'order' ||
+      isRevertableRejectionMessage(message) ||
+      isRevertableDeliveryRejectionMessage(message) ||
+      isContactLockedMessage(message) ||
+      _isRevertableListingOrTripRejection(operation.entityType, message);
 
   /// Background operations the user never made (matching analytics): a
   /// refusal is not announced.
   static const _unannouncedEntityTypes = {'match_event'};
+
+  /// The UI event for a refused (or, for `APP_UPDATE_REQUIRED`, held)
+  /// operation. The idempotency key starts with its user's id, the same
+  /// prefix the queue uses to keep users apart (getPendingOperationsForUser).
+  static SyncOperationRejected _rejectionEvent(
+    SyncOperation operation,
+    String message,
+  ) {
+    final key = operation.idempotencyKey;
+    final separator = key.indexOf(':');
+    return SyncOperationRejected(
+      entityType: operation.entityType,
+      entityId: operation.entityId,
+      action: operation.action,
+      message: message,
+      userId: separator > 0 ? key.substring(0, separator) : null,
+    );
+  }
+
+  /// Tell the user, once per entity, that operations were held for an app
+  /// update (this also raises [SecurityEvents.appUpdateRequired]).
+  void _announceHeldForUpdate(List<(SyncOperation, String)> held) {
+    final announced = <String>{};
+    for (final (operation, message) in held) {
+      if (_unannouncedEntityTypes.contains(operation.entityType)) continue;
+      if (!announced.add('${operation.entityType}:${operation.entityId}')) {
+        continue;
+      }
+      _securityEvents.emit(_rejectionEvent(operation, message));
+    }
+  }
 
   /// Settle the operations a batch just rejected for good ([message] is null
   /// when the whole batch was refused):
   /// - a refused `create` rejects the operations queued behind it for that
   ///   entity, which could only loop on a transient "not found";
   /// - a refused order change (or any `ORDER_*` refusal), a delivery cancel
-  ///   refused after pickup, a refused delivery dispute and a message refused
-  ///   because its thread's contact is not open are undone through
-  ///   [PermanentRejectionHandler];
+  ///   refused after pickup, a refused delivery dispute, a message refused
+  ///   because its thread's contact is not open, and a crop listing or trip
+  ///   change refused by an ESC-12 part B code are undone through
+  ///   [PermanentRejectionHandler], once per entity, with the entity's first
+  ///   operation in the batch whose code undoes the change;
+  /// - a reverted crop listing or trip leaves the "Sync failed" count
+  ///   ([SyncQueue.markRevertedFor]) once the handler returned;
   /// - every refusal is announced as a [SyncOperationRejected] event, once
   ///   per entity. The batch's events go out together after every undo has
   ///   finished: a screen that reloads reads the reverted rows, and the UI
@@ -938,30 +1058,40 @@ class SyncExecutor {
       if (!settled.add('${operation.entityType}:${operation.entityId}')) {
         continue;
       }
-      final reason = message ?? '';
-      if (operation.entityType == 'order' ||
-          isRevertableRejectionMessage(message) ||
-          isRevertableDeliveryRejectionMessage(message) ||
-          isContactLockedMessage(message)) {
+      // A later operation of the entity may carry the code that undoes the
+      // change (a refused delete behind an unrelated refusal); the first one
+      // is still what the user is told.
+      final revert = rejected
+          .where(
+            (r) =>
+                r.$1.entityType == operation.entityType &&
+                r.$1.entityId == operation.entityId,
+          )
+          .where((r) => _revertsLocalChange(r.$1, r.$2))
+          .firstOrNull;
+      if (revert != null) {
+        final (revertOp, revertMessage) = revert;
         try {
-          await _onPermanentRejection?.call(operation, reason);
+          final handler = _onPermanentRejection;
+          if (handler != null) {
+            await handler(revertOp, revertMessage ?? '');
+            // Only crop listings and trips leave the failed count here; a
+            // reverted delivery still counts until FUP-25.
+            if (_isRevertableListingOrTripRejection(
+              revertOp.entityType,
+              revertMessage,
+            )) {
+              await _syncQueue.markRevertedFor(
+                revertOp.entityType,
+                revertOp.entityId,
+              );
+            }
+          }
         } on Object catch (e) {
           debugPrint('[SYNC] permanent rejection handler failed: $e');
         }
       }
-      // The key starts with its user's id, the same prefix the queue uses
-      // to keep users apart (getPendingOperationsForUser).
-      final key = operation.idempotencyKey;
-      final separator = key.indexOf(':');
-      announcements.add(
-        SyncOperationRejected(
-          entityType: operation.entityType,
-          entityId: operation.entityId,
-          action: operation.action,
-          message: reason,
-          userId: separator > 0 ? key.substring(0, separator) : null,
-        ),
-      );
+      announcements.add(_rejectionEvent(operation, message ?? ''));
     }
     announcements.forEach(_securityEvents.emit);
   }
