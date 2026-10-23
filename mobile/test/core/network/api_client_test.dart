@@ -426,26 +426,35 @@ void main() {
         );
       });
 
-      test('connection timeout throws TimeoutException', () async {
-        // Arrange
-        const path = '/slow';
-        dioAdapter.onGet(
-          path,
-          (server) => server.throws(
-            408,
-            DioException(
-              requestOptions: RequestOptions(path: path),
-              type: DioExceptionType.connectionTimeout,
+      // Every Dio timeout, including transformTimeout (dio 5.11.1), is the
+      // same TimeoutException to the app.
+      for (final type in [
+        DioExceptionType.connectionTimeout,
+        DioExceptionType.sendTimeout,
+        DioExceptionType.receiveTimeout,
+        DioExceptionType.transformTimeout,
+      ]) {
+        test('${type.name} throws TimeoutException', () async {
+          // Arrange
+          const path = '/slow';
+          dioAdapter.onGet(
+            path,
+            (server) => server.throws(
+              408,
+              DioException(
+                requestOptions: RequestOptions(path: path),
+                type: type,
+              ),
             ),
-          ),
-        );
+          );
 
-        // Act & Assert
-        expect(
-          () => ApiClient().get<dynamic>(path),
-          throwsA(isA<TimeoutException>()),
-        );
-      });
+          // Act & Assert
+          expect(
+            () => ApiClient().get<dynamic>(path),
+            throwsA(isA<TimeoutException>()),
+          );
+        });
+      }
 
       test('network error throws NetworkException', () async {
         // Arrange
