@@ -5216,6 +5216,27 @@ public class SyncFunctionTests
             (string)e["entityType"] == "delivery" && (string)e["action"] == "dispute" && (string)e["actor"] == "buyer-001"));
     }
 
+    [Theory]
+    [InlineData("pending")]
+    [InlineData("pickedUp")]
+    [InlineData("inTransit")]
+    public async Task DeliveryUpdate_Disputed_BeforeDelivery_IsRefused_AndNothingIsFrozen(string deliveryStatus)
+    {
+        // FUP-16: a dispute through sync starts only from a delivered handoff (pickup comes earlier),
+        // so a dispute before pickup is impossible on this path; POST /escrow/dispute has ESCROW_041.
+        var rig = DisputeFunction(OrderEscrowRow(), orderStatus: "accepted");
+        SetupDeliveryQuery(DeliveryItemForOrder(status: deliveryStatus));
+
+        var response = await SendDeliveryDisputeAsync(rig.Function);
+
+        // The message is JSON-escaped: 'pending' arrives as \u0027pending\u0027.
+        Assert.Contains("DELIVERY_INVALID_TRANSITION", response.Body);
+        Assert.Contains($"\\u0027{deliveryStatus}\\u0027 to \\u0027disputed\\u0027", response.Body);
+        await DidNotWriteTheEscrow(rig.EscrowRepo);
+        await DidNotWriteTheDelivery();
+        await DidNotWriteTheOrder();
+    }
+
     [Fact]
     public async Task DeliveryUpdate_Disputed_OrderLeftBehindItsDelivery_IsAdvancedThenDisputed()
     {

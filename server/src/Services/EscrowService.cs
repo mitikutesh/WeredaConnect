@@ -2139,6 +2139,14 @@ public sealed class EscrowService
             }
         }
 
+        // 11. FUP-16: a dispute needs the goods picked up → ESCROW_041. Before pickup nothing has
+        //     moved and the order has its own exits (the farmer's reject, the buyer's cancel, the
+        //     transport-failure cancel, ESC-06). A confirmed delivery needs no read.
+        if (deliveryConfirmedAt == null && await RefuseDisputeBeforePickupAsync(escrowItem) is { } beforePickup)
+        {
+            return beforePickup;
+        }
+
         var now = DateTime.UtcNow;
         var disputeId = $"dispute-{Guid.NewGuid():N}";
         var createdAt = GetString(escrowItem, "createdAt");
@@ -2261,6 +2269,71 @@ public sealed class EscrowService
     {
         "accepted", "pickup_confirmed", "in_transit"
     };
+
+    /// <summary>Order statuses from pickup onward: the goods have left the farm (FUP-16).</summary>
+    private static readonly HashSet<string> PickedUpOrderStatuses = new(StringComparer.Ordinal)
+    {
+        "pickup_confirmed", "in_transit", "delivered", "disputed", "dispute_resolved", "disbursing", "settled"
+    };
+
+    /// <summary>Delivery statuses from pickup onward (FUP-16).</summary>
+    private static readonly HashSet<string> PickedUpDeliveryStatuses = new(StringComparer.Ordinal)
+    {
+        "pickedUp", "inTransit", "delivered", "disputed"
+    };
+
+    /// <summary>
+    /// FUP-16: refuse <c>POST /escrow/dispute</c> before the goods are picked up
+    /// (<c>422 ESCROW_041</c>). Allowed once the order is at <c>pickup_confirmed</c> or later, or its
+    /// active delivery (else the escrow's) at <c>pickedUp</c> or later. Both are read strongly consistent;
+    /// a read that fails answers <c>503 ESCROW_012</c> and nothing is written. An escrow with no order and
+    /// no delivery that can be read has nothing to judge by and is allowed, as before 1.21.0. Null when
+    /// the dispute may go ahead.
+    /// </summary>
+    private async Task<EscrowResult<DisputeEscrowResponse>?> RefuseDisputeBeforePickupAsync(Dictionary<string, object> escrow)
+    {
+        var escrowId = GetString(escrow, "escrowId");
+        string? orderStatus = null;
+        string? deliveryStatus = null;
+        try
+        {
+            var orderId = GetStringOrNull(escrow, "orderId");
+            var deliveryId = GetStringOrNull(escrow, "deliveryId");
+            if (_orderRepo != null && !string.IsNullOrEmpty(orderId))
+            {
+                var order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+                orderStatus = order != null ? GetStringOrNull(order, "status") : null;
+                var activeDeliveryId = order != null ? GetStringOrNull(order, "activeDeliveryId") : null;
+                deliveryId = string.IsNullOrEmpty(activeDeliveryId) ? deliveryId : activeDeliveryId;
+            }
+
+            if (_deliveryRepo != null && !string.IsNullOrEmpty(deliveryId))
+            {
+                var delivery = await _deliveryRepo.GetByIdAsync(deliveryId, consistentRead: true);
+                deliveryStatus = delivery != null ? GetStringOrNull(delivery, "status") : null;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ESCROW_DISPUTE_PICKUP_UNREAD escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
+            return EscrowResult<DisputeEscrowResponse>.Failure(503, "ESCROW_012",
+                "The order behind this escrow could not be read. Nothing was disputed; try again.");
+        }
+
+        if (orderStatus == null && deliveryStatus == null)
+        {
+            return null;
+        }
+
+        if ((orderStatus != null && PickedUpOrderStatuses.Contains(orderStatus))
+            || (deliveryStatus != null && PickedUpDeliveryStatuses.Contains(deliveryStatus)))
+        {
+            return null;
+        }
+
+        return EscrowResult<DisputeEscrowResponse>.Failure(422, "ESCROW_041",
+            "A dispute can be opened only after the goods are picked up. Before pickup, cancel or reject the order instead.");
+    }
 
     /// <summary>
     /// SIM-12, ESC-07: move the delivery and order behind a frozen dispute to <c>disputed</c>.
@@ -2521,7 +2594,15 @@ public sealed class EscrowService
             return await RecordMismatchOverrideAsync(escrowId, result, actor, overrideReason);
         }
 
-        if (result.IsMismatch)
+        if (result.IsMismatch && await IsRecordedWaitAsync(escrow, resolution))
+        {
+            // FUP-16: the admin chose to wait for the delivery. Still refused and audited once, but not
+            // alarmed: an hourly alarm line here would keep the mismatch alarm in ALARM for days and hide
+            // a verdict that is really stuck.
+            Console.WriteLine(
+                $"DISPUTE_VERDICT_WAITING_FOR_DELIVERY escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
+        }
+        else if (result.IsMismatch)
         {
             AlarmLog(MoneyAlarmLog.DisputeVerdictOrderMismatch(escrowId, op, result.FailedLegs));
         }
@@ -2547,8 +2628,26 @@ public sealed class EscrowService
         return result.IsMismatch
             ? new SettlementBlock(422, "ESCROW_INVALID_TRANSITION",
                 $"The order or delivery behind this verdict cannot follow it ({result.FailedLegs}). Nothing was settled: "
-                + "bring the order to a status the verdict can follow first.")
+                + "bring the order to a status the verdict can follow first, or record a disposition on the verdict "
+                + "(POST /admin/disputes/{id}/resolve).")
             : null;
+    }
+
+    /// <summary>
+    /// FUP-16: the verdict carries the admin's <c>wait_for_delivery</c> and its legs are exactly what that
+    /// choice waits on (a <c>farmer_wins</c> before delivery). Anything else (the order cancelled meanwhile,
+    /// a missing row, a read that fails) is not a recorded wait and keeps the alarm.
+    /// </summary>
+    private async Task<bool> IsRecordedWaitAsync(Dictionary<string, object> escrow, string resolution)
+    {
+        if (resolution != "farmer_wins"
+            || GetStringOrNull(escrow, DisputeDispositionFields.Disposition) != DisputeDisposition.WaitForDelivery)
+        {
+            return false;
+        }
+
+        var plan = await _verdictMirror.PlanDispositionAsync(escrow, resolution);
+        return plan.Case == DispositionCase.BeforeDelivery && plan.Fits(DisputeDisposition.WaitForDelivery);
     }
 
     /// <summary>

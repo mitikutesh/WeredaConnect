@@ -410,6 +410,32 @@ public class AdminFunction
                 $"action must be '{verdictAction}' for {body.Resolution}.", "action");
         }
 
+        // FUP-16: a disposition belongs to one verdict and always carries the admin's reason.
+        var disposition = string.IsNullOrEmpty(body.Disposition) ? null : body.Disposition;
+        string? dispositionReason = null;
+        if (disposition != null)
+        {
+            var dispositionVerdict = DisputeDisposition.VerdictOf(disposition);
+            if (dispositionVerdict == null)
+            {
+                return LambdaResponse.Error(400, "ADMIN_014",
+                    "disposition must be return_to_farmer, delivered_anyway, settle_now or wait_for_delivery.", "disposition");
+            }
+
+            if (dispositionVerdict != body.Resolution)
+            {
+                return LambdaResponse.Error(400, "ADMIN_014",
+                    $"disposition '{disposition}' goes with {dispositionVerdict}, not {body.Resolution}.", "disposition");
+            }
+
+            dispositionReason = body.Reason?.Trim() ?? "";
+            if (dispositionReason.Length is < 10 or > 500)
+            {
+                return LambdaResponse.Error(400, "ADMIN_014",
+                    "reason must be 10 to 500 characters with a disposition.", "reason");
+            }
+        }
+
         var item = await QuerySingleItemAsync(_escrowsTable, "escrowId", escrowId);
         if (item == null)
         {
@@ -420,6 +446,40 @@ public class AdminFunction
         var adminUserId = AuthHelper.GetUserId(request) ?? "admin";
 
         var createdAt = item.TryGetValue("createdAt", out var ca) ? ca.S : "";
+
+        // FUP-16: decide the order and the delivery before the verdict is written. A verdict they
+        // cannot follow as they are is recorded only with a disposition that resolves it, so no new
+        // verdict waits on a mismatch. An escrow already decided goes to the replay below, and one with a
+        // queued payout or a settlement in flight to the 409 answers of the conditional write.
+        var mirror = VerdictMirror();
+        string? applyDisposition = null;
+        string? mismatchedLegs = null;
+        var dispositionIgnored = false;
+        if (item.TryGetValue("status", out var currentStatusAttr) && currentStatusAttr.S == "disputed"
+            && !item.ContainsKey(ManualPayoutFields.Marker) && !item.ContainsKey("settlementLock"))
+        {
+            var plan = await mirror.PlanDispositionAsync(DynamoDbHelper.FromItem(item), body.Resolution);
+            if (plan.Case == DispositionCase.Unknown)
+            {
+                return LambdaResponse.Error(503, "ESCROW_012",
+                    "The order or delivery behind this escrow could not be read. Nothing was recorded; try again.");
+            }
+
+            if (plan.Case != DispositionCase.NotNeeded)
+            {
+                if (DispositionRefusal(plan, disposition, body.Resolution, replay: false) is { } refusal)
+                {
+                    return refusal;
+                }
+
+                applyDisposition = disposition;
+                mismatchedLegs = plan.Legs;
+            }
+            else
+            {
+                dispositionIgnored = disposition != null;
+            }
+        }
 
         var updateRequest = new UpdateItemRequest
         {
@@ -456,6 +516,18 @@ public class AdminFunction
                 { ":disputed", new AttributeValue { S = "disputed" } }
             }
         };
+        if (applyDisposition != null)
+        {
+            // FUP-16: the verdict and its disposition are recorded in the same conditional write.
+            updateRequest.UpdateExpression += ", #disposition = :disposition, #dispositionReason = :dispositionReason, "
+                                              + "#dispositionBy = :resolvedBy, #dispositionAt = :resolvedAt";
+            updateRequest.ExpressionAttributeNames["#disposition"] = DisputeDispositionFields.Disposition;
+            updateRequest.ExpressionAttributeNames["#dispositionReason"] = DisputeDispositionFields.Reason;
+            updateRequest.ExpressionAttributeNames["#dispositionBy"] = DisputeDispositionFields.By;
+            updateRequest.ExpressionAttributeNames["#dispositionAt"] = DisputeDispositionFields.At;
+            updateRequest.ExpressionAttributeValues[":disposition"] = new AttributeValue { S = applyDisposition };
+            updateRequest.ExpressionAttributeValues[":dispositionReason"] = new AttributeValue { S = dispositionReason };
+        }
 
         try
         {
@@ -470,18 +542,11 @@ public class AdminFunction
 
             // ESC-03: the same verdict again is a replay. Nothing new is recorded; the order and
             // delivery are re-mirrored, which repairs a leg the first attempt could not write.
+            // FUP-16: a replay also records or repairs a disposition.
             if (latest != null && latestStatus != "disputed" && recorded == body.Resolution)
             {
-                var recordedAt = latest.TryGetValue("disputeResolvedAt", out var lra) && lra.S != null ? lra.S : now;
-                await MirrorVerdictAsync(latest, body.Resolution, recordedAt, adminUserId, context);
-                return LambdaResponse.Ok(new ResolveDisputeResponse
-                {
-                    EscrowId = escrowId,
-                    Status = latestStatus ?? "dispute_resolved",
-                    Resolution = body.Resolution,
-                    ResolvedAt = recordedAt,
-                    Message = "Verdict already recorded."
-                }, AppJsonContext.Default.ResolveDisputeResponse);
+                return await ReplayVerdictAsync(
+                    latest, body.Resolution, disposition, dispositionReason, adminUserId, now, request, context);
             }
 
             if (latest != null && latest.TryGetValue(ManualPayoutFields.Marker, out var marker)
@@ -537,6 +602,12 @@ public class AdminFunction
             userId: adminUserId, correlationId: AuditLogger.GetCorrelationId(request),
             entityType: "escrow", entityId: escrowId, outcome: "success");
 
+        if (applyDisposition != null)
+        {
+            return await ApplyDispositionAsync(mirror, item, body.Resolution, applyDisposition, dispositionReason!, mismatchedLegs,
+                dispositionAt: now, resolvedAt: now, "dispute_resolved", adminUserId, request, context);
+        }
+
         // ESC-03: the order and delivery follow the verdict now; the settlement repairs a leg
         // that fails here.
         await MirrorVerdictAsync(item, body.Resolution, now, adminUserId, context);
@@ -547,13 +618,287 @@ public class AdminFunction
             Status = "dispute_resolved",
             Resolution = body.Resolution,
             ResolvedAt = now,
-            Message = body.Resolution == "farmer_wins"
-                ? "Verdict recorded. The settlement sweep releases the funds to the farmer within the hour."
-                : "Verdict recorded. The settlement sweep refunds the buyer within the hour."
+            Message = (body.Resolution == "farmer_wins"
+                    ? "Verdict recorded. The settlement sweep releases the funds to the farmer within the hour."
+                    : "Verdict recorded. The settlement sweep refunds the buyer within the hour.")
+                + (dispositionIgnored ? " No disposition was needed: the order can follow the verdict." : "")
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.ResolveDisputeResponse);
     }
+
+    /// <summary>
+    /// The same verdict again. ESC-03: nothing new is recorded and the legs are mirrored again.
+    /// FUP-16: on a verdict not settled yet whose legs cannot follow it, the disposition in the request
+    /// (or the one already recorded) is applied: a new choice is recorded on the escrow first
+    /// (conditional on no settlement in flight), and one already recorded is re-applied, which finishes a
+    /// run that stopped half way. Without any disposition such a verdict (recorded before 1.21.0) answers
+    /// <c>422 ADMIN_015</c> so the admin chooses one.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> ReplayVerdictAsync(
+        Dictionary<string, AttributeValue> latest, string resolution, string? disposition, string? dispositionReason,
+        string adminUserId, string now, APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        var escrowId = latest.TryGetValue("escrowId", out var eid) ? eid.S : "";
+        var latestStatus = latest.TryGetValue("status", out var ls) ? ls.S : null;
+        var recordedAt = latest.TryGetValue("disputeResolvedAt", out var lra) && lra.S != null ? lra.S : now;
+        var recordedDisposition = latest.TryGetValue(DisputeDispositionFields.Disposition, out var rd) ? rd.S : null;
+        if (latestStatus == "dispute_resolved")
+        {
+            var mirror = VerdictMirror();
+            var plan = await mirror.PlanDispositionAsync(DynamoDbHelper.FromItem(latest), resolution);
+            if (plan.Case == DispositionCase.Unknown)
+            {
+                return LambdaResponse.Error(503, "ESCROW_012",
+                    "The order or delivery behind this escrow could not be read. Nothing was changed; try again.");
+            }
+
+            if (plan.Case != DispositionCase.NotNeeded)
+            {
+                var chosen = disposition ?? recordedDisposition;
+                if (DispositionRefusal(plan, chosen, resolution, replay: true) is { } refusal)
+                {
+                    return refusal;
+                }
+
+                var reason = disposition != null
+                    ? dispositionReason!
+                    : latest.TryGetValue(DisputeDispositionFields.Reason, out var rr) ? rr.S ?? "" : "";
+                var dispositionAt = latest.TryGetValue(DisputeDispositionFields.At, out var rat) && rat.S != null ? rat.S : recordedAt;
+                if (disposition != null && disposition != recordedDisposition)
+                {
+                    if (!await RecordDispositionAsync(latest, resolution, disposition, recordedDisposition, reason, adminUserId, now))
+                    {
+                        return LambdaResponse.Error(409, "ADMIN_010",
+                            "The verdict can no longer take this disposition: a settlement is in progress or done, or another "
+                            + "admin recorded a choice meanwhile. Reload the page.");
+                    }
+
+                    dispositionAt = now;
+                }
+
+                return await ApplyDispositionAsync(mirror, latest, resolution, chosen!, reason, plan.Legs, dispositionAt,
+                    recordedAt, latestStatus, adminUserId, request, context);
+            }
+        }
+
+        await MirrorVerdictAsync(latest, resolution, recordedAt, adminUserId, context);
+        return LambdaResponse.Ok(new ResolveDisputeResponse
+        {
+            EscrowId = escrowId,
+            Status = latestStatus ?? "dispute_resolved",
+            Resolution = resolution,
+            ResolvedAt = recordedAt,
+            Disposition = recordedDisposition,
+            Message = "Verdict already recorded."
+        }, AppJsonContext.Default.ResolveDisputeResponse);
+    }
+
+    /// <summary>
+    /// FUP-16: why a verdict whose legs cannot follow it is not recorded (or not changed) with
+    /// <paramref name="disposition"/>; null when the disposition resolves it. Nothing is written on a refusal.
+    /// </summary>
+    private static APIGatewayProxyResponse? DispositionRefusal(
+        DispositionPlan plan, string? disposition, string resolution, bool replay)
+    {
+        if (plan.Case == DispositionCase.NoFit)
+        {
+            // A recorded verdict cannot change; before it is recorded the admin can still pick the other one.
+            return LambdaResponse.Error(422, "ADMIN_016",
+                $"The order or delivery behind this verdict cannot follow {resolution} ({plan.Legs}) and no disposition fits. "
+                + (replay
+                    ? "Nothing was changed. The verdict is recorded and cannot change: the order must be repaired by hand "
+                      + "first (for buyer_wins, the deprecated overrideOrderMismatch refund still settles it)."
+                    : "Nothing was recorded: bring the order to a status the verdict can follow, or choose the other verdict."));
+        }
+
+        if (disposition == null)
+        {
+            return LambdaResponse.Error(422, "ADMIN_015", plan.Case == DispositionCase.GoodsMoving
+                ? "The goods are on the way, so the order cannot follow buyer_wins as it is. Nothing was changed: "
+                  + "choose a disposition (return_to_farmer or delivered_anyway) with a reason."
+                : "The order is not delivered, so it cannot follow farmer_wins as it is. Nothing was changed: "
+                  + "choose a disposition (wait_for_delivery" + (plan.GoodsHandedOver ? " or settle_now" : "") + ") with a reason.",
+                "disposition");
+        }
+
+        if (!plan.Fits(disposition))
+        {
+            return LambdaResponse.Error(422, "ADMIN_016",
+                disposition == DisputeDisposition.SettleNow && !plan.GoodsHandedOver
+                    ? "settle_now needs the goods picked up; before pickup choose wait_for_delivery. Nothing was changed."
+                    : $"{disposition} does not fit this order ({plan.Legs}). Nothing was changed.",
+                "disposition");
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// FUP-16: record a new disposition on a verdict that is not settled yet. Conditional on the escrow
+    /// still being <c>dispute_resolved</c> with this verdict, with no manual payout and no settlement lock,
+    /// and still carrying the disposition this request read (<paramref name="previous"/>, or none), so two
+    /// admins choosing at once cannot overwrite each other unseen. False when the condition fails.
+    /// </summary>
+    private async Task<bool> RecordDispositionAsync(
+        Dictionary<string, AttributeValue> escrow, string resolution, string disposition, string? previous, string reason,
+        string adminUserId, string now)
+    {
+        var values = new Dictionary<string, AttributeValue>
+        {
+            { ":disposition", new AttributeValue { S = disposition } },
+            { ":reason", new AttributeValue { S = reason } },
+            { ":by", new AttributeValue { S = adminUserId } },
+            { ":now", new AttributeValue { S = now } },
+            { ":resolved", new AttributeValue { S = "dispute_resolved" } },
+            { ":resolution", new AttributeValue { S = resolution } }
+        };
+        var unchanged = "attribute_not_exists(#disposition)";
+        if (previous != null)
+        {
+            values[":previous"] = new AttributeValue { S = previous };
+            unchanged = "#disposition = :previous";
+        }
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _escrowsTable,
+                Key = new Dictionary<string, AttributeValue>
+                {
+                    { "escrowId", escrow["escrowId"] },
+                    { "createdAt", escrow["createdAt"] }
+                },
+                UpdateExpression = "SET #disposition = :disposition, #dispositionReason = :reason, #dispositionBy = :by, "
+                                   + "#dispositionAt = :now, #updatedAt = :now",
+                ConditionExpression = "#status = :resolved AND #resolution = :resolution "
+                                      + "AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#lock) AND " + unchanged,
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#disposition", DisputeDispositionFields.Disposition },
+                    { "#dispositionReason", DisputeDispositionFields.Reason },
+                    { "#dispositionBy", DisputeDispositionFields.By },
+                    { "#dispositionAt", DisputeDispositionFields.At },
+                    { "#updatedAt", "updatedAt" },
+                    { "#status", "status" },
+                    { "#resolution", "disputeResolution" },
+                    { "#manualPayout", ManualPayoutFields.Marker },
+                    { "#lock", "settlementLock" }
+                },
+                ExpressionAttributeValues = values
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// FUP-16: audit the admin's disposition, then move the legs (<see cref="DisputeVerdictMirror.ApplyDispositionAsync"/>).
+    /// The escrow-audit row comes first, at a deterministic key (the choice time plus four ticks, conditional
+    /// put), with a transaction-audit row when it is new; if it cannot be written nothing moves (503). A leg
+    /// that does not move answers 503 too: the verdict and the disposition stand, and the same request again
+    /// finishes the job. The settlement sweep never applies a disposition; it only finds the legs following.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> ApplyDispositionAsync(
+        DisputeVerdictMirror mirror, Dictionary<string, AttributeValue> escrowItem, string resolution, string disposition,
+        string reason, string? legs, string dispositionAt, string resolvedAt, string? escrowStatus, string adminUserId,
+        APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        var escrowId = escrowItem.TryGetValue("escrowId", out var eid) ? eid.S : "";
+        var escrow = DynamoDbHelper.FromItem(escrowItem);
+        var action = DisputeDisposition.AuditAction(disposition);
+        if (!string.IsNullOrEmpty(_escrowAuditTable))
+        {
+            try
+            {
+                var timestamp = DisputeVerdictMirror.VerdictAuditTimestamp(dispositionAt, action);
+                var created = await new EscrowAuditRepository(_dynamoDb, _escrowAuditTable).AppendIfAbsentAsync(
+                    new Dictionary<string, object>
+                    {
+                        { "auditId", EscrowAuditRepository.DeterministicAuditId(action, timestamp) },
+                        { "escrowId", escrowId },
+                        { "action", action },
+                        { "fromState", "dispute_resolved" },
+                        { "toState", "dispute_resolved" },
+                        { "actor", adminUserId },
+                        { "timestamp", timestamp },
+                        { "metadata", $"disposition={disposition};reason={reason};legs={legs}" }
+                    });
+                if (created)
+                {
+                    var orderId = escrowItem.TryGetValue("orderId", out var oid) && !string.IsNullOrEmpty(oid.S) ? oid.S : escrowId;
+                    await TransactionAuditWriter.EmitAsync(TxAuditRepo(), context, orderId, "escrow", escrowId,
+                        action, "dispute_resolved", "dispute_resolved", AuditContext.From(request, adminUserId, "admin"),
+                        metadata: $"disposition={disposition};reason={reason}");
+                    context.Logger.LogInformation(
+                        $"DISPUTE_DISPOSITION_RECORDED escrowId={MoneyAlarmLog.LogId(escrowId)} admin={MoneyAlarmLog.LogId(adminUserId)} disposition={disposition}");
+                }
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogWarning(
+                    $"DISPUTE_DISPOSITION_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
+                return LambdaResponse.Error(503, "ESCROW_012",
+                    "The verdict is recorded, but its disposition could not be audited. Nothing moved: send the same verdict again.");
+            }
+        }
+
+        var result = await mirror.ApplyDispositionAsync(escrow, resolution, disposition, resolvedAt, context);
+        if (result.DispositionNotNeeded)
+        {
+            // The legs moved since the verdict was decided (a handoff landed) and now follow it: the
+            // plain verdict mirror applies. The choice stays recorded and audited, unused.
+            await MirrorVerdictAsync(escrowItem, resolution, resolvedAt, adminUserId, context);
+            return LambdaResponse.Ok(new ResolveDisputeResponse
+            {
+                EscrowId = escrowId,
+                Status = escrowStatus ?? "dispute_resolved",
+                Resolution = resolution,
+                ResolvedAt = resolvedAt,
+                Disposition = disposition,
+                Message = "Verdict recorded. The order can now follow the verdict as it is, so the disposition was not needed; "
+                          + "the settlement sweep settles it within the hour."
+            }, AppJsonContext.Default.ResolveDisputeResponse);
+        }
+
+        if (result.FailedLegs != null)
+        {
+            context.Logger.LogWarning(
+                $"DISPUTE_DISPOSITION_INCOMPLETE escrowId={MoneyAlarmLog.LogId(escrowId)} disposition={disposition} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
+            return LambdaResponse.Error(503, "ESCROW_012",
+                $"The verdict and its disposition are recorded, but the order or delivery did not move ({result.FailedLegs}). "
+                + "Nothing was settled: send the same verdict again to finish.");
+        }
+
+        return LambdaResponse.Ok(new ResolveDisputeResponse
+        {
+            EscrowId = escrowId,
+            Status = escrowStatus ?? "dispute_resolved",
+            Resolution = resolution,
+            ResolvedAt = resolvedAt,
+            Disposition = disposition,
+            Message = disposition switch
+            {
+                DisputeDisposition.ReturnToFarmer =>
+                    "Verdict recorded. The delivery is cancelled and the goods go back to the farmer; the settlement sweep refunds the buyer within the hour.",
+                DisputeDisposition.DeliveredAnyway =>
+                    "Verdict recorded. The goods count as delivered to the buyer; the settlement sweep refunds the buyer within the hour.",
+                DisputeDisposition.SettleNow =>
+                    "Verdict recorded. The delivery is cancelled; the settlement sweep releases the funds to the farmer within the hour.",
+                _ => "Verdict recorded. The funds are released to the farmer once the order is delivered."
+            }
+        }, AppJsonContext.Default.ResolveDisputeResponse);
+    }
+
+    /// <summary>The verdict mirror over this Lambda's tables (a missing table is a leg with nothing to mirror).</summary>
+    private DisputeVerdictMirror VerdictMirror() => new(
+        string.IsNullOrEmpty(_ordersTable) ? null : new OrderRepository(_dynamoDb, _ordersTable),
+        string.IsNullOrEmpty(_deliveriesTable) ? null : new DeliveryRepository(_dynamoDb, _deliveriesTable),
+        TxAuditRepo());
 
     /// <summary>
     /// ESC-03: move the order and delivery behind a dispute verdict to it
@@ -573,11 +918,7 @@ public class AdminFunction
         var escrowId = escrowItem.TryGetValue("escrowId", out var eid) ? eid.S : null;
         try
         {
-            var mirror = new DisputeVerdictMirror(
-                string.IsNullOrEmpty(_ordersTable) ? null : new OrderRepository(_dynamoDb, _ordersTable),
-                string.IsNullOrEmpty(_deliveriesTable) ? null : new DeliveryRepository(_dynamoDb, _deliveriesTable),
-                TxAuditRepo());
-            var result = await mirror.ApplyAsync(DynamoDbHelper.FromItem(escrowItem), resolution, resolvedAt, context);
+            var result = await VerdictMirror().ApplyAsync(DynamoDbHelper.FromItem(escrowItem), resolution, resolvedAt, context);
             if (result.FailedLegs == null)
             {
                 return;
@@ -2043,36 +2384,51 @@ public class AdminFunction
             return (new List<Dictionary<string, object>>(), null);
         }
 
-        var request = new ScanRequest
+        var items = new List<Dictionary<string, object>>();
+        var lastKey = startKey;
+        var pages = 0;
+        do
         {
-            TableName = tableName,
-            Limit = limit
-        };
-
-        if (startKey != null)
-        {
-            request.ExclusiveStartKey = startKey;
-        }
-
-        if (!string.IsNullOrEmpty(filterValue))
-        {
-            request.FilterExpression = "#field = :value";
-            request.ExpressionAttributeNames = new Dictionary<string, string>
+            var request = new ScanRequest
             {
-                { "#field", filterField }
+                TableName = tableName,
+                Limit = limit
             };
-            request.ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-            {
-                { ":value", new AttributeValue { S = filterValue } }
-            };
-        }
 
-        var response = await _dynamoDb.ScanAsync(request);
-        var items = response.Items.Select(DynamoDbHelper.FromItem).ToList();
-        var lastKey = response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null;
+            if (lastKey != null)
+            {
+                request.ExclusiveStartKey = lastKey;
+            }
+
+            if (!string.IsNullOrEmpty(filterValue))
+            {
+                request.FilterExpression = "#field = :value";
+                request.ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#field", filterField }
+                };
+                request.ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":value", new AttributeValue { S = filterValue } }
+                };
+            }
+
+            var response = await _dynamoDb.ScanAsync(request);
+            items.AddRange(response.Items.Select(DynamoDbHelper.FromItem));
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
+            pages++;
+        }
+        // FUP-16: DynamoDB applies the filter after the Limit, so one page of a filtered scan can hold
+        // few matches or none. Keep reading until `limit` matched (the last page may add up to
+        // limit - 1 more), the table ends, or the page budget is spent; the nextToken resumes after the
+        // last page read, so nothing is skipped or repeated.
+        while (!string.IsNullOrEmpty(filterValue) && items.Count < limit && lastKey != null && pages < MaxFilteredScanPages);
 
         return (items, lastKey);
     }
+
+    /// <summary>The most Scan pages (of <c>limit</c> rows each) one filtered admin list request reads.</summary>
+    private const int MaxFilteredScanPages = 25;
 
     private async Task<Dictionary<string, AttributeValue>?> QuerySingleItemAsync(
         string tableName,
@@ -2200,7 +2556,11 @@ public class AdminFunction
                 Resolution = GetStringOrNull(item, "disputeResolution"),
                 ResolvedBy = GetStringOrNull(item, "disputeResolvedBy"),
                 ResolvedAt = GetStringOrNull(item, "disputeResolvedAt"),
-                CreatedAt = GetString(item, "disputeCreatedAt")
+                CreatedAt = GetString(item, "disputeCreatedAt"),
+                Disposition = GetStringOrNull(item, DisputeDispositionFields.Disposition),
+                DispositionReason = GetStringOrNull(item, DisputeDispositionFields.Reason),
+                DispositionBy = GetStringOrNull(item, DisputeDispositionFields.By),
+                DispositionAt = GetStringOrNull(item, DisputeDispositionFields.At)
             };
         }
 

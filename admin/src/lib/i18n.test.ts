@@ -89,3 +89,49 @@ describe("delivery cancel audit label exists in every locale", () => {
     });
   }
 });
+
+/* FUP-16: the dispute disposition panel, its error codes and the new timeline actions. */
+describe("dispute disposition strings exist in every locale", () => {
+  const disputeKeys = [
+    "tabOpen",
+    "tabAwaiting",
+    "awaitingHint",
+    "chooseDisposition",
+    "saved",
+    "verdict_farmer_wins",
+    "verdict_buyer_wins",
+    "dispositionTitle",
+    "caseGoodsMoving",
+    "caseBeforeDelivery",
+    "dispositionLegend",
+    "disposition_return_to_farmer",
+    "disposition_delivered_anyway",
+    "disposition_settle_now",
+    "disposition_wait_for_delivery",
+    "dispositionHint_return_to_farmer",
+    "dispositionHint_delivered_anyway",
+    "dispositionHint_settle_now",
+    "dispositionHint_wait_for_delivery",
+    "dispositionReason",
+    "dispositionReasonHint",
+    "confirmDisposition",
+    "recordedChoice",
+    "noChoice",
+    "loadMore",
+  ].map((k) => `disputes.${k}`);
+  const otherKeys = [
+    "errors.ADMIN_015",
+    "errors.ADMIN_016",
+    "transactions.action_dispute_resolved_goods_returned",
+    "transactions.action_dispute_resolved_delivered_anyway",
+    "transactions.action_dispute_resolved_settled_early",
+    "transactions.action_dispute_resolved_waiting_for_delivery",
+    "common.cancel",
+  ];
+  for (const locale of locales) {
+    it(`${locale} has every disposition key`, () => {
+      const missing = [...disputeKeys, ...otherKeys].filter((key) => t(key, locale) === key);
+      expect(missing).toEqual([]);
+    });
+  }
+});

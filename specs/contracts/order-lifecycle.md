@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.20.0
+1.21.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -43,6 +43,9 @@ statuses are camelCase on the wire).
 | — | `disputed` | Dispute raised within the window; escrow keeps holding the money. Ratings are blocked while disputed. | Frozen in escrow. | **System only** (1.14.0): from an escrow dispute (`POST /escrow/dispute`, buyer or farmer) or a delivery dispute via sync (1.4.1), each only after the escrow is frozen. A client order update to `disputed` is refused (`ORDER_UNAUTHORIZED`) |
 | — | `dispute_resolved` | Dispute decided; money released to farmer or refunded to buyer per outcome. The order stays here after the verdict is settled (it never moves to `disbursing` or `settled`; the escrow status says whether the money moved, 1.17.0). | Released per verdict. Terminal. | **System only**: when the admin records the verdict (`POST /admin/disputes/{id}/resolve`), and again before the escrow is settled if that failed (1.12.0), and by the hourly order-money sweep after a settled verdict whose order hop failed (1.17.0) |
 
+Since 1.21.0 an admin's dispute disposition also sets `dispute_resolved`, straight from `funded`,
+`accepted`, `pickup_confirmed` or `in_transit` (system only; see "Dispute dispositions").
+
 ### The three "payment" levels, in one line each
 
 - **Pending Payment** = "the buyer hasn't paid yet".
@@ -59,6 +62,7 @@ created ──► pending_payment ──► payment_submitted ──► funded �
    │                                payment_submitted ──► payment_failed ──► payment_submitted | pending_payment | cancelled ├──► disputed ──► dispute_resolved
    └──► cancelled            funded ──► rejected | cancelled
                              accepted ──► cancelled   (buyer, only after a transport failure, 1.15.0)
+   funded | accepted | pickup_confirmed | in_transit ──► dispute_resolved   (system, an admin dispute disposition, 1.21.0)
 ```
 
 Source of truth: `OrderTransitions` in `SyncFunction.cs`. Anything not in that
@@ -471,8 +475,31 @@ none (a server before 1.18.0, a local change not yet pulled), and a local cancel
 and clears the phones at once. Offline, the last pulled numbers stay on the device until the next
 pull: an order closed on the server while a party is offline keeps its numbers there until then.
 
+## Dispute dispositions (1.21.0, FUP-16)
+
+The admin verdict (`escrow-protocol.md` 1.21.0) no longer records a verdict the order cannot follow as
+it is. Instead the admin picks a disposition, and the order moves with it as a system actor, in one
+status-conditioned hop (`ADD version`, one transaction-audit row `dispute_resolved`, metadata
+`resolution=<verdict>;disposition=<disposition>`), after the delivery was closed:
+
+| Verdict | Order | Disposition | Order becomes | Delivery | Listing stock |
+|---------|-------|-------------|---------------|----------|---------------|
+| `buyer_wins` | goods moving: `pickup_confirmed`, `in_transit`, or `accepted` with a picked-up delivery | `return_to_farmer` | `dispute_resolved` | `cancelled` (`cancelReason: dispute_buyer_wins`) | not restored: the goods may come back damaged; the farmer relists |
+| `buyer_wins` | same | `delivered_anyway` | `dispute_resolved` | `disputed` with the verdict, as after any delivered dispute | not restored (the buyer has the goods) |
+| `farmer_wins` | after pickup and before delivery | `settle_now` | `dispute_resolved` | `cancelled` (`cancelReason: dispute_farmer_wins`) | not restored: the farmer is paid for goods already handed over |
+| `farmer_wins` | `funded`, `accepted`, `pickup_confirmed` or `in_transit` | `wait_for_delivery` | unchanged; `dispute_resolved` once it is delivered, as in 1.12.0 | unchanged | unchanged |
+
+The money follows through the escrow as for any verdict: `buyer_wins` refunds the buyer in full,
+`farmer_wins` releases. The order stays at `dispute_resolved` (terminal, 1.17.0). The hop is conditional
+on the status the verdict read, so an order that moved meanwhile (a handoff) is left alone and the admin
+is told to send the verdict again. Until it does, the order is never taken for one before pickup: its
+delivery was cancelled by the disposition, so the `buyer_wins` refund does not cancel the order or restore
+its stock. Ratings stay blocked, and contact closes at `dispute_resolved`
+(1.18.0). The clients already show `dispute_resolved`; no client change.
+
 ## Changelog
 
+- **1.21.0 (2026-10-22)**: Dispute dispositions (FUP-16; 1.19.0 and 1.20.0 belong to FUP-20 and ESC-47, in flight): an admin's dispute disposition moves an order from `funded`, `accepted`, `pickup_confirmed` or `in_transit` straight to `dispute_resolved` (system, status-conditioned, one `dispute_resolved` transaction-audit row with the disposition), after its delivery is cancelled (`return_to_farmer`, `settle_now`) or disputed (`delivered_anyway`); `wait_for_delivery` leaves the order to the 1.12.0 rules; listing stock is never restored by a disposition; a verdict the order cannot follow is no longer recorded without one, so no order waits on a mismatched verdict any more (`escrow-protocol.md` 1.21.0).
 - **1.20.0 (2026-10-23)**: Payment retry clock and the lost payment row (ESC-47 item 1 rest, item 2): the server stamps the server-only `pendingPaymentAt` each time an order enters `pending_payment`, and the order cron cancels a `pending_payment` order 24 hours after it (`createdAt` for orders from before), so a buyer who retries a failed payment on an old order through `pending_payment` is not cancelled at the next run; `created` still counts from `createdAt`. The Telebirr funding's transaction-audit `payment_verified` row is keyed by `paymentVerifiedAt` and written once, and a redelivery of the same payment writes it when the first delivery did not, in every order status. No client change: the apps ignore the new field, and the current apps never send `pending_payment` (older ones do). (1.19.0 is FUP-20's, in flight.)
 - **1.19.0 (2026-10-22)**: Live payment method refusal (FUP-20): with the live gateway a `payment_submitted` whose `paymentMethod` is present and not `telebirr` is refused with `ORDER_PAYMENT_METHOD_UNAVAILABLE` (naming the method; bank transfers wait for ESC-46), decided after the other payment gates and before any write (no `paymentSubmittedAt`, no transaction-audit row, no idempotency key); only the update's own value is checked and an update without a method is left to the checkout; mock mode still funds every method; permanent under the `ORDER_*` rule, with its own text in en, am and om (`paymentMethodUnavailable`) on mobile and web.
 - **1.18.0 (2026-10-17)**: Contact between the parties (ESC-48): `contactOpen` on every order read and the parties' phones to a party of an open order (`accepted` to `settled` and `disputed`, no admin override refund), resolved from the users table at read time; contact closed before the farmer's accept and again after `cancelled`, `rejected` or `dispute_resolved`; a buyer's transport-failure cancel of an order whose contact had opened records the fraud signal `CONTACT_THEN_TRANSPORT_CANCEL`; order detail gets the Contact section.

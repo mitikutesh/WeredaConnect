@@ -1532,6 +1532,10 @@
   "@escrowErrorDeliveryPaymentUnavailable": {
     "description": "Error when the legacy delivery escrow payment is refused on live Telebirr; the order is paid through its checkout (ESCROW_039)"
   },
+  "escrowErrorDisputeBeforePickup": "ክርክር ማንሳት የሚቻለው እቃው ከተጫነ በኋላ ብቻ ነው። ከዚያ በፊት ትዕዛዙን ይሰርዙ ወይም ድጋፍ ሰጪን ያግኙ።",
+  "@escrowErrorDisputeBeforePickup": {
+    "description": "Error when a dispute is raised before the goods are picked up (ESCROW_041)"
+  },
   "escrowErrorInvalidTransition": "ይህ ድርጊት በአሁኑ የክፍያ ሁኔታ አይፈቀድም።",
   "@escrowErrorInvalidTransition": {
     "description": "Error when escrow state transition is invalid"

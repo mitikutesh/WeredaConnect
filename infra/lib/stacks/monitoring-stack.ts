@@ -1002,10 +1002,14 @@ export class MonitoringStack extends cdk.Stack {
       'A dispute verdict was not settled because its order or delivery is in a status the ' +
         'verdict cannot follow (DISPUTE_VERDICT_ORDER_MISMATCH in the escrow or escrow-cron log ' +
         'group, with escrowId, op and legs; escrow-audit row dispute_verdict_mismatch, once a ' +
-        'day). Usually a dispute raised before delivery: the order is still accepted, ' +
-        'pickup_confirmed or in_transit. No money moved; the escrow stays dispute_resolved and ' +
-        'the hourly sweep tries again. Bring the order (and its delivery) to a status the ' +
-        'verdict can follow, or settle the case by hand, then the next sweep settles it (ESC-03).',
+        'day). Since FUP-16 a new verdict the order cannot follow is refused at the admin ' +
+        'page, so this is a verdict recorded before then, a disposition that did not finish, or ' +
+        'an order that moved since. No money moved; the escrow stays dispute_resolved and the ' +
+        'hourly sweep tries again. Open Disputes > Awaiting settlement and record (or send ' +
+        'again) a disposition: return_to_farmer or delivered_anyway for buyer_wins, settle_now ' +
+        'or wait_for_delivery for farmer_wins. A recorded wait_for_delivery is not alarmed (it ' +
+        'logs DISPUTE_VERDICT_WAITING_FOR_DELIVERY). If no disposition fits (ADMIN_016), repair ' +
+        'the order by hand (ESC-03, FUP-16).',
     );
 
     const orderMoneyMismatchAlarm = moneyLogAlarm(

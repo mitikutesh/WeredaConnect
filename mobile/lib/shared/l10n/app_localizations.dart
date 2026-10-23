@@ -2302,6 +2302,12 @@ abstract class AppLocalizations {
   /// **'Online payment for a delivery is not available here. Pay this order from its order page instead.'**
   String get escrowErrorDeliveryPaymentUnavailable;
 
+  /// Error when a dispute is raised before the goods are picked up (ESCROW_041)
+  ///
+  /// In en, this message translates to:
+  /// **'A dispute can be opened only after the goods are picked up. Before pickup, cancel the order instead, or contact support.'**
+  String get escrowErrorDisputeBeforePickup;
+
   /// Error when escrow state transition is invalid
   ///
   /// In en, this message translates to:

@@ -1159,6 +1159,10 @@ class AppLocalizationsAm extends AppLocalizations {
       'ለማድረሻ የመስመር ላይ ክፍያ እዚህ አይገኝም። በምትኩ ይህን ትዕዛዝ ከትዕዛዙ ገጽ ይክፈሉ።';
 
   @override
+  String get escrowErrorDisputeBeforePickup =>
+      'ክርክር ማንሳት የሚቻለው እቃው ከተጫነ በኋላ ብቻ ነው። ከዚያ በፊት ትዕዛዙን ይሰርዙ ወይም ድጋፍ ሰጪን ያግኙ።';
+
+  @override
   String get escrowErrorInvalidTransition => 'ይህ ድርጊት በአሁኑ የክፍያ ሁኔታ አይፈቀድም።';
 
   @override

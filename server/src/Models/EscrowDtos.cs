@@ -207,7 +207,9 @@ public sealed record RefundEscrowRequest
     /// <summary>
     /// ESC-03, admin group only: refund a <c>buyer_wins</c> verdict although its order cannot
     /// follow it (the goods are already moving). Needs a <see cref="Reason"/>; audited with the
-    /// admin and the reason, and the order is flagged. The sweep never sets it.
+    /// admin and the reason, and the order is flagged. The sweep never sets it. Deprecated for
+    /// verdicts since escrow-protocol 1.21.0 (FUP-16): a disposition on the verdict moves the order
+    /// and delivery instead. Still the tool for an ESC-09 Part B refund of a plain escrowed escrow.
     /// </summary>
     public bool OverrideOrderMismatch { get; init; }
 }
@@ -504,6 +506,18 @@ public sealed record DisputeDto
     public string? ResolvedBy { get; init; }
     public string? ResolvedAt { get; init; }
     public required string CreatedAt { get; init; }
+
+    /// <summary>FUP-16: the admin's disposition recorded on the verdict. Admin routes only; null for the parties.</summary>
+    public string? Disposition { get; init; }
+
+    /// <summary>FUP-16: the admin's reason for <see cref="Disposition"/>. Admin routes only.</summary>
+    public string? DispositionReason { get; init; }
+
+    /// <summary>FUP-16: the admin who recorded <see cref="Disposition"/>. Admin routes only.</summary>
+    public string? DispositionBy { get; init; }
+
+    /// <summary>FUP-16: when <see cref="Disposition"/> was recorded. Admin routes only.</summary>
+    public string? DispositionAt { get; init; }
 }
 
 /// <summary>
