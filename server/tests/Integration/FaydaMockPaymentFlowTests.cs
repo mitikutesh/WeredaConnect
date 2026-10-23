@@ -192,7 +192,7 @@ public class FaydaMockPaymentFlowTests : IClassFixture<FaydaMockProvider>
         authState.ConsumeAsync(Arg.Any<string>()).Returns(ci =>
             _authState.Remove(ci.Arg<string>(), out var entry) ? entry : null);
 
-        _orderRepo.GetByIdAsync(OrderId).Returns(_ => new Dictionary<string, object>
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(_ => new Dictionary<string, object>
         {
             { "orderId", OrderId },
             { "buyerId", BuyerId },
@@ -258,11 +258,12 @@ public class FaydaMockPaymentFlowTests : IClassFixture<FaydaMockProvider>
                     EntityType = "order",
                     EntityId = OrderId,
                     Action = "update",
+                    // TELEBIRR_MOCK is unset here, so the live gates run: only the Telebirr rail
+                    // is fundable (FUP-20) and a live payment carries no CBE reference (ESC-44).
                     Data = new Dictionary<string, object>
                     {
                         { "status", "payment_submitted" },
-                        { "paymentMethod", "cbe_transfer" },
-                        { "cbeTransactionId", "MOCK-CBE-24D367A5" },
+                        { "paymentMethod", "telebirr" },
                         { "version", 1 }
                     }
                 }

@@ -840,10 +840,7 @@ public class TelebirrWebhookFunction
         {
             await _orderFunding.EnsureFundedSideEffectsAsync(
                 funded, TelebirrActor, AuditContext.ForSystem(TelebirrActor), context);
-            await TransactionAuditWriter.EmitAsync(
-                _txAuditRepo, context, payment.Checkout.OrderId, "order", payment.Checkout.OrderId,
-                "payment_verified", "payment_submitted", "funded", AuditContext.ForSystem(TelebirrActor),
-                metadata: $"merchOrderId={payment.Checkout.MerchOrderId},paymentOrderId={payment.PaymentOrderId}");
+            await EnsurePaymentVerifiedAuditAsync(funded, payment, lookForEarlierRow: false, context);
             await FinishCheckoutAsync(payment);
         }
         catch (Exception ex)
@@ -924,7 +921,7 @@ public class TelebirrWebhookFunction
     /// Redelivery of the payment that funded the order: finish what an earlier delivery did not
     /// (stock and escrow, both idempotent per order), but only while the order is live. A
     /// rejected, cancelled, settled or resolved order must not get a new escrow or lose stock
-    /// again.
+    /// again. The transaction-audit row of the funding is written in every status (ESC-47).
     /// </summary>
     private async Task<string> RepairRedeliveryAsync(
         Dictionary<string, object> order, OrderPayment payment, ILambdaContext context)
@@ -934,6 +931,9 @@ public class TelebirrWebhookFunction
         {
             context.Logger.LogInformation(
                 $"Telebirr redelivery for an order that is {SafeLogId(status)}; nothing to repair: {Describe(payment)}.");
+            // ESC-47: the payment_verified row records a funding that happened, so it is written
+            // whatever the order became since.
+            await EnsurePaymentVerifiedAuditAsync(order, payment, lookForEarlierRow: true, context);
             return "applied_again";
         }
 
@@ -948,7 +948,64 @@ public class TelebirrWebhookFunction
             context.Logger.LogWarning($"{BookkeepingToken} {Describe(payment)} step=repair reason={ex.GetType().Name}");
         }
 
+        // ESC-47: after the stock and escrow repair, so a slow audit table never uses up its time.
+        await EnsurePaymentVerifiedAuditAsync(order, payment, lookForEarlierRow: true, context);
         return "applied_again";
+    }
+
+    /// <summary>
+    /// ESC-47: the transaction-audit <c>payment_verified</c> row of a Telebirr funding, written once.
+    /// Its key is the order's <c>paymentVerifiedAt</c>, so the funding delivery and every redelivery
+    /// that repairs it write the same row, and only the first write lands. A repair first looks for
+    /// the row under any timestamp (servers before ESC-47 wrote it at the time of the write) and
+    /// writes nothing if it is there or cannot be read. Never throws: a failure (read or write) is
+    /// logged with the bookkeeping token and the payment ids, and the next redelivery tries again.
+    /// </summary>
+    private async Task EnsurePaymentVerifiedAuditAsync(
+        Dictionary<string, object> order, OrderPayment payment, bool lookForEarlierRow, ILambdaContext context)
+    {
+        if (_txAuditRepo == null)
+        {
+            return;
+        }
+
+        var verifiedAt = GetString(order, "paymentVerifiedAt");
+        if (verifiedAt.Length == 0)
+        {
+            // Not expected: the funding write sets it together with the payment reference.
+            context.Logger.LogWarning(
+                $"{BookkeepingToken} {Describe(payment)} step=payment_verified_audit reason=no_payment_verified_at");
+            return;
+        }
+
+        if (lookForEarlierRow)
+        {
+            try
+            {
+                var trail = await _txAuditRepo.GetByTransactionAsync(payment.Checkout.OrderId);
+                if (trail.Any(e => GetString(e, "action") == "payment_verified"))
+                {
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogWarning(
+                    $"{BookkeepingToken} {Describe(payment)} step=payment_verified_audit reason={ex.GetType().Name}");
+                return;
+            }
+        }
+
+        var written = await TransactionAuditWriter.EmitOnceAsync(
+            _txAuditRepo, context, payment.Checkout.OrderId, "order", payment.Checkout.OrderId,
+            "payment_verified", "payment_submitted", "funded", AuditContext.ForSystem(TelebirrActor), verifiedAt,
+            metadata: $"merchOrderId={payment.Checkout.MerchOrderId},paymentOrderId={payment.PaymentOrderId}");
+        if (!written)
+        {
+            // The writer's own line has no order or payment id; this one lets ops find the order.
+            context.Logger.LogWarning(
+                $"{BookkeepingToken} {Describe(payment)} step=payment_verified_audit reason=write_failed");
+        }
     }
 
     /// <summary>A payment that funded (or already funded) the order closes its checkout.</summary>

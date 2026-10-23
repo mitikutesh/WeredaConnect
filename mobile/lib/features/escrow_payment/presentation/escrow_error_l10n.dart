@@ -43,6 +43,11 @@ String localizeEscrowError(
     'ESCROW_032' => l10n.orderCheckoutAlreadyOpen,
     'ESCROW_033' => l10n.orderCheckoutOrderMissing,
     'ESCROW_038' => l10n.escrowErrorPayoutInProgress,
+    // FUP-36: live Telebirr refuses the legacy delivery payment; the order is
+    // paid from its order page instead.
+    'ESCROW_039' => l10n.escrowErrorDeliveryPaymentUnavailable,
+    // FUP-16: a dispute before the goods are picked up.
+    'ESCROW_041' => l10n.escrowErrorDisputeBeforePickup,
     'ESCROW_INVALID_TRANSITION' => l10n.escrowErrorInvalidTransition,
     'ESCROW_OFFLINE' => l10n.escrowErrorOffline,
     _ => l10n.escrowErrorGeneric,

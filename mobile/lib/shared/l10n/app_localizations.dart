@@ -2296,6 +2296,18 @@ abstract class AppLocalizations {
   /// **'This payment is already being paid out by an admin, so it can no longer be disputed. Contact support.'**
   String get escrowErrorPayoutInProgress;
 
+  /// Error when the legacy delivery escrow payment is refused on live Telebirr; the order is paid through its checkout (ESCROW_039)
+  ///
+  /// In en, this message translates to:
+  /// **'Online payment for a delivery is not available here. Pay this order from its order page instead.'**
+  String get escrowErrorDeliveryPaymentUnavailable;
+
+  /// Error when a dispute is raised before the goods are picked up (ESCROW_041)
+  ///
+  /// In en, this message translates to:
+  /// **'A dispute can be opened only after the goods are picked up. Before pickup, cancel the order instead, or contact support.'**
+  String get escrowErrorDisputeBeforePickup;
+
   /// Error when escrow state transition is invalid
   ///
   /// In en, this message translates to:
@@ -5170,6 +5182,12 @@ abstract class AppLocalizations {
   /// **'Payments above 10,000 ETB need the farmer to have a verified Fayda ID too, so this payment was not sent. You can pay once the farmer verifies.'**
   String get kycFarmerFaydaMessage;
 
+  /// Error text when the KYC gate refused a payment because the farmer (not the buyer) must verify their phone or Fayda ID first (ORDER_KYC_REQUIRED farmer_phone or farmer_fayda); offers no Fayda action to the buyer
+  ///
+  /// In en, this message translates to:
+  /// **'The farmer\'s identity is not verified yet, so this payment was not sent. You can pay once the farmer verifies.'**
+  String get kycFarmerNotVerifiedMessage;
+
   /// KYC dialog when the server could not run the identity check
   ///
   /// In en, this message translates to:
@@ -5356,6 +5374,12 @@ abstract class AppLocalizations {
   /// **'Telebirr takes 100 to 500,000 ETB in one payment. This order\'s total is outside that, so it can\'t be paid with Telebirr.'**
   String get paymentTotalOutOfRange;
 
+  /// Live payments: the server refused the chosen payment method (ORDER_PAYMENT_METHOD_UNAVAILABLE, FUP-20; a bank transfer or any method other than Telebirr); only Telebirr can fund an order until CBE verification exists
+  ///
+  /// In en, this message translates to:
+  /// **'This payment method isn\'t available yet. Pay with Telebirr.'**
+  String get paymentMethodUnavailable;
+
   /// Order detail button (buyer, payment submitted): open the order's Telebirr checkout
   ///
   /// In en, this message translates to:
@@ -5397,6 +5421,66 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'This order can\'t be cancelled now. It can be cancelled only when the crops were not collected in time and nothing was picked up.'**
   String get errorOrderCancelNotAllowed;
+
+  /// The server refused an order response because its deadline passed (ORDER_DEADLINE_PASSED); on mobile the local change was undone
+  ///
+  /// In en, this message translates to:
+  /// **'Too late. The time for this step has passed.'**
+  String get errorDeadlinePassed;
+
+  /// The server refused an order because the trip it names can no longer take it (ORDER_TRIP_NOT_ELIGIBLE); the buyer chooses another truck
+  ///
+  /// In en, this message translates to:
+  /// **'That truck is no longer available. Choose again.'**
+  String get errorTripNotEligible;
+
+  /// The server refused a replacement truck because no more may be tried for this order (ORDER_TRANSPORT_ATTEMPTS_EXCEEDED); the buyer collects or cancels
+  ///
+  /// In en, this message translates to:
+  /// **'No more trucks can be tried for this order. Collect the crops yourself or cancel for a full refund.'**
+  String get errorTransportAttemptsExceeded;
+
+  /// The server refused an order because the trip it names is full (TRIP_CAPACITY_EXCEEDED); on mobile the local order was removed
+  ///
+  /// In en, this message translates to:
+  /// **'This truck has no room left for this order. Choose another truck.'**
+  String get errorTripCapacityExceeded;
+
+  /// The server refused a new listing, trip or order accept because the account is restricted for a while (REPUTATION_RESTRICTED); neutral wording, no blame; on mobile the local change was undone
+  ///
+  /// In en, this message translates to:
+  /// **'Your account can\'t do this for now, so this change was not saved. Your current orders continue.'**
+  String get errorReputationRestricted;
+
+  /// The server refused a buyer's order because the listing's farmer or the trip's trucker is restricted (REPUTATION_RESTRICTED on order create); on mobile the local order was removed
+  ///
+  /// In en, this message translates to:
+  /// **'This farmer or trucker can\'t take new orders right now, so the order was not placed. Please choose another.'**
+  String get errorCounterpartyRestricted;
+
+  /// The server refused a trip change because orders are booked on it (TRIP_HAS_BOOKINGS); on mobile the local trip went back to the server's
+  ///
+  /// In en, this message translates to:
+  /// **'This trip has booked orders, so this change can\'t be made.'**
+  String get errorTripHasBookings;
+
+  /// The server refused to remove or reduce a listing that has funded or accepted orders (CROP_HAS_ACTIVE_ORDERS); on mobile the local listing went back to the server's
+  ///
+  /// In en, this message translates to:
+  /// **'This listing has open orders. Handle them first.'**
+  String get errorCropHasActiveOrders;
+
+  /// The server refused a change because this app version is below its minimum (APP_UPDATE_REQUIRED); on mobile the local change was undone
+  ///
+  /// In en, this message translates to:
+  /// **'Please update the app to continue. This change was not saved.'**
+  String get errorAppUpdateRequired;
+
+  /// The server answered a queued change other than an order (listing, trip, delivery, rating, message, buyer request) with APP_UPDATE_REQUIRED; the app keeps it queued and sends it after the update
+  ///
+  /// In en, this message translates to:
+  /// **'Please update the app. This change is kept on your phone and will be sent after the update.'**
+  String get errorAppUpdateRequiredKept;
 }
 
 class _AppLocalizationsDelegate
