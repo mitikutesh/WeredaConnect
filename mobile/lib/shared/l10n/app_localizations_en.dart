@@ -2807,6 +2807,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Payments above 10,000 ETB need the farmer to have a verified Fayda ID too, so this payment was not sent. You can pay once the farmer verifies.';
 
   @override
+  String get kycFarmerNotVerifiedMessage =>
+      'The farmer\'s identity is not verified yet, so this payment was not sent. You can pay once the farmer verifies.';
+
+  @override
   String get kycUnavailableMessage =>
       'We could not check identity verification right now, so this payment was not sent. Please try again later.';
 

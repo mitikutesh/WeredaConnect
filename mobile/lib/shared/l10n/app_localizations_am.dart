@@ -2725,6 +2725,10 @@ class AppLocalizationsAm extends AppLocalizations {
       'ከ10,000 ብር በላይ ለሆኑ ክፍያዎች ገበሬውም የተረጋገጠ የፋይዳ መታወቂያ ሊኖረው ይገባል፣ ስለዚህ ይህ ክፍያ አልተላከም። ገበሬው ካረጋገጠ በኋላ መክፈል ይችላሉ።';
 
   @override
+  String get kycFarmerNotVerifiedMessage =>
+      'የገበሬው ማንነት ገና ስላልተረጋገጠ ይህ ክፍያ አልተላከም። ገበሬው ካረጋገጠ በኋላ መክፈል ይችላሉ።';
+
+  @override
   String get kycUnavailableMessage =>
       'አሁን የማንነት ማረጋገጫን ማየት አልቻልንም፣ ስለዚህ ይህ ክፍያ አልተላከም። እባክዎ ቆይተው እንደገና ይሞክሩ።';
 

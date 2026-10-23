@@ -1,4 +1,5 @@
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Stable, localizable error categories surfaced by BLoCs to the UI.
@@ -31,8 +32,19 @@ enum AppErrorCode {
   /// A payment above 10,000 ETB needs a fresh Fayda login (AUTH_041).
   faydaStepUpRequired,
 
-  /// The payment needs Fayda KYC or a verified phone (ORDER_KYC_REQUIRED).
+  /// The payment needs the buyer's own Fayda KYC or verified phone
+  /// (ORDER_KYC_REQUIRED `buyer_fayda`, `buyer_phone`), so the buyer can fix
+  /// it by verifying with Fayda.
   kycRequired,
+
+  /// The payment needs the farmer's verified phone or Fayda ID
+  /// (ORDER_KYC_REQUIRED `farmer_phone`, `farmer_fayda`). The buyer cannot
+  /// fix it, so the text names the farmer and offers no Fayda (SIM-49).
+  kycFarmerRequired,
+
+  /// The KYC gate could not read the parties' profiles (ORDER_KYC_REQUIRED
+  /// `unavailable`). Nobody has to verify; the buyer tries again later.
+  kycUnavailable,
 
   /// The server refused an order change for good (any other `ORDER_*`
   /// rejection), or a local guard refused it; nothing was changed.
@@ -123,7 +135,7 @@ AppErrorCode mapErrorToCode(Object error) {
         when isStepUpRequiredMessage(message) =>
       AppErrorCode.stepUpRequired,
     SyncRejectedException(:final message) when isKycRequiredMessage(message) =>
-      AppErrorCode.kycRequired,
+      _kycErrorCode(message),
     SyncRejectedException(:final message)
         when isPaymentTotalOutOfRangeMessage(message) =>
       AppErrorCode.paymentTotalOutOfRange,
@@ -164,6 +176,25 @@ AppErrorCode mapErrorToCode(Object error) {
   };
 }
 
+/// Whose verification the KYC refusal [message] says is missing, as a code:
+/// only a buyer-side reason may tell the buyer to verify (SIM-49).
+AppErrorCode _kycErrorCode(String message) =>
+    switch (KycReason.fromMessage(message)) {
+      KycReason.buyerPhone || KycReason.buyerFayda => AppErrorCode.kycRequired,
+      KycReason.farmerPhone ||
+      KycReason.farmerFayda =>
+        AppErrorCode.kycFarmerRequired,
+      KycReason.unavailable => AppErrorCode.kycUnavailable,
+    };
+
+/// Whether [code] is a KYC gate refusal (ORDER_KYC_REQUIRED) of any party.
+/// The payment screen explains these in the KYC dialog, which reads the exact
+/// reason from the message.
+bool isKycErrorCode(AppErrorCode code) =>
+    code == AppErrorCode.kycRequired ||
+    code == AppErrorCode.kycFarmerRequired ||
+    code == AppErrorCode.kycUnavailable;
+
 /// A localized, user-facing, actionable message for an [AppErrorCode].
 ///
 /// Codes are collapsed onto a small set of phrased messages: connectivity and
@@ -179,6 +210,8 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.stepUpRequired => l10n.stepUpRequiredMessage,
     AppErrorCode.faydaStepUpRequired => l10n.faydaStepUpMessage,
     AppErrorCode.kycRequired => l10n.kycRequiredFaydaMessage,
+    AppErrorCode.kycFarmerRequired => l10n.kycFarmerNotVerifiedMessage,
+    AppErrorCode.kycUnavailable => l10n.kycUnavailableMessage,
     AppErrorCode.orderRefused => l10n.errorOrderRefused,
     AppErrorCode.paymentTotalOutOfRange => l10n.paymentTotalOutOfRange,
     AppErrorCode.paymentMethodUnavailable => l10n.paymentMethodUnavailable,
