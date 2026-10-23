@@ -17,6 +17,8 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 
+import '../../../../helpers/wait_for.dart';
+
 class _MockApiClient extends Mock implements ApiClient {}
 
 const _create = CreateCropListing(
@@ -41,10 +43,7 @@ Future<List<CropListingState>> _run(
   final states = <CropListingState>[];
   final sub = bloc.stream.listen(states.add);
   bloc.add(event);
-  final deadline = DateTime.now().add(const Duration(seconds: 5));
-  while (states.length < count && DateTime.now().isBefore(deadline)) {
-    await Future<void>.delayed(const Duration(milliseconds: 5));
-  }
+  await waitForStates(states, count);
   await Future<void>.delayed(Duration.zero);
   await sub.cancel();
   await bloc.close();

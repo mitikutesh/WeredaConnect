@@ -4,6 +4,8 @@ import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/models/conflict_event.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/services/conflict_notification_service.dart';
 
+import '../../../../helpers/wait_for.dart';
+
 /// Helper to build a test [ConflictEvent].
 ConflictEvent _makeConflict({
   String entityId = 'crop-001',
@@ -53,8 +55,7 @@ void main() {
       // Then notify
       service.notify(conflict);
 
-      // Allow microtask to propagate
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await waitFor(() => events.isNotEmpty);
 
       expect(events.length, 1);
       expect(events.first.entityId, 'crop-001');
@@ -77,8 +78,7 @@ void main() {
 
       // Now subscribe — buffered events should be replayed
       final subscription = service.onConflict.listen(events.add);
-
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await waitFor(() => events.length >= 2);
 
       expect(events.length, 2);
       expect(events[0].entityId, 'crop-001');
@@ -100,8 +100,7 @@ void main() {
 
       final events = <ConflictEvent>[];
       final subscription = service.onConflict.listen(events.add);
-
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await waitFor(() => events.length >= 5);
 
       expect(events.length, 5);
       for (var i = 0; i < 5; i++) {
@@ -122,8 +121,7 @@ void main() {
       );
 
       service.dispose();
-
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await waitFor(() => streamDone);
 
       expect(streamDone, isTrue);
 
@@ -150,8 +148,7 @@ void main() {
       // Notify after subscribing
       service.notify(_makeConflict(entityId: 'live-001'));
       service.notify(_makeConflict(entityId: 'live-002'));
-
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await waitFor(() => events.length >= 2);
 
       expect(events.length, 2);
       expect(events[0].entityId, 'live-001');

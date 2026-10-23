@@ -12,9 +12,13 @@ import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
+
+import '../../helpers/wait_for.dart';
 
 /// Counts pull invocations so we can assert which BLoC events trigger a
 /// marketplace pull. This guards the HARD CLAUDE.md role rule: only Buyer
@@ -47,9 +51,6 @@ class _SpyMarketplaceSync implements MarketplaceSync {
   @override
   Future<void> pullAll() async => all++;
 }
-
-Future<void> _settle() =>
-    Future<void>.delayed(const Duration(milliseconds: 80));
 
 void main() {
   late Isar isar;
@@ -86,18 +87,18 @@ void main() {
 
     test('LoadActiveListings (Buyer marketplace) pulls crops', () async {
       final bloc = build();
+      addTearDown(bloc.close);
       bloc.add(const LoadActiveListings());
-      await _settle();
+      await waitFor(() => bloc.state is CropListingsLoaded);
       expect(spy.crops, 1);
-      await bloc.close();
     });
 
     test('LoadCropListings (Farmer own listings) does NOT pull', () async {
       final bloc = build();
+      addTearDown(bloc.close);
       bloc.add(const LoadCropListings(farmerId: 'farmer-1'));
-      await _settle();
+      await waitFor(() => bloc.state is CropListingsLoaded);
       expect(spy.crops, 0, reason: 'a Farmer must not pull the whole market');
-      await bloc.close();
     });
   });
 
@@ -112,26 +113,26 @@ void main() {
 
     test('LoadOpenTrips (Buyer marketplace) pulls trips', () async {
       final bloc = build();
+      addTearDown(bloc.close);
       bloc.add(const LoadOpenTrips());
-      await _settle();
+      await waitFor(() => bloc.state is TripsLoaded);
       expect(spy.trips, 1);
-      await bloc.close();
     });
 
     test('LoadTrips (Trucker own trips) does NOT pull', () async {
       final bloc = build();
+      addTearDown(bloc.close);
       bloc.add(const LoadTrips(truckerId: 'trucker-1'));
-      await _settle();
+      await waitFor(() => bloc.state is TripsLoaded);
       expect(spy.trips, 0, reason: 'a Trucker must not pull the whole market');
-      await bloc.close();
     });
 
     test('FilterTrips (Trucker own trips) does NOT pull', () async {
       final bloc = build();
+      addTearDown(bloc.close);
       bloc.add(const FilterTrips(truckerId: 'trucker-1', fromWoreda: 'Adama'));
-      await _settle();
+      await waitFor(() => bloc.state is TripsLoaded);
       expect(spy.trips, 0);
-      await bloc.close();
     });
   });
 }

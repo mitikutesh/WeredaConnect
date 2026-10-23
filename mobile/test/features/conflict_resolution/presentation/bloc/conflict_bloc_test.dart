@@ -8,6 +8,8 @@ import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/co
     as bloc_event;
 import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_state.dart';
 
+import '../../../../helpers/wait_for.dart';
+
 /// Helper to build a test [ConflictEvent].
 ConflictEvent _makeConflict({
   String entityId = 'crop-001',
@@ -58,13 +60,14 @@ void main() {
     test('ConflictDetected event emits ConflictPending with correct conflict',
         () async {
       final bloc = ConflictBloc(notificationService: notificationService);
+      addTearDown(bloc.close);
       final states = <ConflictState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       final conflict = _makeConflict();
       bloc.add(bloc_event.ConflictDetected(conflict));
-
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 1);
 
       expect(states.length, 1);
       expect(states[0], isA<ConflictPending>());
@@ -73,73 +76,70 @@ void main() {
       expect(pending.conflict.entityType, 'crop_listing');
       expect(pending.conflict.serverVersion, 2);
       expect(pending.conflict.serverData['cropType'], 'Teff');
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test(
         'AcceptServerVersion from ConflictPending emits ConflictResolved then ConflictInitial',
         () async {
       final bloc = ConflictBloc(notificationService: notificationService);
+      addTearDown(bloc.close);
       final states = <ConflictState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       // First trigger a conflict to get to ConflictPending
       bloc.add(bloc_event.ConflictDetected(_makeConflict()));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 1);
 
       // Now accept the server version
       bloc.add(const bloc_event.AcceptServerVersion());
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 3);
 
       // States: ConflictPending, ConflictResolved, ConflictInitial
       expect(states.length, 3);
       expect(states[0], isA<ConflictPending>());
       expect(states[1], isA<ConflictResolved>());
       expect(states[2], isA<ConflictInitial>());
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test('DismissConflict emits ConflictResolved then ConflictInitial',
         () async {
       final bloc = ConflictBloc(notificationService: notificationService);
+      addTearDown(bloc.close);
       final states = <ConflictState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       // First trigger a conflict
       bloc.add(bloc_event.ConflictDetected(_makeConflict()));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 1);
 
       // Dismiss instead of accept
       bloc.add(const bloc_event.DismissConflict());
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 3);
 
       // States: ConflictPending, ConflictResolved, ConflictInitial
       expect(states.length, 3);
       expect(states[0], isA<ConflictPending>());
       expect(states[1], isA<ConflictResolved>());
       expect(states[2], isA<ConflictInitial>());
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test('second conflict replaces first in ConflictPending state', () async {
       final bloc = ConflictBloc(notificationService: notificationService);
+      addTearDown(bloc.close);
       final states = <ConflictState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       final conflict1 = _makeConflict();
       final conflict2 = _makeConflict(entityId: 'crop-002', serverVersion: 3);
 
       bloc.add(bloc_event.ConflictDetected(conflict1));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 1);
 
       bloc.add(bloc_event.ConflictDetected(conflict2));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       // States: ConflictPending(crop-001), ConflictPending(crop-002)
       expect(states.length, 2);
@@ -147,34 +147,30 @@ void main() {
       expect((states[0] as ConflictPending).conflict.entityId, 'crop-001');
       expect(states[1], isA<ConflictPending>());
       expect((states[1] as ConflictPending).conflict.entityId, 'crop-002');
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test('notification service stream triggers ConflictDetected automatically',
         () async {
       final bloc = ConflictBloc(notificationService: notificationService);
+      addTearDown(bloc.close);
       final states = <ConflictState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       // Notify via the service (not by adding bloc event directly)
       notificationService.notify(_makeConflict(entityId: 'stream-001'));
-
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 1);
 
       expect(states.length, 1);
       expect(states[0], isA<ConflictPending>());
       expect((states[0] as ConflictPending).conflict.entityId, 'stream-001');
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test('close() cancels notification service subscription', () async {
       final bloc = ConflictBloc(notificationService: notificationService);
       final states = <ConflictState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       await bloc.close();
 
@@ -184,14 +180,14 @@ void main() {
 
       // No states emitted after close
       expect(states, isEmpty);
-
-      await subscription.cancel();
     });
 
     test('handles delivery entity type conflict', () async {
       final bloc = ConflictBloc(notificationService: notificationService);
+      addTearDown(bloc.close);
       final states = <ConflictState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       final deliveryConflict = _makeConflict(
         entityId: 'del-001',
@@ -199,15 +195,12 @@ void main() {
         serverData: {'status': 'delivered', 'tripId': 'trip-abc12345'},
       );
       bloc.add(bloc_event.ConflictDetected(deliveryConflict));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 1);
 
       expect(states.length, 1);
       final pending = states[0] as ConflictPending;
       expect(pending.conflict.entityType, 'delivery');
       expect(pending.conflict.serverData['status'], 'delivered');
-
-      await subscription.cancel();
-      await bloc.close();
     });
   });
 }

@@ -28,6 +28,8 @@ import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 
+import '../../../helpers/wait_for.dart';
+
 class MockAuthService extends Mock implements AuthService {}
 
 class MockOfflineAuthCache extends Mock implements OfflineAuthCache {}
@@ -274,7 +276,10 @@ void main() {
     if (dir.existsSync()) dir.deleteSync(recursive: true);
   });
 
-  Future<void> waitFor(AuthBloc bloc, bool Function(AuthState) done) async {
+  Future<void> waitForState(
+    AuthBloc bloc,
+    bool Function(AuthState) done,
+  ) async {
     if (done(bloc.state)) return;
     await bloc.stream.firstWhere(done).timeout(const Duration(seconds: 5));
   }
@@ -301,7 +306,7 @@ void main() {
     bloc.add(
       const AuthLoginRequested(phoneNumber: _phone, password: 'Secret123'),
     );
-    await waitFor(bloc, (s) => s is AuthAuthenticated);
+    await waitForState(bloc, (s) => s is AuthAuthenticated);
   }
 
   Future<void> seed() async {
@@ -374,7 +379,7 @@ void main() {
     _storage['device_id'] = 'device-1';
 
     bloc.add(const AuthAccountDeleted(userId: _me));
-    await waitFor(bloc, (s) => s is AuthAccountWiped);
+    await waitForState(bloc, (s) => s is AuthAccountWiped);
 
     expect(bloc.state, isA<AuthUnauthenticated>());
     expect(
@@ -461,7 +466,7 @@ void main() {
     await signIn(bloc);
 
     bloc.add(const AuthAccountDeleted(userId: _me));
-    await waitFor(bloc, (s) => s is AuthAccountWiped);
+    await waitForState(bloc, (s) => s is AuthAccountWiped);
 
     for (final key in _sessionKeys) {
       expect(_storage.containsKey(key), isFalse, reason: key);
@@ -481,7 +486,7 @@ void main() {
     await signIn(bloc);
 
     bloc.add(const AuthAccountDeleted(userId: _me));
-    await waitFor(bloc, (s) => s is AuthAccountWiped);
+    await waitForState(bloc, (s) => s is AuthAccountWiped);
 
     for (final key in _sessionKeys) {
       expect(_storage.containsKey(key), isFalse, reason: key);
@@ -504,7 +509,7 @@ void main() {
     bloc.add(
       const AuthAccountDeleted(userId: _other, phoneNumber: '+251911000002'),
     );
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await waitFor(() => forgottenUsage.isNotEmpty);
 
     expect(bloc.state, isA<AuthAuthenticated>());
     expect(
@@ -537,12 +542,12 @@ void main() {
     final bloc = build(database: isar);
     await signIn(bloc);
     bloc.add(const AuthLogoutRequested());
-    await waitFor(bloc, (s) => s is AuthUnauthenticated);
+    await waitForState(bloc, (s) => s is AuthUnauthenticated);
     // Logout keeps listings, trips and buying intents; deletion does not.
     await seed();
 
     bloc.add(const AuthAccountDeleted(userId: _me, phoneNumber: _phone));
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await waitFor(() => forgottenUsage.isNotEmpty);
 
     expect(bloc.state, const AuthUnauthenticated());
     expect(
@@ -562,7 +567,7 @@ void main() {
     final bloc = build(database: isar);
 
     bloc.add(const AuthAccountDeleted(userId: _me));
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await waitFor(() => forgottenUsage.isNotEmpty);
 
     expect(bloc.state, const AuthInitial());
     verifyNever(() => cache.forgetAccount(any()));
@@ -579,7 +584,7 @@ void main() {
         await signIn(bloc);
 
         accountGone.add(state);
-        await waitFor(bloc, (s) => s is AuthAccountWiped);
+        await waitForState(bloc, (s) => s is AuthAccountWiped);
 
         expect(
           (await isar.cropListings.where().findAll()).map((c) => c.listingId),
@@ -684,7 +689,7 @@ void main() {
     await signIn(bloc);
 
     bloc.add(const AuthLogoutRequested());
-    await waitFor(bloc, (s) => s is AuthUnauthenticated);
+    await waitForState(bloc, (s) => s is AuthUnauthenticated);
 
     expect(bloc.state, const AuthUnauthenticated());
     expect(bloc.state, isNot(isA<AuthAccountWiped>()));

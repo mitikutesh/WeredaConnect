@@ -15,6 +15,8 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 
+import '../../../../helpers/wait_for.dart';
+
 void main() {
   group('CropListingBloc', () {
     late Isar isar;
@@ -60,25 +62,26 @@ void main() {
 
     test('emits [Loading, Loaded] on LoadCropListings', () async {
       final bloc = CropListingBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <CropListingState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(const LoadCropListings(farmerId: 'farmer-001'));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states.length, 2);
       expect(states[0], isA<CropListingLoading>());
       expect(states[1], isA<CropListingsLoaded>());
       expect((states[1] as CropListingsLoaded).listings, isEmpty);
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test('emits [Loading, Created] on CreateCropListing', () async {
       final bloc = CropListingBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <CropListingState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(
         const CreateCropListing(
@@ -93,7 +96,7 @@ void main() {
           description: 'High quality teff',
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states.length, 2);
       expect(states[0], isA<CropListingLoading>());
@@ -101,9 +104,6 @@ void main() {
       final created = (states[1] as CropListingCreated).listing;
       expect(created.cropType, 'teff');
       expect(created.farmerName, 'Abebe Kebede');
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test('emits Loaded with filtered list on FilterCropListings', () async {
@@ -130,8 +130,10 @@ void main() {
       );
 
       final bloc = CropListingBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <CropListingState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(
         const FilterCropListings(
@@ -139,7 +141,7 @@ void main() {
           cropType: 'teff',
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states.length, 2);
       expect(states[0], isA<CropListingLoading>());
@@ -148,9 +150,6 @@ void main() {
       expect(loaded.activeFilter, 'teff');
       expect(loaded.listings.length, 1);
       expect(loaded.listings.first.cropType, 'teff');
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test('LoadActiveListings forwards searchQuery (SIM-51)', () async {
@@ -178,6 +177,7 @@ void main() {
       );
 
       final bloc = CropListingBloc(repository: repository);
+      addTearDown(bloc.close);
       final expectation = expectLater(
         bloc.stream,
         emitsInOrder([
@@ -194,7 +194,6 @@ void main() {
 
       bloc.add(const LoadActiveListings(searchQuery: 'abebe'));
       await expectation;
-      await bloc.close();
     });
 
     test('emits [Loading, Loaded] on DeleteCropListing', () async {
@@ -211,8 +210,10 @@ void main() {
       );
 
       final bloc = CropListingBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <CropListingState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(
         DeleteCropListing(
@@ -220,7 +221,7 @@ void main() {
           farmerId: 'farmer-001',
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states.length, 2);
       expect(states[0], isA<CropListingLoading>());
@@ -228,9 +229,6 @@ void main() {
       // Listing should be expired now, but getListingsByFarmer returns all
       final loaded = states[1] as CropListingsLoaded;
       expect(loaded.listings.first.status, ListingStatus.expired);
-
-      await subscription.cancel();
-      await bloc.close();
     });
   });
 }

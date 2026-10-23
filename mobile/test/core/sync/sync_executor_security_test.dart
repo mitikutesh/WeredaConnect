@@ -13,6 +13,8 @@ import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 
+import '../../helpers/wait_for.dart';
+
 class FakeConnectivitySource implements ConnectivitySource {
   // Closed in tearDown.
   // ignore: close_sinks
@@ -221,11 +223,10 @@ void main() {
 
     events.stepUpCompleted();
     // Let the listener's syncNow run to completion.
-    for (var i = 0; i < 20; i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-      final op = await syncQueue.getOperation('op-1');
-      if (op!.status == SyncStatus.synced) break;
-    }
+    await waitFor(
+      () async =>
+          (await syncQueue.getOperation('op-1'))!.status == SyncStatus.synced,
+    );
 
     final op = await syncQueue.getOperation('op-1');
     expect(op!.status, SyncStatus.synced);

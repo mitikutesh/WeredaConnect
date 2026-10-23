@@ -18,6 +18,8 @@ import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 
+import '../../helpers/wait_for.dart';
+
 /// Fake [ConnectivitySource] for test-driven connectivity events.
 class FakeConnectivitySource implements ConnectivitySource {
   final StreamController<List<ConnectivityResult>> controller =
@@ -826,8 +828,12 @@ void main() {
         // Simulate connectivity change
         fakeSource.controller.add([ConnectivityResult.wifi]);
 
-        // Wait for debounce (2s) + processing time
-        await Future<void>.delayed(const Duration(milliseconds: 3000));
+        // Wait for the debounce (2s) and the sync it triggers.
+        await waitFor(
+          () async =>
+              (await syncQueue.getOperation('op-auto'))!.status ==
+              SyncStatus.synced,
+        );
 
         // Verify operation was synced
         final op = await syncQueue.getOperation('op-auto');
@@ -885,16 +891,13 @@ void main() {
 
         final results = <SyncBatchResult>[];
         final subscription = executor.onSyncResult.listen(results.add);
+        addTearDown(subscription.cancel);
 
         await executor.syncNow();
-
-        // Give stream time to deliver
-        await Future<void>.delayed(const Duration(milliseconds: 100));
+        await waitFor(() => results.isNotEmpty);
 
         expect(results, isNotEmpty);
         expect(results.last.succeeded, greaterThanOrEqualTo(1));
-
-        await subscription.cancel();
       });
     });
 

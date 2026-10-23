@@ -21,6 +21,8 @@ import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
 
+import '../../../../helpers/wait_for.dart';
+
 class MockApiClient extends Mock implements ApiClient {}
 
 class MockConnectivityMonitor extends Mock implements ConnectivityMonitor {}
@@ -159,8 +161,10 @@ void main() {
         );
 
         final bloc = EscrowBloc(repository: repository);
+        addTearDown(bloc.close);
         final states = <EscrowState>[];
         final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
 
         bloc.add(
           const InitiatePayment(
@@ -170,7 +174,7 @@ void main() {
             amount: 15000.0,
           ),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await waitForStates(states, 2);
 
         expect(states.length, 2);
         expect(states[0], isA<EscrowLoading>());
@@ -181,9 +185,6 @@ void main() {
         );
         // Mock/sync gateway: no toPayUrl.
         expect((states[1] as PaymentInitiated).toPayUrl, isNull);
-
-        await subscription.cancel();
-        await bloc.close();
       });
 
       test('surfaces toPayUrl on async gateway (status initiated)', () async {
@@ -213,8 +214,10 @@ void main() {
         );
 
         final bloc = EscrowBloc(repository: repository);
+        addTearDown(bloc.close);
         final states = <EscrowState>[];
         final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
 
         bloc.add(
           const InitiatePayment(
@@ -224,7 +227,7 @@ void main() {
             amount: 15000.0,
           ),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await waitForStates(states, 2);
 
         expect(states.length, 2);
         expect(states[1], isA<PaymentInitiated>());
@@ -232,9 +235,6 @@ void main() {
           (states[1] as PaymentInitiated).toPayUrl,
           'https://pay.example/paygate?prepay_id=XYZ',
         );
-
-        await subscription.cancel();
-        await bloc.close();
       });
 
       test('emits [Loading, PaymentQueued] when offline', () async {
@@ -242,8 +242,10 @@ void main() {
             .thenAnswer((_) async => false);
 
         final bloc = EscrowBloc(repository: repository);
+        addTearDown(bloc.close);
         final states = <EscrowState>[];
         final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
 
         bloc.add(
           const InitiatePayment(
@@ -253,20 +255,19 @@ void main() {
             amount: 15000.0,
           ),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await waitForStates(states, 2);
 
         expect(states.length, 2);
         expect(states[0], isA<EscrowLoading>());
         expect(states[1], isA<PaymentQueued>());
-
-        await subscription.cancel();
-        await bloc.close();
       });
 
       test('emits [Loading, EscrowError] on validation failure', () async {
         final bloc = EscrowBloc(repository: repository);
+        addTearDown(bloc.close);
         final states = <EscrowState>[];
         final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
 
         bloc.add(
           const InitiatePayment(
@@ -276,21 +277,20 @@ void main() {
             amount: 50.0, // Below minimum
           ),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await waitForStates(states, 2);
 
         expect(states.length, 2);
         expect(states[0], isA<EscrowLoading>());
         expect(states[1], isA<EscrowError>());
         expect((states[1] as EscrowError).code, 'ESCROW_001');
-
-        await subscription.cancel();
-        await bloc.close();
       });
 
       test('emits [Loading, EscrowError] on self-trading', () async {
         final bloc = EscrowBloc(repository: repository);
+        addTearDown(bloc.close);
         final states = <EscrowState>[];
         final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
 
         bloc.add(
           const InitiatePayment(
@@ -300,14 +300,11 @@ void main() {
             amount: 15000.0,
           ),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await waitForStates(states, 2);
 
         expect(states.length, 2);
         expect(states[0], isA<EscrowLoading>());
         expect(states[1], isA<EscrowError>());
-
-        await subscription.cancel();
-        await bloc.close();
       });
     });
 
@@ -318,11 +315,13 @@ void main() {
         await _insertTestPayment(isar);
 
         final bloc = EscrowBloc(repository: repository);
+        addTearDown(bloc.close);
         final states = <EscrowState>[];
         final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
 
         bloc.add(const LoadEscrowDetail(escrowId: 'esc-001'));
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await waitForStates(states, 2);
 
         expect(states.length, 2);
         expect(states[0], isA<EscrowLoading>());
@@ -331,9 +330,6 @@ void main() {
           (states[1] as EscrowDetailLoaded).payment.paymentId,
           'esc-001',
         );
-
-        await subscription.cancel();
-        await bloc.close();
       });
 
       test('emits [Loading, EscrowError] when not found', () async {
@@ -342,19 +338,18 @@ void main() {
             .thenAnswer((_) async => false);
 
         final bloc = EscrowBloc(repository: repository);
+        addTearDown(bloc.close);
         final states = <EscrowState>[];
         final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
 
         bloc.add(const LoadEscrowDetail(escrowId: 'nonexistent'));
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await waitForStates(states, 2);
 
         expect(states.length, 2);
         expect(states[0], isA<EscrowLoading>());
         expect(states[1], isA<EscrowError>());
         expect((states[1] as EscrowError).code, 'ESCROW_016');
-
-        await subscription.cancel();
-        await bloc.close();
       });
     });
 
@@ -367,11 +362,13 @@ void main() {
         await _insertTestIntent(isar);
 
         final bloc = EscrowBloc(repository: repository);
+        addTearDown(bloc.close);
         final states = <EscrowState>[];
         final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
 
         bloc.add(const LoadPaymentHistory(userId: 'farmer-001'));
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await waitForStates(states, 2);
 
         expect(states.length, 2);
         expect(states[0], isA<EscrowLoading>());
@@ -379,9 +376,6 @@ void main() {
         final loaded = states[1] as PaymentHistoryLoaded;
         expect(loaded.payments.length, 1);
         expect(loaded.pendingIntents.length, 1);
-
-        await subscription.cancel();
-        await bloc.close();
       });
 
       test('emits history with status filter', () async {
@@ -396,8 +390,10 @@ void main() {
         );
 
         final bloc = EscrowBloc(repository: repository);
+        addTearDown(bloc.close);
         final states = <EscrowState>[];
         final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
 
         bloc.add(
           const LoadPaymentHistory(
@@ -405,15 +401,12 @@ void main() {
             statusFilter: 'escrowed',
           ),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await waitForStates(states, 2);
 
         expect(states.length, 2);
         final loaded = states[1] as PaymentHistoryLoaded;
         expect(loaded.payments.length, 1);
         expect(loaded.statusFilter, 'escrowed');
-
-        await subscription.cancel();
-        await bloc.close();
       });
     });
 
@@ -443,8 +436,10 @@ void main() {
         );
 
         final bloc = EscrowBloc(repository: repository);
+        addTearDown(bloc.close);
         final states = <EscrowState>[];
         final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
 
         bloc.add(
           const RaisePaymentDispute(
@@ -454,7 +449,7 @@ void main() {
             description: 'Bags were wet',
           ),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await waitForStates(states, 2);
 
         expect(states.length, 2);
         expect(states[0], isA<EscrowLoading>());
@@ -463,9 +458,6 @@ void main() {
           (states[1] as DisputeRaisedSuccess).payment.status,
           PaymentStatus.disputed,
         );
-
-        await subscription.cancel();
-        await bloc.close();
       });
 
       test('emits [Loading, EscrowError] when offline', () async {
@@ -473,8 +465,10 @@ void main() {
             .thenAnswer((_) async => false);
 
         final bloc = EscrowBloc(repository: repository);
+        addTearDown(bloc.close);
         final states = <EscrowState>[];
         final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
 
         bloc.add(
           const RaisePaymentDispute(
@@ -483,15 +477,12 @@ void main() {
             reason: 'damaged_goods',
           ),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await waitForStates(states, 2);
 
         expect(states.length, 2);
         expect(states[0], isA<EscrowLoading>());
         expect(states[1], isA<EscrowError>());
         expect((states[1] as EscrowError).code, 'ESCROW_OFFLINE');
-
-        await subscription.cancel();
-        await bloc.close();
       });
     });
 
@@ -502,17 +493,16 @@ void main() {
         final intent = await _insertTestIntent(isar);
 
         final bloc = EscrowBloc(repository: repository);
+        addTearDown(bloc.close);
         final states = <EscrowState>[];
         final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
 
         bloc.add(CancelPaymentIntent(idempotencyKey: intent.idempotencyKey));
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await waitForStates(states, 1);
 
         expect(states.length, 1);
         expect(states[0], isA<IntentCancelled>());
-
-        await subscription.cancel();
-        await bloc.close();
       });
     });
 
@@ -531,8 +521,10 @@ void main() {
         );
 
         final bloc = EscrowBloc(repository: repository);
+        addTearDown(bloc.close);
         final states = <EscrowState>[];
         final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
 
         bloc.add(
           const FilterPaymentHistory(
@@ -540,7 +532,7 @@ void main() {
             statusFilter: 'completed',
           ),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await waitForStates(states, 2);
 
         expect(states.length, 2);
         expect(states[0], isA<EscrowLoading>());
@@ -549,9 +541,6 @@ void main() {
         expect(loaded.payments.length, 1);
         expect(loaded.payments.first.status, PaymentStatus.completed);
         expect(loaded.statusFilter, 'completed');
-
-        await subscription.cancel();
-        await bloc.close();
       });
     });
 
@@ -563,27 +552,26 @@ void main() {
         await _insertTestPayment(isar);
 
         final bloc = EscrowBloc(repository: repository);
+        addTearDown(bloc.close);
         final states = <EscrowState>[];
         final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
 
         // First load history
         bloc.add(const LoadPaymentHistory(userId: 'farmer-001'));
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await waitForStates(states, 2);
 
         // Now add a pending intent
         await _insertTestIntent(isar);
 
         // Load pending intents
         bloc.add(const LoadPendingIntents());
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await waitForStates(states, 3);
 
         // Should have: Loading, HistoryLoaded, HistoryLoaded(with pending)
         expect(states.length, 3);
         final lastState = states[2] as PaymentHistoryLoaded;
         expect(lastState.pendingIntents.length, 1);
-
-        await subscription.cancel();
-        await bloc.close();
       });
     });
 
@@ -616,11 +604,13 @@ void main() {
         );
 
         final bloc = EscrowBloc(repository: repository);
+        addTearDown(bloc.close);
         final states = <EscrowState>[];
         final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
 
         bloc.add(const RefreshEscrow(escrowId: 'esc-001'));
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await waitForStates(states, 1);
 
         // Silent refresh: no Loading state emitted
         expect(states.length, 1);
@@ -629,9 +619,6 @@ void main() {
           (states[0] as EscrowDetailLoaded).payment.status,
           PaymentStatus.released,
         );
-
-        await subscription.cancel();
-        await bloc.close();
       });
     });
   });
@@ -666,7 +653,7 @@ void main() {
       final states = <EscrowState>[];
       final subscription = bloc.stream.listen(states.add);
       bloc.add(const LoadEscrowByDelivery(deliveryId: 'del-001'));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
       await subscription.cancel();
       await bloc.close();
       return states;
@@ -749,7 +736,7 @@ void main() {
       final states = <EscrowState>[];
       final subscription = bloc.stream.listen(states.add);
       bloc.add(event);
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
       await subscription.cancel();
       await bloc.close();
       return states;
@@ -797,11 +784,17 @@ void main() {
     test('RefreshEscrow stays silent (no state) when refresh returns null',
         () async {
       when(() => repository.refreshEscrow(any())).thenAnswer((_) async => null);
+      final bloc = EscrowBloc(repository: repository);
+      addTearDown(bloc.close);
+      final states = <EscrowState>[];
+      final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
-      final states = await run(
-        EscrowBloc(repository: repository),
-        const RefreshEscrow(escrowId: 'esc-001'),
-      );
+      bloc.add(const RefreshEscrow(escrowId: 'esc-001'));
+      // No state to wait for: wait for the refresh call, then let the
+      // handler's remaining microtasks (where a wrong emit would happen) run.
+      await untilCalled(() => repository.refreshEscrow(any()));
+      await Future<void>.delayed(Duration.zero);
 
       // A null refresh (transient failure / no update) emits nothing, leaving
       // the currently displayed escrow intact.

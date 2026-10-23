@@ -7,6 +7,8 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart'
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 
+import '../../../../helpers/wait_for.dart';
+
 /// Verifies the mobile order-download path: an [OrderBloc] wired with a
 /// [MarketplaceSync] must pull the user's orders from the server into local
 /// storage BEFORE reading them (so a farmer sees incoming buyer orders), and
@@ -33,12 +35,14 @@ void main() {
       final sync = _SpyMarketplaceSync();
       final repo = _FakeOrderRepository([buildOrder('o-1')], spy: sync);
       final bloc = OrderBloc(repository: repo, marketplaceSync: sync);
+      addTearDown(bloc.close);
 
       final states = <OrderState>[];
       final sub = bloc.stream.listen(states.add);
+      addTearDown(sub.cancel);
 
       bloc.add(const LoadUserOrders(userId: 'farmer-1', role: 'farmer'));
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await waitForStates(states, 2);
 
       // The pull ran first, scoped to the caller.
       expect(sync.calls, [('farmer-1', 'farmer')]);
@@ -47,9 +51,6 @@ void main() {
       // Terminal state carries the local rows.
       expect(states.last, isA<OrdersLoaded>());
       expect((states.last as OrdersLoaded).orders.single.orderId, 'o-1');
-
-      await sub.cancel();
-      await bloc.close();
     });
 
     test('offline-first: a failed pull still emits OrdersLoaded (not error)',
@@ -57,19 +58,18 @@ void main() {
       final repo = _FakeOrderRepository([buildOrder('o-2')]);
       final sync = _SpyMarketplaceSync(fail: true);
       final bloc = OrderBloc(repository: repo, marketplaceSync: sync);
+      addTearDown(bloc.close);
 
       final states = <OrderState>[];
       final sub = bloc.stream.listen(states.add);
+      addTearDown(sub.cancel);
 
       bloc.add(const LoadUserOrders(userId: 'buyer-1', role: 'buyer'));
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await waitForStates(states, 2);
 
       expect(states.whereType<OrderError>(), isEmpty);
       expect(states.last, isA<OrdersLoaded>());
       expect((states.last as OrdersLoaded).orders.single.orderId, 'o-2');
-
-      await sub.cancel();
-      await bloc.close();
     });
   });
 }

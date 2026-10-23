@@ -12,6 +12,8 @@ import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 
+import '../../../helpers/wait_for.dart';
+
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
@@ -113,7 +115,8 @@ void main() {
         offlineCache: offlineCache,
       );
 
-  /// Collects states emitted by [bloc] after adding [event].
+  /// Collects states emitted by [bloc] after adding [event], waiting (bounded)
+  /// for [expectedCount] of them.
   Future<List<AuthState>> collectStates(
     AuthBloc bloc,
     AuthEvent event, {
@@ -123,9 +126,7 @@ void main() {
     final subscription = bloc.stream.listen(states.add);
 
     bloc.add(event);
-
-    // Wait enough time for the BLoC to process
-    await Future<void>.delayed(const Duration(milliseconds: 300));
+    await waitForStates(states, expectedCount);
 
     await subscription.cancel();
     return states;
@@ -496,7 +497,7 @@ void main() {
             password: 'test1234',
           ),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await waitFor(() => bloc.state is AuthAuthenticated);
 
         // Now refresh
         final states = await collectStates(
@@ -550,7 +551,7 @@ void main() {
             password: 'test1234',
           ),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await waitFor(() => bloc.state is AuthAuthenticated);
 
         // Refresh with expired token
         final states = await collectStates(
@@ -598,7 +599,7 @@ void main() {
             password: 'test1234',
           ),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await waitFor(() => bloc.state is AuthAuthenticated);
         return bloc;
       }
 

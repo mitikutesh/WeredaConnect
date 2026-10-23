@@ -15,17 +15,7 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
 
-/// Wait until [count] states have been emitted (10s cap). A fixed 100ms sleep
-/// raced the Isar writes on loaded CI runners: the bloc had emitted only
-/// Loading, the assert failed, and the unclosed bloc then hung the rest of
-/// the file ("did not complete"). Falls through on timeout so the following
-/// expect reports the actual emissions.
-Future<void> waitForStates(List<DeliveryState> states, int count) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 10));
-  while (states.length < count && DateTime.now().isBefore(deadline)) {
-    await Future<void>.delayed(const Duration(milliseconds: 10));
-  }
-}
+import '../../../../helpers/wait_for.dart';
 
 void main() {
   group('DeliveryBloc', () {
@@ -72,8 +62,10 @@ void main() {
 
     test('emits [Loading, DeliveriesLoaded] on LoadDeliveries', () async {
       final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <DeliveryState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(const LoadDeliveries(tripId: 'trip-001', userId: 'trucker-001'));
       await waitForStates(states, 2);
@@ -82,15 +74,14 @@ void main() {
       expect(states[0], isA<DeliveryLoading>());
       expect(states[1], isA<DeliveriesLoaded>());
       expect((states[1] as DeliveriesLoaded).deliveries, isEmpty);
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test('emits [Loading, DeliveryCreated] on CreateDelivery', () async {
       final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <DeliveryState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(
         const CreateDelivery(
@@ -112,17 +103,16 @@ void main() {
       expect(states[0], isA<DeliveryLoading>());
       expect(states[1], isA<DeliveryCreated>());
       expect((states[1] as DeliveryCreated).delivery.farmerId, 'farmer-001');
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test(
         'emits [Loading, DeliveryCreated] on CreateSelfPickupDelivery '
         '(no trucker, deliveryType=self_pickup, tripId=deliveryId)', () async {
       final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <DeliveryState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(
         const CreateSelfPickupDelivery(
@@ -145,9 +135,6 @@ void main() {
       expect(created.buyerId, 'buyer-001');
       // No trip: sort key is synthesized from the deliveryId.
       expect(created.tripId, created.deliveryId);
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test('emits [Loading, PickupConfirmed] on ConfirmPickup', () async {
@@ -166,6 +153,7 @@ void main() {
       );
 
       final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
       final expectation = expectLater(
         bloc.stream,
         emitsInOrder([isA<DeliveryLoading>(), isA<PickupConfirmed>()]),
@@ -180,7 +168,6 @@ void main() {
       );
 
       await expectation;
-      await bloc.close();
     });
 
     test('emits [Loading, DeliveryConfirmed] on ConfirmDelivery', () async {
@@ -214,6 +201,7 @@ void main() {
       });
 
       final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
       final expectation = expectLater(
         bloc.stream,
         emitsInOrder([isA<DeliveryLoading>(), isA<DeliveryConfirmed>()]),
@@ -228,7 +216,6 @@ void main() {
       );
 
       await expectation;
-      await bloc.close();
     });
 
     test(
@@ -248,6 +235,7 @@ void main() {
       expect(delivery.status, DeliveryStatus.pending);
 
       final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
       final expectation = expectLater(
         bloc.stream,
         emitsInOrder([isA<DeliveryLoading>(), isA<DeliveryConfirmed>()]),
@@ -268,8 +256,6 @@ void main() {
         userId: 'buyer-001',
       );
       expect(updated!.status, DeliveryStatus.delivered);
-
-      await bloc.close();
     });
 
     test('emits [Loading, DisputeRaised, DeliveriesLoaded] on RaiseDispute',
@@ -308,8 +294,10 @@ void main() {
       );
 
       final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <DeliveryState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(
         RaiseDispute(
@@ -328,9 +316,6 @@ void main() {
       final loaded = states[2] as DeliveriesLoaded;
       expect(loaded.deliveries.length, 1);
       expect(loaded.deliveries.first.status, DeliveryStatus.disputed);
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test(
@@ -350,8 +335,10 @@ void main() {
       );
 
       final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <DeliveryState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(
         CancelDelivery(
@@ -369,9 +356,6 @@ void main() {
       final loaded = states[2] as DeliveriesLoaded;
       expect(loaded.deliveries.length, 1);
       expect(loaded.deliveries.first.status, DeliveryStatus.cancelled);
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test('FilterDeliveries by status returns filtered list', () async {
@@ -408,8 +392,10 @@ void main() {
       );
 
       final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <DeliveryState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(
         const FilterDeliveries(
@@ -427,9 +413,6 @@ void main() {
       expect(loaded.deliveries.length, 1);
       expect(loaded.statusFilter, 'pickedUp');
       expect(loaded.deliveries.first.deliveryId, d1.deliveryId);
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test('FilterDeliveries with no status filter loads all for trip', () async {
@@ -459,8 +442,10 @@ void main() {
       );
 
       final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <DeliveryState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(
         const FilterDeliveries(tripId: 'trip-001', userId: 'trucker-001'),
@@ -472,15 +457,14 @@ void main() {
       final loaded = states[1] as DeliveriesLoaded;
       expect(loaded.deliveries.length, 2);
       expect(loaded.statusFilter, isNull);
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test('LoadDeliveries for nonexistent trip emits empty list', () async {
       final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <DeliveryState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(
         const LoadDeliveries(
@@ -494,15 +478,14 @@ void main() {
       expect(states[0], isA<DeliveryLoading>());
       expect(states[1], isA<DeliveriesLoaded>());
       expect((states[1] as DeliveriesLoaded).deliveries, isEmpty);
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test('Create then Load shows the created delivery', () async {
       final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <DeliveryState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       // Create a delivery
       bloc.add(
@@ -530,15 +513,14 @@ void main() {
       expect(states[1], isA<DeliveryCreated>());
       expect(states[3], isA<DeliveriesLoaded>());
       expect((states[3] as DeliveriesLoaded).deliveries.length, 1);
-
-      await subscription.cancel();
-      await bloc.close();
     });
 
     test('CreateDelivery with Amharic names preserves characters', () async {
       final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
       final states = <DeliveryState>[];
       final subscription = bloc.stream.listen(states.add);
+      addTearDown(subscription.cancel);
 
       bloc.add(
         const CreateDelivery(
@@ -561,9 +543,6 @@ void main() {
       expect(created.delivery.farmerName, 'ታደሰ ወርቁ');
       expect(created.delivery.truckerName, 'ዳዊት አሰፋ');
       expect(created.delivery.buyerName, 'ሳራ ሃይሉ');
-
-      await subscription.cancel();
-      await bloc.close();
     });
   });
 }

@@ -13,6 +13,8 @@ import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 
+import '../../helpers/wait_for.dart';
+
 class _FakeConnectivitySource implements ConnectivitySource {
   // Closed in tearDown.
   // ignore: close_sinks
@@ -25,14 +27,6 @@ class _FakeConnectivitySource implements ConnectivitySource {
   @override
   Future<List<ConnectivityResult>> checkConnectivity() async =>
       [ConnectivityResult.wifi];
-}
-
-/// Polls [condition] for up to 5 seconds instead of sleeping a fixed time.
-Future<void> _waitFor(bool Function() condition) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 5));
-  while (!condition() && DateTime.now().isBefore(deadline)) {
-    await Future<void>.delayed(const Duration(milliseconds: 5));
-  }
 }
 
 /// ESC-12: permanent rejections stop retrying, undo the local change once per
@@ -172,7 +166,7 @@ void main() {
         replyWith([error('op-1', message)]);
 
         final result = await executor.executeBatch();
-        await _waitFor(() => rejections().isNotEmpty);
+        await waitFor(() => rejections().isNotEmpty);
 
         expect(result.failed, 1);
         expect(result.operationErrors['op-1'], message);
@@ -277,7 +271,7 @@ void main() {
         replyWith([error('op-1', message)]);
 
         await executor.executeBatch();
-        await _waitFor(() => rejections().isNotEmpty);
+        await waitFor(() => rejections().isNotEmpty);
 
         expect(await isRejected('op-1'), isTrue);
         expect(await syncQueue.retryFailed(), 0);
@@ -331,7 +325,7 @@ void main() {
         replyWith([error('op-1', message)]);
 
         await executor.executeBatch();
-        await _waitFor(() => rejections().isNotEmpty);
+        await waitFor(() => rejections().isNotEmpty);
 
         expect(await isRejected('op-1'), isTrue);
         expect(await syncQueue.retryFailed(), 0);
@@ -383,7 +377,7 @@ void main() {
       replyWith([error('op-1', message)]);
 
       await executor.executeBatch();
-      await _waitFor(() => rejections().isNotEmpty);
+      await waitFor(() => rejections().isNotEmpty);
 
       expect(await isRejected('op-1'), isTrue);
       expect(await syncQueue.retryFailed(), 0);
@@ -418,7 +412,7 @@ void main() {
     replyWith([error('op-1', 'ORDER_KYC_REQUIRED: buyer_fayda: Verify')]);
 
     await executor.executeBatch();
-    await _waitFor(() => emitted.isNotEmpty);
+    await waitFor(() => emitted.isNotEmpty);
 
     expect(kycCalls, hasLength(1));
     expect(reverts, isEmpty);
@@ -456,7 +450,7 @@ void main() {
     ]);
 
     await executor.executeBatch();
-    await _waitFor(() => rejections().isNotEmpty);
+    await waitFor(() => rejections().isNotEmpty);
 
     for (final id in ['op-create', 'op-pay', 'op-later']) {
       expect(await isRejected(id), isTrue, reason: id);
@@ -488,7 +482,7 @@ void main() {
     ]);
 
     await executor.executeBatch();
-    await _waitFor(() => rejections().isNotEmpty);
+    await waitFor(() => rejections().isNotEmpty);
 
     expect(await isRejected('op-crop'), isTrue);
     expect(await isRejected('op-crop-delete'), isTrue);
@@ -547,7 +541,7 @@ void main() {
     ]);
 
     await executor.executeBatch();
-    await _waitFor(() => arrivals.length >= 3);
+    await waitFor(() => arrivals.length >= 3);
 
     // No handler ran after an announcement went out.
     expect(seenByHandlers, [0, 0, 0]);
@@ -565,7 +559,7 @@ void main() {
     replyWith([error('op-1', 'FRAUD_PAYMENT: blocked')]);
 
     await executor.executeBatch();
-    await _waitFor(() => rejections().isNotEmpty);
+    await waitFor(() => rejections().isNotEmpty);
 
     expect(await isRejected('op-1'), isTrue);
     expect(reverts.single.$2, 'FRAUD_PAYMENT: blocked');
@@ -599,9 +593,9 @@ void main() {
     );
 
     await executor.executeBatch();
-    await _waitFor(() => rejections().isNotEmpty);
+    await waitFor(() => rejections().isNotEmpty);
 
-    await _waitFor(() => rejections().length >= 2);
+    await waitFor(() => rejections().length >= 2);
 
     for (final id in ['op-order', 'op-trip', 'op-trip-later']) {
       expect(await isRejected(id), isTrue, reason: id);
@@ -624,7 +618,7 @@ void main() {
     ]);
 
     await executor.executeBatch();
-    await _waitFor(() => rejections().isNotEmpty);
+    await waitFor(() => rejections().isNotEmpty);
     await Future<void>.delayed(Duration.zero);
 
     expect(reverts, hasLength(1));
@@ -643,7 +637,7 @@ void main() {
     replyWith([error('op-1', 'ORDER_VALIDATION: no')]);
 
     final result = await executor.executeBatch();
-    await _waitFor(() => rejections().isNotEmpty);
+    await waitFor(() => rejections().isNotEmpty);
 
     expect(result.failed, 1);
     expect(await isRejected('op-1'), isTrue);
@@ -663,7 +657,7 @@ void main() {
 
     final delivered = <SecurityEvent>[];
     final lateSub = quiet.events.listen(delivered.add);
-    await _waitFor(() => delivered.isNotEmpty);
+    await waitFor(() => delivered.isNotEmpty);
     await lateSub.cancel();
 
     expect(delivered.single, isA<SyncOperationRejected>());
@@ -719,7 +713,7 @@ void main() {
           replyWith([error('op-1', message)]);
 
           final result = await executor.executeBatch();
-          await _waitFor(() => rejections().isNotEmpty);
+          await waitFor(() => rejections().isNotEmpty);
 
           expect(result.failed, 1);
           expect(await isRejected('op-1'), isTrue);
@@ -760,7 +754,7 @@ void main() {
           replyWith([error('op-1', message)]);
 
           final result = await executor.executeBatch();
-          await _waitFor(() => rejections().isNotEmpty);
+          await waitFor(() => rejections().isNotEmpty);
 
           expect(result.failed, 1);
           expect(await isRejected('op-1'), isTrue);
@@ -795,7 +789,7 @@ void main() {
         replyWith([error('op-1', message)]);
 
         await executor.executeBatch();
-        await _waitFor(() => rejections().isNotEmpty);
+        await waitFor(() => rejections().isNotEmpty);
 
         expect(await isRejected('op-1'), isTrue);
         expect(await syncQueue.retryFailed(), 0);
@@ -829,7 +823,7 @@ void main() {
     ]);
 
     await executor.executeBatch();
-    await _waitFor(() => rejections().isNotEmpty);
+    await waitFor(() => rejections().isNotEmpty);
 
     for (final id in ['op-create', 'op-delete']) {
       expect(await isRejected(id), isTrue, reason: id);
@@ -893,7 +887,7 @@ void main() {
         replyWith([error('op-1', message)]);
 
         await executor.executeBatch();
-        await _waitFor(() => rejections().isNotEmpty);
+        await waitFor(() => rejections().isNotEmpty);
 
         expect(await isRejected('op-1'), isTrue);
         expect(reverts, isEmpty);
@@ -932,7 +926,7 @@ void main() {
         replyWith([error('op-1', message)]);
 
         final result = await executor.executeBatch();
-        await _waitFor(() => rejections().isNotEmpty);
+        await waitFor(() => rejections().isNotEmpty);
 
         final op = (await syncQueue.getOperation('op-1'))!;
         expect(op.status, SyncStatus.pending);
@@ -992,7 +986,7 @@ void main() {
       );
       replyWith([error('op-crop', message)]);
       await executor.executeBatch();
-      await _waitFor(() => rejections().isNotEmpty);
+      await waitFor(() => rejections().isNotEmpty);
 
       await enqueue(
         'op-pickup',
@@ -1028,7 +1022,7 @@ void main() {
       );
       replyWith([error('op-create', message)]);
       await executor.executeBatch();
-      await _waitFor(() => rejections().isNotEmpty);
+      await waitFor(() => rejections().isNotEmpty);
 
       await enqueue(
         'op-update',
@@ -1066,7 +1060,7 @@ void main() {
       );
       replyWith([error('op-create', message)]);
       await executor.executeBatch();
-      await _waitFor(() => rejections().isNotEmpty);
+      await waitFor(() => rejections().isNotEmpty);
 
       // More queued behind it than one batch holds, all older than the trip.
       for (var i = 0; i < SyncExecutor.batchSize + 5; i++) {
@@ -1128,7 +1122,7 @@ void main() {
       );
       replyWith([error('op-1', message)]);
       await executor.executeBatch();
-      await _waitFor(() => rejections().isNotEmpty);
+      await waitFor(() => rejections().isNotEmpty);
 
       executor.dispose();
       executor = buildExecutor(securityEvents: SecurityEvents.forTesting());
@@ -1168,7 +1162,7 @@ void main() {
     ]);
 
     await executor.executeBatch();
-    await _waitFor(() => rejections().isNotEmpty);
+    await waitFor(() => rejections().isNotEmpty);
 
     expect(reverts, hasLength(1));
     expect(reverts.single.$1.operationId, 'op-2');
@@ -1191,7 +1185,7 @@ void main() {
     replyWith([error('op-1', 'APP_UPDATE_REQUIRED: minimum 2.0.0')]);
 
     await executor.executeBatch();
-    await _waitFor(() => updates.isNotEmpty);
+    await waitFor(() => updates.isNotEmpty);
 
     expect(events.appUpdateRequired, isTrue);
     expect(updates, hasLength(1));
@@ -1215,7 +1209,7 @@ void main() {
     replyWith([error('op-1', 'CROP_HAS_ACTIVE_ORDERS: open orders')]);
 
     await executor.executeBatch();
-    await _waitFor(() => rejections().isNotEmpty);
+    await waitFor(() => rejections().isNotEmpty);
 
     expect(await isRejected('op-1'), isTrue);
     expect((await syncQueue.getOperation('op-1'))!.reverted, isFalse);

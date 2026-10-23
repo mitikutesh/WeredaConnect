@@ -13,6 +13,8 @@ import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/escrow_payment/data/services/escrow_sync_service.dart';
 
+import '../../../../helpers/wait_for.dart';
+
 class MockApiClient extends Mock implements ApiClient {}
 
 class MockConnectivityMonitor extends Mock implements ConnectivityMonitor {}
@@ -138,7 +140,9 @@ void main() {
       ),
     ).thenThrow(const StepUpRequiredException());
     service.startListening();
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    // The startup drain hits the gate; it has released its lock by the time
+    // its step-up prompt reaches the listener.
+    await waitFor(() => emitted.whereType<StepUpRequired>().isNotEmpty);
 
     when(
       () => api.post<Map<String, dynamic>>(
@@ -161,11 +165,11 @@ void main() {
       },
     );
     events.stepUpCompleted();
-    for (var i = 0; i < 20; i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-      final intent = await isar.paymentIntents.where().findFirst();
-      if (intent!.status == IntentStatus.completed) break;
-    }
+    await waitFor(
+      () async =>
+          (await isar.paymentIntents.where().findFirst())!.status ==
+          IntentStatus.completed,
+    );
 
     final intent = await isar.paymentIntents.where().findFirst();
     expect(intent!.status, IntentStatus.completed);
