@@ -177,11 +177,126 @@
     "message": "The page you're looking for doesn't exist or has been moved.",
     "back": "Back to Home"
   },
+  "deleteAccount": {
+    "title": "Delete Your Account",
+    "subtitle": "How to permanently delete your WeredaConnect account and personal data.",
+    "intro": "You can delete your WeredaConnect account and the personal data we hold about you at any time, directly from the app. This page explains how to do it and what happens to your data.",
+    "how": {
+      "title": "How to request deletion",
+      "steps": [
+        "Open the WeredaConnect app on your phone.",
+        "Sign in with your phone number and password.",
+        "Go to Profile, then tap Delete account.",
+        "Read what will be removed, then confirm. You re-enter your password to approve the deletion."
+      ],
+      "note": "Deletion works the same way for farmers, truckers and buyers. It happens online, so you need a connection when you confirm."
+    },
+    "noApp": {
+      "title": "Cannot sign in or no longer have the app?",
+      "text": "If you cannot access your account, email us and we will help you complete the deletion:"
+    },
+    "deleted": {
+      "title": "What is deleted",
+      "intro": "When your deletion finishes, we remove the personal data we hold about you, including:",
+      "items": [
+        "Your profile, name and phone number",
+        "Your Fayda (national ID) verification link",
+        "Your location and any free text you entered",
+        "Your crop listings, trips, buying intents and payment intents",
+        "Your in-app messages",
+        "Your device and notification tokens"
+      ]
+    },
+    "kept": {
+      "title": "What is kept, and why",
+      "text": "For legal, accounting and dispute reasons we keep records of completed orders, deliveries, escrow payments and the related audit logs. Before keeping them we remove your name and link them only to an anonymous account id, so they no longer identify you."
+    },
+    "timeline": {
+      "title": "When it happens",
+      "items": [
+        "Deletion is immediate and final. There is no grace period, and the password step protects you from deleting by mistake.",
+        "Your live personal data is removed as soon as the request succeeds, and in every case within 24 hours.",
+        "Copies in encrypted backups are rotated out within 35 days.",
+        "The anonymous money and audit records above are kept longer where the law requires it. They do not identify you."
+      ]
+    },
+    "blocked": {
+      "title": "When deletion has to wait",
+      "text": "To protect your money, we cannot delete your account while you still have something in progress: an active order, an escrow payment that has not been released, an open delivery, an open dispute, or a payment waiting to be refunded. The app shows you what is blocking. Finish or cancel those first, then delete. For a payment waiting on a manual refund, contact support and we will resolve it."
+    },
+    "questions": {
+      "title": "Questions",
+      "text": "For any question about deleting your account or your data, contact us at:"
+    }
+  },
+  "privacyPolicy": {
+    "title": "Privacy Policy",
+    "updated": "Last updated: 24 October 2026",
+    "intro": "WeredaConnect connects Ethiopian farmers, truckers and buyers, with Telebirr escrow payments. This policy explains what personal data we collect, how we use it, and the choices you have. It applies to the WeredaConnect app and this website.",
+    "collect": {
+      "title": "Data we collect",
+      "intro": "We collect only what we need to run the marketplace:",
+      "items": [
+        "Account details: your phone number, name and the role you choose (farmer, trucker or buyer).",
+        "Identity verification: your Fayda (national ID) link, used to verify you for higher-value payments.",
+        "Marketplace activity: the crop listings, trips, buying intents, orders and deliveries you create.",
+        "Payments: Telebirr and bank payment references needed to hold and release escrow. We do not store your Telebirr PIN or full card details.",
+        "Location: the places you enter for listings, trips and deliveries.",
+        "Messages: the in-app messages you send and receive about an order or delivery.",
+        "Device data: notification tokens and basic usage counters so the app works offline and can send you updates."
+      ]
+    },
+    "use": {
+      "title": "How we use your data",
+      "items": [
+        "To run the marketplace and match crops, trips and orders.",
+        "To hold and release escrow payments between buyers, farmers and truckers.",
+        "To arrange and track deliveries.",
+        "To verify identity and prevent fraud and abuse.",
+        "To send you notifications about your orders, deliveries and payments.",
+        "To answer your support requests and resolve disputes."
+      ]
+    },
+    "share": {
+      "title": "Who we share it with",
+      "text": "We do not sell your data. We share it only where it is needed to provide the service: with Telebirr and banks to process payments, with the Fayda identity service to verify you, with the cloud providers that host the platform, and with our support and admin staff when they resolve a dispute or a support request. We may also disclose data where the law requires it."
+    },
+    "retention": {
+      "title": "How long we keep it",
+      "text": "We keep your personal data while your account is active. When you delete your account we remove your personal data. For legal, accounting and dispute reasons we keep anonymous records of completed orders, deliveries and payments, with your name removed."
+    },
+    "rights": {
+      "title": "Your choices and rights",
+      "text": "You can view and update your profile in the app, and you can delete your account and personal data at any time."
+    },
+    "deletion": {
+      "title": "Deleting your account",
+      "text": "You can permanently delete your account and personal data from inside the app, under Profile then Delete account. Our account deletion page has the full steps and explains what is deleted and what is kept.",
+      "link": "Go to the account deletion page"
+    },
+    "security": {
+      "title": "Security",
+      "text": "We protect your data with encryption in transit and access controls. Data on your phone is stored in the app and cleared when you delete your account or sign out."
+    },
+    "children": {
+      "title": "Children",
+      "text": "WeredaConnect is for adults who trade agricultural goods. It is not intended for children."
+    },
+    "changes": {
+      "title": "Changes to this policy",
+      "text": "We may update this policy as the service changes. We will post the new version here and update the date above."
+    },
+    "contact": {
+      "title": "Contact us",
+      "text": "For any question about this policy or your data, contact us at:"
+    }
+  },
   "footer": {
     "tagline": "Connecting Ethiopian farmers, truckers, and buyers.",
     "links": "Quick Links",
     "legal": "Legal",
     "privacy": "Privacy Policy",
+    "deleteAccount": "Delete account",
     "terms": "Terms of Service",
     "copyright": "WeredaConnect. All rights reserved.",
     "language": "Language"

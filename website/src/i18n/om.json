@@ -177,11 +177,126 @@
     "message": "Fuulli barbaaddan hin jiru yookaan jijjiiramee jira.",
     "back": "Gara Fuula Jalqabaatti Deebi'i"
   },
+  "deleteAccount": {
+    "title": "Herrega Kee Haaqi",
+    "subtitle": "Herrega WeredaConnect fi daataa dhuunfaa kee akkamitti dhaabbataan haaqxu.",
+    "intro": "Herrega WeredaConnect kee fi daataa dhuunfaa waa'ee kee qabnu yeroo barbaadde kallattiidhaan appii irraa haaquu dandeessa. Fuulli kun akkamitti akka hojjettu fi daataa keetiif maaltu akka ta'u ibsa.",
+    "how": {
+      "title": "Haquu akkamitti gaafattu",
+      "steps": [
+        "Appii WeredaConnect bilbila kee irratti bani.",
+        "Lakkoofsa bilbilaa fi jecha darbii keetiin seeni.",
+        "Gara Piroofaayilii deemi, achiis Herrega Haaqi tuqi.",
+        "Maaltu akka haaqamu dubbisi, achiis mirkaneessi. Haquu mirkaneessuuf jecha darbii kee irra deebitee galchita."
+      ],
+      "note": "Haquun qonnaan bultootaaf, konkolaachisaaf fi bitootaaf karaa wal fakkaatuun hojjeta. Sararaan waan raawwatuuf yeroo mirkaneessitu quunnamtii barbaachisa."
+    },
+    "noApp": {
+      "title": "Seenuu hin dandeenye yookiin appii hin qabduu?",
+      "text": "Yoo herrega kee argachuu hin dandeenye, iimeelii nuuf ergi; haquu xumuruu akka dandeessu si gargaarra:"
+    },
+    "deleted": {
+      "title": "Maaltu haaqama",
+      "intro": "Yeroo haquun kee xumuramu, daataa dhuunfaa waa'ee kee qabnu ni haaqna, kanneen keessaa:",
+      "items": [
+        "Piroofaayilii kee, maqaa kee fi lakkoofsa bilbilaa kee",
+        "Hidhata mirkaneessa Fayda (eenyummaa biyyaalessaa) kee",
+        "Bakka kee fi barruu bilisaa ati galchite kamiyyuu",
+        "Tarreeffama midhaanii kee, imala kee, fedhii bittaa kee fi fedhii kaffaltii kee",
+        "Ergaawwan appii keessaa kee",
+        "Tookinoota meeshaa fi beeksisaa kee"
+      ]
+    },
+    "kept": {
+      "title": "Maaltu hafa, maaliif",
+      "text": "Sababoota seeraa, herregaa fi falmii irraa kan ka'e galmee ajajawwan xumuraman, geejjibaa, kaffaltii eskiroo fi galmeewwan odiitii walqabatan ni qabanna. Osoo hin qabanne dura maqaa kee ni haaqna, akkasumas eenyummaa kee kan hin agarsiifne id herrega wajjin qofa hidhina, kanaafuu isaan booda eenyummaa kee hin agarsiisan."
+    },
+    "timeline": {
+      "title": "Yoom akka ta'u",
+      "items": [
+        "Haquun hatattamaa fi dhumaa dha. Yeroo ayyaama hin jiru, akkasumas tarkaanfiin jecha darbii dogoggoraan haquu irraa si eega.",
+        "Daataan dhuunfaa kee kan ammaa gaaffiin yeroo milkaa'u battalumatti ni haaqama, haala kamiyyuu keessatti immoo sa'aatii 24 keessatti.",
+        "Garagalchoonni baakaappii icciitaa'an keessa jiran guyyaa 35 keessatti ni haaqamu.",
+        "Galmeewwan maallaqaa fi odiitii eenyummaa hin agarsiifne armaan olii hamma seerri barbaadutti yeroo dheeraaf ni turu. Isaan eenyummaa kee hin agarsiisan."
+      ]
+    },
+    "blocked": {
+      "title": "Haquun yoom eeguu qaba",
+      "text": "Maallaqa kee eeguuf, hamma wanti adeemsa irra jiru si bira jirutti herrega kee haaquu hin dandeenyu: ajaja socho'aa, kaffaltii eskiroo kan hin gadhiifamne, geejjiba banaa, falmii banaa, yookiin kaffaltii deebii eeggatu. Appiin maaltu akka gufuu ta'e si agarsiisa. Dura isaan xumuri yookiin haqi, achiis haqi. Kaffaltii deebii harkaan eeggatuuf, deeggarsa quunnami; nu ni furra."
+    },
+    "questions": {
+      "title": "Gaaffiiwwan",
+      "text": "Waa'ee herrega kee yookiin daataa kee haquu ilaalchisee gaaffii kamiyyuu yoo qabaatte asitti nu quunnami:"
+    }
+  },
+  "privacyPolicy": {
+    "title": "Imaammata Dhuunfaa",
+    "updated": "Yeroo dhumaa kan haaromfame: Onkoloolessa 24, 2026",
+    "intro": "WeredaConnect qonnaan bultoota, konkolaachisaa fi bitoota Itoophiyaa kaffaltii eskiroo Telebirr waliin walitti hidha. Imaammanni kun daataa dhuunfaa maal akka walitti qabnu, akkamitti akka itti fayyadamnu fi filannoowwan ati qabdu ibsa. Appii WeredaConnect fi weebsaayitii kanaaf hojjeta.",
+    "collect": {
+      "title": "Daataa walitti qabnu",
+      "intro": "Gabaa gaggeessuuf wanta nu barbaachisu qofa walitti qabna:",
+      "items": [
+        "Ragaa herregaa: lakkoofsa bilbilaa kee, maqaa kee fi gahee ati filattu (qonnaan bulaa, konkolaachisaa yookiin bitaa).",
+        "Mirkaneessa eenyummaa: kaffaltii gatii ol'aanaadhaaf si mirkaneessuuf kan tajaajilu hidhata Fayda (eenyummaa biyyaalessaa) kee.",
+        "Sochii gabaa: tarreeffama midhaanii, imala, fedhii bittaa, ajaja fi geejjiba ati uumtu.",
+        "Kaffaltii: eskiroo qabuu fi gadhiisuuf wantoota barbaachisan wabii kaffaltii Telebirr fi baankii. PIN Telebirr yookiin ragaa kaardii guutuu kee hin kuusnu.",
+        "Bakka: tarreeffama, imala fi geejjibaaf bakkeewwan ati galchitu.",
+        "Ergaawwan: waa'ee ajaja yookiin geejjibaa ergaawwan appii keessaa ati ergitu fi fudhattu.",
+        "Daataa meeshaa: appiin sararaan ala akka hojjetuu fi beeksisa siif erguu danda'uuf tookinoota beeksisaa fi lakkaawwaa fayyadamaa bu'uuraa."
+      ]
+    },
+    "use": {
+      "title": "Daataa kee akkamitti itti fayyadamna",
+      "items": [
+        "Gabaa gaggeessuuf fi midhaan, imala fi ajaja walsimsiisuuf.",
+        "Bitoota, qonnaan bultoota fi konkolaachisaa gidduutti kaffaltii eskiroo qabuu fi gadhiisuuf.",
+        "Geejjiba qindeessuu fi hordofuuf.",
+        "Eenyummaa mirkaneessuu fi gowwoomsaa fi dogoggora ittisuuf.",
+        "Waa'ee ajaja kee, geejjiba kee fi kaffaltii kee beeksisa siif erguuf.",
+        "Gaaffii deeggarsa kee deebisuu fi falmii furuuf."
+      ]
+    },
+    "share": {
+      "title": "Eenyu waliin qooddanna",
+      "text": "Daataa kee hin gurgurru. Tajaajila kennuuf bakka barbaachisu qofatti qooddanna: kaffaltii adeemsisuuf Telebirr fi baankii waliin, si mirkaneessuuf tajaajila eenyummaa Fayda waliin, kan platformii kana keessummeessu dhaabbilee klaawudii waliin, akkasumas yeroo falmii yookiin gaaffii deeggarsaa furan hojjettoota deeggarsaa fi bulchiinsaa keenya waliin. Bakka seerri barbaadutti daataa saaxiluu dandeenya."
+    },
+    "retention": {
+      "title": "Hangam akka turfachiisnu",
+      "text": "Hamma herregni kee socho'aa ta'etti daataa dhuunfaa kee ni qabanna. Yeroo herrega kee haaqxu daataa dhuunfaa kee ni haaqna. Sababoota seeraa, herregaa fi falmii irraa kan ka'e galmee ajajawwan xumuraman, geejjibaa fi kaffaltii eenyummaa hin agarsiifne maqaa kee haaqamee ni qabanna."
+    },
+    "rights": {
+      "title": "Filannoowwan fi mirgoota kee",
+      "text": "Piroofaayilii kee appii keessatti ilaaluu fi haaromsuu dandeessa, akkasumas herrega kee fi daataa dhuunfaa kee yeroo barbaadde haaquu dandeessa."
+    },
+    "deletion": {
+      "title": "Herrega kee haaquu",
+      "text": "Herrega kee fi daataa dhuunfaa kee appii keessaa, Piroofaayilii achiis Herrega Haaqi jalatti dhaabbataan haaquu dandeessa. Fuulli haquu herregaa keenya tarkaanfiiwwan guutuu qaba, maaltu akka haaqamuu fi maaltu akka hafu ibsa.",
+      "link": "Gara fuula haquu herregaa deemi"
+    },
+    "security": {
+      "title": "Nageenya",
+      "text": "Daataa kee yeroo dabarsinu icciiteffannaa fi to'annaa argannoo waliin eegna. Daataan bilbila kee irra jiru appii keessatti kuufama, akkasumas yeroo herrega kee haaqxu yookiin baatu ni qulqullaa'a."
+    },
+    "children": {
+      "title": "Ijoollee",
+      "text": "WeredaConnect namoota gaggeessota oomisha qonnaa daldalaniif. Ijoolleedhaaf kan yaadame miti."
+    },
+    "changes": {
+      "title": "Jijjiirama imaammata kanaa",
+      "text": "Akkuma tajaajilli jijjiiramuun imaammata kana haaromsuu dandeenya. Lakkoofsa haaraa asitti ni maxxansina, guyyaa armaan olii ni haaromsina."
+    },
+    "contact": {
+      "title": "Nu quunnamaa",
+      "text": "Waa'ee imaammata kanaa yookiin daataa kee ilaalchisee gaaffii kamiyyuu yoo qabaatte asitti nu quunnami:"
+    }
+  },
   "footer": {
     "tagline": "Qonnaan bultoota, konkolaachisaa fi bitootaa walitti hidhuu.",
     "links": "Geessituu Ariifataa",
     "legal": "Seeraa",
     "privacy": "Imaammata Dhuunfaa",
+    "deleteAccount": "Herrega haaqi",
     "terms": "Haala Tajaajilaa",
     "copyright": "WeredaConnect. Mirgi hunduu kan eegameedha.",
     "language": "Afaan"
