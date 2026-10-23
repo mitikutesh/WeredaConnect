@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.15.0
+1.19.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -93,7 +93,9 @@ This format ensures:
   later; the server hard-fails (`error`) it if it stays unverifiable past its window. This
   keeps offline-first: the op is never lost. Currently emitted for a delivery
   `pickedUp`/`delivered` transition whose QR handoff secret (farmer-authored nonce) has not
-  yet reached the server. `serverData`/`serverVersion` are absent.
+  yet reached the server, and (1.19.0) for one without a nonce whose escrow could not be read
+  to decide whether it needs the QR (`delivery-verification-api.md` 1.18.0).
+  `serverData`/`serverVersion` are absent.
 - `status: "error"` — operation failed (validation, auth, etc.); `message` explains why
 
 ---
@@ -434,6 +436,7 @@ times) and keep their local copy.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.19.0 | 2026-10-23 | QR gate money check (FUP-42, `delivery-verification-api.md` 1.18.0): `deferred` is also sent for a delivery `pickedUp`/`delivered` with no nonce on record when the escrow that decides whether it needs the QR cannot be read (message `DELIVERY_NONCE_PENDING: ...`, nothing written); such a delivery whose order escrow is not linked to it is now `deferred` too, where it passed. Clients unchanged: mobile re-queues `deferred` without using a retry, web shows its QR-pending message. |
 | 1.15.0 | 2026-10-17 | Message contact refusal (ESC-48): `MESSAGE_CONTACT_LOCKED` for a message into a `crop` or `trip` thread, or into an `order` or `delivery` thread whose order's contact is not open; permanent, the mobile client removes its local copy and explains it in en, am and om; a refused resend of a message the sender already stored answers `duplicate`; message rows in `/sync` data carry no phone; delivery rows in `/sync` data carry no phone (`delivery-verification-api.md` 1.15.0) |
 | 1.14.0 | 2026-10-17 | Delivery dispute step-up fails closed (FUP-26): when the order (or a legacy delivery's `DeliveryIndex` escrow) that sizes the step-up cannot be read, the dispute answers `DELIVERY_DISPUTE_RETRY` before the freeze and nothing is written (it was let through without the step-up); a missing order, or a total that is missing, unreadable, zero or negative, answers `AUTH_040` to a stale session at any amount; clients unchanged (`DELIVERY_DISPUTE_RETRY` retried, `AUTH_040` kept pending) |
 | 1.13.0 | 2026-10-10 | Order cancel refusal (ESC-06): `ORDER_CANCEL_NOT_ALLOWED` is sent for a buyer cancel of an `accepted` order before its pickup deadline, after pickup or while its money is being settled; permanent (server-clock dependent, never resent), its own localized message on mobile and web; the cancel's read and write failures are unprefixed and retried; a delivery create on an order that no longer takes one is refused with `DELIVERY_VALIDATION`; order rows carry `pickupDeadlineAt` |
@@ -452,5 +455,5 @@ times) and keep their local copy.
 
 ---
 
-**Last Updated**: 2026-10-17
-**Version**: 1.15.0
+**Last Updated**: 2026-10-23
+**Version**: 1.19.0

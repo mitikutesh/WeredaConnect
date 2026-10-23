@@ -4396,8 +4396,26 @@ public partial class SyncFunction
                                 // until the farmer's nonce syncs, then hard-fail once it's clearly
                                 // never coming. Cash (no-escrow) deliveries keep the legacy
                                 // allow-through so a missing QR doesn't block them.
-                                var hasEscrow = _escrowRepo != null
-                                    && await _escrowRepo.GetByDeliveryIdAsync(operation.EntityId) != null;
+                                bool hasEscrow;
+                                try
+                                {
+                                    hasEscrow = await HasDeliveryEscrowAsync(existing, operation.EntityId);
+                                }
+                                catch (Exception ex)
+                                {
+                                    // FUP-42: an unknown answer is never cash. Nothing is written and the
+                                    // op stays queued without using a retry. No 14-day hard fail here:
+                                    // the delivery may carry no money at all.
+                                    context.Logger.LogWarning(
+                                        $"QR gate for delivery {MoneyAlarmLog.LogId(operation.EntityId)} undecided, deferred: [{ex.GetType().Name}] {MoneyAlarmLog.LogText(ex.Message)}");
+                                    return new SyncOperationResult
+                                    {
+                                        OperationId = operation.OperationId,
+                                        Status = "deferred",
+                                        Message = "DELIVERY_NONCE_PENDING: The payment check could not be completed. Will retry automatically."
+                                    };
+                                }
+
                                 if (hasEscrow)
                                 {
                                     var createdAtStr = existing.TryGetValue("createdAt", out var caAttr)
@@ -7078,6 +7096,32 @@ public partial class SyncFunction
         // An amount that cannot be read (missing, unparseable, zero or negative) needs the fresh password.
         var rounded = Math.Round(amount, 2, MidpointRounding.AwayFromZero);
         return StepUpPolicy.Check(_requestAuthTime, rounded > 0m ? rounded : StepUpPolicy.ThresholdEtb);
+    }
+
+    /// <summary>
+    /// FUP-42: whether a delivery carries money, so its <c>pickedUp</c> and <c>delivered</c> need the QR.
+    /// The order's own escrow (<c>escrow-order-{orderId}</c>, strongly consistent, any status) decides
+    /// first, found as the dispute freeze finds it (ESC-07): its link to the delivery can fail
+    /// (<c>ORDER_ESCROW_LINK_FAILED</c>) or lag, and the <c>DeliveryIndex</c> alone then called the
+    /// delivery cash. Otherwise the <c>DeliveryIndex</c> finds an escrow paid through
+    /// <c>POST /escrow/initiate</c>, or one of a legacy delivery without an order. Throws when a read
+    /// fails; the caller defers.
+    /// </summary>
+    private async Task<bool> HasDeliveryEscrowAsync(Dictionary<string, AttributeValue> delivery, string deliveryId)
+    {
+        if (_escrowRepo == null)
+        {
+            return false;
+        }
+
+        var orderId = delivery.TryGetValue("orderId", out var oid) ? oid.S : null;
+        if (!string.IsNullOrEmpty(orderId)
+            && await _escrowRepo.GetByIdAsync($"escrow-order-{orderId}", consistentRead: true) != null)
+        {
+            return true;
+        }
+
+        return await _escrowRepo.GetByDeliveryIdAsync(deliveryId) != null;
     }
 
     /// <summary>True when the caller's id equals any of the named id fields.</summary>
