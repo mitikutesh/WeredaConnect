@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/core/database/contact_phone_purge.dart';
 import 'package:wereda_connect/core/database/isar_service.dart';
@@ -178,6 +180,28 @@ Future<void> runMobile({
     pushTokenDeleter: PushNotificationService.deleteToken,
   )..add(const AuthCheckRequested());
   bindDataUsageToAuth(dataUsageTracker, authBloc);
+
+  // SIM-37: when the user changes language in Settings, sync the choice to the
+  // server profile so it follows them to other devices. Offline-first: the
+  // op is queued and retried. No-op until the user is authenticated.
+  languageProvider.onLanguageChanged = (languageCode) async {
+    final state = authBloc.state;
+    if (state is! AuthAuthenticated) return;
+    try {
+      await syncQueue.enqueue(
+        userId: state.userId,
+        entityType: 'user',
+        entityId: state.userId,
+        action: 'update',
+        data: jsonEncode({'preferredLanguage': languageCode}),
+        operationId: const Uuid().v4(),
+      );
+    } on DuplicateOperationException {
+      // Same choice re-queued within the same millisecond; already pending.
+    } on SyncQueueFullException {
+      // Best effort: the preference re-syncs on the next change.
+    }
+  };
 
   // Lifecycle observer for resource cleanup
   WidgetsBinding.instance.addObserver(

@@ -866,6 +866,7 @@ public partial class SyncFunction
                 "order" => await ProcessOrderAsync(operation, authenticatedUserId, authenticatedRole, context),
                 "rating" => await ProcessRatingAsync(operation, authenticatedUserId, authenticatedRole, context),
                 "message" => await ProcessMessageAsync(operation, authenticatedUserId, authenticatedRole, context),
+                "user" => await ProcessUserAsync(operation, authenticatedUserId, context),
                 _ => new SyncOperationResult
                 {
                     OperationId = operation.OperationId,
@@ -1832,6 +1833,117 @@ public partial class SyncFunction
         }
 
         return errors;
+    }
+
+    /// <summary>
+    /// SIM-37: update the caller's own user profile from a sync `update`. Only
+    /// `preferredLanguage` is allow-listed (en, am, om); every other field in the
+    /// payload is ignored, so a client cannot change its role, woreda or phone
+    /// through this path. Lets the language chosen in Settings follow the user to
+    /// other devices and gives ESC-21 the right language for order notifications.
+    /// </summary>
+    private async Task<SyncOperationResult> ProcessUserAsync(
+        SyncOperationRequest operation,
+        string? authenticatedUserId,
+        ILambdaContext context)
+    {
+        if (_userRepo == null)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "USER_PROFILE_UNAVAILABLE: Profile sync is not enabled on this environment."
+            };
+        }
+
+        if (operation.Action != "update")
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "USER_PROFILE_VALIDATION: Only profile updates are supported for the user entity."
+            };
+        }
+
+        // A user may only update their own profile.
+        if (string.IsNullOrEmpty(authenticatedUserId) || operation.EntityId != authenticatedUserId)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "USER_PROFILE_UNAUTHORIZED: A user can only update their own profile."
+            };
+        }
+
+        var language = operation.Data?.GetValueOrDefault("preferredLanguage")?.ToString();
+        if (string.IsNullOrEmpty(language))
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "USER_PROFILE_VALIDATION: preferredLanguage is required."
+            };
+        }
+
+        if (!Validation.RequestValidator.ValidLanguages.Contains(language))
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "USER_PROFILE_VALIDATION: preferredLanguage must be en, am or om."
+            };
+        }
+
+        var user = await _userRepo.GetUserByIdAsync(authenticatedUserId, consistentRead: true);
+        if (user == null)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "USER_PROFILE_NOT_FOUND: No profile exists for the authenticated user."
+            };
+        }
+
+        // Store the canonical lowercase code and no-op when unchanged, so a repeated
+        // choice does not churn the version.
+        var canonical = language.ToLowerInvariant();
+        if (string.Equals(user.PreferredLanguage, canonical, StringComparison.OrdinalIgnoreCase))
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "success",
+                ServerVersion = user.Version
+            };
+        }
+
+        var updated = await _userRepo.UpdateUserAsync(user with { PreferredLanguage = canonical }, user.Version);
+        if (!updated.IsSuccess)
+        {
+            // A rare concurrent write bumped the version; the client retries the op.
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = $"USER_PROFILE_CONFLICT: {updated.Error?.Message ?? "Could not save the language."}"
+            };
+        }
+
+        context.Logger.LogInformation(
+            $"SIM-37: preferredLanguage updated for {MoneyAlarmLog.LogId(authenticatedUserId)}.");
+
+        return new SyncOperationResult
+        {
+            OperationId = operation.OperationId,
+            Status = "success",
+            ServerVersion = updated.Value!.Version
+        };
     }
 
     /// <summary>
