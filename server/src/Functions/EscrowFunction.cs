@@ -128,6 +128,27 @@ public class EscrowFunction
 
         var action = ExtractAction(request);
 
+        // ACC-02: an account that is being or has been deleted starts no payment and no dispute.
+        if (request.HttpMethod == "POST" && (action is "initiate" or "order-checkout" or "dispute")
+            && _userRepo != null && GetAuthenticatedUserId(request) is { Length: > 0 } callerId)
+        {
+            APIGatewayProxyResponse? gone;
+            try
+            {
+                gone = await AccountDeletionGuard.RefuseIfDeletingAsync(_userRepo, callerId);
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogError($"Account state read failed: [{ex.GetType().Name}]");
+                return LambdaResponse.Error(503, "ESCROW_012", "Payment is temporarily unavailable. Please try again.");
+            }
+
+            if (gone != null)
+            {
+                return gone;
+            }
+        }
+
         return (request.HttpMethod, action) switch
         {
             ("POST", "initiate") => await HandleInitiateAsync(request, context),

@@ -119,6 +119,24 @@ public class FaydaVerifyFunction
         return await HandleVerifyAsync(request, context);
     }
 
+    /// <summary>
+    /// ACC-02: <c>410 ACCOUNT_004</c> for a caller whose account is being or has been deleted, null
+    /// for a live one. When the account cannot be read the answer is a typed, retryable
+    /// <c>503 AUTH_008</c> and nothing is read or consumed.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse?> RefuseDeletingCallerAsync(string userId, ILambdaContext context)
+    {
+        try
+        {
+            return await AccountDeletionGuard.RefuseIfDeletingAsync(_userRepository, userId);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError($"Account state read failed: [{ex.GetType().Name}]");
+            return LambdaResponse.Error(503, "AUTH_008", "The service is temporarily unavailable. Please try again.");
+        }
+    }
+
     // ──────────────────────────────────────────────
     // start: mint state / nonce / PKCE, hand back the authorize URL
     // ──────────────────────────────────────────────
@@ -133,6 +151,13 @@ public class FaydaVerifyFunction
             if (string.IsNullOrEmpty(userId))
             {
                 return LambdaResponse.Error(401, "AUTH_031", "Authentication required.");
+            }
+
+            // ACC-02: no Fayda link for an account that is being or has been deleted.
+            var gone = await RefuseDeletingCallerAsync(userId, context);
+            if (gone != null)
+            {
+                return gone;
             }
         }
 
@@ -252,6 +277,13 @@ public class FaydaVerifyFunction
         if (string.IsNullOrEmpty(userId))
         {
             return LambdaResponse.Error(401, "AUTH_031", "Authentication required.");
+        }
+
+        // ACC-02: checked before the code is exchanged, so the single-use state is not spent.
+        var gone = await RefuseDeletingCallerAsync(userId, context);
+        if (gone != null)
+        {
+            return gone;
         }
 
         var parsed = ParseVerifyBody(request, out var faydaRequest);

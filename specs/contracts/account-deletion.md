@@ -1,7 +1,7 @@
 # Account Deletion Contract
 
 ## Version
-1.1.0
+1.2.0
 
 ## Parties
 - **Mobile / Web** (client, ACC-03): Profile > "Delete account" flow, step-up re-auth, local wipe. Mobile and web are a platform pair and ship together.
@@ -239,11 +239,11 @@ Every step is idempotent. A missing item, or a Cognito or SNS NotFound, counts a
 
 ## Completion Sweep (bounds retention)
 
-A scheduled job runs every 12 hours. It scans the users table for `deletionState IN (in_progress, cognito_pending)` with `deletionRequestedAt` older than 1 hour. The users table has no index on this; a filtered Scan twice a day is cheap and needs no new GSI.
+A scheduled job runs every 6 hours. It scans the users table for `deletionState IN (in_progress, cognito_pending)` with `deletionRequestedAt` older than 1 hour. The users table has no index on this; a filtered Scan four times a day is cheap and needs no new GSI.
 
 - `in_progress`: reruns steps 5b to 13 as the system actor. Step 9 (and step 8's condition) still apply, so a row that became blocked in the meantime is aborted exactly as in step 9.
 - `cognito_pending`: reruns steps 12 and 13.
-- Bound: every started deletion completes or aborts within 24 hours of `deletionRequestedAt` (two runs of slack). A user who got a 503 and uninstalled still has their phone, Cognito user and remaining personal data removed within that bound.
+- Bound: every started deletion completes or aborts within 24 hours of `deletionRequestedAt`. The first run that may take it comes at most 7 hours after the request (1 hour of age plus one 6 hour interval), the next ones 6 hours apart, so three runs try it within the bound. A user who got a 503 and uninstalled still has their phone, Cognito user and remaining personal data removed within that bound.
 - The sweep logs `ACCOUNT_DELETION_STUCK` (alarmed) for a row it fails on twice.
 - The sweep also exposes a `reapply` action that takes a list of `userId`s and reruns step 10 and 11 for each. Ops uses it after a backup restore (see Outside DynamoDB).
 
@@ -388,14 +388,51 @@ Open for legal review: the retention period for financial records and a purge jo
 3. Ban evasion: suspended users cannot self-delete, so no hash of the phone or Fayda id is kept. The FRD epic may revisit.
 4. Admin-initiated deletion (support requests from the ACC-04 page, suspended users, users stuck on `payment_review`) is out of scope and needs its own task.
 
+## Implementation Status (1.2.0, ACC-02)
+
+Built: `server/src/Functions/AccountDeletionFunction.cs`, `Services/AccountDeletionService.cs`, `Services/AccountDeletionPolicy.cs`, `Data/AccountDeletionRepository.cs`, `Helpers/AccountDeletionGuard.cs`; infrastructure in `infra/lib/stacks/api-stack.ts` and `monitoring-stack.ts`. The wire shape of this contract (route, body, responses, codes, statuses) is unchanged.
+
+- `DELETE /user/account` (JWT authorizer, payload 1.0) runs the Order of checks, the blocker check, deletion steps 5 to 14 and the resume rules. Lambda `{prefix}-account-deletion`, 30 seconds, reserved concurrency 5 in staging and prod.
+- The Completion Sweep runs in its own Lambda `{prefix}-account-deletion-sweep` with the same handler (5 minutes, reserved concurrency 1 in staging and prod), from the EventBridge rule `{prefix}-account-deletion-sweep` every 6 hours with `body.action = "sweep"`. The dev account sets no reserved concurrency on any Lambda (`WeredaLambda` drops it there: the account limit is too low), so in dev the sweep is not single-flight; two overlapping runs are safe because every step is idempotent. `{"action":"reapply","userIds":[...]}` is accepted by a direct invoke. An API Gateway request (it always carries a request context) never reaches either action.
+- Caller-side `410 ACCOUNT_004` (with `error.deletionState`, read strongly consistent): `POST /sync` (whole request), `POST /escrow/initiate`, `POST /escrow/order-checkout`, `POST /escrow/dispute`, `POST /user/fayda-start`, `POST /user/fayda-link` (checked before the state is read or the code exchanged), `POST /device-tokens`. `DELETE /device-tokens` stays open so a logout can still unregister a phone; `/escrow/release` and `/escrow/refund` are admin routes, not writes for the caller. When the caller's row cannot be read the endpoint answers its own retryable error (`503 SYNC_SERVER_ERROR`, `503 ESCROW_012`, `503 AUTH_008` on `/user/fayda-*`, `500 DEVICE_TOKEN_SERVER_ERROR`) and writes nothing.
+- Login and refresh answer `401 AUTH_014` for a `cognito_pending` or `completed` row (refresh also revokes the refresh token); `in_progress` logs in (`auth-api.md` 2.11.0).
+- Sync creates naming a deleted counterparty: a message to a recipient whose row has `deletionState`, and a rating about such a ratee, are op-level `SYNC_VALIDATION` (`sync-protocol.md` 1.26.0).
+- Counterparty money entry points (`order-lifecycle.md` 1.26.0, `escrow-protocol.md` 1.28.0): the buyer's, farmer's and trucker's rows are read strongly consistent and any `deletionState` refuses the payment, with nothing written:
+  - `/sync` order `payment_submitted`: `ORDER_VALIDATION: A party to this order has deleted their account.` After FRD-04's risk read and CRITICAL check and before the KYC rows (part of the KYC gate, so a deleted farmer is not reported as an unverified phone), before the step-up.
+  - `POST /escrow/order-checkout`: `422 ESCROW_030` (`This order cannot be paid online.`). After FRD-04's role, body, CRITICAL and velocity checks, as one of the order checks: after the existing ones and before the checkout slot (an open checkout is not handed back either) and any Telebirr call.
+  - `POST /escrow/initiate`: `422 ESCROW_030`. After FRD-04's role, CRITICAL, step-up and velocity checks, in the user validation once the delivery and its order named the parties (the trucker comes from the order, else the delivery).
+  A failed read fails closed: the sync operation answers `Internal server error.` (retried), the escrow routes `500 ESCROW_012`.
+- A refund to a deleted buyer goes to the buyer id, never to the tombstone's empty phone, and the manual payout queue shows no phone for a deleted payee (who is not payable: no verified phone).
+- Registration refuses a `displayName` equal to the sentinel (trimmed, any case) with `400 AUTH_007`. There is no profile update endpoint; `fullName` comes from Fayda and is not checked.
+- `UserRepository` maps a tombstone (no phone, no woreda) and every profile write (`UpdateUserAsync`) is conditional on `attribute_not_exists(deletionState)`, so no write can put personal data back on a deleting or deleted row.
+- Alarm `{prefix}-account-deletion-stuck` on `ACCOUNT_DELETION_STUCK` in the sweep log group.
+
+How the implementation reads points this contract leaves open:
+
+1. A request stops starting writes 24 seconds in (API Gateway ends it at 30) or when the Lambda has 4 seconds left, and answers `503 ACCOUNT_005`; the 503 also carries a `Retry-After: 2` header. A request that runs out of time before step 5 answers `500 AUTH_007` (nothing was written).
+2. Every party index is queried whatever the user's role (an admin role change can leave rows under another role). Escrow and delivery index rows are used as read; a non-terminal order is re-read strongly consistent.
+3. `payment_review` goes through `UnappliedPayments.Evaluate`, the function `HasOpen` wraps, so the 409 lists one blocker per open payment; its `status` is that payment's first unapplied action.
+4. "Fails on twice": the sweep logs `ACCOUNT_DELETION_STUCK` when it fails on a row whose `deletionRequestedAt` is at least 7 hours old, that is a row the previous 6 hourly run had too. No counter is stored (the tombstone allowlist stays as it is). A run that ran out of time inside a row stops there: that row is neither counted as failed nor logged as stuck, and the next run starts over. The sweep checks its time before each row too.
+5. `account_deletion_started` and `account_deleted` name the user as `actor` with their role, whoever runs the step. `order_cancelled` rows have actor `system` and `cancelReason=account_deleted` in `metadata`; `account_deletion_aborted` has the actor of the run (the user on a request, `system` in the sweep). The `account_deleted` metadata holds the counts of rows that invocation wrote, plus `resumed=true` when it resumed a started deletion.
+6. A copied name becomes the sentinel only on a row that has that field (no field is added to a money record). Orders and deliveries also get a new `updatedAt` so pulls see the change, without a `version` bump; escrows get no other change. Withdrawn and scrubbed listings take `version + 1` and a new `updatedAt`. A listing already withdrawn and scrubbed is not written again.
+7. Step 8 retries the cancel of one order three times (each after a fresh consistent read); an order still unpaid after the third lost condition is neither cancelled nor a blocker, so the run answers `503 ACCOUNT_005` and the resume decides on it.
+8. `reapply` acts only on a userId whose row is `completed` or whose `account-{userId}` trail holds `account_deleted`, so a mistyped id cannot erase a live account; a row still `in_progress` or `cognito_pending` without that audit row is left to the sweep. It reruns steps 10 and 11 (step 10 there includes the step 7 listing rule), ends `completed` and keeps the original `deletedAt`, so it writes no second `account_deleted` row.
+
+Not built yet (follow-ups):
+
+- Login and refresh on `cognito_pending` do not retry steps 12 and 13 themselves; the client's retry of `DELETE /user/account` or the next sweep run does.
+- No S3 call for `profilePhotoRef`: nothing writes that field today. Add the delete when an upload pipeline lands.
+- A `pending_payment` order of the buyer is cancelled by step 8 even when it carries a checkout slot from an earlier attempt; the `payment_failed` rule (slot or payment reference keeps it blocking) does not cover it. A late capture of that earlier checkout would then need the `payment_review` blocker, which only sees it once the webhook recorded it. Decide whether the slot rule should apply to `pending_payment` too.
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.2.0 | 2026-10-23 | Built (ACC-02): Implementation Status added: the endpoint, the steps, the sweep Lambda, `reapply`, the caller-side `410 ACCOUNT_004` endpoints, login and refresh `AUTH_014`, the counterparty money entry refusals and their place in FRD-04's gate order (`order-lifecycle.md` 1.26.0, `escrow-protocol.md` 1.28.0), the sync refusals of a deleted counterparty, the sentinel display name refusal, the stuck alarm; the sweep runs every 6 hours (was 12) so the 24 hour bound holds with three runs; eight points the contract left open (request time budget, party indexes, one `payment_review` blocker per payment, the stateless stuck rule and budget cuts, audit actors and counts, where scrubs write, step 8 lost races, `reapply` guard); the login and refresh retry of steps 12 and 13, the `profilePhotoRef` delete and the `pending_payment` slot question are listed as not built. No wire change |
 | 1.1.0 | 2026-10-23 | `payment_review` resolution defined (FUP-02, `escrow-protocol.md` 1.20.0): one blocker per unapplied payment (by payment_order_id, or merch_order_id for a nameless one), lifted by the `order_payment_refunded_manual` row naming that payment whenever it was written, not by any later row of the order; a payment that funded the order never blocks; the admin endpoint that records the refund exists, so the blocker is no longer permanent and "contact support" now leads to a resolution; escrow-idempotency's per-table row lists the refund claim rows (400 days) |
 | 1.0.0 | 2026-10-06 | Initial contract (ACC-01): endpoint, error codes, blocked-while-active rule, deletion steps, sweep, per-table policy for all 20 tables, retention, client and admin obligations |
 
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 1.1.0
+**Version**: 1.2.0

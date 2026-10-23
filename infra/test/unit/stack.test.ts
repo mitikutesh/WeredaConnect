@@ -145,11 +145,12 @@ describe('ApiStack', () => {
     template.resourceCountIs('AWS::Cognito::UserPoolClient', 2);
   });
 
-  test('creates twenty-four Lambda functions (dev) on ARM64', () => {
+  test('creates twenty-six Lambda functions (dev) on ARM64', () => {
     // Prior 20 (core + match + device-token + crop-match-stream + ratings, plus
     // the delivery-qr-secrets work) + messages (read) + message-stream (push) = 22,
-    // + auth-verify-otp (SMS phone proof) + the dev-only mock Fayda provider = 24.
-    template.resourceCountIs('AWS::Lambda::Function', 24);
+    // + auth-verify-otp (SMS phone proof) + the dev-only mock Fayda provider = 24,
+    // + account deletion and its sweep (ACC-02) = 26.
+    template.resourceCountIs('AWS::Lambda::Function', 26);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
@@ -174,8 +175,9 @@ describe('ApiStack', () => {
     // plus GET /admin/payouts/manual and POST /admin/payouts/{escrowId}/{ref}/complete
     // (ESC-02, manual payout queue) → 58,
     // plus GET /admin/payments/unapplied and POST /admin/payments/{orderId}/refund-manual
-    // (FUP-02, manual refund of an unapplied payment) → 60 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 60);
+    // (FUP-02, manual refund of an unapplied payment) → 60,
+    // plus DELETE /user/account (ACC-02) → 61 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 61);
   });
 
   test('manual payout queue routes sit on the admin authorizer (ESC-02)', () => {

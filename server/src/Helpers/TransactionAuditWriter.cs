@@ -104,10 +104,8 @@ public static class TransactionAuditWriter
 
         try
         {
-            // The id is deterministic too, so two writers that race build the same row.
-            var auditId = $"txaudit-{transactionId}-{action}-{new string(timestamp.Where(char.IsAsciiLetterOrDigit).ToArray())}";
-            await repo.AppendIfAbsentAsync(BuildEntry(
-                auditId, transactionId, entityType, entityId, action, fromState, toState, ctx, timestamp, metadata));
+            await EmitOnceCheckedAsync(
+                repo, transactionId, entityType, entityId, action, fromState, toState, ctx, timestamp, metadata);
             return true;
         }
         catch (Exception ex)
@@ -116,6 +114,30 @@ public static class TransactionAuditWriter
                 $"transaction-audit write failed (non-fatal): [{ex.GetType().Name}] action={action} entity={entityType}");
             return false;
         }
+    }
+
+    /// <summary>
+    /// ACC-02: the checked form of <see cref="EmitOnceAsync"/>, for an audit row the caller may not
+    /// go on without (account-deletion.md "checked write"). Every failure other than an existing row
+    /// throws.
+    /// </summary>
+    /// <returns>True when this call wrote the row, false when it already existed.</returns>
+    public static Task<bool> EmitOnceCheckedAsync(
+        ITransactionAuditRepository repo,
+        string transactionId,
+        string entityType,
+        string entityId,
+        string action,
+        string? fromState,
+        string? toState,
+        AuditContext ctx,
+        string timestamp,
+        string? metadata = null)
+    {
+        // The id is deterministic too, so two writers that race build the same row.
+        var auditId = $"txaudit-{transactionId}-{action}-{new string(timestamp.Where(char.IsAsciiLetterOrDigit).ToArray())}";
+        return repo.AppendIfAbsentAsync(BuildEntry(
+            auditId, transactionId, entityType, entityId, action, fromState, toState, ctx, timestamp, metadata));
     }
 
     private static Dictionary<string, object> BuildEntry(

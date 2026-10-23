@@ -171,6 +171,14 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(AdminAuditEntryDto))]
 [JsonSerializable(typeof(List<AdminAuditEntryDto>))]
 [JsonSerializable(typeof(AdminAuditListResponse))]
+// Account deletion DTOs (ACC-02)
+[JsonSerializable(typeof(AccountDeletionRequest))]
+[JsonSerializable(typeof(AccountDeletionResponse))]
+[JsonSerializable(typeof(AccountDeletionBlocker))]
+[JsonSerializable(typeof(List<AccountDeletionBlocker>))]
+[JsonSerializable(typeof(AccountDeletionError))]
+[JsonSerializable(typeof(AccountDeletionErrorResponse))]
+[JsonSerializable(typeof(AccountDeletionJobRequest))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

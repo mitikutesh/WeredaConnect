@@ -521,4 +521,50 @@ public class RequestValidatorTests
         Assert.False(result.IsValid);
         Assert.Equal("AUTH_017", result.Errors[0].Code);
     }
+
+
+    // --- ACC-02: the deleted-user sentinel is not a display name ---
+
+    [Theory]
+    [InlineData("Deleted user")]
+    [InlineData("  deleted USER ")]
+    public void ValidateRegisterRequest_SentinelDisplayName_IsRefused(string displayName)
+    {
+        var request = new RegisterRequest
+        {
+            PhoneNumber = "+251912345678",
+            Password = "securePass1",
+            Role = "farmer",
+            Woreda = "Adama",
+            FaydaVerificationToken = "some-valid-token",
+            DisplayName = displayName,
+            PreferredLanguage = "am"
+        };
+
+        var result = RequestValidator.ValidateRegisterRequest(request);
+
+        Assert.False(result.IsValid);
+        var error = Assert.Single(result.Errors);
+        Assert.Equal("displayName", error.Field);
+        Assert.Equal("AUTH_007", error.Code);
+    }
+
+    [Theory]
+    [InlineData("Deleted")]
+    [InlineData("Deleted users")]
+    public void ValidateRegisterRequest_NameThatOnlyLooksLikeTheSentinel_IsAccepted(string displayName)
+    {
+        var request = new RegisterRequest
+        {
+            PhoneNumber = "+251912345678",
+            Password = "securePass1",
+            Role = "farmer",
+            Woreda = "Adama",
+            FaydaVerificationToken = "some-valid-token",
+            DisplayName = displayName,
+            PreferredLanguage = "am"
+        };
+
+        Assert.True(RequestValidator.ValidateRegisterRequest(request).IsValid);
+    }
 }

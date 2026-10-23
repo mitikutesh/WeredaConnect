@@ -6,6 +6,7 @@ using Amazon.SimpleNotificationService.Model;
 using NSubstitute;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
+using WeredaConnect.Server.Models;
 using Xunit;
 
 namespace WeredaConnect.Server.Tests.Functions;
@@ -221,5 +222,65 @@ public class DeviceTokenFunctionTests
         var response = await _fn.FunctionHandler(DeleteReq(null, new { token = "fcm-token-xyz" }), _ctx);
 
         Assert.Equal(401, response.StatusCode);
+    }
+
+    // ===== ACC-02: a deleting or deleted account registers no device =====
+
+    private DeviceTokenFunction WithAccount(string? deletionState, out IUserRepository users)
+    {
+        users = Substitute.For<IUserRepository>();
+        users.GetUserByIdAsync("buyer-1", true).Returns(new UserDto
+        {
+            UserId = "buyer-1",
+            PhoneNumber = "+251911000003",
+            Role = "buyer",
+            Woreda = "Adama",
+            IsPhoneVerified = true,
+            DeletionState = deletionState,
+            CreatedAt = "2026-01-01T00:00:00Z",
+            UpdatedAt = "2026-01-01T00:00:00Z",
+            Version = 1
+        });
+        return new DeviceTokenFunction(_sns, _repo, PlatformAppArn, users);
+    }
+
+    [Theory]
+    [InlineData("in_progress")]
+    [InlineData("completed")]
+    public async Task Register_ByADeletingAccount_Returns410_AndCreatesNoEndpoint(string state)
+    {
+        var fn = WithAccount(state, out _);
+
+        var response = await fn.FunctionHandler(Req("buyer-1", new { token = "fcm-token-xyz" }), _ctx);
+
+        Assert.Equal(410, response.StatusCode);
+        Assert.Contains("ACCOUNT_004", response.Body);
+        await _sns.DidNotReceive().CreatePlatformEndpointAsync(
+            Arg.Any<CreatePlatformEndpointRequest>(), Arg.Any<CancellationToken>());
+        await _repo.DidNotReceive().PutAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task Register_ByALiveAccount_StillWorks()
+    {
+        var fn = WithAccount(null, out _);
+
+        var response = await fn.FunctionHandler(Req("buyer-1", new { token = "fcm-token-xyz" }), _ctx);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Unregister_ByADeletingAccount_StillRemovesTheToken()
+    {
+        var fn = WithAccount("in_progress", out var users);
+        _repo.FindEndpointArnByTokenAsync("buyer-1", "fcm-token-xyz").Returns(EndpointArn);
+
+        var response = await fn.FunctionHandler(DeleteReq("buyer-1", new { token = "fcm-token-xyz" }), _ctx);
+
+        Assert.Equal(204, response.StatusCode);
+        await _repo.Received(1).DeleteAsync("buyer-1", EndpointArn);
+        await users.DidNotReceive().GetUserByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
     }
 }

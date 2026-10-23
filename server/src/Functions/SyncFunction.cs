@@ -701,6 +701,27 @@ public partial class SyncFunction
             await _rateLimitService.RecordSyncAsync(authenticatedUserId);
         }
 
+        // ACC-02: nothing in the batch is applied once the caller's account is being or has been
+        // deleted (410 ACCOUNT_004, terminal for the client).
+        if (_userRepo != null)
+        {
+            APIGatewayProxyResponse? gone;
+            try
+            {
+                gone = await AccountDeletionGuard.RefuseIfDeletingAsync(_userRepo, authenticatedUserId);
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogError($"Sync refused: the caller's account could not be read [{ex.GetType().Name}].");
+                return LambdaResponse.Error(503, "SYNC_SERVER_ERROR", "Sync is temporarily unavailable. Please retry.");
+            }
+
+            if (gone != null)
+            {
+                return gone;
+            }
+        }
+
         var correlationId = AuditLogger.GetCorrelationId(request);
 
         // Who/where for every audit event emitted while processing this batch.
@@ -1421,6 +1442,18 @@ public partial class SyncFunction
             };
         }
 
+        // ACC-02: no rating for an account that is being or has been deleted (the deletion erased
+        // the comments about it).
+        if (_userRepo != null && !string.IsNullOrEmpty((await _userRepo.GetUserByIdAsync(rateeId))?.DeletionState))
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "SYNC_VALIDATION: The rated user has deleted their account."
+            };
+        }
+
         var createResult = await _ratingRepo.CreateAsync(operation.EntityId, operation.Data);
         return createResult.IsSuccess
             ? new SyncOperationResult
@@ -1601,6 +1634,12 @@ public partial class SyncFunction
         {
             return MessageError(operation, "error",
                 "MESSAGE_VALIDATION: sender or recipient user not found.");
+        }
+
+        // ACC-02: no message to an account that is being or has been deleted.
+        if (!string.IsNullOrEmpty(recipient.DeletionState))
+        {
+            return MessageError(operation, "error", "SYNC_VALIDATION: The recipient has deleted their account.");
         }
 
         operation.Data["senderName"] = sender.DisplayName ?? sender.FullName ?? "";
@@ -5914,6 +5953,16 @@ public partial class SyncFunction
                 if (riskTier == RiskTier.Critical)
                 {
                     return AccountHeldResult(operation);
+                }
+
+                // ACC-02 (account-deletion.md, counterparty money entry points): no money for an
+                // order whose buyer, farmer or trucker is being or has been deleted. Part of the KYC
+                // gate, read strongly consistent, and before the KYC rows so a deleted farmer is not
+                // reported as an unverified phone.
+                if (_userRepo != null
+                    && await AccountDeletionGuard.AnyPartyDeletingAsync(_userRepo, orderBuyerId, orderFarmerId, orderTruckerId))
+                {
+                    return OrderValidationError(operation, AccountDeletionGuard.DeletedPartyMessage);
                 }
 
                 var orderTotal = ReadDecimal(existingOrder, "orderTotal");
