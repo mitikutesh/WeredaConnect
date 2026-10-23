@@ -445,7 +445,7 @@ takes the ordered quantity off and a listing at 0 becomes `reserved` (`order-lif
 | | Mobile client | Web client |
 |---|---|---|
 | Delivery create (trucker) and confirm (buyer, self-pickup included) | Only the delivery operation is queued. The local listing row is not touched; the next crop pull shows the server's listing. | Unchanged: it never sent a listing operation. |
-| A `cropListing` operation an older build left in the queue | Removed at app start, whatever its status, before the sync executor runs: not sent, not counted as failed, not announced. While it was queued it kept its listing row out of the crop pull's stale delete, so the next pull now brings back the server's view (or drops a listing that is off the market). | Nothing is queued on web. |
+| A `cropListing` operation an older build left in the queue | Removed at app start, whatever its status, before the sync executor runs: not sent, not counted as failed, not announced. While it was queued it kept its listing row out of the crop pull's stale delete, so a listing the server took off the market is now dropped by the next pull. A listing the server still returns was already overwritten by every pull. | Nothing is queued on web. |
 
 No server change: the server never applied a `cropListing` operation. Older builds keep sending
 theirs until they update, and the server answers each the same way.

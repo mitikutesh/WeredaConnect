@@ -173,7 +173,7 @@ void main() {
           );
         });
 
-    test('shows the server listing the dropped op had held back', () async {
+    test('drops a listing the server took off the market', () async {
       // Partial order: the server still lists it with stock left.
       await putStaleListing('still-listed', ListingStatus.sold);
       // Fully ordered: the server took it off the market.
@@ -232,7 +232,10 @@ void main() {
         for (final c in await isar.cropListings.where().findAll())
           c.listingId: c,
       };
+      // The queued op kept 'sold-out' out of the stale delete; it is gone now.
       expect(listings.keys, ['still-listed']);
+      // Regression guard: a listing the server still returns is overwritten
+      // with the server's row, as every pull did even while the op was queued.
       expect(listings['still-listed']!.status, ListingStatus.active);
       expect(listings['still-listed']!.quantity, 6);
       expect(listings['still-listed']!.version, 2);

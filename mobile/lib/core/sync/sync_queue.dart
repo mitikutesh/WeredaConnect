@@ -444,9 +444,10 @@ class SyncQueue {
   /// per sync and put back by [retryFailed] on every reconnect. It could never
   /// succeed: the trucker and the buyer may not update the farmer's listing,
   /// and the server owns its stock. The user never made it, so it is removed
-  /// rather than rejected (a rejected one would count as failed forever). Its
-  /// listing row is then no longer protected from the crop pull, which brings
-  /// back the server's view.
+  /// rather than rejected (a rejected one would count as failed forever).
+  /// While queued it kept its listing row out of the crop pull's stale
+  /// delete, so once it is gone a listing the server took off the market is
+  /// dropped by the next pull.
   ///
   /// Called once per app start, before the sync executor runs. Returns the
   /// number of operations removed.
