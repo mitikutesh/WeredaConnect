@@ -75,6 +75,10 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:4566  # LocalStack (emula
 All config in `lib/core/config/environment.dart`:
 `API_BASE_URL`, `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `COGNITO_REGION`, `ENVIRONMENT`
 
+`ENVIRONMENT` takes `dev`, `staging` or `prod` (what CI and `scripts/deploy.sh` pass; the names
+`development` and `production` work too). Leave it out for a local run (development). Any other
+value stops a debug build at startup and gives a release build the production settings.
+
 ---
 
 ## Performance Targets

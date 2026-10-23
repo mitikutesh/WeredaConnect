@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.22.0
+1.24.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -187,7 +187,7 @@ leg), so it carries the checks `POST /escrow/initiate` already made:
 | buyer's risk tier CRITICAL, or the score read truncated; checked before KYC (1.9.0, planned FRD-04) | `FRAUD_ACCOUNT_HELD: Your account is under review. Some actions are paused. Contact support.` |
 | buyer's risk tier MEDIUM and the password not fresh, at any amount; above 10,000 ETB after the Fayda row above (1.9.0, planned FRD-04) | `AUTH_040: ...` |
 | buyer's risk tier HIGH: Fayda login not fresh, then password not fresh, at any amount (1.9.0, planned FRD-04) | `AUTH_041: ...` first, then `AUTH_040: ...` on the retry |
-| live gateway (`TELEBIRR_MOCK` off) and `orderTotal` outside 100 to 500,000 ETB, what one Telebirr payment can take (1.7.0; bank transfers are ESC-46) | `ORDER_VALIDATION: This order total (X ETB) is outside what one Telebirr payment can take (100 to 500000 ETB).` |
+| live gateway (`TELEBIRR_MOCK` off) and `orderTotal` outside 100 to 500,000 ETB, what one Telebirr payment can take (1.7.0; its own code since 1.24.0, FUP-22, it was `ORDER_VALIDATION` with the same sentence; bank transfers are ESC-46) | `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: This order total (X ETB) is outside what one Telebirr payment can take (100 to 500000 ETB).` |
 | live gateway (`TELEBIRR_MOCK` off) and the update's `paymentMethod` present and not `telebirr` (1.19.0, FUP-20; checked last, after the total; bank transfers are ESC-46) | `ORDER_PAYMENT_METHOD_UNAVAILABLE: Bank transfer (cbe_transfer) is not available yet. Pay with Telebirr.`; for any other value `ORDER_PAYMENT_METHOD_UNAVAILABLE: Payment method '<value>' is not available yet. Pay with Telebirr.` |
 
 The gates fail closed when the profiles cannot be read. Mock auto-funding (`TELEBIRR_MOCK`)
@@ -221,7 +221,8 @@ by the server-generated `merch_order_id` of `POST /escrow/order-checkout`
 
 ### Live checkout in the app (1.13.0, ESC-44)
 
-Live builds (`--dart-define=TELEBIRR_LIVE=true`, and every `prod`/`production` build) show
+Live builds (`--dart-define=TELEBIRR_LIVE=true`, every `prod`/`production` build, and since
+1.24.0 a release build with an unknown `ENVIRONMENT`, which gets the production settings) show
 the Telebirr payment only: no demo notice, no CBE option (bank transfers are ESC-46), no
 reference fields, and a total outside 100 to 500,000 ETB cannot be submitted. The buyer's
 `payment_submitted` carries `paymentMethod: telebirr` and no `cbeTransactionId`. Demo builds
@@ -231,9 +232,10 @@ through `POST /escrow/order-checkout` (`escrow-protocol.md` §Additions in 1.5.0
 notes). Order detail offers the buyer "Continue payment" on a `payment_submitted` order,
 and "Pay Now" / "Pay again" on `pending_payment` / `payment_failed`. A retry after
 `payment_failed` is one `payment_submitted` change. The live
-`ORDER_VALIDATION: This order total ... is outside what one Telebirr payment can take`
-refusal has its own message in en, am and om (web inline, mobile through the ESC-12
-rejection snackbar).
+`ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` refusal (1.24.0; servers before it send
+`ORDER_VALIDATION: This order total ... is outside what one Telebirr payment can take`,
+which clients still match for one release) has its own message in en, am and om (web inline,
+mobile through the ESC-12 rejection snackbar).
 
 Since 1.19.0 (FUP-20) the server refuses a live `payment_submitted` whose `paymentMethod` is
 not `telebirr` (`ORDER_PAYMENT_METHOD_UNAVAILABLE`, see Payment gates), so a demo build
@@ -297,7 +299,7 @@ side below; the risk tiers, `FRAUD_ACCOUNT_HELD` and the gates on `payment_submi
   `sync-protocol.md` 1.9.0.
 - **Gate order on `payment_submitted`**: transition auth, risk read, CRITICAL check, KYC
   (unchanged), tiered step-up (`AUTH_041` before `AUTH_040` at HIGH), the live-gateway order total
-  check (`ORDER_VALIDATION`, unchanged), then the write and the mock auto-fund. LOW keeps today's
+  check (`ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` since 1.24.0, otherwise unchanged), then the write and the mock auto-fund. LOW keeps today's
   behaviour exactly. The tier is never returned to the client.
 - **Client action on `FRAUD_ACCOUNT_HELD`**: revert the local order status as for
   `ORDER_KYC_REQUIRED`, show the message, do not retry. Since 1.11.0 the mobile `SyncExecutor`
@@ -508,6 +510,7 @@ its stock. Ratings stay blocked, and contact closes at `dispute_resolved`
 
 ## Changelog
 
+- **1.24.0 (2026-10-23)**: Live payment total code (FUP-22): with the live gateway a `payment_submitted` whose total (rounded to the cent) is outside 100 to 500,000 ETB is refused with `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` and the same sentence (it was `ORDER_VALIDATION`), so clients match a code, not English text; same gate, bounds and place among the payment gates, nothing written; permanent under the `ORDER_*` rule (`sync-protocol.md` 1.24.0). Clients match the code and, for one release, the old text; clients before this release revert the order and show the generic refusal. App builds now read CI's `ENVIRONMENT=prod` as production (it fell back to development), and a release build with an unknown value gets the production settings, so it is live.
 - **1.22.0 (2026-10-23)**: Fraud hold built for a suspended party (FRD-03, `escrow-protocol.md` 1.22.0): the settlement sweeps hold the escrow of a suspended buyer, farmer or trucker behind `FRAUD_HOLD_ENABLED` (shipped off), with no order status change; the refund-sweep hold is fenced on the order's version and status; the farmer's accept of an order whose escrow is held is refused with `ORDER_VALIDATION` (an unreadable escrow refuses for now, transient; with the flag on the accept is fenced on the escrow in one transaction), reject and cancel stay allowed; the admin refund's order side is built (`heldFor: refund` cancels and restocks a still `funded` order and refuses anything but `funded`, `rejected` or `cancelled`; `heldFor: release` takes the order to `dispute_resolved` as `buyer_wins`); no client change. The risk tiers stay planned (FRD-04).
 - **1.21.0 (2026-10-22)**: Dispute dispositions (FUP-16; 1.19.0 and 1.20.0 belong to FUP-20 and ESC-47, in flight): an admin's dispute disposition moves an order from `funded`, `accepted`, `pickup_confirmed` or `in_transit` straight to `dispute_resolved` (system, status-conditioned, one `dispute_resolved` transaction-audit row with the disposition), after its delivery is cancelled (`return_to_farmer`, `settle_now`) or disputed (`delivered_anyway`); `wait_for_delivery` leaves the order to the 1.12.0 rules; listing stock is never restored by a disposition; a verdict the order cannot follow is no longer recorded without one, so no order waits on a mismatched verdict any more (`escrow-protocol.md` 1.21.0).
 - **1.20.0 (2026-10-23)**: Payment retry clock and the lost payment row (ESC-47 item 1 rest, item 2): the server stamps the server-only `pendingPaymentAt` each time an order enters `pending_payment`, and the order cron cancels a `pending_payment` order 24 hours after it (`createdAt` for orders from before), so a buyer who retries a failed payment on an old order through `pending_payment` is not cancelled at the next run; `created` still counts from `createdAt`. The Telebirr funding's transaction-audit `payment_verified` row is keyed by `paymentVerifiedAt` and written once, and a redelivery of the same payment writes it when the first delivery did not, in every order status. No client change: the apps ignore the new field, and the current apps never send `pending_payment` (older ones do). (1.19.0 is FUP-20's, in flight.)

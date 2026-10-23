@@ -13,11 +13,12 @@ const String _kEnv =
     String.fromEnvironment('ENVIRONMENT', defaultValue: 'development');
 
 /// Default-DENY allowlist gate (F-37). The test auth seam is enabled ONLY for
-/// known non-production environments. Any other value — including `prod` (the
-/// literal CI passes, which `Environment.current` silently misclassifies as
-/// `development`), `production`, empty, or a typo — yields false, so the seam can
-/// never be compiled into / active in a production build. This is deliberately
-/// an allowlist, not `!isProduction`, to fail closed against that env-name trap.
+/// known non-production environments. Any other value (`prod`, the literal CI
+/// passes for production, `production`, empty, or a typo) yields false, so the
+/// seam can never be compiled into / active in a production build. This is
+/// deliberately an allowlist, not `!isProduction`: until FUP-22
+/// `Environment.current` read `prod` as development, and an allowlist fails
+/// closed against any such env-name trap.
 const bool kWebTestAuthSeamEnabled =
     _kEnv == 'dev' || _kEnv == 'development' || _kEnv == 'staging';
 

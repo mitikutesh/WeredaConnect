@@ -5398,7 +5398,7 @@ abstract class AppLocalizations {
   /// **'Checking your payment...'**
   String get orderCheckoutCheckingPayment;
 
-  /// Live payments: the order total is outside what one Telebirr payment takes (ORDER_VALIDATION / ESCROW_001)
+  /// Live payments: the order total is outside what one Telebirr payment takes (ORDER_PAYMENT_TOTAL_OUT_OF_RANGE, or ORDER_VALIDATION from servers before FUP-22; ESCROW_001 from the checkout)
   ///
   /// In en, this message translates to:
   /// **'Telebirr takes 100 to 500,000 ETB in one payment. This order\'s total is outside that, so it can\'t be paid with Telebirr.'**
