@@ -211,6 +211,7 @@ public class EscrowFunction
             AuditLogger.LogAudit("ESCROW", "INITIATE",
                 userId: userId, correlationId: AuditLogger.GetCorrelationId(request),
                 entityType: "escrow", outcome: "failure", errorCode: "ESCROW_025");
+            await TryRecordRoleForbiddenAsync(userId, role, body.DeliveryId, "escrow", context);
             return LambdaResponse.Error(403, "ESCROW_025", "Only buyers can initiate escrow payments.");
         }
 
@@ -347,11 +348,13 @@ public class EscrowFunction
         }
 
         var correlationId = AuditLogger.GetCorrelationId(request);
-        if (!string.Equals(GetAuthenticatedUserRole(request), "buyer", StringComparison.OrdinalIgnoreCase))
+        var role = GetAuthenticatedUserRole(request);
+        if (!string.Equals(role, "buyer", StringComparison.OrdinalIgnoreCase))
         {
             AuditLogger.LogAudit("ESCROW", "ORDER_CHECKOUT",
                 userId: userId, correlationId: correlationId,
                 entityType: "order", outcome: "failure", errorCode: "ESCROW_025");
+            await TryRecordRoleForbiddenAsync(userId, role, entityId: null, "order", context);
             return LambdaResponse.Error(403, "ESCROW_025", "Only buyers can pay for orders.");
         }
 
@@ -853,6 +856,33 @@ public class EscrowFunction
             userId: userId, correlationId: AuditLogger.GetCorrelationId(request),
             entityType: entityType, entityId: entityId, outcome: "failure", errorCode: RiskGatePolicy.AccountHeldCode);
         return LambdaResponse.Error(403, RiskGatePolicy.AccountHeldCode, RiskGatePolicy.AccountHeldMessage);
+    }
+
+    /// <summary>
+    /// FRD-08: <c>ESCROW_025</c> records <c>ROLE_FORBIDDEN</c> on the caller, since the app shows the
+    /// pay buttons to buyers only. A token without the role claim fails the check too (an access
+    /// token instead of the ID token), which is not a probe, so it writes nothing. Best-effort: the
+    /// 403 is the same whether the write works or not.
+    /// </summary>
+    private async Task TryRecordRoleForbiddenAsync(
+        string userId, string? role, string? entityId, string entityType, ILambdaContext context)
+    {
+        if (_fraudService == null || string.IsNullOrWhiteSpace(role))
+        {
+            return;
+        }
+
+        try
+        {
+            await _fraudService.RecordFraudSignalAsync(
+                userId, FraudDetectionService.RoleForbiddenSignal, entityId, entityType,
+                "ESCROW_025: a non-buyer role asked to pay.");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Failed to record fraud signal {FraudDetectionService.RoleForbiddenSignal} for user {userId}: [{ex.GetType().Name}]");
+        }
     }
 
     // ──────────────────────────────────────────────

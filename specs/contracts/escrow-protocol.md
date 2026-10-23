@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.28.0
+1.30.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -1355,6 +1355,15 @@ notify carries **no payer phone**, so `TELEBIRR_REQUIRE_PAYER_MATCH` must stay o
 field (`msisdn`) ever appears it is compared with the buyer's registered phone: a mismatch is
 audited as `webhook_payer_mismatch` and, with `TELEBIRR_REQUIRE_PAYER_MATCH=true`, rejected; a
 missing payer while a match is required is audited as `webhook_payer_unbound` and rejected.
+Since 1.30.0 (FRD-08) a mismatch also writes the fraud signal `TELEBIRR_PAYER_MISMATCH` (soft,
+weight 5) on the buyer that the escrow or checkout row names, only for a verified notification and
+only when that buyer's row and phone were read. A notification that fails its signature, body,
+source IP or merchant check is logged and writes no signal on anyone, since anyone can post to the
+route; a missing payer writes none either. The webhook's answer and the payment outcome are the
+same whether the signal write works or fails. `ESCROW_025` on `POST /escrow/initiate` and
+`POST /escrow/order-checkout` writes `ROLE_FORBIDDEN` (weight 25) on the caller when the token
+names another role (none without a role claim); the 403 is unchanged. Signals and weights:
+`specs/architecture/fraud-detection-architecture.md` 3.7.0, section 15.
 
 ---
 
@@ -3787,6 +3796,7 @@ Design: `account-deletion.md` 1.2.0 (Effects on Other Endpoints). No escrow stat
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.30.0 | 2026-10-23 | Fraud signals (FRD-08, fraud spec 3.7.0): a verified webhook payer mismatch writes `TELEBIRR_PAYER_MISMATCH` on the buyer of our own escrow or checkout row (soft, 5), an unverified notification writes no signal on anyone; `ESCROW_025` writes `ROLE_FORBIDDEN` on the caller when the token names another role; answers and payment outcomes unchanged, a failed write only logged; no client change (1.29.0 belongs to FRD-05) |
 | 1.28.0 | 2026-10-23 | Account deletion (ACC-02, `account-deletion.md` 1.2.0): `POST /escrow/initiate`, `/escrow/order-checkout` and `/escrow/dispute` answer `410 ACCOUNT_004` to a caller whose account is being or has been deleted (a row that cannot be read: `503 ESCROW_012`); initiate and order-checkout answer `422 ESCROW_030` for an order whose buyer, farmer or trucker is being or has been deleted, after the 1.27.0 gates and before any slot, hold or Telebirr call; a refund to a deleted buyer goes to the buyer id, never an empty phone; the manual payout queue shows no phone for a deleted payee; no client change |
 | 1.27.0 | 2026-10-23 | Risk tier gates built (FRD-04, the 1.7.0 rules): `POST /escrow/initiate` refuses a caller at risk tier CRITICAL with `403 FRAUD_ACCOUNT_HELD` after the role check and before the step-up and velocity, and the step-up takes the tier (MEDIUM the password at any amount, HIGH Fayda and then the password at any amount); `POST /escrow/order-checkout` refuses CRITICAL before velocity and any Telebirr call; an unreadable score or a missing fraud service is LOW at these gates; the settlement sweeps hold (flag on) or skip (flag off) the escrow of a party at CRITICAL (`holdReason: risk_critical`, tier and score in the `fraud_hold` audit metadata) and skip, flag on or off, one whose score cannot be read (`reason=score_unavailable`); escrow-cron reads the fraud-signals table and logs `RISK_TABLE_UNCONFIGURED` once per run without it, flag on or off; `AUTH_041` text amount-neutral; admin routes not gated; no client change |
 | 1.26.0 | 2026-10-23 | Dispute alarms (FUP-27): `DISPUTE_PROPAGATION_FAILED` (a dispute mirror leg that failed) is counted in the escrow, sync and escrow-cron log groups, the Lambdas that run the mirror, by the new alarm `dispute-propagation-failed` (money alarm shape); the line is written through the money alarm sink with its `legs` defanged like the verdict lines (the `dispute_propagation_failed` audit row keeps them raw); the sync Lambda logs `DELIVERY_DISPUTE_FROZEN escrowId=.. orderId=.. deliveryId=..` once a delivery dispute froze its escrow, counted into the `escrow-dispute-rate` metric with the escrow Lambda's `POST /escrow/dispute` audit line (an escrow already disputed, a refused or undecided freeze and the repairs of pre-1.12.0 disputes are not counted); no API, error code or client change (1.18.0 and 1.20.0 to 1.25.0 are in flight) |
@@ -3828,5 +3838,5 @@ Design: `account-deletion.md` 1.2.0 (Effects on Other Endpoints). No escrow stat
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 1.28.0
+**Version**: 1.30.0
 **Status**: Draft (Phase R4)

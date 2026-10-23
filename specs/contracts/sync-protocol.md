@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.26.0
+1.27.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -649,10 +649,35 @@ set, copied names `Deleted user`), so browse drops them as it drops any deleted 
 
 ---
 
+## Fraud signals from refusals (1.27.0, FRD-08)
+
+Some operation refusals now also write a fraud signal on the caller (the authenticated user of the
+batch, never the user the operation names). The response does not change: same status, same
+message, same `serverData`, whether the signal write works or fails, and a failed write is only
+logged. Signals feed the caller's risk score (`specs/architecture/fraud-detection-architecture.md`
+3.7.0, sections 14 to 17), so they can later bring step-ups or `FRAUD_ACCOUNT_HELD`.
+
+| Refusal | Signal | Weight |
+|---------|--------|--------|
+| A crop, trip, order or delivery `create` that conflicts with a row the caller does not own and is no party to (the 1.4.0 conflict with no `serverData`) | `IDOR_CREATE_CONFLICT` | 40 |
+| `CROP_UNAUTHORIZED`, `TRIP_UNAUTHORIZED`, `ORDER_UNAUTHORIZED`, `DELIVERY_UNAUTHORIZED`, `INTENT_UNAUTHORIZED`, `RATING_UNAUTHORIZED`, `MESSAGE_UNAUTHORIZED` and `RATING_FORBIDDEN: You can only rate your own orders.`; a role gate met by a token without `custom:role` writes nothing | `ROLE_FORBIDDEN` | 25 |
+| `CROP_VALIDATION`, `TRIP_VALIDATION`, `DELIVERY_VALIDATION` or `ORDER_VALIDATION` for a changed identity or money field (`... is immutable and cannot be changed on update.`), and `ORDER_VALIDATION: orderId does not match the operation entityId.` | `IMMUTABLE_FIELD_CHANGE` | 25 |
+| `DELIVERY_NONCE_MISMATCH`, `DELIVERY_NONCE_REPLAY`, and `DELIVERY_NONCE_MISSING: QR nonce verification required for this transition.` | `QR_HANDOFF_FAILURE` | 5 |
+| The 10th `conflict` on an `update` or `delete` in one batch | `STALE_VERSION_BURST` | 0 |
+
+The caller holds at most one row per signal type per hour, so retries and bursts score once per
+hour. What the shipped clients do in normal use scores nothing or little: a version conflict after
+offline edits writes nothing below 10 in one batch and weighs 0 above; the owner's own create retry
+writes nothing; an unchanged echo of an identity field writes nothing; a QR failure weighs 5. The
+rest are requests the shipped apps never send. Clients need no change.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.27.0 | 2026-10-23 | Fraud signals from refusals (FRD-08, fraud spec 3.7.0): create conflicts on another user's id, the `*_UNAUTHORIZED` refusals, identity and money field changes, QR nonce failures and a burst of 10 version conflicts in one batch write a typed signal on the caller, at most one row per type per hour; responses unchanged, a failed write only logged; clients unchanged |
 | 1.26.0 | 2026-10-23 | Deleted accounts (ACC-02, `account-deletion.md` 1.2.0): a batch from an account that is being or has been deleted answers HTTP `410 ACCOUNT_004` with `error.deletionState` and nothing is applied (the client stops that sync without counting a retry; for `cognito_pending` and `completed` it never resends and wipes, for `in_progress` a later sync may resend because the deletion can still abort); a batch whose caller row cannot be read answers `503 SYNC_SERVER_ERROR`; a message to, or a rating about, an account with `deletionState` is op-level `SYNC_VALIDATION`; a `payment_submitted` for an order of such an account is `ORDER_VALIDATION` (`order-lifecycle.md` 1.26.0) |
 | 1.25.0 | 2026-10-23 | Risk tier built on the server (FRD-04, the 1.9.0 rules): `FRAUD_ACCOUNT_HELD:` on crop, trip and order create and on order `payment_submitted` for a caller at risk tier CRITICAL (a truncated score read included), nothing written; MEDIUM and HIGH raise `AUTH_040:` and `AUTH_041:` at any amount (Fayda first); the caller's tier only, read once per batch; an unreadable score or a missing fraud-signals table is LOW; the position of each check; `AUTH_041:` text amount-neutral; clients unchanged |
 | 1.24.0 | 2026-10-23 | Payment total refusal (FUP-22): the live gateway's refusal of a `payment_submitted` whose total is outside 100 to 500,000 ETB is `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` with the same sentence (it was `ORDER_VALIDATION`); permanent under the `ORDER_*` rule, nothing written; clients match the code and, for one release, the old text; same gate, bounds and order; clients before 1.24.0 show the generic refusal |
@@ -681,4 +706,4 @@ set, copied names `Deleted user`), so browse drops them as it drops any deleted 
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 1.26.0
+**Version**: 1.27.0

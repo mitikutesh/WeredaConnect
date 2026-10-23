@@ -426,6 +426,125 @@ public class FraudDetectionServiceTests
         Assert.Equal("15", captured.Item["weight"].N);
     }
 
+    // ===== FRD-08: per-user, per-type write limit and the reject signal catalogue =====
+
+    [Fact]
+    public async Task RecordFraudSignal_KeysTheRowToTheStartOfTheHourAndWritesOnlyIfNew()
+    {
+        PutItemRequest? captured = null;
+        _mockDynamoDb.PutItemAsync(Arg.Do<PutItemRequest>(r => captured = r), Arg.Any<CancellationToken>())
+            .Returns(new PutItemResponse());
+        var before = DateTime.UtcNow;
+
+        await _service.RecordFraudSignalAsync(UserId, "ROLE_FORBIDDEN", "crop-1", "crop", "msg");
+
+        // One row per user, type and UTC hour: the key is the hour, the put refuses a second row.
+        Assert.Equal("attribute_not_exists(signalKey)", captured!.ConditionExpression);
+        var key = captured.Item["signalKey"].S;
+        Assert.EndsWith("#ROLE_FORBIDDEN", key);
+        var keyTime = DateTime.Parse(key[..key.IndexOf('#')], null, System.Globalization.DateTimeStyles.RoundtripKind);
+        Assert.Equal(0, keyTime.Minute);
+        Assert.Equal(0, keyTime.Second);
+        Assert.Equal(0, keyTime.Millisecond);
+        Assert.InRange(keyTime, before.AddHours(-1), DateTime.UtcNow);
+        // The scorer's window comparison is ordinal on the ISO string: the key keeps the "o" shape.
+        Assert.Matches(@"^\d{4}-\d{2}-\d{2}T\d{2}:00:00\.0000000Z#", key);
+        // createdAt keeps the exact time of the first refusal for the admin.
+        Assert.True(DateTime.Parse(captured.Item["createdAt"].S, null,
+            System.Globalization.DateTimeStyles.RoundtripKind) >= keyTime);
+    }
+
+    [Fact]
+    public async Task RecordFraudSignal_SecondRowOfTheHourIsTheLimitNotAnError()
+    {
+        _mockDynamoDb.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns<PutItemResponse>(_ => throw new ConditionalCheckFailedException("exists"));
+
+        var ex = await Xunit.Record.ExceptionAsync(
+            () => _service.RecordFraudSignalAsync(UserId, "ROLE_FORBIDDEN", "crop-1", "crop", "msg"));
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public async Task RecordFraudSignal_OtherWriteFailuresStillReachTheCaller()
+    {
+        // Callers log these (best-effort); only the limit itself is swallowed here.
+        _mockDynamoDb.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns<PutItemResponse>(_ => throw new ProvisionedThroughputExceededException("busy"));
+
+        await Assert.ThrowsAsync<ProvisionedThroughputExceededException>(
+            () => _service.RecordFraudSignalAsync(UserId, "ROLE_FORBIDDEN", "crop-1", "crop", "msg"));
+    }
+
+    [Theory]
+    [InlineData("IDOR_CREATE_CONFLICT", 40, false, "high")]
+    [InlineData("ROLE_FORBIDDEN", 25, false, "high")]
+    [InlineData("IMMUTABLE_FIELD_CHANGE", 25, false, "high")]
+    [InlineData("QR_HANDOFF_FAILURE", 5, true, "low")]
+    [InlineData("TELEBIRR_PAYER_MISMATCH", 5, true, "low")]
+    [InlineData("STALE_VERSION_BURST", 0, true, "low")]
+    [InlineData("SUSPENDED_TOKEN_USE", 0, true, "low")]
+    public async Task RecordFraudSignal_RejectSignalsCarryTheCatalogueWeightAndClass(
+        string signalType, int weight, bool soft, string severity)
+    {
+        PutItemRequest? captured = null;
+        _mockDynamoDb.PutItemAsync(Arg.Do<PutItemRequest>(r => captured = r), Arg.Any<CancellationToken>())
+            .Returns(new PutItemResponse());
+
+        await _service.RecordFraudSignalAsync(UserId, signalType, null, "sync", "msg");
+
+        Assert.Equal(weight, FraudDetectionService.SignalWeight(signalType));
+        Assert.Equal(soft, FraudDetectionService.IsSoftSignal(signalType));
+        Assert.Equal(weight.ToString(), captured!.Item["weight"].N);
+        Assert.Equal(severity, captured.Item["severity"].S);
+        Assert.Equal(UserId, captured.Item["userId"].S);
+    }
+
+    private static RiskScoreResult ScoreOf(params (int HoursAgo, string Type)[] rows)
+    {
+        var calculator = new RiskScoreCalculator(RiskScoreSettings.Default, DateTime.UtcNow);
+        foreach (var (hoursAgo, type) in rows.OrderBy(r => r.HoursAgo)) // newest first, as the Query reads
+        {
+            var hour = DateTime.UtcNow.AddHours(-hoursAgo).ToString("yyyy-MM-dd'T'HH':00:00.0000000Z'", System.Globalization.CultureInfo.InvariantCulture);
+            calculator.Add(new Dictionary<string, AttributeValue>
+            {
+                ["signalKey"] = new() { S = $"{hour}#{type}" },
+                ["signalType"] = new() { S = type },
+                ["weight"] = new() { N = FraudDetectionService.SignalWeight(type).ToString() }
+            });
+        }
+
+        return calculator.Result(truncated: false);
+    }
+
+    [Fact]
+    public void RejectSignals_TiersFollowTheHoursOfProbing()
+    {
+        // One role or field probe is LOW, one create probe MEDIUM; the three hard probes of one hour
+        // are HIGH; CRITICAL needs probes in more than one hour.
+        Assert.Equal(RiskTier.Low, ScoreOf((1, "ROLE_FORBIDDEN")).Tier);
+        Assert.Equal(RiskTier.Medium, ScoreOf((1, "IDOR_CREATE_CONFLICT")).Tier);
+        Assert.Equal(RiskTier.High, ScoreOf(
+            (1, "IDOR_CREATE_CONFLICT"), (1, "ROLE_FORBIDDEN"), (1, "IMMUTABLE_FIELD_CHANGE")).Tier);
+        Assert.Equal(RiskTier.Critical, ScoreOf(
+            (1, "IDOR_CREATE_CONFLICT"), (2, "IDOR_CREATE_CONFLICT"), (3, "ROLE_FORBIDDEN")).Tier);
+    }
+
+    [Fact]
+    public void RejectSignals_HonestClientTypesStayLowAcrossADay()
+    {
+        // A QR failure, a stale-version burst and a suspended refresh in each of 5 hours: 25 points.
+        var rows = Enumerable.Range(1, 5)
+            .SelectMany(h => new[] { (h, "QR_HANDOFF_FAILURE"), (h, "STALE_VERSION_BURST"), (h, "SUSPENDED_TOKEN_USE") })
+            .ToArray();
+
+        var result = ScoreOf(rows);
+
+        Assert.Equal(25, result.Score);
+        Assert.Equal(RiskTier.Low, result.Tier);
+    }
+
     [Theory]
     [InlineData("not-base64!!")]
     [InlineData("")]

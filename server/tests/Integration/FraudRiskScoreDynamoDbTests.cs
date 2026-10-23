@@ -103,6 +103,32 @@ public sealed class FraudRiskScoreDynamoDbTests
     }
 
     [LocalDynamoDbFact]
+    public async Task Writer_KeepsOneRowPerUserTypeAndHour()
+    {
+        // FRD-08: the real condition. A burst of one type is one row; another type and another user
+        // each get their own.
+        var service = Service();
+        for (var i = 0; i < 5; i++)
+        {
+            await service.RecordFraudSignalAsync(_userId, "ROLE_FORBIDDEN", $"crop-{i}", "crop", "burst");
+        }
+
+        await service.RecordFraudSignalAsync(_userId, "IDOR_CREATE_CONFLICT", "crop-9", "crop", "probe");
+        await service.RecordFraudSignalAsync($"other-{_userId}", "ROLE_FORBIDDEN", "crop-0", "crop", "burst");
+
+        var rows = await Ddb.QueryAsync(new QueryRequest
+        {
+            TableName = _db.FraudSignals,
+            KeyConditionExpression = "userId = :u",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":u"] = new() { S = _userId } }
+        });
+
+        rows.Items.Select(r => r["signalType"].S).Should().BeEquivalentTo("ROLE_FORBIDDEN", "IDOR_CREATE_CONFLICT");
+        rows.Items.Single(r => r["signalType"].S == "ROLE_FORBIDDEN")["entityId"].S.Should().Be("crop-0");
+        (await service.GetUserRiskScoreAsync(_userId)).Score.Should().Be(65);
+    }
+
+    [LocalDynamoDbFact]
     public async Task Score_BurstBeyondTwoPagesIsTruncatedToCritical()
     {
         // About 2.6 MB of one burst in one hour: DynamoDB returns at most 1 MB per page, so two

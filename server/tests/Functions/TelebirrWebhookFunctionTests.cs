@@ -64,10 +64,11 @@ public class TelebirrWebhookFunctionTests
     };
 
     private TelebirrWebhookFunction NewFunction(string? merchantCode = null,
-        IUserRepository? userRepo = null, bool requirePayerMatch = false)
+        IUserRepository? userRepo = null, bool requirePayerMatch = false, IFraudDetectionService? fraudService = null)
         => new(_escrowRepo, _auditRepo, _idemRepo,
             new TelebirrSignatureService(null, PublicKeyPem, TelebirrSignaturePadding.Pkcs1),
-            merchantCode: merchantCode, userRepo: userRepo, requirePayerMatch: requirePayerMatch);
+            merchantCode: merchantCode, userRepo: userRepo, requirePayerMatch: requirePayerMatch,
+            fraudService: fraudService);
 
     /// <summary>
     /// The notify Telebirr documents (Notify_Callback, "Step 7"): one flat object, signed over every
@@ -344,7 +345,8 @@ public class TelebirrWebhookFunctionTests
     private readonly IWebhookInboxRepository _inboxRepo = Substitute.For<IWebhookInboxRepository>();
 
     private TelebirrWebhookFunction NewOrderFunction(
-        bool wireOrders = true, IUserRepository? userRepo = null, bool requirePayerMatch = false)
+        bool wireOrders = true, IUserRepository? userRepo = null, bool requirePayerMatch = false,
+        IFraudDetectionService? fraudService = null)
     {
         _checkoutRepo.GetMappingAsync(OrderMerchOrderId)
             .Returns(new OrderCheckoutMapping(OrderMerchOrderId, OrderId, "buyer-1", 15000m));
@@ -362,7 +364,8 @@ public class TelebirrWebhookFunctionTests
             orderFunding: wireOrders ? new OrderFundingService(_orderRepo, _cropRepo, escrowService) : null,
             txAuditRepo: _txAuditRepo,
             inboxRepo: _inboxRepo,
-            clock: _clock);
+            clock: _clock,
+            fraudService: fraudService);
     }
 
     private readonly TestClock _clock = new(DateTimeOffset.UtcNow);
@@ -1888,5 +1891,101 @@ public class TelebirrWebhookFunctionTests
 
         attempts.Should().Be(2 * (keys.Count - 1));
         await EscrowNotMoved();
+    }
+
+    // ===== FRD-08: payer mismatch is a fraud signal on the buyer; unverified bodies write nothing =====
+
+    private readonly IFraudDetectionService _fraud = Substitute.For<IFraudDetectionService>();
+
+    private Task NoSignal() => _fraud.DidNotReceiveWithAnyArgs()
+        .RecordFraudSignalAsync(default!, default!, default, default!, default);
+
+    [Fact]
+    public async Task Verified_payer_mismatch_writes_one_signal_on_the_escrows_buyer()
+    {
+        EscrowHasBuyer();
+        var fn = NewFunction(userRepo: BuyerWithPhone("+251911000001"), fraudService: _fraud);
+
+        var resp = await fn.FunctionHandler(Req(SignedBody("Completed", msisdn: "0922000002")), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        await _fraud.Received(1).RecordFraudSignalAsync(
+            "buyer-1", FraudDetectionService.TelebirrPayerMismatchSignal, EscrowId, "escrow", Arg.Any<string?>());
+        // Not required: the payment still applies, as before.
+        await _escrowRepo.Received(1).UpdateStatusAsync(
+            EscrowId, Arg.Any<string>(), "escrowed", "initiated", Arg.Any<Dictionary<string, object>?>());
+    }
+
+    [Fact]
+    public async Task Verified_order_payment_from_another_wallet_signals_the_checkouts_buyer()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
+        var fn = NewOrderFunction(userRepo: BuyerWithPhone("+251911000001"), requirePayerMatch: true, fraudService: _fraud);
+
+        await fn.FunctionHandler(Req(OrderBody(msisdn: "+251922000002")), _ctx);
+
+        await _fraud.Received(1).RecordFraudSignalAsync(
+            "buyer-1", FraudDetectionService.TelebirrPayerMismatchSignal, OrderEscrowId, "escrow", Arg.Any<string?>());
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task Forged_notification_never_writes_a_signal_onto_the_buyer_it_names()
+    {
+        // Anyone can post to the public route: a bad signature is logged and nothing else.
+        EscrowHasBuyer();
+        var fn = NewFunction(userRepo: BuyerWithPhone("+251911000001"), fraudService: _fraud);
+
+        var resp = await fn.FunctionHandler(Req(SignedBody("Completed", tamper: true, msisdn: "0922000002")), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        await NoSignal();
+        await EscrowNotMoved();
+    }
+
+    [Fact]
+    public async Task Matching_or_absent_payer_writes_no_signal()
+    {
+        EscrowHasBuyer();
+
+        await NewFunction(userRepo: BuyerWithPhone("+251911000001"), fraudService: _fraud)
+            .FunctionHandler(Req(SignedBody("Completed", msisdn: "0911000001")), _ctx);
+        await NewFunction(userRepo: BuyerWithPhone("+251911000001"), requirePayerMatch: true, fraudService: _fraud)
+            .FunctionHandler(Req(SignedBody("Completed")), _ctx);
+
+        await NoSignal();
+    }
+
+    [Fact]
+    public async Task Payer_mismatch_with_no_buyer_row_writes_no_signal()
+    {
+        // Nothing is known about a buyer whose row cannot be found: audited, attributed to no one.
+        EscrowHasBuyer();
+        var users = Substitute.For<IUserRepository>();
+        users.GetUserByIdAsync("buyer-1").Returns((UserDto?)null);
+
+        await NewFunction(userRepo: users, fraudService: _fraud)
+            .FunctionHandler(Req(SignedBody("Completed", msisdn: "0922000002")), _ctx);
+
+        await AuditRecorded("webhook_payer_mismatch");
+        await NoSignal();
+    }
+
+    [Fact]
+    public async Task A_failing_signal_write_changes_neither_the_answer_nor_the_payment()
+    {
+        EscrowHasBuyer();
+        _fraud.RecordFraudSignalAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>())
+            .Returns<Task>(_ => throw new InvalidOperationException("table down"));
+        var fn = NewFunction(userRepo: BuyerWithPhone("+251911000001"), fraudService: _fraud);
+
+        var resp = await fn.FunctionHandler(Req(SignedBody("Completed", msisdn: "0922000002")), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        resp.Body.Should().Be("{\"code\":\"0\",\"msg\":\"success\"}");
+        await _escrowRepo.Received(1).UpdateStatusAsync(
+            EscrowId, Arg.Any<string>(), "escrowed", "initiated", Arg.Any<Dictionary<string, object>?>());
+        Logs.Should().Contain("Failed to record fraud signal TELEBIRR_PAYER_MISMATCH");
     }
 }

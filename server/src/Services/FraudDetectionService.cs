@@ -1,5 +1,6 @@
 namespace WeredaConnect.Server.Services;
 
+using System.Globalization;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Helpers;
@@ -209,7 +210,12 @@ public sealed class FraudDetectionService : IFraudDetectionService
 
         var now = DateTime.UtcNow;
         var createdAt = now.ToString("o");
-        var signalKey = $"{createdAt}#{signalType}";
+        // FRD-08 write limit (section 14.3): at most one row per user, type and UTC hour. The key
+        // carries the start of the hour and the put is conditional, so a burst writes its first row
+        // and nothing more. The score counts one row per type and hour anyway (section 14.2); without
+        // the limit a burst could fill the partition up to the page cap, which reads as CRITICAL.
+        var hourStart = new DateTime(now.Year, now.Month, now.Day, now.Hour, 0, 0, DateTimeKind.Utc);
+        var signalKey = $"{hourStart.ToString("o", CultureInfo.InvariantCulture)}#{signalType}";
         var weight = SignalWeight(signalType);
         var expiresAt = new DateTimeOffset(now).AddDays(SignalTtlDays).ToUnixTimeSeconds();
 
@@ -233,29 +239,71 @@ public sealed class FraudDetectionService : IFraudDetectionService
             item["entityId"] = new AttributeValue { S = entityId };
         }
 
-        await _dynamoDb.PutItemAsync(new PutItemRequest
+        try
         {
-            TableName = _fraudSignalsTable,
-            Item = item
-        });
+            await _dynamoDb.PutItemAsync(new PutItemRequest
+            {
+                TableName = _fraudSignalsTable,
+                Item = item,
+                ConditionExpression = "attribute_not_exists(signalKey)"
+            });
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            // This user already has a row of this type in this hour: the write limit, not a failure.
+        }
     }
 
-    // Weights per fraud-detection-architecture.md §2 Rule 5.
+    // FRD-08 signal types (fraud-detection-architecture.md section 15). Each is written on the
+    // caller of the refused operation; the webhook's payer mismatch on the buyer our own row names.
+
+    /// <summary>A create that names an id another user's row already holds.</summary>
+    internal const string IdorCreateConflictSignal = "IDOR_CREATE_CONFLICT";
+
+    /// <summary>A role gate, a caller id binding or a party check refused the operation.</summary>
+    internal const string RoleForbiddenSignal = "ROLE_FORBIDDEN";
+
+    /// <summary>An update tried to change an identity or money field (SIM-02, SIM-03, SIM-06, SIM-09).</summary>
+    internal const string ImmutableFieldChangeSignal = "IMMUTABLE_FIELD_CHANGE";
+
+    /// <summary>A delivery handoff with a wrong, reused or missing QR nonce.</summary>
+    internal const string QrHandoffFailureSignal = "QR_HANDOFF_FAILURE";
+
+    /// <summary>A verified Telebirr payment from a wallet other than the buyer's registered phone.</summary>
+    internal const string TelebirrPayerMismatchSignal = "TELEBIRR_PAYER_MISMATCH";
+
+    /// <summary>Many version conflicts in one /sync batch. Honest offline clients conflict too: never scores.</summary>
+    internal const string StaleVersionBurstSignal = "STALE_VERSION_BURST";
+
+    /// <summary>A suspended profile's refresh token was refused. The app does this on its own: never scores.</summary>
+    internal const string SuspendedTokenUseSignal = "SUSPENDED_TOKEN_USE";
+
+    // Weights per fraud-detection-architecture.md §2 Rule 5 and section 15.
     internal static int SignalWeight(string signalType) => signalType switch
     {
         "GPS_ANOMALY" => 25,
         "FRAUD_DUPLICATE_LISTING" => 20,
         "FRAUD_VELOCITY_EXCEEDED" => 15,
         "PRICE_ANOMALY" => 10,
+        IdorCreateConflictSignal => 40,
+        RoleForbiddenSignal => 25,
+        ImmutableFieldChangeSignal => 25,
+        QrHandoffFailureSignal => 5,
+        TelebirrPayerMismatchSignal => 5,
+        StaleVersionBurstSignal => 0,
+        SuspendedTokenUseSignal => 0,
         _ => 10
     };
 
     /// <summary>
     /// Soft class of the signal catalogue (section 15): flag-only rules whose weight an active
-    /// whitelist skips. Every other type is hard and always counts.
+    /// whitelist skips. Every other type is hard and always counts. FRD-08 adds the rejects an
+    /// honest client can also produce.
     /// </summary>
     internal static bool IsSoftSignal(string signalType) =>
-        signalType is "GPS_ANOMALY" or "PRICE_ANOMALY";
+        signalType is "GPS_ANOMALY" or "PRICE_ANOMALY"
+            or QrHandoffFailureSignal or TelebirrPayerMismatchSignal
+            or StaleVersionBurstSignal or SuspendedTokenUseSignal;
 
     internal static string SignalSeverity(int weight) =>
         weight >= 20 ? "high" : weight >= 10 ? "medium" : "low";

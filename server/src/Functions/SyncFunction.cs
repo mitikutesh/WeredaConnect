@@ -53,6 +53,14 @@ public partial class SyncFunction
     // FRD-04: the caller's risk score, read at most once per batch (null without a fraud
     // service). Set at the top of FunctionHandler, like the auth_time above.
     private RiskScoreMemo? _batchRiskScores;
+
+    // FRD-08: the (user, signal type) pairs this batch already tried to write, so a batch of 50
+    // refusals is one write, and the update and delete version conflicts it met so far.
+    private readonly HashSet<string> _batchSignals = new(StringComparer.Ordinal);
+    private int _batchStaleConflicts;
+
+    /// <summary>FRD-08: update and delete version conflicts in one batch that make a <c>STALE_VERSION_BURST</c>.</summary>
+    internal const int StaleVersionBurstThreshold = 10;
     private readonly IIntentRepository? _intentRepo;
     private readonly IMatchEventRepository? _matchEventRepo;
     // Optional: when the escrows table is provisioned, confirming a delivery
@@ -687,6 +695,8 @@ public partial class SyncFunction
         var authenticatedRole = AuthHelper.GetClaim(request, "custom:role");
         _requestAuthTime = AuthHelper.GetAuthTime(request);
         _batchRiskScores = _fraudService == null ? null : new RiskScoreMemo(_fraudService);
+        _batchSignals.Clear();
+        _batchStaleConflicts = 0;
 
         // Per-user rate limiting (F-11 Finding 3)
         // Record unconditionally to prevent request flooding via invalid operations
@@ -860,6 +870,17 @@ public partial class SyncFunction
                     operation.OperationId,
                     operation.EntityType,
                     result.Status);
+            }
+
+            // FRD-08: an offline client meets version conflicts in normal use, so one never writes a
+            // signal; a batch with many is recorded once, at weight 0, for review and FRD-15.
+            if (result.Status == "conflict" && operation.Action is ("update" or "delete")
+                && ++_batchStaleConflicts == StaleVersionBurstThreshold)
+            {
+                await TryRecordFraudSignalAsync(
+                    authenticatedUserId ?? "", FraudDetectionService.StaleVersionBurstSignal, operation.EntityId,
+                    operation.EntityType, $"{StaleVersionBurstThreshold} or more update or delete version conflicts in one sync batch.",
+                    context);
             }
 
             return result;
@@ -1162,12 +1183,12 @@ public partial class SyncFunction
 
         if (!string.Equals(authenticatedRole, "buyer", StringComparison.OrdinalIgnoreCase))
         {
-            return new SyncOperationResult
+            return await RefuseWithSignalAsync(new SyncOperationResult
             {
                 OperationId = operation.OperationId,
                 Status = "error",
                 Message = "INTENT_UNAUTHORIZED: Only buyers can create purchase intents."
-            };
+            }, RoleGateSignal(authenticatedRole), operation, "buyer_intent", authenticatedUserId, context);
         }
 
         switch (operation.Action)
@@ -1191,12 +1212,12 @@ public partial class SyncFunction
                     if ((operation.Action == "create" && !hasBuyerId)
                         || (hasBuyerId && buyerIdObj?.ToString() != authenticatedUserId))
                     {
-                        return new SyncOperationResult
+                        return await RefuseWithSignalAsync(new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = "INTENT_UNAUTHORIZED: buyerId must match authenticated user."
-                        };
+                        }, FraudDetectionService.RoleForbiddenSignal, operation, "buyer_intent", authenticatedUserId, context);
                     }
 
                     var unknownFields = operation.Data.Keys
@@ -1310,12 +1331,12 @@ public partial class SyncFunction
 
         if (!string.Equals(authenticatedRole, "buyer", StringComparison.OrdinalIgnoreCase))
         {
-            return new SyncOperationResult
+            return await RefuseWithSignalAsync(new SyncOperationResult
             {
                 OperationId = operation.OperationId,
                 Status = "error",
                 Message = "RATING_UNAUTHORIZED: Only buyers can rate counterparties."
-            };
+            }, RoleGateSignal(authenticatedRole), operation, "rating", authenticatedUserId, context);
         }
 
         // Ratings are immutable: only `create` is supported.
@@ -1343,12 +1364,12 @@ public partial class SyncFunction
         if (!operation.Data.TryGetValue("raterId", out var raterIdObj)
             || raterIdObj?.ToString() != authenticatedUserId)
         {
-            return new SyncOperationResult
+            return await RefuseWithSignalAsync(new SyncOperationResult
             {
                 OperationId = operation.OperationId,
                 Status = "error",
                 Message = "RATING_UNAUTHORIZED: raterId must match authenticated user."
-            };
+            }, FraudDetectionService.RoleForbiddenSignal, operation, "rating", authenticatedUserId, context);
         }
 
         var unknownFields = operation.Data.Keys
@@ -1395,12 +1416,12 @@ public partial class SyncFunction
         var orderBuyerId = order.TryGetValue("buyerId", out var bObj) ? bObj?.ToString() : null;
         if (orderBuyerId != authenticatedUserId)
         {
-            return new SyncOperationResult
+            return await RefuseWithSignalAsync(new SyncOperationResult
             {
                 OperationId = operation.OperationId,
                 Status = "error",
                 Message = "RATING_FORBIDDEN: You can only rate your own orders."
-            };
+            }, FraudDetectionService.RoleForbiddenSignal, operation, "rating", authenticatedUserId, context);
         }
 
         // ESC-09: a delivered order is rateable while its money is paid out (disbursing, which with the
@@ -1585,8 +1606,9 @@ public partial class SyncFunction
         // The sender must be the authenticated user (the hard rule).
         if (senderId != authenticatedUserId)
         {
-            return MessageError(operation, "error",
-                "MESSAGE_UNAUTHORIZED: senderId must match authenticated user.");
+            return await RefuseWithSignalAsync(
+                MessageError(operation, "error", "MESSAGE_UNAUTHORIZED: senderId must match authenticated user."),
+                FraudDetectionService.RoleForbiddenSignal, operation, "message", authenticatedUserId, context);
         }
 
         if (senderId == recipientId)
@@ -2003,6 +2025,12 @@ public partial class SyncFunction
             return;
         }
 
+        // FRD-08: the service keeps one row per user, type and hour; one attempt per batch is enough.
+        if (!_batchSignals.Add($"{userId}|{signalType}"))
+        {
+            return;
+        }
+
         try
         {
             await _fraudService.RecordFraudSignalAsync(
@@ -2014,6 +2042,31 @@ public partial class SyncFunction
                 $"Failed to record fraud signal {signalType} for user {userId}: [{ex.GetType().Name}]");
         }
     }
+
+    /// <summary>
+    /// FRD-08: record a typed fraud signal on the caller for a refusal, then return the refusal as
+    /// built. Best-effort like every signal: the answer is the same whether the write works or not.
+    /// A null <paramref name="signalType"/> records nothing.
+    /// </summary>
+    private async Task<SyncOperationResult> RefuseWithSignalAsync(
+        SyncOperationResult refusal, string? signalType, SyncOperationRequest operation,
+        string entityType, string? callerId, ILambdaContext context)
+    {
+        if (signalType != null)
+        {
+            await TryRecordFraudSignalAsync(
+                callerId ?? "", signalType, operation.EntityId, entityType, refusal.Message, context);
+        }
+
+        return refusal;
+    }
+
+    /// <summary>
+    /// FRD-08: the signal of a role gate. A token without the role claim (an access token instead
+    /// of the ID token) fails the gate too, but that is a client set-up problem, not a probe.
+    /// </summary>
+    private static string? RoleGateSignal(string? authenticatedRole) =>
+        string.IsNullOrWhiteSpace(authenticatedRole) ? null : FraudDetectionService.RoleForbiddenSignal;
 
     /// <summary>
     /// FRD-04 (fraud-detection-architecture.md 17.1): the caller's risk tier at a user gate, read once per
@@ -2123,24 +2176,24 @@ public partial class SyncFunction
                     // Role check: only farmers can create crop listings
                     if (!string.Equals(authenticatedRole, "farmer", StringComparison.OrdinalIgnoreCase))
                     {
-                        return new SyncOperationResult
+                        return await RefuseWithSignalAsync(new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = "CROP_UNAUTHORIZED: Only farmers can create crop listings."
-                        };
+                        }, RoleGateSignal(authenticatedRole), operation, "crop", authenticatedUserId, context);
                     }
 
                     // Validate farmerId matches authenticated user
                     if (!operation.Data.TryGetValue("farmerId", out var farmerIdObj)
                         || farmerIdObj?.ToString() != authenticatedUserId)
                     {
-                        return new SyncOperationResult
+                        return await RefuseWithSignalAsync(new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = "CROP_UNAUTHORIZED: farmerId must match authenticated user."
-                        };
+                        }, FraudDetectionService.RoleForbiddenSignal, operation, "crop", authenticatedUserId, context);
                     }
 
                     var cropContactError = await StampOwnerContactAsync(
@@ -2282,6 +2335,15 @@ public partial class SyncFunction
                         : 1;
                     var isOwner = existing != null && IsParty(existing, authenticatedUserId, "farmerId");
 
+                    // FRD-08: create ids are UUIDs made on the device, so naming another farmer's
+                    // listing is a probe. The owner's own retry is not.
+                    if (existing != null && !isOwner)
+                    {
+                        await TryRecordFraudSignalAsync(
+                            authenticatedUserId!, FraudDetectionService.IdorCreateConflictSignal, operation.EntityId,
+                            "crop", "Create named a crop listing id that belongs to another user.", context);
+                    }
+
                     return new SyncOperationResult
                     {
                         OperationId = operation.OperationId,
@@ -2319,12 +2381,12 @@ public partial class SyncFunction
                     if (!existingForUpdate.TryGetValue("farmerId", out var updateFarmerId)
                         || updateFarmerId?.ToString() != authenticatedUserId)
                     {
-                        return new SyncOperationResult
+                        return await RefuseWithSignalAsync(new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = "CROP_UNAUTHORIZED: You can only update your own crop listings."
-                        };
+                        }, FraudDetectionService.RoleForbiddenSignal, operation, "crop", authenticatedUserId, context);
                     }
 
                     // Field whitelist — reject unknown fields
@@ -2348,12 +2410,12 @@ public partial class SyncFunction
                         key => existingForUpdate.TryGetValue(key, out var stored) ? stored?.ToString() : null);
                     if (cropIdentityError != null)
                     {
-                        return new SyncOperationResult
+                        return await RefuseWithSignalAsync(new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = $"CROP_VALIDATION: {cropIdentityError}"
-                        };
+                        }, FraudDetectionService.ImmutableFieldChangeSignal, operation, "crop", authenticatedUserId, context);
                     }
 
                     // FIX-009: Validate crop field values
@@ -2461,12 +2523,12 @@ public partial class SyncFunction
                     if (!existingForDelete.TryGetValue("farmerId", out var deleteFarmerId)
                         || deleteFarmerId?.ToString() != authenticatedUserId)
                     {
-                        return new SyncOperationResult
+                        return await RefuseWithSignalAsync(new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = "CROP_UNAUTHORIZED: You can only delete your own crop listings."
-                        };
+                        }, FraudDetectionService.RoleForbiddenSignal, operation, "crop", authenticatedUserId, context);
                     }
 
                     var deleteResult = await _cropRepo.DeleteAsync(operation.EntityId, clientVersion);
@@ -2550,24 +2612,24 @@ public partial class SyncFunction
                     // Role check: only truckers can create trip listings
                     if (!string.Equals(authenticatedRole, "trucker", StringComparison.OrdinalIgnoreCase))
                     {
-                        return new SyncOperationResult
+                        return await RefuseWithSignalAsync(new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = "TRIP_UNAUTHORIZED: Only truckers can create trip listings."
-                        };
+                        }, RoleGateSignal(authenticatedRole), operation, "trip", authenticatedUserId, context);
                     }
 
                     // C2: Validate truckerId matches authenticated user
                     if (!operation.Data.TryGetValue("truckerId", out var truckerIdObj)
                         || truckerIdObj?.ToString() != authenticatedUserId)
                     {
-                        return new SyncOperationResult
+                        return await RefuseWithSignalAsync(new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = "TRIP_UNAUTHORIZED: truckerId must match authenticated user."
-                        };
+                        }, FraudDetectionService.RoleForbiddenSignal, operation, "trip", authenticatedUserId, context);
                     }
 
                     var tripContactError = await StampOwnerContactAsync(
@@ -2716,6 +2778,14 @@ public partial class SyncFunction
                         }
                         var isOwner = existing != null && IsParty(existing, authenticatedUserId, "truckerId");
 
+                        // FRD-08: as for crops, a trip id of another trucker is a probe.
+                        if (existing != null && !isOwner)
+                        {
+                            await TryRecordFraudSignalAsync(
+                                authenticatedUserId!, FraudDetectionService.IdorCreateConflictSignal, operation.EntityId,
+                                "trip", "Create named a trip id that belongs to another user.", context);
+                        }
+
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
@@ -2755,12 +2825,12 @@ public partial class SyncFunction
                     if (!existing.TryGetValue("truckerId", out var existingTruckerId)
                         || existingTruckerId.S != authenticatedUserId)
                     {
-                        return new SyncOperationResult
+                        return await RefuseWithSignalAsync(new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = "TRIP_UNAUTHORIZED: You can only update your own trips."
-                        };
+                        }, FraudDetectionService.RoleForbiddenSignal, operation, "trip", authenticatedUserId, context);
                     }
 
                     // H3: Block updates to terminal-state or deleted trips
@@ -2808,12 +2878,12 @@ public partial class SyncFunction
                         key => existing.TryGetValue(key, out var stored) ? stored.S : null);
                     if (tripIdentityError != null)
                     {
-                        return new SyncOperationResult
+                        return await RefuseWithSignalAsync(new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = $"TRIP_VALIDATION: {tripIdentityError}"
-                        };
+                        }, FraudDetectionService.ImmutableFieldChangeSignal, operation, "trip", authenticatedUserId, context);
                     }
 
                     // C3: Validate present fields (SIM-60: a changed departureDate must
@@ -2971,12 +3041,12 @@ public partial class SyncFunction
                     if (!existing.TryGetValue("truckerId", out var existingTruckerId)
                         || existingTruckerId.S != authenticatedUserId)
                     {
-                        return new SyncOperationResult
+                        return await RefuseWithSignalAsync(new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = "TRIP_UNAUTHORIZED: You can only delete your own trips."
-                        };
+                        }, FraudDetectionService.RoleForbiddenSignal, operation, "trip", authenticatedUserId, context);
                     }
 
                     // H3: Block deletion of terminal-state or deleted trips
@@ -3566,12 +3636,12 @@ public partial class SyncFunction
                             ? spB?.ToString() : null;
                         if (spBuyerId != authenticatedUserId)
                         {
-                            return new SyncOperationResult
+                            return await RefuseWithSignalAsync(new SyncOperationResult
                             {
                                 OperationId = operation.OperationId,
                                 Status = "error",
                                 Message = "DELIVERY_UNAUTHORIZED: buyerId must match authenticated user for self-pickup."
-                            };
+                            }, FraudDetectionService.RoleForbiddenSignal, operation, "delivery", authenticatedUserId, context);
                         }
 
                         var spTruckerId = operation.Data.TryGetValue("truckerId", out var spT)
@@ -3594,12 +3664,12 @@ public partial class SyncFunction
                     else if (!operation.Data.TryGetValue("truckerId", out var truckerIdObj)
                         || truckerIdObj?.ToString() != authenticatedUserId)
                     {
-                        return new SyncOperationResult
+                        return await RefuseWithSignalAsync(new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = "DELIVERY_UNAUTHORIZED: truckerId must match authenticated user."
-                        };
+                        }, FraudDetectionService.RoleForbiddenSignal, operation, "delivery", authenticatedUserId, context);
                     }
 
                     // SEC-VULN-002: Validate farmerId matches listing owner
@@ -4194,6 +4264,14 @@ public partial class SyncFunction
                         var isParty = existing != null
                             && IsParty(existing, authenticatedUserId, "buyerId", "farmerId", "truckerId");
 
+                        // FRD-08: a delivery id of a delivery the caller is no party to is a probe.
+                        if (existing != null && !isParty)
+                        {
+                            await TryRecordFraudSignalAsync(
+                                authenticatedUserId ?? "", FraudDetectionService.IdorCreateConflictSignal, operation.EntityId,
+                                "delivery", "Create named a delivery id that belongs to other users.", context);
+                        }
+
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
@@ -4331,23 +4409,23 @@ public partial class SyncFunction
                             case "inTransit":
                                 if (authenticatedUserId != existingTruckerId)
                                 {
-                                    return new SyncOperationResult
+                                    return await RefuseWithSignalAsync(new SyncOperationResult
                                     {
                                         OperationId = operation.OperationId,
                                         Status = "error",
                                         Message = $"DELIVERY_UNAUTHORIZED: Only the trucker can mark as {newStatus}."
-                                    };
+                                    }, FraudDetectionService.RoleForbiddenSignal, operation, "delivery", authenticatedUserId, context);
                                 }
                                 break;
                             case "delivered":
                                 if (authenticatedUserId != existingBuyerId)
                                 {
-                                    return new SyncOperationResult
+                                    return await RefuseWithSignalAsync(new SyncOperationResult
                                     {
                                         OperationId = operation.OperationId,
                                         Status = "error",
                                         Message = "DELIVERY_UNAUTHORIZED: Only the buyer can confirm delivery."
-                                    };
+                                    }, FraudDetectionService.RoleForbiddenSignal, operation, "delivery", authenticatedUserId, context);
                                 }
                                 break;
                             case "disputed":
@@ -4381,12 +4459,12 @@ public partial class SyncFunction
                                     && authenticatedUserId != existingTruckerId
                                     && authenticatedUserId != existingBuyerId)
                                 {
-                                    return new SyncOperationResult
+                                    return await RefuseWithSignalAsync(new SyncOperationResult
                                     {
                                         OperationId = operation.OperationId,
                                         Status = "error",
                                         Message = "DELIVERY_UNAUTHORIZED: Only participants can dispute a delivery."
-                                    };
+                                    }, FraudDetectionService.RoleForbiddenSignal, operation, "delivery", authenticatedUserId, context);
                                 }
 
                                 // A dispute freezes the order's money: above the step-up
@@ -4427,12 +4505,12 @@ public partial class SyncFunction
                             && authenticatedUserId == existingFarmerIdForNonce;
                         if (authenticatedUserId != existingTruckerId && !isFarmerNoncePersist)
                         {
-                            return new SyncOperationResult
+                            return await RefuseWithSignalAsync(new SyncOperationResult
                             {
                                 OperationId = operation.OperationId,
                                 Status = "error",
                                 Message = "DELIVERY_UNAUTHORIZED: You can only update your own deliveries."
-                            };
+                            }, FraudDetectionService.RoleForbiddenSignal, operation, "delivery", authenticatedUserId, context);
                         }
 
                         // Route the farmer-authored pickup nonce to the SEPARATE secret
@@ -4496,24 +4574,26 @@ public partial class SyncFunction
                                 var scannedNonce = operation.Data.TryGetValue("scannedQrNonce", out var snObj)
                                     ? snObj?.ToString() : null;
 
+                                // FRD-08: QR failures are soft. A code regenerated offline and scanned
+                                // before it synced fails too, and its retries land in the same hour.
                                 if (string.IsNullOrEmpty(scannedNonce))
                                 {
-                                    return new SyncOperationResult
+                                    return await RefuseWithSignalAsync(new SyncOperationResult
                                     {
                                         OperationId = operation.OperationId,
                                         Status = "error",
                                         Message = "DELIVERY_NONCE_MISSING: QR nonce verification required for this transition."
-                                    };
+                                    }, FraudDetectionService.QrHandoffFailureSignal, operation, "delivery", authenticatedUserId, context);
                                 }
 
                                 if (!NonceEquals(scannedNonce, effectiveNonce))
                                 {
-                                    return new SyncOperationResult
+                                    return await RefuseWithSignalAsync(new SyncOperationResult
                                     {
                                         OperationId = operation.OperationId,
                                         Status = "error",
                                         Message = "DELIVERY_NONCE_MISMATCH: Scanned QR nonce does not match generator's nonce."
-                                    };
+                                    }, FraudDetectionService.QrHandoffFailureSignal, operation, "delivery", authenticatedUserId, context);
                                 }
 
                                 // Secret-store path adds freshness + single-use replay protection
@@ -4537,12 +4617,12 @@ public partial class SyncFunction
                                     var consumedOp = secret.ConsumedOpFor(nStatus);
                                     if (consumedOp != null && consumedOp != operation.OperationId)
                                     {
-                                        return new SyncOperationResult
+                                        return await RefuseWithSignalAsync(new SyncOperationResult
                                         {
                                             OperationId = operation.OperationId,
                                             Status = "error",
                                             Message = "DELIVERY_NONCE_REPLAY: This QR code was already used for this step."
-                                        };
+                                        }, FraudDetectionService.QrHandoffFailureSignal, operation, "delivery", authenticatedUserId, context);
                                     }
 
                                     // Consume only AFTER the version CAS succeeds (below), so a
@@ -4639,12 +4719,12 @@ public partial class SyncFunction
                         key => existing.TryGetValue(key, out var storedAttr) ? storedAttr.S : null);
                     if (deliveryIdentityError != null)
                     {
-                        return new SyncOperationResult
+                        return await RefuseWithSignalAsync(new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = $"DELIVERY_VALIDATION: {deliveryIdentityError}"
-                        };
+                        }, FraudDetectionService.ImmutableFieldChangeSignal, operation, "delivery", authenticatedUserId, context);
                     }
 
                     // F12-SEC-06: Validate disputeReason length (aligned with contract: 500 chars)
@@ -5210,12 +5290,12 @@ public partial class SyncFunction
         // Parties first, so nobody else learns anything about the delivery.
         if (!IsParty(existing, authenticatedUserId, "buyerId", "farmerId", "truckerId"))
         {
-            return new SyncOperationResult
+            return await RefuseWithSignalAsync(new SyncOperationResult
             {
                 OperationId = operation.OperationId,
                 Status = "error",
                 Message = "DELIVERY_UNAUTHORIZED: Only participants can cancel a delivery."
-            };
+            }, FraudDetectionService.RoleForbiddenSignal, operation, "delivery", authenticatedUserId, context);
         }
 
         if (via == "update")
@@ -5632,24 +5712,24 @@ public partial class SyncFunction
         // Role check: only buyers can create orders
         if (!string.Equals(authenticatedRole, "buyer", StringComparison.OrdinalIgnoreCase))
         {
-            return new SyncOperationResult
+            return await RefuseWithSignalAsync(new SyncOperationResult
             {
                 OperationId = operation.OperationId,
                 Status = "error",
                 Message = "ORDER_UNAUTHORIZED: Only buyers can create orders."
-            };
+            }, RoleGateSignal(authenticatedRole), operation, "order", authenticatedUserId, context);
         }
 
         // Validate buyerId matches authenticated user
         if (!operation.Data.TryGetValue("buyerId", out var buyerIdObj)
             || buyerIdObj?.ToString() != authenticatedUserId)
         {
-            return new SyncOperationResult
+            return await RefuseWithSignalAsync(new SyncOperationResult
             {
                 OperationId = operation.OperationId,
                 Status = "error",
                 Message = "ORDER_UNAUTHORIZED: buyerId must match authenticated user."
-            };
+            }, FraudDetectionService.RoleForbiddenSignal, operation, "order", authenticatedUserId, context);
         }
 
         // Strip server-controlled fields
@@ -5779,6 +5859,14 @@ public partial class SyncFunction
         var isParty = existing != null
             && IsParty(existing, authenticatedUserId, "buyerId", "farmerId", "truckerId");
 
+        // FRD-08: an order id of an order the caller is no party to is a probe.
+        if (existing != null && !isParty)
+        {
+            await TryRecordFraudSignalAsync(
+                authenticatedUserId ?? "", FraudDetectionService.IdorCreateConflictSignal, operation.EntityId,
+                "order", "Create named an order id that belongs to other users.", context);
+        }
+
         return new SyncOperationResult
         {
             OperationId = operation.OperationId,
@@ -5832,12 +5920,12 @@ public partial class SyncFunction
 
         if (!isBuyerOrFarmer && !isTruckerOnly)
         {
-            return new SyncOperationResult
+            return await RefuseWithSignalAsync(new SyncOperationResult
             {
                 OperationId = operation.OperationId,
                 Status = "error",
                 Message = "ORDER_UNAUTHORIZED: You can only update orders you are a participant in."
-            };
+            }, FraudDetectionService.RoleForbiddenSignal, operation, "order", authenticatedUserId, context);
         }
 
         if (isTruckerOnly)
@@ -5845,12 +5933,12 @@ public partial class SyncFunction
             var truckerStatus = operation.Data.TryGetValue("status", out var tsObj) ? tsObj?.ToString() : null;
             if (truckerStatus is not ("pickup_confirmed" or "in_transit" or "delivered"))
             {
-                return new SyncOperationResult
+                return await RefuseWithSignalAsync(new SyncOperationResult
                 {
                     OperationId = operation.OperationId,
                     Status = "error",
                     Message = "ORDER_UNAUTHORIZED: The trucker may only set pickup_confirmed, in_transit or delivered."
-                };
+                }, FraudDetectionService.RoleForbiddenSignal, operation, "order", authenticatedUserId, context);
             }
         }
 
@@ -5868,7 +5956,9 @@ public partial class SyncFunction
         {
             if (!string.Equals(echoedOrderId?.ToString(), operation.EntityId, StringComparison.Ordinal))
             {
-                return OrderValidationError(operation, "orderId does not match the operation entityId.");
+                return await RefuseWithSignalAsync(
+                    OrderValidationError(operation, "orderId does not match the operation entityId."),
+                    FraudDetectionService.ImmutableFieldChangeSignal, operation, "order", authenticatedUserId, context);
             }
 
             operation.Data.Remove("orderId");
@@ -5891,7 +5981,9 @@ public partial class SyncFunction
             key => existingOrder.TryGetValue(key, out var stored) ? stored?.ToString() : null);
         if (immutableError != null)
         {
-            return OrderValidationError(operation, immutableError);
+            return await RefuseWithSignalAsync(
+                OrderValidationError(operation, immutableError),
+                FraudDetectionService.ImmutableFieldChangeSignal, operation, "order", authenticatedUserId, context);
         }
 
         var updateValidationErrors = ValidateOrderFields(operation.Data, isCreate: false);
@@ -5925,12 +6017,12 @@ public partial class SyncFunction
                 currentStatus, newStatus, authenticatedUserId, orderBuyerId, orderFarmerId);
             if (transitionError != null)
             {
-                return new SyncOperationResult
+                return await RefuseWithSignalAsync(new SyncOperationResult
                 {
                     OperationId = operation.OperationId,
                     Status = "error",
                     Message = transitionError
-                };
+                }, FraudDetectionService.RoleForbiddenSignal, operation, "order", authenticatedUserId, context);
             }
 
             // ESC-06: an accepted order is cancelled only after a transport failure, with its own
@@ -6388,7 +6480,9 @@ public partial class SyncFunction
         if (string.IsNullOrEmpty(userId)
             || (userId != Field("buyerId") && userId != Field("farmerId") && userId != Field("truckerId")))
         {
-            return DeliveryDisputeError(operation, "DELIVERY_UNAUTHORIZED: Only participants can dispute a delivery.");
+            return await RefuseWithSignalAsync(
+                DeliveryDisputeError(operation, "DELIVERY_UNAUTHORIZED: Only participants can dispute a delivery."),
+                FraudDetectionService.RoleForbiddenSignal, operation, "delivery", userId, context);
         }
 
         var deliveryId = operation.EntityId;

@@ -314,4 +314,59 @@ public class EscrowFunctionRiskGateTests
         Assert.Contains("prepay_id=prepay-1", response.Body);
         await _gateway.Received(1).HoldFundsAsync(Arg.Any<HoldFundsRequest>());
     }
+
+    // ===== FRD-08: ESCROW_025 records ROLE_FORBIDDEN on the caller =====
+
+    [Fact]
+    public async Task Initiate_NonBuyerRole_WritesOneRoleForbiddenOnTheCaller()
+    {
+        var response = await Function().FunctionHandler(Initiate(2_000, FreshPassword, role: "farmer"), _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Equal("ESCROW_025", ErrorCode(response));
+        await _fraud.Received(1).RecordFraudSignalAsync(
+            BuyerId, FraudDetectionService.RoleForbiddenSignal, "del-001", "escrow", Arg.Any<string?>());
+        await _fraud.DidNotReceive().RecordFraudSignalAsync(
+            FarmerId, Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task OrderCheckout_NonBuyerRole_WritesOneRoleForbiddenOnTheCaller()
+    {
+        var response = await Function().FunctionHandler(
+            Post("/escrow/order-checkout", """{"orderId":"order-1"}""", role: "trucker"), _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Equal("ESCROW_025", ErrorCode(response));
+        await _fraud.Received(1).RecordFraudSignalAsync(
+            BuyerId, FraudDetectionService.RoleForbiddenSignal, Arg.Is<string?>(e => e == null), "order", Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Initiate_WithoutTheRoleClaim_IsStill403AndWritesNothing()
+    {
+        // An access token instead of the ID token: a client set-up fault, not a probe.
+        var request = Initiate(2_000, FreshPassword);
+        request.RequestContext.Authorizer.Remove("custom:role");
+
+        var response = await Function().FunctionHandler(request, _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Equal("ESCROW_025", ErrorCode(response));
+        await _fraud.DidNotReceiveWithAnyArgs().RecordFraudSignalAsync(default!, default!, default, default!, default);
+    }
+
+    [Fact]
+    public async Task Initiate_NonBuyerRole_AFailingSignalWriteLeavesThe403Unchanged()
+    {
+        var working = await Function().FunctionHandler(Initiate(2_000, FreshPassword, role: "farmer"), _context);
+        _fraud.RecordFraudSignalAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>())
+            .Returns<Task>(_ => throw new InvalidOperationException("table down"));
+
+        var broken = await Function().FunctionHandler(Initiate(2_000, FreshPassword, role: "farmer"), _context);
+
+        Assert.Equal(working.StatusCode, broken.StatusCode);
+        Assert.Equal(working.Body, broken.Body);
+    }
 }
