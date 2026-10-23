@@ -87,7 +87,8 @@ public static partial class RequestValidator
         "farmer", "trucker", "buyer"
     };
 
-    private static readonly HashSet<string> ValidLanguages = new(StringComparer.OrdinalIgnoreCase)
+    /// <summary>Supported UI language codes (en, am, om). Reused by the sync user-profile update (SIM-37).</summary>
+    public static readonly HashSet<string> ValidLanguages = new(StringComparer.OrdinalIgnoreCase)
     {
         "en", "am", "om"
     };

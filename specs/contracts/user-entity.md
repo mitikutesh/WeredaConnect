@@ -1,7 +1,7 @@
 # User Entity Contract
 
 ## Version
-1.2.0
+1.3.0
 
 ## Parties
 - **Mobile** (client) -- stores user profile in Isar for offline access, displays user info
@@ -27,7 +27,7 @@ The User entity represents a registered user of WeredaConnect. It is shared betw
 | `role` | enum | Yes | No | Yes | One of: `farmer`, `trucker`, `buyer`. Set at registration, immutable. |
 | `woreda` | string | Yes | Yes | Yes | Administrative district (e.g., "Adama", "Jimma"). Max 100 chars. |
 | `faydaId` | string | No | Yes | Yes | Ethiopian national Fayda ID. Optional at registration, required for financial transactions (escrow). |
-| `preferredLanguage` | string | No | Yes | Yes | Enum: `en`, `am`, `om`. Default: `am`. |
+| `preferredLanguage` | string | No | Yes | Yes | Enum: `en`, `am`, `om`. Default: `am`. Changing the language in Settings syncs it via the `user` sync entity (sync-protocol.md, SIM-37). |
 | `isPhoneVerified` | boolean | Yes | Yes | Yes | Whether the user completed SMS OTP verification. |
 | `profilePhotoRef` | string | No | Yes | Yes | S3 key for profile photo. Null if no photo uploaded. |
 | `buyerType` | string | No | Yes | Yes | **Buyer only** (F-32). Enum: `private`, `company`. Null for farmers/truckers. |

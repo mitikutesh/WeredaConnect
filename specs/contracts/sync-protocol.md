@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.27.0
+1.28.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -34,7 +34,7 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
     {
       "operationId": "uuid-v4",
       "idempotencyKey": "farmer-123:crop_listing:crop-456:create:1707998400000",
-      "entityType": "crop_listing | trip | delivery | order | buyer_intent | match_event | rating | message",
+      "entityType": "crop_listing | trip | delivery | order | buyer_intent | match_event | rating | message | user",
       "entityId": "uuid-v4",
       "action": "create | update | delete",
       "clientVersion": 3,
@@ -247,6 +247,25 @@ Given Ethiopian mobile data costs ($0.50 per MB, average farmer income $300/mont
 - ⏳ WiFi-only sync option in settings
 
 ---
+
+## User profile updates (1.28.0)
+
+The `user` entity carries a profile change the client made in Settings. Only
+`action: "update"` is accepted, `entityId` MUST equal the authenticated caller (a
+user can only change their own profile), and the server allow-lists a single field:
+
+- `preferredLanguage`: one of `en`, `am`, `om`. Every other key in `data` is
+  ignored, so role, woreda, phone and the like can never change through sync.
+
+The update is version-less (last-write-wins): the server reads the caller's row,
+writes the new language and bumps `version`; an unchanged value is a no-op
+`success`. This lets the language chosen on one device follow the user to the
+others, and gives order notifications (ESC-21) the right language.
+
+Errors (all `status: "error"`): `USER_PROFILE_VALIDATION` (missing or invalid
+`preferredLanguage`, or a non-update action), `USER_PROFILE_UNAUTHORIZED`
+(`entityId` is not the caller), `USER_PROFILE_NOT_FOUND`, `USER_PROFILE_CONFLICT`
+(a rare concurrent write; the client retries) and `USER_PROFILE_UNAVAILABLE`.
 
 ## Create-conflict echo (1.4.0)
 

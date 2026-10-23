@@ -127,6 +127,39 @@ Future<void> main() async {
   bindDataUsageToAuth(dataUsageTracker, authBloc);
   final api = ApiClient();
 
+  // SIM-37: web has no offline sync queue, so push a language change straight to
+  // the server profile (best effort) through the shared /sync endpoint, so the
+  // choice follows the user to other devices. No-op until authenticated.
+  languageProvider.onLanguageChanged = (languageCode) async {
+    final state = authBloc.state;
+    if (state is! AuthAuthenticated) return;
+    final userId = state.userId;
+    final now = DateTime.now().toUtc();
+    final epochMs = now.millisecondsSinceEpoch;
+    try {
+      await api.dio.post<dynamic>(
+        '/sync',
+        data: {
+          'syncBatchId': 'lang-$epochMs',
+          'clientId': 'web',
+          'operations': [
+            {
+              'operationId': 'lang-$epochMs',
+              'idempotencyKey': '$userId:user:$userId:update:$epochMs',
+              'entityType': 'user',
+              'entityId': userId,
+              'action': 'update',
+              'data': {'preferredLanguage': languageCode},
+              'timestamp': now.toIso8601String(),
+            },
+          ],
+        },
+      );
+    } on DioException catch (e) {
+      debugPrint('[main_web] language sync failed: ${e.message}');
+    }
+  };
+
   runApp(
     MultiProvider(
       providers: [

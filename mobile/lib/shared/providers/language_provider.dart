@@ -20,6 +20,13 @@ class LanguageProvider extends ChangeNotifier {
   /// Gets the current locale
   Locale get locale => _locale;
 
+  /// Called after the locale actually changes, with the new language code
+  /// (en, am, om). The app wires this to push the choice to the user's server
+  /// profile so the language follows them to other devices (SIM-37). It is only
+  /// invoked on a real change, never during [initialize]. A failed push must
+  /// never break the UI, so [setLocale] swallows anything it throws.
+  Future<void> Function(String languageCode)? onLanguageChanged;
+
   /// Supported locales
   static const List<Locale> supportedLocales = [
     Locale('en'), // English
@@ -72,6 +79,17 @@ class LanguageProvider extends ChangeNotifier {
     // Persist to shared preferences
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_languageKey, newLocale.languageCode);
+
+    // SIM-37: let the app sync the choice to the server profile. Best effort:
+    // a sync failure must not break language switching.
+    final notify = onLanguageChanged;
+    if (notify != null) {
+      try {
+        await notify(newLocale.languageCode);
+      } on Object catch (e) {
+        debugPrint('[LanguageProvider] language sync hook failed: $e');
+      }
+    }
   }
 
   /// Get localized language name for display
