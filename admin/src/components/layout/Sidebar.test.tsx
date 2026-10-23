@@ -20,7 +20,7 @@ vi.mock("@/hooks/useLocale", async () => {
 });
 
 describe("Sidebar", () => {
-  it("renders one link per admin page, Manual Payouts included", () => {
+  it("renders one link per admin page, Manual Payouts and Unapplied Payments included", () => {
     render(
       <MemoryRouter>
         <SidebarProvider>
@@ -38,6 +38,7 @@ describe("Sidebar", () => {
       "/escrows",
       "/disputes",
       "/payouts",
+      "/unapplied-payments",
       "/fraud-review",
       "/users",
       "/transactions",
@@ -48,5 +49,8 @@ describe("Sidebar", () => {
       "/compliance",
     ]);
     expect(within(nav).getByRole("link", { name: "Manual Payouts" }).getAttribute("href")).toBe("/payouts");
+    expect(within(nav).getByRole("link", { name: "Unapplied Payments" }).getAttribute("href")).toBe(
+      "/unapplied-payments",
+    );
   });
 });

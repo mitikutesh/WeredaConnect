@@ -59,7 +59,8 @@ Single source of truth for dependency versions and technology choices.
 
 ## Infrastructure Stack
 
-- **AWS CDK**: `2.242.x` (TypeScript), **Node.js**: `20.20.0 LTS`, **TypeScript**: `5.7.x`
+- **AWS CDK**: `2.242.x` (TypeScript), **Node.js**: `20.20.0 LTS`, **TypeScript**: `7.0.x`
+- TypeScript 7 (native `tsc`) has no JS compiler API, so `infra/package.json` installs it under the alias `@typescript/native` and aliases `@typescript/typescript6` (TS 6 JS API) as `typescript` for ts-jest and ts-node. `tsc` (lint/build) runs TS 7; jest and `cdk synth` compile with TS 6. Keep both aliases in place until ts-jest and ts-node support TS 7 directly.
 
 ### AWS Services
 

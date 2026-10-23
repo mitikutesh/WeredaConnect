@@ -33,11 +33,32 @@ export function useEscrowAudit(id: string) {
   });
 }
 
-// Disputes
-export function useDisputes(params?: string) {
-  return useQuery({
-    queryKey: ["admin", "disputes", params],
-    queryFn: () => api.get(`/admin/disputes${params ? `?${params}` : ""}`),
+// Disputes. FUP-16: the server scans and then filters by status, so a page can come back short
+// with a nextToken; the disputes page loads the next one on demand.
+export function useDisputes() {
+  return useInfiniteQuery({
+    queryKey: ["admin", "disputes"],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.get<{ disputes?: unknown[]; nextToken?: string | null }>(
+        `/admin/disputes${pageParam ? `?nextToken=${encodeURIComponent(pageParam)}` : ""}`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
+  });
+}
+
+/** FUP-16: escrows in one status, page by page (the disputes page's awaiting-settlement tab). */
+export function useEscrowPages(status: string) {
+  return useInfiniteQuery({
+    queryKey: ["admin", "escrows", "pages", status],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.get<{ escrows?: unknown[]; nextToken?: string | null }>(
+        `/admin/escrows?status=${encodeURIComponent(status)}${
+          pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""
+        }`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
   });
 }
 
@@ -132,6 +153,47 @@ export function useCompleteManualPayout() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "payouts"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "escrows"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+    },
+  });
+}
+
+// Unapplied payments (FUP-02): captured Telebirr payments the webhook did not apply.
+// The server pages through the escrow audit, so a page can be empty while more remain.
+export function useUnappliedPayments() {
+  return useInfiniteQuery({
+    queryKey: ["admin", "unapplied-payments"],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.get<{ payments?: unknown[]; nextToken?: string | null }>(
+        `/admin/payments/unapplied?limit=50${pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""}`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
+  });
+}
+
+export function useRecordManualRefund() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      orderId,
+      body,
+    }: {
+      orderId: string;
+      body: {
+        paymentOrderId: string;
+        telebirrRef: string;
+        amount: number;
+        reason: string;
+        merchOrderId?: string;
+      };
+    }) =>
+      api.post<{ alreadyRecorded?: boolean; amountChecked?: boolean }>(
+        `/admin/payments/${encodeURIComponent(orderId)}/refund-manual`,
+        body,
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "unapplied-payments"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
     },
   });

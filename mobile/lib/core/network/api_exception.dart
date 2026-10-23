@@ -149,6 +149,19 @@ const String contactLockedCode = 'MESSAGE_CONTACT_LOCKED';
 bool isContactLockedMessage(String? message) =>
     message != null && message.startsWith(contactLockedCode);
 
+/// Sync rejection prefixes when crop or trip text that buyers read carries a
+/// phone number (FUP-49, sync-protocol.md 1.23.0). Nothing was written.
+const String cropContactInTextCode = 'CROP_CONTACT_IN_TEXT';
+const String tripContactInTextCode = 'TRIP_CONTACT_IN_TEXT';
+
+/// Whether a /sync per-operation error message refuses a crop listing or a
+/// trip because its text holds a phone number. Permanent: the same payload
+/// always gets the same answer, so it is never resent.
+bool isContactInTextMessage(String? message) =>
+    message != null &&
+    (message.startsWith(cropContactInTextCode) ||
+        message.startsWith(tripContactInTextCode));
+
 /// Whether a /sync per-operation error message refuses a delivery change for
 /// good and the client must put the delivery back from the server: a cancel
 /// after pickup (ESC-08) or a dispute that was refused or too late (ESC-07).
@@ -156,6 +169,106 @@ bool isRevertableDeliveryRejectionMessage(String? message) =>
     isDeliveryCancelRefusalMessage(message) ||
     isDeliveryDisputeRefusalMessage(message) ||
     isDeliveryDisputeExpiredMessage(message);
+
+/// Sync rejection prefix when a farmer's or trucker's response to an order
+/// comes after its deadline (three-party commitments, spec section 8).
+/// Permanent under the `ORDER_*` rule; has its own text.
+const String orderDeadlinePassedCode = 'ORDER_DEADLINE_PASSED';
+
+/// Sync rejection prefix when the trip an order names cannot take it
+/// (route, date, room or owner). Permanent under the `ORDER_*` rule.
+const String orderTripNotEligibleCode = 'ORDER_TRIP_NOT_ELIGIBLE';
+
+/// Sync rejection prefix when no more replacement trucks may be tried for an
+/// order after transport failures. Permanent under the `ORDER_*` rule.
+const String orderTransportAttemptsExceededCode =
+    'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED';
+
+/// Whether a /sync per-operation error message is a response after the
+/// order's deadline (`ORDER_DEADLINE_PASSED: ...`).
+bool isOrderDeadlinePassedMessage(String? message) =>
+    message != null && message.startsWith(orderDeadlinePassedCode);
+
+/// Whether a /sync per-operation error message says the named trip cannot
+/// take the order (`ORDER_TRIP_NOT_ELIGIBLE: ...`).
+bool isOrderTripNotEligibleMessage(String? message) =>
+    message != null && message.startsWith(orderTripNotEligibleCode);
+
+/// Whether a /sync per-operation error message says no more trucks may be
+/// tried for the order (`ORDER_TRANSPORT_ATTEMPTS_EXCEEDED: ...`).
+bool isOrderTransportAttemptsExceededMessage(String? message) =>
+    message != null && message.startsWith(orderTransportAttemptsExceededCode);
+
+/// Sync rejection prefix when the acting account, or on a buyer's order
+/// create the listing's or trip's owner, is restricted by reputation
+/// (ESC-29, sync-protocol.md 1.17.0): crop create, trip create, order accept
+/// and order create. Permanent; the local change is undone.
+const String reputationRestrictedCode = 'REPUTATION_RESTRICTED';
+
+/// Sync rejection prefix when a trip with booked orders is changed in a way
+/// its bookings forbid (ESC-17): date, price, route or a capacity below what
+/// is booked. Permanent; the local trip goes back to the server's row.
+const String tripHasBookingsCode = 'TRIP_HAS_BOOKINGS';
+
+/// Sync rejection prefix when an order names a trip that has no room left
+/// (ESC-17). An order refusal: permanent, the local order is undone.
+const String tripCapacityExceededCode = 'TRIP_CAPACITY_EXCEEDED';
+
+/// Sync rejection prefix when a listing with funded or accepted orders is
+/// removed, or its quantity dropped below what those orders hold (ESC-18).
+/// Permanent; the local listing goes back to the server's row.
+const String cropHasActiveOrdersCode = 'CROP_HAS_ACTIVE_ORDERS';
+
+/// Sync rejection prefix when this app build is below the server's minimum
+/// (ESC-25, the minimum-version gate on order commands, spec K1). Permanent
+/// for an order: the local order is undone like any order refusal. Any other
+/// operation is still valid, so it is kept pending for the updated build and
+/// never undone. Either way the user is asked to update.
+const String appUpdateRequiredCode = 'APP_UPDATE_REQUIRED';
+
+/// Whether a /sync per-operation error message is a reputation refusal
+/// (`REPUTATION_RESTRICTED: ...`).
+bool isReputationRestrictedMessage(String? message) =>
+    message != null && message.startsWith(reputationRestrictedCode);
+
+/// Whether a /sync per-operation error message refuses a trip change because
+/// of its bookings (`TRIP_HAS_BOOKINGS: ...`).
+bool isTripHasBookingsMessage(String? message) =>
+    message != null && message.startsWith(tripHasBookingsCode);
+
+/// Whether a /sync per-operation error message refuses an order because its
+/// trip is full (`TRIP_CAPACITY_EXCEEDED: ...`).
+bool isTripCapacityExceededMessage(String? message) =>
+    message != null && message.startsWith(tripCapacityExceededCode);
+
+/// Whether a /sync per-operation error message refuses a listing change
+/// because of its active orders (`CROP_HAS_ACTIVE_ORDERS: ...`).
+bool isCropHasActiveOrdersMessage(String? message) =>
+    message != null && message.startsWith(cropHasActiveOrdersCode);
+
+/// Whether a /sync per-operation error message says the app is too old
+/// (`APP_UPDATE_REQUIRED: ...`).
+bool isAppUpdateRequiredMessage(String? message) =>
+    message != null && message.startsWith(appUpdateRequiredCode);
+
+/// Whether a /sync per-operation error message refuses a crop listing change
+/// for good and the client must put the listing back from the server (or
+/// remove a refused create): the farmer is restricted or the listing has
+/// active orders (sync-protocol.md 1.17.0). Only these codes: `CROP_VALIDATION`
+/// also covers a failed profile read on the server, so a `CROP_` prefix is not
+/// deterministic and keeps retrying. `APP_UPDATE_REQUIRED` is not one either:
+/// the same listing goes through once the app is updated.
+bool isRevertableListingRejectionMessage(String? message) =>
+    isReputationRestrictedMessage(message) ||
+    isCropHasActiveOrdersMessage(message);
+
+/// Whether a /sync per-operation error message refuses a trip change for
+/// good and the client must put the trip back from the server (or remove a
+/// refused create): the trucker is restricted or the trip has bookings
+/// (sync-protocol.md 1.17.0). Only these codes, for the same reasons as
+/// [isRevertableListingRejectionMessage].
+bool isRevertableTripRejectionMessage(String? message) =>
+    isReputationRestrictedMessage(message) || isTripHasBookingsMessage(message);
 
 /// Whether a /sync per-operation error message is the live gateway's refusal
 /// of a payment whose order total one Telebirr payment cannot take
@@ -165,6 +278,19 @@ bool isPaymentTotalOutOfRangeMessage(String? message) =>
     message != null &&
     message.startsWith('ORDER_VALIDATION:') &&
     message.contains('outside what one Telebirr payment can take');
+
+/// Sync rejection prefix when the live gateway refuses a payment method it
+/// cannot fund (FUP-20, sync-protocol.md 1.16.0): a bank transfer
+/// (`cbe_transfer`) until ESC-46 builds CBE verification, or any method other
+/// than `telebirr`. Nothing was written; the buyer pays with Telebirr.
+const String orderPaymentMethodUnavailableCode =
+    'ORDER_PAYMENT_METHOD_UNAVAILABLE';
+
+/// Whether a /sync per-operation error message refuses the payment method
+/// (`ORDER_PAYMENT_METHOD_UNAVAILABLE: ...`). Permanent like every `ORDER_*`
+/// refusal: the local payment is undone.
+bool isPaymentMethodUnavailableMessage(String? message) =>
+    message != null && message.startsWith(orderPaymentMethodUnavailableCode);
 
 /// Request validation error (400)
 final class ValidationException extends ApiException {

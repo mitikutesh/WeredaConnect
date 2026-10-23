@@ -54,6 +54,18 @@ public partial class SyncFunction
     // Optional: when the escrows table is provisioned, confirming a delivery
     // stamps the linked escrow so the auto-release cron can pay the farmer.
     private readonly IEscrowRepository? _escrowRepo;
+
+    /// <summary>
+    /// FRD-03: <c>FRAUD_HOLD_ENABLED</c>, as on escrow-cron. On, the farmer's accept of an order with an
+    /// escrow is one transaction that checks the escrow is not held (<see cref="EscrowsTableName"/>).
+    /// </summary>
+    internal bool FraudHoldEnabled { get; init; }
+
+    /// <summary>FRD-03: the escrows table the accept's transaction checks (<c>ESCROWS_TABLE</c>).</summary>
+    internal string? EscrowsTableName { get; init; }
+
+    /// <summary>FRD-03: the farmer's accept of an order whose escrow is held for review (order-lifecycle 1.22.0).</summary>
+    private const string OrderUnderReviewMessage = "This order is under review and cannot be accepted. Contact support.";
     // Optional: the order-funded escrow leg (escrow record at order funding,
     // delivery linkage, refund scheduling). Constructed WITHOUT Telebirr wiring —
     // these paths never move money themselves (escrow-protocol.md §Order-funded
@@ -102,6 +114,9 @@ public partial class SyncFunction
     /// <summary>ESC-01: what one live Telebirr payment can take (escrow-protocol.md §Amount Validation).</summary>
     private const decimal LiveMinPaymentEtb = 100m;
     private const decimal LiveMaxPaymentEtb = 500_000m;
+
+    /// <summary>FUP-20: the only payment method the live gateway funds (the ESC-01 checkout); bank transfers wait for ESC-46.</summary>
+    private const string LivePaymentMethod = "telebirr";
 
     /// <summary>Client-echoed money must match the server's computation to the santim.</summary>
     private const double MoneyTolerance = 0.01;
@@ -212,6 +227,23 @@ public partial class SyncFunction
         "truckerId", "truckerName", "truckerPhone", "vehiclePlate", "vehicleDescription",
         "fromWoreda", "toWoreda", "departureDate", "capacity", "pricePerQuintal", "status", "matchedListings"
     };
+
+    /// <summary>
+    /// FUP-49: listing text that buyers read before any order. ESC-48 keeps contact closed until
+    /// the money is held, so none of it may carry a phone number (crop-listing-api.md 1.4.0,
+    /// trip-listing-api.md 1.5.0). The crop `woreda` is not screened here: clients send it from
+    /// the registration profile, so a refusal would lock the farmer out with nothing to fix.
+    /// </summary>
+    private static readonly string[] CropContactScreenedFields = { "description", "locationName" };
+
+    private static readonly string[] TripContactScreenedFields =
+    {
+        "vehicleDescription", "vehiclePlate", "fromWoreda", "toWoreda"
+    };
+
+    /// <summary>FUP-49: the refusal for a phone number in listing text; deterministic for a payload.</summary>
+    private static string ContactInTextRefusal(string code, List<string> fields) =>
+        $"{code}: Remove the phone number from {string.Join(", ", fields)}. Contact opens after payment is held in escrow.";
 
     private static readonly HashSet<string> AllowedDeliveryFields = new()
     {
@@ -518,6 +550,9 @@ public partial class SyncFunction
         _escrowRepo = escrowsTable != null
             ? new EscrowRepository(_dynamoDb, escrowsTable)
             : null;
+        EscrowsTableName = escrowsTable;
+        FraudHoldEnabled = string.Equals(
+            Environment.GetEnvironmentVariable("FRAUD_HOLD_ENABLED"), "true", StringComparison.OrdinalIgnoreCase);
 
         // Optional: unified transaction-audit trail (order/delivery transitions).
         var txAuditTable = Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE");
@@ -2085,6 +2120,19 @@ public partial class SyncFunction
                         };
                     }
 
+                    // FUP-49: no phone number in text every buyer reads.
+                    var createContactFields = Validation.ContactInText.FieldsWithPhoneNumber(
+                        operation.Data, CropContactScreenedFields);
+                    if (createContactFields.Count > 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = ContactInTextRefusal("CROP_CONTACT_IN_TEXT", createContactFields)
+                        };
+                    }
+
                     // ── Fraud detection (F-14) ──
                     if (_fraudService != null)
                     {
@@ -2249,6 +2297,21 @@ public partial class SyncFunction
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = $"CROP_VALIDATION: {string.Join(" ", updateValidationErrors)}"
+                        };
+                    }
+
+                    // FUP-49: a changed text must not carry a phone number; an unchanged echo
+                    // of the stored value is not checked.
+                    var updateContactFields = Validation.ContactInText.FieldsWithPhoneNumber(
+                        operation.Data, CropContactScreenedFields,
+                        key => existingForUpdate.TryGetValue(key, out var stored) ? stored?.ToString() : null);
+                    if (updateContactFields.Count > 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = ContactInTextRefusal("CROP_CONTACT_IN_TEXT", updateContactFields)
                         };
                     }
 
@@ -2477,6 +2540,19 @@ public partial class SyncFunction
                         };
                     }
 
+                    // FUP-49: no phone number in text every buyer reads.
+                    var createContactFields = Validation.ContactInText.FieldsWithPhoneNumber(
+                        operation.Data, TripContactScreenedFields);
+                    if (createContactFields.Count > 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = ContactInTextRefusal("TRIP_CONTACT_IN_TEXT", createContactFields)
+                        };
+                    }
+
                     NormalizeDepartureDate(operation.Data);
 
                     var now = DateTime.UtcNow.ToString("o");
@@ -2678,6 +2754,21 @@ public partial class SyncFunction
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = $"TRIP_VALIDATION: {string.Join(" ", validationErrors)}"
+                        };
+                    }
+
+                    // FUP-49: a changed text must not carry a phone number; an unchanged echo
+                    // of the stored value is not checked.
+                    var updateContactFields = Validation.ContactInText.FieldsWithPhoneNumber(
+                        operation.Data, TripContactScreenedFields,
+                        key => existing.TryGetValue(key, out var stored) ? stored.S : null);
+                    if (updateContactFields.Count > 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = ContactInTextRefusal("TRIP_CONTACT_IN_TEXT", updateContactFields)
                         };
                     }
 
@@ -4396,8 +4487,31 @@ public partial class SyncFunction
                                 // until the farmer's nonce syncs, then hard-fail once it's clearly
                                 // never coming. Cash (no-escrow) deliveries keep the legacy
                                 // allow-through so a missing QR doesn't block them.
-                                var hasEscrow = _escrowRepo != null
-                                    && await _escrowRepo.GetByDeliveryIdAsync(operation.EntityId) != null;
+                                bool hasEscrow;
+                                try
+                                {
+                                    hasEscrow = await HasDeliveryEscrowAsync(existing, operation.EntityId);
+                                }
+                                catch (Exception ex)
+                                {
+                                    // FUP-42: an unknown answer is never cash. Nothing is written and the
+                                    // op stays queued without using a retry. No 14-day hard fail here:
+                                    // the delivery may carry no money at all. A read that keeps failing
+                                    // would defer for ever, so the token is alarmed (order escrow problems).
+                                    var gateOrderId = existing.TryGetValue("orderId", out var gateOrderAttr)
+                                        ? gateOrderAttr.S : null;
+                                    context.Logger.LogError(
+                                        $"QR_GATE_UNDECIDED deliveryId={MoneyAlarmLog.LogId(operation.EntityId)} "
+                                        + $"orderId={MoneyAlarmLog.LogId(gateOrderId)} reason={ex.GetType().Name} "
+                                        + $"detail={MoneyAlarmLog.LogText(ex.Message)}");
+                                    return new SyncOperationResult
+                                    {
+                                        OperationId = operation.OperationId,
+                                        Status = "deferred",
+                                        Message = "DELIVERY_NONCE_PENDING: The payment check could not be completed. Will retry automatically."
+                                    };
+                                }
+
                                 if (hasEscrow)
                                 {
                                     var createdAtStr = existing.TryGetValue("createdAt", out var caAttr)
@@ -5609,8 +5723,11 @@ public partial class SyncFunction
             };
         }
 
-        // Fetch existing order
-        var existingOrder = await _orderRepo.GetByIdAsync(operation.EntityId);
+        // FUP-21: strongly consistent. Every check below runs on this row, but the write's
+        // version check uses the client's version, so a stale row can pass a transition the
+        // stored order forbids. Two updates of one order in one batch (pay then cancel)
+        // would otherwise validate the second against the row from before the first.
+        var existingOrder = await _orderRepo.GetByIdAsync(operation.EntityId, consistentRead: true);
         if (existingOrder == null)
         {
             return new SyncOperationResult
@@ -5702,6 +5819,9 @@ public partial class SyncFunction
             return OrderValidationError(operation, string.Join(" ", updateValidationErrors));
         }
 
+        // FRD-03: set by the accept below when its write must check the escrow in the same transaction.
+        EscrowRowKey? acceptFence = null;
+
         // Validate status transition
         if (operation.Data.TryGetValue("status", out var newStatusObj))
         {
@@ -5780,6 +5900,24 @@ public partial class SyncFunction
                         $"This order total ({roundedTotal} ETB) is outside what one Telebirr payment can take "
                         + $"({LiveMinPaymentEtb} to {LiveMaxPaymentEtb} ETB).");
                 }
+
+                // FUP-20: with the live gateway only the Telebirr checkout funds an order. A bank
+                // transfer (cbe_transfer, the demo rail) has no funding path until ESC-46 builds
+                // CBE verification, so it is refused here, before the payment clock starts and
+                // before anything records a submitted payment. Only the update's own value counts:
+                // the stored one is a create-time default (the mobile create writes cbe_transfer),
+                // so an update without a method is left to the checkout.
+                if (!IsMockPaymentsEnabled()
+                    && operation.Data.TryGetValue("paymentMethod", out var methodObj)
+                    && methodObj?.ToString() is string paymentMethod
+                    && !string.Equals(paymentMethod, LivePaymentMethod, StringComparison.Ordinal))
+                {
+                    var methodLabel = paymentMethod == "cbe_transfer"
+                        ? "Bank transfer (cbe_transfer)"
+                        : $"Payment method '{paymentMethod}'";
+                    return PaymentMethodUnavailable(operation,
+                        $"{methodLabel} is not available yet. Pay with Telebirr.");
+                }
             }
 
             // SIM-60: pickup_confirmed and in_transit follow the delivery as well. The
@@ -5805,7 +5943,10 @@ public partial class SyncFunction
                 && adObj?.ToString() is string activeDeliveryId
                 && !string.IsNullOrEmpty(activeDeliveryId))
             {
-                var activeDelivery = await GetDeliveryItemAsync(activeDeliveryId);
+                // Strongly consistent (FUP-09): the catch-up usually comes right after the
+                // delivery's confirm, which a lagging read may not show yet; a lagging read
+                // could also still say delivered after the delivery was disputed.
+                var activeDelivery = await GetDeliveryItemAsync(activeDeliveryId, consistentRead: true);
                 var activeDeliveryStatus = activeDelivery != null
                     && activeDelivery.TryGetValue("status", out var adsAttr) ? adsAttr.S : null;
                 if (activeDeliveryStatus != "delivered")
@@ -5819,6 +5960,39 @@ public partial class SyncFunction
             // Add server-side timestamps for specific transitions
             var nowUtc = DateTime.UtcNow;
             var now = nowUtc.ToString("o");
+
+            // FRD-03: a funded order whose escrow is held for review cannot be accepted: a delivery
+            // created after it could never link to the held escrow. Reject and cancel stay allowed. An
+            // escrow that cannot be read refuses the accept for now (transient, the client retries).
+            if (newStatus == "accepted" && _escrowRepo != null)
+            {
+                Dictionary<string, object>? orderEscrow;
+                try
+                {
+                    orderEscrow = await _escrowRepo.GetByIdAsync($"escrow-order-{operation.EntityId}", consistentRead: true);
+                }
+                catch (Exception ex)
+                {
+                    context.Logger.LogWarning(
+                        $"ORDER_ACCEPT_ESCROW_UNREAD orderId={MoneyAlarmLog.LogId(operation.EntityId)} error={ex.GetType().Name}");
+                    return TransientOrderError(operation, "The order's payment could not be checked. Please try again later.");
+                }
+
+                if (orderEscrow != null && orderEscrow.TryGetValue("status", out var orderEscrowStatus)
+                    && orderEscrowStatus?.ToString() == EscrowHoldFields.Status)
+                {
+                    return OrderValidationError(operation, OrderUnderReviewMessage);
+                }
+
+                // With the hold on, a sweep may hold the escrow between this read and the write: the
+                // write checks it again in the same transaction.
+                if (FraudHoldEnabled && orderEscrow != null && !string.IsNullOrEmpty(EscrowsTableName)
+                    && orderEscrow.TryGetValue("createdAt", out var escrowCreatedAt)
+                    && escrowCreatedAt?.ToString() is { Length: > 0 } escrowCreated)
+                {
+                    acceptFence = new EscrowRowKey(EscrowsTableName, $"escrow-order-{operation.EntityId}", escrowCreated);
+                }
+            }
 
             // ESC-06: the farmer's accept starts the pickup clock in the same write. A trip that
             // cannot be read refuses the accept for now (transient, so the client retries): no
@@ -5872,7 +6046,15 @@ public partial class SyncFunction
 
         operation.Data.Remove("version"); // consumed here; the repository handles the check
 
-        var updateResult = await _orderRepo.UpdateAsync(operation.EntityId, operation.Data, version);
+        var updateResult = acceptFence != null
+            ? await _orderRepo.UpdateUnlessEscrowHeldAsync(operation.EntityId, operation.Data, version, acceptFence)
+            : await _orderRepo.UpdateAsync(operation.EntityId, operation.Data, version);
+
+        // FRD-03: a sweep held the escrow between the check and the write; nothing was written.
+        if (!updateResult.IsSuccess && updateResult.Error?.Code == OrderRepository.EscrowHeldCode)
+        {
+            return OrderValidationError(operation, OrderUnderReviewMessage);
+        }
 
         if (updateResult.IsSuccess)
         {
@@ -5949,8 +6131,9 @@ public partial class SyncFunction
             };
         }
 
-        // Conflict
-        var serverData = await _orderRepo.GetByIdAsync(operation.EntityId);
+        // Conflict. Read strongly consistent (FUP-21): the client adopts this row and retries
+        // from its version, so it must be the row that beat the write, not an older one.
+        var serverData = await _orderRepo.GetByIdAsync(operation.EntityId, consistentRead: true);
         var srvVersion = serverData != null && serverData.TryGetValue("version", out var svObj)
             ? int.TryParse(svObj.ToString(), out var parsed) ? parsed : version
             : version;
@@ -6937,6 +7120,17 @@ public partial class SyncFunction
         Message = $"ORDER_CANCEL_NOT_ALLOWED: {message}"
     };
 
+    /// <summary>
+    /// FUP-20: a live payment with a method the gateway cannot fund. Deterministic, so permanent
+    /// under the <c>ORDER_*</c> rule (sync-protocol.md 1.16.0); nothing was written.
+    /// </summary>
+    private static SyncOperationResult PaymentMethodUnavailable(SyncOperationRequest operation, string message) => new()
+    {
+        OperationId = operation.OperationId,
+        Status = "error",
+        Message = $"ORDER_PAYMENT_METHOD_UNAVAILABLE: {message}"
+    };
+
     /// <summary>A transient order failure: no <c>ORDER_</c> prefix, so the client keeps the change and retries.</summary>
     private static SyncOperationResult TransientOrderError(SyncOperationRequest operation, string message) => new()
     {
@@ -7086,6 +7280,32 @@ public partial class SyncFunction
         // An amount that cannot be read (missing, unparseable, zero or negative) needs the fresh password.
         var rounded = Math.Round(amount, 2, MidpointRounding.AwayFromZero);
         return StepUpPolicy.Check(_requestAuthTime, rounded > 0m ? rounded : StepUpPolicy.ThresholdEtb);
+    }
+
+    /// <summary>
+    /// FUP-42: whether a delivery carries money, so its <c>pickedUp</c> and <c>delivered</c> need the QR.
+    /// The order's own escrow (<c>escrow-order-{orderId}</c>, strongly consistent, any status) decides
+    /// first, found as the dispute freeze finds it (ESC-07): its link to the delivery can fail
+    /// (<c>ORDER_ESCROW_LINK_FAILED</c>) or lag, and the <c>DeliveryIndex</c> alone then called the
+    /// delivery cash. Otherwise the <c>DeliveryIndex</c> finds an escrow paid through
+    /// <c>POST /escrow/initiate</c>, or one of a legacy delivery without an order. Throws when a read
+    /// fails; the caller defers.
+    /// </summary>
+    private async Task<bool> HasDeliveryEscrowAsync(Dictionary<string, AttributeValue> delivery, string deliveryId)
+    {
+        if (_escrowRepo == null)
+        {
+            return false;
+        }
+
+        var orderId = delivery.TryGetValue("orderId", out var oid) ? oid.S : null;
+        if (!string.IsNullOrEmpty(orderId)
+            && await _escrowRepo.GetByIdAsync($"escrow-order-{orderId}", consistentRead: true) != null)
+        {
+            return true;
+        }
+
+        return await _escrowRepo.GetByDeliveryIdAsync(deliveryId) != null;
     }
 
     /// <summary>True when the caller's id equals any of the named id fields.</summary>
