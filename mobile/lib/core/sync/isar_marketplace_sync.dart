@@ -185,12 +185,13 @@ class IsarMarketplaceSync implements MarketplaceSync {
   /// Every path clears the order pull stamp so that pull is not throttled.
   /// A delivery cancel refused after pickup (ESC-08) and a refused or late
   /// delivery dispute (ESC-07) are undone the same way from
-  /// `GET /deliveries/{id}`, never removing the delivery. A message refused
+  /// `GET /deliveries/{id}`, never removing the delivery; only a refused
+  /// delivery `create`, never stored, is removed (1.17.0). A message refused
   /// because its thread's contact is not open (ESC-48) was never stored, so
   /// its local copy is removed. A crop listing or trip change refused by
-  /// reputation, bookings, active orders or the minimum app version (ESC-12
-  /// part B, 1.17.0) is undone with the order rules; any other refusal of
-  /// those leaves the row alone. Other entity types are left alone.
+  /// reputation, bookings or active orders (ESC-12 part B, 1.17.0) is undone
+  /// with the order rules; any other refusal of those, `APP_UPDATE_REQUIRED`
+  /// included, leaves the row alone. Other entity types are left alone.
   Future<void> revertRejected(SyncOperation operation, String message) async {
     if (operation.entityType == 'delivery') {
       await _revertRejectedDelivery(operation);
@@ -266,10 +267,18 @@ class IsarMarketplaceSync implements MarketplaceSync {
   /// `delivered` there. Server wins, as for an order update: the local row
   /// is replaced by `GET /deliveries/{id}` unless another upload for it is on
   /// its way; when that read fails the version goes back for the next
-  /// [pullDeliveries].
+  /// [pullDeliveries]. A refused `create` was never stored, so the local
+  /// delivery is removed without a read, as for orders, listings and trips.
   Future<void> _revertRejectedDelivery(SyncOperation operation) async {
     final deliveryId = operation.entityId;
     _lastDeliveryPull = null;
+    if (operation.action == 'create') {
+      await _isar.writeTxn(
+        () =>
+            _isar.deliverys.filter().deliveryIdEqualTo(deliveryId).deleteAll(),
+      );
+      return;
+    }
     if (await _hasOpenUploads(operation.entityType, deliveryId)) return;
 
     Delivery? server;

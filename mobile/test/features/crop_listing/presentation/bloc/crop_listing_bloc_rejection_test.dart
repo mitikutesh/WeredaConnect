@@ -168,25 +168,31 @@ void main() {
       return (states.last as CropListingsLoaded).listings;
     }
 
-    for (final message in [
-      'REPUTATION_RESTRICTED: restricted',
-      'APP_UPDATE_REQUIRED: minimum 2.0.0',
-    ]) {
-      test('a refused create (${message.split(':').first}) is gone', () async {
-        final created = await _run(repository, _create);
-        expect(created.last, isA<CropListingCreated>());
-        expect(await reload(), hasLength(1));
+    test('a refused create (REPUTATION_RESTRICTED) is gone', () async {
+      final created = await _run(repository, _create);
+      expect(created.last, isA<CropListingCreated>());
+      expect(await reload(), hasLength(1));
 
-        await serverRefuses(message);
+      await serverRefuses('REPUTATION_RESTRICTED: restricted');
 
-        expect(await reload(), isEmpty);
-        verifyZeroInteractions(api);
-      });
-    }
+      expect(await reload(), isEmpty);
+      verifyZeroInteractions(api);
+    });
+
+    // The executor holds it for the updated build; even if the handler got
+    // the code, the farmer's listing must stay.
+    test('a create answered APP_UPDATE_REQUIRED stays on the list', () async {
+      await _run(repository, _create);
+
+      await serverRefuses('APP_UPDATE_REQUIRED: minimum 2.0.0');
+
+      expect((await reload()).single.status, ListingStatus.active);
+      verifyZeroInteractions(api);
+    });
 
     for (final message in [
       'CROP_HAS_ACTIVE_ORDERS: open orders',
-      'APP_UPDATE_REQUIRED: minimum 2.0.0',
+      'REPUTATION_RESTRICTED: restricted',
     ]) {
       test('a refused delete (${message.split(':').first}) is active again',
           () async {

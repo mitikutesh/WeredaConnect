@@ -2583,5 +2583,6 @@
   "errorCounterpartyRestricted": "ይህ ገበሬ ወይም የጭነት መኪና ሹፌር አሁን አዲስ ትዕዛዝ መቀበል አይችልም፣ ስለዚህ ትዕዛዙ አልገባም። እባክዎ ሌላ ይምረጡ።",
   "errorTripHasBookings": "ይህ ጉዞ የተያዙ ትዕዛዞች ስላሉት ይህ ለውጥ ሊደረግ አይችልም።",
   "errorCropHasActiveOrders": "ይህ ዝርዝር ክፍት ትዕዛዞች አሉት። መጀመሪያ እነሱን ያስተናግዱ።",
-  "errorAppUpdateRequired": "ለመቀጠል እባክዎ መተግበሪያውን ያዘምኑ። ይህ ለውጥ አልተቀመጠም።"
+  "errorAppUpdateRequired": "ለመቀጠል እባክዎ መተግበሪያውን ያዘምኑ። ይህ ለውጥ አልተቀመጠም።",
+  "errorAppUpdateRequiredKept": "እባክዎ መተግበሪያውን ያዘምኑ። ይህ ለውጥ በስልክዎ ላይ ተቀምጧል፣ ከዝማኔው በኋላ ይላካል።"
 }

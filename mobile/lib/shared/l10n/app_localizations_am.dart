@@ -2898,4 +2898,8 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get errorAppUpdateRequired =>
       'ለመቀጠል እባክዎ መተግበሪያውን ያዘምኑ። ይህ ለውጥ አልተቀመጠም።';
+
+  @override
+  String get errorAppUpdateRequiredKept =>
+      'እባክዎ መተግበሪያውን ያዘምኑ። ይህ ለውጥ በስልክዎ ላይ ተቀምጧል፣ ከዝማኔው በኋላ ይላካል።';
 }

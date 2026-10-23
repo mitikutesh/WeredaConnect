@@ -2,13 +2,32 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/features/order/data/repositories/web_order_repository.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 
 class _MockOrderRepository extends Mock implements BaseOrderRepository {}
+
+class _MockApiClient extends Mock implements ApiClient {}
+
+const _createOrder = CreateOrder(
+  listingId: 'crop-1',
+  buyerId: 'buyer-1',
+  farmerId: 'farmer-1',
+  buyerName: 'Buyer',
+  farmerName: 'Farmer',
+  cropType: 'teff',
+  quantity: 5,
+  pricePerUnit: 60,
+  tripId: 'trip-1',
+  truckerId: 'trucker-1',
+  truckerName: 'Trucker',
+  transportCost: 100,
+);
 
 /// Polls until [states] holds [count] entries (5s cap) instead of sleeping a
 /// fixed time; the expects below then report what actually arrived.
@@ -146,6 +165,18 @@ void main() {
   }
 
   group('a refused create (buyer, web)', () {
+    Future<List<OrderState>> createWith(BaseOrderRepository repository) async {
+      final bloc = OrderBloc(repository: repository);
+      final states = <OrderState>[];
+      final sub = bloc.stream.listen(states.add);
+      bloc.add(_createOrder);
+      await waitForStates(states, 2);
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      await bloc.close();
+      return states;
+    }
+
     Future<List<OrderState>> create(Object error) async {
       when(
         () => repo.createOrder(
@@ -164,30 +195,7 @@ void main() {
           commissionRate: any(named: 'commissionRate'),
         ),
       ).thenAnswer((_) async => throw error);
-      final bloc = OrderBloc(repository: repo);
-      final states = <OrderState>[];
-      final sub = bloc.stream.listen(states.add);
-      bloc.add(
-        const CreateOrder(
-          listingId: 'crop-1',
-          buyerId: 'buyer-1',
-          farmerId: 'farmer-1',
-          buyerName: 'Buyer',
-          farmerName: 'Farmer',
-          cropType: 'teff',
-          quantity: 5,
-          pricePerUnit: 60,
-          tripId: 'trip-1',
-          truckerId: 'trucker-1',
-          truckerName: 'Trucker',
-          transportCost: 100,
-        ),
-      );
-      await waitForStates(states, 2);
-      await Future<void>.delayed(Duration.zero);
-      await sub.cancel();
-      await bloc.close();
-      return states;
+      return createWith(repo);
     }
 
     // Spec A7: on a create the restricted party is the farmer or trucker.
@@ -198,6 +206,42 @@ void main() {
         ),
         AppErrorCode.counterpartyRestricted,
       );
+    });
+
+    // The whole web chain: /sync refuses the create, the real repository
+    // throws from ensureSyncSucceeded, the bloc names the owner.
+    test(
+        'through WebOrderRepository: REPUTATION_RESTRICTED names the owner, '
+        'nothing is read after', () async {
+      final api = _MockApiClient();
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'results': [
+            {
+              'status': 'error',
+              'message': 'REPUTATION_RESTRICTED: The listing owner cannot '
+                  'take new orders.',
+            },
+          ],
+        },
+      );
+
+      expectError(
+        await createWith(WebOrderRepository(api: api)),
+        AppErrorCode.counterpartyRestricted,
+      );
+      verify(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).called(1);
+      verifyNoMoreInteractions(api);
     });
 
     for (final (code, expected) in [

@@ -3010,4 +3010,8 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get errorAppUpdateRequired =>
       'Itti fufuuf maaloo appii haaromsaa. Jijjiiramni kun hin olkaa\'amne.';
+
+  @override
+  String get errorAppUpdateRequiredKept =>
+      'Maaloo appii haaromsaa. Jijjiiramni kun bilbila keessan irratti kuufameera, haaromsa booda ni ergama.';
 }

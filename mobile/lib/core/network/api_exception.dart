@@ -207,9 +207,10 @@ const String tripCapacityExceededCode = 'TRIP_CAPACITY_EXCEEDED';
 const String cropHasActiveOrdersCode = 'CROP_HAS_ACTIVE_ORDERS';
 
 /// Sync rejection prefix when this app build is below the server's minimum
-/// (ESC-25, the minimum-version gate). Permanent for any entity: the local
-/// change is undone like the entity's other permanent refusals and the user
-/// is asked to update.
+/// (ESC-25, the minimum-version gate on order commands, spec K1). Permanent
+/// for an order: the local order is undone like any order refusal. Any other
+/// operation is still valid, so it is kept pending for the updated build and
+/// never undone. Either way the user is asked to update.
 const String appUpdateRequiredCode = 'APP_UPDATE_REQUIRED';
 
 /// Whether a /sync per-operation error message is a reputation refusal
@@ -239,24 +240,22 @@ bool isAppUpdateRequiredMessage(String? message) =>
 
 /// Whether a /sync per-operation error message refuses a crop listing change
 /// for good and the client must put the listing back from the server (or
-/// remove a refused create): the farmer is restricted, the listing has active
-/// orders, or the app is too old (sync-protocol.md 1.17.0). Only these codes:
-/// `CROP_VALIDATION` also covers a failed profile read on the server, so a
-/// `CROP_` prefix is not deterministic and keeps retrying.
+/// remove a refused create): the farmer is restricted or the listing has
+/// active orders (sync-protocol.md 1.17.0). Only these codes: `CROP_VALIDATION`
+/// also covers a failed profile read on the server, so a `CROP_` prefix is not
+/// deterministic and keeps retrying. `APP_UPDATE_REQUIRED` is not one either:
+/// the same listing goes through once the app is updated.
 bool isRevertableListingRejectionMessage(String? message) =>
     isReputationRestrictedMessage(message) ||
-    isCropHasActiveOrdersMessage(message) ||
-    isAppUpdateRequiredMessage(message);
+    isCropHasActiveOrdersMessage(message);
 
 /// Whether a /sync per-operation error message refuses a trip change for
 /// good and the client must put the trip back from the server (or remove a
-/// refused create): the trucker is restricted, the trip has bookings, or the
-/// app is too old (sync-protocol.md 1.17.0). Only these codes, for the same
-/// reason as [isRevertableListingRejectionMessage].
+/// refused create): the trucker is restricted or the trip has bookings
+/// (sync-protocol.md 1.17.0). Only these codes, for the same reasons as
+/// [isRevertableListingRejectionMessage].
 bool isRevertableTripRejectionMessage(String? message) =>
-    isReputationRestrictedMessage(message) ||
-    isTripHasBookingsMessage(message) ||
-    isAppUpdateRequiredMessage(message);
+    isReputationRestrictedMessage(message) || isTripHasBookingsMessage(message);
 
 /// Whether a /sync per-operation error message is the live gateway's refusal
 /// of a payment whose order total one Telebirr payment cannot take

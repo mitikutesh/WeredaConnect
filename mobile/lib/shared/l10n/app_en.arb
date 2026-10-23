@@ -3735,5 +3735,9 @@
   "errorAppUpdateRequired": "Please update the app to continue. This change was not saved.",
   "@errorAppUpdateRequired": {
     "description": "The server refused a change because this app version is below its minimum (APP_UPDATE_REQUIRED); on mobile the local change was undone"
+  },
+  "errorAppUpdateRequiredKept": "Please update the app. This change is kept on your phone and will be sent after the update.",
+  "@errorAppUpdateRequiredKept": {
+    "description": "The server answered a queued change other than an order (listing, trip, delivery, rating, message, buyer request) with APP_UPDATE_REQUIRED; the app keeps it queued and sends it after the update"
   }
 }

@@ -52,6 +52,7 @@ void main() {
   late List<(SyncOperation, String)> kycCalls;
   late SyncExecutor executor;
   late int syncPosts;
+  late List<List<String>> sentOperationIds;
 
   setUpAll(() async {
     await Isar.initializeIsarCore(download: true);
@@ -84,10 +85,18 @@ void main() {
     dio = Dio(BaseOptions(baseUrl: 'https://api.test.com'));
     adapter = DioAdapter(dio: dio);
     syncPosts = 0;
+    sentOperationIds = [];
     dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
-          if (options.path == '/sync') syncPosts++;
+          if (options.path == '/sync') {
+            syncPosts++;
+            final body = options.data as Map<String, dynamic>;
+            sentOperationIds.add([
+              for (final op in body['operations'] as List)
+                (op as Map<String, dynamic>)['operationId'] as String,
+            ]);
+          }
           handler.next(options);
         },
       ),
@@ -692,7 +701,6 @@ void main() {
     for (final code in [
       'REPUTATION_RESTRICTED',
       'CROP_HAS_ACTIVE_ORDERS',
-      'APP_UPDATE_REQUIRED',
     ]) {
       for (final (action, data) in [
         ('create', '{"listingId":"crop-1","version":1}'),
@@ -734,7 +742,6 @@ void main() {
     for (final code in [
       'REPUTATION_RESTRICTED',
       'TRIP_HAS_BOOKINGS',
-      'APP_UPDATE_REQUIRED',
     ]) {
       for (final (action, data) in [
         ('create', '{"tripId":"trip-1","version":1}'),
@@ -896,16 +903,24 @@ void main() {
     }
   });
 
-  group('part B: APP_UPDATE_REQUIRED on other entities', () {
+  // Lead decision (spec K1, ESC-25): the minimum-version gate is for order
+  // commands. Any other operation is valid as it is, so it waits for the
+  // updated build instead of being refused for good.
+  group('part B: APP_UPDATE_REQUIRED on anything but an order is held', () {
+    const message = 'APP_UPDATE_REQUIRED: minimum 2.0.0';
     for (final (entityType, entityId, action) in [
+      ('crop_listing', 'crop-1', 'create'),
+      ('crop_listing', 'crop-1', 'delete'),
+      ('trip', 'trip-1', 'create'),
+      ('trip', 'trip-1', 'update'),
+      ('delivery', 'del-1', 'create'),
       ('delivery', 'del-1', 'update'),
       ('message', 'msg-1', 'create'),
       ('rating', 'rating-1', 'create'),
+      ('buyer_intent', 'intent-1', 'create'),
     ]) {
-      test(
-          '$entityType: permanent, handed to the revert handler, still '
-          'counted', () async {
-        const message = 'APP_UPDATE_REQUIRED: minimum 2.0.0';
+      test('$entityType $action: kept pending, never reverted, told once',
+          () async {
         await enqueue(
           'op-1',
           entityType: entityType,
@@ -915,15 +930,171 @@ void main() {
         );
         replyWith([error('op-1', message)]);
 
-        await executor.executeBatch();
+        final result = await executor.executeBatch();
         await _waitFor(() => rejections().isNotEmpty);
 
-        expect(await isRejected('op-1'), isTrue);
-        expect(reverts.single.$1.entityType, entityType);
-        expect((await syncQueue.getOperation('op-1'))!.reverted, isFalse);
-        expect(await syncQueue.getFailedCount(), 1);
+        final op = (await syncQueue.getOperation('op-1'))!;
+        expect(op.status, SyncStatus.pending);
+        expect(op.retryCount, 0);
+        expect(op.reverted, isFalse);
+        expect(result.failed, 0);
+        expect(result.deferred, 1);
+        expect(reverts, isEmpty);
+        expect(await syncQueue.getFailedCount(), 0);
+        expect(await syncQueue.getPendingCount(), 1);
+        final event = rejections().single;
+        expect(event.entityType, entityType);
+        expect(event.action, action);
+        expect(event.message, message);
+        expect(events.appUpdateRequired, isTrue);
+
+        // This build does not send it again.
+        final again = await executor.executeBatch();
+        expect(again.status, SyncBatchStatus.empty);
+        expect(syncPosts, 1);
+        expect(rejections(), hasLength(1));
       });
     }
+
+    test('a background match event is held without a message', () async {
+      await enqueue(
+        'op-match',
+        entityType: 'match_event',
+        entityId: 'match-1',
+        action: 'create',
+      );
+      replyWith([error('op-match', message)]);
+
+      await executor.executeBatch();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        (await syncQueue.getOperation('op-match'))!.status,
+        SyncStatus.pending,
+      );
+      expect(rejections(), isEmpty);
+      expect(
+        (await executor.executeBatch()).status,
+        SyncBatchStatus.empty,
+      );
+      expect(syncPosts, 1);
+    });
+
+    test(
+        'other operations keep syncing: only the held one is left out of the '
+        'next batch', () async {
+      await enqueue(
+        'op-crop',
+        entityType: 'crop_listing',
+        entityId: 'crop-1',
+        action: 'create',
+      );
+      replyWith([error('op-crop', message)]);
+      await executor.executeBatch();
+      await _waitFor(() => rejections().isNotEmpty);
+
+      await enqueue(
+        'op-pickup',
+        entityType: 'delivery',
+        entityId: 'del-1',
+        data: '{"status":"pickedUp","version":1}',
+      );
+      replyWith([
+        {'operationId': 'op-pickup', 'status': 'success', 'serverVersion': 2},
+      ]);
+      final next = await executor.executeBatch();
+
+      expect(next.succeeded, 1);
+      expect(sentOperationIds.last, ['op-pickup']);
+      expect(
+        (await syncQueue.getOperation('op-pickup'))!.status,
+        SyncStatus.synced,
+      );
+      expect(
+        (await syncQueue.getOperation('op-crop'))!.status,
+        SyncStatus.pending,
+      );
+    });
+
+    test('syncNow stops at once when only held operations remain', () async {
+      adapter.onGet('/health', (server) => server.reply(200, {'status': 'ok'}));
+      await enqueue(
+        'op-1',
+        entityType: 'trip',
+        entityId: 'trip-1',
+        action: 'create',
+      );
+      replyWith([error('op-1', message)]);
+
+      // A backoff would take 5 seconds first.
+      final result =
+          await executor.syncNow().timeout(const Duration(seconds: 4));
+
+      expect(result.deferred, 1);
+      expect(result.failed, 0);
+      expect(syncPosts, 1);
+      // Triggers in the same session (enqueue, reconnect) send nothing.
+      expect(await syncQueue.retryFailed(), 0);
+      await executor.syncNow().timeout(const Duration(seconds: 4));
+      expect(syncPosts, 1);
+    });
+
+    test('a new build (a new executor) sends it again', () async {
+      await enqueue(
+        'op-1',
+        entityType: 'trip',
+        entityId: 'trip-1',
+        action: 'create',
+      );
+      replyWith([error('op-1', message)]);
+      await executor.executeBatch();
+      await _waitFor(() => rejections().isNotEmpty);
+
+      executor.dispose();
+      executor = buildExecutor(securityEvents: SecurityEvents.forTesting());
+      replyWith([
+        {'operationId': 'op-1', 'status': 'success', 'serverVersion': 1},
+      ]);
+      final result = await executor.executeBatch();
+
+      expect(result.succeeded, 1);
+      expect(syncPosts, 2);
+      expect(
+        (await syncQueue.getOperation('op-1'))!.status,
+        SyncStatus.synced,
+      );
+    });
+  });
+
+  test(
+      'part B: a later op of the entity with a reverting code still reverts '
+      'it; the first refusal is what the user is told', () async {
+    await enqueue(
+      'op-1',
+      entityType: 'crop_listing',
+      entityId: 'crop-1',
+      data: '{"version":2}',
+    );
+    await enqueue(
+      'op-2',
+      entityType: 'crop_listing',
+      entityId: 'crop-1',
+      action: 'delete',
+      data: '{"version":2}',
+    );
+    replyWith([
+      error('op-1', 'SYNC_VALIDATION: bad field'),
+      error('op-2', 'CROP_HAS_ACTIVE_ORDERS: open orders'),
+    ]);
+
+    await executor.executeBatch();
+    await _waitFor(() => rejections().isNotEmpty);
+
+    expect(reverts, hasLength(1));
+    expect(reverts.single.$1.operationId, 'op-2');
+    expect(reverts.single.$2, 'CROP_HAS_ACTIVE_ORDERS: open orders');
+    expect(rejections().single.message, 'SYNC_VALIDATION: bad field');
+    expect(await syncQueue.getFailedCount(), 0);
   });
 
   test('part B: APP_UPDATE_REQUIRED raises the app update flag', () async {

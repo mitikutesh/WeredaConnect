@@ -348,28 +348,30 @@ void main() {
     Future<Delivery?> loadDelivery() =>
         isar.deliverys.filter().deliveryIdEqualTo(deliveryId).findFirst();
 
+    Future<void> putDelivery() => isar.writeTxn(() async {
+          await isar.deliverys.put(
+            Delivery()
+              ..deliveryId = deliveryId
+              ..tripId = 'trip-1'
+              ..listingId = 'listing-1'
+              ..farmerId = 'farmer-1'
+              ..farmerName = 'Farmer'
+              ..truckerId = 'trucker-1'
+              ..truckerName = 'Trucker'
+              ..buyerId = 'buyer-1'
+              ..buyerName = 'Buyer'
+              ..qrToken = 'qr'
+              ..status = DeliveryStatus.pending
+              ..createdAt = DateTime.utc(2026, 10, 9)
+              ..updatedAt = DateTime.utc(2026, 10, 9)
+              ..version = 1,
+          );
+        });
+
     /// The farmer cancels offline (local `cancelled` at version 2, op queued
     /// with base version 1), then the server refuses it for good.
     Future<SyncOperation> cancelThenReject() async {
-      await isar.writeTxn(() async {
-        await isar.deliverys.put(
-          Delivery()
-            ..deliveryId = deliveryId
-            ..tripId = 'trip-1'
-            ..listingId = 'listing-1'
-            ..farmerId = 'farmer-1'
-            ..farmerName = 'Farmer'
-            ..truckerId = 'trucker-1'
-            ..truckerName = 'Trucker'
-            ..buyerId = 'buyer-1'
-            ..buyerName = 'Buyer'
-            ..qrToken = 'qr'
-            ..status = DeliveryStatus.pending
-            ..createdAt = DateTime.utc(2026, 10, 9)
-            ..updatedAt = DateTime.utc(2026, 10, 9)
-            ..version = 1,
-        );
-      });
+      await putDelivery();
       await DeliveryRepository(isar: isar, syncQueue: queue)
           .cancelDelivery(deliveryId: deliveryId, userId: 'farmer-1');
       final op = (await opsFor(deliveryId)).single;
@@ -430,6 +432,27 @@ void main() {
       verifyNever(
         () => api.get<Map<String, dynamic>>('/deliveries/$deliveryId'),
       );
+    });
+
+    // FUP-01 review: the server never stored a refused create, so a re-read
+    // could only 404 and leave a row that never reached the server.
+    test('a refused create removes the local delivery without a read',
+        () async {
+      await putDelivery();
+      final op = await queue.enqueue(
+        userId: 'trucker-1',
+        entityType: 'delivery',
+        entityId: deliveryId,
+        action: 'create',
+        data: '{"deliveryId":"$deliveryId","version":1}',
+        operationId: 'op-create',
+      );
+      await queue.markAsRejected(op.operationId);
+
+      await sync.revertRejected(op, 'ORDER_VALIDATION: order not accepted');
+
+      expect(await loadDelivery(), isNull);
+      verifyZeroInteractions(api);
     });
   });
 
@@ -768,7 +791,7 @@ void main() {
 
     for (final message in [
       'CROP_HAS_ACTIVE_ORDERS: This listing has active orders.',
-      'APP_UPDATE_REQUIRED: minimum 2.0.0',
+      'REPUTATION_RESTRICTED: restricted',
     ]) {
       test(
           'a refused delete goes back to the server listing and version '
@@ -788,7 +811,6 @@ void main() {
 
     for (final message in [
       'REPUTATION_RESTRICTED: restricted',
-      'APP_UPDATE_REQUIRED: minimum 2.0.0',
     ]) {
       test(
           'a refused create removes the local listing without a read '
@@ -884,6 +906,7 @@ void main() {
         'FRAUD_VELOCITY_EXCEEDED: slow down',
         'CROP_VALIDATION: The farmer profile could not be read.',
         'TRIP_HAS_BOOKINGS: x',
+        'APP_UPDATE_REQUIRED: minimum 2.0.0',
         '',
       ]) {
         await sync.revertRejected(op, message);
@@ -968,7 +991,7 @@ void main() {
 
     for (final message in [
       'TRIP_HAS_BOOKINGS: This trip has booked orders.',
-      'APP_UPDATE_REQUIRED: minimum 2.0.0',
+      'REPUTATION_RESTRICTED: restricted',
     ]) {
       test(
           'a refused cancel goes back to the server trip and version '
@@ -988,7 +1011,6 @@ void main() {
 
     for (final message in [
       'REPUTATION_RESTRICTED: restricted',
-      'APP_UPDATE_REQUIRED: minimum 2.0.0',
     ]) {
       test(
           'a refused create removes the local trip without a read '
@@ -1078,6 +1100,7 @@ void main() {
         'TRIP_CAPACITY_EXCEEDED: x',
         'CROP_HAS_ACTIVE_ORDERS: x',
         'FRAUD_ACCOUNT_HELD: held',
+        'APP_UPDATE_REQUIRED: minimum 2.0.0',
       ]) {
         await sync.revertRejected(op, message);
       }

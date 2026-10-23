@@ -103,8 +103,13 @@ enum AppErrorCode {
   cropHasActiveOrders,
 
   /// This app build is below the server's minimum (`APP_UPDATE_REQUIRED`,
-  /// ESC-25); the change was not saved and the user must update.
+  /// ESC-25); the change was not saved and the user must update (an order
+  /// command on mobile, anything on web).
   appUpdateRequired,
+
+  /// `APP_UPDATE_REQUIRED` on a queued change other than an order command
+  /// (mobile): it is kept on the phone and sent after the update.
+  appUpdateRequiredKept,
 
   /// The server refused a queued change (not an order) for good, so it was
   /// never saved there.
@@ -255,6 +260,7 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.tripHasBookings => l10n.errorTripHasBookings,
     AppErrorCode.cropHasActiveOrders => l10n.errorCropHasActiveOrders,
     AppErrorCode.appUpdateRequired => l10n.errorAppUpdateRequired,
+    AppErrorCode.appUpdateRequiredKept => l10n.errorAppUpdateRequiredKept,
     AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
@@ -281,7 +287,11 @@ AppErrorCode syncRejectionErrorCode({
   required String message,
 }) {
   if (isAppUpdateRequiredMessage(message)) {
-    return AppErrorCode.appUpdateRequired;
+    // Only an order command is refused for the app version; anything else
+    // stays queued for the updated build (sync-protocol.md 1.17.0).
+    return entityType == 'order'
+        ? AppErrorCode.appUpdateRequired
+        : AppErrorCode.appUpdateRequiredKept;
   }
   if (entityType == 'order') {
     if (isReputationRestrictedMessage(message)) {

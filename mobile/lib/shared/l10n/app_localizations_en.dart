@@ -2987,4 +2987,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get errorAppUpdateRequired =>
       'Please update the app to continue. This change was not saved.';
+
+  @override
+  String get errorAppUpdateRequiredKept =>
+      'Please update the app. This change is kept on your phone and will be sent after the update.';
 }

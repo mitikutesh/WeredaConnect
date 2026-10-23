@@ -2576,5 +2576,6 @@
   "errorCounterpartyRestricted": "Qonnaan bultaan yookiin konkolaataan fe'aa kun amma ajaja haaraa fudhachuu hin danda'u, kanaaf ajajni hin galmoofne. Maaloo kan biraa filadhaa.",
   "errorTripHasBookings": "Imalli kun ajajoota qabame waan qabuuf, jijjiiramni kun hin danda'amu.",
   "errorCropHasActiveOrders": "Tarreen kun ajajoota banaa qaba. Dura isaan xumuraa.",
-  "errorAppUpdateRequired": "Itti fufuuf maaloo appii haaromsaa. Jijjiiramni kun hin olkaa'amne."
+  "errorAppUpdateRequired": "Itti fufuuf maaloo appii haaromsaa. Jijjiiramni kun hin olkaa'amne.",
+  "errorAppUpdateRequiredKept": "Maaloo appii haaromsaa. Jijjiiramni kun bilbila keessan irratti kuufameera, haaromsa booda ni ergama."
 }

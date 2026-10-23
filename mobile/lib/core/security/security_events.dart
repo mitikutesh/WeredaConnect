@@ -98,7 +98,9 @@ class KycRequired extends SecurityEvent {
 /// The server refused a queued operation for good
 /// (specs/contracts/sync-protocol.md 1.10.0, 1.17.0): the sync queue stopped
 /// retrying it (and undid the local change of an order, a delivery, a crop
-/// listing or a trip), so the user must be told why.
+/// listing or a trip), so the user must be told why. Also raised, with an
+/// `APP_UPDATE_REQUIRED` message, for an operation other than an order
+/// command that is kept pending until the app is updated (1.17.0).
 class SyncOperationRejected extends SecurityEvent {
   /// The sync entity type (`order`, ...).
   final String entityType;
@@ -181,7 +183,7 @@ class SecurityEvents {
   /// Events the UI should prompt for.
   Stream<SecurityEvent> get events => _events.stream;
 
-  /// True once the server refused a queued change with `APP_UPDATE_REQUIRED`
+  /// True once the server answered a queued change with `APP_UPDATE_REQUIRED`
   /// (sync-protocol.md 1.17.0): this build is below the server's minimum and
   /// every further order command would be refused the same way. Set even
   /// when nobody listens yet and never cleared by logout (the build is still

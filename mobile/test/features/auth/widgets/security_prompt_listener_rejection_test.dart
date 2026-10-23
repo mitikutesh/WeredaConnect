@@ -355,12 +355,13 @@ void main() {
         'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED: 3 tried',
         (l) => l.errorTransportAttemptsExceeded,
       ),
-      // Anyone on an old build.
+      // Anyone on an old build: a listing waits for the update, an order
+      // is undone.
       (
         'crop_listing',
         'create',
         'APP_UPDATE_REQUIRED: minimum 2.0.0',
-        (l) => l.errorAppUpdateRequired,
+        (l) => l.errorAppUpdateRequiredKept,
       ),
       (
         'order',

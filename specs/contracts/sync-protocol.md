@@ -431,9 +431,11 @@ times) and keep their local copy.
 
 ## Permanent trip and crop rejections (1.17.0, ESC-12 part B)
 
-Five codes from spec `three-party-escrow-commitments-reputation.md` section 8 are permanent on
-any entity: replaying the same payload gets the same answer, so the client never resends them.
-No server sends them yet: ESC-15, ESC-17, ESC-18, ESC-25 and ESC-29 add them, each with its
+Five codes from spec `three-party-escrow-commitments-reputation.md` section 8 are permanent:
+replaying the same payload gets the same answer, so the client never resends them. The one
+exception is `APP_UPDATE_REQUIRED` on anything but an order: the build is the problem, not the
+payload, so the client keeps that operation for the updated build (below). No server sends them
+yet: ESC-15, ESC-17, ESC-18, ESC-25 and ESC-29 add them, each with its
 own server rules. The three `ORDER_*` codes of section 8 that had the generic order text get
 their own text too.
 
@@ -443,21 +445,21 @@ their own text too.
 | `TRIP_HAS_BOOKINGS:` | `trip` update or delete | Orders are booked on the trip, so this change is not allowed. |
 | `TRIP_CAPACITY_EXCEEDED:` | `order` create or update naming a trip | The trip has no room left for this order: an order refusal. |
 | `CROP_HAS_ACTIVE_ORDERS:` | `crop_listing` delete, or a quantity below what active orders hold | The listing has funded or accepted orders. |
-| `APP_UPDATE_REQUIRED:` | any operation from an app below the server's minimum (the minimum-version gate, ESC-25) | This build must be updated. |
+| `APP_UPDATE_REQUIRED:` | `order` commands from an app below the server's minimum (the minimum-version gate, spec K1, ESC-25). Clients also handle it defensively on `crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent` and `match_event` operations: kept pending, never reverted. | This build must be updated. |
 | `ORDER_DEADLINE_PASSED:`, `ORDER_TRIP_NOT_ELIGIBLE:`, `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED:` | `order` operations (permanent since 1.10.0) | The deadline passed; the named truck cannot take the order; no more trucks may be tried. |
 
 Mobile client (sync queue):
 
 | Case | Client action |
 |------|---------------|
-| Any of the five codes | Mark the operation rejected: never sent again, a reconnect does not reset it. |
-| Refused `crop_listing` with `REPUTATION_RESTRICTED`, `CROP_HAS_ACTIVE_ORDERS` or `APP_UPDATE_REQUIRED`; refused `trip` with `REPUTATION_RESTRICTED`, `TRIP_HAS_BOOKINGS` or `APP_UPDATE_REQUIRED` | Reverted with the order rules. A refused `create` was never stored: remove the local row. A refused update or delete: re-read `GET /crops/{id}` or `GET /trips/{id}` (the owner's own read: only a farmer sends crop operations and only a trucker trip operations) and replace the local row (server wins), unless another operation for it is still queued. A 404 (deleted, or for a trip cancelled) or 403 removes the local row. Any other failed read puts the local version back to the lowest version the refused operations sent and clears the pull stamp, so the next crop or trip pull overwrites the row. |
+| Any of the five codes (`APP_UPDATE_REQUIRED` only on an `order`) | Mark the operation rejected: never sent again, a reconnect does not reset it. |
+| Refused `crop_listing` with `REPUTATION_RESTRICTED` or `CROP_HAS_ACTIVE_ORDERS`; refused `trip` with `REPUTATION_RESTRICTED` or `TRIP_HAS_BOOKINGS` | Reverted with the order rules. A refused `create` was never stored: remove the local row. A refused update or delete: re-read `GET /crops/{id}` or `GET /trips/{id}` (the owner's own read: only a farmer sends crop operations and only a trucker trip operations) and replace the local row (server wins), unless another operation for it is still queued. A 404 (deleted, or for a trip cancelled) or 403 removes the local row. Any other failed read puts the local version back to the lowest version the refused operations sent and clears the pull stamp, so the next crop or trip pull overwrites the row. |
 | Reverted crop listing or trip | Once the revert returned (a failed read included, since the next pull settles the row), its rejected operations are flagged `reverted` and leave the "Sync failed" count: nothing is left for the user to act on. A revert that threw keeps them counted. |
-| Any other refusal of a crop listing or trip (`FRAUD_*`, `SYNC_VALIDATION`, a code meant for another entity, a whole batch refused) | Unchanged: not reverted, still counted. |
+| Any other refusal of a crop listing or trip (`FRAUD_*`, `SYNC_VALIDATION`, a code meant for another entity, a whole batch refused) | Unchanged: not reverted, still counted. When one entity has several refused operations in a batch, the first one whose code undoes the change drives the revert; the first refusal is what the user is told. |
+| Refused delivery `create` that reaches the delivery revert (any code that undoes a delivery change) | The server never stored it: the local delivery is removed without a read. Every other refused delivery change is still re-read and never removed (1.11.0). |
 | Order operation refused with one of the five codes | Reverted like any permanent order rejection (1.10.0), not counted. |
-| Delivery operation refused with `APP_UPDATE_REQUIRED` | Reverted like a refused delivery cancel (re-read, never removed); still counted (FUP-25). |
-| Message or rating operation refused with `APP_UPDATE_REQUIRED` | No revert exists: the change stays on the phone and is counted, as for their other refusals. |
-| `APP_UPDATE_REQUIRED` on any entity | The app also raises an in-memory "update required" flag the shell can read (the banner is ESC-25's). The client does no version gating of its own. |
+| `APP_UPDATE_REQUIRED` on anything but an `order` (`crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent`, `match_event`) | Kept pending without burning a retry and never reverted or removed (a create included): the same payload goes through once the app is updated. Not counted as failed. This build does not send it again while it runs (an in-memory hold, cleared by a restart or an update); every other operation keeps syncing. Explained once per entity, except background match events. |
+| `APP_UPDATE_REQUIRED`, refused order or held operation | The app also raises an in-memory "update required" flag the shell can read (the banner is ESC-25's). The client does no version gating of its own. |
 | Reason | Each code has its own text in en, am and om (below), shown in the rejection snackbar. On an `order` create, `REPUTATION_RESTRICTED` says the farmer or trucker cannot take orders; on every other operation it says the user's account cannot do this for now. On a refused order create, `REPUTATION_RESTRICTED`, `TRIP_CAPACITY_EXCEEDED`, `ORDER_TRIP_NOT_ELIGIBLE` and `APP_UPDATE_REQUIRED` keep their own text (they already say what to do next); any other code on a refused create still reads "This order could not be placed". |
 
 Texts (keys in `app_en.arb`, `app_am.arb`, `app_om.arb`):
@@ -468,7 +470,7 @@ Texts (keys in `app_en.arb`, `app_am.arb`, `app_om.arb`):
 | `TRIP_HAS_BOOKINGS` | `errorTripHasBookings` |
 | `TRIP_CAPACITY_EXCEEDED` | `errorTripCapacityExceeded` |
 | `CROP_HAS_ACTIVE_ORDERS` | `errorCropHasActiveOrders` |
-| `APP_UPDATE_REQUIRED` | `errorAppUpdateRequired` |
+| `APP_UPDATE_REQUIRED` | `errorAppUpdateRequired` (an order, and every web refusal); `errorAppUpdateRequiredKept` (an operation held for the update) |
 | `ORDER_DEADLINE_PASSED` | `errorDeadlinePassed` |
 | `ORDER_TRIP_NOT_ELIGIBLE` | `errorTripNotEligible` |
 | `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED` | `errorTransportAttemptsExceeded` |
@@ -481,6 +483,9 @@ reads live data, so nothing is reverted, and it raises no update flag.
 Rules for server authors:
 - Each code must be deterministic for the same payload. A transient failure in the same
   handler (a read that failed) uses no code from this list.
+- Send `APP_UPDATE_REQUIRED` on order commands only (spec K1). A client holds any other
+  operation answered with it until the app is updated, so sending it there only delays that
+  operation.
 - `CROP_VALIDATION`, `TRIP_VALIDATION`, `CROP_UNAUTHORIZED` and `TRIP_UNAUTHORIZED` stay
   retryable: `CROP_VALIDATION` and `TRIP_VALIDATION` also carry "The farmer profile could not
   be read" when the users table read fails.
@@ -498,7 +503,7 @@ is not reverted by them either, because those codes have no `ORDER_` prefix.
 
 | Version | Date | Change |
 |---------|------|--------|
-| 1.17.0 | 2026-10-23 | Permanent trip and crop rejections (ESC-12 part B, FUP-01): `REPUTATION_RESTRICTED`, `TRIP_HAS_BOOKINGS`, `TRIP_CAPACITY_EXCEEDED`, `CROP_HAS_ACTIVE_ORDERS` and `APP_UPDATE_REQUIRED` are permanent on any entity; the mobile client reverts a refused crop listing or trip with the order rules (create: remove; update or delete: re-read `GET /crops/{id}` or `GET /trips/{id}`, 404/403 remove, other failures restore the lowest sent version and clear the pull stamp) and leaves a reverted one out of the failed count; order refusals with these codes are reverted like any order refusal; every section 8 code has its own text in en, am and om, `REPUTATION_RESTRICTED` on an order create names the owner; `APP_UPDATE_REQUIRED` also raises an in-memory update flag; servers may send the five codes once this client is the minimum in use |
+| 1.17.0 | 2026-10-23 | Permanent trip and crop rejections (ESC-12 part B, FUP-01): `REPUTATION_RESTRICTED`, `TRIP_HAS_BOOKINGS`, `TRIP_CAPACITY_EXCEEDED` and `CROP_HAS_ACTIVE_ORDERS` are permanent on any entity, `APP_UPDATE_REQUIRED` on an order (it is sent on order commands, spec K1); the mobile client reverts a refused crop listing or trip with the order rules (create: remove; update or delete: re-read `GET /crops/{id}` or `GET /trips/{id}`, 404/403 remove, other failures restore the lowest sent version and clear the pull stamp) and leaves a reverted one out of the failed count; order refusals with these codes are reverted like any order refusal; any other operation answered `APP_UPDATE_REQUIRED` is kept pending for the updated build, never reverted, not resent by this build; a refused delivery create is removed; every section 8 code has its own text in en, am and om, `REPUTATION_RESTRICTED` on an order create names the owner; `APP_UPDATE_REQUIRED` also raises an in-memory update flag; servers may send the five codes once this client is the minimum in use |
 | 1.15.0 | 2026-10-17 | Message contact refusal (ESC-48): `MESSAGE_CONTACT_LOCKED` for a message into a `crop` or `trip` thread, or into an `order` or `delivery` thread whose order's contact is not open; permanent, the mobile client removes its local copy and explains it in en, am and om; a refused resend of a message the sender already stored answers `duplicate`; message rows in `/sync` data carry no phone; delivery rows in `/sync` data carry no phone (`delivery-verification-api.md` 1.15.0) |
 | 1.14.0 | 2026-10-17 | Delivery dispute step-up fails closed (FUP-26): when the order (or a legacy delivery's `DeliveryIndex` escrow) that sizes the step-up cannot be read, the dispute answers `DELIVERY_DISPUTE_RETRY` before the freeze and nothing is written (it was let through without the step-up); a missing order, or a total that is missing, unreadable, zero or negative, answers `AUTH_040` to a stale session at any amount; clients unchanged (`DELIVERY_DISPUTE_RETRY` retried, `AUTH_040` kept pending) |
 | 1.13.0 | 2026-10-10 | Order cancel refusal (ESC-06): `ORDER_CANCEL_NOT_ALLOWED` is sent for a buyer cancel of an `accepted` order before its pickup deadline, after pickup or while its money is being settled; permanent (server-clock dependent, never resent), its own localized message on mobile and web; the cancel's read and write failures are unprefixed and retried; a delivery create on an order that no longer takes one is refused with `DELIVERY_VALIDATION`; order rows carry `pickupDeadlineAt` |

@@ -492,16 +492,19 @@ void main() {
       }
     });
 
-    test('mobile: APP_UPDATE_REQUIRED reads the same on every entity', () {
-      for (final (entityType, action) in [
-        ('order', 'create'),
-        ('order', 'update'),
-        ('crop_listing', 'create'),
-        ('crop_listing', 'delete'),
-        ('trip', 'update'),
-        ('delivery', 'update'),
-        ('message', 'create'),
-        ('rating', 'create'),
+    // An order command is refused for the app version (undone); anything
+    // else is kept queued for the updated build, so it says so.
+    test('mobile: APP_UPDATE_REQUIRED says whether the change was kept', () {
+      for (final (entityType, action, code) in [
+        ('order', 'create', AppErrorCode.appUpdateRequired),
+        ('order', 'update', AppErrorCode.appUpdateRequired),
+        ('crop_listing', 'create', AppErrorCode.appUpdateRequiredKept),
+        ('crop_listing', 'delete', AppErrorCode.appUpdateRequiredKept),
+        ('trip', 'update', AppErrorCode.appUpdateRequiredKept),
+        ('delivery', 'update', AppErrorCode.appUpdateRequiredKept),
+        ('message', 'create', AppErrorCode.appUpdateRequiredKept),
+        ('rating', 'create', AppErrorCode.appUpdateRequiredKept),
+        ('buyer_intent', 'create', AppErrorCode.appUpdateRequiredKept),
       ]) {
         expect(
           syncRejectionErrorCode(
@@ -509,7 +512,7 @@ void main() {
             action: action,
             message: 'APP_UPDATE_REQUIRED: minimum 2.0.0',
           ),
-          AppErrorCode.appUpdateRequired,
+          code,
           reason: '$entityType $action',
         );
       }
@@ -519,22 +522,22 @@ void main() {
       for (final message in [
         'REPUTATION_RESTRICTED: x',
         'CROP_HAS_ACTIVE_ORDERS: x',
-        'APP_UPDATE_REQUIRED: x',
       ]) {
         expect(isRevertableListingRejectionMessage(message), isTrue);
       }
       for (final message in [
         'REPUTATION_RESTRICTED: x',
         'TRIP_HAS_BOOKINGS: x',
-        'APP_UPDATE_REQUIRED: x',
       ]) {
         expect(isRevertableTripRejectionMessage(message), isTrue);
       }
       // CROP_VALIDATION and TRIP_VALIDATION also wrap a failed profile read
-      // on the server, so a prefix alone is not deterministic.
+      // on the server, so a prefix alone is not deterministic, and the same
+      // payload goes through once the app is updated.
       for (final message in [
         null,
         '',
+        'APP_UPDATE_REQUIRED: x',
         'CROP_VALIDATION: The farmer profile could not be read.',
         'CROP_UNAUTHORIZED: not yours',
         'TRIP_VALIDATION: bad',
@@ -577,6 +580,7 @@ void main() {
           AppErrorCode.tripHasBookings: l10n.errorTripHasBookings,
           AppErrorCode.cropHasActiveOrders: l10n.errorCropHasActiveOrders,
           AppErrorCode.appUpdateRequired: l10n.errorAppUpdateRequired,
+          AppErrorCode.appUpdateRequiredKept: l10n.errorAppUpdateRequiredKept,
         };
         for (final MapEntry(key: code, value: text) in expected.entries) {
           final localized = localizeErrorCode(code, l10n);

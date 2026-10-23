@@ -181,24 +181,30 @@ void main() {
       await sync.revertRejected(op, message);
     }
 
-    for (final message in [
-      'REPUTATION_RESTRICTED: restricted',
-      'APP_UPDATE_REQUIRED: minimum 2.0.0',
-    ]) {
-      test('a refused create (${message.split(':').first}) is gone', () async {
-        expect((await _run(repository, _create())).last, isA<TripCreated>());
-        expect(await reload(), hasLength(1));
+    test('a refused create (REPUTATION_RESTRICTED) is gone', () async {
+      expect((await _run(repository, _create())).last, isA<TripCreated>());
+      expect(await reload(), hasLength(1));
 
-        await serverRefuses('create', message);
+      await serverRefuses('create', 'REPUTATION_RESTRICTED: restricted');
 
-        expect(await reload(), isEmpty);
-        verifyZeroInteractions(api);
-      });
-    }
+      expect(await reload(), isEmpty);
+      verifyZeroInteractions(api);
+    });
+
+    // The executor holds it for the updated build; even if the handler got
+    // the code, the trucker's trip must stay.
+    test('a create answered APP_UPDATE_REQUIRED stays on the list', () async {
+      await _run(repository, _create());
+
+      await serverRefuses('create', 'APP_UPDATE_REQUIRED: minimum 2.0.0');
+
+      expect((await reload()).single.status, TripStatus.open);
+      verifyZeroInteractions(api);
+    });
 
     for (final message in [
       'TRIP_HAS_BOOKINGS: booked',
-      'APP_UPDATE_REQUIRED: minimum 2.0.0',
+      'REPUTATION_RESTRICTED: restricted',
     ]) {
       test('a refused cancel (${message.split(':').first}) is open again',
           () async {

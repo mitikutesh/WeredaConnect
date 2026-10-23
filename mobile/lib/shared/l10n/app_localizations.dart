@@ -5451,6 +5451,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Please update the app to continue. This change was not saved.'**
   String get errorAppUpdateRequired;
+
+  /// The server answered a queued change other than an order (listing, trip, delivery, rating, message, buyer request) with APP_UPDATE_REQUIRED; the app keeps it queued and sends it after the update
+  ///
+  /// In en, this message translates to:
+  /// **'Please update the app. This change is kept on your phone and will be sent after the update.'**
+  String get errorAppUpdateRequiredKept;
 }
 
 class _AppLocalizationsDelegate

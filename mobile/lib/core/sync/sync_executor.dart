@@ -115,6 +115,8 @@ class SyncBatchResult {
   /// Operations the server could not verify YET (status `deferred`) — e.g. a
   /// delivery pickup/confirm whose QR secret hasn't synced up. Re-queued without
   /// burning a retry; NOT counted as a failure (so no backoff / failure UI).
+  /// Also counts operations other than order commands held for an app update
+  /// (`APP_UPDATE_REQUIRED`, sync-protocol.md 1.17.0).
   final int deferred;
 
   /// Operations the server refused until the user re-authenticates
@@ -245,11 +247,16 @@ class SyncBatchResult {
 ///   `DELIVERY_ORDER_REQUIRED`, `DELIVERY_CANCEL_NOT_ALLOWED`,
 ///   `DELIVERY_DISPUTE_REFUSED`, `DELIVERY_DISPUTE_EXPIRED`,
 ///   `MESSAGE_CONTACT_LOCKED`, `REPUTATION_RESTRICTED`, `TRIP_HAS_BOOKINGS`,
-///   `TRIP_CAPACITY_EXCEEDED`, `CROP_HAS_ACTIVE_ORDERS` or
-///   `APP_UPDATE_REQUIRED` → reject (never retried) and explain through a
-///   [SyncOperationRejected] event; a refused order change, delivery cancel or
-///   delivery dispute, and a crop listing or trip change refused by one of the
-///   ESC-12 part B codes, is first undone via [PermanentRejectionHandler]
+///   `TRIP_CAPACITY_EXCEEDED`, `CROP_HAS_ACTIVE_ORDERS`, or
+///   `APP_UPDATE_REQUIRED` on an order → reject (never retried) and explain
+///   through a [SyncOperationRejected] event; a refused order change, delivery
+///   cancel or delivery dispute, and a crop listing or trip change refused by
+///   one of the ESC-12 part B codes, is first undone via
+///   [PermanentRejectionHandler]
+/// - `error` with `APP_UPDATE_REQUIRED` on anything but an order → keep it
+///   pending without burning a retry and never undo it (the updated build
+///   sends the same payload), explain it once, and do not send it again
+///   while this executor lives (an app update or restart starts a new one)
 /// - `error` → mark failed (retry up to 3 times via [SyncQueue])
 ///
 /// A refused `create` also rejects the operations queued behind it for that
@@ -287,6 +294,15 @@ class SyncExecutor {
   StreamSubscription<void>? _enqueueSubscription;
   Timer? _enqueueDebounce;
   bool _isSyncing = false;
+
+  /// Operations other than order commands that the server answered
+  /// `APP_UPDATE_REQUIRED` (sync-protocol.md 1.17.0). They stay pending for
+  /// the updated build, but sending them again from this build could only
+  /// get the same answer, so batches skip them while this executor lives.
+  /// In memory, like [SecurityEvents.appUpdateRequired]: a restart sends them
+  /// once more. Only these operations wait: everything else, delivery
+  /// handoffs included, keeps syncing.
+  final Set<String> _heldForUpdate = {};
 
   /// Stream controller for sync batch results (for UI observation).
   final StreamController<SyncBatchResult> _resultController =
@@ -537,9 +553,14 @@ class SyncExecutor {
   /// Returns [SyncBatchResult] with counts of succeeded/conflicted/failed.
   Future<SyncBatchResult> executeBatch() async {
     final currentUserId = await _getCurrentUserId?.call();
-    final pending = await _syncQueue.getPendingOperationsForUser(
+    // Read past the held operations so they cannot starve newer ones.
+    final pending = (await _syncQueue.getPendingOperationsForUser(
       userId: currentUserId,
-    );
+      limit: batchSize + _heldForUpdate.length,
+    ))
+        .where((op) => !_heldForUpdate.contains(op.operationId))
+        .take(batchSize)
+        .toList();
     if (pending.isEmpty) return const SyncBatchResult.empty();
 
     // Mark all as syncing to prevent concurrent processing
@@ -624,6 +645,7 @@ class SyncExecutor {
     var faydaStepUpRequired = false;
     final operationErrors = <String, String>{};
     final rejected = <(SyncOperation, String?)>[];
+    final heldForUpdate = <(SyncOperation, String)>[];
 
     // Build lookup map for O(1) access by operationId
     final opMap = {for (final op in operations) op.operationId: op};
@@ -712,6 +734,19 @@ class SyncExecutor {
             faydaStepUpRequired |= isFaydaStepUpRequiredMessage(message);
             continue;
           }
+          // Minimum-version gate (ESC-25, spec K1): it is meant for order
+          // commands. Any other operation is valid as it is, so keep it
+          // pending WITHOUT burning a retry for the updated build to send,
+          // never undo it, and stop sending it from this build.
+          if (status == 'error' &&
+              isAppUpdateRequiredMessage(message) &&
+              operation.entityType != 'order') {
+            await _syncQueue.revertToPending(operationId);
+            _heldForUpdate.add(operationId);
+            heldForUpdate.add((operation, message!));
+            deferred++;
+            continue;
+          }
           // KYC gate (ORDER_KYC_REQUIRED): replaying the same payload can't
           // pass until the buyer verifies, so reject it and let the caller
           // undo the optimistic local change; the buyer pays again after.
@@ -757,6 +792,7 @@ class SyncExecutor {
     }
 
     await _settleRejections(rejected);
+    _announceHeldForUpdate(heldForUpdate);
 
     if (stepUpRequired > 0) {
       // One prompt for the batch. Fayda wins: after a Fayda login the
@@ -896,10 +932,11 @@ class SyncExecutor {
   /// deterministic too (sync-protocol.md 1.10.0), and so are a delivery cancel
   /// refused after pickup (1.11.0), a delivery dispute that was refused or
   /// came after the 48-hour window (1.12.0, ESC-07), a message into a
-  /// thread whose contact is not open (1.15.0, ESC-48), and the five ESC-12
-  /// part B codes on any entity (1.17.0): a restricted account or owner, a
-  /// trip with bookings, a full trip, a listing with active orders, an app
-  /// below the minimum version.
+  /// thread whose contact is not open (1.15.0, ESC-48), and the ESC-12 part B
+  /// codes (1.17.0): a restricted account or owner, a trip with bookings, a
+  /// full trip, a listing with active orders, and an order command from an
+  /// app below the minimum version (any other operation refused for the app
+  /// version was held back earlier).
   static bool _isPermanentRejection(String? message) {
     if (message == null) return false;
     return message.startsWith('FRAUD_') ||
@@ -928,9 +965,51 @@ class SyncExecutor {
         _ => false,
       };
 
+  /// Whether the client undoes the local change of a refused [operation]
+  /// through [PermanentRejectionHandler]: any order refusal, any `ORDER_*`
+  /// code, a refused delivery cancel or dispute, a message into a closed
+  /// thread, and a crop listing or trip refused by an ESC-12 part B code.
+  static bool _revertsLocalChange(SyncOperation operation, String? message) =>
+      operation.entityType == 'order' ||
+      isRevertableRejectionMessage(message) ||
+      isRevertableDeliveryRejectionMessage(message) ||
+      isContactLockedMessage(message) ||
+      _isRevertableListingOrTripRejection(operation.entityType, message);
+
   /// Background operations the user never made (matching analytics): a
   /// refusal is not announced.
   static const _unannouncedEntityTypes = {'match_event'};
+
+  /// The UI event for a refused (or, for `APP_UPDATE_REQUIRED`, held)
+  /// operation. The idempotency key starts with its user's id, the same
+  /// prefix the queue uses to keep users apart (getPendingOperationsForUser).
+  static SyncOperationRejected _rejectionEvent(
+    SyncOperation operation,
+    String message,
+  ) {
+    final key = operation.idempotencyKey;
+    final separator = key.indexOf(':');
+    return SyncOperationRejected(
+      entityType: operation.entityType,
+      entityId: operation.entityId,
+      action: operation.action,
+      message: message,
+      userId: separator > 0 ? key.substring(0, separator) : null,
+    );
+  }
+
+  /// Tell the user, once per entity, that operations were held for an app
+  /// update (this also raises [SecurityEvents.appUpdateRequired]).
+  void _announceHeldForUpdate(List<(SyncOperation, String)> held) {
+    final announced = <String>{};
+    for (final (operation, message) in held) {
+      if (_unannouncedEntityTypes.contains(operation.entityType)) continue;
+      if (!announced.add('${operation.entityType}:${operation.entityId}')) {
+        continue;
+      }
+      _securityEvents.emit(_rejectionEvent(operation, message));
+    }
+  }
 
   /// Settle the operations a batch just rejected for good ([message] is null
   /// when the whole batch was refused):
@@ -938,9 +1017,10 @@ class SyncExecutor {
   ///   entity, which could only loop on a transient "not found";
   /// - a refused order change (or any `ORDER_*` refusal), a delivery cancel
   ///   refused after pickup, a refused delivery dispute, a message refused
-  ///   because its thread's contact is not open, a crop listing or trip change
-  ///   refused by an ESC-12 part B code, and any change refused with
-  ///   `APP_UPDATE_REQUIRED` are undone through [PermanentRejectionHandler];
+  ///   because its thread's contact is not open, and a crop listing or trip
+  ///   change refused by an ESC-12 part B code are undone through
+  ///   [PermanentRejectionHandler], once per entity, with the entity's first
+  ///   operation in the batch whose code undoes the change;
   /// - a reverted crop listing or trip leaves the "Sync failed" count
   ///   ([SyncQueue.markRevertedFor]) once the handler returned;
   /// - every refusal is announced as a [SyncOperationRejected] event, once
@@ -967,27 +1047,32 @@ class SyncExecutor {
       if (!settled.add('${operation.entityType}:${operation.entityId}')) {
         continue;
       }
-      final reason = message ?? '';
-      final listingOrTrip = _isRevertableListingOrTripRejection(
-        operation.entityType,
-        message,
-      );
-      if (operation.entityType == 'order' ||
-          isRevertableRejectionMessage(message) ||
-          isRevertableDeliveryRejectionMessage(message) ||
-          isContactLockedMessage(message) ||
-          isAppUpdateRequiredMessage(message) ||
-          listingOrTrip) {
+      // A later operation of the entity may carry the code that undoes the
+      // change (a refused delete behind an unrelated refusal); the first one
+      // is still what the user is told.
+      final revert = rejected
+          .where(
+            (r) =>
+                r.$1.entityType == operation.entityType &&
+                r.$1.entityId == operation.entityId,
+          )
+          .where((r) => _revertsLocalChange(r.$1, r.$2))
+          .firstOrNull;
+      if (revert != null) {
+        final (revertOp, revertMessage) = revert;
         try {
           final handler = _onPermanentRejection;
           if (handler != null) {
-            await handler(operation, reason);
+            await handler(revertOp, revertMessage ?? '');
             // Only crop listings and trips leave the failed count here; a
             // reverted delivery still counts until FUP-25.
-            if (listingOrTrip) {
+            if (_isRevertableListingOrTripRejection(
+              revertOp.entityType,
+              revertMessage,
+            )) {
               await _syncQueue.markRevertedFor(
-                operation.entityType,
-                operation.entityId,
+                revertOp.entityType,
+                revertOp.entityId,
               );
             }
           }
@@ -995,19 +1080,7 @@ class SyncExecutor {
           debugPrint('[SYNC] permanent rejection handler failed: $e');
         }
       }
-      // The key starts with its user's id, the same prefix the queue uses
-      // to keep users apart (getPendingOperationsForUser).
-      final key = operation.idempotencyKey;
-      final separator = key.indexOf(':');
-      announcements.add(
-        SyncOperationRejected(
-          entityType: operation.entityType,
-          entityId: operation.entityId,
-          action: operation.action,
-          message: reason,
-          userId: separator > 0 ? key.substring(0, separator) : null,
-        ),
-      );
+      announcements.add(_rejectionEvent(operation, message ?? ''));
     }
     announcements.forEach(_securityEvents.emit);
   }
