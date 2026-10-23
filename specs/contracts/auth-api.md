@@ -543,9 +543,9 @@ After a successful online login or registration, the mobile client stores the fo
 | `AUTH_009` | 400 | OTP code missing (2.1.0) | Show validation error on the code field |
 | `AUTH_011` | 400 | OTP code format invalid, not 6 digits (2.1.0) | Show validation error on the code field |
 | `AUTH_012` | 400 | OTP code invalid, expired or attempts exhausted (2.1.0) | Offer resend |
-| `AUTH_040` | 403 | Step-up required: password older than the step-up window for this amount (2.1.0), or at any amount when the account's risk tier is MEDIUM or HIGH (2.6.0, planned FRD-04) | Ask for the password, log in again, retry |
-| `AUTH_041` | 403 | Fayda step-up required: a payment above 10,000 ETB needs a Fayda login within the step-up window; a password does not count (2.4.0). Also at any amount when the account's risk tier is HIGH, followed by `AUTH_040` on the retry (2.6.0, planned FRD-04) | Open the Fayda flow (`/user/fayda-start`, `/user/fayda-link`), retry |
-| `FRAUD_ACCOUNT_HELD` | 403 | The account is under fraud review (risk tier CRITICAL): the money or create action is refused and nothing is written (2.6.0, planned FRD-04). Owner: `specs/architecture/fraud-detection-architecture.md` section 17 | Show the message, do not retry, point to support |
+| `AUTH_040` | 403 | Step-up required: password older than the step-up window for this amount (2.1.0), or at any amount when the account's risk tier is MEDIUM or HIGH (2.6.0; built in 2.10.0, FRD-04) | Ask for the password, log in again, retry |
+| `AUTH_041` | 403 | Fayda step-up required: a payment above 10,000 ETB needs a Fayda login within the step-up window; at risk tier LOW a password does not count (2.4.0). Also at any amount when the account's risk tier is HIGH; at MEDIUM and HIGH `AUTH_040` follows on the retry (2.6.0; built in 2.10.0, FRD-04). The message names no amount (2.10.0) | Open the Fayda flow (`/user/fayda-start`, `/user/fayda-link`), retry |
+| `FRAUD_ACCOUNT_HELD` | 403 | The account is under fraud review (risk tier CRITICAL): the money or create action is refused and nothing is written (2.6.0; built in 2.10.0, FRD-04). Owner: `specs/architecture/fraud-detection-architecture.md` section 17 | Show the message, do not retry, point to support |
 | `FAYDA_001` | 400 | Invalid or expired authorization code | Show error, offer retry |
 | `FAYDA_002` | 400 | State unknown, expired, reused or foreign; redirect or nonce mismatch (2.1.0) | Show error, restart Fayda flow |
 | `FAYDA_003` | 503 | Fayda service unavailable | Show "Fayda unavailable", suggest retry later |
@@ -823,7 +823,7 @@ tokens as a normal login, retry. On `AUTH_041` run the Fayda link flow as the ac
 (same rules as KYC, `FAYDA_005/006/007` on a different identity), then retry. A queued sync
 operation stays pending until then.
 
-**Risk tier** (2.6.0, planned FRD-04). The account's risk tier (`specs/architecture/fraud-detection-architecture.md`
+**Risk tier** (2.6.0; built in 2.10.0, FRD-04). The account's risk tier (`specs/architecture/fraud-detection-architecture.md`
 sections 14 to 17) raises the payment requirement at any amount:
 
 | Tier | Payment requirement | Codes |
@@ -834,10 +834,22 @@ sections 14 to 17) raises the payment requirement at any amount:
 | CRITICAL | the payment is refused | `FRAUD_ACCOUNT_HELD` |
 
 Fayda is asked before the password because its round trip takes minutes and the password seconds,
-so both proofs stay inside the step-up window. The `AUTH_041` message becomes amount-neutral;
-clients key on the code only and never see the tier or the score. Disputes keep the `AUTH_040`
-rule above and are not tier-gated. `FRAUD_ACCOUNT_HELD` also refuses crop, trip and order create
-through `/sync` (`sync-protocol.md` 1.9.0).
+so both proofs stay inside the step-up window. The `AUTH_041` message is amount-neutral since
+2.10.0 (`Confirm it's you with Fayda to continue with this payment.`); clients key on the code only
+and never see the tier or the score. Disputes keep the `AUTH_040` rule above and are not
+tier-gated. `FRAUD_ACCOUNT_HELD` also refuses crop, trip and order create through `/sync`
+(`sync-protocol.md` 1.9.0, built in 1.25.0).
+
+Built in 2.10.0 (FRD-04): the tier is the caller's, read once per request (once per `/sync`
+batch). A score that could not be read, or a server without the fraud-signals table, is LOW, so
+the amount tiers above still apply; a score read cut at its page cap is CRITICAL. Where the codes
+come from:
+
+| Where | Order of the checks |
+|-------|---------------------|
+| `POST /escrow/initiate` | role (`ESCROW_025`), tier: CRITICAL `403 FRAUD_ACCOUNT_HELD`, the step-up above (`AUTH_041`, then `AUTH_040`), velocity (`ESCROW_011`) |
+| `/sync` order update to `payment_submitted` | transition rules, tier: CRITICAL `FRAUD_ACCOUNT_HELD: ...`, KYC (`ORDER_KYC_REQUIRED`), the step-up above, the order total check |
+| `POST /escrow/order-checkout` | role and body, tier: CRITICAL `403 FRAUD_ACCOUNT_HELD` before any Telebirr call, velocity; no step-up (it ran at `payment_submitted`) |
 
 ### Server-driven Fayda OIDC
 
@@ -929,6 +941,7 @@ so a failed or refused verification leaves the payment blocked.
 | 1.0.0 | 2026-02-12 | Initial contract: registration, OTP, login, refresh, logout, offline auth, rate limits |
 | 2.0.0 | 2026-03-02 | Replace SMS OTP with Fayda OIDC: add `POST /auth/fayda-verify`, remove `POST /auth/verify-otp`, registration returns tokens directly, add FAYDA_001-004 error codes, remove AUTH_009-012 |
 | 2.11.0 | 2026-10-23 | Account deletion (ACC-02, `account-deletion.md` 1.2.0): login and refresh of a `cognito_pending` or `completed` account answer `401 AUTH_014` (refresh also revokes the token), `in_progress` logs in; `/user/fayda-start` and `/user/fayda-link` answer `410 ACCOUNT_004` for a deleting or deleted account before any state is read; register refuses the display name `Deleted user` with `AUTH_007`; profile writes skip a deleting or deleted row |
+| 2.10.0 | 2026-10-23 | Risk tier step-up built (FRD-04, the 2.6.0 rules): MEDIUM adds the fresh password at any amount, HIGH the Fayda login and then the password at any amount, CRITICAL refuses payments, checkouts and crop, trip and order creates with `FRAUD_ACCOUNT_HELD`; the caller's tier only, read once per request or `/sync` batch; an unreadable score or a missing fraud-signals table is LOW, a truncated read CRITICAL; `AUTH_041` text is now amount-neutral (`Confirm it's you with Fayda to continue with this payment.`); order of the checks per path |
 | 2.9.0 | 2026-10-23 | Client logout sequence (SIM-55): the app starts `POST /auth/logout` with the live stored tokens before it clears the session and never waits on it to clear; a missing or expired access token is first replaced by one minted with `POST /auth/refresh` (never stored); a `401` or `403 AUTH_026` is retried once with a minted bearer; the app maps `AUTH_026`. Server unchanged |
 | 2.8.0 | 2026-10-17 | The `/sync` delivery dispute step-up fails closed (FUP-26): an order (or a legacy delivery's escrow) that cannot be read answers `DELIVERY_DISPUTE_RETRY` and nothing is written, where the step-up was skipped before; a missing order, or a missing, unreadable, zero or negative total, needs the fresh password at any amount; a legacy delivery without an `orderId` is sized by its `DeliveryIndex` escrow; the total is rounded to the cent like the escrow amount |
 | 2.7.0 | 2026-10-06 | Logout is bound to the caller (SIM-60): the refresh token's owner is resolved with `InitiateAuth REFRESH_TOKEN_AUTH` and must equal the bearer's `sub`, else `403 AUTH_026` and nothing is revoked; an inactive token answers `200` without a revoke; `503 AUTH_008` when Cognito is unavailable. The `/auth/logout` integration moved to payload 1.0 so the handler sees the claims |

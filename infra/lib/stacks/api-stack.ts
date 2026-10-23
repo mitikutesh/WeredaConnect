@@ -1101,9 +1101,13 @@ export class ApiStack extends cdk.Stack {
         COMMISSION_RATE_PARAM: commissionRateParam.parameterName,
         DISPUTE_WINDOW_PARAM: disputeWindowParam.parameterName,
         ESCROW_TIMEOUT_PARAM: escrowTimeoutParam.parameterName,
-        // FRD-03: off, a sweep that finds a suspended party skips that settlement and logs
-        // RISK_SETTLEMENT_SKIPPED; on, it writes the escrow status `held`. Turn on only once every
-        // client parses `held` (FRD-06 on web and in both stores, fraud-detection-architecture.md 18.7).
+        // FRD-04: the settlement gate reads each party's risk tier (fraud-detection-architecture.md
+        // 17.2). Without it only suspended parties are stopped, and every run logs RISK_TABLE_UNCONFIGURED.
+        FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
+        // FRD-03: off, a sweep that finds a suspended party (FRD-04: or a party at risk tier CRITICAL)
+        // skips that settlement and logs RISK_SETTLEMENT_SKIPPED; on, it writes the escrow status `held`.
+        // Turn on only once every client parses `held` (FRD-06 on web and in both stores,
+        // fraud-detection-architecture.md 18.7).
         FRAUD_HOLD_ENABLED: "false",
         ...(envConfig.isProd || enableTelebirrLive ? {} : { TELEBIRR_MOCK: "true" }),
       },
@@ -1117,6 +1121,9 @@ export class ApiStack extends cdk.Stack {
     props.escrowsTable.grantReadWriteData(escrowCronFn.function);
     // Payout destinations and the release-time identity gate read profiles.
     props.usersTable.grantReadData(escrowCronFn.function);
+    // FRD-04: the risk score is one Query of a party's fraud-signals partition; the cron writes no signal
+    // (FRD-10's credit rows will need a write grant).
+    props.fraudSignalsTable.grantReadData(escrowCronFn.function);
     props.escrowAuditTable.grantWriteData(escrowCronFn.function);
     // ESC-10: a sweep that freezes a disputed trade goes through the ESC-07 delivery dispute path, which
     // reads the escrow's audit trail (Query) before it writes a refusal row.

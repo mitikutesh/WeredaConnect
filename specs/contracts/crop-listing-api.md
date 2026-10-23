@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.4.0
+1.5.0
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -337,6 +337,9 @@ GET /crops/crop-456
    - Known false positives (rare in listings): coordinates written as decimals (`GPS 9.0712 38.7478`), a 2-digit-year date followed by more numbers (`Sacks 09 10 20 30 40 kg`, `09 10 17 5000 kg`), a 9-digit lot number or price starting with 7 or 9.
 7. **Farmer ID**:
    - Must match authenticated user's ID (cannot create listings for other users)
+8. **Account under review** (1.5.0, FRD-04):
+   - A create from a farmer at risk tier CRITICAL (`specs/architecture/fraud-detection-architecture.md` sections 16 and 17) is refused with `FRAUD_ACCOUNT_HELD: Your account is under review. Some actions are paused. Contact support.` and nothing is written. The check runs after the field rules above (rule 6b included) and before the fraud listing checks (velocity, duplicate, price), so a held account writes no velocity signal either. Permanent on clients like every `FRAUD_*` code (`sync-protocol.md` 1.9.0, 1.25.0). The tier is never returned.
+   - Updates and deletes of existing listings are not gated. A score that cannot be read is LOW (the create goes on).
 
 ### Client-Side Validation
 
@@ -450,9 +453,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 | 1.2.0 | 2026-09-28 | Create: `farmerName`/`farmerPhone` come from the farmer's profile, client values ignored (SIM-40) |
 | 1.3.0 | 2026-10-17 | `GET /crops` and `GET /crops/{id}` return `farmerPhone` only to the listing's farmer and admins; buyers get none (ESC-48). Clients read `farmerPhone ?? ''`, so shipped apps keep working and their browse cache loses the numbers at the next pull |
 | 1.4.0 | 2026-10-23 | No phone number in listing text (FUP-49): a `description` or `locationName` that holds an Ethiopian mobile number is refused with `CROP_CONTACT_IN_TEXT` on create and on an update that changes it (an unchanged echo is accepted), nothing written; permanent on clients; the forms run the same check first; detector in rule 6b; audio notes are not screened |
+| 1.5.0 | 2026-10-23 | Account under review (FRD-04, rule 8): a create from a farmer at risk tier CRITICAL is refused with `FRAUD_ACCOUNT_HELD` after the field rules and before the fraud listing checks, nothing written; permanent on clients (already handled since `sync-protocol.md` 1.18.0); updates and deletes not gated |
 
 ---
 
 **Last Updated**: 2026-10-23
-**Version**: 1.4.0
+**Version**: 1.5.0
 **Status**: Implemented (Phase R3)

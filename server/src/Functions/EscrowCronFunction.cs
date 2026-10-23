@@ -4,6 +4,7 @@ using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
 
 namespace WeredaConnect.Server.Functions;
@@ -162,8 +163,9 @@ public class EscrowCronFunction
 
     /// <summary>
     /// FRD-03 (fraud-detection-architecture.md 17.2, 18): the risk gate the three settlement sweeps ask
-    /// before an escrow's first money-related side effect. The Lambda wires the party suspension gate;
-    /// without one (the test constructor) the sweeps settle as before.
+    /// before an escrow's first money-related side effect. The Lambda wires the party suspension gate, which
+    /// reads the parties' risk tiers too when <c>FRAUD_SIGNALS_TABLE</c> is set (FRD-04); without a gate (the
+    /// test constructor) the sweeps settle as before.
     /// </summary>
     internal ISettlementRiskGate? RiskGate { get; init; }
 
@@ -298,10 +300,17 @@ public class EscrowCronFunction
         _escrowService = new EscrowService(_escrowRepo, _auditRepo, idempotencyRepo, _telebirrGateway, userRepo,
             _orderRepo, _deliveryRepo, transactionAuditRepo: txAuditRepo, cropRepo: _cropRepo);
 
+        // FRD-04: the gate also reads each party's risk tier from the fraud-signals table (read only).
+        // The cron never runs the velocity checks, so the service gets no rate-limit table.
+        var fraudSignalsTable = Environment.GetEnvironmentVariable("FRAUD_SIGNALS_TABLE");
+        var fraudService = string.IsNullOrEmpty(fraudSignalsTable)
+            ? null
+            : new FraudDetectionService(dynamoDb, cropsTable ?? "", fraudSignalsTable, new RateLimitRepository(dynamoDb, ""));
+
         // FRD-03: the sweeps hold the escrow of a suspended party; without a users table every check
         // fails closed (the settlement is skipped and logged), so it is never paid out blind.
         RiskGate = new PartySuspensionGate(userRepo,
-            async escrow => (await _escrowService.ResolveTruckerIdAsync(escrow)).TruckerId);
+            async escrow => (await _escrowService.ResolveTruckerIdAsync(escrow)).TruckerId, fraudService);
         FraudHoldEnabled = string.Equals(
             Environment.GetEnvironmentVariable("FRAUD_HOLD_ENABLED"), "true", StringComparison.OrdinalIgnoreCase);
         OrdersTableName = ordersTable;
@@ -418,6 +427,14 @@ public class EscrowCronFunction
         _fraudHolds = 0;
         _riskSkips = 0;
         RiskGate?.BeginRun();
+        // FRD-04 (fraud-detection-architecture.md 14.4): a gate without the signals table stops suspended
+        // parties only. Flag on or off (off, the skip is what keeps a CRITICAL party unpaid), a CRITICAL
+        // party would then be paid without a trace, so say so.
+        if (RiskGate is { ReadsRiskTier: false })
+        {
+            context.Logger.LogError(MoneyAlarmLog.RiskTableUnconfigured("auto_release_and_refund"));
+        }
+
         // First and self-contained, so a failing sweep below can never skip the overdue alarm lines.
         var overdueCount = await ReportOverdueManualPayoutsAsync(context);
         // ESC-06: the admin queue owns the capped order escrows the sweeps no longer see.
@@ -2306,13 +2323,16 @@ public class EscrowCronFunction
     /// the sweep must leave this escrow alone on this run:
     /// <list type="bullet">
     /// <item>a party row could not be read: <c>RISK_SETTLEMENT_SKIPPED reason=user_read_failed</c>;</item>
-    /// <item>a trigger while <see cref="FraudHoldEnabled"/> is off: <c>RISK_SETTLEMENT_SKIPPED reason=flag_off</c>,
-    /// status unchanged, no money;</item>
+    /// <item>FRD-04: a party's risk score could not be read: <c>RISK_SETTLEMENT_SKIPPED reason=score_unavailable</c>;</item>
+    /// <item>a trigger (a suspended party, or FRD-04 a party at risk tier CRITICAL) while
+    /// <see cref="FraudHoldEnabled"/> is off: <c>RISK_SETTLEMENT_SKIPPED reason=flag_off</c>, status unchanged,
+    /// no money;</item>
     /// <item>a trigger with the flag on: the escrow is held (<see cref="EscrowService.HoldForReviewAsync"/>) and
     /// no sweep selects it again, or the hold lost its condition to a settlement or an order change and the
     /// next run decides again.</item>
     /// </list>
-    /// False when there is no gate or no trigger: the sweep settles as before.
+    /// False when there is no gate or no trigger: the sweep settles as before (MEDIUM and HIGH included,
+    /// section 17).
     /// </summary>
     private async Task<bool> HoldsSettlementAsync(
         Dictionary<string, object> escrow, string fromStatus, string heldFor, string sweep, OrderFence? fence,
@@ -2339,7 +2359,8 @@ public class EscrowCronFunction
         }
 
         var outcome = await _escrowService.HoldForReviewAsync(
-            escrow, fromStatus, heldFor, decision.HoldReason!, decision.Party ?? "-", sweep, fence, context);
+            escrow, fromStatus, heldFor, decision.HoldReason!, decision.Party ?? "-", sweep, fence, context,
+            decision.Risk);
         // EscrowChanged, OrderChanged or Conflict: nothing held and nothing settled; the next run decides again.
         if (outcome == EscrowHoldWrite.Held)
         {

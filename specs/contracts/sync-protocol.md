@@ -280,7 +280,7 @@ unsent. Clients fall back to the wording ("farmer", "phone") for servers older t
 
 ---
 
-## Operation errors added (1.9.0, planned FRD-03, FRD-04)
+## Operation errors added (1.9.0; built in 1.22.0 for the accept refusal, FRD-03, and in 1.25.0 for the risk tier, FRD-04)
 
 | Message prefix | Where | Client action |
 |----------------|-------|---------------|
@@ -296,6 +296,23 @@ so only the message needs FRD-06: the batch error message names only
 `FRAUD_DUPLICATE_LISTING` and `FRAUD_VELOCITY_EXCEEDED`. The web repositories, which call the API
 directly, handle the code in FRD-06 too. Design:
 `specs/architecture/fraud-detection-architecture.md` 3.0.0, section 17.
+
+### Server (1.25.0, FRD-04)
+
+The server sends these since 1.25.0. The tier is the caller's, read at most once per batch; the
+counterparty's tier is never checked or revealed. A score that could not be read, or a server
+without the fraud-signals table, is LOW (today's checks apply); a score read cut at its page cap
+is CRITICAL.
+
+| Operation | Where the check sits |
+|-----------|----------------------|
+| crop `create` (farmer), trip `create` (trucker) | after the field rules (`CROP_VALIDATION`, `TRIP_VALIDATION`, the contact-in-text rule), before the listing fraud checks and the write |
+| order `create` (buyer) | after the field rules (`ORDER_VALIDATION`), before the listing and trip reads and the write |
+| order update to `payment_submitted` (buyer) | after the transition rules, before KYC (`ORDER_KYC_REQUIRED`); the tier then sets the step-up (`AUTH_041` before `AUTH_040`) |
+
+A refused operation writes nothing and stores no idempotency key, like every operation error.
+The `AUTH_041:` text names no amount: `AUTH_041: Confirm it's you with Fayda to continue with this
+payment.` Clients are unchanged (1.18.0 below).
 
 ### Client handling (1.18.0, FRD-06)
 
@@ -636,6 +653,7 @@ set, copied names `Deleted user`), so browse drops them as it drops any deleted 
 | Version | Date | Change |
 |---------|------|--------|
 | 1.26.0 | 2026-10-23 | Deleted accounts (ACC-02, `account-deletion.md` 1.2.0): a batch from an account that is being or has been deleted answers HTTP `410 ACCOUNT_004` with `error.deletionState` and nothing is applied (terminal for the client); a batch whose caller row cannot be read answers `503 SYNC_SERVER_ERROR`; a message to, or a rating about, an account with `deletionState` is op-level `SYNC_VALIDATION` |
+| 1.25.0 | 2026-10-23 | Risk tier built on the server (FRD-04, the 1.9.0 rules): `FRAUD_ACCOUNT_HELD:` on crop, trip and order create and on order `payment_submitted` for a caller at risk tier CRITICAL (a truncated score read included), nothing written; MEDIUM and HIGH raise `AUTH_040:` and `AUTH_041:` at any amount (Fayda first); the caller's tier only, read once per batch; an unreadable score or a missing fraud-signals table is LOW; the position of each check; `AUTH_041:` text amount-neutral; clients unchanged |
 | 1.24.0 | 2026-10-23 | Payment total refusal (FUP-22): the live gateway's refusal of a `payment_submitted` whose total is outside 100 to 500,000 ETB is `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` with the same sentence (it was `ORDER_VALIDATION`); permanent under the `ORDER_*` rule, nothing written; clients match the code and, for one release, the old text; same gate, bounds and order; clients before 1.24.0 show the generic refusal |
 | 1.23.0 | 2026-10-23 | Listing text refusal (FUP-49): `CROP_CONTACT_IN_TEXT` and `TRIP_CONTACT_IN_TEXT` for a crop listing or trip whose buyer-visible text holds a phone number (`crop-listing-api.md` 1.4.0, `trip-listing-api.md` 1.5.0), nothing written; deterministic, permanent on the mobile queue, not reverted, explained in en, am and om; web shows the same text; the forms run the same check before queueing; older clients retry it |
 | 1.20.0 | 2026-10-23 | Legacy listing side effect (FUP-18): mobile no longer queues a `cropListing` update on delivery create and confirm (the server cannot route it and refuses non-owners anyway) nor flips its local listing copy; `cropListing` operations already queued are removed at app start, the one exception to invariant 1; no server change |

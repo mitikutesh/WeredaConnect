@@ -507,6 +507,34 @@ describe('ApiStack', () => {
     });
   });
 
+  test('FRD-04: escrow-cron reads the fraud-signals table for the settlement risk tier, and writes none of it', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-escrow-cron',
+      Environment: {
+        Variables: Match.objectLike({ FRAUD_SIGNALS_TABLE: Match.anyValue(), FRAUD_HOLD_ENABLED: 'false' }),
+      },
+    });
+
+    const policies = [
+      ...Object.entries(template.findResources('AWS::IAM::Policy')),
+      ...Object.entries(template.findResources('AWS::IAM::ManagedPolicy')),
+    ];
+    const cronSignalActions = policies
+      .filter(([id]) => id.startsWith('EscrowCronFunctionServiceRole'))
+      .flatMap(
+        ([, policy]) =>
+          policy.Properties.PolicyDocument.Statement as Array<{ Action: string | string[]; Resource: unknown }>,
+      )
+      .filter((s) => JSON.stringify(s.Resource).includes('FraudSignalsTable'))
+      .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+
+    // The score is one Query of the party's partition (FraudDetectionService.GetUserRiskScoreAsync).
+    expect(cronSignalActions).toContain('dynamodb:Query');
+    for (const write of ['dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:DeleteItem', 'dynamodb:BatchWriteItem']) {
+      expect([write, cronSignalActions.includes(write)]).toEqual([write, false]);
+    }
+  });
+
   test('ESC-10: escrow-cron can read the escrow audit trail the sweep freeze checks', () => {
     // The sweeps freeze a disputed trade through the ESC-07 delivery dispute path, whose refusal row
     // reads the escrow's audit trail first.
@@ -1623,7 +1651,13 @@ describe('MonitoringStack', () => {
     const template = monitoringTemplate(false);
     const filter = metricFilter(template, ESCROW_CRON_LG, 'RiskSettlementSkipped');
     expect(filter.Properties.MetricTransformations[0].MetricValue).toBe('1');
-    for (const reason of ['flag_off holdReason=account_suspended', 'user_read_failed holdReason=-']) {
+    // FRD-04 adds a CRITICAL party with the flag off and a party risk score that could not be read.
+    for (const reason of [
+      'flag_off holdReason=account_suspended',
+      'user_read_failed holdReason=-',
+      'flag_off holdReason=risk_critical',
+      'score_unavailable holdReason=-',
+    ]) {
       const line = `RISK_SETTLEMENT_SKIPPED escrowId=escrow-order-ord-1 sweep=auto-refund reason=${reason}`;
       expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, true]);
       const prefixed = `2026-10-23T10:00:00.000Z\t4f1c7a2e-req\twarn\t${line}`;
@@ -1634,6 +1668,8 @@ describe('MonitoringStack', () => {
       'ESCROW_FRAUD_HOLD escrowId=escrow-order-ord-1 holdReason=account_suspended heldFor=refund sweep=auto-refund',
       'ESCROW_FRAUD_HOLD_LOST escrowId=escrow-order-ord-1 outcome=OrderChanged sweep=auto-refund; the next run decides again.',
       'RISK_HOLD_ORDER_MISMATCH escrowId=escrow-order-ord-1 heldFor=release legs=order:mismatch:in-transit',
+      // FRD-04: the unconfigured-table line is FRD-16's alarm, not this one.
+      'RISK_TABLE_UNCONFIGURED action=auto_release_and_refund',
       SETTLEMENT_LINE,
       PAYOUT_LINE,
       QUEUE_LINE,

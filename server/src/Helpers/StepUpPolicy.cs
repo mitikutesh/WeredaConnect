@@ -1,5 +1,6 @@
 using System.Globalization;
 using Amazon.Lambda.APIGatewayEvents;
+using WeredaConnect.Server.Models;
 
 namespace WeredaConnect.Server.Helpers;
 
@@ -10,7 +11,8 @@ namespace WeredaConnect.Server.Helpers;
 /// auth_time to be within <see cref="MaxAgeSeconds"/>, otherwise the client is
 /// told to sign in again (AUTH_040) and retry.
 /// Payments use <see cref="CheckPayment"/> instead: a recent password up to
-/// 10,000 ETB, a recent Fayda login above it (AUTH_041).
+/// 10,000 ETB, a recent Fayda login above it (AUTH_041), and both at any amount
+/// once the buyer's risk tier asks for them (FRD-04).
 /// Environment: STEP_UP_THRESHOLD_ETB (default 10000), STEP_UP_MAX_AGE_SECONDS (default 300).
 /// </summary>
 public static class StepUpPolicy
@@ -18,9 +20,12 @@ public static class StepUpPolicy
     public const string ErrorCode = "AUTH_040";
     public const string ErrorMessage = "Please sign in again to confirm this action.";
 
-    /// <summary>A payment above the Fayda threshold needs a recent Fayda login.</summary>
+    /// <summary>
+    /// A payment needs a recent Fayda login: above the Fayda threshold, or at risk tier HIGH. The text
+    /// names no amount (FRD-04); clients key on the code.
+    /// </summary>
     public const string FaydaErrorCode = "AUTH_041";
-    public const string FaydaErrorMessage = "Confirm it's you with Fayda to pay more than 10,000 ETB.";
+    public const string FaydaErrorMessage = "Confirm it's you with Fayda to continue with this payment.";
 
     internal const decimal DefaultThresholdEtb = 10_000m;
     internal const int DefaultMaxAgeSeconds = 300;
@@ -91,23 +96,43 @@ public static class StepUpPolicy
     /// (<see cref="KycPolicy.FaydaThresholdEtb"/>): up to it, a password entered within
     /// <see cref="MaxAgeSeconds"/> (auth_time, AUTH_040); above it, a Fayda login within
     /// the same window (<paramref name="faydaAuthenticatedAt"/>, written by
-    /// /user/fayda-link, AUTH_041) and no password. Null when the payment may proceed.
+    /// /user/fayda-link, AUTH_041) and no password. The buyer's risk tier adds proofs
+    /// (fraud-detection-architecture.md section 17): MEDIUM the password at any amount,
+    /// HIGH the Fayda login and then the password at any amount. Fayda is asked first: its
+    /// round trip takes minutes and the password seconds, so both stay inside the window.
+    /// CRITICAL never gets here (the caller refuses it), and would need both. Null when the
+    /// payment may proceed.
     /// </summary>
     public static string? CheckPayment(
-        long? authTime, string? faydaAuthenticatedAt, decimal amountEtb, DateTimeOffset? now = null)
+        long? authTime, string? faydaAuthenticatedAt, decimal amountEtb, DateTimeOffset? now = null,
+        RiskTier tier = RiskTier.Low)
     {
         var current = (now ?? DateTimeOffset.UtcNow).ToUnixTimeSeconds();
-        if (amountEtb > KycPolicy.FaydaThresholdEtb)
+        if (PaymentNeedsFayda(amountEtb, tier))
         {
             var faydaAt = ParseIsoSeconds(faydaAuthenticatedAt);
-            return faydaAt != null && current - faydaAt.Value <= MaxAgeSeconds
-                ? null
-                : $"{FaydaErrorCode}: {FaydaErrorMessage}";
+            if (faydaAt == null || current - faydaAt.Value > MaxAgeSeconds)
+            {
+                return $"{FaydaErrorCode}: {FaydaErrorMessage}";
+            }
         }
+
+        if (amountEtb > KycPolicy.FaydaThresholdEtb && tier == RiskTier.Low)
+        {
+            return null;
+        }
+
         return authTime != null && current - authTime.Value <= MaxAgeSeconds
             ? null
             : $"{ErrorCode}: {ErrorMessage}";
     }
+
+    /// <summary>
+    /// Whether <see cref="CheckPayment"/> asks for a recent Fayda login: above the Fayda threshold, or at
+    /// risk tier HIGH (and CRITICAL) at any amount. Callers read the buyer's profile only then.
+    /// </summary>
+    public static bool PaymentNeedsFayda(decimal amountEtb, RiskTier tier = RiskTier.Low)
+        => amountEtb > KycPolicy.FaydaThresholdEtb || tier >= RiskTier.High;
 
     /// <summary>Error code of a <see cref="CheckPayment"/> message (AUTH_040 or AUTH_041).</summary>
     public static string CodeOf(string message)
