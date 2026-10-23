@@ -119,6 +119,9 @@ public sealed record FraudSignalDto
     public required string Severity { get; init; }
     public required string Description { get; init; }
     public required string Status { get; init; }
+
+    /// <summary>FRD-05: the admin's decision on a reviewed signal: <c>approve</c>, <c>reject</c> or <c>whitelist</c>.</summary>
+    public string? Resolution { get; init; }
     public string? EntityId { get; init; }
     public string? EntityType { get; init; }
     public string? ReviewedBy { get; init; }
@@ -138,7 +141,8 @@ public sealed record AdminFraudSignalListResponse
 }
 
 /// <summary>
-/// POST /admin/fraud-signals/{id}/action request body.
+/// POST /admin/fraud-signals/{id}/action request body. <see cref="Action"/> is <c>approve</c>,
+/// <c>reject</c> or <c>whitelist</c>, exactly (FRD-05).
 /// </summary>
 public sealed record FraudActionRequest
 {
@@ -147,7 +151,9 @@ public sealed record FraudActionRequest
 }
 
 /// <summary>
-/// POST /admin/fraud-signals/{id}/action response.
+/// POST /admin/fraud-signals/{id}/action response. FRD-05 (fraud-detection-architecture.md section 19)
+/// adds what the action changed: the suspension and the open escrows for <c>reject</c>, the expiry for
+/// <c>whitelist</c>.
 /// </summary>
 public sealed record FraudActionResponse
 {
@@ -155,6 +161,46 @@ public sealed record FraudActionResponse
     public required string Status { get; init; }
     public required string ReviewedAt { get; init; }
     public string? Message { get; init; }
+
+    /// <summary>The action applied: <c>approve</c>, <c>reject</c> or <c>whitelist</c>.</summary>
+    public string? Resolution { get; init; }
+
+    /// <summary>The user the signal belongs to.</summary>
+    public string? UserId { get; init; }
+
+    /// <summary>reject: the account is suspended (<see cref="SuspendReason"/> <c>fraud_confirmed</c>).</summary>
+    public bool? Suspended { get; init; }
+
+    public string? SuspendReason { get; init; }
+
+    /// <summary>reject: false when the sign-in service could not be updated, so sessions may outlive the suspension.</summary>
+    public bool? SessionsEnded { get; init; }
+
+    /// <summary>
+    /// reject: the user's escrows that are still open (<c>escrowed</c>, <c>disputed</c>,
+    /// <c>dispute_resolved</c>, <c>held</c>), read-only. Nothing is held by the action; the next settlement
+    /// sweep holds each one that comes due.
+    /// </summary>
+    public List<FraudOpenEscrowDto>? OpenEscrows { get; init; }
+
+    /// <summary>reject: false when the read stopped at its budget or failed, so the list may be incomplete.</summary>
+    public bool? OpenEscrowsComplete { get; init; }
+
+    /// <summary>whitelist: until when the user's soft-class signals do not count (ISO 8601).</summary>
+    public string? WhitelistUntil { get; init; }
+}
+
+/// <summary>FRD-05: one open escrow of a rejected user, as the reject response lists it.</summary>
+public sealed record FraudOpenEscrowDto
+{
+    public required string EscrowId { get; init; }
+    public required string Status { get; init; }
+
+    /// <summary>The user's side of the escrow: <c>buyer</c>, <c>farmer</c> or <c>trucker</c>.</summary>
+    public required string Party { get; init; }
+    public required decimal Amount { get; init; }
+    public string? OrderId { get; init; }
+    public string? CreatedAt { get; init; }
 }
 
 // ──────────────────────────────────────────────

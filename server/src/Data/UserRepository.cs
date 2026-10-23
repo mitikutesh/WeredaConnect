@@ -340,6 +340,7 @@ public sealed class UserRepository : IUserRepository
             PreferredLanguage = item.TryGetValue("preferredLanguage", out var lang) ? lang.S : "am",
             IsPhoneVerified = item.TryGetValue("isPhoneVerified", out var verified) && verified.BOOL,
             Suspended = item.TryGetValue("suspended", out var susp) && susp.BOOL,
+            SuspendReason = item.TryGetValue("suspendReason", out var sr) && sr.S != null ? sr.S : null,
             KnownDevices = item.TryGetValue("knownDevices", out var kd) && kd.SS is { Count: > 0 } ? [.. kd.SS] : [],
             ProfilePhotoRef = item.TryGetValue("profilePhotoRef", out var photo) && photo.S != null ? photo.S : null,
             BuyerType = item.TryGetValue("buyerType", out var bt) && bt.S != null ? bt.S : null,

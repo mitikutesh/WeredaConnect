@@ -85,14 +85,14 @@ public class AdminFunction
     /// empty (their handlers short-circuit on empty table names).
     /// </summary>
     internal AdminFunction(IAmazonDynamoDB dynamoDb, string usersTable, string fraudSignalsTable = "",
-        ICognitoAuthService? cognitoAuth = null)
+        ICognitoAuthService? cognitoAuth = null, string escrowsTable = "", string transactionAuditTable = "")
     {
         _dynamoDb = dynamoDb;
         _usersTable = usersTable;
         _cognitoAuth = cognitoAuth;
-        _escrowsTable = "";
+        _escrowsTable = escrowsTable;
         _escrowAuditTable = "";
-        _transactionAuditTable = "";
+        _transactionAuditTable = transactionAuditTable;
         _fraudSignalsTable = fraudSignalsTable;
         _cropsTable = "";
         _tripsTable = "";
@@ -214,7 +214,8 @@ public class AdminFunction
         // Crops are created with status "available" (never "active"); the old
         // filter counted 0. Valid crop statuses: available/reserved/sold/deleted.
         var activeListings = await ScanCountWithFilterAsync(_cropsTable, "status", "available");
-        var fraudSignalsCount = await ScanCountAsync(_fraudSignalsTable);
+        // FRD-05: credit and whitelist rows share the table but are not signals.
+        var fraudSignalsCount = await ScanCountAsync(_fraudSignalsTable, ScanFilter.SignalRowsOnly);
         var (totalVolume, totalCommissions) = await ScanEscrowTotalsAsync();
 
         var response = new AdminDashboardStatsResponse
@@ -1199,7 +1200,8 @@ public class AdminFunction
             startKey = PaginationTokenHelper.DecodeNextToken(nextToken);
         }
 
-        var (items, lastKey) = await ScanItemsAsync(_fraudSignalsTable, status, "status", limit, startKey);
+        var (items, lastKey) = await ScanItemsAsync(
+            _fraudSignalsTable, status, "status", limit, startKey, ScanFilter.SignalRowsOnly);
         var signals = items.Select(MapToFraudSignalDto).ToList();
 
         string? newNextToken = null;
@@ -1217,6 +1219,13 @@ public class AdminFunction
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.AdminFraudSignalListResponse);
     }
+
+    /// <summary>
+    /// FRD-05: the admin's verbs on a signal (fraud-detection-architecture.md section 19). The score counts
+    /// every resolution but <c>approve</c> and <c>whitelist</c> (section 14.2), so anything else, a
+    /// capitalised verb included, is refused before it can be stored.
+    /// </summary>
+    private static readonly string[] FraudActions = { "approve", "reject", "whitelist" };
 
     private async Task<APIGatewayProxyResponse> HandleFraudActionAsync(
         string signalId,
@@ -1245,17 +1254,24 @@ public class AdminFunction
             return LambdaResponse.Error(400, "ADMIN_005", "Request body is required.");
         }
 
+        if (!FraudActions.Contains(body.Action, StringComparer.Ordinal))
+        {
+            return LambdaResponse.Error(400, "ADMIN_009", "Unknown action. Use approve, reject or whitelist.");
+        }
+
         // The path id encodes the table's composite key (userId + signalKey).
         if (!Services.FraudDetectionService.TryParseSignalId(signalId, out var signalUserId, out var signalKey))
         {
             return LambdaResponse.Error(400, "ADMIN_005", "Invalid fraud signal id.");
         }
 
-        var now = DateTime.UtcNow.ToString("o");
+        var nowUtc = DateTime.UtcNow;
+        var now = nowUtc.ToString("o");
         var adminUserId = AuthHelper.GetUserId(request) ?? "admin";
 
         // status becomes "reviewed" (the admin UI keys on that value); the
         // chosen verb (approve/reject/whitelist) is kept in "resolution".
+        // FRD-05: only a signal row can be reviewed; a credit or whitelist row reads as not found.
         var updateRequest = new UpdateItemRequest
         {
             TableName = _fraudSignalsTable,
@@ -1264,9 +1280,9 @@ public class AdminFunction
                 { "userId", new AttributeValue { S = signalUserId } },
                 { "signalKey", new AttributeValue { S = signalKey } }
             },
-            ConditionExpression = "attribute_exists(userId)",
+            ConditionExpression = $"attribute_exists(userId) AND {ScanFilter.SignalRowsOnly.Expression}",
             UpdateExpression = "SET #status = :status, #resolution = :resolution, #reviewedBy = :reviewedBy, #reviewedAt = :reviewedAt, #reviewNotes = :notes",
-            ExpressionAttributeNames = new Dictionary<string, string>
+            ExpressionAttributeNames = new Dictionary<string, string>(ScanFilter.SignalRowsOnly.Names)
             {
                 { "#status", "status" },
                 { "#resolution", "resolution" },
@@ -1274,7 +1290,7 @@ public class AdminFunction
                 { "#reviewedAt", "reviewedAt" },
                 { "#reviewNotes", "reviewNotes" }
             },
-            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>(ScanFilter.SignalRowsOnly.Values)
             {
                 { ":status", new AttributeValue { S = "reviewed" } },
                 { ":resolution", new AttributeValue { S = body.Action } },
@@ -1293,10 +1309,20 @@ public class AdminFunction
             return LambdaResponse.Error(404, "ADMIN_006", "Fraud signal not found.");
         }
 
+        // whitelist: the signal row validated the request, so the whitelist row follows it.
+        string? whitelistUntil = null;
+        if (body.Action == "whitelist")
+        {
+            whitelistUntil = await WriteWhitelistAsync(signalUserId, nowUtc, adminUserId, body.Notes);
+        }
+
         await TransactionAuditWriter.EmitAsync(
             TxAuditRepo(), context, signalId, "fraud", signalId,
             $"fraud_{body.Action}", null, body.Action,
-            AuditContext.From(request, adminUserId, "admin"), metadata: body.Notes);
+            AuditContext.From(request, adminUserId, "admin"),
+            metadata: whitelistUntil == null
+                ? body.Notes
+                : $"whitelistUntil={whitelistUntil}" + (body.Notes != null ? $";notes={body.Notes}" : ""));
         AuditLogger.LogAudit("ADMIN", "FRAUD_ACTION",
             userId: adminUserId, correlationId: AuditLogger.GetCorrelationId(request),
             entityType: "fraudSignal", entityId: signalId, detail: body.Action, outcome: "success");
@@ -1306,10 +1332,186 @@ public class AdminFunction
             SignalId = signalId,
             Status = "reviewed",
             ReviewedAt = now,
-            Message = $"Fraud signal reviewed successfully ({body.Action})."
+            Resolution = body.Action,
+            UserId = signalUserId,
+            Message = body.Action switch
+            {
+                "approve" => "Fraud signal approved. It no longer counts toward the user's risk score.",
+                "whitelist" => $"Fraud signal whitelisted. The user's soft signals do not count until {whitelistUntil}.",
+                _ => "Fraud signal rejected."
+            },
+            WhitelistUntil = whitelistUntil
         };
 
-        return LambdaResponse.Ok(response, AppJsonContext.Default.FraudActionResponse);
+        if (body.Action != "reject")
+        {
+            return LambdaResponse.Ok(response, AppJsonContext.Default.FraudActionResponse);
+        }
+
+        // reject: the signal keeps counting, and the user is suspended through the one suspend path.
+        // Nothing is held here: the next settlement sweep that would pay or refund one of the user's
+        // escrows holds it as fraud_confirmed (section 18.1).
+        var suspension = await ApplyUserActionAsync(
+            signalUserId, new UserActionRequest { Action = "suspend", Reason = FraudConfirmedReason }, request, context);
+        if (suspension.Error != null)
+        {
+            return suspension.Error;
+        }
+
+        var (openEscrows, complete) = await ReadOpenEscrowsAsync(signalUserId, context);
+        return LambdaResponse.Ok(response with
+        {
+            Suspended = true,
+            SuspendReason = FraudConfirmedReason,
+            SessionsEnded = suspension.CognitoNote == null,
+            OpenEscrows = openEscrows,
+            OpenEscrowsComplete = complete,
+            Message = suspension.CognitoNote == null
+                ? "Fraud signal rejected. The user is suspended (fraud_confirmed) and signed out."
+                : $"Fraud signal rejected. The user is suspended (fraud_confirmed), but {suspension.CognitoNote}"
+        }, AppJsonContext.Default.FraudActionResponse);
+    }
+
+    /// <summary>
+    /// FRD-05: writes the user's one whitelist row (section 20) and returns its end (ISO 8601). A new
+    /// whitelist replaces the old one. <c>expiresAt</c>, the table's TTL attribute, is the same instant,
+    /// so the row goes once it no longer applies.
+    /// </summary>
+    private async Task<string> WriteWhitelistAsync(string userId, DateTime nowUtc, string adminUserId, string? notes)
+    {
+        var until = nowUtc.AddDays(FraudDetectionService.WhitelistDaysFrom(Environment.GetEnvironmentVariable));
+        var untilIso = until.ToString("o", CultureInfo.InvariantCulture);
+        var item = new Dictionary<string, AttributeValue>
+        {
+            { "userId", new AttributeValue { S = userId } },
+            { "signalKey", new AttributeValue { S = FraudDetectionService.WhitelistSignalKey } },
+            { "recordType", new AttributeValue { S = FraudDetectionService.RecordTypeWhitelist } },
+            { "whitelistUntil", new AttributeValue { S = untilIso } },
+            { "expiresAt", new AttributeValue { N = new DateTimeOffset(until).ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture) } },
+            { "reviewedBy", new AttributeValue { S = adminUserId } },
+            { "reviewedAt", new AttributeValue { S = nowUtc.ToString("o", CultureInfo.InvariantCulture) } }
+        };
+        if (notes != null)
+        {
+            item["reviewNotes"] = new AttributeValue { S = notes };
+        }
+
+        await _dynamoDb.PutItemAsync(new PutItemRequest { TableName = _fraudSignalsTable, Item = item });
+        return untilIso;
+    }
+
+    private static readonly (string Index, string Field, string Party)[] PartyEscrowIndexes =
+    {
+        ("BuyerStatusIndex", "buyerId", "buyer"),
+        ("FarmerStatusIndex", "farmerId", "farmer"),
+        ("TruckerStatusIndex", "truckerId", "trucker")
+    };
+
+    /// <summary>Escrow statuses that still hold a party's money (section 18.1).</summary>
+    private static readonly string[] OpenEscrowStatuses = { "escrowed", "disputed", "dispute_resolved", EscrowHoldFields.Status };
+
+    private const int OpenEscrowPageSize = 100;
+    private const int OpenEscrowPagesPerIndex = 5;
+    private const int MaxOpenEscrows = 50;
+
+    /// <summary>
+    /// FRD-05: the rejected user's open escrows, read-only, from the three party indexes with a status
+    /// filter (section 18.1): every index, so a role changed by an admin keeps its older escrows in view.
+    /// Bounded by <see cref="OpenEscrowPagesPerIndex"/> pages per index and <see cref="MaxOpenEscrows"/>
+    /// escrows. <c>Complete</c> is false when a bound cut the read or it failed; the suspension stands
+    /// either way, since the list only informs the admin.
+    /// </summary>
+    private async Task<(List<FraudOpenEscrowDto> Escrows, bool Complete)> ReadOpenEscrowsAsync(
+        string userId, ILambdaContext context)
+    {
+        var escrows = new List<FraudOpenEscrowDto>();
+        if (string.IsNullOrEmpty(_escrowsTable))
+        {
+            return (escrows, false);
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var complete = true;
+        try
+        {
+            foreach (var (index, field, party) in PartyEscrowIndexes)
+            {
+                Dictionary<string, AttributeValue>? startKey = null;
+                var pages = 0;
+                do
+                {
+                    var query = new QueryRequest
+                    {
+                        TableName = _escrowsTable,
+                        IndexName = index,
+                        KeyConditionExpression = "#party = :userId",
+                        FilterExpression = "#status IN (" + string.Join(", ", OpenEscrowStatuses.Select((_, i) => $":s{i}")) + ")",
+                        ExpressionAttributeNames = new Dictionary<string, string>
+                        {
+                            { "#party", field },
+                            { "#status", "status" }
+                        },
+                        ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                        {
+                            { ":userId", new AttributeValue { S = userId } }
+                        },
+                        Limit = OpenEscrowPageSize,
+                        ScanIndexForward = false
+                    };
+                    for (var i = 0; i < OpenEscrowStatuses.Length; i++)
+                    {
+                        query.ExpressionAttributeValues[$":s{i}"] = new AttributeValue { S = OpenEscrowStatuses[i] };
+                    }
+
+                    if (startKey != null)
+                    {
+                        query.ExclusiveStartKey = startKey;
+                    }
+
+                    var page = await _dynamoDb.QueryAsync(query);
+                    pages++;
+                    foreach (var row in (page.Items ?? new List<Dictionary<string, AttributeValue>>()).Select(DynamoDbHelper.FromItem))
+                    {
+                        var escrowId = GetString(row, "escrowId");
+                        if (escrowId.Length == 0 || !seen.Add(escrowId))
+                        {
+                            continue; // a self-trade escrow names the user twice; list it once
+                        }
+
+                        if (escrows.Count == MaxOpenEscrows)
+                        {
+                            return (escrows, false);
+                        }
+
+                        escrows.Add(new FraudOpenEscrowDto
+                        {
+                            EscrowId = escrowId,
+                            Status = GetString(row, "status"),
+                            Party = party,
+                            Amount = GetDecimal(row, "amount"),
+                            OrderId = GetStringOrNull(row, "orderId"),
+                            CreatedAt = GetStringOrNull(row, "createdAt")
+                        });
+                    }
+
+                    startKey = page.LastEvaluatedKey is { Count: > 0 } next ? next : null;
+                }
+                while (startKey != null && pages < OpenEscrowPagesPerIndex);
+
+                if (startKey != null)
+                {
+                    complete = false;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"FRAUD_REJECT_OPEN_ESCROWS_UNREAD userId={MoneyAlarmLog.LogId(userId)} error={ex.GetType().Name}");
+            return (escrows, false);
+        }
+
+        return (escrows, complete);
     }
 
     // ──────────────────────────────────────────────
@@ -1423,8 +1625,59 @@ public class AdminFunction
             return LambdaResponse.Error(400, "ADMIN_005", "Request body is required.");
         }
 
+        // FRD-05: typed here, the reject action's reason would make a plain suspension read as confirmed
+        // fraud to the settlement sweep.
+        if (body.Action == "suspend"
+            && string.Equals(body.Reason?.Trim(), FraudConfirmedReason, StringComparison.OrdinalIgnoreCase))
+        {
+            return LambdaResponse.Error(400, "ADMIN_017",
+                "This suspend reason is reserved for the Fraud Review reject action.");
+        }
+
+        var outcome = await ApplyUserActionAsync(userId, body, request, context);
+        if (outcome.Error != null)
+        {
+            return outcome.Error;
+        }
+
+        var response = new UserActionResponse
+        {
+            UserId = userId,
+            Action = body.Action,
+            Status = "completed",
+            UpdatedAt = outcome.UpdatedAt,
+            Message = outcome.CognitoNote == null
+                ? $"User action '{body.Action}' completed successfully."
+                : $"User action '{body.Action}' recorded, but {outcome.CognitoNote}"
+        };
+
+        return LambdaResponse.Ok(response, AppJsonContext.Default.UserActionResponse);
+    }
+
+    /// <summary>
+    /// FRD-05: the suspend reason only the Fraud Review reject action writes. The settlement sweep holds
+    /// the escrows of a user suspended with it as <c>fraud_confirmed</c> (fraud-detection-architecture.md
+    /// section 18.1), so the user action route refuses it as free text.
+    /// </summary>
+    private const string FraudConfirmedReason = EscrowHoldFields.ReasonFraudConfirmed;
+
+    /// <summary>What <see cref="ApplyUserActionAsync"/> did: an error to answer with, or the update time and
+    /// the note for the admin when Cognito could not be updated.</summary>
+    private readonly record struct UserActionOutcome(APIGatewayProxyResponse? Error, string UpdatedAt, string? CognitoNote);
+
+    /// <summary>
+    /// The one implementation of the admin user actions: the profile row, Cognito, the audit rows. The user
+    /// action route and the Fraud Review reject (FRD-05) both suspend through it.
+    /// </summary>
+    private async Task<UserActionOutcome> ApplyUserActionAsync(
+        string userId,
+        UserActionRequest body,
+        APIGatewayProxyRequest request,
+        ILambdaContext context)
+    {
         var now = DateTime.UtcNow.ToString("o");
         var updateParts = new List<string> { "#updatedAt = :now" };
+        var removeParts = new List<string>();
         var attrNames = new Dictionary<string, string>
         {
             { "#updatedAt", "updatedAt" }
@@ -1451,6 +1704,10 @@ public class AdminFunction
                 updateParts.Add("#suspended = :suspended");
                 attrNames["#suspended"] = "suspended";
                 attrValues[":suspended"] = new AttributeValue { BOOL = false };
+                // FRD-05: the reason ends with the suspension, so a stale fraud_confirmed never labels a
+                // later suspension that gives no reason.
+                removeParts.Add("#suspendReason");
+                attrNames["#suspendReason"] = "suspendReason";
                 break;
             case "verify":
                 updateParts.Add("#faydaVerified = :verified");
@@ -1460,7 +1717,8 @@ public class AdminFunction
             case "change_role":
                 if (string.IsNullOrEmpty(body.NewRole))
                 {
-                    return LambdaResponse.Error(400, "ADMIN_008", "NewRole is required for change_role action.");
+                    return new UserActionOutcome(
+                        LambdaResponse.Error(400, "ADMIN_008", "NewRole is required for change_role action."), now, null);
                 }
                 // Allowlist guard (CHAIN-01): reject any role outside the three marketplace
                 // roles. This forbids escalation to "admin" (which EscrowService trusts for
@@ -1470,15 +1728,16 @@ public class AdminFunction
                     r => string.Equals(r, body.NewRole, StringComparison.OrdinalIgnoreCase));
                 if (requestedRole == null)
                 {
-                    return LambdaResponse.Error(400, "ADMIN_011",
-                        "NewRole must be one of: farmer, trucker, buyer.");
+                    return new UserActionOutcome(
+                        LambdaResponse.Error(400, "ADMIN_011", "NewRole must be one of: farmer, trucker, buyer."), now, null);
                 }
                 updateParts.Add("#role = :newRole");
                 attrNames["#role"] = "role";
                 attrValues[":newRole"] = new AttributeValue { S = requestedRole };
                 break;
             default:
-                return LambdaResponse.Error(400, "ADMIN_009", $"Unknown action: {body.Action}");
+                return new UserActionOutcome(
+                    LambdaResponse.Error(400, "ADMIN_009", $"Unknown action: {body.Action}"), now, null);
         }
 
         var updateRequest = new UpdateItemRequest
@@ -1488,7 +1747,8 @@ public class AdminFunction
             {
                 { "userId", new AttributeValue { S = userId } }
             },
-            UpdateExpression = "SET " + string.Join(", ", updateParts),
+            UpdateExpression = "SET " + string.Join(", ", updateParts)
+                + (removeParts.Count > 0 ? " REMOVE " + string.Join(", ", removeParts) : ""),
             ExpressionAttributeNames = attrNames,
             ExpressionAttributeValues = attrValues,
             ConditionExpression = "attribute_exists(userId)"
@@ -1500,7 +1760,7 @@ public class AdminFunction
         }
         catch (ConditionalCheckFailedException)
         {
-            return LambdaResponse.Error(404, "ADMIN_007", "User not found.");
+            return new UserActionOutcome(LambdaResponse.Error(404, "ADMIN_007", "User not found."), now, null);
         }
 
         // The DynamoDB flag alone left refreshed and live tokens working: push the
@@ -1517,18 +1777,7 @@ public class AdminFunction
             userId: actingAdminId, correlationId: AuditLogger.GetCorrelationId(request),
             entityType: "user", entityId: userId, detail: body.Action, outcome: "success");
 
-        var response = new UserActionResponse
-        {
-            UserId = userId,
-            Action = body.Action,
-            Status = "completed",
-            UpdatedAt = now,
-            Message = cognitoNote == null
-                ? $"User action '{body.Action}' completed successfully."
-                : $"User action '{body.Action}' recorded, but {cognitoNote}"
-        };
-
-        return LambdaResponse.Ok(response, AppJsonContext.Default.UserActionResponse);
+        return new UserActionOutcome(null, now, cognitoNote);
     }
 
     /// <summary>
@@ -2211,7 +2460,25 @@ public class AdminFunction
         return defaultLimit;
     }
 
-    private async Task<int> ScanCountAsync(string tableName)
+    /// <summary>A Scan filter a helper ANDs with its own (FRD-05: signal rows only).</summary>
+    private sealed record ScanFilter(
+        string Expression, IReadOnlyDictionary<string, string> Names, IReadOnlyDictionary<string, AttributeValue> Values)
+    {
+        /// <summary>
+        /// FRD-05: the fraud-signals rows that are signals (legacy rows carry no <c>recordType</c>). Credit and
+        /// whitelist rows (fraud-detection-architecture.md section 20) stay out of the admin list and count,
+        /// and the review action refuses them.
+        /// </summary>
+        public static ScanFilter SignalRowsOnly { get; } = new(
+            "(attribute_not_exists(#recordType) OR #recordType = :signalRecord)",
+            new Dictionary<string, string> { { "#recordType", "recordType" } },
+            new Dictionary<string, AttributeValue>
+            {
+                { ":signalRecord", new AttributeValue { S = FraudDetectionService.RecordTypeSignal } }
+            });
+    }
+
+    private async Task<int> ScanCountAsync(string tableName, ScanFilter? filter = null)
     {
         if (string.IsNullOrEmpty(tableName))
         {
@@ -2223,6 +2490,12 @@ public class AdminFunction
             TableName = tableName,
             Select = Select.COUNT
         };
+        if (filter != null)
+        {
+            request.FilterExpression = filter.Expression;
+            request.ExpressionAttributeNames = new Dictionary<string, string>(filter.Names);
+            request.ExpressionAttributeValues = new Dictionary<string, AttributeValue>(filter.Values);
+        }
 
         var count = 0;
         Dictionary<string, AttributeValue>? lastKey = null;
@@ -2377,12 +2650,15 @@ public class AdminFunction
         string? filterValue,
         string filterField,
         int limit,
-        Dictionary<string, AttributeValue>? startKey)
+        Dictionary<string, AttributeValue>? startKey,
+        ScanFilter? filter = null)
     {
         if (string.IsNullOrEmpty(tableName))
         {
             return (new List<Dictionary<string, object>>(), null);
         }
+
+        var filtered = !string.IsNullOrEmpty(filterValue) || filter != null;
 
         var items = new List<Dictionary<string, object>>();
         var lastKey = startKey;
@@ -2413,6 +2689,24 @@ public class AdminFunction
                 };
             }
 
+            if (filter != null)
+            {
+                request.FilterExpression = request.FilterExpression == null
+                    ? filter.Expression
+                    : $"{request.FilterExpression} AND {filter.Expression}";
+                request.ExpressionAttributeNames ??= new Dictionary<string, string>();
+                request.ExpressionAttributeValues ??= new Dictionary<string, AttributeValue>();
+                foreach (var (name, attribute) in filter.Names)
+                {
+                    request.ExpressionAttributeNames[name] = attribute;
+                }
+
+                foreach (var (name, value) in filter.Values)
+                {
+                    request.ExpressionAttributeValues[name] = value;
+                }
+            }
+
             var response = await _dynamoDb.ScanAsync(request);
             items.AddRange(response.Items.Select(DynamoDbHelper.FromItem));
             lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
@@ -2422,7 +2716,7 @@ public class AdminFunction
         // few matches or none. Keep reading until `limit` matched (the last page may add up to
         // limit - 1 more), the table ends, or the page budget is spent; the nextToken resumes after the
         // last page read, so nothing is skipped or repeated.
-        while (!string.IsNullOrEmpty(filterValue) && items.Count < limit && lastKey != null && pages < MaxFilteredScanPages);
+        while (filtered && items.Count < limit && lastKey != null && pages < MaxFilteredScanPages);
 
         return (items, lastKey);
     }
@@ -2630,6 +2924,7 @@ public class AdminFunction
             Severity = GetString(item, "severity"),
             Description = GetString(item, "description"),
             Status = GetString(item, "status"),
+            Resolution = GetStringOrNull(item, "resolution"),
             EntityId = GetStringOrNull(item, "entityId"),
             EntityType = GetStringOrNull(item, "entityType"),
             ReviewedBy = GetStringOrNull(item, "reviewedBy"),

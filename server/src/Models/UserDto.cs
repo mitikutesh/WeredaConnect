@@ -37,6 +37,13 @@ public sealed record UserDto
     public string PreferredLanguage { get; init; } = "am";
     public required bool IsPhoneVerified { get; init; }
     public bool Suspended { get; init; }
+    /// <summary>
+    /// Why an admin suspended the account. <c>fraud_confirmed</c> is reserved for the Fraud Review
+    /// reject action (FRD-05), whose escrows the settlement sweep holds with that reason. Server-side
+    /// only, never returned to clients.
+    /// </summary>
+    [JsonIgnore]
+    public string? SuspendReason { get; init; }
     /// <summary>Install ids (X-Device-Id) that have signed in; a new one triggers a notice.</summary>
     public List<string> KnownDevices { get; init; } = [];
     public string? ProfilePhotoRef { get; init; }

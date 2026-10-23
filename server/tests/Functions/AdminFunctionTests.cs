@@ -649,7 +649,9 @@ public class AdminFunctionTests
                 && r.Key["signalKey"].S == signalKey
                 && r.ExpressionAttributeValues[":status"].S == "reviewed"
                 && r.ExpressionAttributeValues[":resolution"].S == "approve"
-                && r.ConditionExpression == "attribute_exists(userId)"),
+                // FRD-05: only a signal row (legacy rows carry no recordType) can be reviewed.
+                && r.ConditionExpression == "attribute_exists(userId) AND (attribute_not_exists(#recordType) OR #recordType = :signalRecord)"
+                && r.ExpressionAttributeValues[":signalRecord"].S == "signal"),
             Arg.Any<CancellationToken>());
     }
 

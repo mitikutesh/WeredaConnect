@@ -180,7 +180,10 @@ internal static class EscrowHoldFields
     /// <summary>A party's user row says suspended (FRD-03).</summary>
     public const string ReasonAccountSuspended = "account_suspended";
 
-    /// <summary>Reserved: the FRD-05 reject action's suspension, which FRD-05 defines.</summary>
+    /// <summary>
+    /// A party's user row says suspended with <c>suspendReason = fraud_confirmed</c>, which only the Fraud
+    /// Review reject action writes (FRD-05). Takes precedence over <see cref="ReasonAccountSuspended"/>.
+    /// </summary>
     public const string ReasonFraudConfirmed = "fraud_confirmed";
 
     /// <summary>A party at risk tier CRITICAL, a truncated score read included (FRD-04).</summary>

@@ -1106,9 +1106,10 @@ export class MonitoringStack extends cdk.Stack {
       'Risk Settlement Skipped',
       'A settlement sweep left an escrow unsettled because of the fraud risk gate ' +
         '(RISK_SETTLEMENT_SKIPPED in the escrow-cron log group, one line per escrow per hourly run, ' +
-        'with escrowId, sweep, reason and holdReason; FRD-03, FRD-04). No money moved. reason=flag_off: ' +
-        'FRAUD_HOLD_ENABLED is off and a buyer, farmer or trucker of the escrow is suspended ' +
-        '(holdReason=account_suspended) or at risk tier CRITICAL (risk_critical), so the payout or refund ' +
+        'with escrowId, sweep, reason and holdReason; FRD-03, FRD-04, FRD-05). No money moved. ' +
+        'reason=flag_off: FRAUD_HOLD_ENABLED is off and a buyer, farmer or trucker of the escrow was ' +
+        'rejected in Fraud Review (holdReason=fraud_confirmed), suspended otherwise ' +
+        '(account_suspended) or at risk tier CRITICAL (risk_critical), so the payout or refund ' +
         'waits. Find the party from the escrow in the admin app. Exits: unsuspend the party if the ' +
         'suspension was not about fraud, or approve the signals behind the tier in Fraud Review (the ' +
         'next run settles as before), or settle the escrow by hand with POST /escrow/release or ' +
