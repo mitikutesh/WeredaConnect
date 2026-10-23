@@ -38,6 +38,7 @@ public sealed class FraudDetectionService : IFraudDetectionService
     internal const int DefaultRiskAdvisoryCap = 10;
     internal const int DefaultRiskMaxPages = 2;
     internal const int RiskMaxPagesCap = 10;
+    internal const int DefaultRiskRejectTypeCap = 50;
 
     /// <summary>AI reviewer output (FRD-19): capped, and left out of the enforcement score.</summary>
     internal const string AdvisorySignalType = "AI_ADVISORY";
@@ -328,12 +329,22 @@ public sealed class FraudDetectionService : IFraudDetectionService
     /// FRD-08 types the scorer counts once per (type, entityId) over the whole window, not once per
     /// hour: the mobile queue sends a refused operation again on every reconnect, so one honest
     /// refusal would otherwise add its weight in every hour it is retried. Probes of different ids
-    /// still add up. A row without an entityId falls back to the hourly bucket.
+    /// still add up, and an approved row clears its entity. A row without an entityId falls back to
+    /// the hourly bucket. <c>IDOR_CREATE_CONFLICT</c> is not one of them: a conflict is final for the
+    /// client (marked synced) and web makes a new id per create, so no honest retry repeats it.
     /// </summary>
     internal static bool CountsOncePerEntity(string signalType) =>
-        signalType is IdorCreateConflictSignal or RoleForbiddenSignal or ImmutableFieldChangeSignal
+        signalType is RoleForbiddenSignal or ImmutableFieldChangeSignal
             or QrHandoffFailureSignal or TelebirrPayerMismatchSignal or TelebirrPayerRefusedSignal
             or StaleVersionBurstSignal or SuspendedTokenUseSignal;
+
+    /// <summary>
+    /// FRD-08 types whose counted weight is capped per type over the window (<c>RISK_REJECT_TYPE_CAP</c>):
+    /// honest software can still repeat them on several stuck operations (an old-role queue after a
+    /// role change, a client bug), so one type alone stops at MEDIUM.
+    /// </summary>
+    internal static bool IsCappedRejectType(string signalType) =>
+        signalType is RoleForbiddenSignal or ImmutableFieldChangeSignal;
 
     /// <summary>
     /// FRD-05: the whitelist duration in days. A value that is not an integer from 1 to

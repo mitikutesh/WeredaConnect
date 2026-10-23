@@ -503,9 +503,15 @@ public class FraudDetectionServiceTests
     }
 
     private static RiskScoreResult ScoreOf(params (int HoursAgo, string Type, string? EntityId)[] rows)
+        => Calculate(rows.Select(r => (r.HoursAgo, r.Type, r.EntityId, (string?)null)).ToArray()).Result(truncated: false);
+
+    private static RiskScoreResult ScoreOf(params (int HoursAgo, string Type, string? EntityId, string? Resolution)[] rows)
+        => Calculate(rows).Result(truncated: false);
+
+    private static RiskScoreCalculator Calculate((int HoursAgo, string Type, string? EntityId, string? Resolution)[] rows)
     {
         var calculator = new RiskScoreCalculator(RiskScoreSettings.Default, DateTime.UtcNow);
-        foreach (var (hoursAgo, type, entityId) in rows.OrderBy(r => r.HoursAgo)) // newest first, as the Query reads
+        foreach (var (hoursAgo, type, entityId, resolution) in rows.OrderBy(r => r.HoursAgo)) // newest first, as the Query reads
         {
             var hour = DateTime.UtcNow.AddHours(-hoursAgo).ToString("yyyy-MM-dd'T'HH':00:00.0000000Z'", System.Globalization.CultureInfo.InvariantCulture);
             var row = new Dictionary<string, AttributeValue>
@@ -519,17 +525,22 @@ public class FraudDetectionServiceTests
                 row["entityId"] = new AttributeValue { S = entityId };
             }
 
+            if (resolution != null)
+            {
+                row["resolution"] = new AttributeValue { S = resolution };
+            }
+
             calculator.Add(row);
         }
 
-        return calculator.Result(truncated: false);
+        return calculator;
     }
 
     [Fact]
     public void RejectSignals_TiersFollowTheNumberOfProbedIds()
     {
-        // One refused operation is LOW (25) or MEDIUM (40) however often it is retried; the three
-        // hard types on three ids are HIGH; CRITICAL needs probes of several ids.
+        // One refused operation is LOW (25) however often it is retried, one create probe MEDIUM
+        // (40); the three hard types on three ids are HIGH; CRITICAL needs probes of several ids.
         Assert.Equal(RiskTier.Low, ScoreOf((1, "ROLE_FORBIDDEN", "crop-1")).Tier);
         Assert.Equal(RiskTier.Medium, ScoreOf((1, "IDOR_CREATE_CONFLICT", "crop-1")).Tier);
         Assert.Equal(RiskTier.High, ScoreOf(
@@ -541,7 +552,6 @@ public class FraudDetectionServiceTests
     [Theory]
     [InlineData("ROLE_FORBIDDEN", 25)]
     [InlineData("IMMUTABLE_FIELD_CHANGE", 25)]
-    [InlineData("IDOR_CREATE_CONFLICT", 40)]
     [InlineData("QR_HANDOFF_FAILURE", 5)]
     [InlineData("TELEBIRR_PAYER_REFUSED", 5)]
     public void RejectSignals_AStuckOperationRetriedEveryHourCountsOnce(string type, int weight)
@@ -557,12 +567,108 @@ public class FraudDetectionServiceTests
     }
 
     [Fact]
+    public void RejectSignals_IdorCountsEveryHour_NoHonestRetryRepeatsIt()
+    {
+        // A conflict is final for the client and web makes a new id per create: IDOR rows in three
+        // hours count three times even when each hour's row names the same lead entity.
+        var result = ScoreOf((1, "IDOR_CREATE_CONFLICT", "crop-1"), (2, "IDOR_CREATE_CONFLICT", "crop-1"),
+            (3, "IDOR_CREATE_CONFLICT", "crop-1"));
+
+        Assert.Equal(120, result.Score);
+        Assert.Equal(RiskTier.Critical, result.Tier);
+        Assert.False(FraudDetectionService.CountsOncePerEntity("IDOR_CREATE_CONFLICT"));
+    }
+
+    [Fact]
+    public void RejectSignals_ApprovingAnOldRowClearsTheNewerRowsOfThatEntity()
+    {
+        // A stuck operation retried in hours 1 to 4; the admin approved its row of hour 5. The
+        // newer rows are read first and counted, then the approved row clears the whole entity.
+        var result = ScoreOf(
+            (1, "ROLE_FORBIDDEN", "crop-1", null), (2, "ROLE_FORBIDDEN", "crop-1", null),
+            (3, "ROLE_FORBIDDEN", "crop-1", null), (4, "ROLE_FORBIDDEN", "crop-1", null),
+            (5, "ROLE_FORBIDDEN", "crop-1", "approve"), (6, "ROLE_FORBIDDEN", "crop-1", null),
+            (2, "ROLE_FORBIDDEN", "crop-2", null));
+
+        Assert.Equal(25, result.Score); // only crop-2 is left
+    }
+
+    [Fact]
+    public void RejectSignals_ApprovingTheNewestRowClearsTheOlderRowsOfThatEntity()
+    {
+        var result = ScoreOf(
+            (1, "QR_HANDOFF_FAILURE", "delivery-1", "whitelist"), (2, "QR_HANDOFF_FAILURE", "delivery-1", null),
+            (3, "QR_HANDOFF_FAILURE", "delivery-1", null), (4, "QR_HANDOFF_FAILURE", "delivery-2", null));
+
+        Assert.Equal(5, result.Score); // only delivery-2
+    }
+
+    [Fact]
+    public void RejectSignals_RoleAndFieldRefusalsAreCappedPerType()
+    {
+        // RISK_REJECT_TYPE_CAP (50): one capped type alone stops at MEDIUM, both together reach
+        // CRITICAL.
+        var role = Enumerable.Range(1, 4).Select(h => (h, "ROLE_FORBIDDEN", (string?)$"crop-{h}")).ToArray();
+        var field = Enumerable.Range(1, 4).Select(h => (h, "IMMUTABLE_FIELD_CHANGE", (string?)$"order-{h}")).ToArray();
+
+        Assert.Equal(50, ScoreOf(role).Score);
+        Assert.Equal(RiskTier.Medium, ScoreOf(role).Tier);
+        Assert.Equal(100, ScoreOf(role.Concat(field).ToArray()).Score);
+        Assert.Equal(RiskTier.Critical, ScoreOf(role.Concat(field).ToArray()).Tier);
+        // The cap applies to rows without an id too (ESCROW_025 at the order checkout).
+        Assert.Equal(50, ScoreOf(Enumerable.Range(1, 3).Select(h => (h, "ROLE_FORBIDDEN", (string?)null)).ToArray()).Score);
+        Assert.True(FraudDetectionService.IsCappedRejectType("ROLE_FORBIDDEN"));
+        Assert.False(FraudDetectionService.IsCappedRejectType("IDOR_CREATE_CONFLICT"));
+    }
+
+    [Fact]
+    public void RejectSignals_TheCapFollowsTheSetting()
+    {
+        var settings = RiskScoreSettings.Default with { RejectTypeCap = 75 };
+        var calculator = new RiskScoreCalculator(settings, DateTime.UtcNow);
+        var hour = DateTime.UtcNow.AddHours(-1).ToString("yyyy-MM-dd'T'HH':00:00.0000000Z'", System.Globalization.CultureInfo.InvariantCulture);
+        for (var i = 0; i < 4; i++)
+        {
+            calculator.Add(new Dictionary<string, AttributeValue>
+            {
+                ["signalKey"] = new() { S = $"{hour}#ROLE_FORBIDDEN" },
+                ["signalType"] = new() { S = "ROLE_FORBIDDEN" },
+                ["weight"] = new() { N = "25" },
+                ["entityId"] = new() { S = $"crop-{i}" }
+            });
+        }
+
+        Assert.Equal(75, calculator.Result(truncated: false).Score);
+    }
+
+    [Fact]
+    public void RejectSignals_EntityWeightNeverStopsTheReadEarly()
+    {
+        // An older approved row can still clear an entity, so weight that sits in entity buckets
+        // does not end the read (section 14.3); hourly weight does.
+        var qr = Enumerable.Range(1, 30).Select(h => (h, "QR_HANDOFF_FAILURE", (string?)$"delivery-{h}", (string?)null)).ToArray();
+        var entityOnly = Calculate(qr);
+        Assert.False(entityOnly.ReachedCritical);
+        Assert.Equal(150, entityOnly.Result(truncated: false).Score);
+
+        var idor = Enumerable.Range(1, 4).Select(h => (h, "IDOR_CREATE_CONFLICT", (string?)$"crop-{h}", (string?)null)).ToArray();
+        Assert.True(Calculate(idor).ReachedCritical);
+
+        // Capped role weight with no entity cannot be cleared, but the cap bounds it below the stop.
+        var role = Enumerable.Range(1, 6).Select(h => (h, "ROLE_FORBIDDEN", (string?)null, (string?)null)).ToArray();
+        Assert.False(Calculate(role).ReachedCritical);
+    }
+
+    [Fact]
     public void RejectSignals_DifferentIdsAddUp_RowsWithoutAnIdCountPerHour()
     {
-        // Probing five ids, one per hour: each counts.
-        Assert.Equal(125, ScoreOf(Enumerable.Range(1, 5).Select(h => (h, "ROLE_FORBIDDEN", (string?)$"crop-{h}")).ToArray()).Score);
-        // ESCROW_025 on the checkout carries no id: the hourly bucket of section 14.2 applies.
-        Assert.Equal(75, ScoreOf(Enumerable.Range(1, 3).Select(h => (h, "ROLE_FORBIDDEN", (string?)null)).ToArray()).Score);
+        // QR failures on five deliveries, one per hour: each counts.
+        Assert.Equal(25, ScoreOf(Enumerable.Range(1, 5).Select(h => (h, "QR_HANDOFF_FAILURE", (string?)$"delivery-{h}")).ToArray()).Score);
+        // Two ids of ROLE_FORBIDDEN add up (below the cap).
+        Assert.Equal(50, ScoreOf((1, "ROLE_FORBIDDEN", "crop-1"), (2, "ROLE_FORBIDDEN", "crop-2")).Score);
+        // A row without an id keeps the hourly bucket of section 14.2: SUSPENDED_TOKEN_USE weighs 0, so
+        // use TELEBIRR_PAYER_REFUSED rows without an id.
+        Assert.Equal(15, ScoreOf(Enumerable.Range(1, 3).Select(h => (h, "TELEBIRR_PAYER_REFUSED", (string?)null)).ToArray()).Score);
     }
 
     [Fact]

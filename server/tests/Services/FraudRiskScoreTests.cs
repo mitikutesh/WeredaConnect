@@ -796,7 +796,8 @@ public class FraudRiskScoreTests
     public void Settings_DefaultsMatchTheSpec()
     {
         SettingsFrom().Should().Be(new RiskScoreSettings(
-            WindowDays: 30, TierMedium: 30, TierHigh: 60, TierCritical: 100, CreditCap: 30, AdvisoryCap: 10, MaxPages: 2));
+            WindowDays: 30, TierMedium: 30, TierHigh: 60, TierCritical: 100, CreditCap: 30, AdvisoryCap: 10, MaxPages: 2,
+            RejectTypeCap: 50));
     }
 
     [Fact]
@@ -805,8 +806,8 @@ public class FraudRiskScoreTests
         SettingsFrom(
                 ("RISK_WINDOW_DAYS", "14"), ("RISK_TIER_MEDIUM", "20"), ("RISK_TIER_HIGH", "50"),
                 ("RISK_TIER_CRITICAL", "80"), ("RISK_CREDIT_CAP", "0"), ("RISK_ADVISORY_CAP", "5"),
-                ("RISK_MAX_PAGES", "4"))
-            .Should().Be(new RiskScoreSettings(14, 20, 50, 80, 0, 5, 4));
+                ("RISK_MAX_PAGES", "4"), ("RISK_REJECT_TYPE_CAP", "80"))
+            .Should().Be(new RiskScoreSettings(14, 20, 50, 80, 0, 5, 4, 80));
     }
 
     [Theory]
@@ -818,6 +819,9 @@ public class FraudRiskScoreTests
     [InlineData("RISK_MAX_PAGES", "0")]
     [InlineData("RISK_MAX_PAGES", "-3")]
     [InlineData("RISK_TIER_CRITICAL", "1.5")]
+    [InlineData("RISK_REJECT_TYPE_CAP", "-1")] // FRD-08
+    [InlineData("RISK_REJECT_TYPE_CAP", "abc")]
+    [InlineData("RISK_REJECT_TYPE_CAP", "2.5")]
     public void Settings_InvalidOrOutOfRangeValueKeepsTheDefault(string name, string value)
     {
         SettingsFrom((name, value)).Should().Be(RiskScoreSettings.Default);
@@ -831,6 +835,15 @@ public class FraudRiskScoreTests
     public void Settings_PageCountIsCappedAtTen(string value, int expected)
     {
         SettingsFrom(("RISK_MAX_PAGES", value)).MaxPages.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("0", 0)] // FRD-08: 0 turns the capped reject types off
+    [InlineData("50", 50)]
+    [InlineData("1000", 1000)]
+    public void Settings_RejectTypeCapAcceptsAnyNonNegativeInteger(string value, int expected)
+    {
+        SettingsFrom(("RISK_REJECT_TYPE_CAP", value)).RejectTypeCap.Should().Be(expected);
     }
 
     [Fact]

@@ -666,7 +666,9 @@ logged. Signals feed the caller's risk score (`specs/architecture/fraud-detectio
 | The 10th `conflict` on an `update` or `delete` in one batch | `STALE_VERSION_BURST` | 0 |
 
 The caller holds at most one row per signal type per hour, and the score counts these types once
-per refused entity, so an operation the queue keeps retrying after every reconnect counts once.
+per refused entity (except `IDOR_CREATE_CONFLICT`, which no honest retry repeats), so an operation
+the queue keeps retrying after every reconnect counts once; `ROLE_FORBIDDEN` and
+`IMMUTABLE_FIELD_CHANGE` add at most 50 each, and an admin approve clears the operation.
 What the shipped clients do in normal use scores nothing or little: a version conflict after
 offline edits writes nothing below 10 in one batch and weighs 0 above; the owner's own create retry
 writes nothing; an unchanged echo of an identity field writes nothing; a QR failure weighs 5 once

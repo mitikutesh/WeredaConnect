@@ -552,9 +552,10 @@ public class TelebirrWebhookFunction
     }
 
     /// <summary>
-    /// The payer's MSISDN in the users table's form (+251XXXXXXXXX). Telebirr sends it as 12 digits
-    /// without the plus (251XXXXXXXXX), which <c>RequestValidator.NormalizePhoneNumber</c> does not
-    /// take; without this every live payer would read as a mismatch.
+    /// The payer's MSISDN in the users table's form (+251XXXXXXXXX). The documented notify carries no
+    /// payer field; if Telebirr sends one as an MSISDN of 12 digits without the plus (251XXXXXXXXX),
+    /// <c>RequestValidator.NormalizePhoneNumber</c> would not take it and every payer would read as a
+    /// mismatch.
     /// </summary>
     internal static string NormalizePayerPhone(string payerMsisdn)
     {
