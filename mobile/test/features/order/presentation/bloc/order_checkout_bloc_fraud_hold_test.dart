@@ -38,6 +38,7 @@ void main() {
       now: () => DateTime(2026, 10, 9, 13),
       monotonic: () => Duration.zero,
     );
+    addTearDown(bloc.close);
 
     bloc.add(const CheckoutStarted());
     await expectLater(
@@ -47,6 +48,5 @@ void main() {
         const CheckoutStopped(CheckoutIssue.accountHeld),
       ]),
     );
-    await bloc.close();
   });
 }
