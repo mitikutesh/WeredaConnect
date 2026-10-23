@@ -1949,6 +1949,8 @@ export class ApiStack extends cdk.Stack {
         ORDERS_TABLE: props.ordersTable.tableName,
         DELIVERIES_TABLE: props.deliveriesTable.tableName,
         PAYMENTS_TABLE: props.paymentsTable.tableName,
+        // FUP-02: the claim row that makes a manual refund record exclusive.
+        ESCROW_IDEMPOTENCY_TABLE: props.escrowIdempotencyTable.tableName,
         PAGINATION_SECRET_ARN: paginationSecret.reference,
       },
       timeout: cdk.Duration.seconds(30),
@@ -1976,6 +1978,11 @@ export class ApiStack extends cdk.Stack {
     props.ordersTable.grant(adminFn.function, "dynamodb:UpdateItem");
     props.deliveriesTable.grant(adminFn.function, "dynamodb:UpdateItem");
     props.escrowAuditTable.grantWriteData(adminFn.function);
+    // FUP-02: a manual refund record writes its escrow-audit row and a claim row here in one
+    // TransactWriteItems. IAM has no separate transaction action: each Put needs PutItem on its
+    // table (a conditional Put needs nothing more; ConditionCheckItem is only for ConditionCheck
+    // items, which this transaction has none of). PutItem only: no read, update or delete.
+    props.escrowIdempotencyTable.grant(adminFn.function, "dynamodb:PutItem");
     props.fraudSignalsTable.grantReadWriteData(adminFn.function);
     props.usersTable.grantWriteData(adminFn.function);
     // Transaction audit: admin actions are logged here, and the monitor +
@@ -2034,6 +2041,8 @@ export class ApiStack extends cdk.Stack {
       "/admin/transactions/{orderId}",
       "/admin/audit",
       "/admin/payouts/manual",
+      // FUP-02: captured payments the webhook did not apply (bounded escrow-audit Scan).
+      "/admin/payments/unapplied",
     ];
 
     for (const path of adminGetPaths) {
@@ -2061,6 +2070,9 @@ export class ApiStack extends cdk.Stack {
       "/admin/users/{id}/action",
       // ESC-02: record an admin-paid manual payout leg (admin group checked in the Lambda).
       "/admin/payouts/{escrowId}/{ref}/complete",
+      // FUP-02: record the manual refund of such a payment (admin group checked in the Lambda).
+      // Uses the existing grants: escrow-audit read + write, orders read, transaction-audit write.
+      "/admin/payments/{orderId}/refund-manual",
     ];
 
     for (const path of adminPostPaths) {
