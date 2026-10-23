@@ -61,6 +61,7 @@ Each contract file follows this structure:
 | User Entity | `user-entity.md` | 1.1.0 | Mobile, Backend, Infrastructure |
 | Rating API | `rating-api.md` | 1.1.0 | Mobile, Backend, Infrastructure |
 | Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 1.20.0 | Mobile, Backend, Admin |
+| Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 1.26.0 | Mobile, Backend, Admin, Infrastructure |
 | Account Deletion | `account-deletion.md` | 1.0.0 | Mobile, Backend, Infrastructure, Admin |
 
 ---

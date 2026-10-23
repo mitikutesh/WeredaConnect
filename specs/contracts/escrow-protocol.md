@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.19.0
+1.26.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -400,7 +400,8 @@ order with a consistent read and retries a version conflict (3 attempts in all);
 missing order, or one that is no longer `delivered`, is nothing to do. A failed leg is
 logged as `DISPUTE_PROPAGATION_FAILED` and audited as `dispute_propagation_failed` with
 `metadata` `legs=<leg>:<reason>` (for example `order:[AmazonDynamoDBException]`,
-`order:conflict`, `delivery:[InvalidOperationException]`). The dispute still answers
+`order:conflict`, `delivery:[InvalidOperationException]`); since 1.26.0 that line is alarmed
+(see "Dispute tokens" in "Additions in 1.8.1"). The dispute still answers
 `200`: the escrow is already `disputed` and audited (money frozen) before propagation
 runs, and failing the request would make the client retry into `ESCROW_020`.
 
@@ -1915,6 +1916,8 @@ ESCROW_SETTLEMENT_FAILED escrowId=<id> action=<action> outcome=<failed|unknown> 
 MANUAL_PAYOUT_OVERDUE escrowId=<id> ref=<ref> ageHours=<n>
 TRUCKER_PAYOUT_OVERDUE escrowId=<id> reason=<reason> ageHours=<n>   (1.11.0)
 ADMIN_QUEUE_OVERDUE orderId=<id> reason=<code> ageHours=<n>
+DISPUTE_PROPAGATION_FAILED escrowId=<id> orderId=<id> deliveryId=<id> legs=<legs>   (1.26.0)
+DELIVERY_DISPUTE_FROZEN escrowId=<id> orderId=<id> deliveryId=<id>   (1.26.0, a rate, not a failure)
 ```
 
 `outcome=failed` is a definite gateway refusal: no money moved. `outcome=unknown` means
@@ -1967,6 +1970,29 @@ Lambda's log group publishing the same metric.
 The overdue line is a `LogWarning`: a log level above Warning on escrow-cron silences the
 manual payout alarm.
 
+### Dispute tokens (1.26.0, FUP-27)
+
+`DISPUTE_PROPAGATION_FAILED` is logged by the dispute mirror (`EscrowService.MirrorDisputeAsync`,
+through the money alarm sink, before the `dispute_propagation_failed` audit row) once per call in
+which the delivery or the order did not follow a frozen escrow. Three Lambdas run the mirror, and
+a filter on each of their log groups counts the line: escrow (`POST /escrow/dispute`, and its
+repair of a dispute already frozen), sync (a delivery dispute) and escrow-cron (a sweep that freezes
+a trade disputed before 1.12.0). `legs` is the failed-legs text defanged like the verdict lines
+(`LogId`, `,` as `.`, brackets dropped: `delivery:[TimeoutException],order:conflict` logs
+`delivery:TimeoutException.order:conflict`); the audit row keeps it raw. The money is frozen, so nothing pays
+out; the order may still show `delivered` and stay open to ratings until a repeated dispute or the
+admin verdict (1.9.0) moves it. Before 1.26.0 no filter counted the line.
+
+`DELIVERY_DISPUTE_FROZEN` is logged by the sync Lambda (`LogWarning`) once a delivery dispute
+froze its escrow (outcome `Frozen` in 1.12.0's freeze), before the delivery write. It is counted
+into the existing `EscrowDispute` metric, so `${prefix}-escrow-dispute-rate` counts delivery
+disputes through sync as well as `POST /escrow/dispute` requests (the escrow Lambda's
+`ESCROW`/`DISPUTE` audit line, any outcome). Not logged: an escrow already `disputed` (counted when
+it froze), a refused or undecided freeze (clients before sync-protocol 1.12.0 resend a refused
+dispute on every reconnect), the repeat of a dispute on a delivery already `disputed`, and
+escrow-cron's sweep freeze (both repair disputes from before 1.12.0). Both tokens contain `_` and
+every id on both lines goes through `LogId`.
+
 ### Alarms (`infra/lib/stacks/monitoring-stack.ts`, all on the `${prefix}-alarms` topic)
 
 | Alarm | Counts | Fires |
@@ -1978,6 +2004,8 @@ manual payout alarm.
 | `${prefix}-manual-payouts-overdue` | `MANUAL_PAYOUT_OVERDUE` in the escrow-cron log group | any line in 15 minutes, same hold and clear as settlement failures; a leg that stays blocked keeps it in ALARM (1.8.0 known limits). The admin acts on the Manual Payouts page (`/payouts`) |
 | `${prefix}-trucker-payouts-overdue` (1.11.0) | `TRUCKER_PAYOUT_OVERDUE` in the escrow-cron log group | same as manual payouts overdue: a trucker leg still owed (not queued) more than 24 hours after it went pending; see Additions in 1.11.0 |
 | `${prefix}-admin-queue-overdue` | `ADMIN_QUEUE_OVERDUE` in the escrow-cron log group | same; an entry that stays undecided keeps it in ALARM (1.13.0, runbook in `.ai/deployment.md`) |
+| `${prefix}-dispute-propagation-failed` (1.26.0) | `DISPUTE_PROPAGATION_FAILED` in the escrow, sync and escrow-cron log groups | any line in 15 minutes, same hold and clear as settlement failures; runbook in `.ai/deployment.md` |
+| `${prefix}-escrow-dispute-rate` (not a money alarm; sync counted since 1.26.0) | the escrow Lambda's `ESCROW`/`DISPUTE` JSON audit line and `DELIVERY_DISPUTE_FROZEN` in the sync log group, one metric | more than 5 in one hour |
 
 `scripts/money_alarms_synthetic.sh` checks that the deployed filters match these exact lines
 and, with `--fire`, that every alarm reaches ALARM from synthetic lines plus one failed
@@ -3039,6 +3067,7 @@ and override fields are server-only.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.26.0 | 2026-10-23 | Dispute alarms (FUP-27): `DISPUTE_PROPAGATION_FAILED` (a dispute mirror leg that failed) is counted in the escrow, sync and escrow-cron log groups, the Lambdas that run the mirror, by the new alarm `dispute-propagation-failed` (money alarm shape); the line is written through the money alarm sink with its `legs` defanged like the verdict lines (the `dispute_propagation_failed` audit row keeps them raw); the sync Lambda logs `DELIVERY_DISPUTE_FROZEN escrowId=.. orderId=.. deliveryId=..` once a delivery dispute froze its escrow, counted into the `escrow-dispute-rate` metric with the escrow Lambda's `POST /escrow/dispute` audit line (an escrow already disputed, a refused or undecided freeze and the repairs of pre-1.12.0 disputes are not counted); no API, error code or client change (1.18.0 and 1.20.0 to 1.25.0 are in flight) |
 | 1.19.0 | 2026-10-23 | The funding's transaction-audit row survives a failed write (ESC-47 item 2): the `payment_verified` row of a Telebirr order funding is keyed by the order's `paymentVerifiedAt` and written with a conditional put on the funding delivery; a redelivery of the same payment (fresh, or an inbox replay) writes it when it is missing, in every order status, after its stock and escrow repair and after reading the order's trail (a row under any timestamp counts; the webhook Lambda gets `dynamodb:Query` on the transaction-audit base table); an unreadable trail writes nothing, and a failed read or write logs `ORDER_PAYMENT_BOOKKEEPING_FAILED step=payment_verified_audit` with the order and payment ids; no client change (1.18.0 is FUP-36's, in flight) |
 | 1.17.0 | 2026-10-10 | The order follows the money (ESC-09): every escrow money writer moves the order after its write (`disbursing` once the release is committed, `settled` once `completed` with no leg owed, a verdict escrow's order stays `dispute_resolved`), status-conditioned with `ADD version`; the hourly order-money sweep (`CronRunBudget`, now also the budget of ESC-10's paged sweeps with their limits unchanged; skip marker `moneySweepSkip`, escrow-audit `order_money_mismatch`/`order_money_ahead` once at `createdAt + 7/8` ticks) repairs and backfills; alarm `order-money-mismatch` (`ORDER_MONEY_MISMATCH`); Part B: an admin release of a plain escrowed order escrow needs a delivered order (`422`, no override), an admin refund cancels a pre-pickup order first and schedules the refund, refuses goods on the move unless overridden (`refundOverride*`) |
 | 1.16.0 | 2026-10-10 | Telebirr live dialect, webhook answers and inbox replay (ESC-45): the flat documented notify (one map verified and read, `data` envelope, nested `biz_content`, `transId` alias only without `trans_id`, duplicate keys and nested values refused), PSS or PKCS#1 accepted inbound, `notify_time` freshness by digit range with a 48 h late window on the order path only; `500` for verified notifications not recorded or not applied for a retryable reason, small JSON bodies; inbox rows carry `orderId`, the stored payment fields and a replay queue (sparse `InboxReplayIndex`); a 5-minute sweep replays them with claim, backoff and a conditional give-up after 8 attempts (`replay_exhausted`), heartbeat and stalled alarm; `ORDER_PAYMENT_REPLAY_PENDING` not alarmed; order `paymentHoldUntil` (order-lifecycle 1.16.0); every gateway call bounded by the run's deadline (`TELEBIRR_NO_TIME`, `TELEBIRR_TOKEN` definite); token path `/payment/v1/token`, timestamps in seconds; `/escrow/initiate` not usable live and cancels only on `Failed`, `Failure`, `Expired`; no payer field in the documented notify |
@@ -3069,6 +3098,6 @@ and override fields are server-only.
 
 ---
 
-**Last Updated**: 2026-10-10
-**Version**: 1.17.0
+**Last Updated**: 2026-10-23
+**Version**: 1.26.0
 **Status**: Draft (Phase R4)
