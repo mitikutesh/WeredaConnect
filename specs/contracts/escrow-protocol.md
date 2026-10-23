@@ -3825,9 +3825,11 @@ Builds the server-side mapping of §Additions in 1.7.0 ("Client compatibility"),
 `specs/architecture/fraud-detection-architecture.md` 18.7 (3.8.0).
 
 ### The app build header
-- The mobile and web apps send `X-App-Build: <n>` on every request, `n` being the build number of
-  `mobile/pubspec.yaml` (`version: x.y.z+n`). Build 2 is the first that sends it. The API's CORS
-  allow-list carries the header.
+- The server reads `X-App-Build: <n>`, `n` being the build number of `mobile/pubspec.yaml`
+  (`version: x.y.z+n`). The mobile and web apps send it on every request from build 2 on (FUP-61,
+  the mobile change that follows this one). No build before 2 sends it, so until build 2 is out
+  every client, FRD-06 installs and the deployed web app included, reads the mapped values below.
+  The API's CORS allow-list carries the header.
 - The server reads it case-insensitively and accepts only a positive whole number (ASCII digits).
   A missing, empty or unreadable header is an old app.
 
@@ -3853,6 +3855,10 @@ Build 2 and later get the stored value.
   the admin authorizer). The `GET /escrow/*` routes sit on the marketplace authorizer, so no admin
   token reaches them.
 - `holdReason`, `heldBy`, `heldFromStatus` and `heldFor` stay out of party answers, as since 1.22.0.
+- Accepted: an escrow the dispute sweep holds from `dispute_resolved` reads `disputed` to an old app
+  before the hold and `escrowed` after it. The money stays frozen either way, and nothing an old app
+  can do on `escrowed` moves it: its dispute is refused (`ESCROW_INVALID_TRANSITION`) and release
+  and refund are admin-only.
 
 ### Rollout
 - `FRAUD_HOLD_ENABLED` is on in dev for sync and escrow-cron, off in staging and prod (an
@@ -3866,8 +3872,11 @@ Build 2 and later get the stored value.
 
 ### Not in 1.31.0
 - A minimum app version gate (ESC-25); it can reuse the header.
-- The dispute refusal text on `/sync` that names the stored status (`... (status: held) ...`) is free
-  text, not a parsed value, and is unchanged.
+- Raw stored values left in party answers (follow-ups): the refusal text of `POST /escrow/dispute`
+  (`Cannot dispute escrow in 'held' state. Must be 'escrowed'.`), the delivery dispute refusal text
+  on `/sync` (`... (status: held) ...`), and the `409` blockers of the account deletion
+  (`account-deletion.md`), which list each blocking escrow with its stored `status`. The texts are
+  free text, not parsed values.
 
 ---
 
@@ -3875,7 +3884,7 @@ Build 2 and later get the stored value.
 
 | Version | Date | Change |
 |---------|------|--------|
-| 1.31.0 | 2026-10-23 | Old apps read statuses they parse (FUP-61, fraud spec 3.8.0 section 18.7): the apps send `X-App-Build` (build 2 is the first; CORS allows it); an app without it or below build 2 reads `held` as `escrowed` and `dispute_resolved` as `disputed` on `GET /escrow/{id}`, `GET /escrow/by-delivery/{deliveryId}`, `GET /escrow/history` and the initiate and dispute replays, for every party; stored rows, filters, audit, admin and server decisions keep the stored value; `FRAUD_HOLD_ENABLED` on in dev for sync and escrow-cron, off in staging and prod |
+| 1.31.0 | 2026-10-23 | Old apps read statuses they parse (FUP-61, fraud spec 3.8.0 section 18.7): the server reads `X-App-Build` (the apps send it from build 2, a separate mobile change; until then every client reads the mapped values; CORS allows it); an app without it or below build 2 reads `held` as `escrowed` and `dispute_resolved` as `disputed` on `GET /escrow/{id}`, `GET /escrow/by-delivery/{deliveryId}`, `GET /escrow/history` and the initiate and dispute replays, for every party; stored rows, filters, audit, admin and server decisions keep the stored value; `FRAUD_HOLD_ENABLED` on in dev for sync and escrow-cron, off in staging and prod |
 | 1.29.0 | 2026-10-23 | Fraud Review reject trigger built (FRD-05, the 1.7.0 rules): the admin's `reject` on a fraud signal suspends its user with the reserved `suspendReason: fraud_confirmed` through the user route's suspend path and holds nothing (the response lists the user's open escrows read-only); the settlement sweeps hold (flag on) or skip (flag off, `RISK_SETTLEMENT_SKIPPED ... holdReason=fraud_confirmed`) an escrow with such a party as `holdReason: fraud_confirmed`, ahead of `account_suspended` and `risk_critical`; `POST /admin/users/{id}/action` refuses that reason (`400 ADMIN_017`) and its `unsuspend` removes `suspendReason`; `risk-settlement-skipped` alarm text names the value; no client change |
 | 1.28.0 | 2026-10-23 | Account deletion (ACC-02, `account-deletion.md` 1.2.0): `POST /escrow/initiate`, `/escrow/order-checkout` and `/escrow/dispute` answer `410 ACCOUNT_004` to a caller whose account is being or has been deleted (a row that cannot be read: `503 ESCROW_012`); initiate and order-checkout answer `422 ESCROW_030` for an order whose buyer, farmer or trucker is being or has been deleted, after the 1.27.0 gates and before any slot, hold or Telebirr call; a refund to a deleted buyer goes to the buyer id, never an empty phone; the manual payout queue shows no phone for a deleted payee; no client change |
 | 1.27.0 | 2026-10-23 | Risk tier gates built (FRD-04, the 1.7.0 rules): `POST /escrow/initiate` refuses a caller at risk tier CRITICAL with `403 FRAUD_ACCOUNT_HELD` after the role check and before the step-up and velocity, and the step-up takes the tier (MEDIUM the password at any amount, HIGH Fayda and then the password at any amount); `POST /escrow/order-checkout` refuses CRITICAL before velocity and any Telebirr call; an unreadable score or a missing fraud service is LOW at these gates; the settlement sweeps hold (flag on) or skip (flag off) the escrow of a party at CRITICAL (`holdReason: risk_critical`, tier and score in the `fraud_hold` audit metadata) and skip, flag on or off, one whose score cannot be read (`reason=score_unavailable`); escrow-cron reads the fraud-signals table and logs `RISK_TABLE_UNCONFIGURED` once per run without it, flag on or off; `AUTH_041` text amount-neutral; admin routes not gated; no client change |

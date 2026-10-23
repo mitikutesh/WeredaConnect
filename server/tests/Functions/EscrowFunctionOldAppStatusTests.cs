@@ -229,6 +229,33 @@ public sealed class EscrowFunctionOldAppStatusTests
         await _escrowRepo.Received(1).QueryByBuyerAsync(BuyerId, "held", 50, null);
     }
 
+    /// <summary>What a shipped app really sends: headers, none of them X-App-Build.</summary>
+    [Theory]
+    [InlineData(BuyerId, "buyer")]
+    [InlineData(FarmerId, "farmer")]
+    [InlineData(TruckerId, "trucker")]
+    public async Task OtherHeaders_WithoutTheBuild_AreAnOldApp(string userId, string role)
+    {
+        var row = Row("held");
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(row);
+        var request = Request("GET", $"/escrow/{EscrowId}", userId, role, build: null,
+            new Dictionary<string, string> { { "id", EscrowId } });
+        request.Headers = new Dictionary<string, string>
+        {
+            { "Authorization", "Bearer header.payload.signature" },
+            { "Content-Type", "application/json" },
+            { "Accept", "application/json" },
+            { "X-Device-Id", "0f8fad5b-d9cb-469f-a165-70867728950e" },
+            { "X-App-Version", "9" }
+        };
+
+        var response = await Function().FunctionHandler(request, _context);
+
+        ClientAppBuild.Read(request).Should().BeNull();
+        StatusOf(response).Should().Be("escrowed");
+        NothingWritten(row, "held");
+    }
+
     // ──────────────────────────────────────────────
     // Other statuses
     // ──────────────────────────────────────────────
