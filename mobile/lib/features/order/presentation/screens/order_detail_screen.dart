@@ -1014,7 +1014,11 @@ class _RateCounterpartiesSectionState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (!_farmerRated && order.farmerId.isNotEmpty) ...[
+        // FUP-105: no Rate button for a party who deleted their account; the
+        // server refuses the rating and the name reads as the sentinel.
+        if (!_farmerRated &&
+            order.farmerId.isNotEmpty &&
+            order.farmerName != deletedUserSentinel) ...[
           OutlinedButton.icon(
             onPressed: () => _rate(
               order.farmerId,
@@ -1029,7 +1033,9 @@ class _RateCounterpartiesSectionState
           ),
           const SizedBox(height: 12),
         ],
-        if (_hasTrucker && !_truckerRated) ...[
+        if (_hasTrucker &&
+            !_truckerRated &&
+            order.truckerName != deletedUserSentinel) ...[
           OutlinedButton.icon(
             onPressed: () => _rate(
               order.truckerId!,

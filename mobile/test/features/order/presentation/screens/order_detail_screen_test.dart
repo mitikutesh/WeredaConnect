@@ -26,7 +26,6 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart
 import 'package:wereda_connect/features/order/presentation/screens/order_detail_screen.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
-import 'package:wereda_connect/features/rating/presentation/bloc/rating_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 class MockOrderBloc extends Mock implements OrderBloc {}
@@ -709,13 +708,13 @@ void main() {
       });
     }
 
-    // ACC-03: a deleted farmer is shown as the localized "Deleted user" on
-    // the order and in the rating dialog.
-    testWidgets('am: a deleted farmer reads in Amharic, also when rating',
+    // ACC-03 + FUP-105: a deleted farmer reads as the localized "Deleted user"
+    // on the order, and the buyer gets no Rate button for them (the server
+    // refuses a rating of a deleted party).
+    testWidgets('am: a deleted farmer reads in Amharic and cannot be rated',
         (tester) async {
       tallView(tester);
       stubAuth(UserRole.buyer, _buyerId);
-      when(() => ratingBloc.state).thenReturn(const RatingInitial());
       await tester.pumpWidget(
         buildScreen(
           _makeOrder(status: OrderStatus.settled)
@@ -727,12 +726,45 @@ void main() {
       final am = lookupAppLocalizations(const Locale('am'));
 
       expect(find.text(am.deletedUser), findsOneWidget);
+      expect(find.text(am.rateFarmer), findsNothing);
+      expect(find.text(deletedUserSentinel), findsNothing);
+    });
 
-      await tester.tap(find.text(am.rateFarmer));
+    // FUP-105: hide the Rate button for a deleted party on the order.
+    testWidgets('buyer gets no Rate Farmer button for a deleted farmer',
+        (tester) async {
+      tallView(tester);
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(
+        buildScreen(
+          _makeOrder(status: OrderStatus.settled)
+            ..farmerName = deletedUserSentinel,
+        ),
+      );
       await tester.pumpAndSettle();
 
-      expect(find.text(am.deletedUser), findsNWidgets(2));
-      expect(find.text(deletedUserSentinel), findsNothing);
+      expect(find.text('Rate Farmer'), findsNothing);
+    });
+
+    // FUP-105: only the deleted party's button goes; a live party is still rated.
+    testWidgets(
+        'buyer gets no Rate Trucker button for a deleted trucker but still '
+        'rates the farmer', (tester) async {
+      tallView(tester);
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(
+        buildScreen(
+          _makeOrder(
+            status: OrderStatus.settled,
+            truckerId: _truckerId,
+            truckerName: deletedUserSentinel,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Rate Trucker'), findsNothing);
+      expect(find.text('Rate Farmer'), findsOneWidget);
     });
 
     testWidgets('the farmer never sees the rate section on a disbursing order',
