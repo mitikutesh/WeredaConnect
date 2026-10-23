@@ -64,6 +64,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   /// Budget for the best-effort push-token unregister on logout.
   static const pushUnregisterBudget = Duration(seconds: 3);
 
+  /// Budget for the best-effort server-side token revocation on logout,
+  /// counted from when the call starts.
+  static const logoutRevokeBudget = Duration(seconds: 5);
+
   static const _secureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
@@ -623,11 +627,15 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   /// password hash (auth-api.md invariant 7), while callers that want to keep
   /// offline re-login can pass clearCache: false.
   ///
-  /// Local clearing runs FIRST and [AuthUnauthenticated] is emitted before
-  /// the server-side token revocation, which is best-effort and bounded by a
-  /// timeout. Logout must never depend on the network: a revocation call that
-  /// hung left the session in storage and the UI stuck on [AuthLoading], and
-  /// the next page load silently restored the previous account.
+  /// The server-side revocation is STARTED before the local clear, with the
+  /// live stored tokens (SIM-55: sent after the clear, with the state's copy
+  /// from login, it carried a dead access token and got a 401, and the
+  /// interceptor could no longer refresh). It is not awaited before the
+  /// clear: logout must never depend on the network. A revocation call that
+  /// hung once left the session in storage and the UI stuck on
+  /// [AuthLoading], and the next page load silently restored the previous
+  /// account. The call needs nothing from storage, so clearing it is safe,
+  /// and it is bounded by [logoutRevokeBudget].
   Future<void> _onAuthLogoutRequested(
     AuthLogoutRequested event,
     Emitter<AuthState> emit,
@@ -648,6 +656,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       // the bearer token is still in storage, and is bounded so a slow
       // network never holds up logout.
       await _unregisterPushToken();
+
+      // Revoke the refresh token server-side, in parallel with the local
+      // clear below. clearCache: false because the bloc clears credentials
+      // itself; the service's deferred clear could wipe a re-login's cache.
+      final revocation = _revokeServerSession(
+        phoneNumber,
+        await _liveTokens(fallback: tokens),
+      );
 
       // Always clear business data to prevent data leakage on shared devices
       if (_isar != null) {
@@ -670,21 +686,50 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
       emit(const AuthUnauthenticated());
 
-      // Best-effort server-side token revocation. clearCache: false because
-      // the bloc has already cleared credentials above — the service's
-      // deferred clear could otherwise wipe a re-login's fresh cache.
+      await revocation;
+    }
+  }
+
+  /// The active access and refresh tokens as stored now. The interceptor
+  /// rewrites these slots on every refresh, so they are fresher than the
+  /// state's copy from login; that copy is the [fallback] for a slot that is
+  /// empty or unreadable.
+  Future<({String accessToken, String refreshToken})> _liveTokens({
+    required AuthTokens fallback,
+  }) async {
+    Future<String> slot(String key, String orElse) async {
       try {
-        await _authService
-            .logout(
-              phoneNumber: phoneNumber,
-              accessToken: tokens.accessToken,
-              refreshToken: tokens.refreshToken,
-              clearCache: false,
-            )
-            .timeout(const Duration(seconds: 5));
+        final value = await _secureStorage.read(key: key);
+        return value != null && value.isNotEmpty ? value : orElse;
       } on Object {
-        // Ignore — server-side tokens expire on their own.
+        return orElse;
       }
+    }
+
+    return (
+      accessToken: await slot(_activeAccessTokenKey, fallback.accessToken),
+      refreshToken: await slot(_activeRefreshTokenKey, fallback.refreshToken),
+    );
+  }
+
+  /// Best-effort POST /auth/logout, bounded by [logoutRevokeBudget] from the
+  /// moment it is called. Never throws: server-side tokens expire on their
+  /// own.
+  Future<void> _revokeServerSession(
+    String phoneNumber,
+    ({String accessToken, String refreshToken}) tokens,
+  ) async {
+    try {
+      await _authService
+          .logout(
+            phoneNumber: phoneNumber,
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+            clearCache: false,
+          )
+          .timeout(logoutRevokeBudget);
+    } on Object catch (e) {
+      debugPrint('[AuthBloc] server-side logout skipped: $e');
     }
   }
 

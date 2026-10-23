@@ -82,9 +82,11 @@ class AuthInterceptor extends QueuedInterceptor {
     RequestOptions options,
     RequestInterceptorHandler handler,
   ) async {
-    // Skip auth injection for public endpoints
+    // Skip auth injection for public endpoints, and for logout, which
+    // brings its own bearer (see [_bringsOwnBearer]).
     if (options.path.contains('/auth/refresh') ||
-        options.path.contains('/health')) {
+        options.path.contains('/health') ||
+        _bringsOwnBearer(options)) {
       return handler.next(options);
     }
 
@@ -107,9 +109,11 @@ class AuthInterceptor extends QueuedInterceptor {
       return handler.next(err);
     }
 
-    // Skip refresh for public endpoints (prevent infinite loop / unnecessary refresh)
+    // Skip refresh for public endpoints (prevent infinite loop / unnecessary
+    // refresh), and for logout, which handles its own 401.
     if (err.requestOptions.path.contains('/auth/refresh') ||
-        err.requestOptions.path.contains('/health')) {
+        err.requestOptions.path.contains('/health') ||
+        _bringsOwnBearer(err.requestOptions)) {
       return handler.next(err);
     }
 
@@ -162,6 +166,13 @@ class AuthInterceptor extends QueuedInterceptor {
       handler.next(err);
     }
   }
+
+  /// POST /auth/logout carries a bearer minted from the leaving session's
+  /// own tokens and runs while that session is cleared (SIM-55). It must
+  /// never read the token slots, nor refresh or clear them on a 401: by then
+  /// they may hold the next session's tokens.
+  static bool _bringsOwnBearer(RequestOptions options) =>
+      options.path.contains('/auth/logout');
 
   /// Extract the bearer token the failed request was sent with, if any.
   String? _bearerOf(RequestOptions options) {
