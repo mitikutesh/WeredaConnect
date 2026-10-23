@@ -161,6 +161,36 @@ internal static class SettlementBlockFields
 }
 
 /// <summary>
+/// FRD-03: an escrow frozen for fraud review (<c>status = held</c>, fraud-detection-architecture.md
+/// section 18). Only a settlement sweep writes it (<c>heldBy = system</c>), from <c>escrowed</c> or
+/// <c>dispute_resolved</c>, and only an admin in the admin group releases or refunds it. Every field
+/// but the status is admin-only.
+/// </summary>
+internal static class EscrowHoldFields
+{
+    public const string Status = "held";
+    public const string HoldReason = "holdReason";
+    public const string HeldAt = "heldAt";
+    public const string HeldBy = "heldBy";
+    public const string HeldFromStatus = "heldFromStatus";
+
+    /// <summary>What the sweep was about to do: <see cref="ForRelease"/> or <see cref="ForRefund"/>.</summary>
+    public const string HeldFor = "heldFor";
+
+    /// <summary>A party's user row says suspended (FRD-03).</summary>
+    public const string ReasonAccountSuspended = "account_suspended";
+
+    /// <summary>Reserved: the FRD-05 reject action's suspension, which FRD-05 defines.</summary>
+    public const string ReasonFraudConfirmed = "fraud_confirmed";
+
+    /// <summary>Reserved: a party at risk tier CRITICAL, which FRD-04 reads.</summary>
+    public const string ReasonRiskCritical = "risk_critical";
+
+    public const string ForRelease = "release";
+    public const string ForRefund = "refund";
+}
+
+/// <summary>
 /// One payee leg written when an escrow enters the manual payout queue. A leg the gateway
 /// already paid (the farmer, when only the trucker leg failed) is seeded <c>paid</c> with
 /// its real reference and <c>PaidBy = gateway</c>.

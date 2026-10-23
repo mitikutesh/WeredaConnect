@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
@@ -342,7 +343,7 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
           value: trip,
           child: Text(
             '${trip.fromWoreda} -> ${trip.toWoreda} '
-            '(${dateFormat.format(trip.departureDate)})',
+            '(${dateFormat.format(dayInEthiopia(trip.departureDate))})',
             overflow: TextOverflow.ellipsis,
           ),
         );

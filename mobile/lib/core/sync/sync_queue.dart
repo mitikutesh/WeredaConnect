@@ -223,6 +223,33 @@ class SyncQueue {
   static bool isRejected(SyncOperation op) =>
       op.status == SyncStatus.failed && op.retryCount > maxRetries;
 
+  /// Flag every rejected operation of one entity as reverted: its local row
+  /// was put back to the server's view (or removed), so nothing is left for
+  /// the user to act on and [getFailedCount] leaves them out. Called by the
+  /// sync executor once the revert handler returned (sync-protocol.md
+  /// 1.17.0). Operations still on their way, or that ran out of retries, are
+  /// not touched: their own outcome settles the row.
+  ///
+  /// Returns the number of operations flagged.
+  Future<int> markRevertedFor(String entityType, String entityId) async {
+    final ops = await _isar.syncOperations
+        .filter()
+        .entityTypeEqualTo(entityType)
+        .entityIdEqualTo(entityId)
+        .statusEqualTo(SyncStatus.failed)
+        .findAll();
+    final toFlag = ops.where((op) => isRejected(op) && !op.reverted).toList();
+    if (toFlag.isEmpty) return 0;
+
+    await _isar.writeTxn(() async {
+      for (final op in toFlag) {
+        op.reverted = true;
+        await _isar.syncOperations.put(op);
+      }
+    });
+    return toFlag.length;
+  }
+
   /// Reject every not-yet-synced operation for one entity.
   ///
   /// Used after the server refused that entity's `create`: it never stored the
@@ -326,16 +353,21 @@ class SyncQueue {
   }
 
   /// Get the count of failed operations: those that ran out of retries and
-  /// those the server rejected for good, except rejected order operations
-  /// and match events. A rejected order change was undone (the order went
-  /// back to the server's view) and explained, and a match event is
-  /// background analytics the user never made, so nothing is left for the
-  /// user to act on. Any other rejected change still sits in local data that
-  /// never reached the server, so it keeps counting.
+  /// those the server rejected for good, except rejected order operations,
+  /// match events and operations flagged reverted ([markRevertedFor]). A
+  /// rejected order change was undone (the order went back to the server's
+  /// view) and explained, a reverted crop or trip change likewise, and a
+  /// match event is background analytics the user never made, so nothing is
+  /// left for the user to act on. Any other rejected change still sits in
+  /// local data that never reached the server, so it keeps counting.
   Future<int> getFailedCount() async {
     return _isar.syncOperations
         .filter()
         .statusEqualTo(SyncStatus.failed)
+        // Not `revertedEqualTo(false)`: a row written before the field
+        // existed stores no byte for it, which a filter reads as null.
+        .not()
+        .revertedEqualTo(true)
         .group(
           (q) => q.retryCountLessThan(maxRetries, include: true).or().group(
                 (r) => r
@@ -430,6 +462,38 @@ class SyncQueue {
     }
 
     return fixed;
+  }
+
+  /// Entity type of the listing side effect that builds before
+  /// sync-protocol.md 1.20.0 queued on delivery create and confirm (FUP-18).
+  static const String _legacyCropListingEntityType = 'cropListing';
+
+  /// Remove every queued `cropListing` operation, whatever its status.
+  ///
+  /// Older builds queued one next to a delivery create (listing `reserved`)
+  /// and confirm (`sold`). The server routes `crop_listing` only and answers
+  /// this one with an error the client retries, so it was sent three times
+  /// per sync and put back by [retryFailed] on every reconnect. It could never
+  /// succeed: the trucker and the buyer may not update the farmer's listing,
+  /// and the server owns its stock. The user never made it, so it is removed
+  /// rather than rejected (a rejected one would count as failed forever).
+  /// While queued it kept its listing row out of the crop pull's stale
+  /// delete, so once it is gone a listing the server took off the market is
+  /// dropped by the next pull.
+  ///
+  /// Called once per app start, before the sync executor runs. Returns the
+  /// number of operations removed.
+  Future<int> dropLegacyCropListingOperations() async {
+    final removed = await _isar.writeTxn(
+      () => _isar.syncOperations
+          .filter()
+          .entityTypeEqualTo(_legacyCropListingEntityType)
+          .deleteAll(),
+    );
+    if (removed > 0) {
+      debugPrint('[SYNC] dropped $removed legacy cropListing operations');
+    }
+    return removed;
   }
 
   /// Release resources held by this queue.

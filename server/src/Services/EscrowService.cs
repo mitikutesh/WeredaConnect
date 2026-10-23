@@ -130,9 +130,10 @@ public sealed class EscrowService
 
     /// <summary>
     /// ESC-05: statuses whose stale settlement lock the recovery step parks. <c>disputed</c> only
-    /// carries a lock taken before ESC-03 (1.9.0), when release and refund still locked it.
+    /// carries a lock taken before ESC-03 (1.9.0), when release and refund still locked it. FRD-03:
+    /// <c>held</c> carries a lock only during an admin release or refund, which a dead Lambda can leave.
     /// </summary>
-    internal static readonly string[] StaleLockStatuses = { "escrowed", "dispute_resolved", "disputed" };
+    internal static readonly string[] StaleLockStatuses = { "escrowed", "dispute_resolved", "disputed", "held" };
 
     /// <summary>
     /// System actor ID used by cron jobs and automated operations.
@@ -164,11 +165,12 @@ public sealed class EscrowService
     /// <summary>
     /// Escrow statuses that still hold or govern money (mirrors the 6b
     /// duplicate-initiation check). refunded/completed/cancelled are inert. ESC-03: a
-    /// <c>dispute_resolved</c> escrow still holds the money until its verdict is settled.
+    /// <c>dispute_resolved</c> escrow still holds the money until its verdict is settled. FRD-03: so
+    /// does a <c>held</c> one until an admin decides; linkage and refund scheduling still need <c>escrowed</c>.
     /// </summary>
     private static readonly HashSet<string> ActiveEscrowStatuses = new()
     {
-        "initiated", "escrowed", "released", "disputed", "dispute_resolved"
+        "initiated", "escrowed", "released", "disputed", "dispute_resolved", "held"
     };
 
     /// <summary>
@@ -223,6 +225,18 @@ public sealed class EscrowService
         InitiateEscrowRequest request, string authenticatedUserId, AuditContext? auditContext = null)
     {
         _auditContext = auditContext;
+
+        // 0. FUP-36: live Telebirr refuses this path's merch_order_id (the client idempotency key,
+        //    colons included), so the call could only end in a gateway error or an escrow stuck in
+        //    "initiated". Refused before any read or write: no idempotency, escrow or audit row is
+        //    left behind, and the order is paid through the ESC-01 checkout instead. The mock and
+        //    the local simulator (IsLiveTelebirr false) keep the path as it was.
+        if (_telebirrGateway.IsLiveTelebirr)
+        {
+            return EscrowResult<InitiateEscrowResponse>.Failure(
+                422, "ESCROW_039",
+                "Online escrow payment for a delivery is not available here. Pay this order from its order page instead.");
+        }
 
         // 1. Validate buyerId matches JWT sub → ESCROW_006
         if (!string.Equals(request.BuyerId, authenticatedUserId, StringComparison.Ordinal))
@@ -306,8 +320,8 @@ public sealed class EscrowService
         {
             var existingStatus = existingEscrowForDelivery.TryGetValue("status", out var statusObj)
                 ? statusObj?.ToString() : null;
-            // Only block if escrow is in an active state (not refunded/completed/expired)
-            if (existingStatus is "initiated" or "escrowed" or "released" or "disputed" or "dispute_resolved")
+            // Only block if escrow is in an active state (not refunded/completed/expired). FRD-03: held too.
+            if (existingStatus is "initiated" or "escrowed" or "released" or "disputed" or "dispute_resolved" or "held")
             {
                 // SIM-24: when that escrow is the order-funded record (the buyer paid at
                 // order time and delivery linkage stamped this deliveryId on it), the
@@ -1565,13 +1579,22 @@ public sealed class EscrowService
         }
 
         // 4. Validate state transition: "escrowed", or "dispute_resolved" with a verdict that
-        //    does not contradict a release (ESC-03).
+        //    does not contradict a release (ESC-03). FRD-03: a held escrow leaves only through an admin
+        //    in the admin group with a reason, and is then checked on the status it was held from.
         var currentStatus = GetString(escrowItem, "status");
-        var refusal = SettlementRefusal(escrowItem, "release");
+        var heldExit = currentStatus == EscrowHoldFields.Status && authenticatedUserId != SystemActor;
+        if (heldExit && HeldExitRefusal<ReleaseEscrowResponse>(adminGroupVerified, request.Reason, "ESCROW_015", "release") is { } heldRefusal)
+        {
+            return heldRefusal;
+        }
+
+        var refusal = SettlementRefusal(escrowItem, "release", heldExit);
         if (refusal != null)
         {
             return EscrowResult<ReleaseEscrowResponse>.Failure(422, "ESCROW_INVALID_TRANSITION", refusal);
         }
+
+        var settleFrom = heldExit ? GetString(escrowItem, EscrowHoldFields.HeldFromStatus) : currentStatus;
 
         // 4a. ESC-02: a settlement already waiting for an admin in the manual payout queue is
         //     neither retried nor audited again, so the hourly sweeps stay quiet.
@@ -1580,9 +1603,15 @@ public sealed class EscrowService
             return ManualPayoutWaiting<ReleaseEscrowResponse>();
         }
 
+        // 4a1. FRD-03: the admin's decision and reason are on record before the order or any money moves.
+        if (heldExit && await RecordHeldExitAsync(escrowItem, "release", request.Reason!, authenticatedUserId) is { } heldAuditBlock)
+        {
+            return EscrowResult<ReleaseEscrowResponse>.Failure(heldAuditBlock.HttpStatus, heldAuditBlock.Code, heldAuditBlock.Message);
+        }
+
         // 4a2. ESC-03: the order and delivery follow the verdict before any money moves; a
         //      verdict they cannot follow is not settled.
-        if (currentStatus == "dispute_resolved"
+        if (settleFrom == "dispute_resolved"
             && await MirrorVerdictAsync(escrowItem, authenticatedUserId, "release") is { } block)
         {
             return EscrowResult<ReleaseEscrowResponse>.Failure(block.HttpStatus, block.Code, block.Message);
@@ -1590,7 +1619,7 @@ public sealed class EscrowService
 
         // 4a3. ESC-09 Part B: an admin release of a plain escrowed escrow pays only an order that is
         //      delivered (a lagging one is first advanced), so the order can follow the money.
-        if (currentStatus == "escrowed" && authenticatedUserId != SystemActor
+        if (settleFrom == "escrowed" && authenticatedUserId != SystemActor
             && await CheckAdminReleaseOrderAsync(escrowItem, authenticatedUserId) is { } releaseBlock)
         {
             return EscrowResult<ReleaseEscrowResponse>.Failure(releaseBlock.HttpStatus, releaseBlock.Code, releaseBlock.Message);
@@ -1657,7 +1686,7 @@ public sealed class EscrowService
         //    NEVER calls Telebirr, so a release-vs-refund or release-vs-release race cannot
         //    double-settle. (Fixes the earlier design where funds moved before the state CAS.)
         var lockAcquired = await _escrowRepo.TryAcquireSettlementLockAsync(
-            request.EscrowId, createdAt, "release", currentStatus);
+            request.EscrowId, createdAt, "release", currentStatus, allowHeld: heldExit);
         if (!lockAcquired)
         {
             var latest = await _escrowRepo.GetByIdAsync(request.EscrowId);
@@ -2127,6 +2156,14 @@ public sealed class EscrowService
             }
         }
 
+        // 11. FUP-16: a dispute needs the goods picked up → ESCROW_041. Before pickup nothing has
+        //     moved and the order has its own exits (the farmer's reject, the buyer's cancel, the
+        //     transport-failure cancel, ESC-06). A confirmed delivery needs no read.
+        if (deliveryConfirmedAt == null && await RefuseDisputeBeforePickupAsync(escrowItem) is { } beforePickup)
+        {
+            return beforePickup;
+        }
+
         var now = DateTime.UtcNow;
         var disputeId = $"dispute-{Guid.NewGuid():N}";
         var createdAt = GetString(escrowItem, "createdAt");
@@ -2250,6 +2287,71 @@ public sealed class EscrowService
         "accepted", "pickup_confirmed", "in_transit"
     };
 
+    /// <summary>Order statuses from pickup onward: the goods have left the farm (FUP-16).</summary>
+    private static readonly HashSet<string> PickedUpOrderStatuses = new(StringComparer.Ordinal)
+    {
+        "pickup_confirmed", "in_transit", "delivered", "disputed", "dispute_resolved", "disbursing", "settled"
+    };
+
+    /// <summary>Delivery statuses from pickup onward (FUP-16).</summary>
+    private static readonly HashSet<string> PickedUpDeliveryStatuses = new(StringComparer.Ordinal)
+    {
+        "pickedUp", "inTransit", "delivered", "disputed"
+    };
+
+    /// <summary>
+    /// FUP-16: refuse <c>POST /escrow/dispute</c> before the goods are picked up
+    /// (<c>422 ESCROW_041</c>). Allowed once the order is at <c>pickup_confirmed</c> or later, or its
+    /// active delivery (else the escrow's) at <c>pickedUp</c> or later. Both are read strongly consistent;
+    /// a read that fails answers <c>503 ESCROW_012</c> and nothing is written. An escrow with no order and
+    /// no delivery that can be read has nothing to judge by and is allowed, as before 1.21.0. Null when
+    /// the dispute may go ahead.
+    /// </summary>
+    private async Task<EscrowResult<DisputeEscrowResponse>?> RefuseDisputeBeforePickupAsync(Dictionary<string, object> escrow)
+    {
+        var escrowId = GetString(escrow, "escrowId");
+        string? orderStatus = null;
+        string? deliveryStatus = null;
+        try
+        {
+            var orderId = GetStringOrNull(escrow, "orderId");
+            var deliveryId = GetStringOrNull(escrow, "deliveryId");
+            if (_orderRepo != null && !string.IsNullOrEmpty(orderId))
+            {
+                var order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+                orderStatus = order != null ? GetStringOrNull(order, "status") : null;
+                var activeDeliveryId = order != null ? GetStringOrNull(order, "activeDeliveryId") : null;
+                deliveryId = string.IsNullOrEmpty(activeDeliveryId) ? deliveryId : activeDeliveryId;
+            }
+
+            if (_deliveryRepo != null && !string.IsNullOrEmpty(deliveryId))
+            {
+                var delivery = await _deliveryRepo.GetByIdAsync(deliveryId, consistentRead: true);
+                deliveryStatus = delivery != null ? GetStringOrNull(delivery, "status") : null;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ESCROW_DISPUTE_PICKUP_UNREAD escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
+            return EscrowResult<DisputeEscrowResponse>.Failure(503, "ESCROW_012",
+                "The order behind this escrow could not be read. Nothing was disputed; try again.");
+        }
+
+        if (orderStatus == null && deliveryStatus == null)
+        {
+            return null;
+        }
+
+        if ((orderStatus != null && PickedUpOrderStatuses.Contains(orderStatus))
+            || (deliveryStatus != null && PickedUpDeliveryStatuses.Contains(deliveryStatus)))
+        {
+            return null;
+        }
+
+        return EscrowResult<DisputeEscrowResponse>.Failure(422, "ESCROW_041",
+            "A dispute can be opened only after the goods are picked up. Before pickup, cancel or reject the order instead.");
+    }
+
     /// <summary>
     /// SIM-12, ESC-07: move the delivery and order behind a frozen dispute to <c>disputed</c>.
     /// Called only once the escrow is <c>disputed</c> (frozen now, or already): by
@@ -2341,8 +2443,9 @@ public sealed class EscrowService
         }
 
         var legs = string.Join(",", failures);
-        Console.WriteLine(
-            $"DISPUTE_PROPAGATION_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} orderId={MoneyAlarmLog.LogId(orderId)} deliveryId={MoneyAlarmLog.LogId(deliveryId)} legs={legs}");
+        // FUP-27: the dispute-propagation-failed alarm counts this line in the escrow, sync and
+        // escrow-cron log groups (every Lambda that runs this mirror). Written before the audit row.
+        AlarmLog(MoneyAlarmLog.DisputePropagationFailed(escrowId, orderId, deliveryId, legs));
         try
         {
             await AppendAuditAsync(
@@ -2425,12 +2528,28 @@ public sealed class EscrowService
     /// verdict without a direction, such as <c>partial_refund</c>, may go either way). A
     /// <c>disputed</c> escrow settles only through a recorded verdict. The verdict never
     /// changes once the escrow left <c>disputed</c>, so a non-consistent read is enough here;
-    /// the lock then requires the exact status this check saw.
+    /// the lock then requires the exact status this check saw. FRD-03: a <c>held</c> escrow is refused
+    /// unless <paramref name="heldExit"/> (an admin in the admin group); then it is checked on the status
+    /// it was held from, so a verdict still decides the direction.
     /// </summary>
-    private static string? SettlementRefusal(Dictionary<string, object> escrow, string op)
+    private static string? SettlementRefusal(Dictionary<string, object> escrow, string op, bool heldExit = false)
     {
         var status = GetString(escrow, "status");
         var verb = op == "release" ? "release" : "refund";
+        if (status == EscrowHoldFields.Status)
+        {
+            if (!heldExit)
+            {
+                return $"Cannot {verb} a held escrow: it is under review, and only an admin in the admin group may {verb} it.";
+            }
+
+            status = GetString(escrow, EscrowHoldFields.HeldFromStatus);
+            if (status is not ("escrowed" or "dispute_resolved"))
+            {
+                return $"Cannot {verb} this held escrow: it does not record a status it was held from.";
+            }
+        }
+
         if (status == "disputed")
         {
             return $"Cannot {verb} a disputed escrow. Record the verdict first (POST /admin/disputes/{{id}}/resolve).";
@@ -2454,6 +2573,321 @@ public sealed class EscrowService
 
     /// <summary>Why a settlement of a dispute verdict does not go ahead on this run (ESC-03).</summary>
     private sealed record SettlementBlock(int HttpStatus, string Code, string Message);
+
+    // ──────────────────────────────────────────────
+    // Fraud hold (FRD-03, fraud-detection-architecture.md section 18)
+    // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// FRD-03: a settlement sweep freezes this escrow for an admin instead of paying it out or refunding
+    /// it (section 18.2). The hold write (<see cref="IEscrowRepository.TryHoldAsync"/>) is conditional on
+    /// <paramref name="fromStatus"/>, no settlement lock and no queue entry, and with
+    /// <paramref name="fence"/> on the order as the sweep read it. Once held: one escrow-audit row
+    /// <c>fraud_hold</c> at the hold time (written only if absent) and one transaction-audit row.
+    /// Best-effort audit: the escrow row itself carries the hold fields. Nothing else is written when
+    /// the hold loses its condition.
+    /// </summary>
+    public async Task<EscrowHoldWrite> HoldForReviewAsync(
+        Dictionary<string, object> escrow, string fromStatus, string heldFor, string holdReason, string party,
+        string sweep, OrderFence? fence = null, ILambdaContext? context = null)
+    {
+        _auditContext = null;
+        var escrowId = GetString(escrow, "escrowId");
+        var heldAt = DateTime.UtcNow.ToString("o");
+        var outcome = await _escrowRepo.TryHoldAsync(
+            escrowId, GetString(escrow, "createdAt"), new EscrowHoldRequest(fromStatus, heldFor, holdReason, heldAt), fence);
+        if (outcome != EscrowHoldWrite.Held)
+        {
+            return outcome;
+        }
+
+        var metadata = $"holdReason={holdReason};heldFor={heldFor};party={party};sweep={sweep}";
+        try
+        {
+            await EnsureAuditAsync(escrowId, heldAt, "fraud_hold", fromStatus, EscrowHoldFields.Status, SystemActor,
+                metadata: metadata);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"FRAUD_HOLD_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
+        }
+
+        var orderId = GetStringOrNull(escrow, "orderId");
+        await TransactionAuditWriter.EmitAsync(_transactionAuditRepo, context,
+            string.IsNullOrEmpty(orderId) ? escrowId : orderId, "escrow", escrowId, "fraud_hold",
+            fromStatus, EscrowHoldFields.Status, AuditContext.ForSystem(), metadata);
+        return outcome;
+    }
+
+    /// <summary>
+    /// FRD-03: an admin release or refund of a held escrow needs the admin group (a profile role is not
+    /// enough: 403 with the route's code) and a reason of 10 to 500 characters (400). Null when it may go on.
+    /// </summary>
+    private static EscrowResult<T>? HeldExitRefusal<T>(bool adminGroupVerified, string? reason, string code, string op)
+    {
+        if (!adminGroupVerified)
+        {
+            return EscrowResult<T>.Failure(403, code, $"Only an admin in the admin group can {op} a held escrow.");
+        }
+
+        var length = reason?.Trim().Length ?? 0;
+        return length is < 10 or > 500
+            ? EscrowResult<T>.Failure(400, "ESCROW_VALIDATION",
+                $"reason must be 10 to 500 characters to {op} a held escrow.", "reason")
+            : null;
+    }
+
+    /// <summary>
+    /// FRD-03: the admin's decision on a held escrow, recorded before its order is checked or moved and
+    /// before the lock: escrow-audit <c>fraud_hold_release</c> or <c>fraud_hold_refund</c> (each attempt;
+    /// fails closed, 503, nothing moved) and a transaction-audit row. The settlement's own rows follow as
+    /// for any release or refund.
+    /// </summary>
+    private async Task<SettlementBlock?> RecordHeldExitAsync(
+        Dictionary<string, object> escrow, string op, string reason, string actor)
+    {
+        var escrowId = GetString(escrow, "escrowId");
+        var action = op == "release" ? "fraud_hold_release" : "fraud_hold_refund";
+        var metadata = $"reason={reason.Trim()};holdReason={GetStringOrNull(escrow, EscrowHoldFields.HoldReason) ?? "-"}"
+                       + $";heldFor={GetStringOrNull(escrow, EscrowHoldFields.HeldFor) ?? "-"}"
+                       + $";heldFromStatus={GetStringOrNull(escrow, EscrowHoldFields.HeldFromStatus) ?? "-"}";
+        try
+        {
+            await AppendAuditAsync(escrowId, action, EscrowHoldFields.Status, EscrowHoldFields.Status, actor, metadata: metadata);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"FRAUD_HOLD_EXIT_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} error={ex.GetType().Name}");
+            return new SettlementBlock(503, "ESCROW_012", "The decision could not be recorded. Nothing moved; try again.");
+        }
+
+        var orderId = GetStringOrNull(escrow, "orderId");
+        await TransactionAuditWriter.EmitAsync(_transactionAuditRepo, null,
+            string.IsNullOrEmpty(orderId) ? escrowId : orderId, "escrow", escrowId, action,
+            EscrowHoldFields.Status, EscrowHoldFields.Status,
+            _auditContext ?? new AuditContext { Actor = actor, ActorRole = "admin" }, metadata);
+        return null;
+    }
+
+    /// <summary>
+    /// FRD-03 (section 18.3): the order side of an admin refund of an escrow held from <c>escrowed</c>,
+    /// by what the sweep was about to do (<c>heldFor</c>). A verdict held from <c>dispute_resolved</c> goes
+    /// through <see cref="MirrorVerdictAsync"/> instead, as the dispute sweep would. Null when the refund
+    /// may go on.
+    /// </summary>
+    private async Task<SettlementBlock?> PrepareHeldRefundAsync(Dictionary<string, object> escrow, string actor)
+        => GetStringOrNull(escrow, EscrowHoldFields.HeldFor) switch
+        {
+            // A delivery-initiated escrow pays for its delivery: the refund alone, as the sweep would have.
+            EscrowHoldFields.ForRefund => IsOrderFundedEscrow(escrow) ? await PrepareHeldOrderRefundAsync(escrow, actor) : null,
+            EscrowHoldFields.ForRelease => await PrepareHeldPayoutRefundAsync(escrow, actor),
+            _ => new SettlementBlock(422, "ESCROW_INVALID_TRANSITION",
+                "This held escrow does not record what it was held for. Nothing was refunded.")
+        };
+
+    /// <summary>
+    /// FRD-03: <c>heldFor: refund</c> on an order escrow: the steps the auto-refund sweep skipped when it
+    /// held it. A still <c>funded</c> order is cancelled first (pending delivery, version-checked order
+    /// with <c>cancelReason: escrow_refunded</c>, slot, listing stock, as the ESC-09 admin refund does);
+    /// <c>rejected</c> refunds as it is; <c>cancelled</c> gets its stock back first when its cancel
+    /// promised it. A progressing order, a missing one or any other status is refused (422,
+    /// <c>RISK_HOLD_ORDER_MISMATCH</c>, nothing moved). A failed read, or a cancel or restock that does not
+    /// land, refuses with 503 (nothing refunded; the admin retries). The refund is not armed on the escrow:
+    /// the sweeps never select a held escrow, so a gateway refusal waits for the admin's retry.
+    /// </summary>
+    private async Task<SettlementBlock?> PrepareHeldOrderRefundAsync(Dictionary<string, object> escrow, string actor)
+    {
+        var escrowId = GetString(escrow, "escrowId");
+        string? orderId;
+        Dictionary<string, object>? order = null;
+        try
+        {
+            orderId = await ResolveEscrowOrderIdAsync(escrow);
+            if (!string.IsNullOrEmpty(orderId) && _orderRepo != null)
+            {
+                order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ESCROW_ADMIN_SETTLEMENT_ORDER_UNREAD escrowId={MoneyAlarmLog.LogId(escrowId)} op=refund error={ex.GetType().Name}");
+            return new SettlementBlock(503, "ESCROW_012", "The order behind this escrow could not be read. Nothing moved; try again.");
+        }
+
+        if (string.IsNullOrEmpty(orderId))
+        {
+            return null;
+        }
+
+        if (_orderRepo == null)
+        {
+            return new SettlementBlock(503, "ESCROW_012", "The order behind this escrow could not be read. Nothing moved; try again.");
+        }
+
+        var status = order == null ? "missing" : GetString(order, "status");
+        switch (status)
+        {
+            case "rejected":
+                return null;
+
+            case "cancelled":
+                return await EnsureRefundRestockAsync(order!, escrowId);
+
+            case "funded":
+                var cancel = await _verdictMirror.CancelBeforeRefundAsync(escrow);
+                if (cancel.Order is VerdictLegOutcome.Cancelled or VerdictLegOutcome.Closed)
+                {
+                    // Closed: a concurrent reject or cancel won; its stock goes back first, as for any cancelled order.
+                    return cancel.Order == VerdictLegOutcome.Closed && cancel.OrderItem != null
+                        ? await EnsureRefundRestockAsync(cancel.OrderItem, escrowId)
+                        : null;
+                }
+
+                if (cancel.Order is VerdictLegOutcome.Blocked or VerdictLegOutcome.Unknown
+                    || cancel.Delivery == VerdictLegOutcome.Unknown)
+                {
+                    return new SettlementBlock(503, "ESCROW_012",
+                        $"The order could not be cancelled or restocked before the refund ({cancel.FailedLegs}). Nothing moved; try again.");
+                }
+
+                // The order moved on since it was read, or its delivery left the farm: nothing was written.
+                var latest = cancel.OrderItem != null ? GetString(cancel.OrderItem, "status") : "missing";
+                return await RefuseHeldRefundAsync(escrowId, actor, EscrowHoldFields.ForRefund, orderId,
+                    cancel.FailedLegs ?? $"order:{latest}");
+
+            default:
+                return await RefuseHeldRefundAsync(escrowId, actor, EscrowHoldFields.ForRefund, orderId, $"order:{status}");
+        }
+    }
+
+    /// <summary>
+    /// FRD-03: <c>heldFor: release</c>: the escrow was about to pay out, so its refund takes the dispute
+    /// path (section 18.3). Through <see cref="DisputeVerdictMirror"/> with <c>buyer_wins</c> the order goes
+    /// <c>delivered</c> to <c>disputed</c> to <c>dispute_resolved</c> (or <c>disputed</c> to
+    /// <c>dispute_resolved</c>; one left at <c>accepted</c>, <c>pickup_confirmed</c> or <c>in_transit</c>
+    /// behind a delivered delivery is advanced first), and the delivery takes the verdict; then the escrow
+    /// records <c>disputeResolution: buyer_wins</c>, <c>disputeResolvedBy</c> and <c>disputeResolvedAt</c>
+    /// while it stays held. No stock is restored. An order already <c>dispute_resolved</c> is a retry when
+    /// this escrow or its delivery carries <c>buyer_wins</c> (the first attempt's hops landed); the mirror
+    /// then writes nothing. No order behind the escrow: the refund alone. A leg that cannot follow refuses
+    /// (422, <c>RISK_HOLD_ORDER_MISMATCH</c>; the mirror decides both legs before any write); a failed read,
+    /// or a hop or the verdict write that did not land, refuses with 503 (the hops made stay, the retry goes on).
+    /// </summary>
+    private async Task<SettlementBlock?> PrepareHeldPayoutRefundAsync(Dictionary<string, object> escrow, string actor)
+    {
+        var escrowId = GetString(escrow, "escrowId");
+        string? orderId;
+        Dictionary<string, object>? order = null;
+        try
+        {
+            orderId = await ResolveEscrowOrderIdAsync(escrow);
+            if (!string.IsNullOrEmpty(orderId) && _orderRepo != null)
+            {
+                order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ESCROW_ADMIN_SETTLEMENT_ORDER_UNREAD escrowId={MoneyAlarmLog.LogId(escrowId)} op=refund error={ex.GetType().Name}");
+            return new SettlementBlock(503, "ESCROW_012", "The order behind this escrow could not be read. Nothing moved; try again.");
+        }
+
+        if (string.IsNullOrEmpty(orderId))
+        {
+            return null;
+        }
+
+        if (_orderRepo == null)
+        {
+            return new SettlementBlock(503, "ESCROW_012", "The order behind this escrow could not be read. Nothing moved; try again.");
+        }
+
+        var status = order == null ? "missing" : GetString(order, "status");
+        var recorded = GetStringOrNull(escrow, "disputeResolution");
+        // A dispute_resolved order with no buyer_wins on this escrow and no delivery to show it came from
+        // this path was resolved some other way.
+        var noDelivery = order != null && string.IsNullOrEmpty(GetStringOrNull(order, "activeDeliveryId"))
+                         && string.IsNullOrEmpty(GetStringOrNull(escrow, "deliveryId"));
+        if (status is not ("delivered" or "disputed" or "accepted" or "pickup_confirmed" or "in_transit" or "dispute_resolved")
+            || (status == "dispute_resolved" && recorded != "buyer_wins" && noDelivery))
+        {
+            return await RefuseHeldRefundAsync(escrowId, actor, EscrowHoldFields.ForRelease, orderId, $"order:{status}");
+        }
+
+        var resolvedAt = DateTime.UtcNow.ToString("o");
+        var result = await _verdictMirror.ApplyAsync(escrow, "buyer_wins", resolvedAt);
+        if (result.IsUndecided)
+        {
+            Console.WriteLine(
+                $"ESCROW_HELD_REFUND_ORDER_UNREAD escrowId={MoneyAlarmLog.LogId(escrowId)} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
+            return new SettlementBlock(503, "ESCROW_012", "The order behind this escrow could not be read. Nothing moved; try again.");
+        }
+
+        if (result.IsMismatch
+            || result.Order is VerdictLegOutcome.Closed or VerdictLegOutcome.Deferred or VerdictLegOutcome.Cancelled
+            || result.Delivery is VerdictLegOutcome.Closed or VerdictLegOutcome.Deferred or VerdictLegOutcome.Cancelled)
+        {
+            return await RefuseHeldRefundAsync(escrowId, actor, EscrowHoldFields.ForRelease, orderId, result.FailedLegs ?? $"order:{status}");
+        }
+
+        if (result.FailedLegs != null)
+        {
+            Console.WriteLine(
+                $"ESCROW_HELD_REFUND_ORDER_HOP_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
+            return new SettlementBlock(503, "ESCROW_012",
+                $"The order could not be moved to the refund's verdict ({result.FailedLegs}). Nothing was refunded; try again.");
+        }
+
+        if (recorded == "buyer_wins")
+        {
+            return null;
+        }
+
+        try
+        {
+            await _escrowRepo.UpdateStatusAsync(escrowId, GetString(escrow, "createdAt"), EscrowHoldFields.Status,
+                EscrowHoldFields.Status, new Dictionary<string, object>
+                {
+                    { "disputeResolution", "buyer_wins" },
+                    { "disputeResolvedBy", actor },
+                    { "disputeResolvedAt", resolvedAt }
+                });
+            return null;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return new SettlementBlock(409, "ESCROW_INVALID_TRANSITION",
+                "The escrow changed while the refund was prepared. Nothing was refunded; reload it.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ESCROW_HELD_REFUND_VERDICT_WRITE_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
+            return new SettlementBlock(503, "ESCROW_012", "The verdict could not be recorded on the escrow. Nothing was refunded; try again.");
+        }
+    }
+
+    /// <summary>
+    /// FRD-03: an admin refund of a held escrow whose order cannot follow it: one
+    /// <c>RISK_HOLD_ORDER_MISMATCH</c> line (a person reconciles the order), audited per attempt, 422.
+    /// </summary>
+    private async Task<SettlementBlock> RefuseHeldRefundAsync(
+        string escrowId, string actor, string heldFor, string orderId, string legs)
+    {
+        AlarmLog(MoneyAlarmLog.RiskHoldOrderMismatch(escrowId, heldFor, legs));
+        try
+        {
+            await AppendAuditAsync(escrowId, "admin_settlement_order_refused", EscrowHoldFields.Status, EscrowHoldFields.Status,
+                actor, metadata: $"op=refund;heldFor={heldFor};orderId={orderId};legs={legs}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ESCROW_ADMIN_SETTLEMENT_REFUSAL_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
+        }
+
+        return new SettlementBlock(422, "ESCROW_INVALID_TRANSITION",
+            $"The order behind this held escrow cannot follow a refund ({legs}). Nothing was refunded: "
+            + "bring the order to a status the refund can follow first.");
+    }
 
     /// <summary>
     /// ESC-03: before a <c>dispute_resolved</c> escrow is settled, move its order and delivery
@@ -2509,7 +2943,15 @@ public sealed class EscrowService
             return await RecordMismatchOverrideAsync(escrowId, result, actor, overrideReason);
         }
 
-        if (result.IsMismatch)
+        if (result.IsMismatch && await IsRecordedWaitAsync(escrow, resolution))
+        {
+            // FUP-16: the admin chose to wait for the delivery. Still refused and audited once, but not
+            // alarmed: an hourly alarm line here would keep the mismatch alarm in ALARM for days and hide
+            // a verdict that is really stuck.
+            Console.WriteLine(
+                $"DISPUTE_VERDICT_WAITING_FOR_DELIVERY escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
+        }
+        else if (result.IsMismatch)
         {
             AlarmLog(MoneyAlarmLog.DisputeVerdictOrderMismatch(escrowId, op, result.FailedLegs));
         }
@@ -2535,8 +2977,26 @@ public sealed class EscrowService
         return result.IsMismatch
             ? new SettlementBlock(422, "ESCROW_INVALID_TRANSITION",
                 $"The order or delivery behind this verdict cannot follow it ({result.FailedLegs}). Nothing was settled: "
-                + "bring the order to a status the verdict can follow first.")
+                + "bring the order to a status the verdict can follow first, or record a disposition on the verdict "
+                + "(POST /admin/disputes/{id}/resolve).")
             : null;
+    }
+
+    /// <summary>
+    /// FUP-16: the verdict carries the admin's <c>wait_for_delivery</c> and its legs are exactly what that
+    /// choice waits on (a <c>farmer_wins</c> before delivery). Anything else (the order cancelled meanwhile,
+    /// a missing row, a read that fails) is not a recorded wait and keeps the alarm.
+    /// </summary>
+    private async Task<bool> IsRecordedWaitAsync(Dictionary<string, object> escrow, string resolution)
+    {
+        if (resolution != "farmer_wins"
+            || GetStringOrNull(escrow, DisputeDispositionFields.Disposition) != DisputeDisposition.WaitForDelivery)
+        {
+            return false;
+        }
+
+        var plan = await _verdictMirror.PlanDispositionAsync(escrow, resolution);
+        return plan.Case == DispositionCase.BeforeDelivery && plan.Fits(DisputeDisposition.WaitForDelivery);
     }
 
     /// <summary>
@@ -2948,13 +3408,22 @@ public sealed class EscrowService
         }
 
         // 4. Validate state: "escrowed", or "dispute_resolved" with a verdict that does not
-        //    contradict a refund (ESC-03) → ESCROW_INVALID_TRANSITION
+        //    contradict a refund (ESC-03) → ESCROW_INVALID_TRANSITION. FRD-03: a held escrow leaves
+        //    only through an admin in the admin group with a reason (see ReleaseAsync).
         var currentStatus = GetString(escrowItem, "status");
-        var refusal = SettlementRefusal(escrowItem, "refund");
+        var heldExit = currentStatus == EscrowHoldFields.Status && authenticatedUserId != SystemActor;
+        if (heldExit && HeldExitRefusal<RefundEscrowResponse>(adminGroupVerified, request.Reason, "ESCROW_021", "refund") is { } heldRefusal)
+        {
+            return heldRefusal;
+        }
+
+        var refusal = SettlementRefusal(escrowItem, "refund", heldExit);
         if (refusal != null)
         {
             return EscrowResult<RefundEscrowResponse>.Failure(422, "ESCROW_INVALID_TRANSITION", refusal);
         }
+
+        var settleFrom = heldExit ? GetString(escrowItem, EscrowHoldFields.HeldFromStatus) : currentStatus;
 
         // 4a. ESC-02: already waiting for an admin in the manual payout queue (see ReleaseAsync).
         if (IsManualPayoutOpen(escrowItem))
@@ -2962,12 +3431,25 @@ public sealed class EscrowService
             return ManualPayoutWaiting<RefundEscrowResponse>();
         }
 
+        // 4a1. FRD-03: the admin's decision and reason are on record before the order or any money moves.
+        if (heldExit && await RecordHeldExitAsync(escrowItem, "refund", request.Reason!, authenticatedUserId) is { } heldAuditBlock)
+        {
+            return EscrowResult<RefundEscrowResponse>.Failure(heldAuditBlock.HttpStatus, heldAuditBlock.Code, heldAuditBlock.Message);
+        }
+
         // 4a2. ESC-03: the order and delivery follow the verdict before any money moves; a
         //      verdict they cannot follow is not settled.
-        if (currentStatus == "dispute_resolved"
+        if (settleFrom == "dispute_resolved"
             && await MirrorVerdictAsync(escrowItem, authenticatedUserId, "refund", overrideReason) is { } block)
         {
             return EscrowResult<RefundEscrowResponse>.Failure(block.HttpStatus, block.Code, block.Message);
+        }
+
+        // 4a2b. FRD-03: a held escrow's order follows what the sweep was about to do (heldFor).
+        if (heldExit && settleFrom == "escrowed"
+            && await PrepareHeldRefundAsync(escrowItem, authenticatedUserId) is { } heldBlock)
+        {
+            return EscrowResult<RefundEscrowResponse>.Failure(heldBlock.HttpStatus, heldBlock.Code, heldBlock.Message);
         }
 
         // 4a3. ESC-09 Part B: an admin refund of a plain escrowed escrow ends an order that never got
@@ -2991,7 +3473,7 @@ public sealed class EscrowService
         // across release/refund and across idempotency keys: a refund that loses the race to a
         // release (or another refund) NEVER calls Telebirr, so funds cannot be double-moved.
         var lockAcquired = await _escrowRepo.TryAcquireSettlementLockAsync(
-            request.EscrowId, createdAt, "refund", currentStatus);
+            request.EscrowId, createdAt, "refund", currentStatus, allowHeld: heldExit);
         if (!lockAcquired)
         {
             var latest = await _escrowRepo.GetByIdAsync(request.EscrowId);
@@ -4029,7 +4511,7 @@ public sealed class EscrowService
     /// truckerId when the escrow is linked to a delivery (O3). Reads only; the caller keeps a
     /// truckerId taken from the order (<c>FromOrder</c>) with <see cref="BackfillTruckerIdAsync"/>.
     /// </summary>
-    private async Task<(string? TruckerId, bool FromOrder, string? BlockReason)> ResolveTruckerIdAsync(
+    internal async Task<(string? TruckerId, bool FromOrder, string? BlockReason)> ResolveTruckerIdAsync(
         Dictionary<string, object> escrow)
     {
         var own = GetStringOrNull(escrow, "truckerId");
@@ -4675,10 +5157,13 @@ public sealed class EscrowService
     // Manual payout queue (ESC-02)
     // ──────────────────────────────────────────────
 
-    /// <summary>Escrow statuses from which a queued settlement may still close.</summary>
+    /// <summary>
+    /// Escrow statuses from which a queued settlement may still close. FRD-03: an admin release or refund
+    /// of a held escrow that the gateway could not make waits in the queue as <c>held</c>.
+    /// </summary>
     private static readonly HashSet<string> ManualPayoutSettleableStatuses = new()
     {
-        "escrowed", "disputed", "dispute_resolved"
+        "escrowed", "disputed", "dispute_resolved", "held"
     };
 
     /// <summary>

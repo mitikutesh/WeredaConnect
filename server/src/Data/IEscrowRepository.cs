@@ -64,7 +64,22 @@ public interface IEscrowRepository
     /// </summary>
     /// <param name="op">The operation claiming the lock ("release" or "refund").</param>
     /// <param name="expectedStatus">The status the caller validated the operation against.</param>
-    Task<bool> TryAcquireSettlementLockAsync(string escrowId, string createdAt, string op, string expectedStatus);
+    /// <param name="allowHeld">
+    /// FRD-03: only the admin release and refund set it, so <c>held</c> joins the settleable statuses for
+    /// them alone; the sweeps can never lock a held escrow.
+    /// </param>
+    Task<bool> TryAcquireSettlementLockAsync(string escrowId, string createdAt, string op, string expectedStatus, bool allowHeld = false);
+
+    /// <summary>
+    /// FRD-03: freeze an escrow for fraud review (<c>status = held</c> with <c>holdReason</c>, <c>heldAt</c>,
+    /// <c>heldBy = system</c>, <c>heldFromStatus</c>, <c>heldFor</c>; the version is added to), conditional
+    /// on the status still being <see cref="EscrowHoldRequest.FromStatus"/> with no settlement lock and no
+    /// open manual payout, so a settlement already in progress wins. With <paramref name="fence"/> the
+    /// write is one <c>TransactWriteItems</c> with a <c>ConditionCheck</c> that the order's version and
+    /// status are still what the sweep read. A failed condition whose strongly consistent re-read shows
+    /// this very hold (same <c>heldAt</c>, an earlier attempt whose answer was lost) counts as held.
+    /// </summary>
+    Task<EscrowHoldWrite> TryHoldAsync(string escrowId, string createdAt, EscrowHoldRequest hold, OrderFence? fence = null);
 
     /// <summary>
     /// Release a previously-acquired settlement lock (with its time and id) after a definite
@@ -285,6 +300,35 @@ public interface IEscrowRepository
     /// </summary>
     Task<bool> TryClearSettlementBlockReasonAsync(string escrowId, string createdAt, string storedReason);
 }
+
+/// <summary>FRD-03: what <see cref="IEscrowRepository.TryHoldAsync"/> found.</summary>
+public enum EscrowHoldWrite
+{
+    /// <summary>The escrow is held now (by this write).</summary>
+    Held,
+
+    /// <summary>The escrow moved on, or a settlement lock or queue entry appeared: nothing held.</summary>
+    EscrowChanged,
+
+    /// <summary>The fenced order's version or status changed since the sweep read it: nothing held.</summary>
+    OrderChanged,
+
+    /// <summary>The write met a concurrent transaction or a throttle the SDK retries did not clear: nothing held, the next run retries.</summary>
+    Conflict
+}
+
+/// <summary>
+/// FRD-03: one hold (fraud-detection-architecture.md section 18.2). <paramref name="FromStatus"/> is
+/// <c>escrowed</c> or <c>dispute_resolved</c>, <paramref name="HeldFor"/> <c>release</c> or <c>refund</c>,
+/// <paramref name="HeldAt"/> ISO 8601 (also the key of the hold's audit row).
+/// </summary>
+public sealed record EscrowHoldRequest(string FromStatus, string HeldFor, string HoldReason, string HeldAt);
+
+/// <summary>
+/// FRD-03: the order a hold is fenced on (the auto-refund sweep, like its cancel-then-refund): the orders
+/// table, the order's key, and the version and status the sweep read.
+/// </summary>
+public sealed record OrderFence(string TableName, string OrderId, string CreatedAt, int Version, string Status);
 
 /// <summary>
 /// ESC-10: what one page of a status sweep reads. <paramref name="DeliveryConfirmed"/> true keeps only

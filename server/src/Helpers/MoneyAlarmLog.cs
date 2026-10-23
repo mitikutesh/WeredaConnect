@@ -9,7 +9,8 @@ namespace WeredaConnect.Server.Helpers;
 /// <remarks>
 /// <para>
 /// Line formats (one line each; ids go through <see cref="LogId"/>, the other fields keep
-/// <c>[A-Za-z0-9-_.:]</c>; every field is cut at 64 characters and an empty one is <c>-</c>):
+/// <c>[A-Za-z0-9-_.:]</c>; every field is cut at 64 characters, the propagation line's legs at 200,
+/// and an empty one is <c>-</c>):
 /// </para>
 /// <code>
 /// ESCROW_SETTLEMENT_FAILED escrowId=&lt;id&gt; action=&lt;action&gt; outcome=&lt;failed|unknown&gt; code=&lt;code&gt;
@@ -20,7 +21,29 @@ namespace WeredaConnect.Server.Helpers;
 /// TRUCKER_PAYOUT_OVERDUE escrowId=&lt;id&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
 /// DISPUTE_NO_ESCROW orderId=&lt;id&gt; deliveryId=&lt;id&gt;
 /// ORDER_MONEY_MISMATCH orderId=&lt;id&gt; escrowId=&lt;id&gt; orderStatus=&lt;s&gt; escrowStatus=&lt;s&gt; reason=&lt;reason&gt;
+/// RISK_SETTLEMENT_SKIPPED escrowId=&lt;id&gt; sweep=&lt;auto-release|auto-refund|dispute&gt; reason=&lt;flag_off|user_read_failed&gt; holdReason=&lt;reason&gt;
+/// RISK_HOLD_ORDER_MISMATCH escrowId=&lt;id&gt; heldFor=&lt;release|refund&gt; legs=&lt;legs&gt;
+/// DISPUTE_PROPAGATION_FAILED escrowId=&lt;id&gt; orderId=&lt;id&gt; deliveryId=&lt;id&gt; legs=&lt;legs&gt;
+/// DELIVERY_DISPUTE_FROZEN escrowId=&lt;id&gt; orderId=&lt;id&gt; deliveryId=&lt;id&gt;
 /// </code>
+/// <para>
+/// The two risk lines (FRD-03, fraud-detection-architecture.md section 18). Escrow-cron logs
+/// <c>RISK_SETTLEMENT_SKIPPED</c> each run a settlement sweep leaves an escrow unsettled because of the
+/// risk gate: a trigger while <c>FRAUD_HOLD_ENABLED</c> is off, or a party row it could not read; the
+/// <c>risk-settlement-skipped</c> alarm counts it from the FRD-03 deploy. The escrow Lambda logs
+/// <c>RISK_HOLD_ORDER_MISMATCH</c> each time an admin refund of a held escrow is refused because its order
+/// cannot follow the refund; FRD-16 adds its alarm.
+/// </para>
+/// <para>
+/// FUP-27. The propagation line is logged by the escrow service's dispute mirror when the delivery
+/// or order behind a frozen dispute did not follow it, from the three Lambdas that run the mirror:
+/// escrow (<c>POST /escrow/dispute</c> and its repeat), sync (a delivery dispute) and escrow-cron (a
+/// sweep that froze a disputed trade). <c>legs</c> is the mirror's failed-legs text through
+/// <see cref="LogLegs"/> (defanged, <c>,</c> as <c>.</c>, cut at 200 characters, not 64); the
+/// escrow-audit row <c>dispute_propagation_failed</c> keeps it raw. The frozen line is logged by the sync Lambda (with <c>LogWarning</c>) once a delivery
+/// dispute froze its escrow, and nowhere else: its filter feeds the escrow dispute-rate metric that
+/// the escrow Lambda's <c>ESCROW</c>/<c>DISPUTE</c> audit line feeds too. It is a rate, not a failure.
+/// </para>
 /// <para>
 /// The order-money line (ESC-09) is logged by escrow-cron's hourly order-money sweep when the order
 /// does not show what its escrow's money says: <c>write_failed</c> (it could follow but the writes keep
@@ -99,6 +122,10 @@ public static class MoneyAlarmLog
     public const string TruckerPayoutOverdueToken = "TRUCKER_PAYOUT_OVERDUE";
     public const string DisputeNoEscrowToken = "DISPUTE_NO_ESCROW";
     public const string OrderMoneyMismatchToken = "ORDER_MONEY_MISMATCH";
+    public const string RiskSettlementSkippedToken = "RISK_SETTLEMENT_SKIPPED";
+    public const string RiskHoldOrderMismatchToken = "RISK_HOLD_ORDER_MISMATCH";
+    public const string DisputePropagationFailedToken = "DISPUTE_PROPAGATION_FAILED";
+    public const string DeliveryDisputeFrozenToken = "DELIVERY_DISPUTE_FROZEN";
 
     /// <summary>The gateway definitely refused the settlement; no money moved.</summary>
     public const string OutcomeFailed = "failed";
@@ -158,6 +185,14 @@ public static class MoneyAlarmLog
     public static string TruckerPayoutOverdue(string? escrowId, string? reason, int ageHours)
         => $"{TruckerPayoutOverdueToken} escrowId={LogId(escrowId)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}";
 
+    /// <summary>FRD-03: a settlement sweep left an escrow unsettled for this run because of the risk gate.</summary>
+    public static string RiskSettlementSkipped(string? escrowId, string? sweep, string? reason, string? holdReason)
+        => $"{RiskSettlementSkippedToken} escrowId={LogId(escrowId)} sweep={Safe(sweep)} reason={Safe(reason)} holdReason={Safe(holdReason)}";
+
+    /// <summary>FRD-03: an admin refund of a held escrow was refused because its order cannot follow the refund.</summary>
+    public static string RiskHoldOrderMismatch(string? escrowId, string? heldFor, string? legs)
+        => $"{RiskHoldOrderMismatchToken} escrowId={LogId(escrowId)} heldFor={Safe(heldFor)} legs={LogId(legs?.Replace(',', '.'))}";
+
     /// <summary>ESC-03: a dispute verdict was not settled because its order or delivery cannot follow it.</summary>
     public static string DisputeVerdictOrderMismatch(string? escrowId, string? op, string? legs)
         => $"{DisputeVerdictOrderMismatchToken} escrowId={LogId(escrowId)} op={Safe(op)} legs={LogId(legs?.Replace(',', '.'))}";
@@ -180,12 +215,34 @@ public static class MoneyAlarmLog
            + $"orderStatus={Safe(orderStatus)} escrowStatus={Safe(escrowStatus)} reason={Safe(reason)}";
 
     /// <summary>
+    /// FUP-27: the delivery or order behind a frozen dispute did not follow it (the dispute
+    /// mirror's failed legs). The money is frozen; the order may still be open to ratings.
+    /// </summary>
+    public static string DisputePropagationFailed(string? escrowId, string? orderId, string? deliveryId, string? legs)
+        => $"{DisputePropagationFailedToken} escrowId={LogId(escrowId)} orderId={LogId(orderId)} "
+           + $"deliveryId={LogId(deliveryId)} legs={LogLegs(legs)}";
+
+    /// <summary>
+    /// FUP-27: a delivery dispute through sync froze its escrow. Counted with the escrow Lambda's
+    /// disputes by the escrow dispute-rate alarm; not a failure.
+    /// </summary>
+    public static string DeliveryDisputeFrozen(string? escrowId, string? orderId, string? deliveryId)
+        => $"{DeliveryDisputeFrozenToken} escrowId={LogId(escrowId)} orderId={LogId(orderId)} deliveryId={LogId(deliveryId)}";
+
+    /// <summary>
     /// A client-chosen or client-influenced id (entity id, path parameter, header, an escrow id
     /// that embeds an order id) for any log line in a log group a money alarm filters: keeps
     /// <c>[A-Za-z0-9-.:]</c>, turns <c>_</c> into <c>-</c>, cuts at 64 characters, empty becomes
     /// <c>-</c>. No space, newline or underscore survives, so the value cannot spell an alarm token.
     /// </summary>
     public static string LogId(string? value) => Safe(Defang(value));
+
+    /// <summary>
+    /// FUP-27: a failed-legs text (<c>leg:[reason],leg:reason</c>) for one field: the same characters
+    /// as <see cref="LogId"/> (<c>_</c> becomes <c>-</c>, brackets and spaces dropped), <c>,</c> becomes
+    /// <c>.</c>, cut at 200 characters instead of 64 so three legs with long exception names survive.
+    /// </summary>
+    public static string LogLegs(string? legs) => Safe(Defang(legs?.Replace(',', '.')), MaxTextLength);
 
     /// <summary>
     /// Free text that may echo client input (an exception or error message) for the same log
@@ -217,8 +274,9 @@ public static class MoneyAlarmLog
     /// Keep <c>[A-Za-z0-9-_.:]</c>, cut at 64 characters, empty becomes <c>-</c>. A field can
     /// never hold a space or a newline, so it cannot add a second field or break the line.
     /// Only for server values (actions, codes, references); client-influenced ids use <see cref="LogId"/>.
+    /// <paramref name="maxLength"/> is longer only for <see cref="LogLegs"/>.
     /// </summary>
-    private static string Safe(string? value)
+    private static string Safe(string? value, int maxLength = MaxFieldLength)
     {
         if (string.IsNullOrEmpty(value))
         {
@@ -228,7 +286,7 @@ public static class MoneyAlarmLog
         var safe = new string(value
             .Where(c => c is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9')
                 or '-' or '_' or '.' or ':')
-            .Take(MaxFieldLength)
+            .Take(maxLength)
             .ToArray());
         return safe.Length == 0 ? "-" : safe;
     }

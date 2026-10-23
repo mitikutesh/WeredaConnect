@@ -22,7 +22,11 @@ public class MoneyAlarmLogTests
         "ORDER_PAYMENT_UNMATCHED", "ORDER_PAYMENT_DUPLICATE", "ORDER_PAYMENT_UNPROCESSED",
         "ORDER_STOCK_DECREMENT_FAILED", "ORDER_MONEY_MISMATCH",
         // ESC-45: the inbox replay heartbeat; a spelled one would hide a stalled sweep.
-        "TELEBIRR_INBOX_REPLAY_RUN"
+        "TELEBIRR_INBOX_REPLAY_RUN",
+        // FRD-03: RISK_SETTLEMENT_SKIPPED is counted from FRD-03, RISK_HOLD_ORDER_MISMATCH by FRD-16.
+        "RISK_SETTLEMENT_SKIPPED", "RISK_HOLD_ORDER_MISMATCH",
+        // FUP-27: the dispute mirror's failed legs, and a sync delivery dispute's freeze (dispute rate).
+        "DISPUTE_PROPAGATION_FAILED", "DELIVERY_DISPUTE_FROZEN"
     };
 
     /// <summary>A client value that spells every alarm token.</summary>
@@ -74,6 +78,22 @@ public class MoneyAlarmLogTests
             .Should().Be("ORDER_MONEY_MISMATCH orderId=- escrowId=- orderStatus=- escrowStatus=- reason=sweep_truncated");
         TokensIn(MoneyAlarmLog.OrderMoneyMismatch(Hostile, $"escrow-order-{Hostile}", "delivered", "completed", "write_failed"))
             .Should().Equal("ORDER_MONEY_MISMATCH");
+    }
+
+    [Fact]
+    public void RiskLines_FormatTokenAndFields_AndCarryOnlyTheirOwnToken()
+    {
+        MoneyAlarmLog.RiskSettlementSkipped("escrow-order-ord-1", "auto-refund", "flag_off", "account_suspended")
+            .Should().Be("RISK_SETTLEMENT_SKIPPED escrowId=escrow-order-ord-1 sweep=auto-refund reason=flag_off holdReason=account_suspended");
+        MoneyAlarmLog.RiskSettlementSkipped("e-1", "dispute", "user_read_failed", null)
+            .Should().Be("RISK_SETTLEMENT_SKIPPED escrowId=e-1 sweep=dispute reason=user_read_failed holdReason=-");
+        MoneyAlarmLog.RiskHoldOrderMismatch("e-1", "release", "order:mismatch:in_transit,delivery:mismatch:inTransit")
+            .Should().Be("RISK_HOLD_ORDER_MISMATCH escrowId=e-1 heldFor=release legs=order:mismatch:in-transit.delivery:mismatch:inTransit");
+
+        TokensIn(MoneyAlarmLog.RiskSettlementSkipped($"escrow-order-{Hostile}", "auto-release", "flag_off", "account_suspended"))
+            .Should().Equal("RISK_SETTLEMENT_SKIPPED");
+        TokensIn(MoneyAlarmLog.RiskHoldOrderMismatch($"escrow-order-{Hostile}", "refund", Hostile))
+            .Should().Equal("RISK_HOLD_ORDER_MISMATCH");
     }
 
     [Fact]

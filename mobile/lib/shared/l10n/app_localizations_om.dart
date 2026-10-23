@@ -1207,6 +1207,14 @@ class AppLocalizationsOm extends AppLocalizations {
       'Kaffaltiin kun bulchaan kaffalamaa waan jiruuf, amma komiin itti ka\'uu hin danda\'u. Deeggarsa qunnamaa.';
 
   @override
+  String get escrowErrorDeliveryPaymentUnavailable =>
+      'Kaffaltiin online geejjibsiisaaf asitti hin argamu. Qooda isaa ajaja kana fuula ajajaa irraa kaffalaa.';
+
+  @override
+  String get escrowErrorDisputeBeforePickup =>
+      'Komiin kan ka\'uu danda\'u erga meeshaan fe\'amee booda qofa. Sana dura ajaja haqaa, ykn deeggarsa qunnamaa.';
+
+  @override
   String get escrowErrorInvalidTransition =>
       'Gochi kun haala kaffaltii ammaa keessatti hin hayyamamu.';
 
@@ -2847,6 +2855,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Kaffaltiin qarshii 10,000 ol ta\'e qonnaan bulaanis ID Faayidaa mirkanaa\'e akka qabaatu barbaada, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.';
 
   @override
+  String get kycFarmerNotVerifiedMessage =>
+      'Eenyummaan qonnaan bulaa ammallee hin mirkanoofne, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.';
+
+  @override
   String get kycUnavailableMessage =>
       'Amma mirkaneessa eenyummaa ilaaluu hin dandeenye, kanaaf kaffaltiin kun hin ergamne. Maaloo booda irra deebi\'aa yaalaa.';
 
@@ -2969,6 +2981,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Telebirr kaffaltii tokkoon qarshii 100 hanga 500,000 fudhata. Waliigalli ajaja kanaa kanaan ala waan ta\'eef, Telebirr\'n kaffalamuu hin danda\'u.';
 
   @override
+  String get paymentMethodUnavailable =>
+      'Malli kaffaltii kun ammaaf hin jiru. Telebirr\'n kaffalaa.';
+
+  @override
   String get continuePayment => 'Kaffaltii itti fufaa';
 
   @override
@@ -2992,4 +3008,48 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get errorOrderCancelNotAllowed =>
       'Ajajni kun amma haqamuu hin danda\'u. Kan haqamu midhaan yeroodhaan yoo hin fudhatamin fi wanti tokkollee yoo hin fudhatamin qofa.';
+
+  @override
+  String get errorDeadlinePassed =>
+      'Yeroon darbeera. Yeroon tarkaanfii kanaa xumurameera.';
+
+  @override
+  String get errorTripNotEligible =>
+      'Konkolaataan fe\'aa sun amma hin argamu. Irra deebi\'aa filadhaa.';
+
+  @override
+  String get errorTransportAttemptsExceeded =>
+      'Ajaja kanaaf konkolaataan fe\'aa biraa yaalamuu hin danda\'u. Midhaan ofiin fudhadhaa, yookiin ajaja haqxanii maallaqa kaffaltan hunda deebifadhaa.';
+
+  @override
+  String get errorTripCapacityExceeded =>
+      'Konkolaataan fe\'aa kun ajaja kanaaf iddoo hin qabu. Konkolaataa fe\'aa biraa filadhaa.';
+
+  @override
+  String get errorReputationRestricted =>
+      'Herregni keessan yeroo ammaaf kana gochuu hin danda\'u, kanaaf jijjiiramni kun hin olkaa\'amne. Ajajni keessan kan amma jiran itti fufu.';
+
+  @override
+  String get errorCounterpartyRestricted =>
+      'Qonnaan bultaan yookiin konkolaataan fe\'aa kun amma ajaja haaraa fudhachuu hin danda\'u, kanaaf ajajni hin galmoofne. Maaloo kan biraa filadhaa.';
+
+  @override
+  String get errorTripHasBookings =>
+      'Imalli kun ajajoota qabame waan qabuuf, jijjiiramni kun hin danda\'amu.';
+
+  @override
+  String get errorCropHasActiveOrders =>
+      'Tarreen kun ajajoota banaa qaba. Dura isaan xumuraa.';
+
+  @override
+  String get errorAppUpdateRequired =>
+      'Itti fufuuf maaloo appii haaromsaa. Jijjiiramni kun hin olkaa\'amne.';
+
+  @override
+  String get errorAppUpdateRequiredKept =>
+      'Maaloo appii haaromsaa. Jijjiiramni kun bilbila keessan irratti kuufameera, haaromsa booda ni ergama.';
+
+  @override
+  String get errorContactInText =>
+      'Lakkoofsi bilbilaa asitti hin hayyamamu. Lakkoofsa kana haqi; quunnamtiin kan banamu erga kaffaltiin Eeskiroo keessatti qabamee booda.';
 }

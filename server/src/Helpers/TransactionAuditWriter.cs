@@ -61,25 +61,9 @@ public static class TransactionAuditWriter
 
         try
         {
-            var entry = new Dictionary<string, object>
-            {
-                ["auditId"] = $"txaudit-{Guid.NewGuid():N}",
-                ["transactionId"] = transactionId,
-                ["entityType"] = entityType,
-                ["entityId"] = entityId,
-                ["action"] = action,
-                ["actor"] = ctx.Actor,
-                ["timestamp"] = DateTime.UtcNow.ToString("o"),
-            };
-
-            if (!string.IsNullOrEmpty(fromState)) entry["fromState"] = fromState;
-            if (!string.IsNullOrEmpty(toState)) entry["toState"] = toState;
-            if (!string.IsNullOrEmpty(ctx.ActorRole)) entry["actorRole"] = ctx.ActorRole!;
-            if (!string.IsNullOrEmpty(ctx.IpAddress)) entry["ipAddress"] = ctx.IpAddress!;
-            if (!string.IsNullOrEmpty(ctx.CorrelationId)) entry["correlationId"] = ctx.CorrelationId!;
-            if (!string.IsNullOrEmpty(metadata)) entry["metadata"] = metadata!;
-
-            await repo.AppendAsync(entry);
+            await repo.AppendAsync(BuildEntry(
+                $"txaudit-{Guid.NewGuid():N}", transactionId, entityType, entityId, action,
+                fromState, toState, ctx, DateTime.UtcNow.ToString("o"), metadata));
         }
         catch (Exception ex)
         {
@@ -87,5 +71,83 @@ public static class TransactionAuditWriter
             context?.Logger.LogWarning(
                 $"transaction-audit write failed (non-fatal): [{ex.GetType().Name}] action={action} entity={entityType}");
         }
+    }
+
+    /// <summary>
+    /// ESC-47: append one event at a deterministic key (<paramref name="timestamp"/> under
+    /// <paramref name="transactionId"/>) unless a row with that key exists, so a repair can write a
+    /// missing row and a replay never writes it twice. Best effort, like <see cref="EmitAsync"/>.
+    /// </summary>
+    /// <param name="timestamp">The key: the time of the event itself, the same for every writer of it.</param>
+    /// <returns>
+    /// True when the row is there afterwards (written now or before); false when nothing was
+    /// written (no repo, a missing key part, or a failed write).
+    /// </returns>
+    public static async Task<bool> EmitOnceAsync(
+        ITransactionAuditRepository? repo,
+        ILambdaContext? context,
+        string transactionId,
+        string entityType,
+        string entityId,
+        string action,
+        string? fromState,
+        string? toState,
+        AuditContext ctx,
+        string timestamp,
+        string? metadata = null)
+    {
+        if (repo == null || string.IsNullOrEmpty(transactionId) || string.IsNullOrEmpty(entityId)
+            || string.IsNullOrEmpty(timestamp))
+        {
+            return false;
+        }
+
+        try
+        {
+            // The id is deterministic too, so two writers that race build the same row.
+            var auditId = $"txaudit-{transactionId}-{action}-{new string(timestamp.Where(char.IsAsciiLetterOrDigit).ToArray())}";
+            await repo.AppendIfAbsentAsync(BuildEntry(
+                auditId, transactionId, entityType, entityId, action, fromState, toState, ctx, timestamp, metadata));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            context?.Logger.LogWarning(
+                $"transaction-audit write failed (non-fatal): [{ex.GetType().Name}] action={action} entity={entityType}");
+            return false;
+        }
+    }
+
+    private static Dictionary<string, object> BuildEntry(
+        string auditId,
+        string transactionId,
+        string entityType,
+        string entityId,
+        string action,
+        string? fromState,
+        string? toState,
+        AuditContext ctx,
+        string timestamp,
+        string? metadata)
+    {
+        var entry = new Dictionary<string, object>
+        {
+            ["auditId"] = auditId,
+            ["transactionId"] = transactionId,
+            ["entityType"] = entityType,
+            ["entityId"] = entityId,
+            ["action"] = action,
+            ["actor"] = ctx.Actor,
+            ["timestamp"] = timestamp,
+        };
+
+        if (!string.IsNullOrEmpty(fromState)) entry["fromState"] = fromState;
+        if (!string.IsNullOrEmpty(toState)) entry["toState"] = toState;
+        if (!string.IsNullOrEmpty(ctx.ActorRole)) entry["actorRole"] = ctx.ActorRole!;
+        if (!string.IsNullOrEmpty(ctx.IpAddress)) entry["ipAddress"] = ctx.IpAddress!;
+        if (!string.IsNullOrEmpty(ctx.CorrelationId)) entry["correlationId"] = ctx.CorrelationId!;
+        if (!string.IsNullOrEmpty(metadata)) entry["metadata"] = metadata!;
+
+        return entry;
     }
 }

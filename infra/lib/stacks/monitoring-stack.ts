@@ -5,6 +5,7 @@ import * as cloudwatch_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import { EnvironmentConfig } from '../config/environments';
+import { TELEBIRR_WEBHOOK_PATH } from './api-stack';
 
 export interface MonitoringStackProps extends cdk.StackProps {
   readonly envConfig: EnvironmentConfig;
@@ -39,7 +40,9 @@ interface DynamoTableDef {
  * S2-04 Phase 2: Audit Logging — compliance observability layer.
  *
  * Cost: ~$7/month (1 dashboard @ $3 + 12 alarms @ $0.10 + 9 custom metrics from the log
- * filters @ $0.30; the live gateway adds 1 alarm and 1 metric). Metric filters are free.
+ * filters @ $0.30). The live gateway adds 5 alarms and 2 metrics on the API alarm ($0.70),
+ * 2 log metrics ($0.60) and the webhook route's 6 detailed API Gateway metrics (at most
+ * $1.80, billed only for hours with webhook traffic; FUP-39). Metric filters are free.
  *
  * References Lambda functions and DynamoDB tables by name (no cross-stack refs needed).
  */
@@ -195,7 +198,10 @@ export class MonitoringStack extends cdk.Stack {
     //     transport failure and a delivery that was not pending (picked up, or unreadable)
     //     held the order's slot right after: goods may have left the farm on a refunded order;
     //   ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED (ESC-06): a pickup synced after that cancel had
-    //     cancelled the delivery (the reverse offline race): the trucker has the goods.
+    //     cancelled the delivery (the reverse offline race): the trucker has the goods;
+    //   QR_GATE_UNDECIDED (FUP-42): a delivery pickup or confirm with no QR on record could not
+    //     read the escrow that decides whether it needs one. It stays deferred and never fails,
+    //     so a read that keeps failing would hold the delivery unseen.
     const syncLogGroup = logs.LogGroup.fromLogGroupName(
       this,
       'SyncLogGroup',
@@ -210,9 +216,23 @@ export class MonitoringStack extends cdk.Stack {
         'DISPUTE_NO_ESCROW',
         'ORDER_TRANSPORT_CANCEL_LATE_DELIVERY',
         'ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED',
+        'QR_GATE_UNDECIDED',
       ),
       metricNamespace,
       metricName: 'OrderEscrowProblems',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+
+    // FUP-27: a delivery dispute through sync that froze its escrow counts toward the escrow
+    // dispute rate too (before, only POST /escrow/dispute did, through the JSON filter above).
+    // The sync Lambda logs DELIVERY_DISPUTE_FROZEN once per fresh freeze; an escrow already
+    // disputed and a refused dispute log nothing. Same metric, so the alarm adds both sources.
+    new logs.MetricFilter(this, 'SyncDeliveryDisputeFilter', {
+      logGroup: syncLogGroup,
+      filterPattern: logs.FilterPattern.literal('"DELIVERY_DISPUTE_FROZEN"'),
+      metricNamespace,
+      metricName: 'EscrowDispute',
       metricValue: '1',
       defaultValue: 0,
     });
@@ -265,6 +285,24 @@ export class MonitoringStack extends cdk.Stack {
       });
     countVerdictMismatches('EscrowVerdictMismatchFilter', escrowLogGroup);
     countVerdictMismatches('EscrowCronVerdictMismatchFilter', escrowCronLogGroup);
+
+    // FUP-27: the delivery or order behind a frozen dispute did not follow it. EscrowService's
+    // dispute mirror logs DISPUTE_PROPAGATION_FAILED once per call with a failed leg, from every
+    // Lambda that runs the mirror: escrow (POST /escrow/dispute and its repeat), sync (a delivery
+    // dispute) and escrow-cron (a sweep that froze a disputed trade). Admin and telebirr-webhook
+    // never reach it. Three filters publish one metric.
+    const countPropagationFailures = (id: string, logGroup: logs.ILogGroup) =>
+      new logs.MetricFilter(this, id, {
+        logGroup,
+        filterPattern: logs.FilterPattern.literal('"DISPUTE_PROPAGATION_FAILED"'),
+        metricNamespace,
+        metricName: 'DisputePropagationFailed',
+        metricValue: '1',
+        defaultValue: 0,
+      });
+    countPropagationFailures('EscrowDisputePropagationFilter', escrowLogGroup);
+    countPropagationFailures('SyncDisputePropagationFilter', syncLogGroup);
+    countPropagationFailures('EscrowCronDisputePropagationFilter', escrowCronLogGroup);
 
     // ESC-03: a dispute verdict whose settlement fails closed (the order or delivery could not
     // be read, or a buyer_wins order could not be cancelled or restocked first). The hourly
@@ -319,6 +357,17 @@ export class MonitoringStack extends cdk.Stack {
       filterPattern: logs.FilterPattern.literal('"ORDER_MONEY_MISMATCH"'),
       metricNamespace,
       metricName: 'OrderMoneyMismatch',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+    // FRD-03: a settlement sweep left an escrow unsettled because of the fraud risk gate, one
+    // line per escrow per hourly run: a suspended party while FRAUD_HOLD_ENABLED is off, or a
+    // party row it could not read. Counted from the FRD-03 deploy, so no settlement waits unseen.
+    new logs.MetricFilter(this, 'RiskSettlementSkippedFilter', {
+      logGroup: escrowCronLogGroup,
+      filterPattern: logs.FilterPattern.literal('"RISK_SETTLEMENT_SKIPPED"'),
+      metricNamespace,
+      metricName: 'RiskSettlementSkipped',
       metricValue: '1',
       defaultValue: 0,
     });
@@ -555,30 +604,73 @@ export class MonitoringStack extends cdk.Stack {
 
     // ─── Alarms ──────────────────────────────────────────────────────
 
+    // The live Telebirr gateway: the webhook route, its Lambda and its log group exist only
+    // with this flag (same flag as api-stack).
+    const telebirrLive =
+      (envConfig.enableTelebirrLive ?? false) ||
+      this.node.tryGetContext('enableTelebirrLive') === 'true';
+
+    // The webhook route's own API Gateway metrics. They exist because api-stack enables
+    // detailed metrics on that one route (FUP-39).
+    const webhookRouteMetric = (metricName: string, period: cdk.Duration, label?: string) =>
+      new cloudwatch.Metric({
+        namespace: 'AWS/ApiGateway',
+        metricName,
+        dimensionsMap: {
+          ApiId: props.apiId,
+          Method: 'POST',
+          Resource: TELEBIRR_WEBHOOK_PATH,
+          Stage: '$default',
+        },
+        statistic: 'Sum',
+        period,
+        label,
+      });
+
     // Alarm 1: High API Gateway 5xx Error Rate (>5% of requests for 5 min)
+    // FUP-39: the webhook answers 500 on purpose when a verified payment is not yet recorded
+    // or applied, so Telebirr sends it again (ESC-45 D1). At low traffic one such answer is
+    // over 5 % of all requests, so with the live gateway the rate leaves that route out; the
+    // webhook alarms below watch it. Metric math counts a missing datapoint as 0: with no
+    // webhook traffic the rate is the plain API rate, and a period with only webhook
+    // traffic gives 0.
+    const api5xxMetrics: Record<string, cloudwatch.IMetric> = {
+      errors: new cloudwatch.Metric({
+        namespace: 'AWS/ApiGateway',
+        metricName: '5xx',
+        dimensionsMap: { ApiId: props.apiId },
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(5),
+      }),
+      requests: new cloudwatch.Metric({
+        namespace: 'AWS/ApiGateway',
+        metricName: 'Count',
+        dimensionsMap: { ApiId: props.apiId },
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(5),
+      }),
+    };
+    let api5xxExpression = 'IF(requests > 0, errors / requests * 100, 0)';
+    if (telebirrLive) {
+      api5xxMetrics.webhookErrors = webhookRouteMetric('5xx', cdk.Duration.minutes(5));
+      api5xxMetrics.webhookRequests = webhookRouteMetric('Count', cdk.Duration.minutes(5));
+      api5xxExpression =
+        'IF(requests - webhookRequests > 0, ' +
+        '(errors - webhookErrors) / (requests - webhookRequests) * 100, 0)';
+    }
     const api5xxAlarm = new cloudwatch.Alarm(this, 'HighApiErrorRate', {
       alarmName: `${prefix}-high-api-5xx-rate`,
       alarmDescription:
         'API Gateway 5xx errors exceed 5% of total requests for 5 minutes. ' +
-        'Check Lambda errors and CloudWatch logs for root cause.',
+        'Check Lambda errors and CloudWatch logs for root cause.' +
+        (telebirrLive
+          ? ` The Telebirr webhook route (POST ${TELEBIRR_WEBHOOK_PATH}) is left out: it answers ` +
+            '500 on purpose for retryable failures; the telebirr-webhook-5xx, -errors and ' +
+            '-throttles alarms watch it (FUP-39).'
+          : ''),
       metric: new cloudwatch.MathExpression({
-        expression: 'IF(requests > 0, errors / requests * 100, 0)',
-        usingMetrics: {
-          errors: new cloudwatch.Metric({
-            namespace: 'AWS/ApiGateway',
-            metricName: '5xx',
-            dimensionsMap: { ApiId: props.apiId },
-            statistic: 'Sum',
-            period: cdk.Duration.minutes(5),
-          }),
-          requests: new cloudwatch.Metric({
-            namespace: 'AWS/ApiGateway',
-            metricName: 'Count',
-            dimensionsMap: { ApiId: props.apiId },
-            statistic: 'Sum',
-            period: cdk.Duration.minutes(5),
-          }),
-        },
+        expression: api5xxExpression,
+        usingMetrics: api5xxMetrics,
         period: cdk.Duration.minutes(5),
         label: '5xx Error Rate %',
       }),
@@ -753,7 +845,10 @@ export class MonitoringStack extends cdk.Stack {
         alarmName: `${prefix}-escrow-dispute-rate`,
         alarmDescription:
           'More than 5 escrow disputes in 1 hour. Possible fraud or ' +
-          'systematic delivery issues. Investigate dispute patterns.',
+          'systematic delivery issues. Investigate dispute patterns. Counts POST /escrow/dispute ' +
+          'requests (the escrow Lambda\'s ESCROW/DISPUTE audit line, any outcome) and, since FUP-27, ' +
+          'delivery disputes through sync that froze an escrow (DELIVERY_DISPUTE_FROZEN in the sync ' +
+          'log group, with escrowId, orderId and deliveryId).',
         metric: new cloudwatch.Metric({
           namespace: metricNamespace,
           metricName: 'EscrowDispute',
@@ -806,19 +901,19 @@ export class MonitoringStack extends cdk.Stack {
       {
         alarmName: `${prefix}-order-escrow-problems`,
         alarmDescription:
-          'The sync Lambda logged ORDER_ESCROW_CREATE_FAILED, ORDER_ESCROW_LINK_FAILED, ' +
-          'ORDER_ESCROW_REFUND_SCHEDULE_FAILED or DISPUTE_NO_ESCROW (the line carries the orderId). CREATE: a ' +
-          'funded order has no escrow record; the buyer\'s money is held but invisible to ' +
-          '/escrow/history and refund scheduling; delivery-time linkage self-heals it, ' +
-          'verify via the OrderIndex GSI. LINK: the delivery is not tied to the order ' +
-          'escrow, so delivery confirmation may never reach it and the refund-safety check ' +
-          'cannot see the delivery; link them by hand. REFUND_SCHEDULE: a rejected or ' +
-          'cancelled order\'s money stays in escrow; set the escrow expiry by hand so the ' +
-          'hourly sweep refunds the buyer. DISPUTE_NO_ESCROW (ESC-07): a delivery of the order ' +
-          'was disputed but no escrow-order row holds its money, so the dispute was refused; ' +
-          'find where the payment is held and contact the parties. ORDER_TRANSPORT_CANCEL_LATE_DELIVERY ' +
-          'or _PICKUP_REFUSED (ESC-06): goods may have left the farm on an order cancelled for ' +
-          'transport failure; call the parties.',
+          // At most 1024 characters (an infra test checks it); the runbook has the detail.
+          'The sync Lambda logged one of these (ids on the line; runbook: .ai/deployment.md). ' +
+          'ORDER_ESCROW_CREATE_FAILED: a funded order has no escrow record, so its money is invisible to ' +
+          '/escrow/history and refund scheduling; delivery-time linkage self-heals it, verify via the ' +
+          'OrderIndex GSI. _LINK_FAILED: the delivery is not tied to the order escrow, so delivery ' +
+          'confirmation and the refund-safety check cannot see it; link them by hand. ' +
+          '_REFUND_SCHEDULE_FAILED: a rejected or cancelled order\'s money stays in escrow; set the ' +
+          'escrow expiry by hand so the hourly sweep refunds the buyer. DISPUTE_NO_ESCROW (ESC-07): a ' +
+          'delivery was disputed but no escrow-order row holds the money, so the dispute was refused; ' +
+          'find the payment and contact the parties. ORDER_TRANSPORT_CANCEL_LATE_DELIVERY or ' +
+          '_PICKUP_REFUSED (ESC-06): goods may have left the farm on an order cancelled for transport ' +
+          'failure; call the parties. QR_GATE_UNDECIDED (FUP-42): a no-QR pickup or confirm could not ' +
+          'read its escrow and stays deferred; fix the read.',
         metric: new cloudwatch.Metric({
           namespace: metricNamespace,
           metricName: 'OrderEscrowProblems',
@@ -956,10 +1051,34 @@ export class MonitoringStack extends cdk.Stack {
       'A dispute verdict was not settled because its order or delivery is in a status the ' +
         'verdict cannot follow (DISPUTE_VERDICT_ORDER_MISMATCH in the escrow or escrow-cron log ' +
         'group, with escrowId, op and legs; escrow-audit row dispute_verdict_mismatch, once a ' +
-        'day). Usually a dispute raised before delivery: the order is still accepted, ' +
-        'pickup_confirmed or in_transit. No money moved; the escrow stays dispute_resolved and ' +
-        'the hourly sweep tries again. Bring the order (and its delivery) to a status the ' +
-        'verdict can follow, or settle the case by hand, then the next sweep settles it (ESC-03).',
+        'day). Since FUP-16 a new verdict the order cannot follow is refused at the admin ' +
+        'page, so this is a verdict recorded before then, a disposition that did not finish, or ' +
+        'an order that moved since. No money moved; the escrow stays dispute_resolved and the ' +
+        'hourly sweep tries again. Open Disputes > Awaiting settlement and record (or send ' +
+        'again) a disposition: return_to_farmer or delivered_anyway for buyer_wins, settle_now ' +
+        'or wait_for_delivery for farmer_wins. A recorded wait_for_delivery is not alarmed (it ' +
+        'logs DISPUTE_VERDICT_WAITING_FOR_DELIVERY). If no disposition fits (ADMIN_016), repair ' +
+        'the order by hand (ESC-03, FUP-16).',
+    );
+
+    // FUP-27: before, a failed dispute mirror leg was only an escrow-audit row. Event-driven
+    // (one line per failed mirror call), so the money alarm shape holds one episode per failure.
+    const disputePropagationFailedAlarm = moneyLogAlarm(
+      'DisputePropagationFailed',
+      'dispute-propagation-failed',
+      'DisputePropagationFailed',
+      'Dispute Propagation Failed',
+      'The delivery or order behind a frozen dispute did not follow it (DISPUTE_PROPAGATION_FAILED ' +
+        'in the escrow, sync or escrow-cron log group, with escrowId, orderId, deliveryId and legs; ' +
+        'escrow-audit row dispute_propagation_failed has the raw legs). The money is frozen (escrow ' +
+        'disputed), so nothing pays out, but the order may still show delivered and stay open to ' +
+        'ratings. legs lookup:<error> or delivery:<error>: a read or write failed (throttling, IAM); ' +
+        'order:conflict: three version conflicts in a row; order:<code>: the order write was ' +
+        'refused. Fix the cause, then check the trade in /transactions/<orderId>. Only a party\'s ' +
+        'repeated dispute (POST /escrow/dispute again, or the delivery dispute resent through sync) ' +
+        're-runs the mirror, and not while a manual payout or a settlement lock is open. Your lever ' +
+        'is the admin verdict (POST /admin/disputes/{id}/resolve): it moves the order and delivery, ' +
+        'again before it settles (ESC-03). Never edit the rows by hand (FUP-27).',
     );
 
     const orderMoneyMismatchAlarm = moneyLogAlarm(
@@ -977,6 +1096,23 @@ export class MonitoringStack extends cdk.Stack {
         'and a row on the order timeline): read them, never edit rows by hand, escalate (FUP-16). ' +
         'sweep_truncated: a sweep cycle, resumed from a cursor, is unfinished 24 hours after it ' +
         'started; check escrow-cron duration and throttles. sweep_failed: a page query failed.',
+    );
+
+    const riskSettlementSkippedAlarm = moneyLogAlarm(
+      'RiskSettlementSkipped',
+      'risk-settlement-skipped',
+      'RiskSettlementSkipped',
+      'Risk Settlement Skipped',
+      'A settlement sweep left an escrow unsettled because of the fraud risk gate ' +
+        '(RISK_SETTLEMENT_SKIPPED in the escrow-cron log group, one line per escrow per hourly run, ' +
+        'with escrowId, sweep, reason and holdReason; FRD-03). No money moved. reason=flag_off: a ' +
+        'buyer, farmer or trucker of the escrow is suspended (holdReason=account_suspended) and ' +
+        'FRAUD_HOLD_ENABLED is off, so the payout or refund waits. Find the suspended party from ' +
+        'the escrow in the admin app. Exits: unsuspend the party if the suspension was not about ' +
+        'fraud (the next run settles as before), or settle the escrow by hand with POST ' +
+        '/escrow/release or /escrow/refund as an admin in the admin group. reason=user_read_failed: ' +
+        'a party user row could not be read (IAM, throttling, the users table); fix the cause and ' +
+        'the next run decides again.',
     );
 
     // Persistence alarm: one blocked run is a transient retry, a block in three of four hourly
@@ -1026,13 +1162,14 @@ export class MonitoringStack extends cdk.Stack {
     );
 
     // ESC-01: live order payments. The Telebirr webhook (and its log group) only
-    // exists when the live gateway is on, same flag as api-stack. Any payment the
+    // exists when the live gateway is on (telebirrLive above). Any payment the
     // webhook could not apply is money the platform holds for a manual refund, and
-    // the webhook always answers 200, so its Lambda Errors metric never shows it.
-    const telebirrLive =
-      (envConfig.enableTelebirrLive ?? false) ||
-      this.node.tryGetContext('enableTelebirrLive') === 'true';
+    // the webhook answers it with a normal response (200, or ESC-45's 500), never a
+    // Lambda error, so its Lambda Errors metric never shows it.
     let orderPaymentProblemsAlarm: cloudwatch.Alarm | undefined;
+    let webhook5xxAlarm: cloudwatch.Alarm | undefined;
+    let webhookErrorsAlarm: cloudwatch.Alarm | undefined;
+    let webhookThrottlesAlarm: cloudwatch.Alarm | undefined;
     if (telebirrLive) {
       const webhookLogGroup = logs.LogGroup.fromLogGroupName(
         this,
@@ -1126,6 +1263,106 @@ export class MonitoringStack extends cdk.Stack {
       );
       inboxReplayStalledAlarm.addAlarmAction(snsAction);
       inboxReplayStalledAlarm.addOkAction(snsAction);
+
+      // FUP-39: the webhook route is outside the API-wide 5xx rate, so these two page for it.
+      // Volume: one payment's retryable 500 (ESC-45 D1) is replayed by the inbox sweep within
+      // about 7 minutes (due 2 minutes after receipt, sweep every 5) and its redeliveries then
+      // get 200, so it leaves a few 500s at most. Five in 15 minutes means several payments
+      // failing, or one failing past its replays. It catches what has no log token: API Gateway
+      // unable to invoke the Lambda, throttling, the catch-all after verification. Revisit the
+      // count once the sandbox run shows Telebirr's retry interval (decision record, item 2).
+      webhook5xxAlarm = new cloudwatch.Alarm(this, 'TelebirrWebhook5xx', {
+        alarmName: `${prefix}-telebirr-webhook-5xx`,
+        alarmDescription:
+          `The Telebirr webhook route (POST ${TELEBIRR_WEBHOOK_PATH}) answered 5 or more 5xx in ` +
+          '15 minutes (FUP-39; the API-wide high-api-5xx-rate alarm leaves this route out). One ' +
+          '500 is normal: the webhook answers 500 on purpose when a verified payment is not yet ' +
+          'recorded or applied, so Telebirr sends it again, and the inbox sweep applies it ' +
+          '(ESC-45). Five or more: several payments failing, or one failing again and again. Look ' +
+          'in the webhook log group: ' +
+          'ORDER_PAYMENT_UNPROCESSED (no inbox row; order-payment-problems fires too), ' +
+          'ORDER_PAYMENT_REPLAY_PENDING (the sweep retries; find the shared cause), "answered 500 ' +
+          'for a retry" (the /escrow/initiate path, no inbox row), or no line for the request ' +
+          '(API Gateway could not invoke the Lambda: integration, permission or throttling; see ' +
+          'telebirr-webhook-errors and the API access log). A payment with no inbox row is ' +
+          'recovered only by Telebirr\'s retries, whose schedule is undocumented: act quickly.',
+        metric: webhookRouteMetric('5xx', cdk.Duration.minutes(15), 'Telebirr Webhook 5xx'),
+        threshold: 5,
+        evaluationPeriods: 1,
+        comparisonOperator:
+          cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+      webhook5xxAlarm.addAlarmAction(snsAction);
+      webhook5xxAlarm.addOkAction(snsAction);
+
+      // A crash, timeout or out-of-memory kill of the webhook Lambda, on the public route or
+      // the replay sweep. A deliberate 500 is a normal return, never a Lambda error, so this
+      // fires only on real failures, at any traffic (the API-wide rate did that before FUP-39
+      // only at low traffic). The aggregate LambdaErrors alarm is full (10 metrics). 3 periods,
+      // 1 datapoint: a sweep crash and Lambda's two async retries stay one episode.
+      webhookErrorsAlarm = new cloudwatch.Alarm(this, 'TelebirrWebhookErrors', {
+        alarmName: `${prefix}-telebirr-webhook-errors`,
+        alarmDescription:
+          'The Telebirr webhook Lambda failed (FUP-39): a crash, the 15 second timeout or an ' +
+          'out-of-memory kill, on the public notification route or on the 5 minute inbox replay ' +
+          'sweep. A deliberate 500 never counts here. A notification that failed before its inbox ' +
+          'write is recorded nowhere and only Telebirr\'s retries can bring it back. Find the ' +
+          'RequestId in the webhook log group (REPORT line, "Task timed out"), fix the cause, then ' +
+          'check order-payment-problems and the exhausted partition of InboxReplayIndex. Clears ' +
+          '10 to 15 minutes after the last error.',
+        metric: new cloudwatch.Metric({
+          namespace: 'AWS/Lambda',
+          metricName: 'Errors',
+          dimensionsMap: { FunctionName: `${prefix}-telebirr-webhook` },
+          statistic: 'Sum',
+          period: cdk.Duration.minutes(5),
+          label: 'Telebirr Webhook Errors',
+        }),
+        threshold: 1,
+        evaluationPeriods: 3,
+        datapointsToAlarm: 1,
+        comparisonOperator:
+          cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+      webhookErrorsAlarm.addAlarmAction(snsAction);
+      webhookErrorsAlarm.addOkAction(snsAction);
+
+      // A throttled invocation is not a Lambda error, so the alarm above never counts it, and at
+      // one or two payments per 15 minutes the route's 5xx stays under the volume alarm's count.
+      // Any throttle pages: a throttled notification is recorded nowhere. The limit is the reserved
+      // concurrency of 10 outside dev and the account's concurrency in dev (lambda-construct skips
+      // reserved concurrency there). Same window as the errors alarm, so a burst stays one episode.
+      webhookThrottlesAlarm = new cloudwatch.Alarm(this, 'TelebirrWebhookThrottles', {
+        alarmName: `${prefix}-telebirr-webhook-throttles`,
+        alarmDescription:
+          'The Telebirr webhook Lambda was throttled (FUP-39): more invocations at once than its ' +
+          'concurrency allows (reserved 10 outside dev, the account limit in dev), on the public ' +
+          'notification route or the 5 minute inbox replay sweep. A throttled notification never ' +
+          'ran, so it is recorded nowhere: Telebirr ' +
+          'gets an error and only its retries can bring the payment back. A throttled sweep run is ' +
+          'retried by Lambda. Check the ConcurrentExecutions of the webhook Lambda and the API ' +
+          'access log for a burst on POST /webhooks/telebirr (a flood is refused by the signature ' +
+          'check but still uses concurrency); raise the reserved concurrency only for real payment ' +
+          'volume. Then check order-payment-problems. Clears 10 to 15 minutes after the last throttle.',
+        metric: new cloudwatch.Metric({
+          namespace: 'AWS/Lambda',
+          metricName: 'Throttles',
+          dimensionsMap: { FunctionName: `${prefix}-telebirr-webhook` },
+          statistic: 'Sum',
+          period: cdk.Duration.minutes(5),
+          label: 'Telebirr Webhook Throttles',
+        }),
+        threshold: 1,
+        evaluationPeriods: 3,
+        datapointsToAlarm: 1,
+        comparisonOperator:
+          cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+      webhookThrottlesAlarm.addAlarmAction(snsAction);
+      webhookThrottlesAlarm.addOkAction(snsAction);
     }
 
     // Alarm 7: Order Cron Errors — the scheduled unpaid-order auto-cancel must never
@@ -1223,8 +1460,13 @@ export class MonitoringStack extends cdk.Stack {
           adminQueueOverdueAlarm,
           disputeVerdictMismatchAlarm,
           disputeSettlementBlockedAlarm,
+          disputePropagationFailedAlarm,
           orderMoneyMismatchAlarm,
+          riskSettlementSkippedAlarm,
           ...(orderPaymentProblemsAlarm ? [orderPaymentProblemsAlarm] : []),
+          ...(webhook5xxAlarm ? [webhook5xxAlarm] : []),
+          ...(webhookErrorsAlarm ? [webhookErrorsAlarm] : []),
+          ...(webhookThrottlesAlarm ? [webhookThrottlesAlarm] : []),
         ],
         width: 24,
         height: 3,
