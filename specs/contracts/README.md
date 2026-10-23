@@ -62,7 +62,7 @@ Each contract file follows this structure:
 | Rating API | `rating-api.md` | 1.1.0 | Mobile, Backend, Infrastructure |
 | Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 1.22.0 | Mobile, Backend, Admin |
 | Escrow Protocol (Telebirr integration) | `escrow-protocol.md` | 1.22.0 | Mobile, Backend, Telebirr Gateway, Admin |
-| Delivery Verification API | `delivery-verification-api.md` | 1.16.0 | Mobile, Backend |
+| Delivery Verification API | `delivery-verification-api.md` | 1.17.0 | Mobile, Backend |
 | Account Deletion | `account-deletion.md` | 1.1.0 | Mobile, Backend, Infrastructure, Admin |
 
 ---
