@@ -383,9 +383,8 @@ void main() {
           data: Matchers.any,
         );
 
-        expect(
-          () =>
-              dio.post<dynamic>('/auth/refresh', data: {'token': 'bad-token'}),
+        await expectLater(
+          dio.post<dynamic>('/auth/refresh', data: {'token': 'bad-token'}),
           throwsA(isA<DioException>()),
         );
 
@@ -404,8 +403,8 @@ void main() {
           headers: {'Authorization': 'Bearer valid-token'},
         );
 
-        expect(
-          () => dio.get<dynamic>('/error'),
+        await expectLater(
+          dio.get<dynamic>('/error'),
           throwsA(isA<DioException>()),
         );
 
