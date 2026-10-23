@@ -62,6 +62,9 @@
 - [ ] Images compressed (WebP, max 800px)
 
 ## Deployment Steps
+
+> Order on staging and prod: when a client release adds a new request header (for example `X-App-Build` in FUP-61, #182 and #183, or `X-Device-Id`, whose absence broke web sign-up in #63), deploy the server first so the API CORS allow-list carries the header, then deploy the web app. A web app that sends a header the deployed API does not allow gets a preflight with no CORS headers, and every call fails.
+
 1. Deploy to staging: `cdk deploy --context env=staging`
 2. Run smoke tests + E2E on staging
    - dev only: `deploy-server.yml` seeds the dashboard admin and runs `scripts/e2e_admin.py`; read that run's log before promoting
