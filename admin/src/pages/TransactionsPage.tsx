@@ -7,6 +7,7 @@ import { SearchInput } from "@/components/ui/SearchInput";
 import { useLocale } from "@/hooks/useLocale";
 import { useTransactions } from "@/hooks/useQuery";
 import { formatETB, formatDate } from "@/lib/i18n";
+import { partyName } from "@/lib/user";
 import {
   orderStatusVariant,
   stageVariant,
@@ -39,20 +40,20 @@ export function TransactionsPage() {
       key: "buyerName",
       header: t("transactions.buyer"),
       render: (row: Record<string, unknown>) =>
-        String(row.buyerName || row.buyerId || ""),
+        partyName(row.buyerName, row.buyerId, locale),
     },
     {
       key: "farmerName",
       header: t("transactions.seller"),
       render: (row: Record<string, unknown>) =>
-        String(row.farmerName || row.farmerId || ""),
+        partyName(row.farmerName, row.farmerId, locale),
     },
     {
       key: "truckerName",
       header: t("transactions.trucker"),
       render: (row: Record<string, unknown>) =>
         row.truckerName || row.truckerId ? (
-          String(row.truckerName || row.truckerId)
+          partyName(row.truckerName, row.truckerId, locale)
         ) : (
           <span className="text-text-muted">{t("transactions.noTrucker")}</span>
         ),

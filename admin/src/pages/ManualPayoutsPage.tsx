@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { useLocale } from "@/hooks/useLocale";
 import { useManualPayouts, useCompleteManualPayout } from "@/hooks/useQuery";
 import { formatETB, formatDateTime } from "@/lib/i18n";
+import { partyName } from "@/lib/user";
 
 /* Manual payout queue (ESC-02). The live Telebirr gateway has no payout API, so a
  * release or refund it cannot make waits here. One table row per payee leg: the
@@ -170,7 +171,7 @@ export function ManualPayoutsPage() {
       render: (row: Row) => (
         <div className="space-y-1">
           <Badge>{label(`payouts.role_${row.leg.payeeRole}`, row.leg.payeeRole)}</Badge>
-          <p>{row.leg.payeeName || row.leg.payeeId}</p>
+          <p>{partyName(row.leg.payeeName, row.leg.payeeId, locale)}</p>
         </div>
       ),
     },

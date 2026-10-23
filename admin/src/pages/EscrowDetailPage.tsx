@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/Badge";
 import { useLocale } from "@/hooks/useLocale";
 import { useEscrowDetail, useEscrowAudit } from "@/hooks/useQuery";
 import { formatETB, formatDateTime } from "@/lib/i18n";
+import { partyName } from "@/lib/user";
 import { timelineActionLabel } from "@/lib/transaction";
 
 export function EscrowDetailPage() {
@@ -33,11 +34,11 @@ export function EscrowDetailPage() {
             </div>
             <div className="flex justify-between">
               <dt className="text-text-muted">{t("escrows.buyer")}</dt>
-              <dd>{String(detail.buyerName || detail.buyerId || "")}</dd>
+              <dd>{partyName(detail.buyerName, detail.buyerId, locale)}</dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-text-muted">{t("escrows.seller")}</dt>
-              <dd>{String(detail.farmerName || detail.farmerId || "")}</dd>
+              <dd>{partyName(detail.farmerName, detail.farmerId, locale)}</dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-text-muted">{t("escrows.amount")}</dt>

@@ -5,10 +5,11 @@ import { Badge } from "@/components/ui/Badge";
 import { useLocale } from "@/hooks/useLocale";
 import { useUserDetail, useUserAction } from "@/hooks/useQuery";
 import { formatDate } from "@/lib/i18n";
+import { userName, userPhone } from "@/lib/user";
 
 export function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { data, isLoading } = useUserDetail(id || "");
   const userAction = useUserAction();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -49,11 +50,11 @@ export function UserDetailPage() {
           <dl className="space-y-3">
             <div className="flex justify-between">
               <dt className="text-text-muted">{t("users.name")}</dt>
-              <dd className="font-medium">{String(user.displayName || "")}</dd>
+              <dd className="font-medium">{userName(user, locale)}</dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-text-muted">{t("users.phone")}</dt>
-              <dd>{String(user.phoneNumber || "")}</dd>
+              <dd>{userPhone(user, locale)}</dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-text-muted">{t("users.role")}</dt>

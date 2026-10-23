@@ -269,7 +269,8 @@
     "trucker": "ሹፌር",
     "buyer": "ገዥ",
     "admin": "አስተዳዳሪ",
-    "transactionHistory": "የግብይት ታሪክ"
+    "transactionHistory": "የግብይት ታሪክ",
+    "deleted": "የተሰረዘ ተጠቃሚ"
   },
   "revenue": {
     "title": "የገቢ ትንተና",
