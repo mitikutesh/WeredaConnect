@@ -64,6 +64,9 @@ final _user = User()
 /// FlutterSecureStorage method-channel backing store.
 final Map<String, String> _store = {};
 
+/// When true, every storage read fails (a broken keystore or WebCrypto).
+bool _failReads = false;
+
 /// SIM-55: the server-side logout is started before the local session is
 /// cleared, with the live tokens, and logout stays local-first.
 void main() {
@@ -85,6 +88,9 @@ void main() {
             if (value != null) _store[key!] = value;
             return null;
           case 'read':
+            if (_failReads) {
+              throw PlatformException(code: 'read-failed');
+            }
             return _store[key];
           case 'delete':
             _store.remove(key);
@@ -101,6 +107,7 @@ void main() {
 
   setUp(() {
     _store.clear();
+    _failReads = false;
     calls = [];
     offlineCache = MockOfflineAuthCache();
     when(() => offlineCache.getCachedTokens(_phone))
@@ -200,6 +207,57 @@ void main() {
           clearCache: false,
         ),
       ).called(1);
+    });
+
+    test(
+        'another user signed in since (web tabs share localStorage): the '
+        'stored tokens are not this session\'s, the login copy is revoked',
+        () async {
+      final bloc = await signedIn(service);
+      // A second tab signed user-002 in; the slots are theirs now.
+      _store['current_user_id'] = 'user-002';
+      _store['access_token'] = 'other-user-access';
+      _store['refresh_token'] = 'other-user-refresh';
+
+      await logOut(bloc);
+
+      verify(
+        () => service.logout(
+          phoneNumber: _phone,
+          accessToken: 'login-access',
+          refreshToken: 'login-refresh',
+          clearCache: false,
+        ),
+      ).called(1);
+      verifyNever(
+        () => service.logout(
+          phoneNumber: any(named: 'phoneNumber'),
+          accessToken: any(named: 'accessToken'),
+          refreshToken: 'other-user-refresh',
+          clearCache: any(named: 'clearCache'),
+        ),
+      );
+    });
+
+    test(
+        'unreadable storage falls back to the login copy and logout still '
+        'completes locally', () async {
+      final bloc = await signedIn(service);
+      _failReads = true;
+
+      await logOut(bloc);
+
+      expect(bloc.state, isA<AuthUnauthenticated>());
+      verify(
+        () => service.logout(
+          phoneNumber: _phone,
+          accessToken: 'login-access',
+          refreshToken: 'login-refresh',
+          clearCache: false,
+        ),
+      ).called(1);
+      expectSessionCleared();
+      verify(() => offlineCache.clearCredentials(_phone)).called(1);
     });
 
     test('a revocation that never answers does not hold up local logout',

@@ -197,6 +197,31 @@ void main() {
       expect(api.calls.last.bearer, _mintedAccess);
     });
 
+    test(
+        'AUTH_026 in a plain-text 403 body (as web delivers it) is still '
+        'recognised and retried', () async {
+      api.onLogout = (bearer) => bearer == _mintedAccess
+          ? _json(200, {'loggedOut': true})
+          : ResponseBody.fromString(
+              jsonEncode({
+                'error': {'code': 'AUTH_026', 'message': 'Not your token.'},
+              }),
+              403,
+              headers: {
+                Headers.contentTypeHeader: ['text/plain'],
+              },
+            );
+
+      await logout(accessToken: liveAccess, refreshToken: _refreshToken);
+
+      expect(api.paths, [
+        ApiConfig.logoutEndpoint,
+        ApiConfig.refreshEndpoint,
+        ApiConfig.logoutEndpoint,
+      ]);
+      expect(api.calls.last.bearer, _mintedAccess);
+    });
+
     test('a refused mint stops: the refresh token is already dead', () async {
       api.onRefresh = () => _json(401, {
             'error': {'code': 'AUTH_019', 'message': 'Refresh token revoked'},

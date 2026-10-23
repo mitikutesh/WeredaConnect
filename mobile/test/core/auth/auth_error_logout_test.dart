@@ -7,10 +7,11 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 void main() {
   group('AUTH_026, refresh token of another user on logout (SIM-55)', () {
-    test('is the code the server sends, with its own fallback text', () {
+    test('is the code the server sends; fallback is the session-expired text',
+        () {
       const code = AuthErrorCode.refreshTokenNotOwned;
       expect(code, 'AUTH_026');
-      expect(code.userMessage, contains('another account'));
+      expect(code.userMessage, AuthErrorCode.refreshTokenExpired.userMessage);
       expect(code.userMessage, isNot('An error occurred. Please try again'));
     });
 

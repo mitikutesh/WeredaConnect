@@ -662,7 +662,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       // itself; the service's deferred clear could wipe a re-login's cache.
       final revocation = _revokeServerSession(
         phoneNumber,
-        await _liveTokens(fallback: tokens),
+        await _liveTokens(userId: userId, fallback: tokens),
       );
 
       // Always clear business data to prevent data leakage on shared devices
@@ -690,26 +690,37 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
   }
 
-  /// The active access and refresh tokens as stored now. The interceptor
-  /// rewrites these slots on every refresh, so they are fresher than the
-  /// state's copy from login; that copy is the [fallback] for a slot that is
-  /// empty or unreadable.
+  /// The access and refresh tokens to revoke. The interceptor rewrites the
+  /// stored slots on every refresh, so they are fresher than the state's
+  /// copy from login ([fallback]). They are used only while the stored
+  /// current user is still [userId]: on web, localStorage is shared by every
+  /// tab, and a stale tab of one user must never revoke the session another
+  /// user has signed into since. Otherwise, or when storage cannot be read,
+  /// the state's copy is used; it also fills an empty slot.
   Future<({String accessToken, String refreshToken})> _liveTokens({
+    required String userId,
     required AuthTokens fallback,
   }) async {
-    Future<String> slot(String key, String orElse) async {
-      try {
-        final value = await _secureStorage.read(key: key);
-        return value != null && value.isNotEmpty ? value : orElse;
-      } on Object {
-        return orElse;
-      }
-    }
-
-    return (
-      accessToken: await slot(_activeAccessTokenKey, fallback.accessToken),
-      refreshToken: await slot(_activeRefreshTokenKey, fallback.refreshToken),
+    final stateCopy = (
+      accessToken: fallback.accessToken,
+      refreshToken: fallback.refreshToken,
     );
+    try {
+      if (await _secureStorage.read(key: currentUserIdKey) != userId) {
+        return stateCopy;
+      }
+      final access = await _secureStorage.read(key: _activeAccessTokenKey);
+      final refresh = await _secureStorage.read(key: _activeRefreshTokenKey);
+      return (
+        accessToken:
+            access != null && access.isNotEmpty ? access : fallback.accessToken,
+        refreshToken: refresh != null && refresh.isNotEmpty
+            ? refresh
+            : fallback.refreshToken,
+      );
+    } on Object {
+      return stateCopy;
+    }
   }
 
   /// Best-effort POST /auth/logout, bounded by [logoutRevokeBudget] from the

@@ -166,13 +166,12 @@ extension AuthErrorCodeExtension on String {
       case AuthErrorCode.missingRefreshToken:
         return 'Session data missing. Please log in again';
       case AuthErrorCode.refreshTokenExpired:
+      case AuthErrorCode.refreshTokenNotOwned:
         return 'Session expired. Please log in again';
       case AuthErrorCode.refreshTokenRevoked:
         return 'Session revoked. Please log in again';
       case AuthErrorCode.invalidToken:
         return 'Invalid authentication token. Please log in again';
-      case AuthErrorCode.refreshTokenNotOwned:
-        return 'This session belongs to another account. Please log in again';
 
       // Mobile-specific errors
       case AuthErrorCode.apiNotConfigured:
