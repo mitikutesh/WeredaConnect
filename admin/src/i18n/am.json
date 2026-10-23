@@ -307,6 +307,7 @@
     "telebirrRef": "የቴሌብር ማጣቀሻ",
     "ip": "አይፒ",
     "createdAt": "ተጀመረ",
+    "releaseNotBefore": "የሚጠበቅ ክፍያ",
     "releasedAt": "ኢስክሮ ተለቋል",
     "refundedAt": "ተመላሽ ሆኗል",
     "completedAt": "ተጠናቋል",

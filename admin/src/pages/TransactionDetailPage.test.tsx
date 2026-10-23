@@ -93,3 +93,53 @@ describe("TransactionDetailPage timeline labels (FUP-35)", () => {
     expect(screen.queryByText("some_future_action")).toBeNull();
   });
 });
+
+function detailWithEscrow(escrow: Record<string, unknown>) {
+  return {
+    order: {
+      orderId: "ord-1",
+      status: "in_transit",
+      buyerId: "buyer-1",
+      farmerId: "farmer-1",
+      paymentMethod: "telebirr",
+    },
+    escrow,
+    delivery: null,
+    timeline: [],
+  };
+}
+
+/* FUP-112: the escrow block shows the expected payout date (releaseNotBefore) when the
+ * server returns one, and omits the row when it does not. */
+describe("TransactionDetailPage escrow payout date (FUP-112)", () => {
+  beforeEach(() => {
+    mocks.locale = "en";
+  });
+
+  it("shows the expected payout date when releaseNotBefore is set", () => {
+    mocks.detail.data = detailWithEscrow({
+      status: "escrowed",
+      amount: 1000,
+      commission: 50,
+      farmerPayout: 950,
+      releaseNotBefore: "2026-10-26T09:00:00Z",
+    });
+
+    renderPage();
+
+    expect(screen.getByText("Expected payout")).toBeTruthy();
+  });
+
+  it("hides the expected payout row when releaseNotBefore is absent", () => {
+    mocks.detail.data = detailWithEscrow({
+      status: "escrowed",
+      amount: 1000,
+      commission: 50,
+      farmerPayout: 950,
+    });
+
+    renderPage();
+
+    expect(screen.queryByText("Expected payout")).toBeNull();
+  });
+});
