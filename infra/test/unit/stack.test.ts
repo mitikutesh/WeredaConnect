@@ -172,8 +172,10 @@ describe('ApiStack', () => {
     // /user/fayda-link and DELETE /device-tokens (auth hardening) → 55,
     // plus POST /escrow/order-checkout (ESC-01, live order payments) → 56,
     // plus GET /admin/payouts/manual and POST /admin/payouts/{escrowId}/{ref}/complete
-    // (ESC-02, manual payout queue) → 58 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 58);
+    // (ESC-02, manual payout queue) → 58,
+    // plus GET /admin/payments/unapplied and POST /admin/payments/{orderId}/refund-manual
+    // (FUP-02, manual refund of an unapplied payment) → 60 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 60);
   });
 
   test('manual payout queue routes sit on the admin authorizer (ESC-02)', () => {
@@ -182,6 +184,43 @@ describe('ApiStack', () => {
       .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
     expect(adminAuthorizerId).toBeDefined();
     for (const routeKey of ['GET /admin/payouts/manual', 'POST /admin/payouts/{escrowId}/{ref}/complete']) {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        RouteKey: routeKey,
+        AuthorizationType: 'JWT',
+        AuthorizerId: { Ref: adminAuthorizerId },
+      });
+    }
+  });
+
+  test('admin Lambda can put the refund claim row and nothing else on escrow-idempotency (FUP-02)', () => {
+    const policies = template.findResources('AWS::IAM::Policy');
+    const actions = Object.keys(policies)
+      .filter((key) => key.startsWith('AdminFunctionServiceRole'))
+      .flatMap(
+        (id) =>
+          policies[id].Properties.PolicyDocument.Statement as Array<{
+            Action: string | string[];
+            Resource: unknown;
+          }>,
+      )
+      .filter((s) => JSON.stringify(s.Resource).includes('EscrowIdempotencyTable'))
+      .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+    // TransactWriteItems is authorized per item: a conditional Put needs PutItem only.
+    expect(actions).toEqual(['dynamodb:PutItem']);
+
+    const admin = Object.values(template.findResources('AWS::Lambda::Function')).find(
+      (fn) => fn.Properties?.FunctionName === 'wereda-connect-dev-admin',
+    );
+    expect(admin).toBeDefined();
+    expect(admin!.Properties.Environment.Variables.ESCROW_IDEMPOTENCY_TABLE).toBeDefined();
+  });
+
+  test('unapplied payment routes sit on the admin authorizer (FUP-02)', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const adminAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
+    expect(adminAuthorizerId).toBeDefined();
+    for (const routeKey of ['GET /admin/payments/unapplied', 'POST /admin/payments/{orderId}/refund-manual']) {
       template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
         RouteKey: routeKey,
         AuthorizationType: 'JWT',
@@ -624,6 +663,42 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     expect(JSON.stringify(rules)).not.toContain('telebirr-inbox-replay');
   });
 
+  type StageResource = {
+    DependsOn?: string[];
+    Properties: { DefaultRouteSettings?: unknown; RouteSettings?: unknown };
+  };
+  function defaultStage(t: Template): StageResource {
+    const stages = Object.entries(t.findResources('AWS::ApiGatewayV2::Stage')).filter(([id]) =>
+      id.startsWith('HttpApiDefaultStage'),
+    );
+    expect(stages).toHaveLength(1);
+    return stages[0][1] as StageResource;
+  }
+  const STAGE_THROTTLING = { ThrottlingBurstLimit: 50, ThrottlingRateLimit: 25 };
+
+  test('ON: detailed metrics on the webhook route only, throttling kept, stage after the route (FUP-39)', () => {
+    // The monitoring stack subtracts this route's 5xx and Count from the API-wide 5xx rate.
+    // Detailed metrics are billed per metric, so no other route gets them.
+    const t = buildTemplate(true);
+    const stage = defaultStage(t);
+    expect(stage.Properties.DefaultRouteSettings).toEqual(STAGE_THROTTLING);
+    expect(stage.Properties.RouteSettings).toEqual({
+      'POST /webhooks/telebirr': { ...STAGE_THROTTLING, DetailedMetricsEnabled: true },
+    });
+    // API Gateway refuses route settings for a route key that does not exist yet.
+    const routeIds = Object.keys(
+      t.findResources('AWS::ApiGatewayV2::Route', { Properties: { RouteKey: 'POST /webhooks/telebirr' } }),
+    );
+    expect(routeIds).toHaveLength(1);
+    expect(stage.DependsOn).toEqual(expect.arrayContaining(routeIds));
+  });
+
+  test('OFF: no route settings, so no detailed metrics anywhere (FUP-39)', () => {
+    const stage = defaultStage(buildTemplate(false));
+    expect(stage.Properties.DefaultRouteSettings).toEqual(STAGE_THROTTLING);
+    expect(stage.Properties.RouteSettings).toBeUndefined();
+  });
+
   test('ON: the webhook may query the InboxReplayIndex (ESC-45)', () => {
     const policies = buildTemplate(true).findResources('AWS::IAM::Policy');
     const webhook = Object.entries(policies).filter(([id]) => id.startsWith('TelebirrWebhookFunction'));
@@ -631,6 +706,24 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     const text = JSON.stringify(webhook);
     expect(text).toContain('dynamodb:Query');
     expect(text).toContain('/index/*');
+  });
+
+  test('ON: the webhook may query the transaction-audit base table, no index (ESC-47)', () => {
+    // The repair of a redelivered payment reads the order's trail before it writes a missing
+    // payment_verified row; grantWriteData alone has no Query, so the read would be denied.
+    const policies = buildTemplate(true).findResources('AWS::IAM::Policy');
+    const statements = Object.entries(policies)
+      .filter(([id]) => id.startsWith('TelebirrWebhookFunction'))
+      .flatMap(([, p]) =>
+        (p as { Properties: { PolicyDocument: { Statement: Array<{ Action: unknown; Resource: unknown }> } } })
+          .Properties.PolicyDocument.Statement);
+    const onAudit = statements.filter((s) => JSON.stringify(s.Resource).includes('TransactionAuditTable'));
+    const queries = onAudit.filter((s) => ([] as unknown[]).concat(s.Action).includes('dynamodb:Query'));
+    expect(queries).toHaveLength(1);
+    expect(queries[0].Action).toBe('dynamodb:Query');
+    expect(JSON.stringify(queries[0].Resource)).not.toContain('/index/');
+    // The writes stay as they were.
+    expect(JSON.stringify(onAudit)).toContain('dynamodb:PutItem');
   });
 
   test.each([false, true])(
@@ -918,6 +1011,208 @@ describe('MonitoringStack', () => {
     expect(JSON.stringify(filters)).not.toContain('telebirr-webhook');
   });
 
+  // ─── FUP-39: the webhook's deliberate 500s stay out of the API-wide 5xx rate ─────────
+  type MetricQuery = {
+    Id: string;
+    Expression?: string;
+    MetricStat?: {
+      Metric: { MetricName: string; Namespace: string; Dimensions: Array<{ Name: string; Value: string }> };
+      Period: number;
+      Stat: string;
+    };
+  };
+  type AlarmResource = {
+    Properties: {
+      AlarmName: string;
+      Threshold: number;
+      ComparisonOperator: string;
+      EvaluationPeriods: number;
+      Metrics: MetricQuery[];
+    };
+  };
+  function alarmNamed(template: Template, alarmName: string): AlarmResource {
+    const alarms = Object.values(template.findResources('AWS::CloudWatch::Alarm')) as AlarmResource[];
+    const hit = alarms.find((a) => a.Properties.AlarmName === alarmName);
+    if (!hit) {
+      throw new Error(`no alarm ${alarmName}`);
+    }
+    return hit;
+  }
+  // The webhook route's own API Gateway metrics (HTTP API detailed metrics dimensions).
+  const WEBHOOK_ROUTE_DIMENSIONS = [
+    { Name: 'ApiId', Value: 'testapi123' },
+    { Name: 'Method', Value: 'POST' },
+    { Name: 'Resource', Value: '/webhooks/telebirr' },
+    { Name: 'Stage', Value: '$default' },
+  ];
+  const API_DIMENSIONS = [{ Name: 'ApiId', Value: 'testapi123' }];
+
+  // One 5 minute period of API Gateway datapoints. A route field left out means the webhook
+  // had no traffic, so CloudWatch has no datapoint for it.
+  type Period = { apiErrors: number; apiRequests: number; routeErrors?: number; routeRequests?: number };
+
+  // Minimal model of CloudWatch metric math for the API alarm's expression: arithmetic counts
+  // a missing datapoint as 0 (AWS docs, "Missing values in a time series are treated as 0") and
+  // IF picks a branch per datapoint. Each query's value comes from what it measures (its
+  // metric name and whether it carries the route dimensions), not from its Id.
+  function apiRate(alarm: AlarmResource, period: Period): number {
+    const expression = alarm.Properties.Metrics.find((q) => q.Expression)?.Expression ?? '';
+    expect(expression).toMatch(/^[A-Za-z0-9_ ()+\-*/<>=,.]+$/);
+    const metrics = alarm.Properties.Metrics.filter((q) => q.MetricStat);
+    const values = metrics.map((q) => {
+      const stat = q.MetricStat!;
+      const onRoute = stat.Metric.Dimensions.some((d) => d.Name === 'Resource');
+      const isErrors = stat.Metric.MetricName === '5xx';
+      const value = onRoute
+        ? isErrors ? period.routeErrors : period.routeRequests
+        : isErrors ? period.apiErrors : period.apiRequests;
+      return value ?? 0;
+    });
+    const IF = (condition: unknown, whenTrue: number, whenFalse: number) => (condition ? whenTrue : whenFalse);
+    // Safe to evaluate: the stack's own expression, checked above to hold only ids, numbers and operators.
+    const evaluate = new Function('IF', ...metrics.map((q) => q.Id), `return ${expression};`);
+    return evaluate(IF, ...values) as number;
+  }
+
+  test('FUP-39 OFF: the API-wide 5xx alarm is unchanged (no webhook route, no route metrics)', () => {
+    const alarm = alarmNamed(monitoringTemplate(false), 'wereda-connect-dev-high-api-5xx-rate');
+    expect(alarm.Properties.Metrics.find((q) => q.Expression)?.Expression).toBe(
+      'IF(requests > 0, errors / requests * 100, 0)',
+    );
+    const stats = alarm.Properties.Metrics.filter((q) => q.MetricStat).map((q) => q.MetricStat!);
+    expect(stats.map((m) => m.Metric.MetricName).sort()).toEqual(['5xx', 'Count']);
+    for (const m of stats) {
+      expect(m.Metric.Dimensions).toEqual(API_DIMENSIONS);
+    }
+  });
+
+  test('FUP-39 ON: the API-wide 5xx alarm subtracts the webhook route and still counts every other 5xx', () => {
+    const template = monitoringTemplate(true);
+    const alarm = alarmNamed(template, 'wereda-connect-dev-high-api-5xx-rate');
+    expect(alarm.Properties.Threshold).toBe(5);
+    expect(alarm.Properties.ComparisonOperator).toBe('GreaterThanThreshold');
+    expect(alarm.Properties.EvaluationPeriods).toBe(1);
+    const stats = alarm.Properties.Metrics.filter((q) => q.MetricStat).map((q) => q.MetricStat!);
+    expect(stats).toHaveLength(4);
+    for (const m of stats) {
+      expect(m.Metric.Namespace).toBe('AWS/ApiGateway');
+      expect(m.Period).toBe(300);
+      expect(m.Stat).toBe('Sum');
+      // The API-wide totals keep the ApiId dimension alone; the route metrics are exactly the
+      // webhook route's.
+      expect([API_DIMENSIONS, WEBHOOK_ROUTE_DIMENSIONS]).toContainEqual(m.Metric.Dimensions);
+    }
+    expect(stats.filter((m) => m.Metric.Dimensions.length === 1).map((m) => m.Metric.MetricName).sort())
+      .toEqual(['5xx', 'Count']);
+    expect(stats.filter((m) => m.Metric.Dimensions.length === 4).map((m) => m.Metric.MetricName).sort())
+      .toEqual(['5xx', 'Count']);
+
+    const old = alarmNamed(monitoringTemplate(false), 'wereda-connect-dev-high-api-5xx-rate');
+    // Low traffic, the only 5xx is the webhook's deliberate 500: the old rate paged, this one does not.
+    const lowTraffic = { apiErrors: 1, apiRequests: 10, routeErrors: 1, routeRequests: 1 };
+    expect(apiRate(old, lowTraffic)).toBeGreaterThan(5);
+    expect(apiRate(alarm, lowTraffic)).toBe(0);
+    // Only webhook traffic in the period, all 500s: 0, no division by zero.
+    expect(apiRate(alarm, { apiErrors: 3, apiRequests: 3, routeErrors: 3, routeRequests: 3 })).toBe(0);
+    // Real 5xx on other routes next to webhook 500s: 1 of the 18 other requests is over 5 %.
+    expect(apiRate(alarm, { apiErrors: 3, apiRequests: 20, routeErrors: 2, routeRequests: 2 })).toBeGreaterThan(5);
+    // No webhook traffic (no route datapoints): the same rate as before FUP-39.
+    const noWebhook = { apiErrors: 3, apiRequests: 40 };
+    expect(apiRate(alarm, noWebhook)).toBe(apiRate(old, noWebhook));
+    expect(apiRate(alarm, noWebhook)).toBeGreaterThan(5);
+    // Webhook requests that succeed do not dilute the rate of the other routes.
+    expect(apiRate(alarm, { apiErrors: 1, apiRequests: 18, routeErrors: 0, routeRequests: 2 })).toBeCloseTo(6.25);
+    expect(apiRate(alarm, { apiErrors: 0, apiRequests: 100, routeErrors: 0, routeRequests: 4 })).toBe(0);
+  });
+
+  test('FUP-39 ON: webhook 5xx volume pages on its own count threshold', () => {
+    const template = monitoringTemplate(true);
+    const notifiesTopic = Match.arrayWith([Match.objectLike({ Ref: Match.stringLikeRegexp('^AlarmTopic') })]);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-telebirr-webhook-5xx',
+      Metrics: [
+        Match.objectLike({
+          MetricStat: Match.objectLike({
+            Metric: Match.objectLike({
+              MetricName: '5xx',
+              Namespace: 'AWS/ApiGateway',
+              Dimensions: WEBHOOK_ROUTE_DIMENSIONS,
+            }),
+            Period: 900,
+            Stat: 'Sum',
+          }),
+        }),
+      ],
+      Threshold: 5,
+      ComparisonOperator: 'GreaterThanOrEqualToThreshold',
+      EvaluationPeriods: 1,
+      TreatMissingData: 'notBreaching',
+      AlarmActions: notifiesTopic,
+      OKActions: notifiesTopic,
+    });
+  });
+
+  test('FUP-39 ON: any webhook Lambda error pages (crash, timeout, out of memory; never a deliberate 500)', () => {
+    const template = monitoringTemplate(true);
+    const notifiesTopic = Match.arrayWith([Match.objectLike({ Ref: Match.stringLikeRegexp('^AlarmTopic') })]);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-telebirr-webhook-errors',
+      Metrics: [
+        Match.objectLike({
+          MetricStat: Match.objectLike({
+            Metric: Match.objectLike({
+              MetricName: 'Errors',
+              Namespace: 'AWS/Lambda',
+              Dimensions: [{ Name: 'FunctionName', Value: 'wereda-connect-dev-telebirr-webhook' }],
+            }),
+            Period: 300,
+            Stat: 'Sum',
+          }),
+        }),
+      ],
+      Threshold: 1,
+      ComparisonOperator: 'GreaterThanOrEqualToThreshold',
+      EvaluationPeriods: 3,
+      DatapointsToAlarm: 1,
+      TreatMissingData: 'notBreaching',
+      AlarmActions: notifiesTopic,
+      OKActions: notifiesTopic,
+    });
+  });
+
+  test('FUP-39 ON: any webhook Lambda throttle pages (not a Lambda error; under the 5xx count at low traffic)', () => {
+    const template = monitoringTemplate(true);
+    const notifiesTopic = Match.arrayWith([Match.objectLike({ Ref: Match.stringLikeRegexp('^AlarmTopic') })]);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-telebirr-webhook-throttles',
+      Metrics: [
+        Match.objectLike({
+          MetricStat: Match.objectLike({
+            Metric: Match.objectLike({
+              MetricName: 'Throttles',
+              Namespace: 'AWS/Lambda',
+              Dimensions: [{ Name: 'FunctionName', Value: 'wereda-connect-dev-telebirr-webhook' }],
+            }),
+            Period: 300,
+            Stat: 'Sum',
+          }),
+        }),
+      ],
+      Threshold: 1,
+      ComparisonOperator: 'GreaterThanOrEqualToThreshold',
+      EvaluationPeriods: 3,
+      DatapointsToAlarm: 1,
+      TreatMissingData: 'notBreaching',
+      AlarmActions: notifiesTopic,
+      OKActions: notifiesTopic,
+    });
+  });
+
+  test('FUP-39 OFF: no webhook alarms (the route and the Lambda do not exist)', () => {
+    const alarms = monitoringTemplate(false).findResources('AWS::CloudWatch::Alarm');
+    expect(JSON.stringify(alarms)).not.toContain('telebirr-webhook');
+  });
+
   // ─── ESC-13 money alarms ─────────────────────────────────────────────
   const ESCROW_LG = '/aws/lambda/wereda-connect-dev-escrow';
   const ESCROW_CRON_LG = '/aws/lambda/wereda-connect-dev-escrow-cron';
@@ -952,6 +1247,9 @@ describe('MonitoringStack', () => {
   const LATE_DELIVERY_LINE = 'ORDER_TRANSPORT_CANCEL_LATE_DELIVERY orderId=ord-1 deliveryId=del-1 status=pickedUp';
   // ESC-06: the reverse offline race, a pickup refused on a delivery that cancel cancelled.
   const PICKUP_REFUSED_LINE = 'ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED orderId=ord-1 deliveryId=del-1 status=pickedUp';
+  // FUP-42: a delivery pickup or confirm with no QR whose escrow could not be read (it stays deferred).
+  const QR_GATE_LINE =
+    'QR_GATE_UNDECIDED deliveryId=del-1 orderId=ord-1 reason=ProvisionedThroughputExceededException detail=Rate exceeded';
   // ESC-02's producer: one line per pending leg, ref=<op>:<leg>.
   const PAYOUT_LINE = 'MANUAL_PAYOUT_OVERDUE escrowId=escrow-order-ord-1 ref=release:farmer ageHours=26';
   const QUEUE_LINE = 'ADMIN_QUEUE_OVERDUE orderId=ord-1 reason=undelivered ageHours=30';
@@ -1366,6 +1664,32 @@ describe('MonitoringStack', () => {
     expect(cloudWatchTermsMatch(adminQueue, 'ORDER_ESCROW_HOLD_CAPPED orderId=ord-1 escrowId=escrow-order-ord-1')).toBe(false);
     expect(cloudWatchTermsMatch(adminQueue, 'ADMIN_QUEUE_OVERDUE orderId=ord-1 reason=order_missing ageHours=30')).toBe(true);
     expect(cloudWatchTermsMatch(orderProblems, 'ORDER_ESCROW_HOLD_CAPPED orderId=ord-1 escrowId=escrow-order-ord-1')).toBe(false);
+  });
+
+  test('FUP-42: an undecided QR gate counts on sync as an order escrow problem, and nothing else counts it', () => {
+    const template = monitoringTemplate(false);
+    const orderProblems = metricFilter(template, SYNC_LG, 'OrderEscrowProblems').Properties.FilterPattern;
+    expect(cloudWatchTermsMatch(orderProblems, QR_GATE_LINE)).toBe(true);
+    expect(cloudWatchTermsMatch(orderProblems, `2026-10-23T10:00:00.000Z\t4f1c7a2e-req\terror\t${QR_GATE_LINE}`)).toBe(true);
+    expect(cloudWatchTermsMatch(orderProblems, 'QR_GATE_UNDECIDED deliveryId=del-1 orderId=- reason=TimeoutException detail=slow')).toBe(true);
+    // The answers the device gets are not the alarm line, and an exception text that spells the
+    // token is defanged by MoneyAlarmLog.LogText.
+    for (const line of [
+      'DELIVERY_NONCE_PENDING: The payment check could not be completed. Will retry automatically.',
+      "DELIVERY_NONCE_PENDING: Waiting for the farmer's QR code to sync. Will retry automatically.",
+      'DELIVERY_NONCE_MISSING: QR verification could not be completed for this payment. Contact support.',
+      'Error processing operation op-1: [AmazonDynamoDBException] QR-GATE-UNDECIDED',
+    ]) {
+      expect([line, cloudWatchTermsMatch(orderProblems, line)]).toEqual([line, false]);
+    }
+    for (const [lg, metric] of [
+      [ESCROW_LG, 'EscrowSettlementFailures'],
+      [ESCROW_CRON_LG, 'EscrowSettlementFailures'],
+      [ESCROW_CRON_LG, 'ManualPayoutsOverdue'],
+      [ESCROW_CRON_LG, 'AdminQueueOverdue'],
+    ]) {
+      expect(cloudWatchTermsMatch(metricFilter(template, lg, metric).Properties.FilterPattern, QR_GATE_LINE)).toBe(false);
+    }
   });
 
   // Every term of a money filter, as the synthesized pattern spells it.

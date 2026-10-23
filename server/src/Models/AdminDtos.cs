@@ -77,6 +77,16 @@ public sealed record ResolveDisputeRequest
     public required string Resolution { get; init; }
     public required string Action { get; init; }
     public string? Notes { get; init; }
+
+    /// <summary>
+    /// FUP-16: what happens when the order or delivery cannot follow the verdict as it is:
+    /// <c>return_to_farmer</c> or <c>delivered_anyway</c> for <c>buyer_wins</c>, <c>settle_now</c> or
+    /// <c>wait_for_delivery</c> for <c>farmer_wins</c>. Needs <see cref="Reason"/>.
+    /// </summary>
+    public string? Disposition { get; init; }
+
+    /// <summary>FUP-16: why the admin chose <see cref="Disposition"/>, 10 to 500 characters; stored in the audit trail.</summary>
+    public string? Reason { get; init; }
 }
 
 /// <summary>
@@ -89,6 +99,9 @@ public sealed record ResolveDisputeResponse
     public required string Resolution { get; init; }
     public required string ResolvedAt { get; init; }
     public string? Message { get; init; }
+
+    /// <summary>FUP-16: the disposition recorded on the verdict, if any.</summary>
+    public string? Disposition { get; init; }
 }
 
 // ──────────────────────────────────────────────

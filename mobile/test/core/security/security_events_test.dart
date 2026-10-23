@@ -151,4 +151,62 @@ void main() {
       expect(noMethod.canResubmit, isFalse);
     });
   });
+
+  // ESC-12 part B: a refusal for an old app build leaves a flag the shell
+  // can read later (ESC-25 banner); no client version gating.
+  group('APP_UPDATE_REQUIRED (FUP-01)', () {
+    SyncOperationRejected appTooOld(String entityType) => SyncOperationRejected(
+          entityType: entityType,
+          entityId: 'x-1',
+          action: 'create',
+          message: 'APP_UPDATE_REQUIRED: minimum 2.0.0',
+        );
+
+    test('sets the flag even with no listener, and fires per refusal',
+        () async {
+      final events = SecurityEvents.forTesting();
+      expect(events.appUpdateRequired, isFalse);
+
+      events.emit(appTooOld('order'));
+      expect(events.appUpdateRequired, isTrue);
+
+      final fired = <void>[];
+      final sub = events.onAppUpdateRequired.listen(fired.add);
+      events.emit(appTooOld('trip'));
+      await _waitFor(() => fired.isNotEmpty);
+      await sub.cancel();
+
+      expect(fired, hasLength(1));
+      // The refusal itself is still kept for the snackbar.
+      final received = <SecurityEvent>[];
+      final eventsSub = events.events.listen(received.add);
+      await _waitFor(() => received.length >= 2);
+      await eventsSub.cancel();
+      expect(received, hasLength(2));
+    });
+
+    test('logout keeps it (the build is still old)', () {
+      final events = SecurityEvents.forTesting()..emit(appTooOld('order'));
+
+      events.clearKeptRejections();
+
+      expect(events.appUpdateRequired, isTrue);
+    });
+
+    test('other refusals leave it unset', () {
+      final events = SecurityEvents.forTesting()
+        ..emit(_rejected('o-1'))
+        ..emit(
+          const SyncOperationRejected(
+            entityType: 'trip',
+            entityId: 't-1',
+            action: 'update',
+            message: 'TRIP_HAS_BOOKINGS: booked',
+          ),
+        )
+        ..emit(const StepUpRequired());
+
+      expect(events.appUpdateRequired, isFalse);
+    });
+  });
 }

@@ -18,6 +18,7 @@ const protectedRoutes = [
   "/escrows",
   "/disputes",
   "/payouts",
+  "/unapplied-payments",
   "/fraud-review",
   "/users",
   "/revenue",

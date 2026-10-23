@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -39,6 +41,31 @@ UserRole? resolveServerRole(String? rawRole) {
 DateTime? parseServerTimestamp(Object? raw) {
   if (raw is! String || raw.isEmpty) return null;
   return DateTime.tryParse(raw)?.toUtc();
+}
+
+/// Whether the JWT [token] has expired, by its `exp` claim, allowing [skew]
+/// for clock drift. A token that cannot be decoded counts as not expired:
+/// the server is the judge, and a refusal is handled by the caller.
+@visibleForTesting
+bool isJwtExpired(
+  String token, {
+  DateTime? now,
+  Duration skew = const Duration(seconds: 30),
+}) {
+  final parts = token.split('.');
+  if (parts.length != 3) return false;
+  try {
+    final payload = jsonDecode(
+      utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+    );
+    final exp = payload is Map<String, dynamic> ? payload['exp'] : null;
+    if (exp is! num) return false;
+    final expiresAt =
+        DateTime.fromMillisecondsSinceEpoch(exp.toInt() * 1000, isUtc: true);
+    return !expiresAt.isAfter((now ?? DateTime.now()).toUtc().add(skew));
+  } on Object {
+    return false;
+  }
 }
 
 /// Decode a response body that may arrive as a raw JSON String (web).
@@ -695,15 +722,21 @@ class AuthService {
     }
   }
 
-  /// Logout user and clear cached credentials.
+  /// Revoke the session's refresh token on the server, then clear the
+  /// offline credentials if [clearCache] is true (false keeps offline login).
   ///
-  /// Params:
-  /// - [phoneNumber]: User's phone number
-  /// - [accessToken]: Current access token (for server-side logout)
-  /// - [refreshToken]: Refresh token to revoke on server
-  /// - [clearCache]: Whether to clear cached credentials (default: true)
+  /// Self-contained (SIM-55): it never reads or writes the stored token
+  /// slots, and the AuthInterceptor leaves `/auth/logout` alone, so the
+  /// caller can clear the local session while this runs. The gateway answers
+  /// 401 to an expired bearer, so an [accessToken] that is missing or past its
+  /// `exp` is replaced by one minted from [refreshToken] (POST /auth/refresh,
+  /// nothing stored). A 401 or AUTH_026 (the bearer's user does not own
+  /// [refreshToken]) is retried once the same way: a bearer minted from the
+  /// refresh token always belongs to its owner. When the mint is refused,
+  /// the token is already dead and nothing is left to revoke.
   ///
-  /// If [clearCache] is false, user can still log in offline.
+  /// Offline, or without a refresh token, no request is made. Every failure
+  /// is swallowed: logout must never depend on the network.
   Future<void> logout({
     required String phoneNumber,
     String? accessToken,
@@ -711,28 +744,16 @@ class AuthService {
     bool clearCache = true,
   }) async {
     try {
-      // Try to logout on server (invalidate tokens)
-      if (accessToken != null && refreshToken != null) {
-        final connectivityResults = await _connectivity.checkConnectivity();
-        final isOnline = connectivityResults
-            .any((result) => result != ConnectivityResult.none);
-
-        if (isOnline) {
-          await _dio.post<Map<String, dynamic>>(
-            ApiConfig.logoutEndpoint,
-            data: {'refreshToken': refreshToken},
-            options: Options(
-              headers: {
-                'Authorization': 'Bearer $accessToken',
-              },
-            ),
-          );
-        }
+      if (refreshToken != null &&
+          refreshToken.isNotEmpty &&
+          await _isOnline()) {
+        await _revokeRefreshToken(refreshToken, accessToken);
       }
-    } on Object {
-      // Ignore logout errors (tokens will expire anyway). `on Object` so a
-      // TypeError from response parsing (an Error, not an Exception) cannot
-      // escape and abort the caller's logout flow.
+    } on Object catch (e) {
+      // Ignore logout errors (the refresh token expires on its own). `on
+      // Object` so a TypeError (an Error, not an Exception) cannot escape
+      // and abort the caller's logout flow.
+      debugPrint('[AuthService] server-side logout failed: $e');
     } finally {
       // Clear cached credentials if requested
       if (clearCache) {
@@ -740,6 +761,51 @@ class AuthService {
       }
     }
   }
+
+  Future<void> _revokeRefreshToken(
+    String refreshToken,
+    String? accessToken,
+  ) async {
+    if (accessToken != null &&
+        accessToken.isNotEmpty &&
+        !isJwtExpired(accessToken)) {
+      try {
+        await _postLogout(bearer: accessToken, refreshToken: refreshToken);
+        return;
+      } on DioException catch (e) {
+        if (!_bearerCannotRevoke(e)) rethrow;
+      }
+    }
+
+    final minted = await this.refreshToken(refreshToken);
+    if (!minted.isSuccess) {
+      debugPrint(
+        '[AuthService] logout: no bearer from the refresh token '
+        '(${minted.errorCode}), nothing revoked',
+      );
+      return;
+    }
+    await _postLogout(
+      bearer: minted.tokens!.accessToken,
+      refreshToken: refreshToken,
+    );
+  }
+
+  /// A 401 (expired or rejected bearer) or AUTH_026 (bearer of another user):
+  /// a bearer minted from the refresh token can still revoke it.
+  bool _bearerCannotRevoke(DioException e) =>
+      e.response?.statusCode == 401 ||
+      _handleDioError(e).errorCode == AuthErrorCode.refreshTokenNotOwned;
+
+  Future<void> _postLogout({
+    required String bearer,
+    required String refreshToken,
+  }) =>
+      _dio.post<dynamic>(
+        ApiConfig.logoutEndpoint,
+        data: {'refreshToken': refreshToken},
+        options: Options(headers: {'Authorization': 'Bearer $bearer'}),
+      );
 
   /// Request password reset — sends verification code to user's phone.
   Future<AuthResult> forgotPassword({

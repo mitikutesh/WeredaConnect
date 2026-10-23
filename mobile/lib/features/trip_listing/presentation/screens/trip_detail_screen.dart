@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
@@ -86,7 +87,8 @@ class TripDetailScreen extends StatelessWidget {
                       _InfoRow(
                         icon: Icons.calendar_today,
                         label: l10n.departureDate,
-                        value: dateFormat.format(trip.departureDate),
+                        value: dateFormat
+                            .format(dayInEthiopia(trip.departureDate)),
                       ),
                       const SizedBox(height: 12),
                       _InfoRow(

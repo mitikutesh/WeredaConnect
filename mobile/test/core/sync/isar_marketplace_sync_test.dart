@@ -372,6 +372,45 @@ void main() {
       expect(stored.single.status, DeliveryStatus.pickedUp);
     });
 
+    test(
+        'pullDeliveries parses a delivery an admin dispute disposition closed '
+        '(FUP-16): the extra verdict keys are ignored', () async {
+      stubApi(
+        deliveries: [
+          {
+            ..._deliveryJson(status: 'cancelled', version: 3),
+            'cancelReason': 'dispute_buyer_wins',
+            'cancelledAt': '2026-10-22T10:00:00.000Z',
+            'disputeResolution': 'buyer_wins',
+            'disputeResolvedAt': '2026-10-22T10:00:00.000Z',
+          },
+          {
+            ..._deliveryJson(
+              deliveryId: 'del-2',
+              status: 'disputed',
+              version: 3,
+            ),
+            'confirmedAt': '2026-10-22T10:00:00.000Z',
+            'disputeResolution': 'buyer_wins',
+            'disputeResolvedAt': '2026-10-22T10:00:00.000Z',
+          },
+        ],
+      );
+
+      await buildSync(currentUserId: () async => 'buyer-1').pullDeliveries();
+
+      final stored = {
+        for (final d in await isar.deliverys.where().findAll()) d.deliveryId: d,
+      };
+      expect(stored['del-1']!.status, DeliveryStatus.cancelled);
+      expect(stored['del-2']!.status, DeliveryStatus.disputed);
+      // Isar hands DateTimes back in local time: compare the instant.
+      expect(
+        stored['del-2']!.confirmedAt!.toUtc(),
+        DateTime.utc(2026, 10, 22, 10),
+      );
+    });
+
     test('pullDeliveries keeps a self-pickup delivery\'s type', () async {
       stubApi(
         deliveries: [

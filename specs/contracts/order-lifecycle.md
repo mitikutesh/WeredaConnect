@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.18.0
+1.21.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -28,7 +28,7 @@ statuses are camelCase on the wire).
 | # | Status (wire) | Meaning | Money state | Set by |
 |---|---------------|---------|-------------|--------|
 | 1 | `created` | Buyer placed the order. | No money paid. | Buyer (order create) |
-| 2 | `pending_payment` | Waiting for the buyer to start paying. | No money paid. | Buyer |
+| 2 | `pending_payment` | Waiting for the buyer to start paying. The server stamps `pendingPaymentAt` each time the order enters it, which starts the 24h auto-cancel (1.20.0). | No money paid. | Buyer |
 | 3 | `payment_submitted` | Buyer initiated the transfer (Telebirr/CBE) and submitted the reference. **Not yet verified.** The server stamps `paymentSubmittedAt`, which starts the payment clock (1.7.0). | Money claimed, unconfirmed. | Buyer |
 | 4 | `funded` | Payment **confirmed held in the platform escrow account**. In dev/staging (`TELEBIRR_MOCK=true` on the sync Lambda) the server auto-verifies instantly after `payment_submitted`; with the live gateway the buyer pays through `POST /escrow/order-checkout` and the Telebirr webhook funds the order (1.7.0, `escrow-protocol.md` 1.5.0). | Money safely in escrow. | **System only** |
 | 5 | `accepted` | Farmer accepted the funded order and prepares the crops. | In escrow. | Farmer |
@@ -42,6 +42,9 @@ statuses are camelCase on the wire).
 | — | `payment_failed` | Payment could not be verified: the order cron sets it 24 hours after `paymentSubmittedAt` when no payment was confirmed (1.7.0). Buyer may retry (`→ payment_submitted` directly since 1.13.0, or `→ pending_payment`) or cancel. | No confirmed money. | **System only** (enforced since 1.7.0) |
 | — | `disputed` | Dispute raised within the window; escrow keeps holding the money. Ratings are blocked while disputed. | Frozen in escrow. | **System only** (1.14.0): from an escrow dispute (`POST /escrow/dispute`, buyer or farmer) or a delivery dispute via sync (1.4.1), each only after the escrow is frozen. A client order update to `disputed` is refused (`ORDER_UNAUTHORIZED`) |
 | — | `dispute_resolved` | Dispute decided; money released to farmer or refunded to buyer per outcome. The order stays here after the verdict is settled (it never moves to `disbursing` or `settled`; the escrow status says whether the money moved, 1.17.0). | Released per verdict. Terminal. | **System only**: when the admin records the verdict (`POST /admin/disputes/{id}/resolve`), and again before the escrow is settled if that failed (1.12.0), and by the hourly order-money sweep after a settled verdict whose order hop failed (1.17.0) |
+
+Since 1.21.0 an admin's dispute disposition also sets `dispute_resolved`, straight from `funded`,
+`accepted`, `pickup_confirmed` or `in_transit` (system only; see "Dispute dispositions").
 
 ### The three "payment" levels, in one line each
 
@@ -59,6 +62,7 @@ created ──► pending_payment ──► payment_submitted ──► funded �
    │                                payment_submitted ──► payment_failed ──► payment_submitted | pending_payment | cancelled ├──► disputed ──► dispute_resolved
    └──► cancelled            funded ──► rejected | cancelled
                              accepted ──► cancelled   (buyer, only after a transport failure, 1.15.0)
+   funded | accepted | pickup_confirmed | in_transit ──► dispute_resolved   (system, an admin dispute disposition, 1.21.0)
 ```
 
 Source of truth: `OrderTransitions` in `SyncFunction.cs`. Anything not in that
@@ -80,14 +84,14 @@ mismatch — see `trip-transition` gotchas: send the **pre-increment** version).
 |---|---|---|
 | `→ funded` | Crop listing quantity decreases by the ordered amount; at 0 the listing becomes `reserved` (off the market). Idempotent per order since 1.7.0 (the listing records `stockDecrementedFor` order ids; version CAS with retry), so a payment redelivery can repeat it safely. Best-effort: a failure logs the alarmable `ORDER_STOCK_DECREMENT_FAILED` token, never blocks the order. | `OrderFundingService.DecrementStockAsync` → `ICropRepository.TryDecrementStockAsync` (mock auto-fund in `SyncFunction.cs`, live payments in `TelebirrWebhookFunction.cs`) |
 | `→ funded` | An escrow record is materialized for the held money (`escrow-order-{orderId}`, status `escrowed`, `source: order`). Best-effort with alarmable `ORDER_ESCROW_CREATE_FAILED` token; delivery-time linkage self-heals, and a payment redelivery repairs it. | `OrderFundingService.EnsureFundedSideEffectsAsync` → `EscrowService.CreateFromFundedOrderAsync`; `escrow-protocol.md` §Order-Funded Escrow |
-| live Telebirr payment for an order checkout | One write conditioned on `status = payment_submitted` sets `funded`, `paymentVerifiedAt` and the server-only `telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId` (clients can never set them; create and update strip them), then runs the two side effects above and a transaction-audit `payment_verified` row (actor `telebirr`). A second payment, a payment for an order no longer waiting, or one made in a checkout from an earlier `payment_submitted` (the checkout records the order's `paymentSubmittedAt`) changes nothing and is alarmed for a manual refund. | `TelebirrWebhookFunction.cs`; `escrow-protocol.md` §Additions in 1.5.0 |
+| live Telebirr payment for an order checkout | One write conditioned on `status = payment_submitted` sets `funded`, `paymentVerifiedAt` and the server-only `telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId` (clients can never set them; create and update strip them), then runs the two side effects above and a transaction-audit `payment_verified` row (actor `telebirr`). That row is keyed by the order's `paymentVerifiedAt` and written with a conditional put, so it exists once; a redelivery of the same payment writes it when the first delivery did not (1.20.0, ESC-47; `escrow-protocol.md` 1.19.0). A second payment, a payment for an order no longer waiting, or one made in a checkout from an earlier `payment_submitted` (the checkout records the order's `paymentSubmittedAt`) changes nothing and is alarmed for a manual refund. | `TelebirrWebhookFunction.cs`; `escrow-protocol.md` §Additions in 1.5.0 |
 | `funded → rejected\|cancelled` | The order's escrow is expired NOW (+`refundReason`) so the hourly auto-refund cron pays the buyer back (≤1h). The listing gets its stock back: `quantity / 100` quintals, idempotent per order (the listing records restored order ids), race-safe (version CAS), `reserved → available` (1.4.2, SIM-13). | `TryScheduleOrderEscrowRefundAsync`, `TryRestoreListingStockAsync` → `ICropRepository.TryRestoreStockAsync`; `escrow-protocol.md` |
 | `funded → accepted` | The server stamps `pickupDeadlineAt` in the same version-checked write as `respondedAt` (1.15.0). A trip whose row cannot be read refuses the accept for now with an unprefixed error (the client retries), so no accepted order goes without its deadline. | `ProcessOrderUpdateAsync`, `PickupDeadline` |
 | `accepted → cancelled` (buyer, after a transport failure) | The pending delivery is cancelled first, then the order (`cancelReason: transport_failed_buyer_cancelled`, the buyer's text in `cancelNote`), the delivery slot is released, the listing stock restored and the escrow refund scheduled (`refundReason: order_transport_failed`); audited (1.15.0). | `ProcessTransportFailureCancelAsync`; Transport failure cancel below |
 | delivery created | The delivery (which now REQUIRES `orderId`) is linked to the order's escrow, activating confirmation-stamping / auto-release / the self-pickup QR gate. The slot claim requires the order to be `accepted`, `pickup_confirmed` or `in_transit` in the same transaction (1.15.0): a create racing a cancel is refused (`DELIVERY_VALIDATION: The order no longer takes a delivery ...`). | `TryLinkOrderEscrowAsync`; `delivery-verification-api.md` |
 | `payment_submitted` + `TELEBIRR_MOCK=true` | Server auto-advances to `funded` as a system actor (audited as `payment_verified`). Never active in prod / live gateway. | `TryAutoFundMockOrderAsync` |
-| `created`/`pending_payment` older than 24h | Auto-cancelled by cron. | `OrderCronFunction.cs` |
-| `payment_submitted` for 24h (from `paymentSubmittedAt`; `createdAt` for orders from before 1.7.0) with no confirmed payment | Moved to `payment_failed` by the same hourly cron, version-checked so a funding that lands at the same time wins; audited as `order_updated` (`payment_submitted → payment_failed`). Since 1.16.0 (ESC-45) never while a verified Telebirr payment for the order is pending in the webhook inbox: the cron skips orders whose server-only `paymentHoldUntil` is in the future and orders with a row in the inbox's `pending` partition (if that partition cannot be read, no order is failed that run), and its write is also conditional on the hold, so a hold written after the cron read the order wins. The hold is set by the webhook for every verified `Completed` notification of the order's current payment attempt (extend-only, without changing `version` or `updatedAt`) and lapses on its own once the inbox stops replaying the payment (at most about 75 minutes after the last replay; `escrow-protocol.md` §Additions in 1.16.0). The order checkout stops opening new attempts 20 hours after `paymentSubmittedAt` (`escrow-protocol.md` 1.5.0), so none is still open then. A retry goes `payment_failed → payment_submitted` in one change (1.13.0, ESC-47 item 1): the payment gates run as for any payment, `paymentSubmittedAt` is stamped again, and the `pending_payment` auto-cancel above (which counts from `createdAt`) never sees the order. The older `payment_failed → pending_payment → payment_submitted` path is still accepted, but an order older than 24h left at `pending_payment` is cancelled at the next run (1.7.0). | `OrderCronFunction.FailStalePaymentsAsync` |
+| `created` for 24h (from `createdAt`), or `pending_payment` for 24h (from `pendingPaymentAt`, the last time the order entered it; `createdAt` for orders from before 1.20.0) | Auto-cancelled by the hourly cron, version-checked; audited as `order_cancelled`. Counting `pending_payment` from its own step (1.20.0, ESC-47) means a buyer who retries a failed payment on an old order through `pending_payment` gets a full day, not a cancel at the next run. | `OrderCronFunction.CancelExpiredByStatusAsync` |
+| `payment_submitted` for 24h (from `paymentSubmittedAt`; `createdAt` for orders from before 1.7.0) with no confirmed payment | Moved to `payment_failed` by the same hourly cron, version-checked so a funding that lands at the same time wins; audited as `order_updated` (`payment_submitted → payment_failed`). Since 1.16.0 (ESC-45) never while a verified Telebirr payment for the order is pending in the webhook inbox: the cron skips orders whose server-only `paymentHoldUntil` is in the future and orders with a row in the inbox's `pending` partition (if that partition cannot be read, no order is failed that run), and its write is also conditional on the hold, so a hold written after the cron read the order wins. The hold is set by the webhook for every verified `Completed` notification of the order's current payment attempt (extend-only, without changing `version` or `updatedAt`) and lapses on its own once the inbox stops replaying the payment (at most about 75 minutes after the last replay; `escrow-protocol.md` §Additions in 1.16.0). The order checkout stops opening new attempts 20 hours after `paymentSubmittedAt` (`escrow-protocol.md` 1.5.0), so none is still open then. A retry goes `payment_failed → payment_submitted` in one change (1.13.0, ESC-47 item 1): the payment gates run as for any payment, `paymentSubmittedAt` is stamped again, and the `pending_payment` auto-cancel above never sees the order. The older `payment_failed → pending_payment → payment_submitted` path is still accepted; since 1.20.0 (ESC-47) an order left at `pending_payment` is cancelled 24h after that step (`pendingPaymentAt`), no longer 24h after `createdAt` (1.7.0 cancelled an order older than 24h at the next run). | `OrderCronFunction.FailStalePaymentsAsync` |
 | `delivered` + 48h no dispute | Escrow auto-releases to farmer; the order follows the money (`disbursing`, then `settled`), see "The order follows the money" below (1.17.0). | escrow cron, `escrow-protocol.md` |
 | release committed (escrow `released`, or the release queued for a manual payout) | `delivered → disbursing`, after the escrow write (1.17.0). | `OrderMoneyMirror`; below |
 | escrow `completed` (every leg paid) | `→ settled` (through `disbursing`), after the escrow write (1.17.0). | `OrderMoneyMirror`; below |
@@ -148,7 +152,7 @@ Client previews of an order total (place order, the listing detail price breakdo
 `POST /sync` with `entityType: order`, `action: update` (SIM-06):
 
 - **Updatable**: `status` and its companions `rejectionReason`, `cancelReason`, `paymentMethod`, `cbeTransactionId` (length limits as on create). Status transitions and actor rules are unchanged (see above).
-- **Echo keys** the clients send: `orderId` must equal the operation `entityId` (`orderId does not match the operation entityId.`), `updatedAt` is dropped (the repository stamps it), `version` feeds the optimistic-concurrency check. Client-sent `cancelledAt` / `respondedAt` / `paymentVerifiedAt` / `paymentSubmittedAt` (1.7.0) are dropped and re-stamped by the server, and the server-only Telebirr references (`telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId`) are dropped.
+- **Echo keys** the clients send: `orderId` must equal the operation `entityId` (`orderId does not match the operation entityId.`), `updatedAt` is dropped (the repository stamps it), `version` feeds the optimistic-concurrency check. Client-sent `cancelledAt` / `respondedAt` / `paymentVerifiedAt` / `paymentSubmittedAt` (1.7.0) / `pendingPaymentAt` (1.20.0) are dropped and re-stamped by the server, and the server-only Telebirr references (`telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId`) are dropped.
 - **Immutable after create**: `listingId`, `buyerId`, `farmerId`, `buyerName`, `farmerName`, `cropType`, `quantity`, `pricePerUnit`, `tripId`, `truckerId`, `truckerName`, `transportCost`. An unchanged echo is dropped; a changed value is rejected with `ORDER_VALIDATION: <field> is immutable and cannot be changed on update.` This holds in every status, including after `funded`.
 - **Server-owned money** (`cropCost`, `commissionRate`, `commissionAmount`, `orderTotal`) is always dropped from the payload, so `orderTotal` can never drift from its inputs.
 - **Server-only since 1.15.0**: `pickupDeadlineAt`, `cancelNote` and the admin queue fields (`adminQueue`, `adminQueuedAt`, `adminQueueReason`, `adminQueueEscrowId`) are dropped from create and update payloads. **Since 1.16.0** also `paymentHoldUntil` (ESC-45). `GET /orders` returns `pickupDeadlineAt`, `adminQueueReason` and `adminQueuedAt`.
@@ -184,6 +188,7 @@ leg), so it carries the checks `POST /escrow/initiate` already made:
 | buyer's risk tier MEDIUM and the password not fresh, at any amount; above 10,000 ETB after the Fayda row above (1.9.0, planned FRD-04) | `AUTH_040: ...` |
 | buyer's risk tier HIGH: Fayda login not fresh, then password not fresh, at any amount (1.9.0, planned FRD-04) | `AUTH_041: ...` first, then `AUTH_040: ...` on the retry |
 | live gateway (`TELEBIRR_MOCK` off) and `orderTotal` outside 100 to 500,000 ETB, what one Telebirr payment can take (1.7.0; bank transfers are ESC-46) | `ORDER_VALIDATION: This order total (X ETB) is outside what one Telebirr payment can take (100 to 500000 ETB).` |
+| live gateway (`TELEBIRR_MOCK` off) and the update's `paymentMethod` present and not `telebirr` (1.19.0, FUP-20; checked last, after the total; bank transfers are ESC-46) | `ORDER_PAYMENT_METHOD_UNAVAILABLE: Bank transfer (cbe_transfer) is not available yet. Pay with Telebirr.`; for any other value `ORDER_PAYMENT_METHOD_UNAVAILABLE: Payment method '<value>' is not available yet. Pay with Telebirr.` |
 
 The gates fail closed when the profiles cannot be read. Mock auto-funding (`TELEBIRR_MOCK`)
 runs only after they pass. The client reverts the local order to its previous status on
@@ -195,6 +200,13 @@ farmer-side reason it only explains. On `AUTH_040` it asks for the password and 
 `AUTH_041` it runs the Fayda link flow as the account owner and retries. A buyer who is not
 Fayda-verified yet gets `buyer_fayda` first; that link is also the fresh Fayda login, so the
 resubmitted payment passes both gates.
+
+The payment method gate (1.19.0, FUP-20) reads only the update's own `paymentMethod`, never
+the stored one (the mobile order create writes `cbe_transfer` as a default on every order), so
+an update that carries no method is left to the checkout. It is decided before any write (no
+`paymentSubmittedAt`, no transaction-audit row, no idempotency key) and is permanent under the
+`ORDER_*` rule (`sync-protocol.md` 1.16.0): the client reverts the local order and shows
+`paymentMethodUnavailable`. Mock mode funds every method as before.
 
 ### Payment reference (1.7.1)
 
@@ -222,6 +234,12 @@ and "Pay Now" / "Pay again" on `pending_payment` / `payment_failed`. A retry aft
 `ORDER_VALIDATION: This order total ... is outside what one Telebirr payment can take`
 refusal has its own message in en, am and om (web inline, mobile through the ESC-12
 rejection snackbar).
+
+Since 1.19.0 (FUP-20) the server refuses a live `payment_submitted` whose `paymentMethod` is
+not `telebirr` (`ORDER_PAYMENT_METHOD_UNAVAILABLE`, see Payment gates), so a demo build
+pointed at a live server cannot record a bank transfer that nothing would fund. Its message
+(`paymentMethodUnavailable`, en, am and om) says to pay with Telebirr; the local order is
+reverted like any `ORDER_*` refusal.
 
 Once a delivery exists for an accepted order (a trucker's, or the buyer's self-pickup), the
 order detail screen offers every party "Open delivery" instead of a second create, and the
@@ -282,7 +300,8 @@ in `escrow-protocol.md` 1.7.0. Nothing here is deployed yet.
 Every `ORDER_*` error the server returns for an order operation, except
 `ORDER_KYC_REQUIRED`, is permanent: the same command gets the same answer. That
 includes the transition refusals above (`ORDER_VALIDATION`, `ORDER_UNAUTHORIZED`), the
-held-escrow refusal of an accept and the live payment range check. The mobile client
+held-escrow refusal of an accept, the live payment range check and the live payment method
+refusal (`ORDER_PAYMENT_METHOD_UNAVAILABLE`, 1.19.0). The mobile client
 stops retrying, puts the order back to the server's view (a refused create removes the
 local order) and tells the user, in their language, that the change was not allowed;
 web shows the same message from the refused call. A transient order failure must not
@@ -456,8 +475,33 @@ none (a server before 1.18.0, a local change not yet pulled), and a local cancel
 and clears the phones at once. Offline, the last pulled numbers stay on the device until the next
 pull: an order closed on the server while a party is offline keeps its numbers there until then.
 
+## Dispute dispositions (1.21.0, FUP-16)
+
+The admin verdict (`escrow-protocol.md` 1.21.0) no longer records a verdict the order cannot follow as
+it is. Instead the admin picks a disposition, and the order moves with it as a system actor, in one
+status-conditioned hop (`ADD version`, one transaction-audit row `dispute_resolved`, metadata
+`resolution=<verdict>;disposition=<disposition>`), after the delivery was closed:
+
+| Verdict | Order | Disposition | Order becomes | Delivery | Listing stock |
+|---------|-------|-------------|---------------|----------|---------------|
+| `buyer_wins` | goods moving: `pickup_confirmed`, `in_transit`, or `accepted` with a picked-up delivery | `return_to_farmer` | `dispute_resolved` | `cancelled` (`cancelReason: dispute_buyer_wins`) | not restored: the goods may come back damaged; the farmer relists |
+| `buyer_wins` | same | `delivered_anyway` | `dispute_resolved` | `disputed` with the verdict, as after any delivered dispute | not restored (the buyer has the goods) |
+| `farmer_wins` | after pickup and before delivery | `settle_now` | `dispute_resolved` | `cancelled` (`cancelReason: dispute_farmer_wins`) | not restored: the farmer is paid for goods already handed over |
+| `farmer_wins` | `funded`, `accepted`, `pickup_confirmed` or `in_transit` | `wait_for_delivery` | unchanged; `dispute_resolved` once it is delivered, as in 1.12.0 | unchanged | unchanged |
+
+The money follows through the escrow as for any verdict: `buyer_wins` refunds the buyer in full,
+`farmer_wins` releases. The order stays at `dispute_resolved` (terminal, 1.17.0). The hop is conditional
+on the status the verdict read, so an order that moved meanwhile (a handoff) is left alone and the admin
+is told to send the verdict again. Until it does, the order is never taken for one before pickup: its
+delivery was cancelled by the disposition, so the `buyer_wins` refund does not cancel the order or restore
+its stock. Ratings stay blocked, and contact closes at `dispute_resolved`
+(1.18.0). The clients already show `dispute_resolved`; no client change.
+
 ## Changelog
 
+- **1.21.0 (2026-10-22)**: Dispute dispositions (FUP-16; 1.19.0 and 1.20.0 belong to FUP-20 and ESC-47, in flight): an admin's dispute disposition moves an order from `funded`, `accepted`, `pickup_confirmed` or `in_transit` straight to `dispute_resolved` (system, status-conditioned, one `dispute_resolved` transaction-audit row with the disposition), after its delivery is cancelled (`return_to_farmer`, `settle_now`) or disputed (`delivered_anyway`); `wait_for_delivery` leaves the order to the 1.12.0 rules; listing stock is never restored by a disposition; a verdict the order cannot follow is no longer recorded without one, so no order waits on a mismatched verdict any more (`escrow-protocol.md` 1.21.0).
+- **1.20.0 (2026-10-23)**: Payment retry clock and the lost payment row (ESC-47 item 1 rest, item 2): the server stamps the server-only `pendingPaymentAt` each time an order enters `pending_payment`, and the order cron cancels a `pending_payment` order 24 hours after it (`createdAt` for orders from before), so a buyer who retries a failed payment on an old order through `pending_payment` is not cancelled at the next run; `created` still counts from `createdAt`. The Telebirr funding's transaction-audit `payment_verified` row is keyed by `paymentVerifiedAt` and written once, and a redelivery of the same payment writes it when the first delivery did not, in every order status. No client change: the apps ignore the new field, and the current apps never send `pending_payment` (older ones do). (1.19.0 is FUP-20's, in flight.)
+- **1.19.0 (2026-10-22)**: Live payment method refusal (FUP-20): with the live gateway a `payment_submitted` whose `paymentMethod` is present and not `telebirr` is refused with `ORDER_PAYMENT_METHOD_UNAVAILABLE` (naming the method; bank transfers wait for ESC-46), decided after the other payment gates and before any write (no `paymentSubmittedAt`, no transaction-audit row, no idempotency key); only the update's own value is checked and an update without a method is left to the checkout; mock mode still funds every method; permanent under the `ORDER_*` rule, with its own text in en, am and om (`paymentMethodUnavailable`) on mobile and web.
 - **1.18.0 (2026-10-17)**: Contact between the parties (ESC-48): `contactOpen` on every order read and the parties' phones to a party of an open order (`accepted` to `settled` and `disputed`, no admin override refund), resolved from the users table at read time; contact closed before the farmer's accept and again after `cancelled`, `rejected` or `dispute_resolved`; a buyer's transport-failure cancel of an order whose contact had opened records the fraud signal `CONTACT_THEN_TRANSPORT_CANCEL`; order detail gets the Contact section.
 
 - **1.17.0 (2026-10-10)**: The order follows the money (ESC-09): `disbursing` when the release is committed (the escrow `released` or its release queued), `settled` only when the escrow is `completed` with no leg owed; a lagging logistics order is advanced to `delivered` first; status-conditioned hops with `ADD version`, one `order_updated` row each, after the escrow write; a verdict escrow keeps its order at `dispute_resolved`; the hourly order-money sweep repairs and backfills, with the server-only skip marker `moneySweepSkip`; an admin refund of a plain escrowed order escrow cancels a pre-pickup order first (refund scheduled, stock restored) and refuses goods on the move unless overridden (`refundOverride*`); an admin release pays only a delivered order; ratings allowed on `disbursing`; a client status change on a mirrored order is a permanent `ORDER_VALIDATION`.

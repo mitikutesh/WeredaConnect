@@ -239,4 +239,81 @@ void main() {
       );
     });
   });
+
+  // ESC-12 part B (sync-protocol.md 1.17.0): web has no queue, so a refusal
+  // is a failure that carries the server message for its own text.
+  group('WebCropListingRepository part B refusals (FUP-01)', () {
+    late _MockApiClient api;
+    late WebCropListingRepository repository;
+
+    setUp(() {
+      api = _MockApiClient();
+      repository = WebCropListingRepository(api: api);
+      when(() => api.get<Map<String, dynamic>>('/crops/crop-1')).thenAnswer(
+        (_) async => {
+          'crop': {'cropId': 'crop-1', 'farmerId': 'farmer-1', 'version': 3},
+        },
+      );
+    });
+
+    void refuseWith(String message) {
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'results': [
+            {'status': 'error', 'message': message},
+          ],
+        },
+      );
+    }
+
+    for (final message in [
+      'REPUTATION_RESTRICTED: restricted',
+      'APP_UPDATE_REQUIRED: minimum 2.0.0',
+    ]) {
+      test('create: ${message.split(':').first} throws with the message',
+          () async {
+        refuseWith(message);
+
+        await expectLater(
+          repository.createListing(
+            farmerId: 'farmer-1',
+            cropType: 'teff',
+            quantity: 10,
+            pricePerKg: 45,
+            latitude: 9.6,
+            longitude: 39.5,
+            locationName: 'Debre Birhan',
+            description: '',
+          ),
+          throwsA(
+            isA<SyncRejectedException>()
+                .having((e) => e.message, 'message', message),
+          ),
+        );
+      });
+    }
+
+    for (final message in [
+      'CROP_HAS_ACTIVE_ORDERS: open orders',
+      'APP_UPDATE_REQUIRED: minimum 2.0.0',
+    ]) {
+      test('delete: ${message.split(':').first} throws with the message',
+          () async {
+        refuseWith(message);
+
+        await expectLater(
+          repository.deleteListing(listingId: 'crop-1', farmerId: 'farmer-1'),
+          throwsA(
+            isA<SyncRejectedException>()
+                .having((e) => e.message, 'message', message),
+          ),
+        );
+      });
+    }
+  });
 }

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/web_delivery_repository.dart';
@@ -244,6 +245,31 @@ void main() {
 
   // The farmer's QR shown on web must reach the server, or the buyer's scan
   // stays deferred forever (web has no sync queue to carry it later).
+  // FUP-16: an admin dispute disposition closes a delivery with extra keys
+  // (cancelReason, the verdict); web parses the status and ignores the rest.
+  test('a delivery closed by a dispute disposition parses on web', () async {
+    when(() => api.get<Map<String, dynamic>>('/deliveries/del-1')).thenAnswer(
+      (_) async => {
+        'delivery': {
+          'deliveryId': 'del-1',
+          'status': 'cancelled',
+          'cancelReason': 'dispute_farmer_wins',
+          'cancelledAt': '2026-10-22T10:00:00.000Z',
+          'disputeResolution': 'farmer_wins',
+          'disputeResolvedAt': '2026-10-22T10:00:00.000Z',
+          'version': 3,
+        },
+      },
+    );
+
+    final delivery =
+        await repository.getDeliveryById('del-1', userId: 'farmer-1');
+
+    expect(delivery, isNotNull);
+    expect(delivery!.status, DeliveryStatus.cancelled);
+    expect(delivery.version, 3);
+  });
+
   group('persistQrNonce', () {
     setUp(() {
       when(() => api.get<Map<String, dynamic>>('/deliveries/del-1')).thenAnswer(
