@@ -90,6 +90,12 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(ManualPayoutListResponse))]
 [JsonSerializable(typeof(CompleteManualPayoutRequest))]
 [JsonSerializable(typeof(CompleteManualPayoutResponse))]
+// Manual refund of an unapplied payment (FUP-02, admin)
+[JsonSerializable(typeof(UnappliedPaymentDto))]
+[JsonSerializable(typeof(List<UnappliedPaymentDto>))]
+[JsonSerializable(typeof(UnappliedPaymentListResponse))]
+[JsonSerializable(typeof(RecordManualRefundRequest))]
+[JsonSerializable(typeof(RecordManualRefundResponse))]
 // Escrow domain DTOs
 [JsonSerializable(typeof(EscrowDto))]
 [JsonSerializable(typeof(DisputeDto))]

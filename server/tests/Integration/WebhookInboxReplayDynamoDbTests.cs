@@ -141,7 +141,7 @@ public sealed class WebhookInboxReplayDynamoDbTests : IDisposable
         return flaky;
     }
 
-    private TelebirrWebhookFunction Webhook(IOrderRepository orders)
+    private TelebirrWebhookFunction Webhook(IOrderRepository orders, ITransactionAuditRepository? txAudit = null)
     {
         var escrowRepo = new EscrowRepository(Ddb, _db.Escrows);
         var audit = new EscrowAuditRepository(Ddb, _db.EscrowAudit);
@@ -152,7 +152,7 @@ public sealed class WebhookInboxReplayDynamoDbTests : IDisposable
             orderCheckoutRepo: new OrderCheckoutRepository(Ddb, _db.Idempotency),
             orderRepo: orders,
             orderFunding: new OrderFundingService(orders, new CropRepository(Ddb, _db.Crops), escrowService),
-            txAuditRepo: new TransactionAuditRepository(Ddb, _db.TransactionAudit),
+            txAuditRepo: txAudit ?? new TransactionAuditRepository(Ddb, _db.TransactionAudit),
             inboxRepo: Inbox,
             clock: _clock);
     }
@@ -256,6 +256,57 @@ public sealed class WebhookInboxReplayDynamoDbTests : IDisposable
 
         await AssertFundedOnceAsync();
         (await RawInboxRowAsync())["status"].S.Should().BeOneOf("applied", "applied_again");
+    }
+
+    [LocalDynamoDbFact]
+    public async Task A_payment_verified_row_lost_at_funding_is_written_once_by_the_redeliveries()
+    {
+        // ESC-47 (2): the transaction-audit write after the funding fails; every later delivery of the
+        // same payment takes the repair path, and the real conditional write keeps one row.
+        await SeedAsync();
+        var real = new TransactionAuditRepository(Ddb, _db.TransactionAudit);
+        // The rows sync writes for every order before it is paid: the repair must look for
+        // payment_verified, not for any row.
+        await real.AppendAsync(new Dictionary<string, object>
+        {
+            ["auditId"] = $"txaudit-{Guid.NewGuid():N}", ["transactionId"] = _orderId, ["entityType"] = "order",
+            ["entityId"] = _orderId, ["action"] = "order_created", ["toState"] = "created", ["actor"] = "buyer-esc45",
+            ["timestamp"] = "2026-10-09T07:00:00.0000000Z"
+        });
+        await real.AppendAsync(new Dictionary<string, object>
+        {
+            ["auditId"] = $"txaudit-{Guid.NewGuid():N}", ["transactionId"] = _orderId, ["entityType"] = "order",
+            ["entityId"] = _orderId, ["action"] = "order_updated", ["fromState"] = "created",
+            ["toState"] = "payment_submitted", ["actor"] = "buyer-esc45", ["timestamp"] = PaymentSubmittedAt
+        });
+        var flaky = Substitute.For<ITransactionAuditRepository>();
+        var left = 1;
+        flaky.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>()).Returns(call =>
+            Interlocked.Decrement(ref left) >= 0
+                ? Task.FromException<bool>(new AmazonDynamoDBException("brownout"))
+                : real.AppendIfAbsentAsync(call.Arg<Dictionary<string, object>>()));
+        flaky.GetByTransactionAsync(Arg.Any<string>()).Returns(call => real.GetByTransactionAsync(call.Arg<string>()));
+        var webhook = Webhook(Orders, flaky);
+        static bool IsPaymentVerified(Dictionary<string, object> e)
+            => e.TryGetValue("action", out var a) && a?.ToString() == "payment_verified";
+
+        (await webhook.FunctionHandler(Post(Notify()), Context())).StatusCode.Should().Be(200);
+        (await real.GetByTransactionAsync(_orderId)).Count(IsPaymentVerified).Should().Be(0);
+
+        (await webhook.FunctionHandler(Post(Notify()), Context())).StatusCode.Should().Be(200);
+        (await webhook.FunctionHandler(Post(Notify()), Context())).StatusCode.Should().Be(200);
+
+        await AssertFundedOnceAsync();
+        var row = (await real.GetByTransactionAsync(_orderId)).Single(IsPaymentVerified);
+        row["timestamp"].ToString().Should().Be((await OrderAsync())["paymentVerifiedAt"].ToString());
+        row["actor"].ToString().Should().Be("telebirr");
+        (await RawInboxRowAsync())["status"].S.Should().Be("applied_again");
+
+        // The key alone refuses a second row, even for a writer that does not look first.
+        (await real.AppendIfAbsentAsync(new Dictionary<string, object>(row) { ["auditId"] = "txaudit-other" }))
+            .Should().BeFalse();
+        (await real.GetByTransactionAsync(_orderId)).Select(e => e["action"].ToString())
+            .Should().Equal("order_created", "order_updated", "payment_verified");
     }
 
     [LocalDynamoDbFact]
