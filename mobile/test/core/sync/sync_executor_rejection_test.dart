@@ -155,6 +155,7 @@ void main() {
       'ORDER_ACTION_NOT_ALLOWED',
       'ORDER_TRIP_NOT_ELIGIBLE',
       'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED',
+      'ORDER_PAYMENT_TOTAL_OUT_OF_RANGE', // FUP-22
     ]) {
       test(code, () async {
         final message = '$code: refused';

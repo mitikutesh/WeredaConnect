@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.15.0
+1.24.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -430,10 +430,33 @@ times) and keep their local copy.
 
 ---
 
+## Payment total refusal (1.24.0, FUP-22)
+
+With the live gateway (`TELEBIRR_MOCK` off) one Telebirr payment takes 100 to 500,000 ETB
+(`order-lifecycle.md` 1.24.0, Payment gates). An order update to `payment_submitted` whose
+`orderTotal`, rounded to the cent, is outside that range is refused with
+`ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: This order total (X ETB) is outside what one Telebirr payment can take (100 to 500000 ETB).`
+Before 1.24.0 the same refusal was `ORDER_VALIDATION:` with the same sentence, and clients had
+to read the English text. The gate, its bounds and its place among the payment gates (after KYC
+and step-up, before any write) are unchanged. Mock mode (dev, staging) skips it as before.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE:` | Permanent under the `ORDER_*` rule above: mark rejected, never resent, revert the local order (re-read `GET /orders/{id}`), show `paymentTotalOutOfRange` (en, am, om). | Failure with the same message, shown inline as `paymentTotalOutOfRange`. |
+| `ORDER_VALIDATION:` with the sentence above (servers before 1.24.0) | Same as the row above; matched for one more release. | Same. |
+
+Live builds check the total before they send it (`order-lifecycle.md` 1.13.0), so the refusal
+comes back only after a total changed since that check or from a demo build pointed at a live
+server. Clients older than 1.24.0 do not know the code: they revert the order and show the
+generic `errorOrderRefused` text (1.10.0).
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.24.0 | 2026-10-23 | Payment total refusal (FUP-22): the live gateway's refusal of a `payment_submitted` whose total is outside 100 to 500,000 ETB is `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` with the same sentence (it was `ORDER_VALIDATION`); permanent under the `ORDER_*` rule, nothing written; clients match the code and, for one release, the old text; same gate, bounds and order; clients before 1.24.0 show the generic refusal |
 | 1.15.0 | 2026-10-17 | Message contact refusal (ESC-48): `MESSAGE_CONTACT_LOCKED` for a message into a `crop` or `trip` thread, or into an `order` or `delivery` thread whose order's contact is not open; permanent, the mobile client removes its local copy and explains it in en, am and om; a refused resend of a message the sender already stored answers `duplicate`; message rows in `/sync` data carry no phone; delivery rows in `/sync` data carry no phone (`delivery-verification-api.md` 1.15.0) |
 | 1.14.0 | 2026-10-17 | Delivery dispute step-up fails closed (FUP-26): when the order (or a legacy delivery's `DeliveryIndex` escrow) that sizes the step-up cannot be read, the dispute answers `DELIVERY_DISPUTE_RETRY` before the freeze and nothing is written (it was let through without the step-up); a missing order, or a total that is missing, unreadable, zero or negative, answers `AUTH_040` to a stale session at any amount; clients unchanged (`DELIVERY_DISPUTE_RETRY` retried, `AUTH_040` kept pending) |
 | 1.13.0 | 2026-10-10 | Order cancel refusal (ESC-06): `ORDER_CANCEL_NOT_ALLOWED` is sent for a buyer cancel of an `accepted` order before its pickup deadline, after pickup or while its money is being settled; permanent (server-clock dependent, never resent), its own localized message on mobile and web; the cancel's read and write failures are unprefixed and retried; a delivery create on an order that no longer takes one is refused with `DELIVERY_VALIDATION`; order rows carry `pickupDeadlineAt` |

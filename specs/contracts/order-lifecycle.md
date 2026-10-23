@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.20.0
+1.24.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -183,7 +183,7 @@ leg), so it carries the checks `POST /escrow/initiate` already made:
 | buyer's risk tier CRITICAL, or the score read truncated; checked before KYC (1.9.0, planned FRD-04) | `FRAUD_ACCOUNT_HELD: Your account is under review. Some actions are paused. Contact support.` |
 | buyer's risk tier MEDIUM and the password not fresh, at any amount; above 10,000 ETB after the Fayda row above (1.9.0, planned FRD-04) | `AUTH_040: ...` |
 | buyer's risk tier HIGH: Fayda login not fresh, then password not fresh, at any amount (1.9.0, planned FRD-04) | `AUTH_041: ...` first, then `AUTH_040: ...` on the retry |
-| live gateway (`TELEBIRR_MOCK` off) and `orderTotal` outside 100 to 500,000 ETB, what one Telebirr payment can take (1.7.0; bank transfers are ESC-46) | `ORDER_VALIDATION: This order total (X ETB) is outside what one Telebirr payment can take (100 to 500000 ETB).` |
+| live gateway (`TELEBIRR_MOCK` off) and `orderTotal` outside 100 to 500,000 ETB, what one Telebirr payment can take (1.7.0; its own code since 1.24.0, FUP-22, it was `ORDER_VALIDATION` with the same sentence; bank transfers are ESC-46) | `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: This order total (X ETB) is outside what one Telebirr payment can take (100 to 500000 ETB).` |
 
 The gates fail closed when the profiles cannot be read. Mock auto-funding (`TELEBIRR_MOCK`)
 runs only after they pass. The client reverts the local order to its previous status on
@@ -209,7 +209,8 @@ by the server-generated `merch_order_id` of `POST /escrow/order-checkout`
 
 ### Live checkout in the app (1.13.0, ESC-44)
 
-Live builds (`--dart-define=TELEBIRR_LIVE=true`, and every `prod`/`production` build) show
+Live builds (`--dart-define=TELEBIRR_LIVE=true`, every `prod`/`production` build, and since
+1.24.0 a release build with an unknown `ENVIRONMENT`, which gets the production settings) show
 the Telebirr payment only: no demo notice, no CBE option (bank transfers are ESC-46), no
 reference fields, and a total outside 100 to 500,000 ETB cannot be submitted. The buyer's
 `payment_submitted` carries `paymentMethod: telebirr` and no `cbeTransactionId`. Demo builds
@@ -219,9 +220,10 @@ through `POST /escrow/order-checkout` (`escrow-protocol.md` §Additions in 1.5.0
 notes). Order detail offers the buyer "Continue payment" on a `payment_submitted` order,
 and "Pay Now" / "Pay again" on `pending_payment` / `payment_failed`. A retry after
 `payment_failed` is one `payment_submitted` change. The live
-`ORDER_VALIDATION: This order total ... is outside what one Telebirr payment can take`
-refusal has its own message in en, am and om (web inline, mobile through the ESC-12
-rejection snackbar).
+`ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` refusal (1.24.0; servers before it send
+`ORDER_VALIDATION: This order total ... is outside what one Telebirr payment can take`,
+which clients still match for one release) has its own message in en, am and om (web inline,
+mobile through the ESC-12 rejection snackbar).
 
 Once a delivery exists for an accepted order (a trucker's, or the buyer's self-pickup), the
 order detail screen offers every party "Open delivery" instead of a second create, and the
@@ -270,7 +272,7 @@ in `escrow-protocol.md` 1.7.0. Nothing here is deployed yet.
   `sync-protocol.md` 1.9.0.
 - **Gate order on `payment_submitted`**: transition auth, risk read, CRITICAL check, KYC
   (unchanged), tiered step-up (`AUTH_041` before `AUTH_040` at HIGH), the live-gateway order total
-  check (`ORDER_VALIDATION`, unchanged), then the write and the mock auto-fund. LOW keeps today's
+  check (`ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` since 1.24.0, otherwise unchanged), then the write and the mock auto-fund. LOW keeps today's
   behaviour exactly. The tier is never returned to the client.
 - **Client action on `FRAUD_ACCOUNT_HELD`**: revert the local order status as for
   `ORDER_KYC_REQUIRED`, show the message, do not retry. Since 1.11.0 the mobile `SyncExecutor`
@@ -458,6 +460,7 @@ pull: an order closed on the server while a party is offline keeps its numbers t
 
 ## Changelog
 
+- **1.24.0 (2026-10-23)**: Live payment total code (FUP-22): with the live gateway a `payment_submitted` whose total (rounded to the cent) is outside 100 to 500,000 ETB is refused with `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` and the same sentence (it was `ORDER_VALIDATION`), so clients match a code, not English text; same gate, bounds and place among the payment gates, nothing written; permanent under the `ORDER_*` rule (`sync-protocol.md` 1.24.0). Clients match the code and, for one release, the old text; clients before this release revert the order and show the generic refusal. App builds now read CI's `ENVIRONMENT=prod` as production (it fell back to development), and a release build with an unknown value gets the production settings, so it is live.
 - **1.20.0 (2026-10-23)**: Payment retry clock and the lost payment row (ESC-47 item 1 rest, item 2): the server stamps the server-only `pendingPaymentAt` each time an order enters `pending_payment`, and the order cron cancels a `pending_payment` order 24 hours after it (`createdAt` for orders from before), so a buyer who retries a failed payment on an old order through `pending_payment` is not cancelled at the next run; `created` still counts from `createdAt`. The Telebirr funding's transaction-audit `payment_verified` row is keyed by `paymentVerifiedAt` and written once, and a redelivery of the same payment writes it when the first delivery did not, in every order status. No client change: the apps ignore the new field, and the current apps never send `pending_payment` (older ones do). (1.19.0 is FUP-20's, in flight.)
 
 - **1.18.0 (2026-10-17)**: Contact between the parties (ESC-48): `contactOpen` on every order read and the parties' phones to a party of an open order (`accepted` to `settled` and `disputed`, no admin override refund), resolved from the users table at read time; contact closed before the farmer's accept and again after `cancelled`, `rejected` or `dispute_resolved`; a buyer's transport-failure cancel of an order whose contact had opened records the fraud signal `CONTACT_THEN_TRANSPORT_CANCEL`; order detail gets the Contact section.
