@@ -9,6 +9,7 @@ import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
 import 'package:wereda_connect/features/buyer/domain/services/base_matching_service.dart';
 import 'package:wereda_connect/features/buyer/domain/services/match_scorer.dart';
 import 'package:wereda_connect/shared/services/place_normalizer.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 
 /// On-device matching service for buyer intents.
 ///
@@ -124,6 +125,12 @@ class MatchingService extends BaseMatchingService {
     DateTime? neededByDate,
   }) async {
     final now = DateTime.now().toUtc();
+    // FUP-85: compare by Ethiopia calendar day, not by instant. A trip's
+    // departureDate is stored as the instant of local midnight, so by
+    // mid-morning it is already "in the past" and the old instant filter
+    // dropped a trip leaving the same day. Keep it eligible until Ethiopia
+    // midnight.
+    final todayStart = startOfDayInEthiopia(now);
     final fromKey = normalizeWoreda(listing.locationName);
     final toKey = normalizeWoreda(deliveryWoreda);
     final deadline = neededByDate?.toUtc();
@@ -138,12 +145,19 @@ class MatchingService extends BaseMatchingService {
     final candidates = await _isar.trips
         .filter()
         .statusEqualTo(TripStatus.open)
-        .departureDateGreaterThan(now)
+        .departureDateGreaterThan(
+          todayStart.subtract(const Duration(microseconds: 1)),
+        )
         .capacityGreaterThan(quantityNeeded - 0.01) // inclusive >=
         .sortByPricePerQuintal()
         .findAll();
 
     return candidates.where((trip) {
+      // FUP-85: drop only trips whose departure day is before today in
+      // Ethiopia; a trip leaving today stays eligible all day.
+      if (startOfDayInEthiopia(trip.departureDate).isBefore(todayStart)) {
+        return false;
+      }
       // Date-fit: drop trips departing after the buyer's deadline. This
       // compares DEPARTURE (not arrival) to the deadline — a proxy, since
       // trips carry no transit-time estimate; refine if one is added.

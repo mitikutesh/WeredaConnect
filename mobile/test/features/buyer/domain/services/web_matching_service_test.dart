@@ -80,6 +80,7 @@ void main() {
     String toWoreda = 'Addis Ababa',
     double capacity = 100,
     double pricePerQuintal = 10,
+    String? departureDate,
   }) =>
       {
         'tripId': tripId,
@@ -88,10 +89,11 @@ void main() {
         // ESC-48: GET /trips sends a buyer no truckerPhone.
         'fromWoreda': fromWoreda,
         'toWoreda': toWoreda,
-        'departureDate': DateTime.now()
-            .toUtc()
-            .add(const Duration(days: 2))
-            .toIso8601String(),
+        'departureDate': departureDate ??
+            DateTime.now()
+                .toUtc()
+                .add(const Duration(days: 2))
+                .toIso8601String(),
         'capacity': capacity,
         'pricePerQuintal': pricePerQuintal,
         'status': 'open',
@@ -215,6 +217,42 @@ void main() {
     );
     // ESC-48: no number reaches a buyer before an order; the field stays empty.
     expect(results.single.suggestedTrips.single.truckerPhone, isEmpty);
+  });
+
+  test('FUP-85: a trip departing today is still suggested later the same day',
+      () async {
+    // Parity with the Isar MatchingService: a trip leaving today stores its
+    // departureDate as the instant of Ethiopia local midnight (UTC+3), already
+    // in the past by mid-morning. It must stay eligible until Ethiopia
+    // midnight; a trip that left yesterday is dropped.
+    final nowEat = DateTime.now().toUtc().add(const Duration(hours: 3));
+    final todayStart = DateTime.utc(nowEat.year, nowEat.month, nowEat.day)
+        .subtract(const Duration(hours: 3));
+    final yesterdayStart = todayStart.subtract(const Duration(days: 1));
+
+    stubCrops([cropDto(cropId: 'wheat-1')]);
+    stubTrips([
+      tripDto(
+        tripId: 'trip-today',
+        fromWoreda: 'Adama',
+        departureDate: todayStart.toIso8601String(),
+      ),
+      tripDto(
+        tripId: 'trip-yesterday',
+        fromWoreda: 'Adama',
+        departureDate: yesterdayStart.toIso8601String(),
+      ),
+    ]);
+
+    final results = await service.matchListingsForIntent(
+      intent(deliveryWoreda: 'Addis Ababa'),
+    );
+
+    expect(
+      results.single.suggestedTrips.map((t) => t.tripId),
+      ['trip-today'],
+      reason: 'today stays eligible all day; a past day is dropped',
+    );
   });
 
   test('refreshMatchCounts persists the eligible candidate count', () async {
