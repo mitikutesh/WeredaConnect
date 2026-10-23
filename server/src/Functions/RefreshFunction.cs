@@ -24,6 +24,9 @@ public class RefreshFunction
     private readonly IUserRepository? _userRepository;
     private readonly IRateLimitService? _rateLimitService;
 
+    // FRD-08: the suspended-profile refusal is a fraud signal (weight 0). Null without FRAUD_SIGNALS_TABLE.
+    private readonly IFraudDetectionService? _fraudService;
+
     /// <summary>
     /// Default constructor for Lambda runtime.
     /// </summary>
@@ -42,18 +45,25 @@ public class RefreshFunction
         var dynamoDb = new AmazonDynamoDBClient();
         _authService = new CognitoAuthService(cognito, clientId);
         _userRepository = new UserRepository(dynamoDb, usersTable);
-        _rateLimitService = new RateLimitService(new RateLimitRepository(dynamoDb, rateLimitTable));
+        var rateLimitRepository = new RateLimitRepository(dynamoDb, rateLimitTable);
+        _rateLimitService = new RateLimitService(rateLimitRepository);
+
+        var fraudSignalsTable = Environment.GetEnvironmentVariable("FRAUD_SIGNALS_TABLE");
+        _fraudService = string.IsNullOrEmpty(fraudSignalsTable)
+            ? null
+            : new FraudDetectionService(dynamoDb, "", fraudSignalsTable, rateLimitRepository);
     }
 
     /// <summary>
     /// Constructor for testing.
     /// </summary>
     public RefreshFunction(ICognitoAuthService authService, IUserRepository? userRepository = null,
-        IRateLimitService? rateLimitService = null)
+        IRateLimitService? rateLimitService = null, IFraudDetectionService? fraudService = null)
     {
         _authService = authService ?? throw new ArgumentNullException(nameof(authService));
         _userRepository = userRepository;
         _rateLimitService = rateLimitService;
+        _fraudService = fraudService;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -126,6 +136,7 @@ public class RefreshFunction
                 AuditLogger.LogSecurity("REFRESH_BLOCKED", userId: user.UserId, detail: "suspended",
                     correlationId: AuditLogger.GetCorrelationId(request), outcome: "failure",
                     sourceIp: AuditLogger.GetSourceIp(request));
+                await TryRecordSuspendedTokenUseAsync(user.UserId, context);
                 return LambdaResponse.Error(403, "AUTH_025",
                     "This account has been suspended. Please contact support.");
             }
@@ -143,5 +154,30 @@ public class RefreshFunction
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.RefreshResponse);
+    }
+
+    /// <summary>
+    /// FRD-08: weight 0, so it never moves the score. The app refreshes on its own after a
+    /// suspension, and an unsuspended user must not carry it; the admin still sees the account
+    /// kept trying. Best-effort: the AUTH_025 answer is the same whether the write works or not.
+    /// </summary>
+    private async Task TryRecordSuspendedTokenUseAsync(string userId, ILambdaContext context)
+    {
+        if (_fraudService == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _fraudService.RecordFraudSignalAsync(
+                userId, FraudDetectionService.SuspendedTokenUseSignal, null, "user",
+                "AUTH_025: a refresh token of a suspended profile was refused.");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Failed to record fraud signal {FraudDetectionService.SuspendedTokenUseSignal} for user {userId}: [{ex.GetType().Name}]");
+        }
     }
 }
