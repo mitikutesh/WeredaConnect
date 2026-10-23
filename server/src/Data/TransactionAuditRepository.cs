@@ -34,6 +34,35 @@ public sealed class TransactionAuditRepository : ITransactionAuditRepository
     /// <inheritdoc />
     public async Task AppendAsync(Dictionary<string, object> entry)
     {
+        await _dynamoDb.PutItemAsync(new PutItemRequest
+        {
+            TableName = _tableName,
+            Item = ToItem(entry)
+        });
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> AppendIfAbsentAsync(Dictionary<string, object> entry)
+    {
+        try
+        {
+            await _dynamoDb.PutItemAsync(new PutItemRequest
+            {
+                TableName = _tableName,
+                Item = ToItem(entry),
+                // Still append-only: an existing row with this key is never overwritten.
+                ConditionExpression = "attribute_not_exists(transactionId)"
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    private static Dictionary<string, AttributeValue> ToItem(Dictionary<string, object> entry)
+    {
         var item = new Dictionary<string, AttributeValue>();
         foreach (var kvp in entry)
         {
@@ -44,11 +73,7 @@ public sealed class TransactionAuditRepository : ITransactionAuditRepository
             item[kvp.Key] = DynamoDbHelper.ToAttributeValue(kvp.Value);
         }
 
-        await _dynamoDb.PutItemAsync(new PutItemRequest
-        {
-            TableName = _tableName,
-            Item = item
-        });
+        return item;
     }
 
     /// <inheritdoc />
