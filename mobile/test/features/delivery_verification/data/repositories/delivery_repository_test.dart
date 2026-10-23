@@ -571,6 +571,88 @@ void main() {
       });
     }
 
+    // FUP-18: create and confirm used to queue a `cropListing` update the
+    // server cannot route (resent on every reconnect) and flip the local copy
+    // of the farmer's listing. Only the delivery op is queued now; the
+    // listing is left to the next crop pull.
+    group('listing side effect (FUP-18)', () {
+      final listingCreatedAt = DateTime.parse('2026-10-09T08:00:00Z');
+
+      Future<void> seedListing(String listingId) => isar.writeTxn(() async {
+            await isar.cropListings.put(
+              CropListing()
+                ..listingId = listingId
+                ..farmerId = 'farmer-001'
+                ..cropType = 'teff'
+                ..quantity = 10.0
+                ..pricePerKg = 25.0
+                ..location = (LatLng()
+                  ..latitude = 9.0
+                  ..longitude = 38.7)
+                ..description = 'Teff'
+                ..locationName = 'Bishoftu'
+                ..status = ListingStatus.active
+                ..createdAt = listingCreatedAt
+                ..updatedAt = listingCreatedAt
+                ..version = 3,
+            );
+          });
+
+      Future<void> expectListingUntouched(String listingId) async {
+        final listing = await isar.cropListings
+            .filter()
+            .listingIdEqualTo(listingId)
+            .findFirst();
+        expect(listing!.status, ListingStatus.active);
+        expect(listing.version, 3);
+        expect(listing.updatedAt.toUtc(), listingCreatedAt);
+      }
+
+      test('createDelivery queues only the delivery create', () async {
+        await seedListing('listing-001');
+
+        await repository.createDelivery(
+          tripId: 'trip-001',
+          orderId: 'order-test-001',
+          listingId: 'listing-001',
+          farmerId: 'farmer-001',
+          farmerName: 'Abebe',
+          truckerId: 'trucker-001',
+          truckerName: 'Dawit',
+          buyerId: 'buyer-001',
+          buyerName: 'Sara',
+          qrToken: 'qr-token',
+        );
+
+        final ops = await isar.syncOperations.where().findAll();
+        expect(ops, hasLength(1));
+        expect(ops.single.entityType, 'delivery');
+        expect(ops.single.action, 'create');
+        await expectListingUntouched('listing-001');
+      });
+
+      test('confirmDelivery queues only the delivery update', () async {
+        final delivery =
+            await _insertTestDelivery(isar, status: DeliveryStatus.pickedUp);
+        await seedListing(delivery.listingId);
+
+        await repository.confirmDelivery(
+          deliveryId: delivery.deliveryId,
+          buyerId: 'buyer-001',
+        );
+
+        final ops = await isar.syncOperations.where().findAll();
+        expect(ops, hasLength(1));
+        expect(ops.single.entityType, 'delivery');
+        expect(ops.single.action, 'update');
+        expect(
+          jsonDecode(ops.single.data),
+          {'status': 'delivered', 'version': 1},
+        );
+        await expectListingUntouched(delivery.listingId);
+      });
+    });
+
     test('cancelDelivery of a cancelled delivery is a no-op', () async {
       final delivery =
           await _insertTestDelivery(isar, status: DeliveryStatus.cancelled);

@@ -15,6 +15,13 @@ public interface ITransactionAuditRepository
     /// <summary>Append one immutable audit entry.</summary>
     Task AppendAsync(Dictionary<string, object> entry);
 
+    /// <summary>
+    /// ESC-47: append an entry whose key (<c>transactionId</c> + <c>timestamp</c>) is deterministic,
+    /// only if no entry with that key exists. Returns false when it already exists, so a repair
+    /// can re-ensure an audit row without writing it twice.
+    /// </summary>
+    Task<bool> AppendIfAbsentAsync(Dictionary<string, object> entry);
+
     /// <summary>All events for a transaction (PK), oldest first.</summary>
     Task<List<Dictionary<string, object>>> GetByTransactionAsync(string transactionId);
 

@@ -52,6 +52,15 @@ class SyncOperation {
 
   /// Timestamp when operation was created (UTC)
   late DateTime createdAt;
+
+  /// True once the server rejected this operation for good AND the local
+  /// row it changed was put back to the server's view or removed
+  /// (`SyncQueue.markRevertedFor`, sync-protocol.md 1.17.0). Such an
+  /// operation leaves the "Sync failed" count: nothing is left to retry or
+  /// act on. Rows written by earlier app versions read as false, but a query
+  /// filter sees them as null: match "not reverted" with
+  /// `not().revertedEqualTo(true)`.
+  bool reverted = false;
 }
 
 /// Status of a sync operation
