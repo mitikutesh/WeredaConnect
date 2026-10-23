@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.15.0
+1.20.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -165,7 +165,7 @@ When the client receives `status: "conflict"`:
 
 These rules must always hold:
 
-1. **No data loss.** An operation in the client's local queue is never silently dropped. It either succeeds, conflicts (with resolution), errors (with retry), or is rejected for good, in which case the client undoes its local change and tells the user why (1.10.0).
+1. **No data loss.** An operation in the client's local queue is never silently dropped. It either succeeds, conflicts (with resolution), errors (with retry), or is rejected for good, in which case the client undoes its local change and tells the user why (1.10.0). One exception: a legacy `cropListing` operation, which the user never made and the server never accepted, is removed (1.20.0, Legacy listing side effect).
 2. **Idempotent retries.** Sending the same `idempotencyKey` twice from the same caller produces the same result. Another user's key never affects your operations.
 3. **Monotonic versions.** Entity versions only increase. A version number is never reused or decremented.
 4. **Offline queue persistence.** The client's sync queue survives app restarts and device reboots (Isar database).
@@ -430,10 +430,33 @@ times) and keep their local copy.
 
 ---
 
+## Legacy listing side effect (1.20.0, FUP-18)
+
+Mobile builds before 1.20.0 queued a second operation next to two delivery operations: a listing
+`update` with `entityType: "cropListing"` (status `reserved` when the trucker created a delivery,
+`sold` when the buyer confirmed one), and flipped their local copy of the listing the same way. The
+server routes `crop_listing`, not `cropListing`. It answers `Unsupported entity type: 'cropListing'.`,
+an unprefixed error, so the client sent it three times per sync and `retryFailed` put it back on
+every reconnect, without end. Spelled right it would still be refused with `CROP_UNAUTHORIZED`: the
+trucker and the buyer do not own the listing. The listing's stock belongs to the server: funding
+takes the ordered quantity off and a listing at 0 becomes `reserved` (`order-lifecycle.md`, the
+`funded` transition).
+
+| | Mobile client | Web client |
+|---|---|---|
+| Delivery create (trucker) and confirm (buyer, self-pickup included) | Only the delivery operation is queued. The local listing row is not touched; the next crop pull shows the server's listing. | Unchanged: it never sent a listing operation. |
+| A `cropListing` operation an older build left in the queue | Removed at app start, whatever its status, before the sync executor runs: not sent, not counted as failed, not announced. While it was queued it kept its listing row out of the crop pull's stale delete, so the next pull now brings back the server's view (or drops a listing that is off the market). | Nothing is queued on web. |
+
+No server change: the server never applied a `cropListing` operation. Older builds keep sending
+theirs until they update, and the server answers each the same way.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.20.0 | 2026-10-23 | Legacy listing side effect (FUP-18): mobile no longer queues a `cropListing` update on delivery create and confirm (the server cannot route it and refuses non-owners anyway) nor flips its local listing copy; `cropListing` operations already queued are removed at app start, the one exception to invariant 1; no server change |
 | 1.15.0 | 2026-10-17 | Message contact refusal (ESC-48): `MESSAGE_CONTACT_LOCKED` for a message into a `crop` or `trip` thread, or into an `order` or `delivery` thread whose order's contact is not open; permanent, the mobile client removes its local copy and explains it in en, am and om; a refused resend of a message the sender already stored answers `duplicate`; message rows in `/sync` data carry no phone; delivery rows in `/sync` data carry no phone (`delivery-verification-api.md` 1.15.0) |
 | 1.14.0 | 2026-10-17 | Delivery dispute step-up fails closed (FUP-26): when the order (or a legacy delivery's `DeliveryIndex` escrow) that sizes the step-up cannot be read, the dispute answers `DELIVERY_DISPUTE_RETRY` before the freeze and nothing is written (it was let through without the step-up); a missing order, or a total that is missing, unreadable, zero or negative, answers `AUTH_040` to a stale session at any amount; clients unchanged (`DELIVERY_DISPUTE_RETRY` retried, `AUTH_040` kept pending) |
 | 1.13.0 | 2026-10-10 | Order cancel refusal (ESC-06): `ORDER_CANCEL_NOT_ALLOWED` is sent for a buyer cancel of an `accepted` order before its pickup deadline, after pickup or while its money is being settled; permanent (server-clock dependent, never resent), its own localized message on mobile and web; the cancel's read and write failures are unprefixed and retried; a delivery create on an order that no longer takes one is refused with `DELIVERY_VALIDATION`; order rows carry `pickupDeadlineAt` |
@@ -452,5 +475,5 @@ times) and keep their local copy.
 
 ---
 
-**Last Updated**: 2026-10-17
-**Version**: 1.15.0
+**Last Updated**: 2026-10-23
+**Version**: 1.20.0

@@ -102,6 +102,14 @@ Future<void> runMobile({
     debugPrint('[SYNC] migration failed (non-fatal): $e');
   }
 
+  // FUP-18: older builds queued a `cropListing` op on delivery create and
+  // confirm that the server cannot route; it was resent on every reconnect.
+  try {
+    await syncQueue.dropLegacyCropListingOperations();
+  } on Object catch (e) {
+    debugPrint('[SYNC] legacy cropListing cleanup failed (non-fatal): $e');
+  }
+
   // ESC-48: drop counterpart phone numbers cached by earlier versions.
   try {
     await ContactPhonePurge.run(
