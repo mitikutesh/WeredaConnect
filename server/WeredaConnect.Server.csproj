@@ -55,7 +55,7 @@
     <!-- ❌ BANNED: Microsoft.AspNetCore.Authentication.JwtBearer -->
     <!-- ✅ USE: System.IdentityModel.Tokens.Jwt -->
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.3.0" />
-    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.3.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.23.0" />
 
     <!-- AWS Cognito -->
     <PackageReference Include="AWSSDK.CognitoIdentityProvider" Version="3.7.505.13" />
