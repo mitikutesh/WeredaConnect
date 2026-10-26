@@ -1018,6 +1018,8 @@ describe('ApiStack (prod security)', () => {
       // The mock Fayda provider (faydaMode 'mock') must never be deployed beside prod.
       expect(env).not.toHaveProperty('FAYDA_MOCK');
       expect(env).not.toHaveProperty('FAYDA_MOCK_WEB_REDIRECT_URIS');
+      expect(env).not.toHaveProperty('FAYDA_SANDBOX');
+      expect(env).not.toHaveProperty('FAYDA_SANDBOX_REDIRECT_URI');
     }
   });
 
@@ -1091,6 +1093,8 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
         .Properties?.Environment?.Variables ?? {};
       expect(env).not.toHaveProperty('FAYDA_MOCK');
       expect(env).not.toHaveProperty('FAYDA_MOCK_WEB_REDIRECT_URIS');
+      expect(env).not.toHaveProperty('FAYDA_SANDBOX');
+      expect(env).not.toHaveProperty('FAYDA_SANDBOX_REDIRECT_URI');
     }
   });
 

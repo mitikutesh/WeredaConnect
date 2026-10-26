@@ -626,6 +626,8 @@ All functions receive:
 Dev-only flags (blocked in prod by CDK guard):
 - `DEV_FAYDA_BYPASS=true` — skip real Fayda verification
 - `TELEBIRR_MOCK=true` — use mock Telebirr gateway
+- `FAYDA_MOCK=true`: the mock Fayda eSignet provider is in use (`faydaMode: 'mock'`); also unlocks the web callback pages in `FAYDA_MOCK_WEB_REDIRECT_URIS`
+- `FAYDA_SANDBOX=true` + `FAYDA_SANDBOX_REDIRECT_URI`: the real VeriFayda sandbox with its shared test client (`-c faydaMode=sandbox`); the provider is given the test client's redirect and a local relay forwards the callback (`specs/features/fayda-mock-server.md`, "Sandbox mode")
 
 ---
 

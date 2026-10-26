@@ -1,7 +1,7 @@
 # Authentication API Contract
 
 ## Version
-2.12.1
+2.12.2
 
 ## Parties
 - **Mobile** (client) -- registers users, authenticates online/offline, manages cached tokens
@@ -880,6 +880,18 @@ generated mock identity could not be chosen again otherwise. The hint is advice 
 mock only (the link rules below still apply), `/auth/fayda-start` never sends one, live
 Fayda never receives one, and clients treat `authorizeUrl` as opaque. The app sends its
 `redirectUri` on start. Per-IP cap 30 per 5 minutes.
+**Sandbox mode** (2.12.2, dev only: `FAYDA_SANDBOX=true` with `FAYDA_SANDBOX_REDIRECT_URI` on the
+verify Lambda, refused in prod like `FAYDA_MOCK`): the server talks to the real VeriFayda
+sandbox with its shared test client, whose only registered redirect is
+`http://localhost:3000/callback`. The authorize URL and the token request carry that
+redirect, and a relay on the tester's machine forwards the callback (`code`, `state` or
+`error`) to the app's own callback. Nothing changes for clients: they send their own
+`redirectUri` on start and on verify / link, the state row stores it (next to the redirect
+the provider was given, which the token request repeats), the web callback pages are
+accepted as against the mock, and `authorizeUrl` stays opaque. No `login_hint`
+is sent. The ID token's `iss` may be the issuer with the `/v1/esignet` servlet path, as
+live eSignet signs it (2.12.2, applies to live Fayda too). Runbook:
+`specs/features/fayda-mock-server.md`, "Sandbox mode".
 Linking a Fayda ID held by another account is `409 FAYDA_004`; linking with a matching
 Fayda phone also sets `isPhoneVerified`.
 
@@ -983,6 +995,7 @@ channel that the listing text rule (`crop-listing-api.md` 1.4.0 rule 6b, FUP-49)
 |---------|------|--------|
 | 1.0.0 | 2026-02-12 | Initial contract: registration, OTP, login, refresh, logout, offline auth, rate limits |
 | 2.0.0 | 2026-03-02 | Replace SMS OTP with Fayda OIDC: add `POST /auth/fayda-verify`, remove `POST /auth/verify-otp`, registration returns tokens directly, add FAYDA_001-004 error codes, remove AUTH_009-012 |
+| 2.12.2 | 2026-10-26 | Sandbox mode, dev only (`FAYDA_SANDBOX=true` + `FAYDA_SANDBOX_REDIRECT_URI`): the server runs against the real VeriFayda sandbox with its shared test client; the authorize URL and the token request carry the test client's registered redirect (`http://localhost:3000/callback`) and a local relay forwards the callback to the app's own redirect, which clients keep sending and the state row keeps storing; web callback pages accepted as against the mock; no `login_hint`. Live-eSignet fixes for every mode: the ID token and userinfo `iss` may carry the `/v1/esignet` servlet path, and the client assertion header has no `kid` (eSignet answers `invalid_client` to one); a client JWK whose `dp`, `dq` or `qi` disagree with `d`, `p`, `q` (Fayda's published test key does) is repaired on import. Request and response shapes unchanged |
 | 2.12.1 | 2026-10-26 | Mock provider only (`FAYDA_MOCK=true`): `POST /user/fayda-start` adds `login_hint` (`sub:<faydaId>`, else `phone:<account phone>`) to the authorize URL so the mock offers the account's own identity first; an account registered with the mock's "Generate new identity" could never pass `AUTH_041` or re-verify before (every chooser option was another `sub`, `FAYDA_005`). Advice to the mock only: the 2.3.0 link rules are unchanged, `/auth/fayda-start` and live Fayda never carry it, request and response shapes unchanged |
 | 2.12.0 | 2026-10-23 | No phone number in profile text (FUP-52): register refuses a `displayName`, `woreda` or `companyName` that holds an Ethiopian mobile number with `400 AUTH_027` (`field` = the first such field, the message lists all), same detector as listing text (`crop-listing-api.md` 1.4.0 rule 6b); checked after the other field rules and before `AUTH_021`, the IP cap, the Fayda token burn and any write; the Fayda `fullName` is never screened; stored profiles are not re-validated; the app runs the same check on the form and explains `AUTH_027` in en, am and om |
 | 2.11.0 | 2026-10-23 | Account deletion (ACC-02, `account-deletion.md` 1.2.0): login and refresh of a `cognito_pending` or `completed` account answer `401 AUTH_014` (refresh also revokes the token), `in_progress` logs in; `/user/fayda-start` and `/user/fayda-link` answer `410 ACCOUNT_004` for a deleting or deleted account before any state is read (`503 AUTH_008` when the account cannot be read); register refuses the display name `Deleted user` with `AUTH_007`; profile writes skip a deleting or deleted row |
@@ -999,4 +1012,4 @@ channel that the listing text rule (`crop-listing-api.md` 1.4.0 rule 6b, FUP-49)
 ---
 
 **Last Updated**: 2026-10-26
-**Version**: 2.12.1
+**Version**: 2.12.2

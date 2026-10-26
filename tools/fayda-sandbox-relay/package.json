@@ -1,0 +1,16 @@
+{
+  "name": "weredaconnect-fayda-sandbox-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local relay from the VeriFayda sandbox test client's redirect (localhost:3000/callback) to the WeredaConnect app callback (dev only).",
+  "main": "relay.js",
+  "scripts": {
+    "start": "node relay.js",
+    "build": "node --check relay.js && node --check sandbox-login.js",
+    "login": "node sandbox-login.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

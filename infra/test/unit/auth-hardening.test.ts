@@ -8,8 +8,11 @@ import { environments, EnvironmentConfig } from '../../lib/config/environments';
 
 const devConfig = environments['dev'];
 
-function buildApi(overrides: Partial<EnvironmentConfig> = {}): { stack: ApiStack; template: Template } {
-  const app = new cdk.App();
+function buildApi(
+  overrides: Partial<EnvironmentConfig> = {},
+  context?: Record<string, string>,
+): { stack: ApiStack; template: Template } {
+  const app = new cdk.App({ context });
   const dbStack = new DatabaseStack(app, 'AhDb', {
     env: { account: '123456789012', region: devConfig.region },
     envConfig: devConfig,
@@ -129,5 +132,99 @@ describe('ApiStack auth hardening (prod-like)', () => {
       expect(String(propsOf(resource).FunctionName)).not.toContain('fayda-mock');
     }
     Annotations.fromStack(stack).hasError('*', Match.stringLikeRegexp("faydaMode 'mock' is not allowed"));
+  });
+});
+
+describe('ApiStack Fayda sandbox mode (dev)', () => {
+  // The shared VeriFayda sandbox test client from environments.ts (public client_id).
+  const sandboxClientId = 'aQ7xN2kLm9_Vp4RzT8cY-hW3sJ6FdE0uXbKqP1';
+  const verifyEnv = (template: Template): Props => {
+    const fn = Object.values(template.findResources('AWS::Lambda::Function'))
+      .find((r) => String(propsOf(r).FunctionName) === 'wereda-connect-dev-auth-fayda-verify');
+    return ((propsOf(fn!).Environment as { Variables?: Props } | undefined)?.Variables ?? {}) as Props;
+  };
+
+  test('sandbox: no mock provider, the real eSignet issuer, the shared test client and the relay redirect', () => {
+    const { template } = buildApi({ faydaMode: 'sandbox' });
+
+    template.resourceCountIs('AWS::Lambda::Url', 0);
+    for (const resource of Object.values(template.findResources('AWS::Lambda::Function'))) {
+      expect(String(propsOf(resource).FunctionName)).not.toContain('fayda-mock');
+    }
+    template.hasResourceProperties('AWS::SSM::Parameter', {
+      Name: '/wereda-connect-dev/fayda/client-id',
+      Value: sandboxClientId,
+    });
+    template.hasResourceProperties('AWS::SSM::Parameter', {
+      Name: '/wereda-connect-dev/fayda/issuer-url',
+      Value: 'https://esignet.ida.fayda.et',
+    });
+    const env = verifyEnv(template);
+    expect(env.FAYDA_SANDBOX).toBe('true');
+    expect(env.FAYDA_SANDBOX_REDIRECT_URI).toBe('http://localhost:3000/callback');
+    expect(String(env.FAYDA_MOCK_WEB_REDIRECT_URIS)).toContain('http://localhost:8080/fayda-callback.html');
+    expect(env).not.toHaveProperty('FAYDA_MOCK');
+    // The RP private key stays the seeded parameter the operator fills with the test client's key.
+    expect(env.FAYDA_CLIENT_PRIVATE_KEY_ARN).toBe('/wereda-connect-dev/fayda/client-private-key');
+  });
+
+  test('sandbox: the mode is switched per deploy with -c faydaMode', () => {
+    const { template } = buildApi({}, { faydaMode: 'sandbox' });
+    expect(verifyEnv(template).FAYDA_SANDBOX).toBe('true');
+
+    const { template: mock } = buildApi({ faydaMode: 'sandbox' }, { faydaMode: 'mock' });
+    expect(verifyEnv(mock).FAYDA_MOCK).toBe('true');
+    expect(verifyEnv(mock)).not.toHaveProperty('FAYDA_SANDBOX');
+  });
+
+  test('sandbox: an unknown -c faydaMode is a synth error (the template itself keeps the config mode)', () => {
+    const { stack, template } = buildApi({}, { faydaMode: 'staging-sandbox' });
+    Annotations.fromStack(stack).hasError('*', Match.stringLikeRegexp('is not one of mock, sandbox, live'));
+    expect(verifyEnv(template).FAYDA_MOCK).toBe('true');
+  });
+
+  test('sandbox without a configured test client id is a synth error', () => {
+    const { stack } = buildApi({ faydaMode: 'sandbox', faydaSandboxClientId: undefined });
+    Annotations.fromStack(stack).hasError('*', Match.stringLikeRegexp('needs faydaSandboxClientId'));
+  });
+
+  const noDevProvider = (template: Template): void => {
+    for (const resource of Object.values(template.findResources('AWS::Lambda::Function'))) {
+      expect(String(propsOf(resource).FunctionName)).not.toContain('fayda-mock');
+      const env = (propsOf(resource).Environment as { Variables?: Props } | undefined)?.Variables ?? {};
+      expect(env).not.toHaveProperty('FAYDA_SANDBOX');
+      expect(env).not.toHaveProperty('FAYDA_SANDBOX_REDIRECT_URI');
+      expect(env).not.toHaveProperty('FAYDA_MOCK');
+    }
+  };
+
+  test('staging: -c faydaMode=sandbox (or mock) is refused and deploys no dev provider', () => {
+    for (const mode of ['sandbox', 'mock']) {
+      // The real staging config has no faydaMode; clear the dev base's 'mock' explicitly.
+      const { stack, template } = buildApi({ ...environments['staging'], faydaMode: undefined }, { faydaMode: mode });
+      Annotations.fromStack(stack).hasError('*', Match.stringLikeRegexp('context override is only allowed in dev'));
+      noDevProvider(template);
+    }
+  });
+
+  test('staging: faydaMode sandbox in the config is refused too', () => {
+    const { stack, template } = buildApi({ ...environments['staging'], faydaMode: 'sandbox' });
+    Annotations.fromStack(stack).hasError('*', Match.stringLikeRegexp("faydaMode 'sandbox' is not allowed"));
+    noDevProvider(template);
+  });
+
+  test('dev: -c faydaMode=live without a configured faydaClientId is a synth error', () => {
+    const { stack } = buildApi({}, { faydaMode: 'live' });
+    Annotations.fromStack(stack).hasError('*', Match.stringLikeRegexp("faydaMode 'live' needs faydaClientId"));
+  });
+
+  test('sandbox in prod: refused, and no sandbox flag on any Lambda', () => {
+    const { stack, template } = buildApi({ isProd: true, faydaMode: 'sandbox' });
+    Annotations.fromStack(stack).hasError('*', Match.stringLikeRegexp("faydaMode 'sandbox' is not allowed"));
+    for (const resource of Object.values(template.findResources('AWS::Lambda::Function'))) {
+      const env = (propsOf(resource).Environment as { Variables?: Props } | undefined)?.Variables ?? {};
+      expect(env).not.toHaveProperty('FAYDA_SANDBOX');
+      expect(env).not.toHaveProperty('FAYDA_SANDBOX_REDIRECT_URI');
+    }
   });
 });

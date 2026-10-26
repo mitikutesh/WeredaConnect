@@ -723,23 +723,65 @@ export class ApiStack extends cdk.Stack {
       description: "Escrow auto-refund timeout in days",
     });
 
-    // ─── Fayda identity provider: mock (dev) or live, switched by config ─
-    // The server code is identical in both modes; only the issuer, client id
-    // and client private key it reads from SSM differ. faydaMode 'mock' deploys
-    // the mock eSignet provider (tools/fayda-mock) and points these values at it.
-    // Switching to live Fayda: specs/features/fayda-mock-server.md.
-    // The construct refuses isProd, and ProductionBypassGuard refuses its
-    // FAYDA_MOCK marker, so the mock can never sit beside production.
-    if (envConfig.faydaMode === "mock" && envConfig.isProd) {
+    // ─── Fayda identity provider: mock (dev), sandbox (dev) or live, by config ─
+    // The server code is identical in every mode; only the issuer, client id and
+    // client private key it reads from SSM differ, plus two dev-only env flags on
+    // the verify Lambda. faydaMode 'mock' deploys the mock eSignet provider
+    // (tools/fayda-mock) and points these values at it. 'sandbox' points them at
+    // the real VeriFayda sandbox with its shared test client, whose registered
+    // redirect (http://localhost:3000/callback) a local relay forwards to the app
+    // (tools/fayda-sandbox-relay). A deploy overrides the config with
+    // `-c faydaMode=mock|sandbox|live`. Runbook: specs/features/fayda-mock-server.md.
+    // The construct refuses isProd, and ProductionBypassGuard refuses the FAYDA_MOCK
+    // and FAYDA_SANDBOX markers, so neither dev provider can sit beside production.
+    const isDev = envConfig.name === "dev" && !envConfig.isProd;
+    const faydaModeContext = this.node.tryGetContext("faydaMode") as unknown;
+    let faydaMode = envConfig.faydaMode;
+    if (faydaModeContext !== undefined) {
+      if (!isDev) {
+        // Staging and prod run the reviewed config only: a one-flag deploy must never
+        // be able to put a dev provider there.
+        cdk.Annotations.of(this).addError(
+          `faydaMode context override is only allowed in dev (environment '${envConfig.name}').`,
+        );
+      } else if (faydaModeContext === "mock" || faydaModeContext === "live" || faydaModeContext === "sandbox") {
+        faydaMode = faydaModeContext;
+      } else {
+        cdk.Annotations.of(this).addError(
+          `faydaMode context '${String(faydaModeContext)}' is not one of mock, sandbox, live.`,
+        );
+      }
+    }
+    if (faydaMode === "mock" && envConfig.isProd) {
       cdk.Annotations.of(this).addError(
         "faydaMode 'mock' is not allowed in a production environment; use 'live'.",
       );
     }
-    const useFaydaMock = envConfig.faydaMode === "mock" && !envConfig.isProd;
+    // The shared sandbox test client and its key are public: dev only, never staging or prod.
+    if (faydaMode === "sandbox" && !isDev) {
+      cdk.Annotations.of(this).addError(
+        `faydaMode 'sandbox' is not allowed outside dev (environment '${envConfig.name}'); use 'live'.`,
+      );
+    }
+    if (faydaMode === "live" && !envConfig.faydaClientId) {
+      cdk.Annotations.of(this).addError(
+        "faydaMode 'live' needs faydaClientId (the client_id from the Fayda partner portal) in environments.ts.",
+      );
+    }
+    const useFaydaMock = faydaMode === "mock" && !envConfig.isProd;
+    const useFaydaSandbox = faydaMode === "sandbox" && isDev;
+    const faydaSandboxRedirectUri =
+      envConfig.faydaSandboxRedirectUri ?? "http://localhost:3000/callback";
+    if (useFaydaSandbox && !envConfig.faydaSandboxClientId) {
+      cdk.Annotations.of(this).addError(
+        "faydaMode 'sandbox' needs faydaSandboxClientId (the shared VeriFayda test client id) in environments.ts.",
+      );
+    }
     // Web app callback pages (mobile/web/fayda-callback.html). Browsers cannot open
     // the weredaconnect:// deep link, so the web app gets an https callback, but only
-    // against the mock: the real eSignet client registers the deep links alone.
-    const faydaMockWebRedirectUris = useFaydaMock
+    // against a dev provider (mock or sandbox): the real eSignet client registers the
+    // deep links alone. In sandbox mode the local relay's target is one of these pages.
+    const faydaDevWebRedirectUris = useFaydaMock || useFaydaSandbox
       ? [
           `https://${envConfig.domain.webappSubdomain}.${envConfig.domain.zoneName}`,
           ...(envConfig.extraCorsOrigins ?? []),
@@ -756,7 +798,7 @@ export class ApiStack extends cdk.Stack {
           allowedRedirectUris: [
             "weredaconnect://fayda-callback",
             "weredaconnect://fayda-link-callback",
-            ...faydaMockWebRedirectUris,
+            ...faydaDevWebRedirectUris,
           ],
         })
       : undefined;
@@ -768,7 +810,10 @@ export class ApiStack extends cdk.Stack {
       "FaydaClientId",
       {
         parameterName: `/${prefix}/fayda/client-id`,
-        stringValue: faydaMock?.clientId ?? envConfig.faydaClientId ?? "PLACEHOLDER",
+        stringValue:
+          faydaMock?.clientId
+          ?? (useFaydaSandbox ? envConfig.faydaSandboxClientId : envConfig.faydaClientId)
+          ?? "PLACEHOLDER",
         description: "Fayda OIDC client ID — update after registration",
       },
     );
@@ -842,12 +887,21 @@ export class ApiStack extends cdk.Stack {
         FAYDA_CLIENT_PRIVATE_KEY_ARN: faydaClientPrivateKey.reference,
         FAYDA_SIGNING_SECRET_ARN: faydaSigningSecret.reference,
         ...(envConfig.name === 'dev' ? { DEV_FAYDA_BYPASS: "true" } : {}),
-        // Mock-only web callbacks. FAYDA_MOCK is refused in prod by
-        // ProductionBypassGuard, and the server ignores the list without it.
+        // Dev-provider web callbacks. FAYDA_MOCK and FAYDA_SANDBOX are refused in prod
+        // by ProductionBypassGuard, and the server ignores the list without one of them.
         ...(faydaMock
           ? {
               FAYDA_MOCK: "true",
-              FAYDA_MOCK_WEB_REDIRECT_URIS: faydaMockWebRedirectUris.join(","),
+              FAYDA_MOCK_WEB_REDIRECT_URIS: faydaDevWebRedirectUris.join(","),
+            }
+          : {}),
+        // Sandbox: the provider is given the shared test client's registered redirect
+        // while the app keeps its own (FaydaStartRequest.SandboxProviderRedirect).
+        ...(useFaydaSandbox
+          ? {
+              FAYDA_SANDBOX: "true",
+              FAYDA_SANDBOX_REDIRECT_URI: faydaSandboxRedirectUri,
+              FAYDA_MOCK_WEB_REDIRECT_URIS: faydaDevWebRedirectUris.join(","),
             }
           : {}),
       },
@@ -2359,8 +2413,9 @@ export class ApiStack extends cdk.Stack {
 }
 
 /**
- * T-SEC-01/02: CDK Aspect that scans every Lambda in the stack and errors
- * if DEV_FAYDA_BYPASS, TELEBIRR_MOCK, or DEV_OTP_BYPASS are set in a production deployment.
+ * T-SEC-01/02: CDK Aspect that scans every Lambda in the stack and errors if any
+ * dev-only flag (DEV_FAYDA_BYPASS, TELEBIRR_MOCK, DEV_OTP_BYPASS, FAYDA_MOCK,
+ * FAYDA_SANDBOX and its redirect) is set in a production deployment.
  * Attach via `cdk.Aspects.of(stack).add(new ProductionBypassGuard())`.
  */
 class ProductionBypassGuard implements cdk.IAspect {
@@ -2371,6 +2426,9 @@ class ProductionBypassGuard implements cdk.IAspect {
     // Set by the mock Fayda eSignet Lambda (tools/fayda-mock); a fake identity
     // provider must never be deployable beside production.
     "FAYDA_MOCK",
+    // The real VeriFayda sandbox with its shared, publicly known test client: dev only.
+    "FAYDA_SANDBOX",
+    "FAYDA_SANDBOX_REDIRECT_URI",
   ];
 
   visit(node: Construct): void {
