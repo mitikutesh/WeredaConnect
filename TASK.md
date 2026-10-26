@@ -329,6 +329,16 @@ Found while shipping FRD-04, ACC-02, FRD-05, ACC-03, FUP-61, FRD-08, FRD-13, FUP
 
 ---
 
+## Reported bugs (2026-10-26) - @Scope tasks
+
+Found by the user while testing on dev. IDs continue the FUP sequence so every open row stays unique.
+
+| ID | Sev | Scope | Task | Done when |
+|---|---|---|---|---|
+| FUP-118 | P2 | @Mobile @l10n | Trucker registration, Driving License step: once a license photo is taken it can only be replaced, never removed. The preview card in `role_details_screen.dart` is one `InkWell` whose tap reopens the camera; there is no Remove or Retake action, nothing says the card is tappable, and the green check badge is the only feedback. A trucker who took the wrong photo cannot return to the empty state, and on web the preview showed the broken-image icon (the picker gives a blob URL; user screenshot 2026-10-26), so they could not see what they were about to submit either. Add Remove and Retake actions on the preview (mobile and web); Remove calls `onDrivingLicenseChanged(null)` so `_drivingLicensePath` in `registration_flow.dart` clears and the existing gate disables Continue again. The photo stays local-only until F-38 sends it. Check the web preview renders the blob URL while there. | Remove and Retake on the preview on mobile and web; Continue disabled after Remove; web preview shows the photo; strings in en, am, om; widget test in `registration_flow_otp_test.dart`. |
+
+---
+
 ## Buyer Intent Matching follow-ups (2026-10-17) - @Scope tasks
 
 Decision record: `specs/features/matching-roadmap.md`, "Decision 2026-10-17: no AI in the matching engine". The engine stays deterministic; these are the non-AI gains it still owes. FCM client (roadmap deferred item #1) and reliability (ESC-30) already have their own tracking.
