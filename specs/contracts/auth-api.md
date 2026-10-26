@@ -1,7 +1,7 @@
 # Authentication API Contract
 
 ## Version
-2.12.0
+2.12.1
 
 ## Parties
 - **Mobile** (client) -- registers users, authenticates online/offline, manages cached tokens
@@ -873,8 +873,13 @@ ignored. Accepted redirects are `weredaconnect://fayda-callback` and
 `weredaconnect://fayda-link-callback`. Against the mock provider only (`FAYDA_MOCK=true` on
 the verify Lambda, refused in prod by the infra guard and at runtime by `DevBypass`), the
 web app's callback pages in `FAYDA_MOCK_WEB_REDIRECT_URIS` are also accepted (exact match,
-https or loopback http, no query). The app sends its `redirectUri` on start. Per-IP cap 30
-per 5 minutes.
+https or loopback http, no query), and `POST /user/fayda-start` puts a `login_hint` on the
+authorize URL naming the identity on the caller's account (`sub:<faydaId>`, or
+`phone:<account phone>` while it holds no Fayda ID) so the mock can offer it first; a
+generated mock identity could not be chosen again otherwise. The hint is advice to the
+mock only (the link rules below still apply), `/auth/fayda-start` never sends one, live
+Fayda never receives one, and clients treat `authorizeUrl` as opaque. The app sends its
+`redirectUri` on start. Per-IP cap 30 per 5 minutes.
 Linking a Fayda ID held by another account is `409 FAYDA_004`; linking with a matching
 Fayda phone also sets `isPhoneVerified`.
 
@@ -978,6 +983,7 @@ channel that the listing text rule (`crop-listing-api.md` 1.4.0 rule 6b, FUP-49)
 |---------|------|--------|
 | 1.0.0 | 2026-02-12 | Initial contract: registration, OTP, login, refresh, logout, offline auth, rate limits |
 | 2.0.0 | 2026-03-02 | Replace SMS OTP with Fayda OIDC: add `POST /auth/fayda-verify`, remove `POST /auth/verify-otp`, registration returns tokens directly, add FAYDA_001-004 error codes, remove AUTH_009-012 |
+| 2.12.1 | 2026-10-26 | Mock provider only (`FAYDA_MOCK=true`): `POST /user/fayda-start` adds `login_hint` (`sub:<faydaId>`, else `phone:<account phone>`) to the authorize URL so the mock offers the account's own identity first; an account registered with the mock's "Generate new identity" could never pass `AUTH_041` or re-verify before (every chooser option was another `sub`, `FAYDA_005`). Advice to the mock only: the 2.3.0 link rules are unchanged, `/auth/fayda-start` and live Fayda never carry it, request and response shapes unchanged |
 | 2.12.0 | 2026-10-23 | No phone number in profile text (FUP-52): register refuses a `displayName`, `woreda` or `companyName` that holds an Ethiopian mobile number with `400 AUTH_027` (`field` = the first such field, the message lists all), same detector as listing text (`crop-listing-api.md` 1.4.0 rule 6b); checked after the other field rules and before `AUTH_021`, the IP cap, the Fayda token burn and any write; the Fayda `fullName` is never screened; stored profiles are not re-validated; the app runs the same check on the form and explains `AUTH_027` in en, am and om |
 | 2.11.0 | 2026-10-23 | Account deletion (ACC-02, `account-deletion.md` 1.2.0): login and refresh of a `cognito_pending` or `completed` account answer `401 AUTH_014` (refresh also revokes the token), `in_progress` logs in; `/user/fayda-start` and `/user/fayda-link` answer `410 ACCOUNT_004` for a deleting or deleted account before any state is read (`503 AUTH_008` when the account cannot be read); register refuses the display name `Deleted user` with `AUTH_007`; profile writes skip a deleting or deleted row |
 | 2.10.0 | 2026-10-23 | Risk tier step-up built (FRD-04, the 2.6.0 rules): MEDIUM adds the fresh password at any amount, HIGH the Fayda login and then the password at any amount, CRITICAL refuses payments, checkouts and crop, trip and order creates with `FRAUD_ACCOUNT_HELD`; the caller's tier only, read once per request or `/sync` batch; an unreadable score or a missing fraud-signals table is LOW, a truncated read CRITICAL; `AUTH_041` text is now amount-neutral (`Confirm it's you with Fayda to continue with this payment.`); order of the checks per path |
@@ -992,5 +998,5 @@ channel that the listing text rule (`crop-listing-api.md` 1.4.0 rule 6b, FUP-49)
 
 ---
 
-**Last Updated**: 2026-10-23
-**Version**: 2.12.0
+**Last Updated**: 2026-10-26
+**Version**: 2.12.1

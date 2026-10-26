@@ -98,6 +98,31 @@ public class FaydaOidcDiscoveryTests
     }
 
     [Fact]
+    public async Task BuildAuthorizationUrl_WithLoginHint_AppendsItEscaped()
+    {
+        var service = Service(ProviderWithDiscovery());
+
+        var result = await service.BuildAuthorizationUrlAsync(
+            "weredaconnect://fayda-link-callback", "s", "n", "c", "sub:abc_123");
+
+        Assert.True(result.IsSuccess);
+        Assert.Contains("&login_hint=sub%3Aabc_123", result.Value);
+    }
+
+    [Fact]
+    public async Task BuildAuthorizationUrl_WithoutLoginHint_OmitsIt()
+    {
+        var service = Service(ProviderWithDiscovery());
+
+        foreach (var hint in new string?[] { null, "" })
+        {
+            var result = await service.BuildAuthorizationUrlAsync("weredaconnect://fayda-callback", "s", "n", "c", hint);
+            Assert.True(result.IsSuccess);
+            Assert.DoesNotContain("login_hint", result.Value);
+        }
+    }
+
+    [Fact]
     public async Task ExchangeCode_PostsVerifierToDiscoveredTokenEndpoint()
     {
         var handler = ProviderWithDiscovery();

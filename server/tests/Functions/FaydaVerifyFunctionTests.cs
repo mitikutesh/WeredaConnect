@@ -54,10 +54,16 @@ public class FaydaVerifyFunctionTests
             .Returns("mock-verification-token");
 
         // Default: the provider's authorize URL
-        _mockFayda.BuildAuthorizationUrlAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+        _mockFayda.BuildAuthorizationUrlAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(ci => AuthResult<string>.Success(
-                $"https://fayda.test/authorize?state={ci.ArgAt<string>(1)}&nonce={ci.ArgAt<string>(2)}&code_challenge={ci.ArgAt<string>(3)}"));
+                $"https://fayda.test/authorize?state={ci.ArgAt<string>(1)}&nonce={ci.ArgAt<string>(2)}&code_challenge={ci.ArgAt<string>(3)}"
+                + (ci.ArgAt<string?>(4) is { } hint ? $"&login_hint={Uri.EscapeDataString(hint)}" : "")));
     }
+
+    /// <summary>The function as deployed against the mock provider (FAYDA_MOCK=true on a dev function).</summary>
+    private FaydaVerifyFunction MockModeFunction() =>
+        new(_mockFayda, _mockRepo, _mockAuthState, _mockRateLimit,
+            Env(("FAYDA_MOCK", "true"), ("AWS_LAMBDA_FUNCTION_NAME", "wereda-connect-dev-auth-fayda-verify")));
 
     private static AuthStateEntry StateRow(string purpose, string? userId = null, string? redirect = null) => new()
     {
@@ -423,6 +429,82 @@ public class FaydaVerifyFunctionTests
         Assert.Equal(200, response.StatusCode);
         Assert.Equal("link", stored!["purpose"]);
         Assert.Equal("user-7", stored["userId"]);
+    }
+
+    // ===== fayda-start login_hint (mock provider only) =====
+
+    [Fact]
+    public async Task UserStart_WithMockAndFaydaId_HintsTheAccountIdentity()
+    {
+        _mockRepo.GetUserByIdAsync("user-7").Returns(LinkingUser() with { FaydaId = "sub-1" });
+
+        var response = await MockModeFunction().FunctionHandler(MakeRequest(null, "/user/fayda-start", userId: "user-7"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("login_hint=sub%3Asub-1", response.Body);
+        await _mockFayda.Received(1).BuildAuthorizationUrlAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), "sub:sub-1");
+    }
+
+    [Fact]
+    public async Task UserStart_WithMock_NoFaydaId_HintsTheAccountPhone()
+    {
+        _mockRepo.GetUserByIdAsync("user-7").Returns(LinkingUser());
+
+        var response = await MockModeFunction().FunctionHandler(MakeRequest(null, "/user/fayda-start", userId: "user-7"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockFayda.Received(1).BuildAuthorizationUrlAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), "phone:+251912345678");
+    }
+
+    [Fact]
+    public async Task UserStart_WithoutMock_SendsNoHint_AndReadsNoAccountForIt()
+    {
+        _mockRepo.GetUserByIdAsync("user-7").Returns(LinkingUser() with { FaydaId = "sub-1" });
+
+        var response = await _function.FunctionHandler(MakeRequest(null, "/user/fayda-start", userId: "user-7"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.DoesNotContain("login_hint", response.Body);
+        await _mockFayda.Received(1).BuildAuthorizationUrlAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), null);
+        // The deletion guard reads the row strongly consistent; the hint adds no read in live mode.
+        await _mockRepo.DidNotReceive().GetUserByIdAsync("user-7");
+    }
+
+    [Fact]
+    public async Task Start_Registration_NeverSendsHint_EvenAgainstTheMock()
+    {
+        var response = await MockModeFunction().FunctionHandler(
+            MakeRequest(new { phoneNumber = "0912345678" }, "/auth/fayda-start"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.DoesNotContain("login_hint", response.Body);
+        await _mockRepo.DidNotReceive().GetUserByIdAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task UserStart_WithMock_AccountReadFails_StillStartsWithoutHint()
+    {
+        _mockRepo.GetUserByIdAsync("user-7").Returns<UserDto?>(_ => throw new InvalidOperationException("DynamoDB down"));
+
+        var response = await MockModeFunction().FunctionHandler(MakeRequest(null, "/user/fayda-start", userId: "user-7"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.DoesNotContain("login_hint", response.Body);
+    }
+
+    [Theory]
+    [InlineData("sub-1", "+251912345678", "sub:sub-1")]
+    [InlineData("", "+251912345678", "phone:+251912345678")]
+    [InlineData("", "", null)]
+    public void MockLoginHint_PrefersTheFaydaId_ThenThePhone_ElseNothing(string faydaId, string phone, string? expected)
+    {
+        var user = LinkingUser() with { FaydaId = faydaId.Length == 0 ? null : faydaId, PhoneNumber = phone };
+
+        Assert.Equal(expected, FaydaStartRequest.MockLoginHint(user));
+        Assert.Null(FaydaStartRequest.MockLoginHint(null));
     }
 
     // ===== fayda-link (post-registration) =====

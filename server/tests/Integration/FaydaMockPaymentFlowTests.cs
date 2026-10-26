@@ -209,10 +209,11 @@ public class FaydaMockPaymentFlowTests : IClassFixture<FaydaMockProvider>
                 { "version", "2" }
             }));
 
+        // As deployed against the mock: FAYDA_MOCK=true lets the start hint the account's identity.
         _fayda = new FaydaVerifyFunction(
             new FaydaOidcService(new HttpClient(), FaydaMockProvider.ClientId, provider.ReadClientPrivateKey,
                 provider.IssuerUrl, "flowtest-signing-secret-at-least-32-bytes-long"),
-            _userRepo, authState);
+            _userRepo, authState, env: key => key == "FAYDA_MOCK" ? "true" : null);
 
         var syncMeta = Substitute.For<ISyncMetadataRepository>();
         syncMeta.IdempotencyKeyExistsAsync(Arg.Any<string>()).Returns(false);
@@ -301,15 +302,28 @@ public class FaydaMockPaymentFlowTests : IClassFixture<FaydaMockProvider>
     private Task<APIGatewayProxyResponse> VerifyWithFaydaPhoneAsync(string phone) =>
         VerifyAtProviderAsync($"phone={Uri.EscapeDataString(phone)}");
 
-    private async Task<APIGatewayProxyResponse> VerifyAtProviderAsync(string identity)
+    /// <summary>
+    /// The mock's "Continue as ...": the identity the server's login_hint names, the one
+    /// on the caller's account (its Fayda ID, else its phone's Fayda record).
+    /// </summary>
+    private Task<APIGatewayProxyResponse> VerifyWithAccountIdentityAsync(Func<string, string>? tamper = null) =>
+        VerifyAtProviderAsync("fin=hint", tamper);
+
+    private async Task<FaydaStartResponse> StartAsync()
     {
         var start = await _fayda.FunctionHandler(
             AuthedRequest("/user/fayda-start", new { redirectUri = FaydaMockProvider.LinkRedirect }), _context);
         Assert.Equal(200, start.StatusCode);
-        var started = JsonSerializer.Deserialize<FaydaStartResponse>(start.Body, Json)!;
+        return JsonSerializer.Deserialize<FaydaStartResponse>(start.Body, Json)!;
+    }
+
+    private async Task<APIGatewayProxyResponse> VerifyAtProviderAsync(string identity, Func<string, string>? tamper = null)
+    {
+        var started = await StartAsync();
+        var authorizeUrl = tamper == null ? started.AuthorizeUrl : tamper(started.AuthorizeUrl);
 
         using var browser = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
-        var authorize = await browser.GetAsync($"{started.AuthorizeUrl}&auto=1&{identity}");
+        var authorize = await browser.GetAsync($"{authorizeUrl}&auto=1&{identity}");
         Assert.Equal(HttpStatusCode.Found, authorize.StatusCode);
         var callback = authorize.Headers.Location!;
         Assert.StartsWith(FaydaMockProvider.LinkRedirect, callback.OriginalString);
@@ -470,6 +484,87 @@ public class FaydaMockPaymentFlowTests : IClassFixture<FaydaMockProvider>
         Assert.Equal(403, generated.StatusCode);
         Assert.Contains("FAYDA_005", generated.Body);
         Assert.Equal(boundId, _users[BuyerId].FaydaId);
+    }
+
+    [Fact]
+    public async Task AccountBoundToAnIdentityNobodyCanRetype_VerifiesWithTheAccountIdentity_AndPays()
+    {
+        // Registered through the mock's "Generate new identity": the account holds the subject
+        // of a random FIN that was never shown and is kept nowhere, and its Fayda login is stale.
+        const string generatedSub = "legacy-generated-sub_000000000001";
+        _users[BuyerId] = _users[BuyerId] with
+        {
+            FaydaId = generatedSub,
+            FaydaVerified = true,
+            FaydaVerifiedAt = "2026-09-01T00:00:00Z",
+            FaydaAuthenticatedAt = DateTime.UtcNow.AddHours(-1).ToString("o")
+        };
+        var blocked = await SubmitPaymentAsync();
+        Assert.Contains("AUTH_041:", blocked);
+        Assert.DoesNotContain("\"status\":\"success\"", blocked);
+
+        // Every other chooser option is someone else, including one more generated identity.
+        var generated = await VerifyWithFaydaAsync("new");
+        Assert.Equal(403, generated.StatusCode);
+        Assert.Contains("FAYDA_005", generated.Body);
+        var phone = await VerifyWithFaydaPhoneAsync("+251900100003");
+        Assert.Equal(403, phone.StatusCode);
+        Assert.Contains("FAYDA_005", phone.Body);
+
+        // The app's start names the account's identity; the mock signs in as exactly that.
+        var own = await VerifyWithAccountIdentityAsync();
+        Assert.Equal(200, own.StatusCode);
+        Assert.Equal(generatedSub, _users[BuyerId].FaydaId);
+        Assert.True(_users[BuyerId].FaydaVerified);
+        Assert.Contains("\"status\":\"success\"", await SubmitPaymentAsync());
+    }
+
+    [Fact]
+    public async Task UnboundAccount_AccountIdentityIsItsPhonesFaydaRecord()
+    {
+        // The seeded dev test user: a phone, no Fayda ID yet (the start hints the phone).
+        AssertPaymentBlocked(await SubmitPaymentAsync(), "buyer_fayda");
+
+        var own = await VerifyWithAccountIdentityAsync();
+        Assert.Equal(200, own.StatusCode);
+        Assert.Contains("Sara Haile", own.Body);
+        var boundId = _users[BuyerId].FaydaId;
+        Assert.False(string.IsNullOrEmpty(boundId));
+
+        // Picking "Identity for my phone number" by hand later is the same person.
+        Assert.Equal(200, (await VerifyWithFaydaPhoneAsync("0900100003")).StatusCode);
+        Assert.Equal(boundId, _users[BuyerId].FaydaId);
+        Assert.Contains("\"status\":\"success\"", await SubmitPaymentAsync());
+    }
+
+    [Fact]
+    public async Task StartUrl_NamesTheAccountIdentity_PhoneUntilAFaydaIdIsBound()
+    {
+        var unbound = (await StartAsync()).AuthorizeUrl;
+        Assert.Contains("login_hint=phone%3A%2B251900100003", unbound);
+
+        _users[BuyerId] = _users[BuyerId] with { FaydaId = "sub-on-file" };
+        var bound = (await StartAsync()).AuthorizeUrl;
+        Assert.Contains("login_hint=sub%3Asub-on-file", bound);
+        Assert.DoesNotContain("phone%3A", bound);
+    }
+
+    [Fact]
+    public async Task TamperedLoginHint_StillFailsTheIdentityCheck()
+    {
+        _users[BuyerId] = _users[BuyerId] with { FaydaId = "sub-on-file", FaydaVerified = true, FaydaVerifiedAt = "2026-09-01T00:00:00Z" };
+
+        // The hint is only advice to the mock: whoever rewrites it signs in as someone else,
+        // and the link refuses that identity like any other stranger's.
+        var link = await VerifyWithAccountIdentityAsync(url =>
+        {
+            Assert.Contains("login_hint=sub%3Asub-on-file", url);
+            return url.Replace("login_hint=sub%3Asub-on-file", "login_hint=sub%3Asomeone-else");
+        });
+
+        Assert.Equal(403, link.StatusCode);
+        Assert.Contains("FAYDA_005", link.Body);
+        Assert.Equal("sub-on-file", _users[BuyerId].FaydaId);
     }
 
     [Fact]

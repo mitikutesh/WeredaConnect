@@ -63,6 +63,23 @@ public sealed record FaydaStartRequest
         return false;
     }
 
+    /// <summary>
+    /// The <c>login_hint</c> for a <c>/user/fayda-start</c> against the mock provider only
+    /// (FAYDA_MOCK=true): the Fayda ID the account holds, else the account phone. The mock
+    /// offers that identity first, so a tester whose account is bound to a generated
+    /// identity (random FIN, never shown) can sign in as it again at payment or from the
+    /// profile. Only advice to the mock: the link still checks the identity that comes back.
+    /// Null when there is nothing to hint. Live Fayda never receives it.
+    /// </summary>
+    public static string? MockLoginHint(UserDto? user)
+    {
+        if (!string.IsNullOrEmpty(user?.FaydaId))
+        {
+            return "sub:" + user.FaydaId;
+        }
+        return string.IsNullOrEmpty(user?.PhoneNumber) ? null : "phone:" + user.PhoneNumber;
+    }
+
     /// <summary>https, or plain http on the loopback host for local web runs; never a query or fragment.</summary>
     private static bool IsSafeWebRedirect(string uri)
     {
