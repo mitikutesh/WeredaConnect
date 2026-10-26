@@ -116,7 +116,7 @@ public sealed class FaydaOidcService : IFaydaOidcService
     }
 
     public async Task<AuthResult<string>> BuildAuthorizationUrlAsync(
-        string redirectUri, string state, string nonce, string codeChallenge)
+        string redirectUri, string state, string nonce, string codeChallenge, string? loginHint = null)
     {
         var discovery = await GetDiscoveryAsync();
         var authorizeEndpoint = discovery?.AuthorizationEndpoint ?? $"{_issuerUrl.TrimEnd('/')}/authorize";
@@ -134,6 +134,10 @@ public sealed class FaydaOidcService : IFaydaOidcService
             { "acr_values", DefaultAcrValues },
             { "claims", RequestedClaims }
         };
+        if (!string.IsNullOrEmpty(loginHint))
+        {
+            query["login_hint"] = loginHint;
+        }
         var queryString = string.Join("&", query.Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value)}"));
         var separator = authorizeEndpoint.Contains('?') ? "&" : "?";
 

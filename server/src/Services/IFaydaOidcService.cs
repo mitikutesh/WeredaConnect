@@ -12,9 +12,11 @@ public interface IFaydaOidcService
     /// <summary>
     /// The provider's authorization URL for a login the server started: carries the
     /// client id, redirect URI, scope, state, nonce and the S256 PKCE challenge.
+    /// <paramref name="loginHint"/>, when given, is passed as the OIDC <c>login_hint</c>;
+    /// the server only sets it against the mock provider (see <c>FaydaStartRequest.MockLoginHint</c>).
     /// </summary>
     Task<AuthResult<string>> BuildAuthorizationUrlAsync(
-        string redirectUri, string state, string nonce, string codeChallenge);
+        string redirectUri, string state, string nonce, string codeChallenge, string? loginHint = null);
 
     /// <summary>
     /// Exchange a Fayda authorization code for identity claims.

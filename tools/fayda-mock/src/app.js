@@ -1,8 +1,10 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { TEST_USERS, findUser, generateFin, userForPhone } = require('./users');
-const { randomToken, verifyPkce, subjectForFin, signJwt, verifyJwt } = require('./crypto');
+const {
+  TEST_USERS, findUser, generateFin, userForPhone, userForSub, subjectOf, normalizePhone,
+} = require('./users');
+const { randomToken, verifyPkce, signJwt, verifyJwt } = require('./crypto');
 
 const CODE_TTL_SECONDS = 300;
 const TOKEN_TTL_SECONDS = 300;
@@ -112,16 +114,54 @@ function resolveFin(choice, customFin) {
   return choice || '';
 }
 
-/** The identity the picker (or auto mode) chose; "phone" picks the phone's owner. */
-function resolveUser(choice, customFin, phone) {
+/**
+ * The relying party's login_hint, which the WeredaConnect server sends against the
+ * mock only (FAYDA_MOCK) when an account verifies again: "sub:<Fayda ID on the
+ * account>" or "phone:<account phone>". Anything else is ignored, since a hint is
+ * only advice: the server still checks the identity that comes back.
+ */
+function parseLoginHint(raw) {
+  const s = String(raw || '').trim();
+  const m = /^sub:([A-Za-z0-9_.-]{1,128})$/.exec(s);
+  if (m) return { kind: 'sub', sub: m[1] };
+  if (s.startsWith('phone:')) {
+    const phone = normalizePhone(s.slice('phone:'.length));
+    return phone ? { kind: 'phone', phone } : null;
+  }
+  return null;
+}
+
+/** The identity a login_hint points at, or null without a usable hint. */
+function userForHint(hint) {
+  if (!hint) return null;
+  return hint.kind === 'sub' ? userForSub(hint.sub) : userForPhone(hint.phone);
+}
+
+/**
+ * The identity the picker (or auto mode) chose; "phone" picks the phone's owner,
+ * "hint" the identity the relying party's login_hint names.
+ */
+function resolveUser(choice, customFin, phone, hint) {
+  if (choice === 'hint') return userForHint(hint);
   if (choice === 'phone') return userForPhone(phone);
   return findUser(resolveFin(choice, customFin));
 }
 
-/** The user a code or access token was issued for (a phone identity keeps its phone). */
+/** Why a choice gave no identity, for the error the caller shows or redirects with. */
+function rejection(choice) {
+  if (choice === 'hint') return 'login_hint is required for fin=hint';
+  if (choice === 'phone') return 'phone must be an Ethiopian mobile number';
+  return 'fin must be 16 digits';
+}
+
+/**
+ * The user a code or access token was issued for: by FIN, or by subject alone for
+ * an identity the hint named and the mock cannot look up. A phone identity keeps
+ * its phone. Rows written before subjects were stored derive it from the FIN.
+ */
 const issuedUser = (item) => {
-  const user = findUser(item.fin);
-  return item.phone ? { ...user, phone: item.phone } : user;
+  const user = item.fin ? findUser(item.fin) : userForSub(item.sub);
+  return { ...user, phone: item.phone || user.phone || null, sub: item.sub || subjectOf(user) };
 };
 
 const errorPage = (statusCode, message) =>
@@ -241,7 +281,8 @@ function createApp({
       redirectUri: p.redirect_uri,
       codeChallenge: p.code_challenge || null,
       nonce: p.nonce,
-      fin: user.fin,
+      fin: user.fin || null,
+      sub: subjectOf(user),
       phone: user.phone || null,
       acr: pickAcr(p.acr_values),
       claims: requestedClaims(p.claims),
@@ -251,7 +292,7 @@ function createApp({
   }
 
   const AUTH_FIELDS = ['client_id', 'redirect_uri', 'response_type', 'scope', 'state', 'nonce',
-    'code_challenge', 'code_challenge_method', 'acr_values', 'claims'];
+    'code_challenge', 'code_challenge_method', 'acr_values', 'claims', 'login_hint'];
   const pickFields = (params) => Object.fromEntries(AUTH_FIELDS.map((k) => [k, params.get(k) || '']));
 
   async function authorize(req) {
@@ -269,39 +310,44 @@ function createApp({
     if (q.get('simulate') === 'denied') {
       return redirectWith(p.redirect_uri, { error: 'access_denied', error_description: 'User denied consent', state: p.state });
     }
+    const hint = parseLoginHint(p.login_hint);
     if (q.get('auto') === '1') {
-      // auto=1&phone=<number> signs in as that phone's owner (same phone, same person).
-      const user = q.get('phone') !== null
-        ? userForPhone(q.get('phone'))
-        : findUser(resolveFin(q.get('fin'), q.get('custom_fin')));
+      // auto=1&phone=<number> signs in as that phone's owner (same phone, same person);
+      // auto=1&fin=hint as the identity the login_hint names.
+      const choice = q.get('phone') !== null ? 'phone' : q.get('fin');
+      const user = resolveUser(choice, q.get('custom_fin'), q.get('phone'), hint);
       if (!user) {
-        return redirectWith(p.redirect_uri, {
-          error: 'invalid_request',
-          error_description: q.get('phone') !== null ? 'phone must be an Ethiopian mobile number' : 'fin must be 16 digits',
-          state: p.state,
-        });
+        return redirectWith(p.redirect_uri, { error: 'invalid_request', error_description: rejection(choice), state: p.state });
       }
       return issueCode(p, user);
     }
 
     const hidden = AUTH_FIELDS.map((k) => `<input type="hidden" name="${k}" value="${esc(p[k])}">`).join('');
-    const users = TEST_USERS.map((u, i) => `<label class="user"><input type="radio" name="fin" value="${u.fin}"${i === 0 ? ' checked' : ''}>
+    // The identity on the caller's account comes first and preselected, so a tester
+    // who registered with a generated identity can sign in as it again.
+    const linked = hint && hint.kind === 'sub' ? userForSub(hint.sub) : null;
+    const account = linked ? `<label class="user"><input type="radio" name="fin" value="hint" checked>
+ <b>Continue as ${esc(linked.name)}</b><br><small>The identity on your WeredaConnect account
+ &middot; ${linked.fin ? `FIN ${linked.fin}` : 'FIN not kept by the mock'} &middot; ${esc(linked.phone || 'no phone')}.
+ Pick it to confirm a payment or to verify again from the profile.</small></label>` : '';
+    const phoneHint = hint && hint.kind === 'phone' ? hint.phone : '';
+    const users = TEST_USERS.map((u, i) => `<label class="user"><input type="radio" name="fin" value="${u.fin}"${i === 0 && !hint ? ' checked' : ''}>
  <b>${esc(u.name)}</b><br><small>FIN ${u.fin} &middot; ${esc(u.phone || 'no phone')} &middot; ${esc(u.hint)}</small></label>`).join('');
-    const fresh = `<label class="user"><input type="radio" name="fin" value="phone" id="fin-phone">
+    const fresh = `<label class="user"><input type="radio" name="fin" value="phone" id="fin-phone"${phoneHint ? ' checked' : ''}>
  <b>Identity for my phone number</b><br><small>The Fayda record of this phone: same phone, same person every time.
  Use it for an account you will pay with (Fayda must match the account's phone).</small><br>
- <input type="tel" class="fin" name="phone" inputmode="tel" placeholder="+2519XXXXXXXX or 09XXXXXXXX"
+ <input type="tel" class="fin" name="phone" inputmode="tel" placeholder="+2519XXXXXXXX or 09XXXXXXXX" value="${esc(phoneHint)}"
  onfocus="document.getElementById('fin-phone').checked=true"></label>
 <label class="user"><input type="radio" name="fin" value="new">
  <b>Generate new identity</b><br><small>Random FIN, synthetic name, no phone (server sends the SMS OTP).
- Its FIN is not shown, so it cannot sign in again later: verifying at payment or from the profile fails.</small></label>
+ Its FIN is not shown. To sign in as it again later, start from the app: it offers the identity on your account.</small></label>
 <label class="user"><input type="radio" name="fin" value="custom" id="fin-custom">
  <b>Type a FIN</b><br><small>Any 16 digits. Same FIN, same identity. No phone claim.</small><br>
  <input type="text" class="fin" name="custom_fin" inputmode="numeric" maxlength="16" pattern="\\d{16}" placeholder="16 digits"
  onfocus="document.getElementById('fin-custom').checked=true"></label>`;
     return page(200, 'Fayda mock sign-in', `<div class="banner">MOCK Fayda eSignet. Test identities only.</div>
 <h1>Choose a test identity</h1>
-<form method="post" action="authorize/complete">${hidden}${users}${fresh}
+<form method="post" action="authorize/complete">${hidden}${account}${users}${fresh}
 <label>OTP (use ${TEST_OTP})<br><input type="text" name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required></label>
 <button type="submit">Continue</button></form>`);
   }
@@ -314,9 +360,11 @@ function createApp({
     if (v.redirectError) {
       return redirectWith(p.redirect_uri, { error: 'invalid_request', error_description: v.redirectError, state: p.state || undefined });
     }
-    const user = resolveUser(form.get('fin'), form.get('custom_fin'), form.get('phone'));
+    const choice = form.get('fin');
+    const user = resolveUser(choice, form.get('custom_fin'), form.get('phone'), parseLoginHint(p.login_hint));
     if (!user) {
-      return errorPage(400, form.get('fin') === 'phone'
+      if (choice === 'hint') return errorPage(400, 'The app sent no identity for this account. Pick another test identity.');
+      return errorPage(400, choice === 'phone'
         ? 'Type an Ethiopian mobile number, like +251912345678 or 0912345678.'
         : 'Pick a test identity, or type a FIN of exactly 16 digits.');
     }
@@ -357,9 +405,10 @@ function createApp({
     return null;
   }
 
-  /** The claims a user record can release, keyed by the OIDC claim name. */
+  /** The claims a user record can release, keyed by the OIDC claim name (no FIN for a sub-only identity). */
   function userClaims(user) {
-    const all = { name: user.name, individual_id: user.fin, nationality: 'Ethiopian' };
+    const all = { name: user.name, nationality: 'Ethiopian' };
+    if (user.fin) all.individual_id = user.fin;
     if (user.phone) all.phone_number = user.phone;
     return all;
   }
@@ -392,7 +441,7 @@ function createApp({
     // data (name, phone) is released only by the userinfo endpoint.
     const idToken = signJwt({
       iss: issuerFor(req),
-      sub: subjectForFin(user.fin),
+      sub: user.sub,
       aud: config.clientId,
       iat,
       exp: iat + TOKEN_TTL_SECONDS,
@@ -405,7 +454,8 @@ function createApp({
     await store.putNew({
       code: `at:${accessToken}`,
       kind: 'access_token',
-      fin: user.fin,
+      fin: user.fin || null,
+      sub: user.sub,
       phone: code.phone || null,
       claims: code.claims || [],
       expiresAt: iat + TOKEN_TTL_SECONDS,
@@ -431,7 +481,7 @@ function createApp({
     }
     const user = issuedUser(item);
     const available = userClaims(user);
-    const payload = { iss: issuerFor(req), aud: config.clientId, sub: subjectForFin(user.fin) };
+    const payload = { iss: issuerFor(req), aud: config.clientId, sub: user.sub };
     for (const k of item.claims || []) if (available[k] !== undefined) payload[k] = available[k];
     return {
       statusCode: 200,

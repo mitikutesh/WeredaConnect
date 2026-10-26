@@ -35,6 +35,7 @@ public class FaydaVerifyFunction
     private readonly IUserRepository _userRepository;
     private readonly IAuthStateRepository _authState;
     private readonly IRateLimitService? _rateLimitService;
+    private readonly Func<string, string?> _env;
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -73,21 +74,25 @@ public class FaydaVerifyFunction
         _userRepository = new UserRepository(dynamoDb, tableName);
         _authState = new AuthStateRepository(dynamoDb, rateLimitTable);
         _rateLimitService = new RateLimitService(new RateLimitRepository(dynamoDb, rateLimitTable));
+        _env = Environment.GetEnvironmentVariable;
     }
 
     /// <summary>
-    /// Constructor for testing.
+    /// Constructor for testing. <paramref name="env"/> stands in for the process environment
+    /// (the FAYDA_MOCK gate); it defaults to the real one.
     /// </summary>
     public FaydaVerifyFunction(
         IFaydaOidcService faydaService,
         IUserRepository userRepository,
         IAuthStateRepository authState,
-        IRateLimitService? rateLimitService = null)
+        IRateLimitService? rateLimitService = null,
+        Func<string, string?>? env = null)
     {
         _faydaService = faydaService ?? throw new ArgumentNullException(nameof(faydaService));
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
         _authState = authState ?? throw new ArgumentNullException(nameof(authState));
         _rateLimitService = rateLimitService;
+        _env = env ?? Environment.GetEnvironmentVariable;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -145,6 +150,7 @@ public class FaydaVerifyFunction
         APIGatewayProxyRequest request, ILambdaContext context, string purpose)
     {
         string? userId = null;
+        string? loginHint = null;
         if (purpose == PurposeLink)
         {
             userId = AuthHelper.GetUserId(request);
@@ -159,6 +165,8 @@ public class FaydaVerifyFunction
             {
                 return gone;
             }
+
+            loginHint = await MockLoginHintAsync(userId, context);
         }
 
         FaydaStartRequest? body = null;
@@ -175,7 +183,7 @@ public class FaydaVerifyFunction
         }
 
         var redirectUri = string.IsNullOrWhiteSpace(body?.RedirectUri) ? FaydaStartRequest.DefaultRedirectUri : body!.RedirectUri!;
-        if (!FaydaStartRequest.IsAllowedRedirect(redirectUri))
+        if (!FaydaStartRequest.IsAllowedRedirect(redirectUri, _env))
         {
             return LambdaResponse.Error(400, "AUTH_007", "redirectUri is not allowed.", "redirectUri");
         }
@@ -185,7 +193,7 @@ public class FaydaVerifyFunction
         var codeVerifier = RandomToken(48);
         var codeChallenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(codeVerifier)));
 
-        var urlResult = await _faydaService.BuildAuthorizationUrlAsync(redirectUri, state, nonce, codeChallenge);
+        var urlResult = await _faydaService.BuildAuthorizationUrlAsync(redirectUri, state, nonce, codeChallenge, loginHint);
         if (!urlResult.IsSuccess)
         {
             var error = urlResult.Error!;
@@ -217,6 +225,31 @@ public class FaydaVerifyFunction
             AuthorizeUrl = urlResult.Value!,
             ExpiresAt = DateTime.UtcNow.AddSeconds(StateTtlSeconds).ToString("o")
         }, AppJsonContext.Default.FaydaStartResponse);
+    }
+
+    /// <summary>
+    /// Against the mock provider only (FAYDA_MOCK): the identity on the caller's account as a
+    /// <c>login_hint</c>, so the mock offers it first. A generated mock identity's FIN is never
+    /// shown, so nothing else lets the tester sign in as it again at payment or from the
+    /// profile. Live mode reads nothing and sends nothing. A failed read is logged and the
+    /// login starts without the hint; the link still checks the identity that comes back.
+    /// </summary>
+    private async Task<string?> MockLoginHintAsync(string userId, ILambdaContext context)
+    {
+        if (!DevBypass.IsEnabled("FAYDA_MOCK", _env))
+        {
+            return null;
+        }
+
+        try
+        {
+            return FaydaStartRequest.MockLoginHint(await _userRepository.GetUserByIdAsync(userId));
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning($"Mock login hint skipped, account read failed: [{ex.GetType().Name}]");
+            return null;
+        }
     }
 
     // ──────────────────────────────────────────────
