@@ -50,11 +50,16 @@ export interface EnvironmentConfig {
   /**
    * Which Fayda (national ID) OIDC provider the server uses.
    * 'mock': deploy the FaydaMockConstruct (tools/fayda-mock) and point the
-   * server's Fayda issuer at its Function URL. 'live': use the real VeriFayda
-   * eSignet issuer. Unset keeps the current behaviour. 'mock' must never be
-   * used when isProd is true (the stack refuses to synthesize and the construct throws).
+   * server's Fayda issuer at its Function URL. 'sandbox': the real VeriFayda
+   * sandbox (esignet.ida.fayda.et) with its shared test client; the test client's
+   * only redirect is http://localhost:3000/callback, which the developer's local
+   * relay (tools/fayda-sandbox-relay) forwards to the app. 'live': the real
+   * VeriFayda eSignet issuer with our own client. Unset keeps the current
+   * behaviour. A deploy can override this with `-c faydaMode=mock|sandbox|live`.
+   * 'mock' and 'sandbox' must never be used when isProd is true (the stack refuses
+   * to synthesize and the mock construct throws).
    */
-  readonly faydaMode?: 'mock' | 'live';
+  readonly faydaMode?: 'mock' | 'live' | 'sandbox';
   /**
    * Live Fayda only: the client_id the Fayda partner portal issued. Not a secret,
    * so it lives here and survives deploys (the stack writes it to
@@ -64,6 +69,15 @@ export interface EnvironmentConfig {
   readonly faydaClientId?: string;
   /** Live Fayda only: issuer override. Defaults to https://esignet.ida.fayda.et. */
   readonly faydaIssuerUrl?: string;
+  /**
+   * Sandbox mode only: the client_id of the shared VeriFayda sandbox test client (the
+   * integration guide's "Test Client 1"). Public, like every client_id. Its private
+   * key (a base64 JWK, published with it) is pasted into /{prefix}/fayda/client-private-key
+   * by the operator, never committed. Runbook: specs/features/fayda-mock-server.md.
+   */
+  readonly faydaSandboxClientId?: string;
+  /** Sandbox mode only: the test client's registered redirect. Defaults to http://localhost:3000/callback. */
+  readonly faydaSandboxRedirectUri?: string;
   /**
    * FRAUD_HOLD_ENABLED on the sync and escrow-cron Lambdas (fraud-detection-architecture.md 18.7).
    * On, a settlement sweep writes the escrow status `held` for a suspended, fraud-confirmed or
@@ -82,6 +96,9 @@ export const environments: Record<string, EnvironmentConfig> = {
     // To use real Fayda: faydaMode 'live' + faydaClientId, then seed the client
     // private key (specs/features/fayda-mock-server.md, "Switching to live Fayda").
     faydaMode: 'mock',
+    // `-c faydaMode=sandbox` points dev at the real VeriFayda sandbox with this shared
+    // test client (specs/features/fayda-mock-server.md, "Sandbox mode").
+    faydaSandboxClientId: 'aQ7xN2kLm9_Vp4RzT8cY-hW3sJ6FdE0uXbKqP1',
     // FUP-61: dev holds the escrows of flagged parties; staging and prod stay off.
     fraudHoldEnabled: true,
     tags: {

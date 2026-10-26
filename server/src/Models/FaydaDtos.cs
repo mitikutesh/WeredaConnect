@@ -23,15 +23,27 @@ public sealed record FaydaStartRequest
     /// <summary>Accepted for forward compatibility; the proof is bound to the phone Fayda releases, not to this value.</summary>
     public string? PhoneNumber { get; init; }
 
-    /// <summary>The app's callback; only the registered deep links (and, against the mock, the web app's callback page) are accepted.</summary>
+    /// <summary>The app's callback; only the registered deep links (and, against the mock or the sandbox, the web app's callback pages) are accepted.</summary>
     public string? RedirectUri { get; init; }
 
     /// <summary>
-    /// Comma-separated web callback pages accepted only while the mock provider is in use
-    /// (FAYDA_MOCK=true, which the infra guard refuses in production and DevBypass refuses
-    /// on a prod function name). The real eSignet client registers the deep links only.
+    /// Comma-separated web callback pages accepted only while a development provider is in
+    /// use: the mock (FAYDA_MOCK=true) or the VeriFayda sandbox (FAYDA_SANDBOX=true). The
+    /// infra guard refuses both flags in production and DevBypass refuses them on a prod
+    /// function name. The real eSignet client registers the deep links only.
     /// </summary>
     public const string MockWebRedirectUrisEnv = "FAYDA_MOCK_WEB_REDIRECT_URIS";
+
+    /// <summary>Marker of the VeriFayda sandbox mode: the real eSignet sandbox with its shared test client.</summary>
+    public const string SandboxEnv = "FAYDA_SANDBOX";
+
+    /// <summary>
+    /// Sandbox mode only: the redirect URI registered for the shared sandbox test client
+    /// (http://localhost:3000/callback), where a local relay forwards the callback to the
+    /// app's own redirect. The server authorizes and exchanges with this value while the
+    /// app sends, and the state row keeps, the app's redirect. Loopback http or https only.
+    /// </summary>
+    public const string SandboxRedirectUriEnv = "FAYDA_SANDBOX_REDIRECT_URI";
 
     public static bool IsAllowedRedirect(string redirectUri, Func<string, string?>? env = null)
     {
@@ -41,7 +53,7 @@ public sealed record FaydaStartRequest
             return true;
         }
 
-        if (!DevBypass.IsEnabled("FAYDA_MOCK", env))
+        if (!DevBypass.IsEnabled("FAYDA_MOCK", env) && !DevBypass.IsEnabled(SandboxEnv, env))
         {
             return false;
         }
@@ -61,6 +73,23 @@ public sealed record FaydaStartRequest
             }
         }
         return false;
+    }
+
+    /// <summary>
+    /// The redirect URI the provider is given in sandbox mode: <see cref="SandboxEnv"/> on a
+    /// non-prod function and a loopback-http or https <see cref="SandboxRedirectUriEnv"/>.
+    /// Null otherwise, and the app's own redirect is used, as against the mock and live Fayda.
+    /// </summary>
+    public static string? SandboxProviderRedirect(Func<string, string?>? env = null)
+    {
+        if (!DevBypass.IsEnabled(SandboxEnv, env))
+        {
+            return null;
+        }
+
+        var read = env ?? Environment.GetEnvironmentVariable;
+        var configured = read(SandboxRedirectUriEnv)?.Trim();
+        return !string.IsNullOrEmpty(configured) && IsSafeWebRedirect(configured) ? configured : null;
     }
 
     /// <summary>

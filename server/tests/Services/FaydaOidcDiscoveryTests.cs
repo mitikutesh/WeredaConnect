@@ -222,7 +222,8 @@ public class FaydaOidcDiscoveryTests
             var key = FaydaOidcService.ParseClientPrivateKey(value);
             Assert.Equal(p.Modulus, key.Rsa.ExportParameters(false).Modulus);
         }
-        Assert.Equal("rp-1", FaydaOidcService.ParseClientPrivateKey(jwk).KeyId);
+        // The JWK's kid is dropped: eSignet refuses a client assertion whose header names one.
+        Assert.Null(FaydaOidcService.ParseClientPrivateKey(jwk).KeyId);
 
         var publicOnly = "{\"kty\":\"RSA\",\"n\":\"" + B(p.Modulus) + "\",\"e\":\"" + B(p.Exponent) + "\"}";
         Assert.ThrowsAny<Exception>(() => FaydaOidcService.ParseClientPrivateKey(publicOnly));
@@ -376,11 +377,11 @@ public class FaydaOidcDiscoveryTests
     }
 
     /// <summary>An eSignet-style ID token: identity only, no name or phone.</summary>
-    private static string IdToken(System.Security.Cryptography.RSA rsa, string nonce, string sub = "FIN-1111")
+    private static string IdToken(System.Security.Cryptography.RSA rsa, string nonce, string sub = "FIN-1111", string iss = Issuer)
     {
         var key = new Microsoft.IdentityModel.Tokens.RsaSecurityKey(rsa) { KeyId = "k1" };
         var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
-            issuer: Issuer, audience: "client-1",
+            issuer: iss, audience: "client-1",
             claims: [new("sub", sub), new("nonce", nonce)],
             expires: DateTime.UtcNow.AddMinutes(5),
             signingCredentials: new Microsoft.IdentityModel.Tokens.SigningCredentials(
@@ -626,6 +627,127 @@ public class FaydaOidcDiscoveryTests
                 signingCredentials: new Microsoft.IdentityModel.Tokens.SigningCredentials(
                     key, Microsoft.IdentityModel.Tokens.SecurityAlgorithms.RsaSha512)));
         var service = Service(ProviderIssuing(token, jwks.Replace("\"alg\":\"RS256\",", "")));
+
+        var result = await service.ExchangeCodeAsync("code-1", "weredaconnect://fayda-callback", "verifier-1", "nonce-1");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("FAYDA_001", result.Error!.Code);
+    }
+
+    // ===== VeriFayda deployment quirks (checked against the sandbox, 2026-10-26) =====
+
+    /// <summary>
+    /// VeriFayda answers invalid_client to a client assertion whose header carries a kid,
+    /// so the assertion names alg and typ only, even when the configured JWK has a kid
+    /// (the sandbox test client's published key does).
+    /// </summary>
+    [Fact]
+    public async Task ExchangeCode_ClientAssertion_CarriesNoKidHeader()
+    {
+        var p = ClientRsa.ExportParameters(true);
+        string B(byte[]? b) => Microsoft.IdentityModel.Tokens.Base64UrlEncoder.Encode(b);
+        var jwkWithKid = "{\"kty\":\"RSA\",\"kid\":\"ef697e49-963f-4417-bf21-8b06bccbcecc\",\"n\":\"" + B(p.Modulus) + "\",\"e\":\"" + B(p.Exponent)
+                         + "\",\"d\":\"" + B(p.D) + "\",\"p\":\"" + B(p.P) + "\",\"q\":\"" + B(p.Q) + "\",\"dp\":\"" + B(p.DP)
+                         + "\",\"dq\":\"" + B(p.DQ) + "\",\"qi\":\"" + B(p.InverseQ) + "\"}";
+        var handler = ProviderWithDiscovery();
+        string? tokenForm = null;
+        handler.Routes[TokenPath] = async request =>
+        {
+            tokenForm = await request.Content!.ReadAsStringAsync();
+            return new HttpResponseMessage(HttpStatusCode.BadRequest);
+        };
+        FaydaOidcService.ResetCaches();
+        var service = new FaydaOidcService(new HttpClient(handler), "client-1",
+            Convert.ToBase64String(Encoding.UTF8.GetBytes(jwkWithKid)), Issuer, SigningSecret, tokenRetryDelays: [TimeSpan.Zero]);
+
+        await service.ExchangeCodeAsync("code-1", "weredaconnect://fayda-callback", "verifier-1", "nonce-1");
+
+        var header = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler()
+            .ReadJwtToken(ParseForm(tokenForm!)["client_assertion"]).Header;
+        Assert.False(header.ContainsKey("kid"));
+        Assert.Equal("RS256", header.Alg);
+        Assert.Equal("JWT", header.Typ);
+    }
+
+    /// <summary>
+    /// Fayda's published sandbox test key has a qi that does not match its p and q (and a
+    /// JWK may drop leading zero bytes): Apple's crypto refuses such a key while OpenSSL
+    /// signs with it anyway. The parser repairs the CRT values, and the repaired key signs
+    /// what the untouched public key verifies.
+    /// </summary>
+    [Fact]
+    public void ParseClientPrivateKey_RepairsInconsistentCrtParameters_AndSignsCorrectly()
+    {
+        var p = ClientRsa.ExportParameters(true);
+        string B(byte[]? b) => Microsoft.IdentityModel.Tokens.Base64UrlEncoder.Encode(b);
+        var badQi = (byte[])p.InverseQ!.Clone();
+        badQi[^1] ^= 0x5A;
+        var badDp = (byte[])p.DP!.Clone();
+        badDp[^1] ^= 0x3C;
+        var jwk = "{\"kty\":\"RSA\",\"n\":\"" + B(p.Modulus) + "\",\"e\":\"" + B(p.Exponent) + "\",\"d\":\"" + B(p.D)
+                  + "\",\"p\":\"" + B(p.P) + "\",\"q\":\"" + B(p.Q) + "\",\"dp\":\"" + B(badDp) + "\",\"dq\":\"" + B(p.DQ)
+                  + "\",\"qi\":\"" + B(badQi) + "\"}";
+
+        var key = FaydaOidcService.ParseClientPrivateKey(jwk);
+
+        var repaired = key.Rsa.ExportParameters(true);
+        static System.Numerics.BigInteger N(byte[]? b) => new(b!, isUnsigned: true, isBigEndian: true);
+        Assert.Equal(N(p.InverseQ), N(repaired.InverseQ));
+        Assert.Equal(N(p.DP), N(repaired.DP));
+        Assert.Equal(N(p.DQ), N(repaired.DQ));
+        var data = Encoding.UTF8.GetBytes("client assertion");
+        var signature = key.Rsa.SignData(data, System.Security.Cryptography.HashAlgorithmName.SHA256,
+            System.Security.Cryptography.RSASignaturePadding.Pkcs1);
+        Assert.True(ClientRsa.VerifyData(data, signature, System.Security.Cryptography.HashAlgorithmName.SHA256,
+            System.Security.Cryptography.RSASignaturePadding.Pkcs1));
+
+        // Consistent parameters are left alone.
+        var intact = ClientRsa.ExportParameters(true);
+        Assert.False(FaydaOidcService.RepairCrtParameters(ref intact));
+    }
+
+    /// <summary>
+    /// eSignet signs its tokens with iss "&lt;issuer&gt;/v1/esignet" while its discovery
+    /// document names the bare host: that form is accepted for the ID token and userinfo.
+    /// </summary>
+    [Fact]
+    public async Task ExchangeCode_TokensWithTheEsignetServletPathIssuer_AreAccepted()
+    {
+        var (rsa, jwks) = SigningKey();
+        var service = Service(ProviderIssuing(
+            IdToken(rsa, "nonce-1", iss: Issuer + "/v1/esignet"), jwks,
+            SignedUserinfo(rsa, "0912345604", iss: Issuer + "/v1/esignet")));
+
+        var result = await service.ExchangeCodeAsync("code-1", "weredaconnect://fayda-callback", "verifier-1", "nonce-1");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("FIN-1111", result.Value!.FaydaId);
+        Assert.Equal("Abebe Kebede", result.Value.FullName);
+        Assert.Equal("0912345604", result.Value.PhoneNumber);
+    }
+
+    [Fact]
+    public async Task ExchangeCode_MixedIssuerForms_AreAccepted()
+    {
+        // Bare issuer on the ID token, servlet-path form on userinfo (or the other way round).
+        var (rsa, jwks) = SigningKey();
+        var service = Service(ProviderIssuing(
+            IdToken(rsa, "nonce-1"), jwks, SignedUserinfo(rsa, null, iss: Issuer + "/v1/esignet/")));
+
+        var result = await service.ExchangeCodeAsync("code-1", "weredaconnect://fayda-callback", "verifier-1", "nonce-1");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("FIN-1111", result.Value!.FaydaId);
+    }
+
+    [Theory]
+    [InlineData("https://fayda.test/v1/other")]
+    [InlineData("https://fayda.test.evil.example/v1/esignet")]
+    [InlineData("https://evil.example")]
+    public async Task ExchangeCode_IdTokenFromAnyOtherIssuer_IsRejected(string iss)
+    {
+        var (rsa, jwks) = SigningKey();
+        var service = Service(ProviderIssuing(IdToken(rsa, "nonce-1", iss: iss), jwks, SignedUserinfo(rsa, null)));
 
         var result = await service.ExchangeCodeAsync("code-1", "weredaconnect://fayda-callback", "verifier-1", "nonce-1");
 

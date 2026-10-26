@@ -1,7 +1,8 @@
 #!/bin/bash
 # scripts/deploy.sh
 # Build and deploy WeredaConnect server + infrastructure + web app
-# Usage: ./scripts/deploy.sh [dev|staging|prod]
+# Usage: ./scripts/deploy.sh [dev|staging|prod] [extra `cdk deploy` args]
+#        e.g. ./scripts/deploy.sh dev --context faydaMode=sandbox
 
 set -euo pipefail
 
@@ -12,6 +13,11 @@ INFRA_DIR="$ROOT_DIR/infra"
 MOBILE_DIR="$ROOT_DIR/mobile"
 
 ENV="${1:-dev}"
+# Everything after the environment goes to `cdk deploy` verbatim (empty-safe on bash 3.2).
+CDK_EXTRA_ARGS=()
+if [[ $# -gt 1 ]]; then
+  CDK_EXTRA_ARGS=("${@:2}")
+fi
 
 if [[ "$ENV" != "dev" && "$ENV" != "staging" && "$ENV" != "prod" ]]; then
   echo "Error: Invalid environment '$ENV'. Use: dev, staging, or prod"
@@ -70,7 +76,8 @@ fi
 
 # Step 4: Deploy with CDK
 echo "[4/6] Deploying infrastructure to AWS ($ENV)..."
-npx cdk deploy --all --context environment="$ENV" --require-approval broadening
+npx cdk deploy --all --context environment="$ENV" --require-approval broadening \
+  ${CDK_EXTRA_ARGS[@]+"${CDK_EXTRA_ARGS[@]}"}
 echo ""
 
 # Step 5: Build Flutter web app

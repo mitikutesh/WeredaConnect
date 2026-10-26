@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Numerics;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -55,6 +56,10 @@ public sealed class FaydaOidcService : IFaydaOidcService
     private const string EsignetUserinfoPath = "/v1/esignet/oidc/userinfo";
     // Live Fayda advertises jwks_uri as /.well-known/jwks.json and answers 404 there.
     private const string EsignetJwksPath = "/v1/esignet/oauth/.well-known/jwks.json";
+    // eSignet signs its tokens with the servlet path on the issuer ("<host>/v1/esignet")
+    // while its discovery document names the bare host (VeriFayda, checked 2026-10-26),
+    // so both forms of the configured issuer are accepted in iss claims.
+    private const string EsignetIssuerPathSuffix = "/v1/esignet";
     private static readonly string[] AllowedIdTokenAlgorithms =
         [SecurityAlgorithms.RsaSha256, SecurityAlgorithms.RsaSsaPssSha256, SecurityAlgorithms.EcdsaSha256];
 
@@ -263,7 +268,7 @@ public sealed class FaydaOidcService : IFaydaOidcService
         var validationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
-            ValidIssuers = [_issuerUrl.TrimEnd('/'), _issuerUrl.TrimEnd('/') + "/"],
+            ValidIssuers = AcceptedIssuers(),
             ValidateAudience = true,
             ValidAudience = _clientId,
             ValidateLifetime = true,
@@ -327,6 +332,16 @@ public sealed class FaydaOidcService : IFaydaOidcService
             FullName = name,
             PhoneNumber = string.IsNullOrWhiteSpace(phoneNumber) ? null : phoneNumber.Trim()
         });
+    }
+
+    /// <summary>
+    /// The iss values a provider token may carry: the configured issuer with and without
+    /// a trailing slash, and the eSignet form that appends the /v1/esignet servlet path.
+    /// </summary>
+    private string[] AcceptedIssuers()
+    {
+        var issuer = _issuerUrl.TrimEnd('/');
+        return [issuer, issuer + "/", issuer + EsignetIssuerPathSuffix, issuer + EsignetIssuerPathSuffix + "/"];
     }
 
     /// <summary>
@@ -464,7 +479,7 @@ public sealed class FaydaOidcService : IFaydaOidcService
             }
 
             var iss = principal.FindFirst("iss")?.Value;
-            if (iss != null && !string.Equals(iss.TrimEnd('/'), _issuerUrl.TrimEnd('/'), StringComparison.Ordinal))
+            if (iss != null && !AcceptedIssuers().Contains(iss, StringComparer.Ordinal))
             {
                 return (null, Invalid("Invalid userinfo from Fayda."));
             }
@@ -574,7 +589,81 @@ public sealed class FaydaOidcService : IFaydaOidcService
             DQ = Decode(jwk.DQ),
             InverseQ = Decode(jwk.QI)
         };
-        return RequireUsableKey(new RsaSecurityKey(RSA.Create(parameters)) { KeyId = string.IsNullOrEmpty(jwk.Kid) ? null : jwk.Kid });
+        if (RepairCrtParameters(ref parameters))
+        {
+            Console.WriteLine("[FaydaOidc] WARN client key dp, dq or qi disagreed with d, p and q; recomputed them from the primes");
+        }
+        // No KeyId: it would become the kid header of the client assertion, and eSignet
+        // answers invalid_client to an assertion that names a kid (VeriFayda sandbox,
+        // 2026-10-26). The Fayda reference clients send alg and typ only.
+        return RequireUsableKey(new RsaSecurityKey(RSA.Create(parameters)));
+    }
+
+    /// <summary>
+    /// Makes a JWK's private parameters importable everywhere: d, p and q are padded to
+    /// the lengths .NET requires (a JWK drops leading zero bytes), and dp, dq and qi are
+    /// recomputed from d, p and q when the JWK's values disagree with them. Fayda's
+    /// published sandbox test key carries a wrong qi: OpenSSL (Linux Lambdas, Node) still
+    /// signs correctly because it falls back to plain exponentiation when the CRT result
+    /// fails its check, but Apple's framework refuses to import such a key, so the
+    /// parameters are made consistent here. Returns true when dp, dq or qi changed.
+    /// </summary>
+    internal static bool RepairCrtParameters(ref RSAParameters parameters)
+    {
+        if (parameters.Modulus == null || parameters.D == null || parameters.P == null || parameters.Q == null)
+        {
+            return false;
+        }
+
+        var modulusLength = parameters.Modulus.Length;
+        var halfLength = (modulusLength + 1) / 2;
+        var d = ToBigInteger(parameters.D);
+        var p = ToBigInteger(parameters.P);
+        var q = ToBigInteger(parameters.Q);
+        parameters.D = ToBigEndian(d, modulusLength);
+        parameters.P = ToBigEndian(p, halfLength);
+        parameters.Q = ToBigEndian(q, halfLength);
+
+        var dp = BigInteger.Remainder(d, p - BigInteger.One);
+        var dq = BigInteger.Remainder(d, q - BigInteger.One);
+        // q^-1 mod p by Fermat: p is prime.
+        var qInv = BigInteger.ModPow(q, p - 2, p);
+
+        var repaired = false;
+        if (parameters.DP == null || ToBigInteger(parameters.DP) != dp)
+        {
+            parameters.DP = ToBigEndian(dp, halfLength);
+            repaired = true;
+        }
+        if (parameters.DQ == null || ToBigInteger(parameters.DQ) != dq)
+        {
+            parameters.DQ = ToBigEndian(dq, halfLength);
+            repaired = true;
+        }
+        if (parameters.InverseQ == null || ToBigInteger(parameters.InverseQ) != qInv)
+        {
+            parameters.InverseQ = ToBigEndian(qInv, halfLength);
+            repaired = true;
+        }
+        return repaired;
+    }
+
+    private static BigInteger ToBigInteger(byte[] bigEndian) => new(bigEndian, isUnsigned: true, isBigEndian: true);
+
+    private static byte[] ToBigEndian(BigInteger value, int length)
+    {
+        var bytes = value.ToByteArray(isUnsigned: true, isBigEndian: true);
+        if (bytes.Length == length)
+        {
+            return bytes;
+        }
+        if (bytes.Length > length)
+        {
+            throw new InvalidOperationException("The Fayda client key has an RSA parameter longer than its modulus allows.");
+        }
+        var padded = new byte[length];
+        Buffer.BlockCopy(bytes, 0, padded, length - bytes.Length, bytes.Length);
+        return padded;
     }
 
     private const int MinimumClientKeyBits = 2048;
@@ -593,7 +682,8 @@ public sealed class FaydaOidcService : IFaydaOidcService
 
     /// <summary>
     /// private_key_jwt client assertion (RFC 7523): iss and sub are the client id,
-    /// aud is the token endpoint, a fresh jti, a short lifetime, signed RS256.
+    /// aud is the token endpoint, a fresh jti, a short lifetime, signed RS256 with a
+    /// header of alg and typ only (no kid, see <see cref="ParseClientPrivateKey"/>).
     /// </summary>
     private string CreateClientAssertion(RsaSecurityKey key, string tokenEndpoint)
     {

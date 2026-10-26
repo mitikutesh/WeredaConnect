@@ -21,6 +21,9 @@ namespace WeredaConnect.Server.Functions;
 /// inside the ID token, the PKCE verifier never leaves the server.
 /// Dev bypass: DEV_FAYDA_BYPASS=true accepts test-code-123 on fayda-verify and fayda-link. Its identity
 /// (FAYDA-DEV-001) has no phone, so fayda-link only accepts it for an account that already holds it.
+/// Sandbox mode (FAYDA_SANDBOX=true, non-prod): the provider is given the shared sandbox client's
+/// registered redirect (FAYDA_SANDBOX_REDIRECT_URI) on authorize and token exchange, while the app
+/// keeps its own redirect, which the state row stores and verify / link must repeat as before.
 /// </summary>
 public class FaydaVerifyFunction
 {
@@ -79,7 +82,7 @@ public class FaydaVerifyFunction
 
     /// <summary>
     /// Constructor for testing. <paramref name="env"/> stands in for the process environment
-    /// (the FAYDA_MOCK gate); it defaults to the real one.
+    /// (the FAYDA_MOCK and FAYDA_SANDBOX gates); it defaults to the real one.
     /// </summary>
     public FaydaVerifyFunction(
         IFaydaOidcService faydaService,
@@ -193,7 +196,18 @@ public class FaydaVerifyFunction
         var codeVerifier = RandomToken(48);
         var codeChallenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(codeVerifier)));
 
-        var urlResult = await _faydaService.BuildAuthorizationUrlAsync(redirectUri, state, nonce, codeChallenge, loginHint);
+        // Sandbox mode: the provider is told the sandbox client's registered redirect, where
+        // the local relay forwards the callback to the app's redirect. The state row keeps
+        // both: the app's redirect, which verify / link must repeat, and the provider's,
+        // which the token request must repeat even if the mode changes before then.
+        var sandboxRedirect = FaydaStartRequest.SandboxProviderRedirect(_env);
+        if (sandboxRedirect == null && DevBypass.IsEnabled(FaydaStartRequest.SandboxEnv, _env))
+        {
+            context.Logger.LogWarning(
+                $"{FaydaStartRequest.SandboxEnv} is set but {FaydaStartRequest.SandboxRedirectUriEnv} is missing or not a loopback-http/https URL; the app redirect goes to the provider");
+        }
+        var providerRedirect = sandboxRedirect ?? redirectUri;
+        var urlResult = await _faydaService.BuildAuthorizationUrlAsync(providerRedirect, state, nonce, codeChallenge, loginHint);
         if (!urlResult.IsSuccess)
         {
             var error = urlResult.Error!;
@@ -206,6 +220,7 @@ public class FaydaVerifyFunction
             { "codeVerifier", codeVerifier },
             { "purpose", purpose },
             { "redirectUri", redirectUri },
+            { "providerRedirectUri", providerRedirect },
             { "createdAt", DateTime.UtcNow.ToString("o") }
         };
         if (userId != null)
@@ -523,8 +538,16 @@ public class FaydaVerifyFunction
                 "This verification attempt is incomplete. Please start again.", "state");
         }
 
+        // The token request repeats the redirect the authorize request carried, as recorded
+        // at start: the sandbox client's redirect in sandbox mode, else the app's own. A row
+        // from before this field existed authorized with the app redirect.
+        var providerRedirect = stateRow.Get("providerRedirectUri");
+        if (string.IsNullOrEmpty(providerRedirect))
+        {
+            providerRedirect = faydaRequest.RedirectUri;
+        }
         return await _faydaService.ExchangeCodeAsync(
-            faydaRequest.AuthorizationCode, faydaRequest.RedirectUri, codeVerifier, nonce);
+            faydaRequest.AuthorizationCode, providerRedirect, codeVerifier, nonce);
     }
 
     private async Task<APIGatewayProxyResponse?> CheckIpAsync(APIGatewayProxyRequest request)
