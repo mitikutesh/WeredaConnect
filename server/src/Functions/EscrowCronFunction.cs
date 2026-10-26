@@ -58,23 +58,26 @@ public class EscrowCronFunction
 
     /// <summary>
     /// Order statuses whose escrow may be refunded: stale-funded (farmer never
-    /// responded within the expiry window) or terminated by a party.
+    /// responded within the expiry window), parked in <c>awaiting_transport</c> (ESC-15: the
+    /// transport failed and the buyer never decided; the money backstop should the hourly
+    /// commitment cron stop) or terminated by a party.
     /// </summary>
     private static readonly HashSet<string> RefundableOrderStatuses = new()
     {
-        "funded", "rejected", "cancelled"
+        "funded", OrderCommitment.AwaitingTransportStatus, "rejected", "cancelled"
     };
 
     private const int OrderEscrowExpiryExtensionHours = 48;
 
     /// <summary>
-    /// ESC-10: order statuses with no trade under way: before payment, funded but not accepted, ended
-    /// (rejected, cancelled, payment_failed) or settled. The auto-release never pays an escrow whose
-    /// order is in one; the refund of an /escrow/initiate escrow then follows its delivery alone.
+    /// ESC-10: order statuses with no trade under way: before payment, funded or awaiting transport but
+    /// not accepted, ended (rejected, cancelled, payment_failed) or settled. The auto-release never pays
+    /// an escrow whose order is in one; the refund of an /escrow/initiate escrow then follows its delivery alone.
     /// </summary>
     internal static readonly HashSet<string> IdleOrderStatuses = new(StringComparer.Ordinal)
     {
-        "created", "pending_payment", "payment_submitted", "payment_failed", "funded", "rejected", "cancelled", "settled"
+        "created", "pending_payment", "payment_submitted", "payment_failed", "funded", OrderCommitment.AwaitingTransportStatus,
+        "rejected", "cancelled", "settled"
     };
 
     /// <summary>
@@ -902,7 +905,9 @@ public class EscrowCronFunction
                         continue;
                     }
 
-                    refundedOrderWasFunded = orderStatus == "funded";
+                    // ESC-15: an order parked in awaiting_transport still holds the buyer's money and
+                    // ends the same way when the buyer never decided.
+                    refundedOrderWasFunded = orderStatus is "funded" or OrderCommitment.AwaitingTransportStatus;
 
                     // Cancel-then-refund: the version-CAS cancel fences out a
                     // farmer accepting in the read→refund window. On conflict,
@@ -1194,7 +1199,7 @@ public class EscrowCronFunction
     }
 
     /// <summary>
-    /// Cancel a stale-funded order BEFORE refunding its escrow. The version-CAS
+    /// Cancel a stale-funded (or awaiting-transport) order BEFORE refunding its escrow. The version-CAS
     /// write doubles as the race fence: if the farmer accepted in the meantime,
     /// the version moved, the cancel conflicts, and the caller skips the refund
     /// (the next sweep re-reads the order and pushes the expiry instead).

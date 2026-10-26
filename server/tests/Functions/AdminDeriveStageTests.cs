@@ -15,6 +15,7 @@ public class AdminDeriveStageTests
     [InlineData("pending_payment", "awaiting_payment")]
     [InlineData("payment_submitted", "in_progress")]
     [InlineData("funded", "in_progress")]
+    [InlineData("awaiting_transport", "in_progress")]
     [InlineData("accepted", "in_progress")]
     [InlineData("pickup_confirmed", "in_progress")]
     [InlineData("in_transit", "in_progress")]

@@ -441,6 +441,10 @@ export class ApiStack extends cdk.Stack {
     // FRD-03 / FUP-61: one value for sync and escrow-cron, from the environment config (dev on).
     const fraudHoldEnabled = envConfig.fraudHoldEnabled ? "true" : "false";
 
+    // ESC-15: one value for sync, order-cron and the Telebirr webhook (off everywhere until the
+    // clients that render awaiting_transport are deployed).
+    const commitmentsEnabled = envConfig.commitmentsEnabled ? "true" : "false";
+
     const syncFn = new WeredaLambda(this, "SyncFunction", {
       functionName: `${prefix}-sync`,
       description: "POST /sync — offline-first sync engine batch processor",
@@ -473,6 +477,9 @@ export class ApiStack extends cdk.Stack {
         // is not held (a sweep may hold it between the read and the write). Same value as on
         // escrow-cron; both are turned on together after FRD-06.
         FRAUD_HOLD_ENABLED: fraudHoldEnabled,
+        // ESC-15: on, the farmer's accept asks the trucker next and a failed transport parks the
+        // order in awaiting_transport; off, the accept lands the order as before.
+        COMMITMENTS_ENABLED: commitmentsEnabled,
         ...(syncTelebirrMock ? { TELEBIRR_MOCK: "true" } : {}),
       },
       timeout: cdk.Duration.seconds(30),
@@ -1266,6 +1273,10 @@ export class ApiStack extends cdk.Stack {
           TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
           // FRD-08: a verified payer mismatch is a fraud signal on the buyer.
           FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
+          // ESC-15: funding a trip order reserves its capacity on the trip and stamps who is
+          // asked first; the same flag as on sync, so the two funding paths agree.
+          TRIPS_TABLE: props.tripsTable.tableName,
+          COMMITMENTS_ENABLED: commitmentsEnabled,
         },
         timeout: cdk.Duration.seconds(15),
         memorySize: 512,
@@ -1279,6 +1290,14 @@ export class ApiStack extends cdk.Stack {
       props.ordersTable.grantReadWriteData(telebirrWebhookFn.function);
       props.cropsTable.grantReadWriteData(telebirrWebhookFn.function);
       props.transactionAuditTable.grantWriteData(telebirrWebhookFn.function);
+      // ESC-15: read the trip and reserve the funded order's capacity on it (a conditional
+      // UpdateItem). The only public route gets the minimum: no put, delete, scan or index.
+      telebirrWebhookFn.function.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ["dynamodb:Query", "dynamodb:GetItem", "dynamodb:UpdateItem"],
+          resources: [props.tripsTable.tableArn],
+        }),
+      );
       // FRD-08: append only (the public route reads no score and changes no review).
       props.fraudSignalsTable.grant(telebirrWebhookFn.function, "dynamodb:PutItem");
       // ESC-47: a redelivery reads the order's trail (Query on the base table, no index) before
@@ -1363,12 +1382,12 @@ export class ApiStack extends cdk.Stack {
     props.messagesTable.grantReadData(messageFn.function);
     paginationSecret.grantRead(messageFn.function);
 
-    // ─── Order Cron Function (auto-cancel expired unpaid orders) ────
+    // ─── Order Cron Function (auto-cancel expired unpaid orders, commitment deadlines) ────
 
     const orderCronFn = new WeredaLambda(this, "OrderCronFunction", {
       functionName: `${prefix}-order-cron`,
       description:
-        "Scheduled order cleanup: auto-cancel expired unpaid orders",
+        "Scheduled order jobs: auto-cancel expired unpaid orders, settle commitment deadlines",
       handlerName: "OrderCronFunction",
       environment: {
         ORDERS_TABLE: props.ordersTable.tableName,
@@ -1376,6 +1395,19 @@ export class ApiStack extends cdk.Stack {
         // ESC-45: the payment-failed step skips orders whose verified Telebirr
         // payment is still pending in the webhook inbox.
         ESCROW_IDEMPOTENCY_TABLE: props.escrowIdempotencyTable.tableName,
+        // ESC-15: the commitment_deadlines walk. A farmer or buyer who never answered is
+        // cancelled (refund scheduled on the escrow, stock back on the listing, capacity back
+        // on the trip); a trucker who never answered or a cancelled trip fails the transport
+        // (the pending delivery of an accepted order is cancelled). Without the escrows,
+        // escrow-audit, crops and trips tables the walk logs ORDER_CRON_COMMITMENTS_UNCONFIGURED
+        // and settles nothing; USERS_TABLE only feeds the escrow service's profile reads.
+        ESCROWS_TABLE: props.escrowsTable.tableName,
+        ESCROW_AUDIT_TABLE: props.escrowAuditTable.tableName,
+        CROPS_TABLE: props.cropsTable.tableName,
+        TRIPS_TABLE: props.tripsTable.tableName,
+        DELIVERIES_TABLE: props.deliveriesTable.tableName,
+        USERS_TABLE: props.usersTable.tableName,
+        COMMITMENTS_ENABLED: commitmentsEnabled,
       },
       timeout: cdk.Duration.minutes(5),
       memorySize: 256,
@@ -1384,6 +1416,16 @@ export class ApiStack extends cdk.Stack {
     props.ordersTable.grantReadWriteData(orderCronFn.function);
     // Auto-cancel writes an order lifecycle event to the audit trail.
     props.transactionAuditTable.grantWriteData(orderCronFn.function);
+    // ESC-15: the commitment walk's side effects, in the escrow-cron grant style. The escrow is
+    // read through its OrderIndex and expired (refund scheduled), every escrow mutation is
+    // ledgered, the listing and the trip take conditional updates, the pending delivery is
+    // cancelled, and profiles are read by the escrow service.
+    props.escrowsTable.grantReadWriteData(orderCronFn.function);
+    props.escrowAuditTable.grantWriteData(orderCronFn.function);
+    props.cropsTable.grantReadWriteData(orderCronFn.function);
+    props.tripsTable.grantReadWriteData(orderCronFn.function);
+    props.deliveriesTable.grantReadWriteData(orderCronFn.function);
+    props.usersTable.grantReadData(orderCronFn.function);
     // ESC-45: Query on the inbox replay index only, nothing else in that table.
     orderCronFn.function.addToRolePolicy(
       new iam.PolicyStatement({
@@ -1405,6 +1447,22 @@ export class ApiStack extends cdk.Stack {
           // silent-no-op bug as the escrow cron (Review C3).
           event: events.RuleTargetInput.fromObject({
             body: JSON.stringify({ action: "auto_cancel_expired" }),
+          }),
+        }),
+      ],
+    });
+
+    // EventBridge: ESC-15, settle the farmer, trucker and buyer response windows every hour.
+    // A no-op while COMMITMENTS_ENABLED is false (the handler logs and returns).
+    new events.Rule(this, "OrderCronCommitments", {
+      ruleName: `${prefix}-order-cron-commitments`,
+      description: "Settle order commitment deadlines every hour (ESC-15)",
+      schedule: events.Schedule.rate(cdk.Duration.hours(1)),
+      targets: [
+        new targets.LambdaFunction(orderCronFn.function, {
+          // Wrapped as `body` so it lands in APIGatewayProxyRequest.Body (Review C3).
+          event: events.RuleTargetInput.fromObject({
+            body: JSON.stringify({ action: "commitment_deadlines" }),
           }),
         }),
       ],

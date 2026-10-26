@@ -2331,7 +2331,7 @@ public class AdminFunction
     internal static string DeriveStage(string status) => status switch
     {
         "created" or "pending_payment" => "awaiting_payment",
-        "payment_submitted" or "funded" or "accepted"
+        "payment_submitted" or "funded" or OrderCommitment.AwaitingTransportStatus or "accepted"
             or "pickup_confirmed" or "in_transit" => "in_progress",
         "delivered" => "delivered",
         "disbursing" => "paying_out",

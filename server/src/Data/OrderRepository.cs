@@ -114,6 +114,30 @@ public sealed class OrderRepository : IOrderRepository
     /// <summary>FRD-03: the failure code of <see cref="UpdateUnlessEscrowHeldAsync"/> when the order's escrow is held.</summary>
     public const string EscrowHeldCode = "ESCROW_HELD";
 
+    /// <summary>
+    /// FRD-03: the transaction item that refuses a write while the order's escrow is <c>held</c>, for
+    /// callers that build their own order transaction (ESC-15: the trucker's accept with the trip
+    /// booking). <see cref="UpdateUnlessEscrowHeldAsync"/> uses the same condition.
+    /// </summary>
+    public static TransactWriteItem EscrowNotHeldCheck(EscrowRowKey escrow) => new()
+    {
+        ConditionCheck = new ConditionCheck
+        {
+            TableName = escrow.TableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "escrowId", new AttributeValue { S = escrow.EscrowId } },
+                { "createdAt", new AttributeValue { S = escrow.CreatedAt } }
+            },
+            ConditionExpression = "attribute_not_exists(#status) OR #status <> :held",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#status", "status" } },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":held", new AttributeValue { S = EscrowHoldFields.Status } }
+            }
+        }
+    };
+
     /// <inheritdoc />
     public async Task<AuthResult<Dictionary<string, object>>> UpdateUnlessEscrowHeldAsync(
         string orderId, Dictionary<string, object> data, int expectedVersion, EscrowRowKey escrow)
@@ -861,7 +885,8 @@ public sealed class OrderRepository : IOrderRepository
     }
 
     /// <inheritdoc />
-    public async Task<Dictionary<string, object>?> TryAdvanceStatusAsync(string orderId, string fromStatus, string toStatus)
+    public async Task<Dictionary<string, object>?> TryAdvanceStatusAsync(
+        string orderId, string fromStatus, string toStatus, Dictionary<string, object>? extraFields = null)
     {
         var existing = await GetItemAsync(orderId, consistentRead: true);
         if (existing == null)
@@ -869,25 +894,46 @@ public sealed class OrderRepository : IOrderRepository
             return null;
         }
 
+        var setParts = new List<string> { "#status = :to", "#updated = :updated" };
+        var attrNames = new Dictionary<string, string>
+        {
+            { "#status", "status" },
+            { "#updated", "updatedAt" },
+            { "#v", "version" }
+        };
+        var attrValues = new Dictionary<string, AttributeValue>
+        {
+            { ":to", new AttributeValue { S = toStatus } },
+            { ":from", new AttributeValue { S = fromStatus } },
+            { ":updated", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
+            { ":one", new AttributeValue { N = "1" } }
+        };
+
+        if (extraFields != null)
+        {
+            var i = 0;
+            foreach (var kvp in extraFields)
+            {
+                if (IsProtectedOrderField(kvp.Key))
+                {
+                    continue;
+                }
+
+                attrNames[$"#f{i}"] = kvp.Key;
+                attrValues[$":f{i}"] = DynamoDbHelper.ToAttributeValue(kvp.Value);
+                setParts.Add($"#f{i} = :f{i}");
+                i++;
+            }
+        }
+
         var request = new UpdateItemRequest
         {
             TableName = _tableName,
             Key = OrderKey(orderId, existing["createdAt"].S),
-            UpdateExpression = "SET #status = :to, #updated = :updated ADD #v :one",
+            UpdateExpression = "SET " + string.Join(", ", setParts) + " ADD #v :one",
             ConditionExpression = "attribute_exists(orderId) AND #status = :from",
-            ExpressionAttributeNames = new Dictionary<string, string>
-            {
-                { "#status", "status" },
-                { "#updated", "updatedAt" },
-                { "#v", "version" }
-            },
-            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-            {
-                { ":to", new AttributeValue { S = toStatus } },
-                { ":from", new AttributeValue { S = fromStatus } },
-                { ":updated", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
-                { ":one", new AttributeValue { N = "1" } }
-            },
+            ExpressionAttributeNames = attrNames,
+            ExpressionAttributeValues = attrValues,
             ReturnValues = ReturnValue.ALL_NEW
         };
 
@@ -901,6 +947,112 @@ public sealed class OrderRepository : IOrderRepository
             return null;
         }
     }
+
+    /// <inheritdoc />
+    public async Task<List<Dictionary<string, object>>> QueryByTripAsync(string tripId)
+    {
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = "TripIdIndex",
+            KeyConditionExpression = "#tripId = :tripId",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#tripId", "tripId" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":tripId", new AttributeValue { S = tripId } }
+            },
+            ScanIndexForward = true // oldest first
+        };
+
+        var result = new List<Dictionary<string, object>>();
+        QueryResponse? response = null;
+
+        do
+        {
+            if (response?.LastEvaluatedKey?.Count > 0)
+            {
+                request.ExclusiveStartKey = response.LastEvaluatedKey;
+            }
+
+            response = await _dynamoDb.QueryAsync(request);
+            result.AddRange(response.Items.Select(DynamoDbHelper.FromItem));
+        }
+        while (response.LastEvaluatedKey?.Count > 0);
+
+        return result;
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryStampAsync(
+        string orderId, Dictionary<string, object> fields, IReadOnlyDictionary<string, string> expectedStrings)
+    {
+        var setParts = new List<string>();
+        var attrNames = new Dictionary<string, string>();
+        var attrValues = new Dictionary<string, AttributeValue>();
+
+        var i = 0;
+        foreach (var kvp in fields)
+        {
+            if (IsProtectedOrderField(kvp.Key))
+            {
+                continue;
+            }
+
+            attrNames[$"#f{i}"] = kvp.Key;
+            attrValues[$":f{i}"] = DynamoDbHelper.ToAttributeValue(kvp.Value);
+            setParts.Add($"#f{i} = :f{i}");
+            i++;
+        }
+
+        if (setParts.Count == 0)
+        {
+            throw new ArgumentException("A stamp needs at least one field that is not a key, version, updatedAt or status.", nameof(fields));
+        }
+
+        var conditionParts = new List<string> { "attribute_exists(orderId)" };
+        var c = 0;
+        foreach (var kvp in expectedStrings)
+        {
+            attrNames[$"#c{c}"] = kvp.Key;
+            attrValues[$":c{c}"] = new AttributeValue { S = kvp.Value };
+            conditionParts.Add($"#c{c} = :c{c}");
+            c++;
+        }
+
+        var existing = await GetItemAsync(orderId, consistentRead: true);
+        if (existing == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = OrderKey(orderId, existing["createdAt"].S),
+                UpdateExpression = "SET " + string.Join(", ", setParts),
+                ConditionExpression = string.Join(" AND ", conditionParts),
+                ExpressionAttributeNames = attrNames,
+                ExpressionAttributeValues = attrValues
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Order attributes a status or stamp write never takes from its caller's field map: the keys,
+    /// the version and timestamp the write owns, and the status (set by the write itself or not at all).
+    /// </summary>
+    private static bool IsProtectedOrderField(string key)
+        => key is "orderId" or "createdAt" or "updatedAt" or "version" or "status";
 
     /// <inheritdoc />
     public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryMoneySweepPageAsync(

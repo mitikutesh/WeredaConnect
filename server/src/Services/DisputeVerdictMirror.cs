@@ -350,7 +350,7 @@ public sealed class DisputeVerdictMirror
 
     /// <summary>
     /// ESC-09 Part B: before an admin refunds a plain <c>escrowed</c> order escrow, end an order that never
-    /// got going, as a <c>buyer_wins</c> refund does: an order <c>funded</c>, or <c>accepted</c> with no
+    /// got going, as a <c>buyer_wins</c> refund does: an order <c>funded</c> or <c>awaiting_transport</c>, or <c>accepted</c> with no
     /// delivery or a <c>pending</c> one, has its pending delivery cancelled first, then the order
     /// (<c>cancelReason: escrow_refunded</c>), its slot freed and its stock restored. Returns the order leg
     /// as <see cref="VerdictLegOutcome.Cancelled"/>, <see cref="VerdictLegOutcome.Blocked"/> (a write the
@@ -380,7 +380,8 @@ public sealed class DisputeVerdictMirror
 
         var status = Str(order, "status") ?? "";
         var deliveryStatus = delivery != null ? Str(delivery, "status") : string.IsNullOrEmpty(deliveryId) ? null : "unknown";
-        if (!(status == "funded" || (status == "accepted" && deliveryStatus is null or "pending" or "cancelled")))
+        if (!(status is "funded" or OrderCommitment.AwaitingTransportStatus
+              || (status == "accepted" && deliveryStatus is null or "pending" or "cancelled")))
         {
             return Result(VerdictLegOutcome.Mismatch, $"mismatch:{status}", VerdictLegOutcome.None, null, orderId, deliveryId, order);
         }
@@ -399,7 +400,7 @@ public sealed class DisputeVerdictMirror
     /// <summary>Order statuses a disposition may close: the order is live and not delivered yet.</summary>
     private static readonly HashSet<string> PreDeliveryOrderStatuses = new(StringComparer.Ordinal)
     {
-        "funded", "accepted", "pickup_confirmed", "in_transit"
+        "funded", OrderCommitment.AwaitingTransportStatus, "accepted", "pickup_confirmed", "in_transit"
     };
 
     /// <summary>
@@ -742,7 +743,8 @@ public sealed class DisputeVerdictMirror
             // FUP-16: a delivery an admin disposition cancelled was picked up; its order waits for the
             // admin's replay of the disposition, never for the cancel-and-restock path.
             if (!deliveryClosedByVerdict
-                && (status == "funded" || (status == "accepted" && deliveryStatus is null or "pending" or "cancelled")))
+                && (status is "funded" or OrderCommitment.AwaitingTransportStatus
+                    || (status == "accepted" && deliveryStatus is null or "pending" or "cancelled")))
             {
                 return cancelAllowed ? (VerdictLegOutcome.Cancelled, null) : (VerdictLegOutcome.Deferred, null);
             }
@@ -972,7 +974,7 @@ public sealed class DisputeVerdictMirror
                     return (VerdictLegOutcome.Closed, null, order);
                 }
 
-                if (status is not ("funded" or "accepted"))
+                if (status is not ("funded" or OrderCommitment.AwaitingTransportStatus or "accepted"))
                 {
                     // Accepted and picked up in between: the refund waits for the order.
                     return (VerdictLegOutcome.Mismatch, $"mismatch:{status}", order);

@@ -1,7 +1,7 @@
 # Trip Listing API Contract
 
 ## Version
-1.6.0
+2.0.0
 
 ## Parties
 - **Mobile** (client) — truckers creating and browsing trip listings
@@ -18,7 +18,7 @@ The Trip Listing API enables transport providers (truckers) to post available tr
 - **Woreda-to-woreda routing**: Ethiopian districts, not GPS routes
 - **Capacity in quintals**: Standard Ethiopian bulk measurement (100kg)
 - **Pricing in ETB per quintal**: Transport cost transparency for farmers
-- **Soft deletes**: Cancelled trips stay in the table (soft delete: `status: cancelled`, plus `deletedAt` when cancelled through the `delete` action) and are hidden from both read endpoints
+- **Soft deletes**: Cancelled trips stay in the table (soft delete: `status: cancelled`, plus `deletedAt` when cancelled through the `delete` action) and are hidden from both read endpoints; since 2.0.0 a trip with goods on the move cannot be cancelled (`TRIP_HAS_BOOKINGS`), and cancelling a booked trip moves its paid orders to `awaiting_transport` (Bookings, below)
 
 ---
 
@@ -228,17 +228,21 @@ GET /trips/trip-101
 | `pricePerQuintal` | number | Yes | 0.01-10000 | Transport price per quintal in ETB |
 | `status` | enum | Yes | See Status Types | Trip lifecycle status |
 | `matchedListings` | string[] | Yes | — | Crop listing IDs matched to this trip |
+| `bookedQuintals` | number | No | 0 to `capacity` | Quintals reserved by funded and accepted orders (2.0.0). Server-written; a client value is dropped |
+| `remainingQuintals` | number | No | 0 to `capacity` | `capacity - bookedQuintals` (2.0.0). Server-written. Null on a row from before 2.0.0, which clients read as `capacity` |
 | `createdAt` | string (ISO 8601) | Yes | — | Timestamp when trip was created |
 | `updatedAt` | string (ISO 8601) | Yes | — | Timestamp when trip was last updated |
 | `deletedAt` | string (ISO 8601) | No | — | Timestamp when trip was soft-deleted (cancelled) |
 | `version` | number | Yes | >=1 | Optimistic concurrency control version |
 
+The trip row also stores `bookedOrderIds` and `acceptedOrderIds` (the orders holding capacity and the ones the trucker accepted, 2.0.0); they are not returned.
+
 ### Status Types (Enum)
 
 | Value | Description |
 |-------|-------------|
-| `open` | Trip posted, awaiting crop matches |
-| `matched` | Trip matched with crop listings, awaiting pickup |
+| `open` | Trip posted; buyers may order on it while it has room (2.0.0: `remainingQuintals` above 0) |
+| `matched` | Fully booked: `remainingQuintals` is 0 (2.0.0). Set by the system as orders reserve the capacity, never by a client; before 2.0.0 the trucker set it by hand |
 | `inTransit` | Truck has picked up crops and is en route |
 | `delivered` | Successfully delivered to destination |
 | `cancelled` | Trip cancelled by trucker |
@@ -248,15 +252,17 @@ GET /trips/trip-101
 Valid status transitions (enforced server-side):
 
 ```
-open → matched      (crop listings matched to trip)
-open → cancelled    (trucker cancels before any match)
+open → matched      (system: the last quintal is booked, 2.0.0; a client status: matched is refused)
+open → inTransit    (2.0.0: allowed when the trip has bookings, so a partly booked truck can leave)
+open → cancelled    (trucker cancels; 2.0.0: refused while an order on it is pickup_confirmed or in_transit)
 matched → inTransit (trucker picks up crops and departs)
-matched → cancelled (trucker cancels after match — re-opens matched listings)
+matched → cancelled (trucker cancels after match, re-opens matched listings; 2.0.0: same refusal, booked orders move to awaiting_transport)
 inTransit → delivered (trucker confirms delivery at destination)
 ```
 
 Invalid transitions return `422 Unprocessable Entity`:
-- `open → inTransit` (must match first)
+- `open → inTransit` without bookings (2.0.0; before, always: must match first)
+- a client `open → matched` (2.0.0: the system sets `matched` when the trip is full)
 - `open → delivered` (must match and transit first)
 - `delivered → *` (terminal state)
 - `cancelled → *` (terminal state)
@@ -306,12 +312,60 @@ Invalid transitions return `422 Unprocessable Entity`:
 11. **Account under review** (1.6.0, FRD-04):
    - A create from a trucker at risk tier CRITICAL (`specs/architecture/fraud-detection-architecture.md` sections 16 and 17) is refused with `FRAUD_ACCOUNT_HELD: Your account is under review. Some actions are paused. Contact support.` and nothing is written. The check runs after the field rules above (rule 10 included) and before the write. Permanent on clients like every `FRAUD_*` code (`sync-protocol.md` 1.9.0, 1.25.0). The tier is never returned.
    - Updates and deletes of existing trips are not gated. A score that cannot be read is LOW (the create goes on).
+12. **Frozen once booked** (2.0.0, ESC-15, behind `COMMITMENTS_ENABLED`):
+   - Once `bookedQuintals` is above 0, an update that changes `departureDate`, `pricePerQuintal`, `fromWoreda` or `toWoreda` is refused with `TRIP_HAS_BOOKINGS` and nothing is written; an unchanged echo is accepted. `capacity` may change but not drop below `bookedQuintals` (same code).
+   - A client `status: matched` is refused with `TRIP_VALIDATION: 'matched' is set by the server when the trip is fully booked.` and nothing is written: the system sets it when `remainingQuintals` reaches 0. `open → inTransit` is allowed when the trip has bookings.
+   - Permanent on clients since `sync-protocol.md` 1.17.0 (`errorTripHasBookings`); the trip is reverted to the server row.
+13. **Cancelling a booked trip** (2.0.0):
+   - An update to `cancelled` or a `delete` is refused with `TRIP_HAS_BOOKINGS` while an order on the trip is `pickup_confirmed` or `in_transit` (goods on the move).
+   - Otherwise the cancel goes through and cascades: every `funded` or `accepted` order on the trip moves to `awaiting_transport` (`transportFailure: trip_cancelled`, `truckerResponse: cancelled`, `faultParty: trucker`, `order-lifecycle.md` 2.0.0), its pending delivery is cancelled and its booking released; unpaid orders are left alone (the payment gate refuses them later). The hourly order cron repeats the cascade for orders it missed.
 
 ### Client-Side Validation
 
 - Same as server-side, plus:
 - Show localized error messages in user's preferred language
 - Validate before enqueueing sync operation (prevent invalid operations from clogging queue)
+
+---
+
+## Bookings (2.0.0, ESC-15)
+
+Design: `specs/features/three-party-escrow-commitments-reputation.md` 4.10 and `order-lifecycle.md`
+2.0.0 (Commitments). Behind `COMMITMENTS_ENABLED` (off until the clients ship; off, the server behaves
+as 1.6.0). Orders now hold capacity on the trip they name, and the trucker commits to each order.
+
+**Fields.** The row carries `bookedQuintals`, `remainingQuintals` (`capacity - bookedQuintals`),
+`bookedOrderIds` (orders holding capacity) and `acceptedOrderIds` (orders the trucker accepted).
+`TripDto` returns the first two; a row from before 2.0.0 has neither, and clients read a missing
+`remainingQuintals` as `capacity`. Units are quintals; an order's `quantity` is kilograms, so an order
+holds `quantity / 100` quintals.
+
+**Reserve, verify, release.**
+
+| When | What |
+|---|---|
+| order create (`POST /sync`, `entityType: order`) | The trip must be `open` or `matched`, depart at least 24 hours ahead (`ORDER_VALIDATION`) and have `remainingQuintals` of at least the order's quintals, else `TRIP_CAPACITY_EXCEEDED` (permanent on clients since `sync-protocol.md` 1.17.0; before 2.0.0 the check was against `capacity`). Nothing is reserved yet. |
+| buyer `payment_submitted` | Refused with `ORDER_VALIDATION: This trip is no longer available; place a new order.` when the trip is no longer `open` or `matched`, has less room than the order, or departs in under 12 hours. Permanent; the client reverts the order. |
+| funding (`→ funded`) | The order's quintals are reserved in one conditional write on the trip's `remainingQuintals` (never below 0), and the order id is added to `bookedOrderIds`; at 0 the status becomes `matched`. A trip with no room or already cancelled sends the order to `awaiting_transport` (`trip_full` / `trip_cancelled`) instead, and the farmer is not asked. |
+| the trucker's accept (`truckerResponse: accept`) | The booking is verified and confirmed in the same transaction as the order write (`acceptedOrderIds`). |
+| the order leaves the trip (farmer decline or expiry, trucker decline, expiry or drop-out, a cancel in `awaiting_transport`, a trip cancel) | The quintals are released and the order id removed. |
+
+**Frozen fields** (rule 12): once booked, `departureDate`, `pricePerQuintal`, `fromWoreda` and
+`toWoreda` cannot change (`TRIP_HAS_BOOKINGS`), and `capacity` cannot drop below `bookedQuintals`.
+The buyers paid for that date, price and route.
+
+**`matched`** means fully booked and is set by the system; a client that sends it gets
+`TRIP_VALIDATION: 'matched' is set by the server when the trip is fully booked.`
+`open → inTransit` is allowed when the trip has bookings, so a partly booked truck can leave.
+
+**Cancel cascade** (rule 13): refused with `TRIP_HAS_BOOKINGS` while goods are on the move
+(an order on the trip is `pickup_confirmed` or `in_transit`); otherwise the `funded` and
+`accepted` orders move to `awaiting_transport` (`transportFailure: trip_cancelled`), their pending
+deliveries are cancelled, and unpaid orders are left to the payment gate. The hourly order cron
+repeats the cascade for orders it missed.
+
+**Browse is unchanged**: `GET /trips` lists `open` trips as before. Clients read `remainingQuintals`
+for the free room.
 
 ---
 
@@ -444,9 +498,10 @@ Common route patterns:
 | 1.4.0 | 2026-10-17 | `GET /trips` and `GET /trips/{id}` return `truckerPhone` only to the trip's trucker and admins; buyers get none (ESC-48). `/sync` conflict data for the owner still carries it (shipped clients read it as required). Clients read `truckerPhone ?? ''` |
 | 1.5.0 | 2026-10-23 | No phone number in trip text (FUP-49): a `vehicleDescription`, `vehiclePlate`, `fromWoreda` or `toWoreda` that holds an Ethiopian mobile number is refused with `TRIP_CONTACT_IN_TEXT` on create and on an update that changes it (an unchanged echo is accepted), nothing written; permanent on clients; the trip form runs the same check first; detector as `crop-listing-api.md` 1.4.0; `vehiclePlate` and `vehicleDescription` added to the TripDto table |
 | 1.6.0 | 2026-10-23 | Account under review (FRD-04, rule 11): a create from a trucker at risk tier CRITICAL is refused with `FRAUD_ACCOUNT_HELD` after the field rules and before the write, nothing written; permanent on clients (already handled since `sync-protocol.md` 1.18.0); updates and deletes not gated |
+| 2.0.0 | 2026-10-26 | Bookings (ESC-15, `order-lifecycle.md` 2.0.0, behind `COMMITMENTS_ENABLED`): `TripDto` gains `bookedQuintals` and `remainingQuintals` (null on old rows, read as `capacity`), the row also `bookedOrderIds` and `acceptedOrderIds`; capacity is reserved per order at funding (atomic on `remainingQuintals`), verified at the trucker's accept and released when the order leaves the trip; order create refuses a trip departing in under 24 hours and a quantity above `remainingQuintals` (`TRIP_CAPACITY_EXCEEDED`), and `payment_submitted` a trip no longer open or matched, too small, or departing in under 12 hours (`ORDER_VALIDATION: This trip is no longer available; place a new order.`); `matched` means fully booked and is set by the system (a client `status: matched` is refused), `open → inTransit` is allowed with bookings; once booked `departureDate`, `pricePerQuintal`, `fromWoreda` and `toWoreda` are frozen and `capacity` may not drop below `bookedQuintals` (`TRIP_HAS_BOOKINGS`); cancelling (update or delete) is refused with `TRIP_HAS_BOOKINGS` while an order on the trip is `pickup_confirmed` or `in_transit`, otherwise funded and accepted orders move to `awaiting_transport` (`trip_cancelled`) with their pending deliveries cancelled and unpaid orders left alone; browse unchanged |
 
 ---
 
-**Last Updated**: 2026-10-23
-**Version**: 1.6.0
+**Last Updated**: 2026-10-26
+**Version**: 2.0.0
 **Status**: Draft (Phase R4.1)

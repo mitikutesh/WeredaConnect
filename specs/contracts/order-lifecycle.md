@@ -1,11 +1,11 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.27.0
+2.0.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
-- **Backend** (server) — owns the state machine (`server/src/Functions/SyncFunction.cs` → `OrderTransitions` + `ValidateOrderTransitionAuth`), performs all money-linked transitions
+- **Backend** (server): owns the state machine (`server/src/Functions/SyncFunction.cs`, `OrderTransitions` + `ValidateOrderTransitionAuth`), performs all money-linked transitions and, since 2.0.0, decides the farmer's and the trucker's commitment commands (`server/src/Services/OrderCommitment.cs`)
 - **Admin** — reads statuses in `/admin/transactions` timeline stitching
 
 This document is the human- and agent-readable explanation of what every order
@@ -30,15 +30,16 @@ statuses are camelCase on the wire).
 | 1 | `created` | Buyer placed the order. | No money paid. | Buyer (order create) |
 | 2 | `pending_payment` | Waiting for the buyer to start paying. The server stamps `pendingPaymentAt` each time the order enters it, which starts the 24h auto-cancel (1.20.0). | No money paid. | Buyer |
 | 3 | `payment_submitted` | Buyer initiated the transfer (Telebirr/CBE) and submitted the reference. **Not yet verified.** The server stamps `paymentSubmittedAt`, which starts the payment clock (1.7.0). | Money claimed, unconfirmed. | Buyer |
-| 4 | `funded` | Payment **confirmed held in the platform escrow account**. In dev/staging (`TELEBIRR_MOCK=true` on the sync Lambda) the server auto-verifies instantly after `payment_submitted`; with the live gateway the buyer pays through `POST /escrow/order-checkout` and the Telebirr webhook funds the order (1.7.0, `escrow-protocol.md` 1.5.0). | Money safely in escrow. | **System only** |
-| 5 | `accepted` | Farmer accepted the funded order and prepares the crops. | In escrow. | Farmer |
+| 4 | `funded` | Payment **confirmed held in the platform escrow account**. In dev/staging (`TELEBIRR_MOCK=true` on the sync Lambda) the server auto-verifies instantly after `payment_submitted`; with the live gateway the buyer pays through `POST /escrow/order-checkout` and the Telebirr webhook funds the order (1.7.0, `escrow-protocol.md` 1.5.0). Since 2.0.0 the order also waits here for the commitments: the farmer is asked first (`farmerResponse: pending`), and on a trip order the trucker once the farmer accepted (`truckerResponse: pending`); see Commitments. | Money safely in escrow. | **System only** |
+| 5 | `accepted` | Everyone committed: the farmer accepted the funded order and prepares the crops, and on a trip order the trucker accepted the transport too (2.0.0; before, the farmer's accept alone). The farmer's accept on a trip order keeps the order `funded` until the trucker answers. | In escrow. | Farmer (self-pickup order); the trucker's accept on a trip order (2.0.0) |
 | 6 | `pickup_confirmed` | Pickup from the farmer confirmed (QR scan; trucker delivery or buyer self-pickup). | In escrow. | **System** when the delivery becomes `pickedUp` (1.4.0). A participant (incl. the trucker) may request it only once the order's active delivery is `pickedUp` or later; an order without an active delivery is refused (1.10.0) |
 | 7 | `in_transit` | Crops en route to the buyer. | In escrow. | **System** when the delivery becomes `inTransit`. A participant (incl. the trucker) may request it only once the active delivery is `inTransit` or later (1.10.0) |
 | 8 | `delivered` | Delivery confirmed by the buyer. Starts the dispute window (see `escrow-protocol.md`: 48h; auto-release after it, or after a longer payout delay for a new or flagged farmer or trucker, 1.27.0). | In escrow, release pending. | **System** when the delivery becomes `delivered` (self-pickup jumps here from `accepted`); a client request is refused unless the order's active delivery is already `delivered` |
 | 9 | `disbursing` | The release is committed: the farmer leg is paid or waits in the manual payout queue (also an unknown outcome or a parked release lock); the trucker leg may still be owed (1.17.0). With the live gateway this can last days. | Leaving escrow. | **System only**, when the escrow becomes `released` or its release is queued (1.17.0) |
 | 10 | `settled` | Every leg is paid: the farmer and, when there is one, the trucker. Order complete. | Paid out. Terminal. | **System only**, when the escrow becomes `completed` with no leg owed (1.17.0) |
-| — | `cancelled` | Order cancelled (buyer action, or auto-cancel, see below). Escrowed money, if any, refunds to the buyer. An `accepted` order only after a transport failure (1.15.0, see Transport failure cancel). | Refunded/none. Terminal. | Buyer / system cron |
-| — | `rejected` | Farmer declined the funded order; escrow refunds to the buyer. | Refunded. Terminal. | Farmer |
+|   | `awaiting_transport` | The transport is not settled and the buyer must decide (2.0.0, ESC-15). Entered while the money is held: the trucker declined, let the request expire or dropped out after accepting, or the trip was cancelled or had no room. The farmer's commitment stands. Exits: the buyer cancels (full refund), the farmer cancels (no penalty), or the 48 hour buyer-choice deadline cancels it (full refund). Replacement truck and the switch to self-pickup are ESC-19/20. Tooltip key `statusAwaitingTransportInfo`. | In escrow, held for the buyer's decision. | **System only** (a client cannot set it) |
+| - | `cancelled` | Order cancelled (buyer action, or auto-cancel, see below). Escrowed money, if any, refunds to the buyer. An `accepted` order only after a transport failure (1.15.0, see Transport failure cancel) or, since 2.0.0, by its farmer with a fresh sign-in. Since 2.0.0 also from `awaiting_transport` (buyer or farmer) and from `funded` when the farmer did not answer in time; `cancelReason`, `cancelledBy` and `faultParty` say who and why. | Refunded/none. Terminal. | Buyer / farmer (2.0.0) / system cron |
+| - | `rejected` | Farmer declined the funded order (`farmerResponse: declined`, `cancelledBy: farmer`, `faultParty: farmer` since 2.0.0); escrow refunds to the buyer. | Refunded. Terminal. | Farmer |
 | — | `payment_failed` | Payment could not be verified: the order cron sets it 24 hours after `paymentSubmittedAt` when no payment was confirmed (1.7.0). Buyer may retry (`→ payment_submitted` directly since 1.13.0, or `→ pending_payment`) or cancel. | No confirmed money. | **System only** (enforced since 1.7.0) |
 | — | `disputed` | Dispute raised within the window; escrow keeps holding the money. Ratings are blocked while disputed. | Frozen in escrow. | **System only** (1.14.0): from an escrow dispute (`POST /escrow/dispute`, buyer or farmer) or a delivery dispute via sync (1.4.1), each only after the escrow is frozen. A client order update to `disputed` is refused (`ORDER_UNAUTHORIZED`) |
 | — | `dispute_resolved` | Dispute decided; money released to farmer or refunded to buyer per outcome. The order stays here after the verdict is settled (it never moves to `disbursing` or `settled`; the escrow status says whether the money moved, 1.17.0). | Released per verdict. Terminal. | **System only**: when the admin records the verdict (`POST /admin/disputes/{id}/resolve`), and again before the escrow is settled if that failed (1.12.0), and by the hourly order-money sweep after a settled verdict whose order hop failed (1.17.0) |
@@ -61,19 +62,24 @@ created ──► pending_payment ──► payment_submitted ──► funded �
    │   └────────────────────────────► (direct hop: buyers usually pay immediately)                                    │
    │                                payment_submitted ──► payment_failed ──► payment_submitted | pending_payment | cancelled ├──► disputed ──► dispute_resolved
    └──► cancelled            funded ──► rejected | cancelled
-                             accepted ──► cancelled   (buyer, only after a transport failure, 1.15.0)
+                             accepted ──► cancelled   (buyer, only after a transport failure, 1.15.0; farmer with a fresh sign-in, 2.0.0)
+                             funded ──► awaiting_transport     (system: trucker declined or expired, trip full or cancelled, 2.0.0)
+                             accepted ──► awaiting_transport   (system: trucker dropped out, trip cancelled, 2.0.0)
+                             awaiting_transport ──► cancelled  (buyer, farmer, or the 48h buyer-choice deadline, 2.0.0)
    funded | accepted | pickup_confirmed | in_transit ──► dispute_resolved   (system, an admin dispute disposition, 1.21.0)
 ```
 
-Source of truth: `OrderTransitions` in `SyncFunction.cs`. Anything not in that
+Source of truth: `OrderTransitions` in `SyncFunction.cs`; the farmer's and the trucker's
+commands are decided by `OrderCommitment.Decide` before that map (2.0.0). Anything not in that
 map is rejected as an invalid transition (version-checked, conflict on
 mismatch — see `trip-transition` gotchas: send the **pre-increment** version).
 
 ### Actor authorization (`ValidateOrderTransitionAuth`)
 
-- **System-managed** (client sync is rejected): `funded`, `disbursing`, `settled`, `dispute_resolved`, since 1.7.0 `payment_failed`, and since 1.14.0 `disputed`. Before 1.7.0 any participant (the farmer too) could set `payment_failed` while a Telebirr payment was in flight, which let the buyer resubmit and pay twice. Before 1.14.0 the buyer or the farmer could set `delivered → disputed` on the order itself: no escrow was frozen, the delivery stayed `delivered`, the 48-hour auto-release still paid the farmer, and the admin never saw the dispute (ESC-07). A dispute now comes only from the delivery (sync) or `POST /escrow/dispute`. No shipped app ever sent the order update.
-- **Buyer-only**: `cancelled`, `pending_payment`, `payment_submitted`. From `accepted`, `cancelled` is allowed only after a transport failure and runs its own checks (1.15.0, Transport failure cancel).
-- **Farmer-only**: `accepted`, `rejected`.
+- **System-managed** (client sync is rejected): `funded`, `disbursing`, `settled`, `dispute_resolved`, since 1.7.0 `payment_failed`, since 1.14.0 `disputed`, and since 2.0.0 `awaiting_transport`. Before 1.7.0 any participant (the farmer too) could set `payment_failed` while a Telebirr payment was in flight, which let the buyer resubmit and pay twice. Before 1.14.0 the buyer or the farmer could set `delivered → disputed` on the order itself: no escrow was frozen, the delivery stayed `delivered`, the 48-hour auto-release still paid the farmer, and the admin never saw the dispute (ESC-07). A dispute now comes only from the delivery (sync) or `POST /escrow/dispute`. No shipped app ever sent the order update.
+- **Buyer-only**: `pending_payment`, `payment_submitted`, and `cancelled` from `created`, `pending_payment` and `payment_failed` (`cancelReason: buyer_withdrew` when none is sent, `cancelledBy: buyer`, 2.0.0) and, since 2.0.0, from `awaiting_transport` (`transport_failed_buyer_cancelled`, full refund). From `accepted`, `cancelled` is allowed only after a transport failure and runs its own checks (1.15.0, Transport failure cancel). Since 2.0.0 (flag on) a buyer's `funded → cancelled` is refused with `ORDER_CANCEL_NOT_ALLOWED: The farmer and the trucker are deciding; you will be told as soon as they answer.`: the deadlines end the wait either way.
+- **Farmer-only**: `accepted`, `rejected`; since 2.0.0 sent as the commands `farmerResponse: accept | decline` (the farmer's legacy `status: accepted | rejected` is mapped to them), plus `cancelled` from `accepted` before pickup with a fresh sign-in (`AUTH_040`; `farmer_cancelled`, `faultParty: farmer`, full refund) and from `awaiting_transport` without one (`farmer_cancelled`, `faultParty: none`). See Commitments.
+- **Trucker-only** (2.0.0): `truckerResponse: accept | decline` on the request made to the order's own trucker (`funded`, farmer accepted, `truckerResponse: pending`), and `decline` from `accepted` before pickup as the drop-out (fresh sign-in). A trucker never sets a status by name; the server derives it. See Commitments.
 - **Either participant**: `pickup_confirmed`, `in_transit`, `delivered`. The order's matched trucker counts as a participant for these three only (1.4.0). Each is a catch-up of what the delivery already says: `delivered` requires the order's active delivery to be `delivered` (1.4.0; orders without an active delivery keep the old behaviour), `pickup_confirmed` requires it to be `pickedUp` or later and `in_transit` requires `inTransit` or later, and an order with no active delivery is refused for both (`ORDER_VALIDATION`, 1.10.0). Before 1.10.0 any participant could mark pickup or transit with no delivery at all.
 
 ---
@@ -85,8 +91,14 @@ mismatch — see `trip-transition` gotchas: send the **pre-increment** version).
 | `→ funded` | Crop listing quantity decreases by the ordered amount; at 0 the listing becomes `reserved` (off the market). Idempotent per order since 1.7.0 (the listing records `stockDecrementedFor` order ids; version CAS with retry), so a payment redelivery can repeat it safely. Best-effort: a failure logs the alarmable `ORDER_STOCK_DECREMENT_FAILED` token, never blocks the order. | `OrderFundingService.DecrementStockAsync` → `ICropRepository.TryDecrementStockAsync` (mock auto-fund in `SyncFunction.cs`, live payments in `TelebirrWebhookFunction.cs`) |
 | `→ funded` | An escrow record is materialized for the held money (`escrow-order-{orderId}`, status `escrowed`, `source: order`). Best-effort with alarmable `ORDER_ESCROW_CREATE_FAILED` token; delivery-time linkage self-heals, and a payment redelivery repairs it. | `OrderFundingService.EnsureFundedSideEffectsAsync` → `EscrowService.CreateFromFundedOrderAsync`; `escrow-protocol.md` §Order-Funded Escrow |
 | live Telebirr payment for an order checkout | One write conditioned on `status = payment_submitted` sets `funded`, `paymentVerifiedAt` and the server-only `telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId` (clients can never set them; create and update strip them), then runs the two side effects above and a transaction-audit `payment_verified` row (actor `telebirr`). That row is keyed by the order's `paymentVerifiedAt` and written with a conditional put, so it exists once; a redelivery of the same payment writes it when the first delivery did not (1.20.0, ESC-47; `escrow-protocol.md` 1.19.0). A second payment, a payment for an order no longer waiting, or one made in a checkout from an earlier `payment_submitted` (the checkout records the order's `paymentSubmittedAt`) changes nothing and is alarmed for a manual refund. | `TelebirrWebhookFunction.cs`; `escrow-protocol.md` §Additions in 1.5.0 |
-| `funded → rejected\|cancelled` | The order's escrow is expired NOW (+`refundReason`) so the hourly auto-refund cron pays the buyer back (≤1h). The listing gets its stock back: `quantity / 100` quintals, idempotent per order (the listing records restored order ids), race-safe (version CAS), `reserved → available` (1.4.2, SIM-13). | `TryScheduleOrderEscrowRefundAsync`, `TryRestoreListingStockAsync` → `ICropRepository.TryRestoreStockAsync`; `escrow-protocol.md` |
-| `funded → accepted` | The server stamps `pickupDeadlineAt` in the same version-checked write as `respondedAt` (1.15.0). A trip whose row cannot be read refuses the accept for now with an unprefixed error (the client retries), so no accepted order goes without its deadline. | `ProcessOrderUpdateAsync`, `PickupDeadline` |
+| `funded → rejected\|cancelled` | The order's escrow is expired NOW (+`refundReason`) so the hourly auto-refund cron pays the buyer back (≤1h). The listing gets its stock back: `quantity / 100` quintals, idempotent per order (the listing records restored order ids), race-safe (version CAS), `reserved → available` (1.4.2, SIM-13). Since 2.0.0 the trip capacity reserved for the order is released as well, and the row records `farmerResponse: declined` (reject) or `cancelReason: farmer_response_expired` (cron), each with `cancelledBy` and `faultParty: farmer`. | `TryScheduleOrderEscrowRefundAsync`, `TryRestoreListingStockAsync` → `ICropRepository.TryRestoreStockAsync`; `escrow-protocol.md` |
+| `funded → accepted` | The server stamps `pickupDeadlineAt` in the same version-checked write as `respondedAt` (1.15.0). A trip whose row cannot be read refuses the accept for now with an unprefixed error (the client retries), so no accepted order goes without its deadline. Since 2.0.0 (flag on) a trip order reaches `accepted` at the trucker's accept and the stamp moves there (`truckerRespondedAt`, the trip booking confirmed in the same transaction); the farmer's accept alone keeps the order `funded` and asks the trucker (`truckerResponse: pending`, `truckerAskedAt`, `truckerDeadlineAt`). A self-pickup order still reaches `accepted` at the farmer's accept. | `ProcessOrderUpdateAsync`, `PickupDeadline`, `OrderCommitment.Decide` |
+| `→ funded` (2.0.0, `COMMITMENTS_ENABLED`) | The funding write also stamps the commitment fields: `fulfillment` (`trucker` with a `tripId`, else `self_pickup`), `pickupDate` (the trip's departure, trip orders only), `farmerResponse: pending`, `farmerDeadlineAt` = min(now + 24h, departure - 12h) with a 1 hour floor, and `truckerResponse: not_asked` (trip order) or `none` (self-pickup). The trip capacity is reserved for the order (atomic on the trip's `remainingQuintals`, `trip-listing-api.md` 2.0.0). A trip that is full or cancelled at that moment sends the order straight to `awaiting_transport` (`transportFailure: trip_full` / `trip_cancelled`, `truckerResponse: failed_capacity` / `cancelled`, `buyerChoiceDeadlineAt` = now + 48h) and the farmer is not asked. | `OrderCommitment.FundingStamps`, `OrderFundingService` |
+| trucker `decline` on a pending request, or `truckerDeadlineAt` passed (cron) | `funded → awaiting_transport` with `truckerResponse: declined` / `expired`, `transportFailure: trucker_declined` / `trucker_expired`, `truckerRespondedAt` (decline), `declineReason` when sent, `buyerChoiceDeadlineAt` = now + 48h, `faultParty: trucker`; the trip capacity is released. No money moves. | `OrderCommitment.Decide`, `OrderCronFunction` (`commitment_deadlines`) |
+| trucker drop-out (`decline` from `accepted` before pickup, fresh sign-in), or the trip cancelled under an `accepted` order | `accepted → awaiting_transport` with `truckerResponse: cancelled`, `transportFailure: trucker_cancelled` / `trip_cancelled`, `buyerChoiceDeadlineAt`, `faultParty: trucker`; the pending delivery is cancelled and the capacity released. Not possible once the goods move (`pickup_confirmed`, `in_transit`): the drop-out gets `ORDER_CANCEL_NOT_ALLOWED`, the trip cancel `TRIP_HAS_BOOKINGS`. | `OrderCommitment.Decide`, trip cascade in `SyncFunction.cs` |
+| `awaiting_transport → cancelled` | Buyer: `cancelReason: transport_failed_buyer_cancelled`, `cancelledBy: buyer` (the trucker's fault stays recorded). Farmer: `farmer_cancelled`, `cancelledBy: farmer`, `faultParty: none` (no penalty). Cron after `buyerChoiceDeadlineAt`: `transport_not_arranged`, `cancelledBy: system`, `faultParty: none`. Each schedules the escrow refund (`refundReason: order_transport_failed` for the buyer's and the farmer's cancel, `order_cancelled` for the cron's) and restores the listing stock. | `ProcessOrderUpdateAsync`, `OrderCronFunction`; `escrow-protocol.md` 1.34.0 |
+| `accepted → cancelled` (farmer, 2.0.0, fresh sign-in) | Before pickup only: the pending delivery is cancelled, the order cancelled (`farmer_cancelled`, `cancelledBy: farmer`, `faultParty: farmer`), the refund scheduled (`refundReason: order_cancelled`), the trip capacity released and the listing stock restored. Without a fresh sign-in `AUTH_040`; once the goods were picked up `ORDER_CANCEL_NOT_ALLOWED`. | `ProcessOrderUpdateAsync`; Commitments |
+| hourly cron, action `commitment_deadlines` (2.0.0) | `farmerDeadlineAt` passed on a `funded` order: `cancelled` (`farmer_response_expired`, `farmerResponse: expired`, `cancelledBy: system`, `faultParty: farmer`), refund, stock and capacity released. `truckerDeadlineAt` passed: `awaiting_transport` (`trucker_expired`). `buyerChoiceDeadlineAt` passed: `cancelled` (`transport_not_arranged`), refund. Reminder markers `farmerReminderAt` / `truckerReminderAt` / `buyerChoiceReminderAt` stamped 6 hours before a deadline, only for windows of 12 hours or more. `pickupOverdueNotifiedAt` stamped when `pickupDeadlineAt` passes on an `accepted` order. Funded or accepted orders of a cancelled trip moved to `awaiting_transport` (`trip_cancelled`) when the inline cascade missed them. Every write is version-checked; deadlines are server time. | `OrderCronFunction` |
 | `accepted → cancelled` (buyer, after a transport failure) | The pending delivery is cancelled first, then the order (`cancelReason: transport_failed_buyer_cancelled`, the buyer's text in `cancelNote`) in one transaction with the escrow refund arm (`refundReason: order_transport_failed`, 1.23.0: a dispute that froze the money since the check refuses the cancel), then the delivery slot is released and the listing stock restored; audited (1.15.0). | `ProcessTransportFailureCancelAsync`; Transport failure cancel below |
 | delivery created | The delivery (which now REQUIRES `orderId`) is linked to the order's escrow, activating confirmation-stamping / auto-release / the self-pickup QR gate. The slot claim requires the order to be `accepted`, `pickup_confirmed` or `in_transit` in the same transaction (1.15.0): a create racing a cancel is refused (`DELIVERY_VALIDATION: The order no longer takes a delivery ...`). | `TryLinkOrderEscrowAsync`; `delivery-verification-api.md` |
 | `payment_submitted` + `TELEBIRR_MOCK=true` | Server auto-advances to `funded` as a system actor (audited as `payment_verified`). Never active in prod / live gateway. | `TryAutoFundMockOrderAsync` |
@@ -156,7 +168,9 @@ Client previews of an order total (place order, the listing detail price breakdo
 - **Immutable after create**: `listingId`, `buyerId`, `farmerId`, `buyerName`, `farmerName`, `cropType`, `quantity`, `pricePerUnit`, `tripId`, `truckerId`, `truckerName`, `transportCost`. An unchanged echo is dropped; a changed value is rejected with `ORDER_VALIDATION: <field> is immutable and cannot be changed on update.` This holds in every status, including after `funded`.
 - **Server-owned money** (`cropCost`, `commissionRate`, `commissionAmount`, `orderTotal`) is always dropped from the payload, so `orderTotal` can never drift from its inputs.
 - **Server-only since 1.15.0**: `pickupDeadlineAt`, `cancelNote` and the admin queue fields (`adminQueue`, `adminQueuedAt`, `adminQueueReason`, `adminQueueEscrowId`) are dropped from create and update payloads. **Since 1.16.0** also `paymentHoldUntil` (ESC-45). `GET /orders` returns `pickupDeadlineAt`, `adminQueueReason` and `adminQueuedAt`.
-- **`cancelReason`** is the buyer's free text on every cancel except the transport-failure cancel, where the server writes the code `transport_failed_buyer_cancelled` and keeps the buyer's text in `cancelNote` (1.15.0). The sweeps write the code `escrow_refunded`. Server codes are reserved: a client `cancelReason` that spells one (`transport_failed_buyer_cancelled`, `escrow_refunded`, or a spec 4.6 code such as `buyer_withdrew`; case and surrounding spaces ignored) is stored as `cancelNote` instead, on create and on every update.
+- **Commands since 2.0.0**: `farmerResponse` and `truckerResponse` take `accept` or `decline`, and `declineReason` one of `date`, `capacity`, `price`, `route`, `crop_not_ready`, `other`. They are the only new update keys a client may send, each with `version`. The farmer's legacy `status: accepted | rejected` is mapped to the farmer command. The stored response values (`pending`, `accepted`, `declined`, ...) are server-written and never taken from a client. See Commitments.
+- **Server-only since 2.0.0**: `fulfillment`, `pickupDate`, `farmerResponse` (stored value), `farmerRespondedAt`, `farmerDeadlineAt`, `truckerResponse` (stored value), `truckerAskedAt`, `truckerRespondedAt`, `truckerDeadlineAt`, `buyerChoiceDeadlineAt`, `transportFailure`, `cancelledBy`, `faultParty`, `farmerReminderAt`, `truckerReminderAt`, `buyerChoiceReminderAt` and `pickupOverdueNotifiedAt` are dropped from create and update payloads (`declineReason` is taken only with a `decline` command). `GET /orders` and `GET /orders/{id}` return all of them.
+- **`cancelReason`** is the buyer's free text on every cancel except the transport-failure cancel, where the server writes the code `transport_failed_buyer_cancelled` and keeps the buyer's text in `cancelNote` (1.15.0). The sweeps write the code `escrow_refunded`. Server codes are reserved: a client `cancelReason` that spells one (`transport_failed_buyer_cancelled`, `escrow_refunded`, or a spec 4.6 code such as `buyer_withdrew`; case and surrounding spaces ignored) is stored as `cancelNote` instead, on create and on every update. Since 2.0.0 the server also writes `buyer_withdrew` (a buyer's cancel of an unpaid order that sends no reason), `transport_failed_buyer_cancelled` (the buyer's cancel in `awaiting_transport`), `farmer_cancelled`, `farmer_response_expired` and `transport_not_arranged`, each with `cancelledBy`; the reserved list covers them.
 - **Unknown keys** are rejected: `ORDER_VALIDATION: Unknown fields: a, b`.
 
 ## List Scoping (GET /orders, 1.4.3)
@@ -167,7 +181,7 @@ Client previews of an order total (place order, the listing detail price breakdo
 
 1. Money-state transitions (`funded`, `disbursing`, `settled`, `dispute_resolved`) are **never** accepted from a client — they come from the gateway callback, escrow cron, or admin resolution.
 2. A funded order always reserves listing stock; cancelling/rejecting a funded order refunds the buyer (escrow protocol) and returns the stock to the listing (1.4.2), it does not silently drop money or goods.
-3. The mobile timeline (`_StatusTimeline` in `order_detail_screen.dart`) must render every status in this table with its `*Info` tooltip; new statuses require: this doc + `OrderTransitions` + wire mapping + timeline step + 3× l10n.
+3. The mobile timeline (`_StatusTimeline` in `order_detail_screen.dart`) must render every status in this table with its `*Info` tooltip; new statuses require: this doc + `OrderTransitions` + wire mapping + timeline step + 3× l10n. `awaiting_transport` (2.0.0) has its server side behind `COMMITMENTS_ENABLED`; its client pieces (`statusAwaitingTransportInfo`, wire mapping, timeline step) land in the client PRs before the flag is turned on.
 4. Wire statuses are snake_case for orders only.
 5. `order.quantity` is kilograms; listing stock and trip capacity are quintals (see Units). Money fields are computed by the server from the listing and trip at create and never taken from the client.
 
@@ -318,7 +332,8 @@ Every `ORDER_*` error the server returns for an order operation, except
 `ORDER_KYC_REQUIRED`, is permanent: the same command gets the same answer. That
 includes the transition refusals above (`ORDER_VALIDATION`, `ORDER_UNAUTHORIZED`), the
 held-escrow refusal of an accept, the live payment range check and the live payment method
-refusal (`ORDER_PAYMENT_METHOD_UNAVAILABLE`, 1.19.0). The mobile client
+refusal (`ORDER_PAYMENT_METHOD_UNAVAILABLE`, 1.19.0), and since 2.0.0 the commitment refusals
+`ORDER_RESPONSE_NOT_PENDING` and `ORDER_DEADLINE_PASSED` (`sync-protocol.md` 1.29.0). The mobile client
 stops retrying, puts the order back to the server's view (a refused create removes the
 local order) and tells the user, in their language, that the change was not allowed;
 web shows the same message from the refused call. A transient order failure must not
@@ -332,9 +347,10 @@ already shows (accept on `accepted`, pay on `payment_submitted`) is a no-op.
 
 ## Transport failure cancel (1.15.0, ESC-06)
 
-A stopgap before the `awaiting_transport` flow (ESC-19): an `accepted` order that nobody picked up
-in time counts as a transport failure, and its buyer may cancel it for a full refund (crop cost,
-transport and commission).
+A stopgap before the full `awaiting_transport` flow (ESC-19; 2.0.0 builds the status for the trucker's
+decline, expiry and drop-out and for a cancelled or full trip, see Commitments): an `accepted` order that
+nobody picked up in time counts as a transport failure, and its buyer may cancel it for a full refund
+(crop cost, transport and commission). This cancel stays until ESC-19 adds the buyer's choices.
 
 **The deadline** (`pickupDeadlineAt`, stamped when the farmer accepts, server clock):
 
@@ -408,8 +424,169 @@ the parties; nothing reverts the refund by itself. Only the party who could have
 counts (the delivery's trucker for `pickedUp` and `inTransit`, its buyer for `delivered`), so no
 other caller can page the alarm.
 A self-pickup buyer who does not come also gets a full refund (charging is ESC-40). ESC-19 replaces
-this cancel with `awaiting_transport` and the buyer's three options; ESC-15 then refuses a buyer
-cancel of `accepted` with the same code.
+this cancel with `awaiting_transport` and the buyer's three options. 2.0.0 (ESC-15) already refuses a
+buyer cancel of a `funded` order with the same code; `accepted` keeps this deadline cancel for now.
+
+---
+
+## Commitments (2.0.0, ESC-15)
+
+Design: `specs/features/three-party-escrow-commitments-reputation.md` sections 4.2 to 4.7 and 14
+(D10 to D15, 2026-10-26: sequential commitments). A paid order is now committed by its parties one
+after the other: the farmer first, then, on a trip order, the trucker. Server side only in this
+version, behind the env flag `COMMITMENTS_ENABLED` on the sync, order-cron and webhook Lambdas (off
+everywhere until the clients ship; off, the 1.27.0 behaviour: the farmer's accept makes the order
+`accepted` and no trucker is asked). Replacement truck and the switch to self-pickup are ESC-19 and
+ESC-20, not in 2.0.0; `transportAttempts` is not added.
+
+### The flow
+
+1. **Funding** stamps who is asked and until when (side-effects table, `→ funded` 2.0.0): the farmer
+   is `pending` with `farmerDeadlineAt`; the trucker is `not_asked` (trip order) or `none`
+   (self-pickup); `fulfillment` and `pickupDate` are fixed; the trip capacity is reserved. A trip that
+   is already full or cancelled sends the order straight to `awaiting_transport` (`trip_full` /
+   `trip_cancelled`) and the farmer is not asked.
+2. **The farmer answers** (`farmerResponse: accept | decline`). Accept on a self-pickup order:
+   `accepted`, as before. Accept on a trip order: the status stays `funded`, `farmerResponse:
+   accepted`, `farmerRespondedAt` and `respondedAt` are stamped, and the trucker is asked
+   (`truckerResponse: pending`, `truckerAskedAt`, `truckerDeadlineAt` = min(now + 24h, departure -
+   12h), at least one hour). Decline: `rejected` (`farmerResponse: declined`, `cancelledBy: farmer`,
+   `faultParty: farmer`, `declineReason` when sent), refund scheduled, stock restored, capacity
+   released.
+3. **The trucker answers** (`truckerResponse: accept | decline`), only the order's trucker, only while
+   the order is `funded` with `farmerResponse: accepted` and `truckerResponse: pending`. Accept:
+   `accepted`, `truckerResponse: accepted`, `truckerRespondedAt`, `pickupDeadlineAt` stamped now
+   (1.15.0 stamped it at the farmer's accept), the trip booking verified and confirmed in the same
+   transaction. When the trip refuses that confirmation because funding never managed to reserve
+   the capacity (the reservation write threw), the server reserves it then and retries the accept
+   once. A trip that turns out full parks the order in `awaiting_transport` (`transportFailure:
+   trip_full`, `truckerResponse: failed_capacity`); a trip that is cancelled or gone parks it with
+   `trip_cancelled` and `truckerResponse: cancelled`. Both answer the trucker's command with
+   `success` and the `awaiting_transport` row as `serverData`, not an error. Decline: `awaiting_transport` (`truckerResponse: declined`, `transportFailure:
+   trucker_declined`, `buyerChoiceDeadlineAt` = now + 48h, `faultParty: trucker`), capacity released.
+4. **Drop-out.** From `accepted` before pickup a trucker `decline` needs a fresh sign-in (`AUTH_040:
+   Please sign in again to cancel a delivery you accepted.`) and moves the order to
+   `awaiting_transport` (`transportFailure: trucker_cancelled`, `truckerResponse: cancelled`),
+   cancelling the pending delivery. A farmer `status: cancelled` from `accepted` before pickup needs
+   the same fresh sign-in (`farmer_cancelled`, `faultParty: farmer`, refund).
+5. **`awaiting_transport`** waits for the buyer for 48 hours: buyer `status: cancelled` (full refund,
+   `transport_failed_buyer_cancelled`, `cancelledBy: buyer`), farmer `status: cancelled` (no penalty,
+   `farmer_cancelled`, `faultParty: none`), or the cron cancels it after `buyerChoiceDeadlineAt`
+   (`transport_not_arranged`, `cancelledBy: system`, `faultParty: none`, refund). The 7 day escrow
+   sweep refunds it as a backstop (`escrow-protocol.md` 1.34.0).
+
+### Commands (`POST /sync`, `entityType: order`, `action: update`)
+
+| Command (`data`) | Who | Allowed when | Refusals (permanent under the `ORDER_*` rule) |
+|---|---|---|---|
+| `{"farmerResponse": "accept", "version": n}` | the order's farmer | `funded`, `farmerResponse: pending`, before `farmerDeadlineAt` | after the deadline `ORDER_DEADLINE_PASSED: The time to answer this order has passed; the buyer is being refunded.` (an order funded before 2.0.0 has no stamp and is never refused for it); already answered `ORDER_RESPONSE_NOT_PENDING: This order was already answered.`; a repeated accept, also on an order already `accepted` or `awaiting_transport` by this farmer, is an idempotent `success` with no write |
+| `{"farmerResponse": "decline", "declineReason"?: code, "version": n}` | the order's farmer | `funded`, `farmerResponse: pending`; taken after the deadline too, until the cron cancels (the buyer is refunded either way) | after accepting `ORDER_RESPONSE_NOT_PENDING: You already accepted this order. Cancel it instead.` |
+| legacy `{"status": "accepted" \| "rejected", "version": n}` from the farmer | the order's farmer | mapped to the two commands above (`rejectionReason` kept) | as above |
+| `{"truckerResponse": "accept", "version": n}` | the order's trucker | `funded`, `farmerResponse: accepted`, `truckerResponse: pending`, before `truckerDeadlineAt` | before the farmer accepted `ORDER_RESPONSE_NOT_PENDING: The farmer has not accepted this order yet. You will be asked once they do.`; after the deadline `ORDER_DEADLINE_PASSED: The time to accept this transport request has passed.`; a closed request `ORDER_RESPONSE_NOT_PENDING: This transport request is closed.`; a repeated accept is an idempotent `success`; an order with no trucker `ORDER_UNAUTHORIZED`. A reservation the funding step lost is not a refusal: the server reserves and retries once, and a full or gone trip parks the order in `awaiting_transport` with a `success` answer (flow, step 3) |
+| `{"truckerResponse": "decline", "declineReason"?: code, "version": n}` | the order's trucker | as the accept; from `accepted` before pickup it is the drop-out and needs a fresh sign-in | `AUTH_040` without the fresh sign-in (the client asks for the password and retries, as on a payment; not a permanent rejection); goods already picked up `ORDER_CANCEL_NOT_ALLOWED` |
+
+A command value other than `accept` or `decline` is `ORDER_VALIDATION: Unknown command '<x>'. Send
+accept or decline.`; a `declineReason` outside `date`, `capacity`, `price`, `route`, `crop_not_ready`,
+`other` is `ORDER_VALIDATION` too. Every command is version-checked (send the pre-increment version)
+and audited (transaction-audit `farmer_responded` / `trucker_responded`). Only the order's own farmer
+or trucker may send theirs; anyone else gets `ORDER_UNAUTHORIZED`.
+
+### Fields (server-only: clients never send them; all returned by `GET /orders` and `GET /orders/{id}`)
+
+| Field | Values | Written |
+|---|---|---|
+| `fulfillment` | `trucker`, `self_pickup` | at funding, from `tripId` |
+| `pickupDate` | ISO 8601 UTC | at funding: the trip's `departureDate` (trip orders only) |
+| `farmerResponse` | `pending`, `accepted`, `declined`, `expired` | funding, the farmer's command, the cron; a `funded` row from before 2.0.0 reads as `pending`, any later status as `accepted` |
+| `farmerRespondedAt`, `farmerDeadlineAt` | ISO 8601 UTC | the farmer's command; funding |
+| `truckerResponse` | `none` (self-pickup), `not_asked` (waiting for the farmer), `pending`, `accepted`, `declined`, `expired`, `cancelled` (drop-out, or the trip cancelled), `failed_capacity` (the trip had no room) | funding, the farmer's accept, the trucker's command, the cron, the trip cascade; a trip order from before 2.0.0 reads as `not_asked` while `funded` and as `accepted` after it (spec K2) |
+| `truckerAskedAt`, `truckerRespondedAt`, `truckerDeadlineAt` | ISO 8601 UTC | the farmer's accept (asked, deadline); the trucker's command |
+| `buyerChoiceDeadlineAt` | ISO 8601 UTC | on entering `awaiting_transport` (now + 48h) |
+| `transportFailure` | `trucker_declined`, `trucker_expired`, `trucker_cancelled`, `trip_cancelled`, `trip_full` | on entering `awaiting_transport` |
+| `declineReason` | `date`, `capacity`, `price`, `route`, `crop_not_ready`, `other` | the farmer's or the trucker's decline, when sent |
+| `cancelledBy` | `buyer`, `farmer`, `trucker`, `system` | every cancel and reject |
+| `faultParty` | `farmer`, `trucker`, `buyer`, `none` | reject, transport failure, cancel; feeds reputation (ESC-26 and later) |
+| `farmerReminderAt`, `truckerReminderAt`, `buyerChoiceReminderAt` | ISO 8601 UTC | the cron, 6 hours before the deadline (windows of 12 hours or more) |
+| `pickupOverdueNotifiedAt` | ISO 8601 UTC | the cron, when `pickupDeadlineAt` passed on an `accepted` order |
+
+### Deadlines (server time only)
+
+| # | Waiting for | Deadline | When it passes (hourly cron, `commitment_deadlines`) |
+|---|---|---|---|
+| T3 | the farmer's answer (`funded`) | `farmerDeadlineAt` = min(funded + 24h, departure - 12h), at least funded + 1h; self-pickup: funded + 24h | `cancelled` (`farmer_response_expired`, `farmerResponse: expired`, `cancelledBy: system`, `faultParty: farmer`), refund, stock and capacity released |
+| T4 | the trucker's answer (`funded`, farmer accepted) | `truckerDeadlineAt` = min(asked + 24h, departure - 12h), at least asked + 1h | `awaiting_transport` (`truckerResponse: expired`, `transportFailure: trucker_expired`, `faultParty: trucker`), capacity released |
+| T5 | the buyer's decision (`awaiting_transport`) | `buyerChoiceDeadlineAt` = entered + 48h | `cancelled` (`transport_not_arranged`, `cancelledBy: system`, `faultParty: none`), refund, stock restored |
+| reminders | T3, T4, T5 | 6 hours before the deadline, only when the window is 12 hours or more | marker stamped (`farmerReminderAt`, `truckerReminderAt`, `buyerChoiceReminderAt`); the push itself is ESC-21 |
+| pickup overdue | pickup (`accepted`) | `pickupDeadlineAt` (1.15.0; on a trip order now stamped at the trucker's accept) | `pickupOverdueNotifiedAt` stamped once; the buyer's transport-failure cancel stays the exit until ESC-19 |
+
+The cron also moves funded or accepted orders of a cancelled trip to `awaiting_transport`
+(`trip_cancelled`) when the inline cascade missed them. Every cron write is version-checked, so a
+party's answer that lands first wins. Client clocks play no part: the deadlines are the server's and
+the clients only display them.
+
+### Buyer cancel rules (2.0.0)
+
+| Order status | Buyer `status: cancelled` | Result |
+|---|---|---|
+| `created`, `pending_payment`, `payment_failed` | allowed, unchanged | `cancelled`, `cancelReason: buyer_withdrew` when none is sent, `cancelledBy: buyer`; nothing to refund |
+| `payment_submitted` | refused, unchanged | wait for the verification or the 24h failure |
+| `funded` | **refused** (flag on) | `ORDER_CANCEL_NOT_ALLOWED: The farmer and the trucker are deciding; you will be told as soon as they answer.` T3 and T4 end the wait either way |
+| `awaiting_transport` | **allowed** | `cancelled` (`transport_failed_buyer_cancelled`, `cancelledBy: buyer`), full refund including commission (`refundReason: order_transport_failed`), stock restored |
+| `accepted` | after the pickup deadline only (1.15.0) | unchanged until ESC-19 |
+| later | refused | a dispute after delivery is the only exit |
+
+The farmer may cancel from `accepted` before pickup (fresh sign-in, `farmer_cancelled`, `faultParty:
+farmer`, refund) and from `awaiting_transport` (no sign-in, `faultParty: none`).
+
+### Trips under an order (`trip-listing-api.md` 2.0.0)
+
+- **Order create** refuses a trip departing in under 24 hours (`ORDER_VALIDATION`) and a quantity
+  above the trip's `remainingQuintals` (`TRIP_CAPACITY_EXCEEDED`); nothing is reserved yet.
+- **Payment gate**: `payment_submitted` on a trip order is refused when the trip is no longer `open`
+  or `matched`, has less room than the order, or departs in under 12 hours: `ORDER_VALIDATION: This
+  trip is no longer available; place a new order.` Permanent (the client reverts the order), decided
+  with the other payment gates before any write.
+- **Reservation** at funding (atomic on `remainingQuintals`), verified at the trucker's accept,
+  released when the order leaves the trip (reject, decline, expiry, drop-out, cancel). `matched` now
+  means fully booked and is set by the system.
+- **Trip cancelled or edited**: cancelling a trip (update to `cancelled` or delete) is refused with
+  `TRIP_HAS_BOOKINGS` while an order on it is `pickup_confirmed` or `in_transit`; otherwise its
+  `funded` and `accepted` orders move to `awaiting_transport` (`trip_cancelled`, pending deliveries
+  cancelled) and unpaid orders are left to the payment gate. Once booked, `departureDate`,
+  `pricePerQuintal`, `fromWoreda` and `toWoreda` are frozen and `capacity` may not drop below
+  `bookedQuintals` (`TRIP_HAS_BOOKINGS`).
+
+### Contact per party (the ESC-48 rule, 2.0.0)
+
+Contact opens per party, no longer for the whole order at the farmer's accept: the buyer and the
+farmer get each other's phone and chat once `farmerResponse: accepted`; anyone gets the trucker's
+phone and chat only once `truckerResponse: accepted`. A trucker who declined, expired, dropped out,
+or whose trip was cancelled is scrubbed from the phone map and the chat gate. `truckerPhone` is
+therefore returned only after the trucker's accept, and an order or delivery thread with the trucker
+takes messages only then (`MESSAGE_CONTACT_LOCKED` before). Behind the flag; off, the 1.18.0 rule
+applies unchanged.
+
+### Clients (what the client PRs add before the flag is turned on)
+
+- Mobile and web: `awaiting_transport` in the wire mapping, the timeline step and its tooltip
+  (`statusAwaitingTransportInfo`, en, am and om); Accept and Decline for the trucker on a `funded`
+  order asked of them; the farmer's accept that leaves a trip order `funded` ("waiting for the
+  trucker"); the buyer's Cancel in `awaiting_transport` and none on `funded`; the deadlines as
+  "Answer by" rows; the `AUTH_040` prompt on the committed cancels; the local guards (a trucker
+  response only from the order's trucker on a pending request).
+- Older clients keep working while the flag is off. With the flag on, a client that sends
+  `status: cancelled` on a `funded` order gets `ORDER_CANCEL_NOT_ALLOWED` and reverts (1.11.0); a
+  farmer's legacy `status: accepted` on a trip order is taken as `farmerResponse: accept` and the
+  order stays `funded`, which such a client shows as not yet accepted until the trucker answers.
+
+### Not in 2.0.0
+
+- Replacement truck and the switch to self-pickup (ESC-19, ESC-20), `transportAttempts`, partial
+  refunds through the ledger.
+- Reputation points for a decline, an expiry or a drop-out (`faultParty` is recorded for them;
+  ESC-26 and later).
+- Push notifications for the asks, reminders and failures (markers only; ESC-21).
+- Client UI (PRs 2 to 4 of this change).
 
 ---
 
@@ -500,6 +677,10 @@ none (a server before 1.18.0, a local change not yet pulled), and a local cancel
 and clears the phones at once. Offline, the last pulled numbers stay on the device until the next
 pull: an order closed on the server while a party is offline keeps its numbers there until then.
 
+**Per party since 2.0.0** (`COMMITMENTS_ENABLED`): the buyer and the farmer open at the farmer's accept,
+the trucker only at the trucker's accept, and a trucker who declined, expired or dropped out is
+scrubbed from the phones and the chat gate. See Commitments, Contact per party.
+
 ## Dispute dispositions (1.21.0, FUP-16)
 
 The admin verdict (`escrow-protocol.md` 1.21.0) no longer records a verdict the order cannot follow as
@@ -524,6 +705,7 @@ its stock. Ratings stay blocked, and contact closes at `dispute_resolved`
 
 ## Changelog
 
+- **2.0.0 (2026-10-26)**: Sequential commitments (ESC-15, server slice, behind `COMMITMENTS_ENABLED`, off everywhere until the clients ship): funding stamps `fulfillment`, `pickupDate`, `farmerResponse: pending`, `farmerDeadlineAt` and `truckerResponse: not_asked | none` and reserves the trip capacity; the farmer answers with `farmerResponse: accept | decline` (legacy `status: accepted | rejected` mapped), and an accept on a trip order keeps the order `funded` and asks the trucker (`truckerResponse: pending`, `truckerAskedAt`, `truckerDeadlineAt`); the trucker answers with `truckerResponse: accept | decline`, the accept makes the order `accepted`, stamps `pickupDeadlineAt` and confirms the booking in one transaction, the decline moves it to the new system-managed status `awaiting_transport` (`transportFailure`, `buyerChoiceDeadlineAt` = now + 48h, `faultParty: trucker`); a trip full or cancelled while the money is held goes there too without asking the farmer, as does a trucker drop-out from `accepted` (fresh sign-in, `AUTH_040`); the exits are the buyer's cancel (full refund), the farmer's cancel (no penalty) and the 48 hour deadline (`transport_not_arranged`); a buyer `funded → cancelled` is refused with `ORDER_CANCEL_NOT_ALLOWED`, and the farmer may cancel from `accepted` before pickup with a fresh sign-in (`farmer_cancelled`); the hourly cron action `commitment_deadlines` cancels a farmer's no-answer (`farmer_response_expired`), expires the trucker's (`trucker_expired`), stamps the 6 hour reminder markers and `pickupOverdueNotifiedAt`, and catches orders of a cancelled trip; the payment gate refuses a trip that is no longer open, too small or departing in under 12 hours, and order create a trip departing in under 24 hours or a quantity above `remainingQuintals` (`TRIP_CAPACITY_EXCEEDED`); contact opens per party (buyer and farmer at the farmer's accept, the trucker at theirs); `ORDER_RESPONSE_NOT_PENDING` and `ORDER_DEADLINE_PASSED` are permanent; 18 new server-only order fields, all returned by `GET /orders`. Companion contracts: `trip-listing-api.md` 2.0.0, `sync-protocol.md` 1.29.0, `escrow-protocol.md` 1.34.0, `data-models.md` 1.1.0. Replacement truck and the self-pickup switch stay ESC-19/20.
 - **1.27.0 (2026-10-23)**: Payout delay (FRD-13, `escrow-protocol.md` 1.33.0): a `delivered` order whose farmer or trucker is new or flagged stays `delivered` until its escrow's `releaseNotBefore` (at most 72 hours after delivery with the defaults, never before the 48 hour dispute window ends), then follows the money as before. The dispute window is unchanged. No status, transition or client change on the order.
 - **1.26.0 (2026-10-23)**: Deleted parties (ACC-02, `account-deletion.md` 1.2.0): a `payment_submitted` for an order whose buyer, farmer or trucker is being or has been deleted is refused with `ORDER_VALIDATION: A party to this order has deleted their account.`, read strongly consistent, after the risk tier check and before KYC, nothing written; permanent under the `ORDER_*` rule (the client reverts the order). The same refusal on `POST /escrow/order-checkout` and `POST /escrow/initiate` is `422 ESCROW_030` (`escrow-protocol.md` 1.28.0). A user's deletion also cancels their unpaid orders with `cancelReason = account_deleted`. No status or client change.
 - **1.25.0 (2026-10-23)**: Risk tiers built (FRD-04, the 1.9.0 rules; `escrow-protocol.md` 1.27.0, `sync-protocol.md` 1.25.0, `auth-api.md` 2.10.0): a buyer at risk tier CRITICAL (a truncated score read included) gets `FRAUD_ACCOUNT_HELD` on order create and on `payment_submitted` (before KYC), nothing written; MEDIUM adds the fresh password at any amount, HIGH the Fayda login and then the password at any amount; the buyer's tier only, read once per batch, LOW when it cannot be read; the user-action gates go live on deploy, not behind `FRAUD_HOLD_ENABLED`; a party at CRITICAL is a settlement hold trigger like a suspended one (behind the flag, shipped off: the sweep skips the settlement), and an unscored party skips it; `AUTH_041` text names no amount. No order status, field or client change.

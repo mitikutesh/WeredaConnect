@@ -146,7 +146,12 @@ public class TelebirrWebhookFunction
                 _escrowRepo, _auditRepo, idempotencyRepo: null, telebirrGateway: null,
                 userRepo: _userRepo, orderRepo: orderRepo);
             _orderRepo = orderRepo;
-            _orderFunding = new OrderFundingService(orderRepo, new CropRepository(dynamoDb, cropsTable), orderEscrowService);
+            // ESC-15: the funding write stamps the farmer's request and reserves the trip capacity,
+            // so the trips table is read and written here too (TRIPS_TABLE; absent → no stamps).
+            var tripsTable = Environment.GetEnvironmentVariable("TRIPS_TABLE");
+            var tripRepo = string.IsNullOrEmpty(tripsTable) ? null : new TripRepository(dynamoDb, tripsTable);
+            _orderFunding = new OrderFundingService(
+                orderRepo, new CropRepository(dynamoDb, cropsTable), orderEscrowService, tripRepo);
         }
 
         var txAuditTable = Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE");

@@ -679,10 +679,13 @@ public sealed class OrderFollowsMoneyDynamoDbTests
     {
         private int _failures = failures;
 
-        public Task<Dictionary<string, object>?> TryAdvanceStatusAsync(string orderId, string fromStatus, string toStatus)
+        public Task<Dictionary<string, object>?> TryAdvanceStatusAsync(string orderId, string fromStatus, string toStatus, Dictionary<string, object>? extraFields = null)
             => Interlocked.Decrement(ref _failures) >= 0
                 ? throw new ProvisionedThroughputExceededException("throttled")
-                : inner.TryAdvanceStatusAsync(orderId, fromStatus, toStatus);
+                : inner.TryAdvanceStatusAsync(orderId, fromStatus, toStatus, extraFields);
+
+        public Task<List<Dictionary<string, object>>> QueryByTripAsync(string tripId) => inner.QueryByTripAsync(tripId);
+        public Task<bool> TryStampAsync(string orderId, Dictionary<string, object> fields, IReadOnlyDictionary<string, string> expectedStrings) => inner.TryStampAsync(orderId, fields, expectedStrings);
 
         public Task<AuthResult<Dictionary<string, object>>> CreateAsync(string orderId, Dictionary<string, object> data) => inner.CreateAsync(orderId, data);
         public Task<AuthResult<Dictionary<string, object>>> UpdateAsync(string orderId, Dictionary<string, object> data, int expectedVersion) => inner.UpdateAsync(orderId, data, expectedVersion);

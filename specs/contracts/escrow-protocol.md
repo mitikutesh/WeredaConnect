@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.33.0
+1.34.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -3967,10 +3967,48 @@ the score and the class are never on the escrow row and never in a response.
 
 ---
 
+## Additions in 1.34.0 (order commitments, ESC-15)
+
+Design: `order-lifecycle.md` 2.0.0 (Commitments). Behind `COMMITMENTS_ENABLED` (off until the clients
+ship). No endpoint, status or field change on the escrow. What changes is when an order escrow's refund
+is scheduled (`ScheduleRefundForOrderAsync`: `expiresAt = now` plus `refundReason`, the hourly
+auto-refund sweep then pays the buyer back) and which orders the 7 day sweep may refund.
+
+### When the refund is scheduled
+
+| Order event | `refundReason` |
+|---|---|
+| the farmer declines (`rejected`), unchanged | `order_cancelled` |
+| the farmer's deadline passes and the order cron cancels the `funded` order (`cancelReason: farmer_response_expired`) | `order_cancelled` |
+| the buyer-choice deadline passes and the cron cancels the `awaiting_transport` order (`transport_not_arranged`) | `order_cancelled` |
+| the farmer cancels from `accepted` before pickup with a fresh sign-in (`farmer_cancelled`) | `order_cancelled` |
+| the buyer or the farmer cancels in `awaiting_transport` (`transport_failed_buyer_cancelled` / `farmer_cancelled`) | `order_transport_failed`, as the 1.15.0 transport-failure cancel (same code, the same one-transaction arm of 1.25.0) |
+| the trucker declines, lets the request expire or drops out; the trip is cancelled or full | **nothing**: no refund by itself. The order waits in `awaiting_transport` for the buyer, the money stays a plain hold (`escrowed`, no `refundReason`), and one of the exits above schedules the refund. |
+
+The order side restores the listing stock and releases the trip capacity with each scheduled refund;
+the sweep's stock check before a transport-failure refund (1.13.0) is unchanged.
+
+### The 7 day sweep
+
+`awaiting_transport` joins the refundable order statuses of the auto-refund sweep (`funded`,
+`rejected`, `cancelled`): an order escrow whose order has waited there past its `expiresAt` is
+refunded as a stale `funded` order is, a backstop behind the 48 hour buyer-choice deadline. The
+progressing set (`accepted` to `disbursing`, extended to the 21 day cap) is unchanged, and the risk
+gate (1.22.0, 1.27.0) runs before the refund as for any stale order.
+
+### Not in 1.34.0
+
+- Partial refunds (the transport leg alone when the buyer switches to self-pickup or a cheaper truck):
+  ESC-19 and ESC-20 with the ledger.
+- Any change to the dispute, release or held paths.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.34.0 | 2026-10-26 | Order commitments (ESC-15, `order-lifecycle.md` 2.0.0, behind `COMMITMENTS_ENABLED`): `ScheduleRefundForOrderAsync` now also runs when the order cron cancels a `funded` order whose farmer did not answer (`farmer_response_expired`) or an `awaiting_transport` order whose buyer did not decide in 48 hours (`transport_not_arranged`), and when the farmer cancels an `accepted` order before pickup (`farmer_cancelled`), all with `refundReason: order_cancelled`; the buyer's or the farmer's cancel in `awaiting_transport` arms `order_transport_failed` as the transport-failure cancel does; a trucker's decline, expiry or drop-out and a cancelled or full trip never refund by themselves (the order waits for the buyer); `awaiting_transport` joins the refundable statuses of the 7 day sweep as a backstop; no endpoint, status or field change |
 | 1.33.0 | 2026-10-23 | Payout delay (FRD-13): delivery confirm stamps `releaseNotBefore = max(disputeWindowEndsAt, deliveryConfirmedAt + delay)` (the longer of the farmer's and the trucker's delay: trusted 24 h, new 72 h, flagged 72 h, unscored the longest; `PAYOUT_DELAY_*` and `PAYOUT_TRUSTED_*` env, 0 to 168 hours); the auto-release and the trucker retry pay nothing before it (`payoutsDelayed` in the run summary, the overdue age counts from it); admin release, the dispute sweep and refunds are not delayed; the escrow reads carry `releaseNotBefore` for the farmer and the trucker while `escrowed` (a `held` escrow, which 1.31.0 shows old apps as `escrowed`, carries none) and for admins, never the buyer; mobile and web show "Payout expected on (date)"; an escrow confirmed before keeps today's behaviour |
 | 1.32.0 | 2026-10-23 | Fraud signals (FRD-08, fraud spec 3.9.0): a verified webhook payer mismatch writes `TELEBIRR_PAYER_MISMATCH` (weight 0) on the buyer of our own escrow or checkout row when the payment is applied and `TELEBIRR_PAYER_REFUSED` (soft, 5) when the payer match refuses it; the payer phone in Telebirr's `251XXXXXXXXX` form is compared as `+251XXXXXXXXX`; an unverified notification writes no signal on anyone; `ESCROW_025` writes `ROLE_FORBIDDEN` on the caller when the token names another role; answers unchanged and a failed signal write only logged; one payment outcome changes with `TELEBIRR_REQUIRE_PAYER_MATCH` on: a payment from the buyer's own wallet sent as `251XXXXXXXXX` was refused before and is applied now; no client change |
 | 1.31.0 | 2026-10-23 | Old apps read statuses they parse (FUP-61, fraud spec 3.8.0 section 18.7): the server reads `X-App-Build` (the apps send it from build 2, a separate mobile change; until then every client reads the mapped values; CORS allows it); an app without it or below build 2 reads `held` as `escrowed` and `dispute_resolved` as `disputed` on `GET /escrow/{id}`, `GET /escrow/by-delivery/{deliveryId}`, `GET /escrow/history` and the initiate and dispute replays, for every party; stored rows, filters, audit, admin and server decisions keep the stored value; `FRAUD_HOLD_ENABLED` on in dev for sync and escrow-cron, off in staging and prod |
@@ -4015,6 +4053,6 @@ the score and the class are never on the escrow row and never in a response.
 
 ---
 
-**Last Updated**: 2026-10-23
-**Version**: 1.33.0
+**Last Updated**: 2026-10-26
+**Version**: 1.34.0
 **Status**: Draft (Phase R4)

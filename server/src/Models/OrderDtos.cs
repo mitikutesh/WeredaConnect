@@ -58,6 +58,9 @@ public sealed record GetOrderResponse
 ///   created → payment_submitted is also allowed (skipping pending_payment).
 ///
 /// Exception states: payment_failed, cancelled, disputed, dispute_resolved
+///
+/// ESC-15: a funded or accepted order whose transport failed parks in awaiting_transport (the
+/// money is still held) until the buyer cancels (awaiting_transport → cancelled).
 /// </summary>
 public sealed record OrderDto
 {
@@ -160,10 +163,53 @@ public sealed record OrderDto
     /// <summary>ESC-06: ISO 8601 UTC time the order entered the admin queue.</summary>
     public string? AdminQueuedAt { get; init; }
 
+    /// <summary>ESC-15: how the goods move, <c>trucker</c> or <c>self_pickup</c>; null before funding or on a row from before ESC-15.</summary>
+    public string? Fulfillment { get; init; }
+
+    /// <summary>ESC-15: ISO 8601 UTC pickup date of a trucker order (the trip's departure).</summary>
+    public string? PickupDate { get; init; }
+
+    /// <summary>ESC-15: the farmer's answer to the paid order: <c>pending</c>, <c>accepted</c>, <c>declined</c> or <c>expired</c>.</summary>
+    public string? FarmerResponse { get; init; }
+
+    /// <summary>ESC-15: ISO 8601 UTC time the farmer answered.</summary>
+    public string? FarmerRespondedAt { get; init; }
+
+    /// <summary>ESC-15: ISO 8601 UTC time by which the farmer must answer; after it the buyer is refunded.</summary>
+    public string? FarmerDeadlineAt { get; init; }
+
+    /// <summary>ESC-15: the trucker's answer: <c>not_asked</c>, <c>pending</c>, <c>accepted</c>, <c>declined</c>, <c>expired</c>, <c>cancelled</c>, <c>failed_capacity</c>, or <c>none</c> on self-pickup.</summary>
+    public string? TruckerResponse { get; init; }
+
+    /// <summary>ESC-15: ISO 8601 UTC time the trucker was asked (at the farmer's accept).</summary>
+    public string? TruckerAskedAt { get; init; }
+
+    /// <summary>ESC-15: ISO 8601 UTC time the trucker answered.</summary>
+    public string? TruckerRespondedAt { get; init; }
+
+    /// <summary>ESC-15: ISO 8601 UTC time by which the trucker must answer.</summary>
+    public string? TruckerDeadlineAt { get; init; }
+
+    /// <summary>ESC-15: ISO 8601 UTC time by which the buyer of an <c>awaiting_transport</c> order must decide.</summary>
+    public string? BuyerChoiceDeadlineAt { get; init; }
+
+    /// <summary>ESC-15: why the transport failed: <c>trucker_declined</c>, <c>trucker_expired</c>, <c>trucker_cancelled</c>, <c>trip_cancelled</c> or <c>trip_full</c>.</summary>
+    public string? TransportFailure { get; init; }
+
+    /// <summary>ESC-15: the reason a party gave for declining: <c>date</c>, <c>capacity</c>, <c>price</c>, <c>route</c>, <c>crop_not_ready</c> or <c>other</c>.</summary>
+    public string? DeclineReason { get; init; }
+
+    /// <summary>ESC-15: who ended the order: <c>buyer</c>, <c>farmer</c>, <c>trucker</c> or <c>system</c>.</summary>
+    public string? CancelledBy { get; init; }
+
+    /// <summary>ESC-15: the party at fault for the failed order, for reputation; <c>none</c> when nobody is.</summary>
+    public string? FaultParty { get; init; }
+
     /// <summary>
-    /// ESC-48: whether the parties may reach each other on this order (call, copy, message): the
+    /// ESC-48: whether the caller may reach the other parties on this order (call, copy, message): the
     /// farmer accepted the paid order and the money has not gone back to the buyer
-    /// (<c>ContactReveal</c>). Computed by the server on every read.
+    /// (<c>ContactReveal</c>); for the trucker, also that they committed to the transport (ESC-15).
+    /// Computed by the server on every read.
     /// </summary>
     public bool ContactOpen { get; init; }
 
@@ -173,6 +219,6 @@ public sealed record OrderDto
     /// <summary>ESC-48: the farmer's phone (E.164), only to a party of an order whose contact is open.</summary>
     public string? FarmerPhone { get; init; }
 
-    /// <summary>ESC-48: the trucker's phone (E.164), only to a party of an open order that has a trucker.</summary>
+    /// <summary>ESC-48: the trucker's phone (E.164), only to a party of an open order whose trucker committed (ESC-15).</summary>
     public string? TruckerPhone { get; init; }
 }

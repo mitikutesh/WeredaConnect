@@ -1,7 +1,7 @@
 # Data Models Contract
 
-**Version**: 1.0.0
-**Last Updated**: 2026-02-14
+**Version**: 1.1.0
+**Last Updated**: 2026-10-26
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
 
@@ -96,8 +96,12 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `departureDate` | DateTime | Yes | Scheduled departure (UTC) | Truckers plan 1-3 days ahead |
 | `capacity` | double | Yes | Available capacity (quintals) | Typical truck: 100-200 quintals |
 | `pricePerQuintal` | double | Yes | Transport price (ETB/quintal) | Market rate varies by distance |
-| `status` | TripStatus | Yes | Enum: open/matched/in_transit/delivered/cancelled | Lifecycle state |
+| `status` | TripStatus | Yes | Wire values: `open`, `matched`, `inTransit`, `delivered`, `cancelled` (camelCase on the wire, unlike order statuses) | Lifecycle state; `matched` means fully booked since trip-listing-api 2.0.0 |
 | `matchedListings` | List<String> | Yes | Crop listing IDs | Empty when open, populated when matched |
+| `bookedQuintals` | double? | No | Quintals held by funded and accepted orders (trip-listing-api 2.0.0) | Server-written; null on older rows |
+| `remainingQuintals` | double? | No | `capacity - bookedQuintals`; null on older rows, read as `capacity` | The free room buyers can order |
+| `bookedOrderIds` | List<String> | No | Orders holding capacity (server row only, not in `TripDto`) | Released when the order leaves the trip |
+| `acceptedOrderIds` | List<String> | No | Orders the trucker accepted (server row only) | Confirmed at the trucker's accept |
 | `createdAt` | DateTime | Yes | UTC timestamp | Trip posted time |
 | `updatedAt` | DateTime | Yes | UTC timestamp | Last update time |
 | `version` | int | Yes | Optimistic concurrency control | Incremented on each update |
@@ -246,12 +250,84 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 
 ---
 
+### 7. Order
+
+**Server DTO**: `/server/src/Models/OrderDtos.cs` (`OrderDto`)
+**Mobile Schema**: `/mobile/lib/core/database/schemas/order.dart` (web mirror in `core/models/web/`)
+**Contract**: `specs/contracts/order-lifecycle.md` (statuses, transitions, who sets what)
+
+**Purpose**: A buyer's purchase of a crop listing, optionally carried by a trip. Owns the escrow leg (`escrow-order-{orderId}`) and the commitments of the farmer and the trucker.
+
+**Fields** (wire names; every timestamp is ISO 8601 UTC; `quantity` is kilograms, unlike listing stock and trip capacity):
+
+| Field | Type | Required | Description | Set by |
+|-------|------|----------|-------------|--------|
+| `orderId` | String | Yes | UUID v4 | client at create |
+| `listingId` | String | Yes | The crop listing | client; immutable |
+| `buyerId`, `buyerName` | String | Yes | The buyer | client; immutable |
+| `farmerId`, `farmerName` | String | Yes | The listing's farmer | client; `farmerName` overwritten from the listing; immutable |
+| `cropType` | String | Yes | Must match the listing | client; immutable |
+| `quantity` | double | Yes | Kilograms, 0.01 to 1,000,000 | client; immutable |
+| `pricePerUnit` | double | Yes | ETB per kg, equal to the listing's `pricePerKg` | client; immutable |
+| `cropCost` | double | Yes | `quantity × pricePerUnit` | server |
+| `tripId`, `truckerId`, `truckerName` | String? | No | The trip and its trucker; all present or all absent | client; `truckerName` from the trip; immutable |
+| `transportCost` | double? | No | `quantity / 100 × pricePerQuintal`; 0 without a trip | server |
+| `commissionRate`, `commissionAmount` | double | Yes | Rate from SSM (default 0.05); `cropCost × rate`, never on transport | server |
+| `orderTotal` | double | Yes | `cropCost + transportCost + commissionAmount`; what the buyer pays | server |
+| `paymentMethod` | String? | No | `telebirr` or `cbe_transfer` | buyer on `payment_submitted` |
+| `cbeTransactionId` | String? | No | Bank reference (demo builds) | buyer |
+| `paymentVerifiedAt` | String? | No | When the money was confirmed held (`→ funded`) | server |
+| `status` | String | Yes | snake_case wire status (`order-lifecycle.md`) | per the actor rules |
+| `createdAt`, `updatedAt` | String | Yes | | server |
+| `version` | int | Yes | Optimistic concurrency; clients send the pre-increment value | server |
+| `respondedAt` | String? | No | The farmer's answer | server |
+| `rejectionReason` | String? | No | The farmer's text on a reject | farmer |
+| `cancelledAt` | String? | No | | server |
+| `cancelReason` | String? | No | The buyer's text, or a server code (`buyer_withdrew`, `transport_failed_buyer_cancelled`, `farmer_cancelled`, `farmer_response_expired`, `transport_not_arranged`, `escrow_refunded`, `account_deleted`) | buyer or server |
+| `pickupDeadlineAt` | String? | No | When an accepted order nobody picked up counts as a transport failure (order-lifecycle 1.15.0; on a trip order stamped at the trucker's accept since 2.0.0) | server |
+| `adminQueueReason`, `adminQueuedAt` | String? | No | The admin stuck-order queue (`hold_cap`) | server |
+| `contactOpen` | bool | Yes | Whether the parties may reach each other on this order (computed on every read) | server |
+| `buyerPhone`, `farmerPhone`, `truckerPhone` | String? | No | E.164, only to a party of an order whose contact is open (the trucker's only once the trucker accepted, order-lifecycle 2.0.0) | server, at read time |
+| `fulfillment` | String? | No | `trucker` or `self_pickup` (order-lifecycle 2.0.0) | server, at funding |
+| `pickupDate` | String? | No | The trip's departure (trip orders, 2.0.0) | server, at funding |
+| `farmerResponse` | String? | No | `pending`, `accepted`, `declined`, `expired` (2.0.0) | server |
+| `farmerRespondedAt`, `farmerDeadlineAt` | String? | No | The farmer's answer and its deadline (2.0.0) | server |
+| `truckerResponse` | String? | No | `none`, `not_asked`, `pending`, `accepted`, `declined`, `expired`, `cancelled`, `failed_capacity` (2.0.0) | server |
+| `truckerAskedAt`, `truckerRespondedAt`, `truckerDeadlineAt` | String? | No | When the trucker was asked, answered, and had to answer by (2.0.0) | server |
+| `buyerChoiceDeadlineAt` | String? | No | The buyer's 48 hour window in `awaiting_transport` (2.0.0) | server |
+| `transportFailure` | String? | No | `trucker_declined`, `trucker_expired`, `trucker_cancelled`, `trip_cancelled`, `trip_full` (2.0.0) | server |
+| `declineReason` | String? | No | `date`, `capacity`, `price`, `route`, `crop_not_ready`, `other` (2.0.0) | farmer or trucker, with a `decline` command |
+| `cancelledBy` | String? | No | `buyer`, `farmer`, `trucker`, `system` (2.0.0) | server |
+| `faultParty` | String? | No | `farmer`, `trucker`, `buyer`, `none` (2.0.0) | server |
+| `farmerReminderAt`, `truckerReminderAt`, `buyerChoiceReminderAt` | String? | No | Reminder markers 6 hours before a deadline (2.0.0) | order cron |
+| `pickupOverdueNotifiedAt` | String? | No | Stamped when `pickupDeadlineAt` passed on an accepted order (2.0.0) | order cron |
+
+Stored on the row but never returned: `paymentSubmittedAt`, `pendingPaymentAt`, `paymentHoldUntil`, the Telebirr references (`telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId`), `cancelNote`, `adminQueue`, `adminQueueEscrowId`, `moneySweepSkip`, `moneySweepSkipAt` and the admin override flags (`refundOverride*`, `disputeOverride*`). Clients may send only `status` and its companions (`rejectionReason`, `cancelReason`, `paymentMethod`, `cbeTransactionId`) and, since order-lifecycle 2.0.0, the commands `farmerResponse` / `truckerResponse` (`accept` or `decline`) with `declineReason`; everything else above is dropped or refused (`order-lifecycle.md`, Order Update Rules).
+
+**Indexes (DynamoDB)**: `orderId` (PK); `StatusCreatedAtIndex` (the crons page it by status); the party indexes behind `GET /orders` (`buyerId`, `farmerId`, `truckerId`); the sparse `AdminQueueIndex`.
+
+**Design Decisions**:
+
+1. **Money is computed by the server** from the listing and the trip at create; client previews use the same formula (`order_pricing.dart`).
+
+2. **Kilograms on the wire**: `quantity` is kg while stock and capacity are quintals; every conversion divides or multiplies by 100.
+
+3. **Sequential commitments** (order-lifecycle 2.0.0): the farmer is asked first and the trucker only after the farmer accepts, so a trucker never commits to an order the farmer may still decline. The responses, deadlines and failure codes live on the order; the status alone no longer says who committed.
+
+4. **Server-only fields**: everything a client could use to skip a step (deadlines, responses, money, Telebirr references) is dropped from payloads and stamped by the server.
+
+---
+
 ## Relationships
 
 ```
 User (farmer) ──1:N── CropListing
 User (trucker) ──1:N── Trip
 Trip ──1:N── Delivery
+User (buyer) ──1:N── Order
+CropListing ──1:N── Order
+Trip ──1:N── Order
+Order ──1:1── Delivery
 CropListing ──1:1── Delivery
 Delivery ──1:1── Payment
 User (farmer) ──1:N── Payment (as recipient)
@@ -337,6 +413,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.0.0 | 2026-02-14 | Initial schema definitions for all 6 core entities | @Mobile |
 | 1.0.1 | 2026-09-25 | Documented the order quantity unit: kilograms on the wire vs quintal stock and capacity (SIM-07) | @Server |
 | 1.0.2 | 2026-09-25 | Delivery gains `orderId` (server DTO, Isar schema, web mirror) so clients can tie a delivery to its order (SIM-14) | @Server |
+| 1.1.0 | 2026-10-26 | Order entity table added (every `OrderDto` field plus the ESC-15 commitment fields: `fulfillment`, `pickupDate`, `farmerResponse`, `truckerResponse`, their deadlines and reminders, `transportFailure`, `declineReason`, `cancelledBy`, `faultParty`); Trip status casing fixed to the wire values (`open`, `matched`, `inTransit`, `delivered`, `cancelled`) and the booking fields `bookedQuintals`, `remainingQuintals`, `bookedOrderIds`, `acceptedOrderIds` added; relationships gain Order (`order-lifecycle.md` 2.0.0, `trip-listing-api.md` 2.0.0) | @Server |
 
 ---
 

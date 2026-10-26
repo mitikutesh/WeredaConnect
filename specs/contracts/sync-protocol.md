@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.28.0
+1.29.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -351,9 +351,9 @@ a generic refusal for `FRAUD_ACCOUNT_HELD` and do not retry it either.
 Every `ORDER_*` operation error except `ORDER_KYC_REQUIRED` is permanent: sending
 the same payload again gets the same answer. Today the server sends
 `ORDER_VALIDATION:`, `ORDER_UNAUTHORIZED:`, `ORDER_CANCEL_NOT_ALLOWED:` (1.13.0) and
-`ORDER_PAYMENT_METHOD_UNAVAILABLE:` (1.16.0); the planned `ORDER_DEADLINE_PASSED`,
-`ORDER_ACTION_NOT_ALLOWED`, `ORDER_TRIP_NOT_ELIGIBLE` and
-`ORDER_TRANSPORT_ATTEMPTS_EXCEEDED` fall under the same rule. `ORDER_KYC_REQUIRED`
+`ORDER_PAYMENT_METHOD_UNAVAILABLE:` (1.16.0), `ORDER_RESPONSE_NOT_PENDING:` and
+`ORDER_DEADLINE_PASSED:` (1.29.0, Order commitments); the planned `ORDER_ACTION_NOT_ALLOWED`,
+`ORDER_TRIP_NOT_ELIGIBLE` and `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED` fall under the same rule. `ORDER_KYC_REQUIRED`
 keeps its own revert and Fayda prompt (1.4.0, 1.5.0).
 
 Mobile client (sync queue):
@@ -510,8 +510,9 @@ and show the generic `errorOrderRefused` text (1.10.0).
 Five codes from spec `three-party-escrow-commitments-reputation.md` section 8 are permanent:
 replaying the same payload gets the same answer, so the client never resends them. The one
 exception is `APP_UPDATE_REQUIRED` on anything but an order: the build is the problem, not the
-payload, so the client keeps that operation for the updated build (below). No server sends them
-yet: ESC-15, ESC-17, ESC-18, ESC-25 and ESC-29 add them, each with its
+payload, so the client keeps that operation for the updated build (below). Since 1.29.0 the server sends
+`TRIP_HAS_BOOKINGS` and `TRIP_CAPACITY_EXCEEDED` behind `COMMITMENTS_ENABLED` (ESC-15, Order
+commitments below); ESC-17, ESC-18, ESC-25 and ESC-29 add the others, each with its
 own server rules. The three `ORDER_*` codes of section 8 that had the generic order text get
 their own text too.
 
@@ -522,7 +523,7 @@ their own text too.
 | `TRIP_CAPACITY_EXCEEDED:` | `order` create or update naming a trip | The trip has no room left for this order: an order refusal. |
 | `CROP_HAS_ACTIVE_ORDERS:` | `crop_listing` delete, or a quantity below what active orders hold | The listing has funded or accepted orders. |
 | `APP_UPDATE_REQUIRED:` | `order` commands from an app below the server's minimum (the minimum-version gate, spec K1, ESC-25). Clients also handle it defensively on `crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent` and `match_event` operations: kept pending, never reverted. | This build must be updated. |
-| `ORDER_DEADLINE_PASSED:`, `ORDER_TRIP_NOT_ELIGIBLE:`, `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED:` | `order` operations (permanent since 1.10.0) | The deadline passed; the named truck cannot take the order; no more trucks may be tried. |
+| `ORDER_DEADLINE_PASSED:`, `ORDER_TRIP_NOT_ELIGIBLE:`, `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED:` | `order` operations (permanent since 1.10.0; `ORDER_DEADLINE_PASSED` sent since 1.29.0) | The deadline passed; the named truck cannot take the order; no more trucks may be tried. |
 
 Mobile client (sync queue):
 
@@ -695,10 +696,51 @@ per delivery. The rest are requests the shipped apps never send. Clients need no
 
 ---
 
+## Order commitments (1.29.0, ESC-15)
+
+Server slice of the sequential commitments (`order-lifecycle.md` 2.0.0, Commitments), behind
+`COMMITMENTS_ENABLED` (off everywhere until the clients ship; off, the server behaves as before).
+Two commands travel as an order `update` (`entityType: order`, `action: update`), each with the
+order's pre-increment `version`:
+
+| Command | `data` | Who | Effect |
+|---|---|---|---|
+| farmer response | `{"farmerResponse": "accept" \| "decline", "declineReason"?: code, "version": n}` | the order's farmer, on a `funded` order | accept: `accepted` (self-pickup), or the order stays `funded` and the trucker is asked (trip order); decline: `rejected`, refund |
+| trucker response | `{"truckerResponse": "accept" \| "decline", "declineReason"?: code, "version": n}` | the order's trucker, on a `funded` order whose farmer accepted | accept: `accepted`, booking confirmed; decline: `awaiting_transport`; from `accepted` before pickup a `decline` is the drop-out (fresh sign-in) |
+
+`farmerResponse`, `truckerResponse` and `declineReason` are the only new update keys a client may
+send (`ORDER_VALIDATION: Unknown fields: ...` otherwise, as before). `declineReason` is one of
+`date`, `capacity`, `price`, `route`, `crop_not_ready`, `other`. The farmer's legacy
+`status: accepted | rejected` is mapped to the farmer command, so shipped farmer apps keep working.
+The new status `awaiting_transport` and every new order field (`fulfillment`, `pickupDate`, the
+response, deadline and reminder stamps, `transportFailure`, `cancelledBy`, `faultParty`) are
+server-written: a client value is dropped from create and update payloads, and `GET /orders`
+returns them.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `success` | Synced; the pulled order says what happened (an accepted trip order stays `funded` with `truckerResponse: pending`). A repeated accept is a `success` with no write. | Done; re-read the order. |
+| `ORDER_RESPONSE_NOT_PENDING:` (the party's answer is not pending: the farmer has not accepted yet, the request is closed, or the order was already answered) | Permanent under the `ORDER_*` rule (1.10.0): revert the local order and explain. | Failure with the same message. |
+| `ORDER_DEADLINE_PASSED:` (the farmer's or the trucker's deadline passed; the cron is ending the order) | Permanent: revert and explain (`errorDeadlinePassed`, shipped since 1.17.0). Like `ORDER_CANCEL_NOT_ALLOWED` it depends on the server clock, and the client never resends it. | Failure. |
+| `ORDER_CANCEL_NOT_ALLOWED:` on a buyer's `funded -> cancelled` ("The farmer and the trucker are deciding; you will be told as soon as they answer.") or on a committed cancel after pickup | Permanent (1.13.0): revert the local cancel. | Failure. |
+| `AUTH_040:` on a trucker `decline` from `accepted`, or a farmer `cancelled` from `accepted` (the drop-out needs a fresh sign-in) | Ask for the password and resend, as on a payment (`order-lifecycle.md` 1.5.0); not a permanent rejection. | Re-authenticate and retry. |
+| `TRIP_CAPACITY_EXCEEDED:` on an order create above the trip's `remainingQuintals`; `TRIP_HAS_BOOKINGS:` on a trip update or delete the bookings forbid | Permanent since 1.17.0 (ESC-12 part B): the order create is reverted, the trip change reverted with the trip rules. | Failure. |
+| `ORDER_VALIDATION: This trip is no longer available; place a new order.` on `payment_submitted` | Permanent: revert the local order (the trip left `open` / `matched`, lost the room, or departs in under 12 hours). | Failure. |
+| unprefixed error (a trip or escrow that could not be read) | Retried. | Failure (generic). |
+
+Both codes are new strings on an existing rule: the `ORDER_` prefix made them permanent on every
+client since 1.10.0, so no client change is needed for them. The ESC-15 client PRs add the commands,
+the `awaiting_transport` status and the texts. Clients older than those PRs never send a trucker
+command and send the farmer's answer as the legacy status.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.29.0 | 2026-10-26 | Order commitments (ESC-15, `order-lifecycle.md` 2.0.0, behind `COMMITMENTS_ENABLED`): the farmer answers a `funded` order with `farmerResponse: accept \| decline` (legacy `status: accepted \| rejected` mapped) and the trucker, once the farmer accepted, with `truckerResponse: accept \| decline`, each with an optional `declineReason` (`date`, `capacity`, `price`, `route`, `crop_not_ready`, `other`) and the pre-increment `version`; these three are the only new allowed update keys, every other new order field and the system-managed status `awaiting_transport` are server-written and returned by `GET /orders`; `ORDER_RESPONSE_NOT_PENDING:` and `ORDER_DEADLINE_PASSED:` are permanent under the `ORDER_*` rule (no client change for them); `AUTH_040:` on the trucker's drop-out from `accepted` and the farmer's cancel from `accepted`; `ORDER_CANCEL_NOT_ALLOWED:` on a buyer's `funded -> cancelled`; the server now sends `TRIP_CAPACITY_EXCEEDED:` (order create above `remainingQuintals`) and `TRIP_HAS_BOOKINGS:` (a trip change the bookings forbid) behind the flag; header and footer versions aligned (the footer had stayed at 1.27.0) |
+| 1.28.0 | 2026-10-24 | User profile updates (SIM-37): the `user` entity takes `action: update` from the caller on their own row with the single allow-listed field `preferredLanguage` (`en`, `am`, `om`), version-less last-write-wins, an unchanged value a no-op `success`; errors `USER_PROFILE_VALIDATION`, `USER_PROFILE_UNAUTHORIZED`, `USER_PROFILE_NOT_FOUND`, `USER_PROFILE_CONFLICT` (retried) and `USER_PROFILE_UNAVAILABLE` (row added 2026-10-26; the section was in the body without one) |
 | 1.27.0 | 2026-10-23 | Fraud signals from refusals (FRD-08, fraud spec 3.9.0): create conflicts on another user's id, the `*_UNAUTHORIZED` refusals, identity and money field changes, QR nonce failures and a burst of 10 version conflicts in one batch write a typed signal on the caller, at most one row per type per hour, counted once per refused entity; responses unchanged, a failed write only logged; clients unchanged |
 | 1.26.0 | 2026-10-23 | Deleted accounts (ACC-02, `account-deletion.md` 1.2.0): a batch from an account that is being or has been deleted answers HTTP `410 ACCOUNT_004` with `error.deletionState` and nothing is applied (the client stops that sync without counting a retry; for `cognito_pending` and `completed` it never resends and wipes, for `in_progress` a later sync may resend because the deletion can still abort); a batch whose caller row cannot be read answers `503 SYNC_SERVER_ERROR`; a message to, or a rating about, an account with `deletionState` is op-level `SYNC_VALIDATION`; a `payment_submitted` for an order of such an account is `ORDER_VALIDATION` (`order-lifecycle.md` 1.26.0) |
 | 1.25.0 | 2026-10-23 | Risk tier built on the server (FRD-04, the 1.9.0 rules): `FRAUD_ACCOUNT_HELD:` on crop, trip and order create and on order `payment_submitted` for a caller at risk tier CRITICAL (a truncated score read included), nothing written; MEDIUM and HIGH raise `AUTH_040:` and `AUTH_041:` at any amount (Fayda first); the caller's tier only, read once per batch; an unreadable score or a missing fraud-signals table is LOW; the position of each check; `AUTH_041:` text amount-neutral; clients unchanged |
@@ -727,5 +769,5 @@ per delivery. The rest are requests the shipped apps never send. Clients need no
 
 ---
 
-**Last Updated**: 2026-10-23
-**Version**: 1.27.0
+**Last Updated**: 2026-10-26
+**Version**: 1.29.0
