@@ -336,6 +336,8 @@ public class TripFunction
             ToWoreda = GetString(item, "toWoreda"),
             DepartureDate = GetString(item, "departureDate"),
             Capacity = GetDouble(item, "capacity"),
+            BookedQuintals = GetDoubleOrNull(item, "bookedQuintals"),
+            RemainingQuintals = GetDoubleOrNull(item, "remainingQuintals"),
             PricePerQuintal = GetDouble(item, "pricePerQuintal"),
             Status = GetString(item, "status"),
             MatchedListings = GetStringList(item, "matchedListings"),
@@ -401,6 +403,13 @@ public class TripFunction
             _ => 0.0
         };
     }
+
+    /// <summary>
+    /// Get an optional double value from the item dictionary: null when the attribute is
+    /// absent (the client then applies its own default), like <see cref="GetDouble"/> otherwise.
+    /// </summary>
+    private static double? GetDoubleOrNull(Dictionary<string, object> item, string key)
+        => item.ContainsKey(key) ? GetDouble(item, key) : null;
 
     /// <summary>
     /// Get a string list from the item dictionary.

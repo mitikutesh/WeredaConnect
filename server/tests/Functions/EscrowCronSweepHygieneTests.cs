@@ -1058,6 +1058,8 @@ public partial class EscrowCronSweepHygieneTests
 
         EscrowCronFunction.ClassifyOrder("disbursing").Should().Be(EscrowCronFunction.OrderTradeClass.InFlight);
         EscrowCronFunction.ClassifyOrder("settled").Should().Be(EscrowCronFunction.OrderTradeClass.Idle);
+        // ESC-15: an order waiting for the buyer after a transport failure holds money but has no trade under way.
+        EscrowCronFunction.ClassifyOrder("awaiting_transport").Should().Be(EscrowCronFunction.OrderTradeClass.Idle);
         EscrowCronFunction.ClassifyOrder(null).Should().Be(EscrowCronFunction.OrderTradeClass.Unknown);
 
         // ESC-09: the order-money sweep reads only partitions whose money may still move.

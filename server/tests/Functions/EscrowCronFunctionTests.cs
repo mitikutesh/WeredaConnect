@@ -740,6 +740,43 @@ public class EscrowCronFunctionTests
     }
 
     [Fact]
+    public async Task AutoRefund_OrderSourcedAwaitingTransportOrder_RefundsAndCancelsOrder()
+    {
+        // ESC-15: the transport failed and the buyer never decided. The 7-day sweep is the money
+        // backstop and ends the order like a stale-funded one.
+        var expiredAt = DateTime.UtcNow.AddDays(-1).ToString("o");
+        var escrow = MakeOrderSourcedEscrowItem("escrow-order-ord-at", "ord-at", expiresAt: expiredAt);
+
+        _mockEscrowRepo.StubSweep("escrowed");
+        _mockEscrowRepo.StubRefundSweep(escrow);
+        BaseRowIs(escrow);
+        _mockEscrowRepo.GetByIdAsync("escrow-order-ord-at").Returns(escrow);
+
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("ord-at").Returns(new Dictionary<string, object>
+        {
+            { "orderId", "ord-at" }, { "status", "awaiting_transport" }, { "version", "4" },
+            { "farmerResponse", "accepted" }, { "truckerResponse", "declined" }, { "transportFailure", "trucker_declined" }
+        });
+        orderRepo.UpdateAsync("ord-at", Arg.Any<Dictionary<string, object>>(), 4)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "ord-at" }, { "status", "cancelled" }, { "version", "5" }
+            }));
+
+        var function = MakeOrderAwareFunction(orderRepo);
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await orderRepo.Received(1).UpdateAsync("ord-at",
+            Arg.Is<Dictionary<string, object>>(d =>
+                (string)d["status"] == "cancelled"
+                && (string)d["cancelReason"] == "escrow_refunded"),
+            4);
+        await _mockTelebirrGateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+    }
+
+    [Fact]
     public async Task AutoRefund_OrderSourcedStaleFundedOrder_RestoresListingStock()
     {
         // SIM-13: the cancelled order's quintals go back on the listing (kg / 100).

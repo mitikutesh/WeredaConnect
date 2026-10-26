@@ -94,6 +94,18 @@ public sealed record TripDto
     public required double Capacity { get; init; }
 
     /// <summary>
+    /// ESC-15: quintals reserved by funded orders. Null when the trip has no bookings yet
+    /// (a row written before bookings existed); treat null as zero.
+    /// </summary>
+    public double? BookedQuintals { get; init; }
+
+    /// <summary>
+    /// ESC-15: quintals still free for new orders. Null when the trip has no bookings yet;
+    /// treat null as <see cref="Capacity"/>. Zero means fully booked (<c>matched</c>).
+    /// </summary>
+    public double? RemainingQuintals { get; init; }
+
+    /// <summary>
     /// Transport price per quintal in Ethiopian Birr.
     /// </summary>
     public required double PricePerQuintal { get; init; }

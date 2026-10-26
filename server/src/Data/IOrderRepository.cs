@@ -164,10 +164,31 @@ public interface IOrderRepository
     /// <summary>
     /// ESC-09: move the order from <paramref name="fromStatus"/> to <paramref name="toStatus"/> in one
     /// write conditioned on the status (not on the caller's version), with <c>ADD version 1</c> and a
-    /// new <c>updatedAt</c>, like <see cref="TryMarkFundedAsync"/>. Returns the updated order, or null
-    /// when the order is missing or no longer <paramref name="fromStatus"/> (never creates a row).
+    /// new <c>updatedAt</c>, like <see cref="TryMarkFundedAsync"/>. ESC-15: <paramref name="extraFields"/>
+    /// are set in the same write (the keys, <c>version</c>, <c>updatedAt</c> and <c>status</c> are
+    /// skipped). Returns the updated order, or null when the order is missing or no longer
+    /// <paramref name="fromStatus"/> (never creates a row).
     /// </summary>
-    Task<Dictionary<string, object>?> TryAdvanceStatusAsync(string orderId, string fromStatus, string toStatus);
+    Task<Dictionary<string, object>?> TryAdvanceStatusAsync(
+        string orderId, string fromStatus, string toStatus, Dictionary<string, object>? extraFields = null);
+
+    /// <summary>
+    /// ESC-15: every order of a trip (<c>TripIdIndex</c>, all pages, oldest first), for the trip's
+    /// cancellation and the capacity bookkeeping. Deleted and cancelled orders are included; the
+    /// caller filters by status.
+    /// </summary>
+    Task<List<Dictionary<string, object>>> QueryByTripAsync(string tripId);
+
+    /// <summary>
+    /// ESC-15: set <paramref name="fields"/> on the order WITHOUT bumping <c>version</c> or touching
+    /// <c>updatedAt</c> (server bookkeeping such as reminder markers must never make a client
+    /// conflict), only while the order exists and each entry of <paramref name="expectedStrings"/>
+    /// still equals the row (string equality; an empty map checks existence only). The keys,
+    /// <c>version</c>, <c>updatedAt</c> and <c>status</c> are skipped from <paramref name="fields"/>.
+    /// Returns false when the order is missing or any expectation failed.
+    /// </summary>
+    Task<bool> TryStampAsync(
+        string orderId, Dictionary<string, object> fields, IReadOnlyDictionary<string, string> expectedStrings);
 
     /// <summary>
     /// ESC-09: one page of the <c>StatusCreatedAtIndex</c> partition for <paramref name="status"/>,

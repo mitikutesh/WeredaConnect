@@ -46,6 +46,10 @@ public partial class SyncFunction
     private readonly IFraudDetectionService? _fraudService;
     private readonly IUserRepository? _userRepo;
 
+    // ESC-15: trip bookings (reserve, verify, release capacity) and the departure read by the
+    // commitment deadlines. Raw trip reads elsewhere keep using GetTripItemAsync.
+    private readonly ITripRepository _tripRepo;
+
     // auth_time of the current request's token (Lambda handles one request at a
     // time per instance, so a field is safe); consumed by the payment step-up gate.
     private long? _requestAuthTime;
@@ -95,8 +99,18 @@ public partial class SyncFunction
     // (orders still fund; the escrow record simply isn't materialized here).
     private readonly EscrowService? _orderEscrowService;
     // ESC-01: the funding side effects (stock + order escrow) shared with the live
-    // Telebirr webhook, so mock and live funding can never drift apart.
-    private readonly OrderFundingService _orderFunding;
+    // Telebirr webhook, so mock and live funding can never drift apart. Built on first use so
+    // it sees CommitmentsEnabled, which an object initializer may set after the constructor.
+    private OrderFundingService? _orderFundingInstance;
+    private OrderFundingService _orderFunding
+        => _orderFundingInstance ??= new OrderFundingService(_orderRepo, _cropRepo, _orderEscrowService, _tripRepo, CommitmentsEnabled);
+
+    /// <summary>
+    /// ESC-15: sequential farmer → trucker commitments, the awaiting_transport status and the trip
+    /// bookings. Defaults to the env flag (<see cref="OrderCommitment.IsEnabled"/>); tests set it.
+    /// Off, the farmer's accept moves a funded order straight to accepted as before.
+    /// </summary>
+    public bool CommitmentsEnabled { get; init; } = OrderCommitment.IsEnabled;
     // Optional: when the ratings table is provisioned, buyers can rate
     // counterparties after a delivered order. Absent env → null (rating sync
     // simply returns RATING_UNAVAILABLE).
@@ -282,7 +296,9 @@ public partial class SyncFunction
         "cropType", "quantity", "pricePerUnit",
         "tripId", "truckerId", "truckerName", "transportCost",
         "paymentMethod", "cbeTransactionId",
-        "status", "rejectionReason", "cancelReason"
+        "status", "rejectionReason", "cancelReason",
+        // ESC-15: the commitment commands (consumed by ProcessCommitmentCommandAsync, never written raw).
+        OrderCommitment.FarmerResponseField, OrderCommitment.TruckerResponseField, OrderCommitment.DeclineReasonField
     };
 
     // Server-calculated fields that clients must not set directly
@@ -290,6 +306,14 @@ public partial class SyncFunction
     {
         "cropCost", "commissionRate", "commissionAmount", "orderTotal",
         "paymentVerifiedAt", "respondedAt", "cancelledAt",
+        // ESC-15: who was asked, when they answered, their deadlines and the failure bookkeeping.
+        OrderCommitment.FulfillmentField, OrderCommitment.PickupDateField,
+        OrderCommitment.FarmerRespondedAtField, OrderCommitment.FarmerDeadlineAtField,
+        OrderCommitment.TruckerAskedAtField, OrderCommitment.TruckerRespondedAtField, OrderCommitment.TruckerDeadlineAtField,
+        OrderCommitment.BuyerChoiceDeadlineAtField, OrderCommitment.TransportFailureField,
+        OrderCommitment.CancelledByField, OrderCommitment.FaultPartyField,
+        OrderCommitment.FarmerReminderAtField, OrderCommitment.TruckerReminderAtField,
+        OrderCommitment.BuyerChoiceReminderAtField, OrderCommitment.PickupOverdueNotifiedAtField,
         // ESC-01: the live Telebirr payment behind a funding; only the webhook writes them.
         // paymentSubmittedAt starts the payment clock and is stamped by the server.
         OrderFundingService.MerchOrderIdField, OrderFundingService.PaymentOrderIdField,
@@ -312,6 +336,17 @@ public partial class SyncFunction
     private static readonly HashSet<string> UpdatableOrderFields = new()
     {
         "status", "rejectionReason", "cancelReason", "paymentMethod", "cbeTransactionId"
+    };
+
+    /// <summary>
+    /// ESC-15: the commitment commands. Allowed on an update only through
+    /// <c>ProcessCommitmentCommandAsync</c> (which validates and never writes them raw); refused on
+    /// create, and treated as immutable by the generic update so no party can rewrite a recorded
+    /// response or decline reason.
+    /// </summary>
+    private static readonly string[] OrderCommandFields =
+    {
+        OrderCommitment.FarmerResponseField, OrderCommitment.TruckerResponseField, OrderCommitment.DeclineReasonField
     };
 
     /// <summary>
@@ -339,10 +374,16 @@ public partial class SyncFunction
         // Farmer responds to a funded order with accept or reject; reject is a
         // terminal state (authorization + respondedAt/audit side-effects already
         // handle "rejected" — only this transition entry was missing).
-        { "funded", new HashSet<string> { "accepted", "rejected", "cancelled" } },
+        // ESC-15: a funded order whose transport failed (trucker declined, expired, trip cancelled
+        // or full) waits for the buyer in awaiting_transport; so does an accepted one whose trucker
+        // dropped out before pickup. Both edges are system-written (OrderCommitment).
+        { "funded", new HashSet<string> { "accepted", "rejected", "cancelled", OrderCommitment.AwaitingTransportStatus } },
         // ESC-06: the buyer may cancel an accepted order only after a transport failure (no
         // pickup by pickupDeadlineAt); ProcessTransportFailureCancelAsync enforces it.
-        { "accepted", new HashSet<string> { "pickup_confirmed", "cancelled" } },
+        { "accepted", new HashSet<string> { "pickup_confirmed", "cancelled", OrderCommitment.AwaitingTransportStatus } },
+        // ESC-15: the buyer cancels for a full refund, the farmer may cancel without penalty, or
+        // the order cron cancels after the buyer's 48 hours (transport_not_arranged).
+        { OrderCommitment.AwaitingTransportStatus, new HashSet<string> { "cancelled" } },
         { "pickup_confirmed", new HashSet<string> { "in_transit" } },
         { "in_transit", new HashSet<string> { "delivered" } },
         { "delivered", new HashSet<string> { "disbursing", "disputed" } },
@@ -599,7 +640,7 @@ public partial class SyncFunction
                 deliveryRepo: _deliveryRepo,
                 transactionAuditRepo: _transactionAuditRepo)
             : null;
-        _orderFunding = new OrderFundingService(_orderRepo, _cropRepo, _orderEscrowService);
+        _tripRepo = new TripRepository(_dynamoDb, _tripsTable);
 
         // Ratings are optional in the same way: the rating sync handler is only
         // reachable once the ratings table is provisioned.
@@ -640,7 +681,8 @@ public partial class SyncFunction
         IDeliveryQrSecretRepository? qrSecretRepo = null,
         IMessageRepository? messageRepo = null,
         EscrowService? orderEscrowService = null,
-        IDeliveryRepository? deliveryRepo = null)
+        IDeliveryRepository? deliveryRepo = null,
+        ITripRepository? tripRepo = null)
     {
         _syncMetadataRepo = syncMetadataRepo ?? throw new ArgumentNullException(nameof(syncMetadataRepo));
         _cropRepo = cropRepo ?? throw new ArgumentNullException(nameof(cropRepo));
@@ -660,7 +702,7 @@ public partial class SyncFunction
         _messageRepo = messageRepo;
         _orderEscrowService = orderEscrowService;
         _deliveryRepo = deliveryRepo ?? new DeliveryRepository(_dynamoDb, _deliveriesTable);
-        _orderFunding = new OrderFundingService(_orderRepo, _cropRepo, _orderEscrowService);
+        _tripRepo = tripRepo ?? new TripRepository(_dynamoDb, _tripsTable);
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -1727,8 +1769,12 @@ public partial class SyncFunction
                     AddIfPresent(participants, ItemString(order, "buyerId"));
                     AddIfPresent(participants, ItemString(order, "farmerId"));
                     AddIfPresent(participants, ItemString(order, "truckerId"));
+                    // ESC-15: contact is per party; a trucker who declined, expired or dropped out
+                    // stays on the row but can no longer be reached (and cannot reach anyone).
                     return VerifyDistinctParticipants(participants, senderId, recipientId)
-                           ?? (ContactReveal.IsOpen(order) ? null : ContactReveal.LockedMessage);
+                           ?? (ContactReveal.IsOpenFor(order, senderId) && ContactReveal.IsOpenFor(order, recipientId)
+                               ? null
+                               : ContactReveal.LockedMessage);
                 }
 
             case "delivery":
@@ -1752,7 +1798,10 @@ public partial class SyncFunction
                     // The delivery's order decides; a delivery without one stays closed.
                     var orderId = AttrString(delivery, "orderId");
                     var order = string.IsNullOrEmpty(orderId) ? null : await _orderRepo.GetByIdAsync(orderId);
-                    return order != null && ContactReveal.IsOpen(order) ? null : ContactReveal.LockedMessage;
+                    return order != null
+                           && ContactReveal.IsOpenFor(order, senderId) && ContactReveal.IsOpenFor(order, recipientId)
+                        ? null
+                        : ContactReveal.LockedMessage;
                 }
 
             default:
@@ -3042,12 +3091,37 @@ public partial class SyncFunction
 
                     NormalizeDepartureDate(operation.Data);
 
+                    // ESC-17: a booked trip is frozen (date, price, route; capacity never below
+                    // the bookings), `matched` is written by the server when the trip fills, and
+                    // a trip with bookings may start from `open`.
+                    var bookingError = CheckBookedTripUpdate(operation.Data, existing);
+                    if (bookingError != null)
+                    {
+                        return bookingError.Value.Code == "TRIP_HAS_BOOKINGS"
+                            ? await RefuseWithSignalAsync(new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = bookingError.Value.Message
+                            }, FraudDetectionService.ImmutableFieldChangeSignal, operation, "trip", authenticatedUserId, context)
+                            : new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = bookingError.Value.Message
+                            };
+                    }
+
                     // H1: Validate status transition if status is being changed
+                    var tripIsCancelling = false;
                     if (operation.Data.TryGetValue("status", out var newStatusObj))
                     {
                         var newStatus = newStatusObj?.ToString();
-                        if (!ValidTransitions.TryGetValue(currentStatus, out var allowed)
-                            || newStatus == null || !allowed.Contains(newStatus))
+                        var startsWithBookings = CommitmentsEnabled
+                            && currentStatus == "open" && newStatus == "inTransit" && BookedQuintalsOf(existing) > 0;
+                        if (!startsWithBookings
+                            && (!ValidTransitions.TryGetValue(currentStatus, out var allowed)
+                                || newStatus == null || !allowed.Contains(newStatus)))
                         {
                             return new SyncOperationResult
                             {
@@ -3055,6 +3129,19 @@ public partial class SyncFunction
                                 Status = "error",
                                 Message = $"TRIP_INVALID_TRANSITION: Cannot transition from '{currentStatus}' to '{newStatus}'."
                             };
+                        }
+
+                        tripIsCancelling = newStatus == "cancelled";
+                    }
+
+                    // ESC-17: no cancelling a trip whose crops are already on the road; the other
+                    // orders on it are moved after the write (CascadeTripCancelAsync).
+                    if (tripIsCancelling)
+                    {
+                        var cascadeStop = await CheckTripCancelAllowedAsync(operation, existing, context);
+                        if (cascadeStop != null)
+                        {
+                            return cascadeStop;
                         }
                     }
 
@@ -3100,6 +3187,23 @@ public partial class SyncFunction
                         i++;
                     }
 
+                    // ESC-17: a capacity change keeps remainingQuintals = capacity - bookedQuintals. DynamoDB
+                    // does the subtraction, so a reservation landing between this read and the write (the
+                    // booking writes never bump the trip version) is still counted.
+                    if (operation.Data.TryGetValue("capacity", out var newCapacityObj)
+                        && double.TryParse(newCapacityObj?.ToString(), System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture, out var newCapacity))
+                    {
+                        attrNames["#remaining"] = "remainingQuintals";
+                        attrNames["#booked"] = "bookedQuintals";
+                        attrValues[":newCapacity"] = new AttributeValue
+                        {
+                            N = newCapacity.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        };
+                        attrValues[":zeroBooked"] = new AttributeValue { N = "0" };
+                        updateParts.Add("#remaining = :newCapacity - if_not_exists(#booked, :zeroBooked)");
+                    }
+
                     var updateRequest = new UpdateItemRequest
                     {
                         TableName = _tripsTable,
@@ -3119,6 +3223,11 @@ public partial class SyncFunction
                     {
                         var response = await _dynamoDb.UpdateItemAsync(updateRequest);
                         var result = ScrubSyncSecrets(CropRepository.FromItem(response.Attributes));
+                        if (tripIsCancelling)
+                        {
+                            await CascadeTripCancelAsync(existing, context);
+                        }
+
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
@@ -3195,6 +3304,14 @@ public partial class SyncFunction
                         };
                     }
 
+                    // ESC-17: a delete is a cancel; crops already on the road block it, and the
+                    // other orders on the trip are moved after the write.
+                    var deleteCascadeStop = await CheckTripCancelAllowedAsync(operation, existing, context);
+                    if (deleteCascadeStop != null)
+                    {
+                        return deleteCascadeStop;
+                    }
+
                     var createdAt = existing["createdAt"].S;
                     var now = DateTime.UtcNow.ToString("o");
                     var newVersion = clientVersion + 1;
@@ -3231,6 +3348,7 @@ public partial class SyncFunction
                     try
                     {
                         var response = await _dynamoDb.UpdateItemAsync(deleteRequest);
+                        await CascadeTripCancelAsync(existing, context);
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
@@ -5883,6 +6001,16 @@ public partial class SyncFunction
             operation.Data.Remove(field);
         }
 
+        // ESC-15: the commitment commands are update-only. A create carrying a response would
+        // plant "accepted" on the row and open the parties' phones before anyone agreed.
+        var plantedCommands = OrderCommandFields.Where(operation.Data.ContainsKey).ToList();
+        if (plantedCommands.Count > 0)
+        {
+            return await RefuseWithSignalAsync(
+                OrderValidationError(operation, $"{string.Join(", ", plantedCommands)} cannot be set when creating an order."),
+                FraudDetectionService.ImmutableFieldChangeSignal, operation, "order", authenticatedUserId, context);
+        }
+
         // Field whitelist
         var unknownFields = operation.Data.Keys
             .Where(k => !AllowedOrderFields.Contains(k) && k != "version")
@@ -5968,10 +6096,13 @@ public partial class SyncFunction
             }
 
             var tripError = BindOrderToTrip(
-                operation.Data, trip, truckerId!, quantityKg, clientTransportCost, out transportCost);
+                operation.Data, trip, truckerId!, quantityKg, clientTransportCost, DateTime.UtcNow,
+                enforceBookings: CommitmentsEnabled, out transportCost);
             if (tripError != null)
             {
-                return OrderValidationError(operation, tripError);
+                return tripError.StartsWith("TRIP_CAPACITY_EXCEEDED", StringComparison.Ordinal)
+                    ? new SyncOperationResult { OperationId = operation.OperationId, Status = "error", Message = tripError }
+                    : OrderValidationError(operation, tripError);
             }
         }
         else if (clientTransportCost is double sentWithoutTrip && sentWithoutTrip != 0.0)
@@ -6085,6 +6216,21 @@ public partial class SyncFunction
 
         if (isTruckerOnly)
         {
+            // ESC-15: the trucker answers the transport request (accept or decline) once the
+            // farmer accepted; before that, and for anything but the logistics catch-ups, the
+            // trucker may not touch the order.
+            var truckerCommand = CommitmentCommandOf(operation.Data, OrderCommitment.TruckerResponseField);
+            if (truckerCommand != null)
+            {
+                if (!CommitmentsEnabled)
+                {
+                    return OrderValidationError(operation, "Transport requests are not enabled on this server yet.");
+                }
+
+                return await ProcessCommitmentCommandAsync(
+                    operation, existingOrder, CommitmentActor.Trucker, truckerCommand, authenticatedUserId!, context);
+            }
+
             var truckerStatus = operation.Data.TryGetValue("status", out var tsObj) ? tsObj?.ToString() : null;
             if (truckerStatus is not ("pickup_confirmed" or "in_transit" or "delivered"))
             {
@@ -6095,6 +6241,54 @@ public partial class SyncFunction
                     Message = "ORDER_UNAUTHORIZED: The trucker may only set pickup_confirmed, in_transit or delivered."
                 }, FraudDetectionService.RoleForbiddenSignal, operation, "order", authenticatedUserId, context);
             }
+        }
+        else if (operation.Data.ContainsKey(OrderCommitment.TruckerResponseField))
+        {
+            return await RefuseWithSignalAsync(new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "ORDER_UNAUTHORIZED: Only the order's trucker can answer a transport request."
+            }, FraudDetectionService.RoleForbiddenSignal, operation, "order", authenticatedUserId, context);
+        }
+
+        // ESC-15: the farmer's answer. The command shape (farmerResponse: accept|decline) and the
+        // legacy status write (accepted|rejected) mean the same thing; with the feature on both go
+        // through the commitment rules, with it off the command is translated to the old write.
+        var farmerCommand = CommitmentCommandOf(operation.Data, OrderCommitment.FarmerResponseField);
+        if (farmerCommand != null && authenticatedUserId != orderFarmerId)
+        {
+            return await RefuseWithSignalAsync(new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "ORDER_UNAUTHORIZED: Only the farmer can accept or decline the order."
+            }, FraudDetectionService.RoleForbiddenSignal, operation, "order", authenticatedUserId, context);
+        }
+
+        if (CommitmentsEnabled && authenticatedUserId == orderFarmerId)
+        {
+            if (farmerCommand == null
+                && operation.Data.TryGetValue("status", out var legacyFarmerStatus)
+                && legacyFarmerStatus?.ToString() is "accepted" or "rejected"
+                && ItemString(existingOrder, "status") == "funded")
+            {
+                farmerCommand = legacyFarmerStatus.ToString() == "accepted"
+                    ? OrderCommitment.AcceptCommand
+                    : OrderCommitment.DeclineCommand;
+            }
+
+            if (farmerCommand != null)
+            {
+                return await ProcessCommitmentCommandAsync(
+                    operation, existingOrder, CommitmentActor.Farmer, farmerCommand, authenticatedUserId!, context);
+            }
+        }
+        else if (farmerCommand != null)
+        {
+            operation.Data.Remove(OrderCommitment.FarmerResponseField);
+            operation.Data.Remove(OrderCommitment.DeclineReasonField);
+            operation.Data["status"] = farmerCommand == OrderCommitment.AcceptCommand ? "accepted" : "rejected";
         }
 
         // Strip server-controlled fields
@@ -6167,6 +6361,20 @@ public partial class SyncFunction
                 };
             }
 
+            // ESC-15: cancel rules of a paid order. While the farmer and the trucker decide
+            // (funded) nobody cancels; in awaiting_transport the buyer (full refund) or the
+            // farmer (no penalty) may; an accepted order may be cancelled by its farmer before
+            // pickup with a fresh sign-in. Each runs its own transactional path.
+            if (newStatus == "cancelled")
+            {
+                var committedCancel = await RouteCommittedCancelAsync(
+                    operation, existingOrder, currentStatus, authenticatedUserId, orderBuyerId, orderFarmerId, context);
+                if (committedCancel != null)
+                {
+                    return committedCancel;
+                }
+            }
+
             // Authorization for specific transitions
             var transitionError = ValidateOrderTransitionAuth(
                 currentStatus, newStatus, authenticatedUserId, orderBuyerId, orderFarmerId);
@@ -6196,6 +6404,14 @@ public partial class SyncFunction
             // add proofs to the step-up.
             if (newStatus == "payment_submitted")
             {
+                // ESC-15: no money for a trip that can no longer carry the order (cancelled,
+                // full, or leaving within 12 hours): the buyer places a new order instead.
+                var tripGate = await CheckTripBookableForPaymentAsync(existingOrder, context);
+                if (tripGate != null)
+                {
+                    return OrderValidationError(operation, tripGate);
+                }
+
                 var riskTier = await CallerRiskTierAsync(authenticatedUserId!);
                 if (riskTier == RiskTier.Critical)
                 {
@@ -6311,34 +6527,15 @@ public partial class SyncFunction
             // FRD-03: a funded order whose escrow is held for review cannot be accepted: a delivery
             // created after it could never link to the held escrow. Reject and cancel stay allowed. An
             // escrow that cannot be read refuses the accept for now (transient, the client retries).
-            if (newStatus == "accepted" && _escrowRepo != null)
+            if (newStatus == "accepted")
             {
-                Dictionary<string, object>? orderEscrow;
-                try
+                var (escrowStop, fence) = await CheckAcceptEscrowAsync(operation, context);
+                if (escrowStop != null)
                 {
-                    orderEscrow = await _escrowRepo.GetByIdAsync($"escrow-order-{operation.EntityId}", consistentRead: true);
-                }
-                catch (Exception ex)
-                {
-                    context.Logger.LogWarning(
-                        $"ORDER_ACCEPT_ESCROW_UNREAD orderId={MoneyAlarmLog.LogId(operation.EntityId)} error={ex.GetType().Name}");
-                    return TransientOrderError(operation, "The order's payment could not be checked. Please try again later.");
+                    return escrowStop;
                 }
 
-                if (orderEscrow != null && orderEscrow.TryGetValue("status", out var orderEscrowStatus)
-                    && orderEscrowStatus?.ToString() == EscrowHoldFields.Status)
-                {
-                    return OrderValidationError(operation, OrderUnderReviewMessage);
-                }
-
-                // With the hold on, a sweep may hold the escrow between this read and the write: the
-                // write checks it again in the same transaction.
-                if (FraudHoldEnabled && orderEscrow != null && !string.IsNullOrEmpty(EscrowsTableName)
-                    && orderEscrow.TryGetValue("createdAt", out var escrowCreatedAt)
-                    && escrowCreatedAt?.ToString() is { Length: > 0 } escrowCreated)
-                {
-                    acceptFence = new EscrowRowKey(EscrowsTableName, $"escrow-order-{operation.EntityId}", escrowCreated);
-                }
+                acceptFence = fence;
             }
 
             // ESC-06: the farmer's accept starts the pickup clock in the same write. A trip that
@@ -6887,11 +7084,19 @@ public partial class SyncFunction
     {
         try
         {
+            var fundedAt = DateTime.UtcNow;
             var fundData = new Dictionary<string, object>
             {
                 { "status", "funded" },
-                { "paymentVerifiedAt", DateTime.UtcNow.ToString("o") }
+                { "paymentVerifiedAt", fundedAt.ToString("o") }
             };
+
+            // ESC-15: the farmer's request and its deadline ride on the funding write (empty
+            // when the feature is off), exactly as on the live webhook path.
+            foreach (var (key, value) in await _orderFunding.FundingStampsAsync(existingOrder, fundedAt))
+            {
+                fundData[key] = value;
+            }
 
             var result = await _orderRepo.UpdateAsync(orderId, fundData, expectedVersion);
             if (!result.IsSuccess)
@@ -6993,8 +7198,13 @@ public partial class SyncFunction
     /// released and the listing stock restored.
     /// </summary>
     private async Task<SyncOperationResult> ProcessTransportFailureCancelAsync(
-        SyncOperationRequest operation, ILambdaContext context)
+        SyncOperationRequest operation, ILambdaContext context, CommittedCancelSpec? spec = null)
     {
+        // ESC-15: the same transactional path serves the buyer's or farmer's cancel in
+        // awaiting_transport and the farmer's cancel of a committed order; only the expected
+        // status, the reason codes and the deadline check differ.
+        spec ??= CommittedCancelSpec.BuyerAfterPickupDeadline;
+
         if (!TryGetClientVersion(operation, out var clientVersion))
         {
             return OrderValidationError(operation,
@@ -7017,30 +7227,33 @@ public partial class SyncFunction
             return TransientOrderError(operation, "Order not found.");
         }
 
-        if (OrderVersionOf(order) != clientVersion || ItemString(order, "status") != "accepted")
+        if (OrderVersionOf(order) != clientVersion || ItemString(order, "status") != spec.ExpectedStatus)
         {
             return OrderConflict(operation, order, clientVersion);
         }
 
         var nowUtc = DateTime.UtcNow;
-        DateTime? deadline = PickupDeadline.TryParse(ItemString(order, PickupDeadline.Field), out var stamped)
-            ? stamped
-            : null;
-        if (deadline == null)
+        if (spec.CheckPickupDeadline)
         {
-            // Accepted before ESC-06: the same rule, from the live trip and the acceptance time.
-            var acceptedAt = PickupDeadline.AcceptedAt(order);
-            deadline = acceptedAt == null ? null : await ComputePickupDeadlineAsync(order, acceptedAt.Value, context);
+            DateTime? deadline = PickupDeadline.TryParse(ItemString(order, PickupDeadline.Field), out var stamped)
+                ? stamped
+                : null;
             if (deadline == null)
             {
-                return TransientOrderError(operation, "The order's trip could not be read. Please try again later.");
+                // Accepted before ESC-06: the same rule, from the live trip and the acceptance time.
+                var acceptedAt = PickupDeadline.AcceptedAt(order);
+                deadline = acceptedAt == null ? null : await ComputePickupDeadlineAsync(order, acceptedAt.Value, context);
+                if (deadline == null)
+                {
+                    return TransientOrderError(operation, "The order's trip could not be read. Please try again later.");
+                }
             }
-        }
 
-        if (nowUtc < deadline.Value)
-        {
-            return CancelNotAllowed(operation,
-                $"The crops can still be collected until {PickupDeadline.Format(deadline.Value)}.");
+            if (nowUtc < deadline.Value)
+            {
+                return CancelNotAllowed(operation,
+                    $"The crops can still be collected until {PickupDeadline.Format(deadline.Value)}.");
+            }
         }
 
         // The order's deliveries decide whether anything was picked up (the order can lag them).
@@ -7094,7 +7307,7 @@ public partial class SyncFunction
                 if (await _deliveryRepo.TryCancelPendingAsync(pendingId))
                 {
                     await EmitTxAuditAsync(context, orderId, "delivery", pendingId,
-                        "delivery_cancelled", "pending", "cancelled", metadata: $"reason={PickupDeadline.CancelReason}");
+                        "delivery_cancelled", "pending", "cancelled", metadata: $"reason={spec.CancelReason}");
                 }
                 else
                 {
@@ -7127,7 +7340,15 @@ public partial class SyncFunction
         {
             { "status", "cancelled" },
             { "cancelledAt", nowUtc.ToString("o") },
-            { "cancelReason", PickupDeadline.CancelReason }
+            { "cancelReason", spec.CancelReason },
+            { OrderCommitment.CancelledByField, spec.CancelledBy },
+            // A null spec fault keeps what the transport failure recorded (trucker, or none for a full trip).
+            {
+                OrderCommitment.FaultPartyField,
+                spec.FaultParty ?? (ItemString(order, OrderCommitment.FaultPartyField) is { Length: > 0 } recorded
+                    ? recorded
+                    : OrderCommitment.Party.None)
+            }
         };
         var note = operation.Data!.TryGetValue("cancelReason", out var noteObj) ? noteObj?.ToString()?.Trim() : null;
         if (!string.IsNullOrEmpty(note))
@@ -7145,7 +7366,7 @@ public partial class SyncFunction
                 // FUP-32: the order cancel and the refund arm are one transaction, so a dispute that
                 // froze the money after the check above can never leave a cancelled order over it.
                 var write = await _orderEscrowService.CancelOrderWithRefundAsync(
-                    orderId, cancelFields, version, "accepted", plan.Held, TransportCancelRefundReason, "system", _batchAudit);
+                    orderId, cancelFields, version, spec.ExpectedStatus, plan.Held, spec.RefundReason, "system", _batchAudit);
                 if (write.Outcome == OrderLinkedWriteOutcome.Written)
                 {
                     cancelled = write.Order;
@@ -7181,7 +7402,7 @@ public partial class SyncFunction
                 return TransientOrderError(operation, "Order not found.");
             }
 
-            if (ItemString(latest, "status") != "accepted")
+            if (ItemString(latest, "status") != spec.ExpectedStatus)
             {
                 return OrderConflict(operation, latest, clientVersion);
             }
@@ -7212,17 +7433,19 @@ public partial class SyncFunction
             version = OrderVersionOf(latest);
         }
 
-        await EmitTxAuditAsync(context, orderId, "order", orderId, "order_cancelled", "accepted", "cancelled",
-            metadata: $"cancelReason={PickupDeadline.CancelReason}");
+        await EmitTxAuditAsync(context, orderId, "order", orderId, "order_cancelled", spec.ExpectedStatus, "cancelled",
+            metadata: $"cancelReason={spec.CancelReason};cancelledBy={spec.CancelledBy}");
         context.Logger.LogInformation(
-            $"Order escrow refund scheduled: orderId={MoneyAlarmLog.LogId(orderId)} reason={TransportCancelRefundReason}");
+            $"Order escrow refund scheduled: orderId={MoneyAlarmLog.LogId(orderId)} reason={spec.RefundReason}");
         await ReleaseTransportCancelSlotAsync(orderId, cancelledDeliveryId, context);
         await TryRestoreListingStockAsync(order, context);
+        await TryReleaseBookingAsync(order, context);
 
         // ESC-48: the parties could reach each other since the farmer accepted, and this cancel
         // refunds the buyer in full, which is also how a trade agreed off the platform would end.
-        // Best-effort signal for the admin fraud review; never a phone number in it.
-        if (ContactReveal.IsOpen(order))
+        // Best-effort signal for the admin fraud review; never a phone number in it. Only the
+        // buyer's cancel is a signal: a farmer backing out costs the farmer, not the buyer.
+        if (spec.CancelledBy == OrderCommitment.Party.Buyer && ContactReveal.IsOpen(order))
         {
             await TryRecordFraudSignalAsync(
                 ItemString(order, "buyerId"), ContactReveal.TransportCancelSignal, orderId, "order",
@@ -7773,7 +7996,9 @@ public partial class SyncFunction
         // ESC-07: disputed too. A client order dispute froze no money (the 48-hour release
         // still paid out); disputes come from the delivery or POST /escrow/dispute, which
         // freeze the escrow first and move the order after.
-        if (newStatus is "funded" or "disbursing" or "settled" or "dispute_resolved" or "payment_failed" or "disputed")
+        // ESC-15: awaiting_transport too; only a failed transport (OrderCommitment) parks an order there.
+        if (newStatus is "funded" or "disbursing" or "settled" or "dispute_resolved" or "payment_failed" or "disputed"
+            or OrderCommitment.AwaitingTransportStatus)
         {
             return $"ORDER_UNAUTHORIZED: '{newStatus}' is a system-managed transition.";
         }
@@ -7944,6 +8169,8 @@ public partial class SyncFunction
         string truckerId,
         double quantityKg,
         double? clientTransportCost,
+        DateTime nowUtc,
+        bool enforceBookings,
         out double transportCost)
     {
         transportCost = 0.0;
@@ -7959,6 +8186,25 @@ public partial class SyncFunction
             || !string.Equals(tripTruckerId, truckerId, StringComparison.Ordinal))
         {
             return "truckerId must be the trucker on the trip.";
+        }
+
+        // ESC-15/17: the farmer and the trucker each get a window to answer before the truck
+        // leaves, so a trip departing within 24 hours takes no new order; and the order must
+        // fit in what the trip still has free (the atomic hold happens at funding).
+        if (enforceBookings)
+        {
+            if (TryParseDepartureDateUtc(AttrString(trip, "departureDate"), requireIsoShape: false, out var departureUtc)
+                && departureUtc < nowUtc + OrderCommitment.ResponseWindow)
+            {
+                return "This trip leaves within 24 hours; choose a later trip.";
+            }
+
+            var remaining = RemainingQuintalsOf(trip);
+            if (remaining < quantityKg / KgPerQuintal - MoneyTolerance)
+            {
+                return "TRIP_CAPACITY_EXCEEDED: The trip has only "
+                    + $"{remaining.ToString("0.##", CultureInfo.InvariantCulture)} quintals free.";
+            }
         }
 
         var pricePerQuintal = trip.TryGetValue("pricePerQuintal", out var pq)

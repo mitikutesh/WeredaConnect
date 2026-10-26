@@ -935,7 +935,8 @@ public partial class SyncFunctionTransportCancelTests
             { "tripId", new AttributeValue { S = TripId } },
             { "truckerId", new AttributeValue { S = TruckerId } },
             { "status", new AttributeValue { S = "open" } },
-            { "departureDate", new AttributeValue { S = departure.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'") } },
+            // Invariant culture: ':' is a culture-sensitive separator (a Finnish locale writes '.').
+            { "departureDate", new AttributeValue { S = departure.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture) } },
             { "createdAt", new AttributeValue { S = "2026-10-01T08:00:00.000Z" } }
         };
         if (deletedAt != null)

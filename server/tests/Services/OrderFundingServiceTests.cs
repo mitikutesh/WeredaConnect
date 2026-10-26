@@ -107,5 +107,120 @@ public class OrderFundingServiceTests
 
         Assert.Equal(StockDecrementResult.Decremented, actual.Stock);
         Assert.False(actual.EscrowCreated);
+        Assert.Null(actual.Trip);
+    }
+
+    // ===== ESC-15: commitment stamps and the trip booking =====
+
+    private readonly ITripRepository _tripRepo = Substitute.For<ITripRepository>();
+
+    private OrderFundingService Committing(bool enabled = true)
+        => new(_orderRepo, _cropRepo, escrowService: null, tripRepo: _tripRepo, commitmentsEnabled: enabled);
+
+    private static Dictionary<string, object> TripOrder(string status = "funded") => new()
+    {
+        { "orderId", OrderId }, { "listingId", "listing-1" }, { "quantity", "500" }, { "status", status },
+        { "tripId", "trip-1" }, { "truckerId", "trucker-1" }
+    };
+
+    [Fact]
+    public async Task FundingStamps_AskTheFarmer_BoundedByTheTripDeparture()
+    {
+        var departure = DateTime.UtcNow.AddHours(20);
+        _tripRepo.GetByIdAsync("trip-1").Returns(new Dictionary<string, object> { { "departureDate", departure.ToString("o") } });
+
+        var stamps = await Committing().FundingStampsAsync(TripOrder(), DateTime.UtcNow);
+
+        Assert.Equal(OrderCommitment.Response.Pending, stamps[OrderCommitment.FarmerResponseField]);
+        Assert.Equal(OrderCommitment.Response.NotAsked, stamps[OrderCommitment.TruckerResponseField]);
+        var deadline = DateTime.Parse((string)stamps[OrderCommitment.FarmerDeadlineAtField], null,
+            System.Globalization.DateTimeStyles.AdjustToUniversal);
+        Assert.True(Math.Abs((deadline - departure.AddHours(-12)).TotalSeconds) < 5);
+    }
+
+    [Fact]
+    public async Task FundingStamps_FlagOff_AreEmpty()
+    {
+        var stamps = await Committing(enabled: false).FundingStampsAsync(TripOrder(), DateTime.UtcNow);
+
+        Assert.Empty(stamps);
+        await _tripRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task NoFlagGiven_FollowsTheEnvironmentFlag()
+    {
+        // The webhook Lambda builds the service without a flag: it must follow COMMITMENTS_ENABLED
+        // (off in this test process), never a hard-coded value, or mock and live funding drift apart.
+        var service = new OrderFundingService(_orderRepo, _cropRepo, escrowService: null, tripRepo: _tripRepo);
+
+        var stamps = await service.FundingStampsAsync(TripOrder(), DateTime.UtcNow);
+
+        Assert.Equal(OrderCommitment.IsEnabled, stamps.Count > 0);
+    }
+
+    [Fact]
+    public async Task TryFundFromPayment_CarriesTheStamps()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(TripOrder("payment_submitted"));
+
+        await Committing().TryFundFromPaymentAsync(OrderId, "WCO1", "TB-1", null);
+
+        await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Is<Dictionary<string, object>>(f =>
+            (string)f[OrderCommitment.FarmerResponseField] == OrderCommitment.Response.Pending
+            && (string)f[OrderCommitment.TruckerResponseField] == OrderCommitment.Response.NotAsked
+            && (string)f[OrderCommitment.FulfillmentField] == OrderCommitment.Fulfillment.Trucker));
+    }
+
+    [Fact]
+    public async Task EnsureFundedSideEffects_ReservesTheTripCapacity()
+    {
+        _tripRepo.TryReserveCapacityAsync("trip-1", OrderId, 5.0).Returns(new TripReserveResult(TripReserveOutcome.Reserved, 95));
+
+        var actual = await Committing().EnsureFundedSideEffectsAsync(TripOrder(), "system", null, _context);
+
+        Assert.Equal(TripReserveOutcome.Reserved, actual.Trip);
+        await _orderRepo.DidNotReceive().TryAdvanceStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Theory]
+    [InlineData(TripReserveOutcome.Full, OrderCommitment.TransportFailure.TripFull, OrderCommitment.Response.FailedCapacity)]
+    [InlineData(TripReserveOutcome.Unavailable, OrderCommitment.TransportFailure.TripCancelled, OrderCommitment.Response.Cancelled)]
+    [InlineData(TripReserveOutcome.NotFound, OrderCommitment.TransportFailure.TripCancelled, OrderCommitment.Response.Cancelled)]
+    public async Task EnsureFundedSideEffects_TripCannotCarryTheOrder_ParksItWithTheBuyer(
+        TripReserveOutcome outcome, string failure, string truckerResponse)
+    {
+        _tripRepo.TryReserveCapacityAsync("trip-1", OrderId, 5.0).Returns(new TripReserveResult(outcome, 0));
+
+        await Committing().EnsureFundedSideEffectsAsync(TripOrder(), "system", null, _context);
+
+        await _orderRepo.Received(1).TryAdvanceStatusAsync(OrderId, "funded", OrderCommitment.AwaitingTransportStatus,
+            Arg.Is<Dictionary<string, object>>(f =>
+                (string)f[OrderCommitment.TransportFailureField] == failure
+                && (string)f[OrderCommitment.TruckerResponseField] == truckerResponse
+                && f.ContainsKey(OrderCommitment.BuyerChoiceDeadlineAtField)
+                && !f.ContainsKey("status")));
+    }
+
+    [Fact]
+    public async Task EnsureFundedSideEffects_ReservationThrows_LeavesTheOrderFunded_AndAlarms()
+    {
+        _tripRepo.TryReserveCapacityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>())
+            .Returns<TripReserveResult>(_ => throw new InvalidOperationException("dynamo down"));
+
+        var actual = await Committing().EnsureFundedSideEffectsAsync(TripOrder(), "system", null, _context);
+
+        Assert.Null(actual.Trip);
+        Assert.Contains("ORDER_TRIP_RESERVE_FAILED", Logs);
+        await _orderRepo.DidNotReceive().TryAdvanceStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task EnsureFundedSideEffects_SelfPickup_ReservesNothing()
+    {
+        var actual = await Committing().EnsureFundedSideEffectsAsync(FundedOrder("500"), "system", null, _context);
+
+        Assert.Null(actual.Trip);
+        await _tripRepo.DidNotReceive().TryReserveCapacityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
     }
 }

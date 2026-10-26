@@ -224,6 +224,29 @@ export class MonitoringStack extends cdk.Stack {
       defaultValue: 0,
     });
 
+    // ESC-15: the order cron's commitment walk schedules refunds too (a farmer who never
+    // answered, a buyer who never chose) and writes the same ORDER_ESCROW_REFUND_SCHEDULE_FAILED
+    // line when it cannot; ORDER_CRON_COMMITMENTS_UNCONFIGURED means a dependency table is
+    // missing from its env, so no deadline is settled and funded orders wait unseen. Same
+    // metric, so the alarm above adds both sources. The api-stack Lambda construct creates the
+    // log group explicitly, so a filter on it is safe on a fresh deploy.
+    const orderCronLogGroup = logs.LogGroup.fromLogGroupName(
+      this,
+      'OrderCronLogGroup',
+      `/aws/lambda/${prefix}-order-cron`,
+    );
+    new logs.MetricFilter(this, 'OrderCronEscrowProblemsFilter', {
+      logGroup: orderCronLogGroup,
+      filterPattern: logs.FilterPattern.anyTerm(
+        'ORDER_ESCROW_REFUND_SCHEDULE_FAILED',
+        'ORDER_CRON_COMMITMENTS_UNCONFIGURED',
+      ),
+      metricNamespace,
+      metricName: 'OrderEscrowProblems',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+
     // FUP-27: a delivery dispute through sync that froze its escrow counts toward the escrow
     // dispute rate too (before, only POST /escrow/dispute did, through the JSON filter above).
     // The sync Lambda logs DELIVERY_DISPUTE_FROZEN once per fresh freeze; an escrow already
@@ -903,18 +926,18 @@ export class MonitoringStack extends cdk.Stack {
         alarmName: `${prefix}-order-escrow-problems`,
         alarmDescription:
           // At most 1024 characters (an infra test checks it); the runbook has the detail.
-          'The sync Lambda logged one of these (ids on the line; runbook: .ai/deployment.md). ' +
-          'ORDER_ESCROW_CREATE_FAILED: a funded order has no escrow record, so its money is invisible to ' +
-          '/escrow/history and refund scheduling; delivery-time linkage self-heals it, verify via the ' +
-          'OrderIndex GSI. _LINK_FAILED: the delivery is not tied to the order escrow, so delivery ' +
-          'confirmation and the refund-safety check cannot see it; link them by hand. ' +
-          '_REFUND_SCHEDULE_FAILED: a rejected or cancelled order\'s money stays in escrow; set the ' +
-          'escrow expiry by hand so the hourly sweep refunds the buyer. DISPUTE_NO_ESCROW (ESC-07): a ' +
-          'delivery was disputed but no escrow-order row holds the money, so the dispute was refused; ' +
-          'find the payment and contact the parties. ORDER_TRANSPORT_CANCEL_LATE_DELIVERY or ' +
-          '_PICKUP_REFUSED (ESC-06): goods may have left the farm on an order cancelled for transport ' +
+          'Sync or order-cron logged one of these (runbook: .ai/deployment.md). ' +
+          'ORDER_ESCROW_CREATE_FAILED: a funded order has no escrow record; its money is invisible to ' +
+          '/escrow/history and refunds; delivery linkage self-heals it (check the OrderIndex GSI). ' +
+          '_LINK_FAILED: the delivery is not tied to the order escrow, so confirmation and the refund ' +
+          'check miss it; link them by hand. _REFUND_SCHEDULE_FAILED: a cancelled order\'s money stays ' +
+          'in escrow; expire it by hand so the hourly sweep refunds the buyer. ' +
+          'DISPUTE_NO_ESCROW (ESC-07): a delivery was disputed but no escrow-order row holds the money, ' +
+          'so it was refused; find the payment, call the parties. ORDER_TRANSPORT_CANCEL_LATE_DELIVERY ' +
+          'or _PICKUP_REFUSED (ESC-06): goods may have left the farm on an order cancelled for transport ' +
           'failure; call the parties. QR_GATE_UNDECIDED (FUP-42): a no-QR pickup or confirm could not ' +
-          'read its escrow and stays deferred; fix the read.',
+          'read its escrow and stays deferred; fix the read. ORDER_CRON_COMMITMENTS_UNCONFIGURED ' +
+          '(ESC-15): order-cron lacks a table env; no deadline settles.',
         metric: new cloudwatch.Metric({
           namespace: metricNamespace,
           metricName: 'OrderEscrowProblems',

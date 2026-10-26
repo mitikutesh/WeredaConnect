@@ -85,6 +85,12 @@ export interface EnvironmentConfig {
    * once its web app and store builds parse `held`; older apps are answered `escrowed` (FUP-61).
    */
   readonly fraudHoldEnabled?: boolean;
+  /**
+   * COMMITMENTS_ENABLED on the sync, order-cron and telebirr-webhook Lambdas (ESC-15): sequential
+   * farmer-then-trucker commitments and the awaiting_transport status; off until the clients that
+   * render it are deployed. Default false for every environment.
+   */
+  readonly commitmentsEnabled?: boolean;
 }
 
 export const environments: Record<string, EnvironmentConfig> = {

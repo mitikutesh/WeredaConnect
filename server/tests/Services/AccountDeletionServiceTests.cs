@@ -452,6 +452,7 @@ public class AccountDeletionServiceTests
     [Theory]
     [InlineData("payment_submitted")]
     [InlineData("funded")]
+    [InlineData("awaiting_transport")]
     [InlineData("accepted")]
     [InlineData("pickup_confirmed")]
     [InlineData("in_transit")]

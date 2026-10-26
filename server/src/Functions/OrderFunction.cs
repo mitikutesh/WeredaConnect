@@ -3,6 +3,7 @@ using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.Services;
 
 namespace WeredaConnect.Server.Functions;
 
@@ -163,7 +164,9 @@ public class OrderFunction
 
             var phones = await ReadPartyPhonesAsync(queryResult.Items, authenticatedUserId, context);
             var orders = queryResult.Items
-                .Select(i => MapToOrderDto(i, IsParty(i, authenticatedUserId) ? phones : null))
+                .Select(i => IsParty(i, authenticatedUserId)
+                    ? MapToOrderDto(i, phones, authenticatedUserId)
+                    : MapToOrderDto(i, null))
                 .ToList();
 
             string? nextTokenResponse = null;
@@ -228,7 +231,7 @@ public class OrderFunction
             }
 
             var phones = await ReadPartyPhonesAsync(new[] { order }, authenticatedUserId, context);
-            var orderDto = MapToOrderDto(order, phones);
+            var orderDto = MapToOrderDto(order, phones, authenticatedUserId);
             var response = new GetOrderResponse { Order = orderDto };
 
             return LambdaResponse.Ok(response, AppJsonContext.Default.GetOrderResponse);
@@ -246,9 +249,10 @@ public class OrderFunction
            || GetStringOrNull(order, "truckerId") == userId;
 
     /// <summary>
-    /// ESC-48: the phone numbers of the parties of the caller's orders whose contact is open, in one
-    /// batched read. Empty when there is none, when the users table is not configured, or when the
-    /// read fails (logged without any number).
+    /// ESC-48: the phone numbers of the parties the caller may reach on its orders whose contact is
+    /// open, in one batched read (ESC-15: the trucker's number only once they committed, and a trucker
+    /// caller gets any number only then). Empty when there is none, when the users table is not
+    /// configured, or when the read fails (logged without any number).
     /// </summary>
     private async Task<IReadOnlyDictionary<string, string>> ReadPartyPhonesAsync(
         IEnumerable<Dictionary<string, object>> orders, string callerId, ILambdaContext context)
@@ -259,11 +263,10 @@ public class OrderFunction
         }
 
         var userIds = orders
-            .Where(o => ContactReveal.IsOpen(o) && IsParty(o, callerId))
-            .SelectMany(o => new[]
-            {
-                GetStringOrNull(o, "buyerId"), GetStringOrNull(o, "farmerId"), GetStringOrNull(o, "truckerId")
-            })
+            .Where(o => ContactReveal.IsOpenFor(o, callerId))
+            .SelectMany(o => ContactReveal.IsTruckerOpen(o)
+                ? new[] { GetStringOrNull(o, "buyerId"), GetStringOrNull(o, "farmerId"), GetStringOrNull(o, "truckerId") }
+                : new[] { GetStringOrNull(o, "buyerId"), GetStringOrNull(o, "farmerId") })
             .OfType<string>()
             .Where(id => id.Length > 0)
             .Distinct(StringComparer.Ordinal)
@@ -291,13 +294,19 @@ public class OrderFunction
 
     /// <summary>
     /// Map a DynamoDB item dictionary to an OrderDto. <paramref name="phones"/> (user id to phone) fills
-    /// the parties' numbers only when the order's contact is open; pass null for a caller who is not a party.
+    /// the parties' numbers only when the order's contact is open for <paramref name="callerId"/> (a
+    /// party; pass null phones for a caller who is not one). ESC-15: the trucker's number is filled only
+    /// once the trucker committed, and a trucker caller's <c>contactOpen</c> is their own
+    /// (<see cref="ContactReveal.IsTruckerOpen"/>); without a caller it is the buyer-farmer contact.
     /// </summary>
-    internal static OrderDto MapToOrderDto(Dictionary<string, object> item, IReadOnlyDictionary<string, string>? phones)
+    internal static OrderDto MapToOrderDto(
+        Dictionary<string, object> item, IReadOnlyDictionary<string, string>? phones, string? callerId = null)
     {
-        var contactOpen = ContactReveal.IsOpen(item);
+        var contactOpen = callerId == null ? ContactReveal.IsOpen(item) : ContactReveal.IsOpenFor(item, callerId);
+        var truckerOpen = ContactReveal.IsTruckerOpen(item);
         string? PhoneOf(string idKey)
             => contactOpen && phones != null
+               && (idKey != "truckerId" || truckerOpen)
                && GetStringOrNull(item, idKey) is { Length: > 0 } id
                && phones.TryGetValue(id, out var phone)
                 ? phone
@@ -336,6 +345,20 @@ public class OrderFunction
             PickupDeadlineAt = GetStringOrNull(item, PickupDeadline.Field),
             AdminQueueReason = GetStringOrNull(item, AdminQueueFields.Reason),
             AdminQueuedAt = GetStringOrNull(item, AdminQueueFields.QueuedAt),
+            Fulfillment = GetStringOrNull(item, OrderCommitment.FulfillmentField),
+            PickupDate = GetStringOrNull(item, OrderCommitment.PickupDateField),
+            FarmerResponse = GetStringOrNull(item, OrderCommitment.FarmerResponseField),
+            FarmerRespondedAt = GetStringOrNull(item, OrderCommitment.FarmerRespondedAtField),
+            FarmerDeadlineAt = GetStringOrNull(item, OrderCommitment.FarmerDeadlineAtField),
+            TruckerResponse = GetStringOrNull(item, OrderCommitment.TruckerResponseField),
+            TruckerAskedAt = GetStringOrNull(item, OrderCommitment.TruckerAskedAtField),
+            TruckerRespondedAt = GetStringOrNull(item, OrderCommitment.TruckerRespondedAtField),
+            TruckerDeadlineAt = GetStringOrNull(item, OrderCommitment.TruckerDeadlineAtField),
+            BuyerChoiceDeadlineAt = GetStringOrNull(item, OrderCommitment.BuyerChoiceDeadlineAtField),
+            TransportFailure = GetStringOrNull(item, OrderCommitment.TransportFailureField),
+            DeclineReason = GetStringOrNull(item, OrderCommitment.DeclineReasonField),
+            CancelledBy = GetStringOrNull(item, OrderCommitment.CancelledByField),
+            FaultParty = GetStringOrNull(item, OrderCommitment.FaultPartyField),
             ContactOpen = contactOpen,
             BuyerPhone = PhoneOf("buyerId"),
             FarmerPhone = PhoneOf("farmerId"),

@@ -887,6 +887,19 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     expect(JSON.stringify(onAudit)).toContain('dynamodb:PutItem');
   });
 
+  // The order cron role's statements, from its inline policy and (a large role spills over) any
+  // managed policy.
+  function orderCronStatements(t: Template): Array<{ Action: unknown; Resource: unknown }> {
+    type PolicyResource = { Properties: { PolicyDocument: { Statement: Array<{ Action: unknown; Resource: unknown }> } } };
+    const policies = [
+      ...Object.entries(t.findResources('AWS::IAM::Policy')),
+      ...Object.entries(t.findResources('AWS::IAM::ManagedPolicy')),
+    ];
+    return policies
+      .filter(([id]) => id.startsWith('OrderCronFunction'))
+      .flatMap(([, p]) => (p as PolicyResource).Properties.PolicyDocument.Statement);
+  }
+
   test.each([false, true])(
     'order cron reads only the InboxReplayIndex of the idempotency table (live=%s, ESC-45)',
     (live) => {
@@ -895,17 +908,99 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
         FunctionName: 'wereda-connect-dev-order-cron',
         Environment: { Variables: Match.objectLike({ ESCROW_IDEMPOTENCY_TABLE: Match.anyValue() }) },
       });
-      const policies = t.findResources('AWS::IAM::Policy');
-      const cron = Object.entries(policies).filter(([id]) => id.startsWith('OrderCronFunction'));
-      const statements = cron.flatMap(([, p]) =>
-        (p as { Properties: { PolicyDocument: { Statement: Array<{ Action: unknown; Resource: unknown }> } } })
-          .Properties.PolicyDocument.Statement);
-      const onIdempotency = statements.filter((s) => JSON.stringify(s.Resource).includes('EscrowIdempotencyTable'));
+      const onIdempotency = orderCronStatements(t).filter((s) => JSON.stringify(s.Resource).includes('EscrowIdempotencyTable'));
       expect(onIdempotency).toHaveLength(1);
       expect(onIdempotency[0].Action).toBe('dynamodb:Query');
       expect(JSON.stringify(onIdempotency[0].Resource)).toContain('/index/InboxReplayIndex');
     },
   );
+
+  test('order cron gets the commitment walk tables, grants and the flag, off in dev (ESC-15)', () => {
+    const t = buildTemplate(false);
+    t.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-order-cron',
+      Environment: {
+        Variables: Match.objectLike({
+          ESCROWS_TABLE: Match.anyValue(),
+          ESCROW_AUDIT_TABLE: Match.anyValue(),
+          CROPS_TABLE: Match.anyValue(),
+          TRIPS_TABLE: Match.anyValue(),
+          DELIVERIES_TABLE: Match.anyValue(),
+          USERS_TABLE: Match.anyValue(),
+          COMMITMENTS_ENABLED: 'false',
+        }),
+      },
+    });
+    const statements = orderCronStatements(t);
+    const actionsOn = (tableId: string) =>
+      statements
+        .filter((s) => JSON.stringify(s.Resource).includes(tableId))
+        .flatMap((s) => ([] as unknown[]).concat(s.Action) as string[]);
+    // The trip takes a conditional update when capacity is released; the listing when stock is
+    // restored; the escrow is read through its OrderIndex and expired; the delivery is cancelled.
+    for (const tableId of ['TripsTable', 'CropsTable', 'EscrowsTable', 'DeliveriesTable']) {
+      const actions = actionsOn(tableId);
+      expect([tableId, actions]).toEqual([tableId, expect.arrayContaining(['dynamodb:Query', 'dynamodb:UpdateItem'])]);
+    }
+    // Every escrow mutation is ledgered (write grant, no read); profiles are only read.
+    expect(actionsOn('EscrowAuditTable')).toEqual(expect.arrayContaining(['dynamodb:PutItem']));
+    expect(actionsOn('EscrowAuditTable')).not.toEqual(expect.arrayContaining(['dynamodb:Query']));
+    expect(actionsOn('UsersTable')).toEqual(expect.arrayContaining(['dynamodb:GetItem']));
+    expect(actionsOn('UsersTable')).not.toEqual(expect.arrayContaining(['dynamodb:PutItem', 'dynamodb:UpdateItem']));
+  });
+
+  test('a second hourly rule invokes the order cron with the commitment_deadlines body (ESC-15)', () => {
+    const t = buildTemplate(false);
+    t.hasResourceProperties('AWS::Events::Rule', {
+      Name: 'wereda-connect-dev-order-cron-commitments',
+      ScheduleExpression: 'rate(1 hour)',
+      Targets: [
+        Match.objectLike({
+          Arn: { 'Fn::GetAtt': [Match.stringLikeRegexp('^OrderCronFunction'), 'Arn'] },
+          Input: JSON.stringify({ body: JSON.stringify({ action: 'commitment_deadlines' }) }),
+        }),
+      ],
+    });
+    // The auto-cancel rule is untouched.
+    t.hasResourceProperties('AWS::Events::Rule', {
+      Name: 'wereda-connect-dev-order-cron-hourly',
+      Targets: [
+        Match.objectLike({
+          Input: JSON.stringify({ body: JSON.stringify({ action: 'auto_cancel_expired' }) }),
+        }),
+      ],
+    });
+  });
+
+  test.each([false, true])('sync carries COMMITMENTS_ENABLED, off in dev (live=%s, ESC-15)', (live) => {
+    buildTemplate(live).hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-sync',
+      Environment: { Variables: Match.objectLike({ COMMITMENTS_ENABLED: 'false' }) },
+    });
+  });
+
+  test('ON: the webhook reads and updates trips to reserve a funded order\'s capacity (ESC-15)', () => {
+    const t = buildTemplate(true);
+    t.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-telebirr-webhook',
+      Environment: { Variables: Match.objectLike({ TRIPS_TABLE: Match.anyValue(), COMMITMENTS_ENABLED: 'false' }) },
+    });
+    const onTrips = Object.entries(t.findResources('AWS::IAM::Policy'))
+      .filter(([id]) => id.startsWith('TelebirrWebhookFunction'))
+      .flatMap(
+        ([, policy]) =>
+          (policy as { Properties: { PolicyDocument: { Statement: Array<{ Action: unknown; Resource: unknown }> } } })
+            .Properties.PolicyDocument.Statement,
+      )
+      .filter((s) => JSON.stringify(s.Resource).includes('TripsTable'));
+    // The only public route gets the minimum on trips: one statement, read + conditional update,
+    // base table only (no put, delete, scan or index).
+    expect(onTrips).toHaveLength(1);
+    expect(([] as unknown[]).concat(onTrips[0].Action).sort()).toEqual(
+      ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:UpdateItem'],
+    );
+    expect(JSON.stringify(onTrips[0].Resource)).not.toContain('/index/');
+  });
 
   test('ON: escrow Lambda drops TELEBIRR_MOCK and gets the secret + notify URL', () => {
     buildTemplate(true).hasResourceProperties('AWS::Lambda::Function', {
@@ -1417,6 +1512,7 @@ describe('MonitoringStack', () => {
   const ESCROW_LG = '/aws/lambda/wereda-connect-dev-escrow';
   const ESCROW_CRON_LG = '/aws/lambda/wereda-connect-dev-escrow-cron';
   const SYNC_LG = '/aws/lambda/wereda-connect-dev-sync';
+  const ORDER_CRON_LG = '/aws/lambda/wereda-connect-dev-order-cron';
   const MONEY_ALARMS = [
     'wereda-connect-dev-escrow-settlement-failures',
     'wereda-connect-dev-escrow-settlement-unknown-outcomes',
@@ -1633,6 +1729,31 @@ describe('MonitoringStack', () => {
     const alarms = JSON.stringify(template.findResources('AWS::CloudWatch::Alarm'));
     expect(alarms).not.toContain('order-escrow-create-failed');
     expect(alarms).not.toContain('"OrderEscrowCreateFailed"');
+  });
+
+  test('ESC-15: the order cron feeds the same order-escrow-problems metric (refund scheduling, unconfigured walk)', () => {
+    const template = monitoringTemplate(false);
+    const filter = metricFilter(template, ORDER_CRON_LG, 'OrderEscrowProblems');
+    const UNCONFIGURED_LINE = 'ORDER_CRON_COMMITMENTS_UNCONFIGURED missing=trips: no deadline was settled this run.';
+    for (const line of [REFUND_SCHEDULE_LINE, UNCONFIGURED_LINE]) {
+      expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, line)).toBe(true);
+      expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, `2026-10-26T10:00:00.000Z\t4f1c7a2e-req\terror\t${line}`)).toBe(true);
+    }
+    // The cron's ordinary lines and the sync-only tokens do not count here.
+    for (const line of [
+      'Commitment deadlines complete: 1 farmer windows expired, 0 trucker windows expired, 0 trip cancellations applied, 0 buyer choices expired, 0/0/0 reminders stamped, 0 pickups overdue, 0 conflicts, 1 trip reads.',
+      'Commitment deadlines skipped: COMMITMENTS_ENABLED is off.',
+      'Order escrow refund scheduled: orderId=ord-1 reason=order_cancelled',
+      CREATE_LINE, LINK_LINE, DISPUTE_NO_ESCROW_LINE,
+    ]) {
+      expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, false]);
+    }
+    // One alarm for both sources (the metric is summed across filters).
+    expect(filter.Properties.MetricTransformations[0]).toEqual(
+      expect.objectContaining({ MetricName: 'OrderEscrowProblems', MetricValue: '1' }),
+    );
+    const alarms = Object.values(template.findResources('AWS::CloudWatch::Alarm')) as Array<{ Properties: { AlarmName: string } }>;
+    expect(alarms.filter((a) => a.Properties.AlarmName === 'wereda-connect-dev-order-escrow-problems')).toHaveLength(1);
   });
 
   test('ESC-13: queue alarms count overdue manual payouts and admin-queue entries on escrow-cron', () => {
@@ -1944,9 +2065,9 @@ describe('MonitoringStack', () => {
     return (pattern.match(/\??"[^"]*"|\??\S+/g) ?? []).map((t) => t.replace(/^\?/, '').replace(/^"|"$/g, ''));
   }
 
-  // The money filters of the four log groups that carry them (webhook only with the live gateway).
+  // The money filters of the five log groups that carry them (webhook only with the live gateway).
   function moneyFilterPatterns(template: Template): string[] {
-    const groups = [ESCROW_LG, ESCROW_CRON_LG, SYNC_LG, '/aws/lambda/wereda-connect-dev-telebirr-webhook'];
+    const groups = [ESCROW_LG, ESCROW_CRON_LG, SYNC_LG, ORDER_CRON_LG, '/aws/lambda/wereda-connect-dev-telebirr-webhook'];
     const money = [
       'EscrowSettlementFailures', 'OrderEscrowProblems', 'ManualPayoutsOverdue', 'AdminQueueOverdue',
       'OrderPaymentProblems', 'DisputeVerdictOrderMismatch', 'DisputeVerdictSettlementBlocked',
@@ -1966,7 +2087,7 @@ describe('MonitoringStack', () => {
 
   test('ESC-13: every money filter needs a term with an underscore (the server defangs client text by turning _ into -)', () => {
     const patterns = moneyFilterPatterns(monitoringTemplate(true));
-    expect(patterns.length).toBe(13);
+    expect(patterns.length).toBe(14);
     for (const pattern of patterns) {
       const terms = filterTerms(pattern);
       // Alternatives: every term must carry one. All required (ESC-05's unknown filter pairs the

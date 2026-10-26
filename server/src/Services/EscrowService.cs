@@ -94,7 +94,7 @@ public sealed class EscrowService
     /// <summary>ESC-01: order statuses in which the buyer's money is already held.</summary>
     private static readonly HashSet<string> FundedOrderStatuses = new()
     {
-        "funded", "accepted", "pickup_confirmed", "in_transit", "delivered",
+        "funded", OrderCommitment.AwaitingTransportStatus, "accepted", "pickup_confirmed", "in_transit", "delivered",
         "disbursing", "settled", "disputed", "dispute_resolved"
     };
 

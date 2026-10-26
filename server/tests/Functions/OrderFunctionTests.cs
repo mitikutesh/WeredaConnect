@@ -518,6 +518,7 @@ public class OrderFunctionTests
     [InlineData("payment_submitted")]
     [InlineData("payment_failed")]
     [InlineData("funded")]
+    [InlineData("awaiting_transport")]
     [InlineData("cancelled")]
     [InlineData("rejected")]
     [InlineData("dispute_resolved")]
@@ -631,6 +632,149 @@ public class OrderFunctionTests
 
         Assert.Equal(403, response.StatusCode);
         await _users.DidNotReceive().GetPhoneNumbersAsync(Arg.Any<IReadOnlyCollection<string>>());
+    }
+
+    // --- ESC-15: contact per party ---
+
+    private static Dictionary<string, object> CommittedTripOrder(string status, string farmer, string trucker)
+    {
+        var order = TripOrder(status);
+        order["farmerResponse"] = farmer;
+        order["truckerResponse"] = trucker;
+        return order;
+    }
+
+    [Theory]
+    [InlineData("funded", "pending")]
+    [InlineData("awaiting_transport", "declined")]
+    public async Task GetOrderById_FarmerAcceptedButNoTrucker_BuyerAndFarmerTalk_TruckerIsOut(string status, string truckerResponse)
+    {
+        _mockOrderRepo.GetByIdAsync("order-001").Returns(CommittedTripOrder(status, "accepted", truckerResponse));
+        var fn = FunctionWithUsers();
+
+        foreach (var caller in new[] { "buyer-001", "farmer-001" })
+        {
+            var order = OrderOf((await fn.FunctionHandler(DetailRequest(caller), _context)).Body);
+
+            Assert.True(order.GetProperty("contactOpen").GetBoolean());
+            Assert.Equal(BuyerPhone, PhoneOf(order, "buyerPhone"));
+            Assert.Equal(FarmerPhone, PhoneOf(order, "farmerPhone"));
+            Assert.Null(PhoneOf(order, "truckerPhone"));
+        }
+
+        // The buyer and farmer reads never asked for the trucker's number.
+        await _users.DidNotReceive().GetPhoneNumbersAsync(Arg.Is<IReadOnlyCollection<string>>(ids => ids.Contains("trucker-001")));
+        _users.ClearReceivedCalls();
+
+        var truckerView = OrderOf((await fn.FunctionHandler(DetailRequest("trucker-001"), _context)).Body);
+
+        Assert.False(truckerView.GetProperty("contactOpen").GetBoolean());
+        Assert.Null(PhoneOf(truckerView, "buyerPhone"));
+        Assert.Null(PhoneOf(truckerView, "farmerPhone"));
+        Assert.Null(PhoneOf(truckerView, "truckerPhone"));
+        await _users.DidNotReceive().GetPhoneNumbersAsync(Arg.Any<IReadOnlyCollection<string>>());
+    }
+
+    [Fact]
+    public async Task GetOrderById_TruckerCommitted_EveryPartyGetsEveryPhone()
+    {
+        _mockOrderRepo.GetByIdAsync("order-001").Returns(CommittedTripOrder("accepted", "accepted", "accepted"));
+        var fn = FunctionWithUsers();
+
+        foreach (var caller in new[] { "buyer-001", "farmer-001", "trucker-001" })
+        {
+            var order = OrderOf((await fn.FunctionHandler(DetailRequest(caller), _context)).Body);
+
+            Assert.True(order.GetProperty("contactOpen").GetBoolean());
+            Assert.Equal(BuyerPhone, PhoneOf(order, "buyerPhone"));
+            Assert.Equal(FarmerPhone, PhoneOf(order, "farmerPhone"));
+            Assert.Equal(TruckerPhone, PhoneOf(order, "truckerPhone"));
+        }
+    }
+
+    [Fact]
+    public async Task GetOrderById_FarmerStillDeciding_IsClosedForEveryone()
+    {
+        _mockOrderRepo.GetByIdAsync("order-001").Returns(CommittedTripOrder("funded", "pending", "not_asked"));
+        var fn = FunctionWithUsers();
+
+        foreach (var caller in new[] { "buyer-001", "farmer-001", "trucker-001" })
+        {
+            var order = OrderOf((await fn.FunctionHandler(DetailRequest(caller), _context)).Body);
+
+            Assert.False(order.GetProperty("contactOpen").GetBoolean());
+            Assert.Null(PhoneOf(order, "farmerPhone"));
+        }
+
+        await _users.DidNotReceive().GetPhoneNumbersAsync(Arg.Any<IReadOnlyCollection<string>>());
+    }
+
+    [Fact]
+    public async Task GetOrders_List_TruckerCaller_SeesOnlyTheOrdersTheyCommittedTo()
+    {
+        var committed = CommittedTripOrder("accepted", "accepted", "accepted");
+        var asked = CommittedTripOrder("funded", "accepted", "pending");
+        asked["orderId"] = "order-002";
+        ReturnsList(committed, asked);
+
+        var response = await FunctionWithUsers().FunctionHandler(MakeGetRequest(userId: "trucker-001", role: "trucker"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        using var doc = JsonDocument.Parse(response.Body);
+        var orders = doc.RootElement.GetProperty("orders");
+        Assert.True(orders[0].GetProperty("contactOpen").GetBoolean());
+        Assert.Equal(BuyerPhone, PhoneOf(orders[0], "buyerPhone"));
+        Assert.Equal(FarmerPhone, PhoneOf(orders[0], "farmerPhone"));
+        Assert.False(orders[1].GetProperty("contactOpen").GetBoolean());
+        Assert.Null(PhoneOf(orders[1], "buyerPhone"));
+        Assert.Null(PhoneOf(orders[1], "farmerPhone"));
+    }
+
+    [Fact]
+    public void MapToOrderDto_CarriesTheCommitmentFields()
+    {
+        var item = CommittedTripOrder("awaiting_transport", "accepted", "declined");
+        item["fulfillment"] = "trucker";
+        item["pickupDate"] = "2026-10-30T06:00:00.0000000Z";
+        item["farmerRespondedAt"] = "2026-10-26T10:00:00.0000000Z";
+        item["farmerDeadlineAt"] = "2026-10-27T09:00:00.0000000Z";
+        item["truckerAskedAt"] = "2026-10-26T10:00:00.0000000Z";
+        item["truckerRespondedAt"] = "2026-10-26T12:00:00.0000000Z";
+        item["truckerDeadlineAt"] = "2026-10-27T10:00:00.0000000Z";
+        item["buyerChoiceDeadlineAt"] = "2026-10-28T12:00:00.0000000Z";
+        item["transportFailure"] = "trucker_declined";
+        item["declineReason"] = "route";
+        item["faultParty"] = "trucker";
+
+        var dto = OrderFunction.MapToOrderDto(item);
+
+        Assert.Equal("trucker", dto.Fulfillment);
+        Assert.Equal("2026-10-30T06:00:00.0000000Z", dto.PickupDate);
+        Assert.Equal("accepted", dto.FarmerResponse);
+        Assert.Equal("2026-10-26T10:00:00.0000000Z", dto.FarmerRespondedAt);
+        Assert.Equal("2026-10-27T09:00:00.0000000Z", dto.FarmerDeadlineAt);
+        Assert.Equal("declined", dto.TruckerResponse);
+        Assert.Equal("2026-10-26T10:00:00.0000000Z", dto.TruckerAskedAt);
+        Assert.Equal("2026-10-26T12:00:00.0000000Z", dto.TruckerRespondedAt);
+        Assert.Equal("2026-10-27T10:00:00.0000000Z", dto.TruckerDeadlineAt);
+        Assert.Equal("2026-10-28T12:00:00.0000000Z", dto.BuyerChoiceDeadlineAt);
+        Assert.Equal("trucker_declined", dto.TransportFailure);
+        Assert.Equal("route", dto.DeclineReason);
+        Assert.Null(dto.CancelledBy);
+        Assert.Equal("trucker", dto.FaultParty);
+        // No caller: the buyer-farmer contact.
+        Assert.True(dto.ContactOpen);
+    }
+
+    [Fact]
+    public void MapToOrderDto_LegacyRow_HasNoCommitmentFields()
+    {
+        var dto = OrderFunction.MapToOrderDto(TripOrder("accepted"));
+
+        Assert.Null(dto.Fulfillment);
+        Assert.Null(dto.FarmerResponse);
+        Assert.Null(dto.TruckerResponse);
+        Assert.Null(dto.TransportFailure);
     }
 
     [Fact]

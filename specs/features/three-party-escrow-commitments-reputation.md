@@ -1,6 +1,6 @@
 # Feature: Three-Party Escrow, Commitments and Reputation
 
-**Status**: APPROVED 2026-09-30 (decisions D1 to D9 answered in §14, task ESC-00 done); implementation starts with P0
+**Status**: APPROVED 2026-09-30 (decisions D1 to D9 answered in §14, task ESC-00 done); implementation starts with P0. ESC-15 server slice decisions D10 to D15 added 2026-10-26 (§14.1)
 **Tasks**: EPIC ESC in `TASK.md` (ESC-00 to ESC-43, grouped by the phases in §13)
 **Code survey**: `specs/reports/escrow-flow-survey-2026-09-29.md` (every finding with file:line and its owning task)
 **Author**: AI-assisted
@@ -927,3 +927,14 @@ P0 ships on its own and is needed before live money regardless of the rest. P1 a
 | D7 | Mutual cancel (the buyer asks, the farmer and trucker agree, no penalty) | **Later** (P4). |
 | D8 | Timeout points and SMS | **Yes:** timeout points only for users with a registered push device, and no SMS fallback. |
 | D9 | Thresholds | **Yes:** low at 6, restricted at 10 for 14 days, 90-day window, all in SSM. |
+
+### 14.1 Decisions added on 2026-10-26 (ESC-15 server slice, PR 1 of 4)
+
+| # | Question | Decision |
+|---|---|---|
+| D10 | Are the farmer and the trucker asked at the same time, or one after the other? | **Sequential (user decision).** The trucker is asked only after the farmer accepts. `truckerResponse` gains `not_asked` (waiting for the farmer) and `failed_capacity` (the trip had no room). The farmer's accept on a trip order keeps the order `funded`; the trucker's accept makes it `accepted` and stamps `pickupDeadlineAt`. |
+| D11 | How is a transport failure recorded? | New order field `transportFailure`: `trucker_declined`, `trucker_expired`, `trucker_cancelled`, `trip_cancelled`, `trip_full`. `transportAttempts` (4.4) is not added in this slice. |
+| D12 | What does a trip's `matched` status mean now? | **Fully booked** (`remainingQuintals` is 0), set by the system as orders reserve capacity; a client may no longer send it. `open -> inTransit` is allowed when the trip has bookings. |
+| D13 | Command values | `farmerResponse` and `truckerResponse` take `accept` or `decline` (with an optional `declineReason`: `date`, `capacity`, `price`, `route`, `crop_not_ready`, `other`), not the stored response values. |
+| D14 | The trip is full or cancelled at funding, before the farmer answers | The order goes straight to `awaiting_transport` (`trip_full` / `trip_cancelled`) and the farmer is not asked. 4.7 said the order waits `funded` until the farmer accepts; this supersedes it. |
+| D15 | Scope of this slice | Server only, behind `COMMITMENTS_ENABLED` (off everywhere until the client PRs ship). Replacement truck and the switch to self-pickup remain ESC-19 and ESC-20; the exits from `awaiting_transport` are the buyer's cancel, the farmer's no-penalty cancel and the 48 hour deadline. Contracts: `order-lifecycle.md` 2.0.0, `sync-protocol.md` 1.29.0, `trip-listing-api.md` 2.0.0, `escrow-protocol.md` 1.34.0, `data-models.md` 1.1.0. |

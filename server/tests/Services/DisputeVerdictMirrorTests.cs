@@ -504,6 +504,22 @@ public class DisputeVerdictMirrorTests
     }
 
     [Fact]
+    public async Task BuyerWins_AwaitingTransportOrder_IsCancelled_LikeAFundedOne()
+    {
+        // ESC-15: the transport failed and the money is still held; nothing left the farm.
+        var crops = RestoringCrops();
+        var mirror = new DisputeVerdictMirror(_orders, _deliveries, _txAudit, crops);
+        _orders.GetByIdAsync(OrderId, true).Returns(ListedOrder("awaiting_transport", 4));
+        OrderWritesSucceed();
+
+        var result = await mirror.ApplyAsync(Escrow(withDelivery: false), "buyer_wins", ResolvedAt, cancelBeforePickup: true);
+
+        result.Order.Should().Be(VerdictLegOutcome.Cancelled);
+        _orderWrites.Should().Equal("cancelled");
+        await crops.Received(1).RestoreStockAsync("listing-1", OrderId, 2.5);
+    }
+
+    [Fact]
     public async Task BuyerWins_BeforePickup_IsDeferred_WhenTheCallerDoesNotCancel()
     {
         // The admin verdict leaves the cancel to the refund settlement.
