@@ -138,6 +138,10 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(List<MessageDto>))]
 [JsonSerializable(typeof(GetMessagesResponse))]
 [JsonSerializable(typeof(GetMessageResponse))]
+// Notification inbox DTOs (ESC-21, GET /notifications)
+[JsonSerializable(typeof(NotificationDto))]
+[JsonSerializable(typeof(List<NotificationDto>))]
+[JsonSerializable(typeof(GetNotificationsResponse))]
 // Admin endpoint DTOs
 [JsonSerializable(typeof(AdminDashboardStatsResponse))]
 [JsonSerializable(typeof(AdminEscrowListResponse))]

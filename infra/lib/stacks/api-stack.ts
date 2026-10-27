@@ -12,6 +12,7 @@ import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
@@ -47,6 +48,7 @@ export interface ApiStackProps extends cdk.StackProps {
   readonly matchEventsTable: dynamodb.Table;
   readonly ratingsTable: dynamodb.Table;
   readonly messagesTable: dynamodb.Table;
+  readonly notificationsTable: dynamodb.Table;
   readonly uploadsBucket: s3.Bucket;
 }
 
@@ -697,6 +699,81 @@ export class ApiStack extends cdk.Stack {
         ],
       }),
     );
+
+    // ─── Order Notify Stream Function (ESC-21 order notifications) ─────
+    // The orders, deliveries and escrows NEW_AND_OLD_IMAGES streams feed one
+    // consumer. NotificationRules turns each old/new image pair into events;
+    // every event becomes an inbox row (notifications table) and, when the
+    // event asks for one, an FCM push in the recipient's preferred language.
+    // A record that keeps failing after its retries (and the batch bisection)
+    // is dropped from the stream and its metadata lands in this DLQ, which the
+    // monitoring stack alarms on (NotifyDlqMessages).
+    const notifyDlq = new sqs.Queue(this, "OrderNotifyDlq", {
+      queueName: `${prefix}-notify-dlq`,
+      retentionPeriod: cdk.Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+    });
+
+    const orderNotifyStreamFn = new WeredaLambda(this, "OrderNotifyStreamFunction", {
+      functionName: `${prefix}-order-notify-stream`,
+      description:
+        "Orders, deliveries and escrows streams: write the notification inbox and push to the recipient (ESC-21)",
+      handlerName: "OrderNotifyStreamFunction",
+      environment: {
+        DEVICE_TOKENS_TABLE: props.deviceTokensTable.tableName,
+        // Recipients' preferredLanguage, one BatchGetItem per batch.
+        USERS_TABLE: props.usersTable.tableName,
+        NOTIFICATIONS_TABLE: props.notificationsTable.tableName,
+      },
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      reservedConcurrentExecutions: 5,
+    });
+    // Least privilege: the recipient's endpoints (Query) and the prune of a disabled or missing
+    // SNS endpoint (DeleteItem); the recipients' preferredLanguage (one BatchGetItem per batch, no
+    // scan of the users table); the conditional inbox PutItem (the inbox is never read here).
+    props.deviceTokensTable.grant(orderNotifyStreamFn.function, "dynamodb:Query", "dynamodb:DeleteItem");
+    props.usersTable.grant(orderNotifyStreamFn.function, "dynamodb:BatchGetItem");
+    props.notificationsTable.grant(orderNotifyStreamFn.function, "dynamodb:PutItem");
+    orderNotifyStreamFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["sns:Publish"],
+        resources: [fcmEndpointArnPattern],
+      }),
+    );
+    // Shared settings for the three sources. Partial batch responses retry
+    // only the failed records; bisecting splits a batch that keeps failing so
+    // one bad record cannot hold back the rest of its shard; records older
+    // than a day are dropped (to the DLQ) rather than pushed late.
+    const notifySourceProps = {
+      startingPosition: lambda.StartingPosition.LATEST,
+      batchSize: 10,
+      retryAttempts: 3,
+      bisectBatchOnError: true,
+      reportBatchItemFailures: true,
+      maxRecordAge: cdk.Duration.days(1),
+      onFailure: new lambdaEventSources.SqsDlq(notifyDlq),
+    };
+    // Orders and escrows are read on MODIFY (status moves), deliveries on
+    // INSERT (a delivery created for an order). The filter runs before the
+    // invoke, so every other event costs no Lambda time.
+    for (const [table, eventName] of [
+      [props.ordersTable, "MODIFY"],
+      [props.deliveriesTable, "INSERT"],
+      [props.escrowsTable, "MODIFY"],
+    ] as const) {
+      orderNotifyStreamFn.function.addEventSource(
+        new lambdaEventSources.DynamoEventSource(table, {
+          ...notifySourceProps,
+          filters: [
+            lambda.FilterCriteria.filter({
+              eventName: lambda.FilterRule.isEqual(eventName),
+            }),
+          ],
+        }),
+      );
+    }
 
     // ─── R4 SSM Parameters ────────────────────────────────────────────
 
@@ -1382,6 +1459,23 @@ export class ApiStack extends cdk.Stack {
     props.messagesTable.grantReadData(messageFn.function);
     paginationSecret.grantRead(messageFn.function);
 
+    // ─── Notification Function (ESC-21 inbox read) ───────────────────
+
+    const notificationFn = new WeredaLambda(this, "NotificationFunction", {
+      functionName: `${prefix}-notifications`,
+      description: "GET /notifications: the caller's order notification inbox (read-only, ESC-21)",
+      handlerName: "NotificationFunction",
+      environment: {
+        NOTIFICATIONS_TABLE: props.notificationsTable.tableName,
+        PAGINATION_SECRET_ARN: paginationSecret.reference,
+      },
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 256,
+      reservedConcurrentExecutions: 10,
+    });
+    props.notificationsTable.grantReadData(notificationFn.function);
+    paginationSecret.grantRead(notificationFn.function);
+
     // ─── Order Cron Function (auto-cancel expired unpaid orders, commitment deadlines) ────
 
     const orderCronFn = new WeredaLambda(this, "OrderCronFunction", {
@@ -1988,6 +2082,23 @@ export class ApiStack extends cdk.Stack {
       integration: new integrations.HttpLambdaIntegration(
         "MessagesGetInt",
         messageFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    // ─── Notification Routes (authenticated, ESC-21) ─────────────────
+    // Read-only: the inbox is written by OrderNotifyStreamFunction. The
+    // handler scopes the query to the caller's own userId (JWT sub).
+
+    httpApi.addRoutes({
+      path: "/notifications",
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration(
+        "NotificationsListInt",
+        notificationFn.function,
         {
           payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
         },

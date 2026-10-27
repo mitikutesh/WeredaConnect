@@ -51,6 +51,12 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         "Ref": "MessagesTableA255D91E",
       },
     },
+    "NotificationsTableName": {
+      "Description": "DynamoDB Notifications Table (order notification inbox)",
+      "Value": {
+        "Ref": "NotificationsTable7330C64A",
+      },
+    },
     "OrdersTableName": {
       "Description": "DynamoDB Orders Table",
       "Value": {
@@ -556,6 +562,9 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         "PointInTimeRecoverySpecification": {
           "PointInTimeRecoveryEnabled": true,
         },
+        "StreamSpecification": {
+          "StreamViewType": "NEW_AND_OLD_IMAGES",
+        },
         "TableName": "wereda-connect-dev-deliveries",
       },
       "Type": "AWS::DynamoDB::Table",
@@ -884,6 +893,9 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         "PointInTimeRecoverySpecification": {
           "PointInTimeRecoveryEnabled": true,
         },
+        "StreamSpecification": {
+          "StreamViewType": "NEW_AND_OLD_IMAGES",
+        },
         "TableName": "wereda-connect-dev-escrows",
       },
       "Type": "AWS::DynamoDB::Table",
@@ -1108,6 +1120,64 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",
     },
+    "NotificationsTable7330C64A": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "userId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "sortKey",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "writtenAt",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "KeySchema": [
+          {
+            "AttributeName": "userId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "sortKey",
+            "KeyType": "RANGE",
+          },
+        ],
+        "LocalSecondaryIndexes": [
+          {
+            "IndexName": "WrittenAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "userId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "writtenAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-notifications",
+        "TimeToLiveSpecification": {
+          "AttributeName": "expiresAt",
+          "Enabled": true,
+        },
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
     "OrdersTableD407578C": {
       "DeletionPolicy": "Delete",
       "Properties": {
@@ -1280,6 +1350,9 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         ],
         "PointInTimeRecoverySpecification": {
           "PointInTimeRecoveryEnabled": true,
+        },
+        "StreamSpecification": {
+          "StreamViewType": "NEW_AND_OLD_IMAGES",
         },
         "TableName": "wereda-connect-dev-orders",
       },

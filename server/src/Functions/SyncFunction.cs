@@ -7150,23 +7150,16 @@ public partial class SyncFunction
     }
 
     /// <summary>
-    /// ESC-06: codes the server writes into <c>cancelReason</c> (order-lifecycle.md 1.15.0; the rest are
-    /// reserved for ESC-15, spec 4.6). A client text equal to one is kept in <c>cancelNote</c> instead,
-    /// so no cancel can pass for a server decision.
+    /// ESC-06: moves a client <c>cancelReason</c> that spells a server code
+    /// (<see cref="OrderCommitment.ServerCancelReasons"/>) or the unpaid cron's sentence to
+    /// <c>cancelNote</c>, so no cancel can pass for a server decision.
     /// </summary>
-    private static readonly HashSet<string> ServerCancelReasonCodes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        PickupDeadline.CancelReason, "escrow_refunded", "buyer_withdrew", "unpaid_expired",
-        "farmer_response_expired", "farmer_cancelled", "farmer_no_show", "transport_not_arranged",
-        "listing_out_of_stock", "buyer_no_show"
-    };
-
-    /// <summary>ESC-06: moves a client <c>cancelReason</c> that spells a server code to <c>cancelNote</c>.</summary>
     private static void KeepServerCancelCodesReserved(Dictionary<string, object> data)
     {
         if (data.TryGetValue("cancelReason", out var raw)
             && raw?.ToString()?.Trim() is { Length: > 0 } text
-            && ServerCancelReasonCodes.Contains(text))
+            && (OrderCommitment.ServerCancelReasons.Contains(text)
+                || text.StartsWith(OrderCommitment.LegacyAutoCancelPrefix, StringComparison.OrdinalIgnoreCase)))
         {
             data.Remove("cancelReason");
             data["cancelNote"] = text;

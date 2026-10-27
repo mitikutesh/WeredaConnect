@@ -54,4 +54,11 @@ public interface IUserRepository
     /// after a few retries: a caller shows no phone rather than failing.
     /// </summary>
     Task<IReadOnlyDictionary<string, string>> GetPhoneNumbersAsync(IReadOnlyCollection<string> userIds);
+
+    /// <summary>
+    /// ESC-21: the preferred languages (<c>am</c>, <c>om</c>, <c>en</c>) of these users in one batched
+    /// read, for the push text. Same contract as <see cref="GetPhoneNumbersAsync"/>: a user with no row
+    /// or no language is left out, and the caller falls back to the default language.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, string>> GetPreferredLanguagesAsync(IReadOnlyCollection<string> userIds);
 }

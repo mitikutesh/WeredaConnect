@@ -844,6 +844,17 @@ ESC-10 lines on these alarms (escrow-cron log group; `specs/contracts/escrow-pro
 - `ESCROW_RELEASE_BLOCKED escrowId=<id> code=ESCROW_029` (Information, no alarm): the farmer must verify (phone or
   Fayda); the next hourly run pays once they have. Audited once per reason (`release_blocked_kyc`).
 
+Order notifications (ESC-21; contract `specs/contracts/notifications-api.md`). The
+`<prefix>-order-notify-stream` Lambda reads the orders, deliveries and escrows streams, writes each
+party's inbox row, then sends the FCM message. A lost FCM message is not alarmed (the inbox and the
+app's Action-needed cards still show it); a lost inbox row is:
+
+| Alarm | Meaning | First action |
+|---|---|---|
+| `<prefix>-notify-dlq-messages` | a stream batch failed every retry (3 attempts, bisected) or aged past 24 hours, and its shard and sequence range landed in `<prefix>-notify-dlq`. The message holds that metadata, not the records, and stream retention is 24 hours, so the records cannot be replayed from the queue | read the stream Lambda's log group for the failing record (inbox write or rule error) and fix the cause. The parties still see the order state in the app; their inbox misses those rows. Delete the queue messages once handled |
+| `<prefix>-notify-stream-iterator-age` | the stream Lambda is more than 15 minutes behind on a stream: it keeps failing a batch, is throttled, or the table had a burst | check the Lambda's errors and throttles; a poison record retries until it is bisected out or 24 hours old (then it goes to the queue above) |
+| `<prefix>-notify-stream-errors` | the stream Lambda crashed or timed out (30 s); a failed record reported back to Lambda is not an error | find the RequestId in the log group and fix the cause; Lambda retries the batch |
+
 Live Telebirr webhook (ESC-45; only with `enableTelebirrLive`; contract `escrow-protocol.md` "Additions in 1.16.0",
 decision record `specs/decisions/telebirr-webhook-delivery-and-recovery.md`):
 

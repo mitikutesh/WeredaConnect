@@ -1,7 +1,7 @@
 # Push Alerts API Contract
 
 ## Version
-1.2.0
+1.3.0
 
 ## Parties
 - **Mobile** (client) — registers device tokens, syncs buyer intents, receives push
@@ -14,6 +14,13 @@ purchase intents. The flow has three parts: register a device token, sync intent
 server, and a server-side match-on-insert that publishes the push. Design:
 `specs/architecture/push-notifications-architecture.md`. Setup:
 `.ai/push-notifications-setup.md`.
+
+Order, delivery and money pushes (an order funded, a transport request, a payout sent, a
+dispute opened) are specified in `notifications-api.md` (1.3.0, ESC-21). They share the device
+token registration of section 1 and the same SNS platform application, and the clients tell
+the three push families apart by the `data.type` discriminator: chat pushes carry
+`message` (`messaging.md`), order pushes carry `order`, and the match alerts of section 3
+have no `type` at all.
 
 ---
 
@@ -148,11 +155,12 @@ receive the previous user's alerts.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.3.0 | 2026-10-26 | Overview names `notifications-api.md` for order, delivery and money pushes: same device tokens and platform application, told apart by `data.type` (`message`, `order`, none for match alerts). No wire change here (ESC-21). |
 | 1.2.0 | 2026-10-06 | `POST /device-tokens`: `platform` is an allow-list (`android`, the default); anything else is `400 DEVICE_TOKEN_VALIDATION`. `buyer_intent` update no longer requires an echoed `buyerId`; a mismatching one is still refused (SIM-60). |
 | 1.1.0 | 2026-09-26 | `DELETE /device-tokens` unregisters the caller's push endpoint (logout on shared phones). |
 | 1.0.0 | 2026-06-19 | Initial: device-token registration, buyer_intent sync, match-on-insert push. |
 
 ---
 
-**Last Updated**: 2026-10-06
+**Last Updated**: 2026-10-26
 **Status**: Draft
