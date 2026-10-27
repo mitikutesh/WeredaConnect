@@ -379,6 +379,11 @@ def scenario_a(s, F, T, B, crop):
         order = get_order(B, oid)
         s.check("legacy: the farmer's accept is final", ok_result(res) and order.get("status") == "accepted",
                 f"status={order.get('status')} {message(res)}")
+        # ESC-21 with the commitments off: the farmer's accept completes the order,
+        # so the farmer (the actor) is not told order_confirmed; the trucker is.
+        expect_inbox(s, "buyer", B, oid, ["payment_confirmed", "order_confirmed"])
+        expect_inbox(s, "farmer", F, oid, ["order_request"], absent=("order_confirmed",))
+        expect_inbox(s, "trucker", T, oid, ["order_confirmed"], absent=("transport_request",))
         return
     s.check("funded with the farmer asked first",
             order.get("status") == "funded" and order.get("farmerResponse") == "pending"
