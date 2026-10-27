@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -172,11 +173,19 @@ class TripCard extends StatelessWidget {
                         color: AppTheme.textMuted,
                       ),
                       const SizedBox(width: 4),
-                      Text(
-                        '${trip.capacity} ${l10n.quintals}',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: AppTheme.textMuted,
+                      Flexible(
+                        child: Text(
+                          // ESC-15: a booked trip shows the room left.
+                          trip.remainingQuintals == null
+                              ? '${trip.capacity} ${l10n.quintals}'
+                              : l10n.tripRemainingCapacity(
+                                  formatQuintals(tripRoomLeft(trip)),
+                                ),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppTheme.textMuted,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],

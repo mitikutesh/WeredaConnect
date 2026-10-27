@@ -1,14 +1,16 @@
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
 
 /// Shared order-status semantics (specs/contracts/order-lifecycle.md),
 /// consumed by the dashboard overview tiles and the profile
 /// "In Escrow (ETB)" stat so the web and Isar paths cannot drift.
 
 /// Statuses where the buyer's money is held in escrow — funded through
-/// delivered, plus disputed. Excludes disbursing and later: the money is
-/// already leaving escrow.
+/// delivered, plus disputed and (ESC-15) a funded order whose transport fell
+/// through. Excludes disbursing and later: the money is already leaving escrow.
 const Set<OrderStatus> escrowHeldOrderStatuses = {
   OrderStatus.funded,
+  OrderStatus.awaitingTransport,
   OrderStatus.accepted,
   OrderStatus.pickupConfirmed,
   OrderStatus.inTransit,
@@ -22,6 +24,7 @@ const Set<OrderStatus> activeOrderStatuses = {
   OrderStatus.pendingPayment,
   OrderStatus.paymentSubmitted,
   OrderStatus.funded,
+  OrderStatus.awaitingTransport,
   OrderStatus.accepted,
 };
 
@@ -36,11 +39,15 @@ const Set<OrderStatus> deliveredOrderStatuses = {
 };
 
 /// ESC-48: statuses at which the parties of an order may reach each other
-/// (order-lifecycle.md 1.18.0): from the farmer's accept until the money goes
-/// back. Only the fallback for an order the server has not judged yet
-/// ([Order.contactOpen] null); the server's flag also closes contact after an
-/// admin override refund, which the status alone does not show.
+/// (order-lifecycle.md 2.0.0): from the farmer's accept until the money goes
+/// back. In `funded` and `awaitingTransport` the farmer's answer decides
+/// (ESC-15, [isOrderContactOpen]). Only the fallback for an order the server
+/// has not judged yet ([Order.contactOpen] null); the server's flag also
+/// closes contact after an admin override refund, which the status alone does
+/// not show, and for a trucker who has not committed.
 const Set<OrderStatus> contactOpenOrderStatuses = {
+  OrderStatus.funded,
+  OrderStatus.awaitingTransport,
   OrderStatus.accepted,
   OrderStatus.pickupConfirmed,
   OrderStatus.inTransit,
@@ -62,9 +69,15 @@ const Set<OrderStatus> contactNotYetOpenOrderStatuses = {
 
 /// ESC-48: whether the parties of [order] may call, copy and message each
 /// other. The server's [Order.contactOpen] decides; a status outside the open
-/// set always closes (a local cancel or reject not synced yet).
+/// set always closes (a local cancel or reject not synced yet), and so does a
+/// funded order the farmer has not accepted (ESC-15).
 bool isOrderContactOpen(Order order) {
   if (!contactOpenOrderStatuses.contains(order.status)) return false;
+  if ((order.status == OrderStatus.funded ||
+          order.status == OrderStatus.awaitingTransport) &&
+      farmerResponseOf(order) != CommitmentResponse.accepted) {
+    return false;
+  }
   return order.contactOpen ?? true;
 }
 

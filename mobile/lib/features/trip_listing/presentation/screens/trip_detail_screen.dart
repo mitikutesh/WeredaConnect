@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -11,6 +12,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_bookings_section.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -94,7 +96,10 @@ class TripDetailScreen extends StatelessWidget {
                       _InfoRow(
                         icon: Icons.local_shipping,
                         label: l10n.capacity,
-                        value: '${trip.capacity} ${l10n.quintals}',
+                        value: trip.remainingQuintals == null
+                            ? '${trip.capacity} ${l10n.quintals}'
+                            : '${trip.capacity} ${l10n.quintals} · '
+                                '${l10n.tripRemainingCapacity(formatQuintals(tripRoomLeft(trip)))}',
                       ),
                       const SizedBox(height: 12),
                       _InfoRow(
@@ -148,6 +153,20 @@ class TripDetailScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 32),
 
+                      // ESC-15: the orders booked on the trucker's own trip.
+                      Builder(
+                        builder: (context) {
+                          final authState = context.read<AuthBloc>().state;
+                          final isOwner = authState is AuthAuthenticated &&
+                              authState.userId == trip.truckerId;
+                          if (!isOwner) return const SizedBox.shrink();
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 32),
+                            child: TripBookingsSection(trip: trip),
+                          );
+                        },
+                      ),
+
                       // Contextual action buttons based on trip status
                       BlocBuilder<TripListingBloc, TripListingState>(
                         builder: (context, state) {
@@ -160,11 +179,16 @@ class TripDetailScreen extends StatelessWidget {
                             return const SizedBox.shrink();
                           }
                           final isLoading = state is TripListingLoading;
+                          // ESC-15: a trip stays open while it has room, so
+                          // one with bookings may start too (matched = full).
+                          final canStart = trip.status == TripStatus.matched ||
+                              (trip.status == TripStatus.open &&
+                                  tripHasBookings(trip));
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              // Start Trip (matched trips)
-                              if (trip.status == TripStatus.matched)
+                              // Start Trip (matched trips, or open with bookings)
+                              if (canStart)
                                 SizedBox(
                                   width: double.infinity,
                                   child: ElevatedButton.icon(
@@ -250,8 +274,7 @@ class TripDetailScreen extends StatelessWidget {
                               // Cancel button (open/matched trips)
                               if (trip.status == TripStatus.open ||
                                   trip.status == TripStatus.matched) ...[
-                                if (trip.status == TripStatus.matched)
-                                  const SizedBox(height: 12),
+                                if (canStart) const SizedBox(height: 12),
                                 SizedBox(
                                   width: double.infinity,
                                   child: ElevatedButton.icon(

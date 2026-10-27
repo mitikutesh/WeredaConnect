@@ -255,6 +255,29 @@ void main() {
     );
   });
 
+  test('ESC-15: a booked trip is suggested only with room for the intent',
+      () async {
+    stubCrops([cropDto(cropId: 'wheat-1')]);
+    stubTrips([
+      tripDto(tripId: 'trip-almost-full', fromWoreda: 'Adama')
+        ..['bookedQuintals'] = 98
+        ..['remainingQuintals'] = 2,
+      tripDto(tripId: 'trip-room', fromWoreda: 'Adama')
+        ..['bookedQuintals'] = 50
+        ..['remainingQuintals'] = 50,
+      tripDto(tripId: 'trip-unbooked', fromWoreda: 'Adama'),
+    ]);
+
+    final results = await service.matchListingsForIntent(
+      intent(deliveryWoreda: 'Addis Ababa'),
+    );
+
+    final trips = results.single.suggestedTrips;
+    expect(trips.map((t) => t.tripId), ['trip-room', 'trip-unbooked']);
+    expect(trips.first.remainingQuintals, 50);
+    expect(trips.last.remainingQuintals, isNull);
+  });
+
   test('refreshMatchCounts persists the eligible candidate count', () async {
     // 3 crops available; only 2 are wheat/barley candidates within budget.
     stubCrops([

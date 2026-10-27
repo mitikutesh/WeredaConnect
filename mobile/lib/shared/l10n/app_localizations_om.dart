@@ -3197,4 +3197,455 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deletedUser => 'Fayyadamaa haqame';
+
+  @override
+  String get statusAwaitingTransport => 'Geejjibni hin argamne';
+
+  @override
+  String get statusAwaitingTransportInfo =>
+      'Konkolaataan fe\'aa ajaja kana fe\'uu hin danda\'u. Maallaqni nageenyaan qabamee tura. Bitataan haquun maallaqa guutuu deebifachuu danda\'a; yeroodhaan yoo hin murteessine ajajni ni haqama, maallaqni ni deebi\'a.';
+
+  @override
+  String get orderStatusUpdating => 'Haaromfamaa jira';
+
+  @override
+  String get orderStatusUpdatingInfo =>
+      'Ajajni kun haala appiin kun ammaaf agarsiisuu hin dandeenyeen jijjiirameera. Maaloo appii haaromsaa.';
+
+  @override
+  String get commitmentTitle => 'Eenyutu waliigale';
+
+  @override
+  String get commitmentAccepted => 'Fudhateera';
+
+  @override
+  String commitmentWaitingUntil(String time) {
+    return 'Eegamaa jira, deebiin hanga $time';
+  }
+
+  @override
+  String get commitmentWaiting => 'Deebii eegaa jira';
+
+  @override
+  String get commitmentDeclined => 'Dideera';
+
+  @override
+  String get commitmentExpired => 'Yeroodhaan hin deebisne';
+
+  @override
+  String get commitmentNotAskedYet =>
+      'Erga qonnaan bulaan fudhatee booda gaafatama';
+
+  @override
+  String get commitmentTripCancelled => 'Imalli haqameera';
+
+  @override
+  String get commitmentTripFull => 'Imalli guutameera';
+
+  @override
+  String get commitmentDroppedOut => 'Addaan kute';
+
+  @override
+  String commitmentAnswerBy(String time) {
+    return 'Maaloo hanga $time tti deebisaa.';
+  }
+
+  @override
+  String get commitmentBuyerWaitingNote =>
+      'Maallaqni keessan nageenyaan qabameera. Jalqaba qonnaan bulaan, achi booda konkolaataan fe\'aa gaafatama. Yeroo isaan murteessan ajaja kaffalame haquun hin danda\'amu.';
+
+  @override
+  String get commitmentTruckerNotAskedNote =>
+      'Qonnaan bulaan ammallee hin fudhanne. Yeroo inni fudhatu isin gaafatamtu.';
+
+  @override
+  String get truckerAcceptRequest => 'Geejjiba fudhadhu';
+
+  @override
+  String get truckerDeclineRequest => 'Didi';
+
+  @override
+  String get declineReasonTitle => 'Maaliif diddu?';
+
+  @override
+  String get declineReasonDate => 'Guyyaan naaf hin mijatu';
+
+  @override
+  String get declineReasonCapacity => 'Bakki gahaan hin jiru';
+
+  @override
+  String get declineReasonPrice => 'Gatiin naaf hin mijatu';
+
+  @override
+  String get declineReasonRoute => 'Karaan naaf hin mijatu';
+
+  @override
+  String get declineReasonCropNotReady => 'Midhaan qophaa\'aa miti';
+
+  @override
+  String get declineReasonOther => 'Sababa biraa';
+
+  @override
+  String get truckerDropOut => 'Geejjiba kana hin danda\'u';
+
+  @override
+  String get truckerDropOutWarning =>
+      'Bitataaf ni himama, haquun maallaqa guutuu deebifachuu danda\'a. Erga fudhattanii booda addaan kutuun isin irratti lakkaa\'ama. Irra deebi\'uun akka seentan ni gaafatamtu.';
+
+  @override
+  String get farmerCancelWithoutPenalty => 'Adabbii malee haqi';
+
+  @override
+  String get farmerCancelCommittedWarning =>
+      'Erga fudhattanii booda haquun isin irratti lakkaa\'ama, bitataanis maallaqa guutuu deebifata. Irra deebi\'uun akka seentan ni gaafatamtu.';
+
+  @override
+  String get farmerCancelAwaitingTransportBody =>
+      'Geejjibni waan hin argamneef haquun isin irratti hin lakkaa\'amu. Bitataan maallaqa guutuu deebifata.';
+
+  @override
+  String transportFailedBuyerBody(String deadline) {
+    return 'Konkolaataan fe\'aa ajaja kana fe\'uu hin danda\'u. Hanga $deadline tti haqaatii maallaqa guutuu deebifadhaa. Hanga sanatti yoo hin murteessine ajajni ni haqama, maallaqni keessan ni deebi\'a.';
+  }
+
+  @override
+  String get transportFailedBuyerBodyNoDeadline =>
+      'Konkolaataan fe\'aa ajaja kana fe\'uu hin danda\'u. Haquun maallaqa guutuu deebifachuu dandeessu.';
+
+  @override
+  String get transportFailedFarmerBody =>
+      'Geejjibni ajaja kanaa hin argamne. Hanga bitataan murteessutti maaloo midhaan qabadhaa.';
+
+  @override
+  String get cancelOrderAwaitingTransportBody =>
+      'Maallaqni ajaja kanaaf qabame guutummaatti isiniif deebi\'a.';
+
+  @override
+  String get errorResponseNotPending =>
+      'Gaaffiin kun isiniif banaa miti: qonnaan bulaan ammallee hin fudhanne, ykn duraan deebii argateera.';
+
+  @override
+  String get transportFailureTruckerDeclined => 'Konkolaataan fe\'aa dideera';
+
+  @override
+  String get transportFailureTruckerExpired =>
+      'Konkolaataan fe\'aa yeroodhaan hin deebisne';
+
+  @override
+  String get transportFailureTruckerCancelled =>
+      'Konkolaataan fe\'aa addaan kuteera';
+
+  @override
+  String get transportFailureTripCancelled => 'Imalli haqameera';
+
+  @override
+  String get transportFailureTripFull => 'Imalli guutameera';
+
+  @override
+  String get actionNeededTitle => 'Tarkaanfiin barbaachisa';
+
+  @override
+  String get actionAnswerOrder => 'Ajaja haaraaf deebii kennaa';
+
+  @override
+  String get actionAnswerTransport => 'Gaaffii geejjibaaf deebii kennaa';
+
+  @override
+  String get actionKeepCrops => 'Midhaan qabadhaa: bitataan murteessaa jira';
+
+  @override
+  String get actionSetUpDelivery => 'Geejjiba qopheessaa';
+
+  @override
+  String get actionPay => 'Ajajaaf kaffalaa';
+
+  @override
+  String get actionPayAgain =>
+      'Kaffaltiin hin milkoofne: irra deebi\'aa kaffalaa';
+
+  @override
+  String get actionDecideTransport => 'Geejjibni hin argamne: murteessaa';
+
+  @override
+  String get actionCheckDelivery => 'Wanta ga\'e mirkaneessaa';
+
+  @override
+  String actionDueBy(String time) {
+    return 'Hanga $time';
+  }
+
+  @override
+  String get tripBookings => 'Ajajoota qabaman';
+
+  @override
+  String get tripNoBookings => 'Ammallee ajajni qabame hin jiru';
+
+  @override
+  String tripRemainingCapacity(String quintals) {
+    return 'Kuntaala $quintals duwwaa';
+  }
+
+  @override
+  String get chooseTrip => 'Konkolaataa filadhaa';
+
+  @override
+  String get notifGenericTitle => 'Haalli ajajaa jijjiirameera';
+
+  @override
+  String get notifGenericBody => 'Maal akka jijjiirame ilaaluuf ajaja banaa.';
+
+  @override
+  String get notifPaymentConfirmedTitle => 'Kaffaltiin gaheera';
+
+  @override
+  String get notifPaymentConfirmedBody =>
+      'Kaffaltiin keessan nageenyaan qabameera. Yeroo qonnaan bulaan deebii kennu isinitti himna.';
+
+  @override
+  String get notifOrderRequestTitle => 'Ajaja haaraa';
+
+  @override
+  String notifOrderRequestBody(String buyer) {
+    return '$buyer kaffaleera; maallaqni hanga geejjibni xumuramutti nageenyaan qabama. Maaloo fudhadhaa ykn didaa.';
+  }
+
+  @override
+  String get notifFarmerAcceptedTitle => 'Qonnaan bulaan fudhateera';
+
+  @override
+  String notifFarmerAcceptedBody(String farmer) {
+    return '$farmer ajaja keessan fudhateera. Amma konkolaataa fe\'aa gaafachaa jirra.';
+  }
+
+  @override
+  String get notifTransportRequestTitle => 'Gaaffii geejjibaa';
+
+  @override
+  String notifTransportRequestBody(String farmer) {
+    return '$farmer ajaja imala keessanii fudhateera. Maaloo geejjiba fudhadhaa ykn didaa.';
+  }
+
+  @override
+  String get notifOrderConfirmedTitle => 'Ajajni mirkanaa\'eera';
+
+  @override
+  String get notifOrderConfirmedBody =>
+      'Qaamoleen hundi ajaja irratti waliigalaniiru.';
+
+  @override
+  String get notifOrderRejectedTitle => 'Ajajni didameera';
+
+  @override
+  String notifOrderRejectedBody(String farmer) {
+    return '$farmer ajaja keessan hin fudhanne. Maallaqni keessan isiniif deebi\'a.';
+  }
+
+  @override
+  String get notifTransportFailedTitle => 'Geejjibni hin argamne';
+
+  @override
+  String get notifTransportFailedBody =>
+      'Konkolaataan fe\'aa ajaja keessan fe\'uu hin danda\'u. Maaloo murteessaa: haquun maallaqa guutuu deebifachuu dandeessu.';
+
+  @override
+  String get notifTransportFailedKeepCropsTitle => 'Geejjibni addaan citeera';
+
+  @override
+  String get notifTransportFailedKeepCropsBody =>
+      'Konkolaataan fe\'aa ajaja kanaa dhiiseera. Hanga bitataan murteessutti maaloo midhaan qabadhaa.';
+
+  @override
+  String get notifRequestExpiredTitle => 'Gaaffiin cufameera';
+
+  @override
+  String get notifRequestExpiredBody =>
+      'Yeroon deebii waan darbeef gaaffiin cufameera.';
+
+  @override
+  String get notifRequestOnHoldTitle => 'Gaaffiin yeroof dhaabateera';
+
+  @override
+  String get notifRequestOnHoldBody =>
+      'Ajaja kanaaf geejjibni hin argamne. Bitataan murteessaa waan jiruuf amma deebii kennuun isin hin barbaachisu.';
+
+  @override
+  String get notifOrderCancelledTitle => 'Ajajni haqameera';
+
+  @override
+  String get notifOrderCancelledBody =>
+      'Ajajni haqameera. Maallaqni qabame yoo jiraate bitataaf deebi\'a.';
+
+  @override
+  String get notifOrderExpiredUnpaidTitle => 'Ajajni cufameera';
+
+  @override
+  String get notifOrderExpiredUnpaidBody =>
+      'Ajajni keessan yeroodhaan waan hin kaffalamneef cufameera. Ajaja haaraa galchuu dandeessu.';
+
+  @override
+  String get notifPaymentFailedTitle => 'Kaffaltiin hin milkoofne';
+
+  @override
+  String get notifPaymentFailedBody =>
+      'Kaffaltiin keessan hin milkoofne. Maaloo irra deebi\'aa yaalaa.';
+
+  @override
+  String get notifRequestReminderTitle => 'Deebiin keessan barbaachisa';
+
+  @override
+  String get notifRequestReminderBody =>
+      'Ajajni kun deebii keessan eegaa jira.';
+
+  @override
+  String get notifPickupOverdueTitle => 'Midhaan yeroodhaan hin fudhatamne';
+
+  @override
+  String get notifPickupOverdueBody =>
+      'Ajajni keessan yeroodhaan hin fudhatamne. Filannoowwan keessan, maallaqa guutuu deebifachuu dabalatee, ilaaluuf banaa.';
+
+  @override
+  String get notifPickupMissedTitle => 'Fudhannaan darbeera';
+
+  @override
+  String get notifPickupMissedBody =>
+      'Ajajni yeroodhaan hin fudhatamne. Bitataan amma haquun maallaqa deebifachuu danda\'a.';
+
+  @override
+  String get notifDeliveryScheduledTitle => 'Geejjibni qophaa\'eera';
+
+  @override
+  String notifDeliveryScheduledBody(String trucker) {
+    return '$trucker ajaja ni geessa.';
+  }
+
+  @override
+  String get notifBuyerCollectingTitle => 'Bitataan dhufaa jira';
+
+  @override
+  String notifBuyerCollectingBody(String buyer) {
+    return '$buyer ajaja isin biraa ni fudhata. Maaloo midhaan qopheessaa.';
+  }
+
+  @override
+  String get notifPickedUpTitle => 'Midhaan fudhatameera';
+
+  @override
+  String get notifPickedUpBody =>
+      'Ajajni keessan qonnaan bulaa biraa fudhatameera.';
+
+  @override
+  String get notifHandoffRecordedTitle => 'Kenniinsi galmeeffameera';
+
+  @override
+  String get notifHandoffRecordedBody =>
+      'Kenniinsi galmeeffameera. Erga bitataan midhaan fudhatee booda isiniif ni kaffalama.';
+
+  @override
+  String get notifInTransitTitle => 'Daandii irra jira';
+
+  @override
+  String get notifInTransitBody =>
+      'Ajajni keessan gara keessan daandii irra jira.';
+
+  @override
+  String get notifDeliveredTitle => 'Ajajni ga\'eera';
+
+  @override
+  String get notifDeliveredBody =>
+      'Ajajni keessan ga\'eera. Rakkoon yoo jiraate yeroon osoo hin darbin gabaasaa; yoo hin jiraanne qonnaan bulaaf ni kaffalama.';
+
+  @override
+  String get notifDeliveredPayoutPendingTitle =>
+      'Ga\'eera, kaffaltiin ni dhufa';
+
+  @override
+  String get notifDeliveredPayoutPendingBody =>
+      'Ajajni ga\'eera. Mirkaneessa bitataa sa\'aatii 48 booda kaffaltiin keessan ni ergama.';
+
+  @override
+  String get notifOrderSettledTitle => 'Ajajni xumurameera';
+
+  @override
+  String get notifOrderSettledBody =>
+      'Ajajni xumurameera; hundi kaffalameera. Galatoomaa.';
+
+  @override
+  String get notifRefundSentTitle => 'Maallaqni deebi\'eera';
+
+  @override
+  String get notifRefundSentBody => 'Maallaqni keessan isiniif deebi\'eera.';
+
+  @override
+  String get notifPayoutSentTitle => 'Kaffaltiin ergameera';
+
+  @override
+  String get notifPayoutSentBody =>
+      'Kaffaltiin keessan isiniif ergameera. Galatoomaa.';
+
+  @override
+  String get notifPayoutBlockedTitle => 'Kaffaltiin dhaabateera';
+
+  @override
+  String notifPayoutBlockedBody(String hint) {
+    return 'Kaffaltiin keessan eegaa jira. $hint';
+  }
+
+  @override
+  String get notifPayoutProcessingTitle => 'Kaffaltiin hojjetamaa jira';
+
+  @override
+  String get notifPayoutProcessingBody =>
+      'Gareen keenya kaffaltii keessan harkaan ergaa jira. Guyyoota muraasa fudhachuu danda\'a.';
+
+  @override
+  String get notifDisputeOpenedTitle => 'Rakkoon gabaafameera';
+
+  @override
+  String get notifDisputeOpenedBody =>
+      'Ajaja keessan irratti rakkoon gabaafameera. Hanga gareen keenya murteessutti maallaqni qabamee tura.';
+
+  @override
+  String get notifDisputeReceivedTitle => 'Gabaasni keessan nu gaheera';
+
+  @override
+  String get notifDisputeReceivedBody =>
+      'Gabaasni keessan nu gaheera. Hanga gareen keenya murteessutti maallaqni qabamee tura.';
+
+  @override
+  String get notifDisputeResolvedTitle => 'Murteen kennameera';
+
+  @override
+  String get notifUnderReviewTitle => 'Kaffaltiin sakatta\'amaa jira';
+
+  @override
+  String get notifUnderReviewBody =>
+      'Kaffaltiin ajaja keessanii gareen keenyaan sakatta\'amaa jira. Yeroo xumuramu isinitti himna.';
+
+  @override
+  String get notifDisputeResolvedFarmerWins =>
+      'Gareen keenya murteesseera: maallaqni qonnaan bulaaf kaffalama.';
+
+  @override
+  String get notifDisputeResolvedBuyerWins =>
+      'Gareen keenya murteesseera: maallaqni bitataaf deebi\'a.';
+
+  @override
+  String get notifDisputeResolvedBody =>
+      'Gareen keenya rakkoo gabaafame irratti murteesseera. Bal\'ina isaa ilaaluuf ajaja banaa.';
+
+  @override
+  String get notifPayoutHintFayda =>
+      'Maaloo appii keessatti Fayda ID keessan mirkaneessaa.';
+
+  @override
+  String get notifPayoutHintPhone =>
+      'Maaloo appii keessatti lakkoofsa bilbilaa keessan mirkaneessaa.';
+
+  @override
+  String get notifPayoutHintProfile =>
+      'Maaloo appii keessatti odeeffannoo keessan guutaa.';
+
+  @override
+  String get notifPayoutHintOther =>
+      'Maal akka barbaachisu ilaaluuf appii banaa.';
 }

@@ -411,6 +411,10 @@ void main() {
         ('CROP_HAS_ACTIVE_ORDERS: open', AppErrorCode.cropHasActiveOrders),
         ('APP_UPDATE_REQUIRED: 1.0.0', AppErrorCode.appUpdateRequired),
         ('ORDER_DEADLINE_PASSED: late', AppErrorCode.deadlinePassed),
+        (
+          'ORDER_RESPONSE_NOT_PENDING: not yet',
+          AppErrorCode.responseNotPending,
+        ),
         ('ORDER_TRIP_NOT_ELIGIBLE: route', AppErrorCode.tripNotEligible),
         (
           'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED: 3',
@@ -496,6 +500,12 @@ void main() {
           'update',
           'ORDER_DEADLINE_PASSED: x',
           AppErrorCode.deadlinePassed,
+        ),
+        (
+          'order',
+          'update',
+          'ORDER_RESPONSE_NOT_PENDING: x',
+          AppErrorCode.responseNotPending,
         ),
         (
           'order',
@@ -620,6 +630,7 @@ void main() {
         final l10n = await AppLocalizations.delegate.load(Locale(locale));
         final expected = {
           AppErrorCode.deadlinePassed: l10n.errorDeadlinePassed,
+          AppErrorCode.responseNotPending: l10n.errorResponseNotPending,
           AppErrorCode.tripNotEligible: l10n.errorTripNotEligible,
           AppErrorCode.transportAttemptsExceeded:
               l10n.errorTransportAttemptsExceeded,

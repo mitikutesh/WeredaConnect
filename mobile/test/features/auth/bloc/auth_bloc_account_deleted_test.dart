@@ -11,6 +11,7 @@ import 'package:wereda_connect/core/auth/auth_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_result.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
+import 'package:wereda_connect/core/database/schemas/app_notification.dart';
 import 'package:wereda_connect/core/database/schemas/buyer_intent.dart';
 import 'package:wereda_connect/core/database/schemas/conversation_read.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
@@ -251,6 +252,7 @@ void main() {
         RatingSchema,
         MessageSchema,
         ConversationReadSchema,
+        AppNotificationSchema,
       ],
       directory: dir.path,
       name: 'account_deleted_${DateTime.now().microsecondsSinceEpoch}',

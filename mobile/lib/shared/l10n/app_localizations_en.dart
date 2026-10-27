@@ -3170,4 +3170,446 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deletedUser => 'Deleted user';
+
+  @override
+  String get statusAwaitingTransport => 'Transport fell through';
+
+  @override
+  String get statusAwaitingTransportInfo =>
+      'The trucker can\'t carry this order. The money stays held safely. The buyer can cancel for a full refund; without a decision in time the order is cancelled and refunded.';
+
+  @override
+  String get orderStatusUpdating => 'Updating';
+
+  @override
+  String get orderStatusUpdatingInfo =>
+      'This order changed in a way this app version can\'t show yet. Please update the app.';
+
+  @override
+  String get commitmentTitle => 'Who has agreed';
+
+  @override
+  String get commitmentAccepted => 'Accepted';
+
+  @override
+  String commitmentWaitingUntil(String time) {
+    return 'Waiting, answer due $time';
+  }
+
+  @override
+  String get commitmentWaiting => 'Waiting for an answer';
+
+  @override
+  String get commitmentDeclined => 'Declined';
+
+  @override
+  String get commitmentExpired => 'Did not answer in time';
+
+  @override
+  String get commitmentNotAskedYet => 'Asked once the farmer accepts';
+
+  @override
+  String get commitmentTripCancelled => 'Trip cancelled';
+
+  @override
+  String get commitmentTripFull => 'Trip was full';
+
+  @override
+  String get commitmentDroppedOut => 'Dropped out';
+
+  @override
+  String commitmentAnswerBy(String time) {
+    return 'Please answer by $time.';
+  }
+
+  @override
+  String get commitmentBuyerWaitingNote =>
+      'Your money is held safely. The farmer is asked first, then the trucker. A paid order can\'t be cancelled while they decide.';
+
+  @override
+  String get commitmentTruckerNotAskedNote =>
+      'The farmer has not accepted yet. You will be asked once they do.';
+
+  @override
+  String get truckerAcceptRequest => 'Accept transport';
+
+  @override
+  String get truckerDeclineRequest => 'Decline';
+
+  @override
+  String get declineReasonTitle => 'Why are you declining?';
+
+  @override
+  String get declineReasonDate => 'The date doesn\'t work';
+
+  @override
+  String get declineReasonCapacity => 'Not enough room';
+
+  @override
+  String get declineReasonPrice => 'The price doesn\'t work';
+
+  @override
+  String get declineReasonRoute => 'The route doesn\'t work';
+
+  @override
+  String get declineReasonCropNotReady => 'The crops are not ready';
+
+  @override
+  String get declineReasonOther => 'Another reason';
+
+  @override
+  String get truckerDropOut => 'I can\'t make this delivery';
+
+  @override
+  String get truckerDropOutWarning =>
+      'The buyer is told and may cancel for a full refund. Dropping out after you accepted counts against you. You will be asked to sign in again.';
+
+  @override
+  String get farmerCancelWithoutPenalty => 'Cancel without penalty';
+
+  @override
+  String get farmerCancelCommittedWarning =>
+      'Cancelling after you accepted counts against you, and the buyer gets a full refund. You will be asked to sign in again.';
+
+  @override
+  String get farmerCancelAwaitingTransportBody =>
+      'The transport fell through, so cancelling does not count against you. The buyer gets a full refund.';
+
+  @override
+  String transportFailedBuyerBody(String deadline) {
+    return 'The trucker can\'t carry this order. Cancel for a full refund by $deadline. If you don\'t decide by then, the order is cancelled and refunded for you.';
+  }
+
+  @override
+  String get transportFailedBuyerBodyNoDeadline =>
+      'The trucker can\'t carry this order. You can cancel it for a full refund.';
+
+  @override
+  String get transportFailedFarmerBody =>
+      'The transport for this order fell through. Please keep the crops until the buyer decides.';
+
+  @override
+  String get cancelOrderAwaitingTransportBody =>
+      'The money held for this order comes back to you in full.';
+
+  @override
+  String get errorResponseNotPending =>
+      'This request is not open for you: the farmer has not accepted yet, or it was already answered.';
+
+  @override
+  String get transportFailureTruckerDeclined => 'The trucker declined';
+
+  @override
+  String get transportFailureTruckerExpired =>
+      'The trucker did not answer in time';
+
+  @override
+  String get transportFailureTruckerCancelled => 'The trucker dropped out';
+
+  @override
+  String get transportFailureTripCancelled => 'The trip was cancelled';
+
+  @override
+  String get transportFailureTripFull => 'The trip was full';
+
+  @override
+  String get actionNeededTitle => 'Action needed';
+
+  @override
+  String get actionAnswerOrder => 'Answer the new order';
+
+  @override
+  String get actionAnswerTransport => 'Answer the transport request';
+
+  @override
+  String get actionKeepCrops => 'Keep the crops: the buyer is deciding';
+
+  @override
+  String get actionSetUpDelivery => 'Set up the delivery';
+
+  @override
+  String get actionPay => 'Pay for the order';
+
+  @override
+  String get actionPayAgain => 'Payment failed: pay again';
+
+  @override
+  String get actionDecideTransport => 'Transport fell through: decide';
+
+  @override
+  String get actionCheckDelivery => 'Check the delivery';
+
+  @override
+  String actionDueBy(String time) {
+    return 'Due $time';
+  }
+
+  @override
+  String get tripBookings => 'Booked orders';
+
+  @override
+  String get tripNoBookings => 'No orders booked yet';
+
+  @override
+  String tripRemainingCapacity(String quintals) {
+    return '$quintals quintals free';
+  }
+
+  @override
+  String get chooseTrip => 'Choose a truck';
+
+  @override
+  String get notifGenericTitle => 'Order update';
+
+  @override
+  String get notifGenericBody => 'Open the order to see what changed.';
+
+  @override
+  String get notifPaymentConfirmedTitle => 'Payment received';
+
+  @override
+  String get notifPaymentConfirmedBody =>
+      'Your payment is held safely. We will tell you when the farmer answers.';
+
+  @override
+  String get notifOrderRequestTitle => 'New order';
+
+  @override
+  String notifOrderRequestBody(String buyer) {
+    return '$buyer paid, and the money is held safely until delivery. Please accept or decline.';
+  }
+
+  @override
+  String get notifFarmerAcceptedTitle => 'Farmer accepted';
+
+  @override
+  String notifFarmerAcceptedBody(String farmer) {
+    return '$farmer accepted your order. We are now asking the trucker.';
+  }
+
+  @override
+  String get notifTransportRequestTitle => 'Transport request';
+
+  @override
+  String notifTransportRequestBody(String farmer) {
+    return '$farmer accepted an order on your trip. Please accept or decline the transport.';
+  }
+
+  @override
+  String get notifOrderConfirmedTitle => 'Order confirmed';
+
+  @override
+  String get notifOrderConfirmedBody => 'Everyone has agreed to the order.';
+
+  @override
+  String get notifOrderRejectedTitle => 'Order declined';
+
+  @override
+  String notifOrderRejectedBody(String farmer) {
+    return '$farmer declined your order. Your money will be returned to you.';
+  }
+
+  @override
+  String get notifTransportFailedTitle => 'Transport fell through';
+
+  @override
+  String get notifTransportFailedBody =>
+      'The trucker can\'t carry your order. Please decide: you can cancel for a full refund.';
+
+  @override
+  String get notifTransportFailedKeepCropsTitle => 'Transport fell through';
+
+  @override
+  String get notifTransportFailedKeepCropsBody =>
+      'The trucker for this order dropped out. Please keep the crops until the buyer decides.';
+
+  @override
+  String get notifRequestExpiredTitle => 'Request closed';
+
+  @override
+  String get notifRequestExpiredBody =>
+      'The request closed because it was not answered in time.';
+
+  @override
+  String get notifRequestOnHoldTitle => 'Request on hold';
+
+  @override
+  String get notifRequestOnHoldBody =>
+      'Transport for this order is not available. The buyer is deciding, so you do not need to answer now.';
+
+  @override
+  String get notifOrderCancelledTitle => 'Order cancelled';
+
+  @override
+  String get notifOrderCancelledBody =>
+      'The order was cancelled. Any money held goes back to the buyer.';
+
+  @override
+  String get notifOrderExpiredUnpaidTitle => 'Order closed';
+
+  @override
+  String get notifOrderExpiredUnpaidBody =>
+      'Your order was closed because it was not paid in time. You can place a new order.';
+
+  @override
+  String get notifPaymentFailedTitle => 'Payment failed';
+
+  @override
+  String get notifPaymentFailedBody =>
+      'Your payment did not go through. Please try again.';
+
+  @override
+  String get notifRequestReminderTitle => 'Your answer is needed';
+
+  @override
+  String get notifRequestReminderBody =>
+      'This order is waiting for your answer.';
+
+  @override
+  String get notifPickupOverdueTitle => 'Pickup is late';
+
+  @override
+  String get notifPickupOverdueBody =>
+      'Your order was not picked up on time. Open it to see your options, including a full refund.';
+
+  @override
+  String get notifPickupMissedTitle => 'Pickup missed';
+
+  @override
+  String get notifPickupMissedBody =>
+      'The order was not picked up on time. The buyer may now cancel it for a refund.';
+
+  @override
+  String get notifDeliveryScheduledTitle => 'Transport arranged';
+
+  @override
+  String notifDeliveryScheduledBody(String trucker) {
+    return '$trucker will carry the order.';
+  }
+
+  @override
+  String get notifBuyerCollectingTitle => 'Buyer is coming';
+
+  @override
+  String notifBuyerCollectingBody(String buyer) {
+    return '$buyer will collect the order from you. Please have the crops ready.';
+  }
+
+  @override
+  String get notifPickedUpTitle => 'Crops picked up';
+
+  @override
+  String get notifPickedUpBody => 'Your order was picked up from the farmer.';
+
+  @override
+  String get notifHandoffRecordedTitle => 'Handoff recorded';
+
+  @override
+  String get notifHandoffRecordedBody =>
+      'The handoff is recorded. You are paid after the buyer receives the crops.';
+
+  @override
+  String get notifInTransitTitle => 'On the way';
+
+  @override
+  String get notifInTransitBody => 'Your order is on the way to you.';
+
+  @override
+  String get notifDeliveredTitle => 'Order delivered';
+
+  @override
+  String get notifDeliveredBody =>
+      'Your order was delivered. If something is wrong, report it before the time is up. If not, the farmer is paid.';
+
+  @override
+  String get notifDeliveredPayoutPendingTitle => 'Delivered, payment coming';
+
+  @override
+  String get notifDeliveredPayoutPendingBody =>
+      'The order was delivered. Your payment is sent after the buyer\'s 48 hour check.';
+
+  @override
+  String get notifOrderSettledTitle => 'Order complete';
+
+  @override
+  String get notifOrderSettledBody =>
+      'The order is complete and everyone is paid. Thank you.';
+
+  @override
+  String get notifRefundSentTitle => 'Refund sent';
+
+  @override
+  String get notifRefundSentBody => 'Your refund has been sent to you.';
+
+  @override
+  String get notifPayoutSentTitle => 'Payment sent';
+
+  @override
+  String get notifPayoutSentBody =>
+      'Your payment has been sent to you. Thank you.';
+
+  @override
+  String get notifPayoutBlockedTitle => 'Payment on hold';
+
+  @override
+  String notifPayoutBlockedBody(String hint) {
+    return 'Your payment is waiting. $hint';
+  }
+
+  @override
+  String get notifPayoutProcessingTitle => 'Payment being processed';
+
+  @override
+  String get notifPayoutProcessingBody =>
+      'Our team is sending your payment by hand. It can take a few days.';
+
+  @override
+  String get notifDisputeOpenedTitle => 'Problem reported';
+
+  @override
+  String get notifDisputeOpenedBody =>
+      'A problem was reported on your order. The money stays held until our team decides.';
+
+  @override
+  String get notifDisputeReceivedTitle => 'Report received';
+
+  @override
+  String get notifDisputeReceivedBody =>
+      'We received your report. The money stays held until our team decides.';
+
+  @override
+  String get notifDisputeResolvedTitle => 'Decision made';
+
+  @override
+  String get notifUnderReviewTitle => 'Payment under review';
+
+  @override
+  String get notifUnderReviewBody =>
+      'Our team is checking the payment for your order. We will tell you when it is done.';
+
+  @override
+  String get notifDisputeResolvedFarmerWins =>
+      'Our team has decided: the money goes to the farmer.';
+
+  @override
+  String get notifDisputeResolvedBuyerWins =>
+      'Our team has decided: the money goes back to the buyer.';
+
+  @override
+  String get notifDisputeResolvedBody =>
+      'Our team has decided on the reported problem. Open the order for the details.';
+
+  @override
+  String get notifPayoutHintFayda => 'Please verify your Fayda ID in the app.';
+
+  @override
+  String get notifPayoutHintPhone =>
+      'Please verify your phone number in the app.';
+
+  @override
+  String get notifPayoutHintProfile =>
+      'Please complete your profile in the app.';
+
+  @override
+  String get notifPayoutHintOther => 'Open the app to see what is needed.';
 }

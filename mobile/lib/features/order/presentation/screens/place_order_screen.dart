@@ -16,6 +16,7 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart'
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_summary_tile.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Screen for buyers to place an order on a crop listing.
@@ -269,6 +270,17 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                 ),
                 const SizedBox(height: 24),
 
+                // ESC-15: the trucker this order will ask, and the room left.
+                if (widget.selectedTrip != null) ...[
+                  Card(
+                    margin: EdgeInsets.zero,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: TripSummaryTile(trip: widget.selectedTrip!),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                ],
                 // ── Price breakdown ──────────────────────────────────
                 Text(
                   l10n.priceBreakdown,

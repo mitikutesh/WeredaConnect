@@ -109,7 +109,8 @@ class WebConversationContextResolver extends ConversationContextResolver {
       'order',
     );
     if (order == null) return null;
-    // Only what the contact rule reads (ESC-48): parties, status, flag, phones.
+    // Only what the contact rule reads (ESC-48): parties, status, the
+    // answers (ESC-15), flag, phones.
     final wire = order['status'] as String?;
     final statusName = wire == null ? null : orderStatusFromWire(wire);
     return Order()
@@ -119,8 +120,10 @@ class WebConversationContextResolver extends ConversationContextResolver {
       ..truckerId = order['truckerId'] as String?
       ..status = OrderStatus.values.firstWhere(
         (e) => e.name == statusName,
-        orElse: () => OrderStatus.created,
+        orElse: () => OrderStatus.unknown,
       )
+      ..farmerResponse = order['farmerResponse'] as String?
+      ..truckerResponse = order['truckerResponse'] as String?
       ..contactOpen = order['contactOpen'] as bool?
       ..buyerPhone = order['buyerPhone'] as String?
       ..farmerPhone = order['farmerPhone'] as String?

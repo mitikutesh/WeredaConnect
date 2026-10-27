@@ -22,6 +22,8 @@ import 'package:wereda_connect/features/trip_listing/presentation/screens/browse
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_summary_tile.dart';
 
 /// Screen showing match results for a buyer intent.
 ///
@@ -278,6 +280,17 @@ class _MatchResultsBody extends StatelessWidget {
                               rank: index,
                             ),
                           );
+                          // ESC-15: the trip's trucker is asked to commit,
+                          // so with several trucks the buyer picks one.
+                          final trips = match.suggestedTrips;
+                          final Trip? trip;
+                          if (trips.length > 1) {
+                            trip = await showChooseTripSheet(context, trips);
+                            if (trip == null) return;
+                          } else {
+                            trip = trips.isNotEmpty ? trips.first : null;
+                          }
+                          if (!context.mounted) return;
                           final farmerName =
                               await _lookupFarmerName(match.listing);
                           if (!context.mounted) return;
@@ -289,9 +302,7 @@ class _MatchResultsBody extends StatelessWidget {
                                 child: PlaceOrderScreen(
                                   listing: match.listing,
                                   farmerName: farmerName,
-                                  selectedTrip: match.suggestedTrips.isNotEmpty
-                                      ? match.suggestedTrips.first
-                                      : null,
+                                  selectedTrip: trip,
                                   intent: intent,
                                 ),
                               ),

@@ -1,5 +1,7 @@
 import 'package:uuid/uuid.dart';
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
@@ -110,7 +112,9 @@ class WebOrderRepository extends BaseOrderRepository {
   /// [getOrderById]. The order checkout (ESC-44) must tell "offline" from
   /// "no such order".
   Future<Order?> fetchOrder(String orderId) async {
-    final data = await _api.get<Map<String, dynamic>>('/orders/$orderId');
+    final data = await _api.get<Map<String, dynamic>>(
+      '/orders/${Uri.encodeComponent(orderId)}',
+    );
     // GET /orders/{id} returns {"order": {...}} (GetOrderResponse, camelCase).
     // Accept the `item` envelope and a bare object too, so a response-shape
     // change never silently degrades into a spurious "order not found" that
@@ -212,12 +216,43 @@ class WebOrderRepository extends BaseOrderRepository {
   /// matches the version it holds; a versionless order update is rejected
   /// (sync-protocol.md 1.3.0, SIM-08). Web keeps no local copy, so read the
   /// current version first, exactly like the trip repository does.
-  Future<int> _currentOrderVersion(String orderId) async {
+  Future<int> _currentOrderVersion(String orderId) async =>
+      (await _currentOrder(orderId)).version;
+
+  Future<Order> _currentOrder(String orderId) async {
     final order = await getOrderById(orderId);
     if (order == null) {
       throw NotFoundException('Order $orderId not found.');
     }
-    return order.version;
+    return order;
+  }
+
+  /// One order `update` through `/sync`, refused results surfaced.
+  Future<void> _sendOrderUpdate(
+    String orderId,
+    String kind,
+    Map<String, dynamic> data,
+  ) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final response = await _api.post<Map<String, dynamic>>(
+      '/sync',
+      data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
+        'operations': [
+          {
+            'operationId': _uuid.v4(),
+            'entityType': 'order',
+            'action': 'update',
+            'entityId': orderId,
+            'timestamp': now,
+            'idempotencyKey': 'web_${kind}_${orderId}_$now',
+            'data': data,
+          },
+        ],
+      },
+    );
+    ensureSyncSucceeded(response);
   }
 
   @override
@@ -270,7 +305,12 @@ class WebOrderRepository extends BaseOrderRepository {
     String userId, {
     String? reason,
   }) async {
-    final version = await _currentOrderVersion(orderId);
+    final order = await _currentOrder(orderId);
+    if (order.status == OrderStatus.cancelled) return;
+    // ESC-15: the same cancel rules as mobile (a funded order waits for the
+    // farmer and the trucker).
+    checkOrderCancelAllowed(order, userId, DateTime.now().toUtc());
+    final version = order.version;
     final now = DateTime.now().toUtc().toIso8601String();
     final response = await _api.post<Map<String, dynamic>>(
       '/sync',
@@ -300,34 +340,16 @@ class WebOrderRepository extends BaseOrderRepository {
     ensureSyncSucceeded(response);
   }
 
+  /// ESC-15: the farmer command; the server answers a repeat with success.
   @override
   Future<void> acceptOrder(String orderId, String farmerId) async {
     final version = await _currentOrderVersion(orderId);
-    final now = DateTime.now().toUtc().toIso8601String();
-    final response = await _api.post<Map<String, dynamic>>(
-      '/sync',
-      data: {
-        'syncBatchId': _uuid.v4(),
-        'clientId': 'web',
-        'operations': [
-          {
-            'operationId': _uuid.v4(),
-            'entityType': 'order',
-            'action': 'update',
-            'entityId': orderId,
-            'timestamp': now,
-            'idempotencyKey': 'web_accept_${orderId}_$now',
-            'data': {
-              'status': orderStatusToWire(OrderStatus.accepted.name),
-              'version': version,
-            },
-          },
-        ],
-      },
-    );
     // /sync returns HTTP 200 with a per-operation result — surface server-side
     // rejections instead of reporting an accept that never happened.
-    ensureSyncSucceeded(response);
+    await _sendOrderUpdate(orderId, 'accept', {
+      'farmerResponse': CommitmentCommand.accept,
+      'version': version,
+    });
   }
 
   @override
@@ -337,31 +359,45 @@ class WebOrderRepository extends BaseOrderRepository {
     String? reason,
   }) async {
     final version = await _currentOrderVersion(orderId);
-    final now = DateTime.now().toUtc().toIso8601String();
-    final response = await _api.post<Map<String, dynamic>>(
-      '/sync',
-      data: {
-        'syncBatchId': _uuid.v4(),
-        'clientId': 'web',
-        'operations': [
-          {
-            'operationId': _uuid.v4(),
-            'entityType': 'order',
-            'action': 'update',
-            'entityId': orderId,
-            'timestamp': now,
-            'idempotencyKey': 'web_reject_${orderId}_$now',
-            'data': {
-              'status': orderStatusToWire(OrderStatus.rejected.name),
-              if (reason != null) 'rejectionReason': reason,
-              'version': version,
-            },
-          },
-        ],
-      },
-    );
     // Surface server-side rejections instead of reporting a reject that never happened.
-    ensureSyncSucceeded(response);
+    await _sendOrderUpdate(orderId, 'reject', {
+      'farmerResponse': CommitmentCommand.decline,
+      if (reason != null) 'rejectionReason': reason,
+      'version': version,
+    });
+  }
+
+  /// ESC-15: the trucker command, with the mobile guards. The server's
+  /// `AUTH_040` on a drop-out surfaces as a step-up error.
+  @override
+  Future<void> respondAsTrucker(
+    String orderId,
+    String truckerId, {
+    required bool accept,
+    String? declineReason,
+  }) async {
+    final order = await _currentOrder(orderId);
+    if (truckerId.isEmpty || order.truckerId != truckerId) {
+      throw const OrderActionNotAllowedException(
+        'Only the trucker of this order can answer its transport request.',
+      );
+    }
+    if (accept && truckerResponseOf(order) == CommitmentResponse.accepted) {
+      return;
+    }
+    if (!canTruckerRespond(order, truckerId) &&
+        !(!accept && canTruckerDropOut(order, truckerId))) {
+      throw const OrderActionNotAllowedException(
+        'This transport request is not open: the farmer has not accepted '
+        'yet, or it was already answered.',
+      );
+    }
+    await _sendOrderUpdate(orderId, accept ? 'truck_accept' : 'truck_decline', {
+      'truckerResponse':
+          accept ? CommitmentCommand.accept : CommitmentCommand.decline,
+      if (!accept && declineReason != null) 'declineReason': declineReason,
+      'version': order.version,
+    });
   }
 
   List<Order> _parseOrders(Map<String, dynamic> data) {
@@ -374,7 +410,7 @@ class WebOrderRepository extends BaseOrderRepository {
   }
 
   Order _parseOrderMap(Map<String, dynamic> m) {
-    return Order()
+    final order = Order()
       ..orderId = m['orderId'] as String? ?? ''
       ..listingId = m['listingId'] as String? ?? ''
       ..buyerId = m['buyerId'] as String? ?? ''
@@ -413,14 +449,18 @@ class WebOrderRepository extends BaseOrderRepository {
       ..buyerPhone = m['buyerPhone'] as String?
       ..farmerPhone = m['farmerPhone'] as String?
       ..truckerPhone = m['truckerPhone'] as String?;
+    // ESC-15: who has answered and until when.
+    applyOrderCommitmentFields(order, m);
+    return order;
   }
 
   OrderStatus _parseOrderStatus(String? s) {
     // Server sends order status in snake_case; map it back to the camelCase enum.
+    // A status this build does not know is `unknown` (shown as "Updating").
     final name = s == null ? null : orderStatusFromWire(s);
     return OrderStatus.values.firstWhere(
       (e) => e.name == name,
-      orElse: () => OrderStatus.created,
+      orElse: () => OrderStatus.unknown,
     );
   }
 }

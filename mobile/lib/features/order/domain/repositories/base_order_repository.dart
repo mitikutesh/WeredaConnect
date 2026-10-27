@@ -55,11 +55,27 @@ abstract class BaseOrderRepository {
     String? reason,
   });
 
+  /// The farmer's yes to a funded order (`farmerResponse: accept`). A
+  /// self-pickup order is agreed at once; a trip order stays `funded` while
+  /// its trucker is asked (ESC-15, sequential).
   Future<void> acceptOrder(String orderId, String farmerId);
 
+  /// The farmer's no (`farmerResponse: decline`): the buyer is refunded.
   Future<void> rejectOrder(
     String orderId,
     String farmerId, {
     String? reason,
+  });
+
+  /// ESC-15: the trucker's answer to a transport request
+  /// (`truckerResponse: accept | decline`), only once the farmer accepted. A
+  /// decline on an `accepted` order before pickup is the trucker's drop-out
+  /// (the server asks for a fresh sign-in). [declineReason] is one of
+  /// `commitmentDeclineReasons`.
+  Future<void> respondAsTrucker(
+    String orderId,
+    String truckerId, {
+    required bool accept,
+    String? declineReason,
   });
 }

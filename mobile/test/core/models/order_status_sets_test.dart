@@ -92,6 +92,9 @@ void main() {
 
     test('opens from the accept and closes when the money goes back', () {
       expect(contactOpenOrderStatuses, {
+        // ESC-15: while funded or awaiting transport the farmer's answer decides.
+        OrderStatus.funded,
+        OrderStatus.awaitingTransport,
         OrderStatus.accepted,
         OrderStatus.pickupConfirmed,
         OrderStatus.inTransit,
@@ -105,10 +108,10 @@ void main() {
         OrderStatus.pendingPayment,
         OrderStatus.paymentSubmitted,
         OrderStatus.paymentFailed,
-        OrderStatus.funded,
         OrderStatus.cancelled,
         OrderStatus.rejected,
         OrderStatus.disputeResolved,
+        OrderStatus.unknown,
       ]) {
         expect(
           contactOpenOrderStatuses.contains(closed),
@@ -132,6 +135,28 @@ void main() {
       expect(isOrderContactOpen(open(contactOpen: false)), isFalse);
       // Not judged yet (old server, local accept): the status decides.
       expect(isOrderContactOpen(open(contactOpen: null)), isTrue);
+    });
+
+    test('ESC-15: a funded order opens at the farmer\'s accept', () {
+      final funded = open()..status = OrderStatus.funded;
+      // An unstamped funded row counts as the farmer still deciding.
+      expect(isOrderContactOpen(funded), isFalse);
+      expect(isOrderContactOpen(funded..farmerResponse = 'pending'), isFalse);
+      expect(isOrderContactOpen(funded..farmerResponse = 'accepted'), isTrue);
+      final awaiting = open()
+        ..status = OrderStatus.awaitingTransport
+        ..farmerResponse = 'accepted';
+      expect(isOrderContactOpen(awaiting), isTrue);
+      // The trip was full right after funding: the farmer never accepted.
+      expect(isOrderContactOpen(awaiting..farmerResponse = 'pending'), isFalse);
+    });
+
+    test('ESC-15: awaiting transport holds the money; unknown counts nowhere',
+        () {
+      expect(escrowHeldOrderStatuses, contains(OrderStatus.awaitingTransport));
+      expect(activeOrderStatuses, contains(OrderStatus.awaitingTransport));
+      expect(escrowHeldOrderStatuses, isNot(contains(OrderStatus.unknown)));
+      expect(activeOrderStatuses, isNot(contains(OrderStatus.unknown)));
     });
 
     test('a closed status wins over a stale server flag', () {
