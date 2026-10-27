@@ -362,7 +362,7 @@ Goal: after pickup the buyer and the farmer see where the truck is, from hourly 
 
 Product rules set by the user (ask before changing them): the map is drawn from shipped data, no tiles (D1); location sharing is optional for drivers (D2); Amharic and Oromo use the Ethiopian clock with the part of the day always shown, English keeps the 24-hour clock (D3).
 
-One PR per ticket, stacked in ID order: each PR's base is the previous ticket's branch (LT-01's base is `docs/live-trip-spec`). Merge bottom up and rebase the next PR onto `main` after each squash merge.
+One PR per ticket, stacked in ID order: each PR's base is the previous ticket's branch (LT-01's base is `docs/live-trip-spec`). Merge bottom up: after each squash merge, rebase or replay the next PR onto `main` (on a new branch when the old one cannot be rewritten) and retarget its base to `main` before anyone merges it.
 
 | ID | Scope | Task | Done when |
 |---|---|---|---|
@@ -378,7 +378,7 @@ One PR per ticket, stacked in ID order: each PR's base is the previous ticket's 
 | LT-10 | @Mobile | Track client and map: the track repository (mobile and web) polling at most every 5 minutes while visible, the last snapshot kept per delivery for offline display with its age, freshness bands, and the `CustomPainter` map from the bundled places (projection, trail, halo, dashed road ahead, pickup and drop-off pins, unnamed other stops, at most 10 labels). Spec §6.2, §8. | Repository tests for polling, the offline snapshot and errors; painter golden tests for the 6 states; label selection tests. |
 | LT-11 | @Mobile @l10n | Buyer and farmer screens: the deliveries "On the road now" card with the route ribbon, Live trip in every state, trip log, arriving (truck within 5 km, checklist, Scan driver's QR), the delivered summary, and the farmer's order-on-the-road card; times through the Ethiopian clock formatter. Spec §4. | Widget tests for all 3 roles (the trucker sees no buyer map, the farmer sees only their order); 3 languages; web build passes. |
 | LT-12 | @Server @Mobile @l10n | Drop-off landmark: an optional `dropoffNote` on the order (up to 80 characters, the phone-number guard, editable by the buyer until pickup), returned to the order's parties, shown on the trucker's stop list and the buyer's map, and in the track response. Bumps `order-lifecycle.md` and `data-models.md`. Spec §10. | xUnit tests for the guard, the length and the edit window; mobile tests for the field on mobile and web; 3 languages. |
-| LT-13 | @Server @Admin | Admin dispute evidence: `GET /admin/deliveries/{deliveryId}/trail` (admin group only) with legs and pauses, and a Trip trail tab on the admin dispute detail (map, check-ins table, what the trail says), i18n in en, am and om. Spec §6.4. | xUnit tests for auth and the legs; admin tests for the tab. |
+| LT-13 | @Server @Admin | Admin dispute evidence: `GET /admin/deliveries/{deliveryId}/trail` (admin group only) with legs and pauses, and a Trip trail tab (map, check-ins table, what the trail says) on a new admin dispute detail page (the Disputes page is a list today; FRD-14 plans the full evidence view on the same page), i18n in en, am and om. Spec §6.4. | xUnit tests for auth and the legs; admin tests for the tab. |
 
 ---
 

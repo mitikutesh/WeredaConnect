@@ -46,7 +46,7 @@ After pickup, the trucker's phone reports where the truck is. The buyer and the 
 Board names refer to the design canvas.
 
 **Trucker** (Trucker · Share consent, Trip mode, Offline and pause)
-- After the trip's first pickup scan: a one-time sheet per trip, "Share where the truck is?", with who sees it, how often, when it stops, and the data cost (about 3 KB a day). "Share trip location" or "Not now, scans only".
+- After the trip's first pickup scan: a one-time sheet per trip, "Share where the truck is?", with who sees it, how often, when it stops, and the data cost (the daily figure LT-08 measures, §5.3). "Share trip location" or "Not now, scans only".
 - Trip mode: the trip header, sharing state with last and next check-in, Pause, Check in now, the next stop with I've arrived and Show QR, the stop list (pickups and drop-offs of this trip, with names: the trucker is a party to every order), and the pay for the trip.
 - Pause sheet: 15 min, 30 min, 1 hour, overnight until 06:00. Sharing resumes by itself. QR scans still record their place.
 - Offline banner: how many check-ins wait on the phone.
@@ -63,7 +63,7 @@ Board names refer to the design canvas.
 - "Your wheat is on the road": map card from the farmer's pickup, freshness, arrival window, a note that grey rings are other stops, the payment steps (paid into escrow, handed over, buyer confirms, 48 h, paid out), contact rows, and a link to the order details.
 
 **Admin** (Web · Admin dispute evidence)
-- A Trip trail tab on dispute detail: map, the check-ins with leg distance, time and speed, pauses, what the trail says (shared the whole way, no impossible jumps, stops off the stop list), and a reminder that the trail shows where the truck was, not what it carried.
+- A Trip trail tab on a dispute detail page (new: the admin Disputes page is a list today, and FRD-14 plans the full evidence view): map, the check-ins with leg distance, time and speed, pauses, what the trail says (shared the whole way, no impossible jumps, stops off the stop list), and a reminder that the trail shows where the truck was, not what it carried.
 
 **Every role**: freshness chips, the route ribbon and the map language follow the Foundations board.
 
@@ -93,7 +93,7 @@ Board names refer to the design canvas.
 
 - Each fix and event is a `location_ping` create in the existing sync queue (FIFO), so it waits offline like every other write.
 - Coalescing: when more than 24 location pings wait unsent, keep at most one `fix` per clock hour plus every event, so a long dead zone does not flood the queue ahead of a delivery scan.
-- About 120 bytes per ping; about 3 KB a day per truck.
+- About 600 bytes per ping in the sync request body with real ids (the operation envelope is most of it), so about 15 KB a day per truck at the hourly rate. A ping that goes up alone also carries the HTTP headers with the ID token, and often a new TLS connection, a few KB more. LT-08 measures the real daily figure with `DataUsageTracker` before the consent sheet quotes one.
 
 ### 5.4 Android
 
@@ -110,10 +110,10 @@ Accepted only when all hold (each refusal code is in the contract):
 - the caller is the trip's trucker;
 - the trip has at least one delivery that is `pickedUp` or `inTransit`, or that reached `delivered`, `cancelled` or `disputed` after `capturedAt` (late offline pings are kept);
 - `capturedAt` is at most 2 minutes in the future and at most 7 days old;
-- for `fix`: latitude 3 to 15, longitude 33 to 48 (Ethiopia with a margin), accuracy 0 to 5,000 m;
+- for `fix`: latitude 3 to 15, longitude 32.5 to 48.5 (Ethiopia with a margin), accuracy 0 to 5,000 m;
 - at most 20 fixes per trip per clock hour.
 
-Stored in `{prefix}-trip-locations`: PK `tripId`, SK `{capturedAt}#{kind}`, coordinates rounded to 4 decimals (about 11 m), `receivedAt`, `source`, `accuracyM`, `mocked`, `pausedUntil`, `expiresAt` = `capturedAt` + 60 days (TTL; the attribute name follows the existing tables, never `ttl`). Duplicates (same SK) are idempotent successes.
+Stored in `{prefix}-trip-locations`: PK `tripId`, SK `{capturedAt}#{kind}`, coordinates rounded to 4 decimals (about 11 m), `receivedAt`, `source`, `accuracyM`, `mocked`, `pausedUntil`, `expiresAt` = `capturedAt` + 60 days (TTL; the same attribute name as the rate-limits, notifications and fraud-signals tables, not `ttl` as on match-events). Duplicates (same SK) are idempotent successes.
 
 ### 6.2 Track (`GET /deliveries/{deliveryId}/track`)
 
@@ -150,7 +150,7 @@ Admin group only. Every fix and event from pickup to delivery at 4 decimals, wit
 - Credits on the about or licences screen: "© GeoNames (CC BY 4.0)" (and "© OpenStreetMap contributors" once roads ship).
 - Place data fixes (LT-02), found while validating the design on 2026-10-27:
   - display names without transliteration marks ("Mek’ī" → "Meki", "‘Alem T’ēna" → "Alem Tena", "K’ok’a" → "Koka");
-  - aliases: Adama (only "Nazrēt" today), Batu (Ziway), and "Debre Zeyit" pointing at Bishoftu instead of a village in Benishangul;
+  - aliases: Adama (the city is only "Nazrēt" today, and "Adama" finds a village in Amhara), Batu (Ziway), and "Debre Zeyit" pointing at Bishoftu instead of a village in Benishangul;
   - Amharic and Oromo names: 37 and 4 of 3,860 places have them. An overrides file curated for the top towns, each entry marked for native review.
 
 ## 9. Ethiopian clock (D3)
@@ -182,7 +182,7 @@ The place list has towns, not neighbourhoods (Merkato, Kality and Saris are miss
 ## 13. Constraints check
 
 - **Offline first**: pings queue offline; the buyer's map shows the last snapshot with its age; Fayda and payments already say they need network.
-- **Low-end phones and data**: no tiles, no new packages, about 3 KB a day per truck, about 2 KB per map refresh, a repaint only when data changes.
+- **Low-end phones and data**: no tiles, no new packages, about 15 KB a day of check-in bodies per truck (§5.3), about 2 KB per map refresh, a repaint only when data changes.
 - **Roles**: §7. Farmer never sees another farmer's crop; buyer browse is unchanged.
 - **Mobile and web**: every new screen exists on both. New Isar schemas get their web model pair; sync executor and queue changes land on both sides.
 - **Three languages**: every new string in en, am and om; the Amharic and Oromo copy on the canvas needs a native speaker's review before release.

@@ -19,9 +19,9 @@ A create-only entity. One operation per check-in or sharing event.
 ```json
 {
   "operationId": "uuid-v4",
-  "idempotencyKey": "trucker-789:location_ping:trip-101#1761558120000:create:1761558120000",
+  "idempotencyKey": "trucker-789:location_ping:trip-101#1793090520000:create:1793090520000",
   "entityType": "location_ping",
-  "entityId": "trip-101#1761558120000",
+  "entityId": "trip-101#1793090520000",
   "action": "create",
   "clientVersion": 1,
   "data": {
@@ -44,14 +44,14 @@ A create-only entity. One operation per check-in or sharing event.
 | `kind` | enum | yes | `fix`, `paused`, `resumed`, `declined` |
 | `source` | enum | `fix` only | `hourly`, `scan`, `near_stop`, `manual`, `arrived`, `start` |
 | `capturedAt` | ISO 8601 UTC | yes | when the phone took the fix or the driver acted; at most 2 minutes in the future, at most 7 days old |
-| `latitude`, `longitude` | number | `fix` only | latitude 3 to 15, longitude 33 to 48 |
+| `latitude`, `longitude` | number | `fix` only | latitude 3 to 15, longitude 32.5 to 48.5 |
 | `accuracyM` | number | `fix` only | 0 to 5,000 |
 | `mocked` | boolean | no | the platform flagged a mock location |
 | `pausedUntil` | ISO 8601 UTC | `paused` only | after `capturedAt`, at most 14 hours later |
 
 Accepted when the caller is the trip's trucker and the trip has a delivery that is `pickedUp` or `inTransit`, or that left those statuses after `capturedAt`. At most 20 `fix` operations per trip per clock hour.
 
-**Results**: `success` (stored, or an idempotent repeat of the same `entityId` and `kind`), or `failed` with one of the codes below. All of them are permanent: the client drops the operation and does not retry.
+**Results** (the `sync-protocol.md` statuses): `success` (stored, or an idempotent repeat of the same `entityId` and `kind`; a repeated idempotency key answers `duplicate`, as for every entity), or `error` with a `message` that starts with one of the codes below (`CODE: text`). All of them are permanent: the client drops the operation and does not retry.
 
 | Code | When |
 |---|---|
@@ -72,7 +72,7 @@ Accepted when the caller is the trip's trucker and the trip has a delivery that 
 
 ## 2. Track: `GET /deliveries/{deliveryId}/track`
 
-**Auth**: Cognito ID token. Only the delivery's `buyerId`, `farmerId` or `truckerId`. Anyone else, and an unknown delivery: `404 {"error":"DELIVERY_NOT_FOUND"}`.
+**Auth**: Cognito ID token. Only the delivery's `buyerId`, `farmerId` or `truckerId`. Anyone else, and an unknown delivery: `404` with the standard error body `{"error":{"code":"DELIVERY_NOT_FOUND","message":"Delivery not found."}}`.
 
 **Response** `200`:
 
@@ -91,7 +91,7 @@ Accepted when the caller is the trip's trucker and the trip has a delivery that 
   "dropoff": { "latitude": 9.03, "longitude": 38.74, "note": "Merkato, near Anwar Mosque" },
   "otherStops": [ { "kind": "dropoff", "latitude": 8.80, "longitude": 38.90, "done": false } ],
   "eta": { "from": "2026-10-27T10:20:00.000Z", "to": "2026-10-27T11:00:00.000Z" },
-  "remainingKm": 47.3,
+  "remainingKm": 52.7,
   "summary": null
 }
 ```
@@ -107,7 +107,7 @@ Accepted when the caller is the trip's trucker and the trip has a delivery that 
 | `eta`, `remainingKm` | §6.2 of the design; `null` when `not_started`, `declined` with no fix, or `ended` |
 | `summary` | only when `ended`: `{ "distanceKm", "durationMin", "fixes" }`; no coordinates |
 
-**Errors**: `401` without a valid token; `404` as above; `500 {"error":"TRACK_UNAVAILABLE"}` on a read failure (the client keeps its last snapshot).
+**Errors**: `401` without a valid token; `404` as above; `500` with code `TRACK_UNAVAILABLE` in the same body on a read failure (the client keeps its last snapshot).
 
 Clients poll at most every 5 minutes while a track screen is visible and keep the last response per delivery for offline display.
 
