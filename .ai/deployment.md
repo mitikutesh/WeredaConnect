@@ -140,6 +140,29 @@ python3 scripts/e2e_admin.py   # dev defaults; --base-url / --client-id to overr
 
 Staging and prod are never auto-seeded: create admins by hand (prod requires MFA).
 
+### 3b2. Manual on dev: three-party acceptance (ESC-15, ESC-21)
+
+After a dev deploy that touches orders, trips, deliveries, escrows or the notification
+pipeline, run the three-party acceptance with the dev test users (`.ai/test-users.md`):
+
+```bash
+python3 scripts/e2e_three_party.py                 # all scenarios, about 5 minutes
+python3 scripts/e2e_three_party.py --only A,B      # some of them
+python3 scripts/e2e_three_party.py --cron-function wereda-connect-dev-order-cron  # with AWS credentials
+```
+
+It walks the sequential commitments (`order-lifecycle.md` 2.0.0) and checks after each
+step what the server holds and what each party's inbox (`GET /notifications`) says:
+A happy path (the trucker cannot answer before the farmer; the farmer accepts, then the
+trucker; the trip's room goes down; the trucker creates the delivery), B the trucker
+declines and the buyer cancels for a refund, C no buyer cancel on a funded order, D
+self-pickup, E the farmer declines, F a trip without room refuses the second payment,
+G the trucker cancels a trip with orders on it, H the farmer's deadline stamp (and,
+with `--cron-function`, one `commitment_deadlines` run). With `COMMITMENTS_ENABLED` off
+it runs only the legacy accept and skips the rest; without the notifications pipeline
+it skips the inbox checks. It is not in CI (it writes orders, trips and listings under
+the three test users, and the Actions budget is small). Exit code 1 on a failed check.
+
 ### 3c. Post-deploy on every environment: legacy trucker legs (ESC-04)
 
 `deploy-server.yml` ends every run (dev, staging, prod), once the CDK deploy
