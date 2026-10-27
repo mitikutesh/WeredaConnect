@@ -95,6 +95,18 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new AdminFunction().FunctionHandler, serializer),
 
+            // ESC-21: DynamoDB Streams consumer for the orders/deliveries/escrows tables (raw Stream
+            // in/out, like CropMatchStreamFunction). Checked BEFORE the Order* handlers so the
+            // substring match is unambiguous.
+            var h when h.Contains("OrderNotifyStreamFunction") =>
+                HandlerWrapper.GetHandlerWrapper(
+                    (Func<Stream, ILambdaContext, Task<Stream>>)new OrderNotifyStreamFunction().ProcessStreamAsync),
+
+            // ESC-21: GET /notifications (the inbox the stream consumer fills).
+            var h when h.Contains("NotificationFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new NotificationFunction().FunctionHandler, serializer),
+
             var h when h.Contains("OrderCronFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new OrderCronFunction().FunctionHandler, serializer),

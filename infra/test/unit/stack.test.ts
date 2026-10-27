@@ -21,10 +21,11 @@ describe('DatabaseStack', () => {
     template = Template.fromStack(stack);
   });
 
-  test('creates nineteen DynamoDB tables with PAY_PER_REQUEST billing', () => {
+  test('creates twenty DynamoDB tables with PAY_PER_REQUEST billing', () => {
     // 12 core + intents + device_tokens + match_events + ratings + transaction-audit
-    // + delivery-qr-secrets + messages (in-app chat) = 19.
-    template.resourceCountIs('AWS::DynamoDB::Table', 19);
+    // + delivery-qr-secrets + messages (in-app chat) = 19,
+    // + notifications (order notification inbox, ESC-21) = 20.
+    template.resourceCountIs('AWS::DynamoDB::Table', 20);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       BillingMode: 'PAY_PER_REQUEST',
       PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
@@ -79,6 +80,58 @@ describe('DatabaseStack', () => {
     });
   });
 
+  test('ESC-21: orders, deliveries and escrows stream old and new images to the notifier', () => {
+    // The notification rules compare the old and new status, so NEW_IMAGE is not enough.
+    for (const table of ['orders', 'deliveries', 'escrows']) {
+      template.hasResourceProperties('AWS::DynamoDB::Table', {
+        TableName: `wereda-connect-dev-${table}`,
+        StreamSpecification: { StreamViewType: 'NEW_AND_OLD_IMAGES' },
+      });
+    }
+  });
+
+  test('ESC-21: the notifications inbox is keyed by recipient and sort key, expires on expiresAt, one LSI on write time', () => {
+    const tables = template.findResources('AWS::DynamoDB::Table', {
+      Properties: { TableName: 'wereda-connect-dev-notifications' },
+    });
+    const ids = Object.keys(tables);
+    expect(ids).toHaveLength(1);
+    const props = tables[ids[0]].Properties;
+    expect(props.KeySchema).toEqual([
+      { AttributeName: 'userId', KeyType: 'HASH' },
+      { AttributeName: 'sortKey', KeyType: 'RANGE' },
+    ]);
+    expect(props.AttributeDefinitions).toEqual(expect.arrayContaining([
+      { AttributeName: 'userId', AttributeType: 'S' },
+      { AttributeName: 'sortKey', AttributeType: 'S' },
+      { AttributeName: 'writtenAt', AttributeType: 'S' },
+    ]));
+    expect(props.AttributeDefinitions).toHaveLength(3);
+    // The server writes expiresAt in epoch seconds (90 days after the row is created).
+    expect(props.TimeToLiveSpecification).toEqual({ AttributeName: 'expiresAt', Enabled: true });
+    expect(props.GlobalSecondaryIndexes).toBeUndefined();
+    // The incremental pull reads by write time, strongly consistent (only a local index can).
+    expect(props.LocalSecondaryIndexes).toEqual([
+      {
+        IndexName: 'WrittenAtIndex',
+        KeySchema: [
+          { AttributeName: 'userId', KeyType: 'HASH' },
+          { AttributeName: 'writtenAt', KeyType: 'RANGE' },
+        ],
+        Projection: { ProjectionType: 'ALL' },
+      },
+    ]);
+    // Nothing consumes the inbox as a stream.
+    expect(props.StreamSpecification).toBeUndefined();
+    expect(props.BillingMode).toBe('PAY_PER_REQUEST');
+  });
+
+  test('ESC-21: the notifications table name is a stack output', () => {
+    template.hasOutput('NotificationsTableName', {
+      Value: { Ref: Match.stringLikeRegexp('^NotificationsTable') },
+    });
+  });
+
   test('creates S3 buckets with encryption (uploads + access logs)', () => {
     template.resourceCountIs('AWS::S3::Bucket', 2);
     template.hasResourceProperties('AWS::S3::Bucket', {
@@ -121,6 +174,7 @@ describe('ApiStack', () => {
       matchEventsTable: dbStack.matchEventsTable,
       ratingsTable: dbStack.ratingsTable,
       messagesTable: dbStack.messagesTable,
+      notificationsTable: dbStack.notificationsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -149,8 +203,9 @@ describe('ApiStack', () => {
     // Prior 20 (core + match + device-token + crop-match-stream + ratings, plus
     // the delivery-qr-secrets work) + messages (read) + message-stream (push) = 22,
     // + auth-verify-otp (SMS phone proof) + the dev-only mock Fayda provider = 24,
-    // + account deletion and its sweep (ACC-02) = 26.
-    template.resourceCountIs('AWS::Lambda::Function', 26);
+    // + account deletion and its sweep (ACC-02) = 26,
+    // + order-notify-stream and the notifications inbox read (ESC-21) = 28.
+    template.resourceCountIs('AWS::Lambda::Function', 28);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
@@ -176,8 +231,179 @@ describe('ApiStack', () => {
     // (ESC-02, manual payout queue) → 58,
     // plus GET /admin/payments/unapplied and POST /admin/payments/{orderId}/refund-manual
     // (FUP-02, manual refund of an unapplied payment) → 60,
-    // plus DELETE /user/account (ACC-02) → 61 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 61);
+    // plus DELETE /user/account (ACC-02) → 61,
+    // plus GET /notifications (ESC-21, order notification inbox) → 62 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 62);
+  });
+
+  // ─── ESC-21: order notifications (stream consumer + inbox read) ───
+  const NOTIFY_STREAM_FN = 'wereda-connect-dev-order-notify-stream';
+  const NOTIFICATIONS_FN = 'wereda-connect-dev-notifications';
+
+  /** Logical id of the Lambda with this function name. */
+  function lambdaId(functionName: string): string {
+    const fns = template.findResources('AWS::Lambda::Function', {
+      Properties: { FunctionName: functionName },
+    });
+    const ids = Object.keys(fns);
+    expect([functionName, ids.length]).toEqual([functionName, 1]);
+    return ids[0];
+  }
+
+  /** Every IAM action the role with this prefix holds on resources whose JSON matches. */
+  function roleActions(rolePrefix: string, resourceMatch: (resource: string) => boolean): string[] {
+    return [
+      ...Object.entries(template.findResources('AWS::IAM::Policy')),
+      ...Object.entries(template.findResources('AWS::IAM::ManagedPolicy')),
+    ]
+      .filter(([id]) => id.startsWith(rolePrefix))
+      .flatMap(
+        ([, policy]) =>
+          policy.Properties.PolicyDocument.Statement as Array<{ Action: string | string[]; Resource: unknown }>,
+      )
+      .filter((s) => resourceMatch(JSON.stringify(s.Resource)))
+      .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+  }
+
+  test('ESC-21: five stream mappings; the notifier reads orders and escrows on MODIFY, deliveries on INSERT', () => {
+    // crop-match-stream + message-stream + the three order notifier sources.
+    template.resourceCountIs('AWS::Lambda::EventSourceMapping', 5);
+
+    const dlqs = template.findResources('AWS::SQS::Queue', {
+      Properties: { QueueName: 'wereda-connect-dev-notify-dlq' },
+    });
+    expect(Object.keys(dlqs)).toHaveLength(1);
+    const dlqId = Object.keys(dlqs)[0];
+    const fnId = lambdaId(NOTIFY_STREAM_FN);
+
+    const mappings = Object.values(
+      template.findResources('AWS::Lambda::EventSourceMapping', {
+        Properties: { FunctionName: { Ref: fnId } },
+      }),
+    ).map((m) => m.Properties);
+    expect(mappings).toHaveLength(3);
+
+    for (const [tableLogicalPrefix, eventName] of [
+      ['OrdersTable', 'MODIFY'],
+      ['DeliveriesTable', 'INSERT'],
+      ['EscrowsTable', 'MODIFY'],
+    ]) {
+      const onTable = mappings.filter((m) =>
+        JSON.stringify(m.EventSourceArn).includes(`FnGetAtt${tableLogicalPrefix}`),
+      );
+      expect([tableLogicalPrefix, onTable.length]).toEqual([tableLogicalPrefix, 1]);
+      const m = onTable[0];
+      // The stream ARN, not the table ARN.
+      expect(JSON.stringify(m.EventSourceArn)).toContain('StreamArn');
+      expect([tableLogicalPrefix, m.FilterCriteria]).toEqual([
+        tableLogicalPrefix,
+        { Filters: [{ Pattern: JSON.stringify({ eventName: [eventName] }) }] },
+      ]);
+      expect(m).toMatchObject({
+        StartingPosition: 'LATEST',
+        BatchSize: 10,
+        MaximumRetryAttempts: 3,
+        BisectBatchOnFunctionError: true,
+        FunctionResponseTypes: ['ReportBatchItemFailures'],
+        MaximumRecordAgeInSeconds: 86400,
+        DestinationConfig: { OnFailure: { Destination: { 'Fn::GetAtt': [dlqId, 'Arn'] } } },
+      });
+    }
+  });
+
+  test('ESC-21: the notify DLQ keeps failed batch records for 14 days, SQS-managed encryption', () => {
+    template.hasResourceProperties('AWS::SQS::Queue', {
+      QueueName: 'wereda-connect-dev-notify-dlq',
+      MessageRetentionPeriod: 14 * 24 * 3600,
+      SqsManagedSseEnabled: true,
+    });
+    // TLS only: the queue policy denies any request without SecureTransport.
+    template.hasResourceProperties('AWS::SQS::QueuePolicy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({ Effect: 'Deny', Condition: { Bool: { 'aws:SecureTransport': 'false' } } }),
+        ]),
+      }),
+    });
+    // The only queue in the stack.
+    template.resourceCountIs('AWS::SQS::Queue', 1);
+  });
+
+  test('ESC-21: order-notify-stream has its tables in env and only the grants it uses', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: NOTIFY_STREAM_FN,
+      Timeout: 30,
+      MemorySize: 256,
+      Environment: {
+        Variables: Match.objectLike({
+          FUNCTION_HANDLER: 'OrderNotifyStreamFunction',
+          DEVICE_TOKENS_TABLE: Match.anyValue(),
+          USERS_TABLE: Match.anyValue(),
+          NOTIFICATIONS_TABLE: Match.anyValue(),
+        }),
+      },
+    });
+
+    const role = 'OrderNotifyStreamFunctionServiceRole';
+    // Exactly the calls it makes: the conditional inbox PutItem, the recipients' languages
+    // (BatchGetItem, no Scan or Query of the users table), the endpoint lookup and the prune.
+    expect(roleActions(role, (r) => r.includes('NotificationsTable')).sort()).toEqual(['dynamodb:PutItem']);
+    expect(roleActions(role, (r) => r.includes('UsersTable')).sort()).toEqual(['dynamodb:BatchGetItem']);
+    expect(roleActions(role, (r) => r.includes('DeviceTokensTable')).sort()).toEqual(['dynamodb:DeleteItem', 'dynamodb:Query']);
+    // Push through SNS to the FCM endpoints only.
+    expect(roleActions(role, (r) => r.includes('endpoint/GCM/wereda-connect-dev-fcm/*'))).toEqual(['sns:Publish']);
+    // The event source mappings deliver failed batch metadata to the DLQ.
+    expect(roleActions(role, (r) => r.includes('OrderNotifyDlq'))).toContain('sqs:SendMessage');
+    // Stream reads on the three source streams.
+    for (const table of ['OrdersTable', 'DeliveriesTable', 'EscrowsTable']) {
+      const stream = roleActions(role, (r) => r.includes(`FnGetAtt${table}`) && r.includes('StreamArn'));
+      expect([table, stream]).toEqual([table, expect.arrayContaining(['dynamodb:GetRecords', 'dynamodb:GetShardIterator'])]);
+    }
+  });
+
+  test('ESC-21: GET /notifications sits on the mobile JWT authorizer and only reads the inbox', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const mobileAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'CognitoAuthorizer')?.[0];
+    expect(mobileAuthorizerId).toBeDefined();
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'GET /notifications',
+      AuthorizationType: 'JWT',
+      AuthorizerId: { Ref: mobileAuthorizerId },
+    });
+
+    // The integration targets the inbox Lambda with the 1.0 payload, like /messages.
+    const fnId = lambdaId(NOTIFICATIONS_FN);
+    const integrations = Object.values(template.findResources('AWS::ApiGatewayV2::Integration')).filter((i) =>
+      JSON.stringify(i.Properties.IntegrationUri).includes(fnId),
+    );
+    expect(integrations).toHaveLength(1);
+    expect(integrations[0].Properties.PayloadFormatVersion).toBe('1.0');
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: NOTIFICATIONS_FN,
+      Timeout: 10,
+      MemorySize: 256,
+      Environment: {
+        Variables: Match.objectLike({
+          FUNCTION_HANDLER: 'NotificationFunction',
+          NOTIFICATIONS_TABLE: Match.anyValue(),
+          PAGINATION_SECRET_ARN: '/wereda-connect-dev/pagination-secret',
+        }),
+      },
+    });
+
+    const role = 'NotificationFunctionServiceRole';
+    const inbox = roleActions(role, (r) => r.includes('NotificationsTable'));
+    expect(inbox).toContain('dynamodb:Query');
+    // The since pull queries WrittenAtIndex.
+    expect(roleActions(role, (r) => r.includes('NotificationsTable') && r.includes('/index/*'))).toContain('dynamodb:Query');
+    for (const write of ['dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:DeleteItem', 'dynamodb:BatchWriteItem']) {
+      expect([write, inbox.includes(write)]).toEqual([write, false]);
+    }
+    expect(roleActions(role, (r) => r.includes('parameter/wereda-connect-dev/pagination-secret'))).toContain(
+      'ssm:GetParameter',
+    );
   });
 
   test('manual payout queue routes sit on the admin authorizer (ESC-02)', () => {
@@ -697,6 +923,7 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
       matchEventsTable: dbStack.matchEventsTable,
       ratingsTable: dbStack.ratingsTable,
       messagesTable: dbStack.messagesTable,
+      notificationsTable: dbStack.notificationsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -1046,6 +1273,7 @@ describe('ApiStack (prod security)', () => {
       matchEventsTable: dbStack.matchEventsTable,
       ratingsTable: dbStack.ratingsTable,
       messagesTable: dbStack.messagesTable,
+      notificationsTable: dbStack.notificationsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -1170,6 +1398,7 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
       matchEventsTable: dbStack.matchEventsTable,
       ratingsTable: dbStack.ratingsTable,
       messagesTable: dbStack.messagesTable,
+      notificationsTable: dbStack.notificationsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -2175,6 +2404,91 @@ describe('MonitoringStack', () => {
         expect(body).toMatch(webhookAlarmRef);
       } else {
         expect(body).not.toMatch(webhookAlarmRef);
+      }
+    }
+  });
+
+  // ESC-21: the order notification stream consumer. Standalone alarms (the aggregate
+  // LambdaErrors expression is at its 10 metric cap), referenced by name.
+  function lambdaMetric(metricName: string, stat: string) {
+    return Match.objectLike({
+      MetricStat: Match.objectLike({
+        Metric: Match.objectLike({
+          Namespace: 'AWS/Lambda',
+          MetricName: metricName,
+          Dimensions: [{ Name: 'FunctionName', Value: 'wereda-connect-dev-order-notify-stream' }],
+        }),
+        Period: 300,
+        Stat: stat,
+      }),
+    });
+  }
+
+  test('ESC-21: a message in the notify DLQ alarms until the queue is drained', () => {
+    const template = monitoringTemplate(false);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-notify-dlq-messages',
+      Metrics: [
+        Match.objectLike({
+          MetricStat: Match.objectLike({
+            Metric: Match.objectLike({
+              Namespace: 'AWS/SQS',
+              MetricName: 'ApproximateNumberOfMessagesVisible',
+              Dimensions: [{ Name: 'QueueName', Value: 'wereda-connect-dev-notify-dlq' }],
+            }),
+            Period: 300,
+          }),
+        }),
+      ],
+      Threshold: 1,
+      ComparisonOperator: 'GreaterThanOrEqualToThreshold',
+      EvaluationPeriods: 1,
+      DatapointsToAlarm: Match.absent(),
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
+  test('ESC-21: the notifier falling 15 minutes behind its streams alarms', () => {
+    const template = monitoringTemplate(false);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-notify-stream-iterator-age',
+      Metrics: [lambdaMetric('IteratorAge', 'Maximum')],
+      Threshold: 900000,
+      ComparisonOperator: 'GreaterThanThreshold',
+      EvaluationPeriods: 1,
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
+  test('ESC-21: any failed notifier invocation alarms', () => {
+    const template = monitoringTemplate(false);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-notify-stream-errors',
+      Metrics: [lambdaMetric('Errors', 'Sum')],
+      Threshold: 0,
+      ComparisonOperator: 'GreaterThanThreshold',
+      EvaluationPeriods: 1,
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
+  test('ESC-21: the notifier alarms page and clear on the alarm topic, fit their descriptions, and sit on the dashboard', () => {
+    for (const live of [false, true]) {
+      const template = monitoringTemplate(live);
+      const topicRef = [{ Ref: Match.stringLikeRegexp('^AlarmTopic') }];
+      const alarms = template.findResources('AWS::CloudWatch::Alarm');
+      for (const name of ['notify-dlq-messages', 'notify-stream-iterator-age', 'notify-stream-errors']) {
+        template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+          AlarmName: `wereda-connect-dev-${name}`,
+          AlarmActions: topicRef,
+          OKActions: topicRef,
+        });
+        const alarm = Object.values(alarms).find((a) => a.Properties.AlarmName === `wereda-connect-dev-${name}`);
+        expect([name, alarm!.Properties.AlarmDescription.length < 1024]).toEqual([name, true]);
+      }
+      const body = JSON.stringify(template.findResources('AWS::CloudWatch::Dashboard'));
+      for (const logicalId of ['NotifyDlqMessages', 'NotifyStreamIteratorAge', 'NotifyStreamErrors']) {
+        expect(body).toMatch(new RegExp(`"Fn::GetAtt":\\["${logicalId}[0-9A-F]+","Arn"\\]`));
       }
     }
   });

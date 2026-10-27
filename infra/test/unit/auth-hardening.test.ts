@@ -38,6 +38,7 @@ function buildApi(
     matchEventsTable: dbStack.matchEventsTable,
     ratingsTable: dbStack.ratingsTable,
     messagesTable: dbStack.messagesTable,
+    notificationsTable: dbStack.notificationsTable,
     transactionAuditTable: dbStack.transactionAuditTable,
     uploadsBucket: dbStack.uploadsBucket,
   });

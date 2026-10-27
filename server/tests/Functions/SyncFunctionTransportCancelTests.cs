@@ -640,6 +640,8 @@ public partial class SyncFunctionTransportCancelTests
     [InlineData("transport_failed_buyer_cancelled")]
     [InlineData("  Escrow_Refunded ")]
     [InlineData("buyer_withdrew")]
+    [InlineData("account_deleted")]
+    [InlineData("Auto-cancelled: no payment within 24 hours.")]
     public async Task FundedCancel_ClientTextSpellingAServerCode_IsKeptAsANote(string text)
     {
         _order = Order(status: "funded", version: 4);

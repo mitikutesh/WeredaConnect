@@ -102,6 +102,21 @@ public static class OrderCommitment
         "date", "capacity", "price", "route", "crop_not_ready", "other"
     };
 
+    /// <summary>
+    /// Codes only the server writes into <c>cancelReason</c> (order-lifecycle.md 2.0.0). Sync moves a
+    /// client text that spells one to <c>cancelNote</c>, and the notification rules trust only these,
+    /// so no client cancel can pass for a server decision.
+    /// </summary>
+    public static readonly IReadOnlySet<string> ServerCancelReasons = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        Helpers.PickupDeadline.CancelReason, "escrow_refunded", "buyer_withdrew", "unpaid_expired",
+        "farmer_response_expired", "farmer_cancelled", "farmer_no_show", "transport_not_arranged",
+        "listing_out_of_stock", "buyer_no_show", AccountDeletionPolicy.CancelReason
+    };
+
+    /// <summary>Start of the sentence the unpaid-order cron writes into <c>cancelReason</c> (no code yet).</summary>
+    public const string LegacyAutoCancelPrefix = "Auto-cancelled";
+
     public const string AcceptCommand = "accept";
     public const string DeclineCommand = "decline";
 

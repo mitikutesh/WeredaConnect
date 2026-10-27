@@ -33,6 +33,7 @@ export class DatabaseStack extends cdk.Stack {
   public readonly matchEventsTable: dynamodb.Table;
   public readonly ratingsTable: dynamodb.Table;
   public readonly messagesTable: dynamodb.Table;
+  public readonly notificationsTable: dynamodb.Table;
   public readonly uploadsBucket: s3.Bucket;
   public readonly accessLogsBucket: s3.Bucket;
 
@@ -189,12 +190,14 @@ export class DatabaseStack extends cdk.Stack {
       Enabled: true,
     });
 
-    // Deliveries table
+    // Deliveries table. The NEW_AND_OLD_IMAGES stream feeds
+    // OrderNotifyStreamFunction (ESC-21), which only reads INSERT events here.
     const deliveries = new WeredaDynamoTable(this, "DeliveriesTable", {
       tableName: `${prefix}-deliveries`,
       partitionKey: { name: "deliveryId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "tripId", type: dynamodb.AttributeType.STRING },
       isProd: envConfig.isProd,
+      stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
     });
     this.deliveriesTable = deliveries.table;
 
@@ -291,12 +294,15 @@ export class DatabaseStack extends cdk.Stack {
 
     // ─── R4.3 Escrow Tables (per escrow-protocol.md) ──────────────
 
-    // Escrows table (server-authoritative, not sync-based)
+    // Escrows table (server-authoritative, not sync-based). The
+    // NEW_AND_OLD_IMAGES stream feeds OrderNotifyStreamFunction (ESC-21): the
+    // rules compare the old and new status of each MODIFY.
     const escrows = new WeredaDynamoTable(this, "EscrowsTable", {
       tableName: `${prefix}-escrows`,
       partitionKey: { name: "escrowId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
       isProd: envConfig.isProd,
+      stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
     });
     this.escrowsTable = escrows.table;
 
@@ -474,11 +480,14 @@ export class DatabaseStack extends cdk.Stack {
     });
 
     // ─── Orders Table (buyer-initiated orders) ─────────────────────
+    // The NEW_AND_OLD_IMAGES stream feeds OrderNotifyStreamFunction (ESC-21):
+    // the rules compare the old and new status of each MODIFY.
     const orders = new WeredaDynamoTable(this, "OrdersTable", {
       tableName: `${prefix}-orders`,
       partitionKey: { name: "orderId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
       isProd: envConfig.isProd,
+      stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
     });
     this.ordersTable = orders.table;
 
@@ -656,6 +665,31 @@ export class DatabaseStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // ─── Notifications Table (order notification inbox, ESC-21) ────
+    // One row per notification for its recipient, written by
+    // OrderNotifyStreamFunction and read by GET /notifications. The sort key is
+    // `{createdAt}#{type}#{entityId}`, so a recipient's partition reads newest
+    // first and the conditional put makes a retried stream record a no-op.
+    // Rows expire on `expiresAt` (epoch seconds, 90 days after creation). No
+    // GSI: the only read is one recipient's own partition. The local index
+    // WrittenAtIndex (sort key `writtenAt`, when the row was first written)
+    // serves the client's incremental pull: rows land out of event order (three
+    // streams in parallel, retries up to a day late), and a local index reads
+    // strongly consistent. An LSI can only be created with the table.
+    const notifications = new WeredaDynamoTable(this, "NotificationsTable", {
+      tableName: `${prefix}-notifications`,
+      partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "sortKey", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+      timeToLiveAttribute: "expiresAt",
+    });
+    notifications.table.addLocalSecondaryIndex({
+      indexName: "WrittenAtIndex",
+      sortKey: { name: "writtenAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+    this.notificationsTable = notifications.table;
+
     // S3 access logs bucket (F-18: audit logging for compliance)
     this.accessLogsBucket = new s3.Bucket(this, "AccessLogsBucket", {
       bucketName: `${bucketPrefix}-access-logs-${this.account}`,
@@ -783,6 +817,11 @@ export class DatabaseStack extends cdk.Stack {
     new cdk.CfnOutput(this, "MessagesTableName", {
       value: this.messagesTable.tableName,
       description: "DynamoDB Messages Table (in-app chat)",
+    });
+
+    new cdk.CfnOutput(this, "NotificationsTableName", {
+      value: this.notificationsTable.tableName,
+      description: "DynamoDB Notifications Table (order notification inbox)",
     });
   }
 }

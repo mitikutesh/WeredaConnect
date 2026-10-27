@@ -43,6 +43,11 @@ closed-app delivery). See the decision discussion in the Step 5 plan.
 | `CropMatchStreamFunction` | Lambda (stream consumer) | On `INSERT` of an available crop: find candidate intents, score with `MatchScoring`, publish to each matching buyer's endpoint. |
 | SNS Platform Application | SNS (`wereda-connect-{env}-fcm`) | Holds FCM v1 credential; relays publishes to FCM. |
 | `SyncFunction` (extended) | Lambda | New `buyer_intent` entityType handler (create/update/delete) writing to `intents`. |
+| orders, deliveries, escrows table **Streams** | DynamoDB Streams | `NEW_AND_OLD_IMAGES` (ESC-21): the rules compare both images to tell what changed. Event-source filters: orders `MODIFY`, deliveries `INSERT`, escrows `MODIFY`. |
+| `notifications` table | DynamoDB | The inbox (ESC-21). PK `userId`, SK `{createdAt}#{type}#{entityId}`, TTL `expiresAt` (90 days). The conditional put on that key is the pipeline's idempotency record. |
+| `OrderNotifyStreamFunction` | Lambda (stream consumer, ESC-21) | One function on the three streams: `NotificationRules` derives one event per party (`notifications-api.md` section 3), the inbox row is put, the push text is rendered in the recipient's language and published to each of their endpoints. |
+| `NotificationFunction` | Lambda (`GET /notifications`, ESC-21) | The caller's inbox page, newest first, `since` and `nextToken` paging. Any role; scoped to the caller. |
+| `{prefix}-notify-dlq` | SQS (ESC-21) | Dead-letter queue of the three event-source mappings (section 6). |
 
 ## 4. Data flow
 
@@ -75,6 +80,28 @@ farmer lists crop → POST /sync → crops table PutItem
            SNS.Publish(endpointArn, {title, body, data:{intentId, cropId}})
 ```
 
+**Order, delivery and money notifications (ESC-21)**
+```
+sync / cron / webhook / admin writes an order, delivery or escrow row
+  → DynamoDB Stream (NEW_AND_OLD_IMAGES; orders MODIFY, deliveries INSERT, escrows MODIFY)
+  → OrderNotifyStreamFunction(record):
+       events = NotificationRules.Derive(OLD image, NEW image)   # 0..3, one per party, never the actor
+       for each event:
+         put notifications { userId, sortKey = createdAt#type#entityId, ... }   # conditional, once
+         if event.Push:
+           read the recipient's preferredLanguage and endpoints (users, device-tokens)
+           title/body = PushText.Render(type, params, language)
+           SNS.Publish(endpointArn, {notification:{title, body, tag:order-<orderId>},
+                                     data:{type:order, event, orderId, entityId, entity, notificationId}},
+                       AWS.SNS.MOBILE.FCM.TTL = seconds to the deadline (min 60) | 86400)
+
+device → GET /notifications?since=<cursor of the last pull>   # on open, resume and push
+  → NotificationFunction → query WrittenAtIndex PK = caller, writtenAt > since - 2 min,
+    newest write first (client dedupes by notificationId); response carries the next cursor
+```
+The inbox is the source of truth and web reads it alone (no push). Contract:
+`specs/contracts/notifications-api.md`.
+
 > **Numeric filtering caveat** (from research): DynamoDB stream event-source filters cannot
 > match numeric ranges (values are stringified). So the mapping filters only on
 > `eventName = INSERT`; crop-type / price / quantity matching is done in the Lambda using
@@ -101,7 +128,17 @@ which this crop is an accepted substitute. The substitute map is symmetric in pr
 - The stream Lambda is idempotent-friendly: a failed publish to a stale endpoint disables
   that endpoint (SNS) and is logged; other endpoints/buyers are unaffected.
 - Stream retries are bounded by the event-source mapping; a poison record is sent to a DLQ
-  (to be configured) rather than blocking the shard.
+  rather than blocking the shard. For the ESC-21 mappings the DLQ is configured:
+  `{prefix}-notify-dlq` (SQS-managed encryption, 14 day retention). It receives the record's
+  shard and sequence metadata, not the images, so the runbook is to re-derive the event from
+  the current table state within the stream's 24 hour retention. The mappings retry three
+  times, bisect a failing batch on error and drop records older than one day (max record age).
+- The order notification pipeline is idempotent by construction: the inbox put is conditional
+  on `{createdAt}#{type}#{entityId}` (the stream record's time, stable across retries), and a
+  repeated push is collapsed on the device by its `tag`.
+- Three alarms on the monitoring topic: `NotifyDlqMessages` (anything in the queue),
+  `NotifyStreamIteratorAge` (the function is falling behind) and `NotifyStreamErrors`
+  (Lambda errors). The crop match and message mappings keep their earlier retry-only setup.
 
 ## 7. Security / privacy
 
@@ -121,4 +158,4 @@ which this crop is an accepted substitute. The substitute map is symmetric in pr
 
 ---
 
-**Last Updated**: 2026-06-19
+**Last Updated**: 2026-10-26 (ESC-21 order notifications added to sections 3, 4 and 6)

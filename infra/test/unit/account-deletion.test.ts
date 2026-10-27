@@ -39,6 +39,7 @@ function apiTemplate(): Template {
     matchEventsTable: db.matchEventsTable,
     ratingsTable: db.ratingsTable,
     messagesTable: db.messagesTable,
+    notificationsTable: db.notificationsTable,
     transactionAuditTable: db.transactionAuditTable,
     uploadsBucket: db.uploadsBucket,
   });
