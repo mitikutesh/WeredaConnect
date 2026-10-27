@@ -181,11 +181,23 @@ public sealed class UserRepository : IUserRepository
         });
 
     /// <summary>Rounds of BatchGetItem for the keys DynamoDB left unprocessed (throttling, size cap).</summary>
-    private const int MaxPhoneBatchAttempts = 3;
+    private const int MaxBatchGetAttempts = 3;
 
-    public async Task<IReadOnlyDictionary<string, string>> GetPhoneNumbersAsync(IReadOnlyCollection<string> userIds)
+    public Task<IReadOnlyDictionary<string, string>> GetPhoneNumbersAsync(IReadOnlyCollection<string> userIds)
+        => GetStringAttributeAsync(userIds, "phoneNumber");
+
+    public Task<IReadOnlyDictionary<string, string>> GetPreferredLanguagesAsync(IReadOnlyCollection<string> userIds)
+        => GetStringAttributeAsync(userIds, "preferredLanguage");
+
+    /// <summary>
+    /// One string attribute of many users by userId (BatchGetItem, that attribute only). Users with
+    /// no row or no value are left out, and so are keys DynamoDB still left unprocessed after a few
+    /// retries: callers degrade (no phone shown, default language) rather than fail.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, string>> GetStringAttributeAsync(
+        IReadOnlyCollection<string> userIds, string attribute)
     {
-        var phones = new Dictionary<string, string>(StringComparer.Ordinal);
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
         var distinct = userIds.Where(id => !string.IsNullOrEmpty(id)).Distinct(StringComparer.Ordinal).ToList();
 
         // BatchGetItem takes at most 100 keys per request.
@@ -199,12 +211,12 @@ public sealed class UserRepository : IUserRepository
                     {
                         { "userId", new AttributeValue { S = id } }
                     }).ToList(),
-                    ProjectionExpression = "userId, phoneNumber"
+                    ProjectionExpression = $"userId, {attribute}"
                 }
             };
 
             // The low-level client does not retry UnprocessedKeys by itself.
-            for (var attempt = 0; requestItems.Count > 0 && attempt < MaxPhoneBatchAttempts; attempt++)
+            for (var attempt = 0; requestItems.Count > 0 && attempt < MaxBatchGetAttempts; attempt++)
             {
                 if (attempt > 0)
                 {
@@ -217,10 +229,10 @@ public sealed class UserRepository : IUserRepository
                     foreach (var item in items)
                     {
                         var id = item.TryGetValue("userId", out var uid) ? uid.S : null;
-                        var phone = item.TryGetValue("phoneNumber", out var pn) ? pn.S : null;
-                        if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(phone))
+                        var value = item.TryGetValue(attribute, out var av) ? av.S : null;
+                        if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(value))
                         {
-                            phones[id] = phone;
+                            values[id] = value;
                         }
                     }
                 }
@@ -231,7 +243,7 @@ public sealed class UserRepository : IUserRepository
             }
         }
 
-        return phones;
+        return values;
     }
 
     public async Task<UserDto?> GetUserByFaydaIdAsync(string faydaId)

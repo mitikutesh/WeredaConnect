@@ -253,7 +253,9 @@ repeated logins don't stack listeners.
 **Payload contract (must stay in sync with `MessageStreamFunction.cs`):** chat
 pushes carry `data.type == "message"` plus `conversationId`/`messageId`/`senderId`/
 `contextType`/`contextId`; buyer-match pushes carry `{intentId, cropId}` and no
-`type`. The client filter is `PushNotificationService.isMessagePush`.
+`type`. The client filter is `PushNotificationService.isMessagePush`. Order pushes
+(ESC-21, §5a) carry `data.type == "order"` plus `event`/`orderId`/`notificationId`;
+see `specs/contracts/notifications-api.md` section 2.
 
 Tap-to-open routing — still DEFERRED (needs a global navigator key). When built,
 register a background handler in `main()` and handle taps:
@@ -279,6 +281,58 @@ paused/hidden stops the 60s timer (3G data budget), resume/tab-refocus restarts 
 with an immediate throttled catch-up pull, and sign-out resets it. See
 `InboxPaused`/`InboxResumed`/`InboxReset` in `inbox_bloc.dart` and the
 `WidgetsBindingObserver` in `message_arrival_listener.dart`.
+
+---
+
+## 5a. Order notifications (ESC-21)
+
+Every party of an order (buyer, farmer, trucker) gets an inbox entry and an Android push for
+each state and money change: the farmer is asked to accept a funded order, the trucker to
+take the transport, the buyer told about pickup, delivery, refunds, payouts and disputes.
+Contract: `specs/contracts/notifications-api.md`. Design: section 4 of
+`specs/architecture/push-notifications-architecture.md`.
+
+**What a dev tester needs**: nothing new to create. The pushes go through the same
+`wereda-connect-dev-fcm` platform application and the same `POST /device-tokens`
+registration as the match and chat alerts (§2a, §5). The CDK deploy adds the
+`wereda-connect-dev-notifications` table, the `wereda-connect-dev-order-notify-stream`
+Lambda on the orders, deliveries and escrows streams, `GET /notifications`, the
+`wereda-connect-dev-notify-dlq` queue and three alarms.
+
+**Verify without a device**: the inbox is the source of truth, so a funded order is enough.
+
+1. As the buyer (`+251900100003`), place an order on one of the farmer's crops and submit the
+   payment. Dev runs `TELEBIRR_MOCK=true`, so the order is `funded` within a second.
+2. Log in as the farmer (`+251900100001`) and read the inbox with the **ID token** (the
+   access token has no role claim and is refused):
+
+   ```bash
+   API=https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com
+   TOKEN=$(curl -s -X POST "$API/auth/login" -H 'Content-Type: application/json' \
+     -d '{"phoneNumber":"+251900100001","password":"TestPass1dev"}' | jq -r '.idToken')
+   curl -s "$API/notifications?limit=5" -H "Authorization: Bearer $TOKEN" | jq .
+   ```
+
+   The newest entry is `"type": "order_request"` with the buyer's name, the crop, the
+   quantity, the amount and `deadlineAt`. The buyer's own inbox shows `payment_confirmed`
+   for the same order.
+3. With a registered device the farmer also gets the push (title and body in the farmer's
+   `preferredLanguage`, tag `order-<orderId>`), and the tap opens the order.
+
+**The log line to look for** (one per emitted event):
+
+```bash
+aws logs tail /aws/lambda/wereda-connect-dev-order-notify-stream --region eu-north-1 --follow \
+  --filter-pattern NOTIFY_EMITTED
+# NOTIFY_EMITTED type=order_request entity=order entityId=<orderId> recipient=<farmerUserId> push=true new=true
+```
+
+`new=false` is a stream replay that found its inbox row already written (harmless; the push is
+collapsed by tag on the device). No line at all after a funding means the stream mapping or
+the filter is wrong: `aws dynamodb describe-table --table-name wereda-connect-dev-orders
+--query 'Table.StreamSpecification'` must show `NEW_AND_OLD_IMAGES`. A message in
+`wereda-connect-dev-notify-dlq` means a record failed three times; re-derive it from the
+order row (the queue holds only shard metadata) and check the `NotifyStreamErrors` alarm.
 
 ---
 
@@ -351,4 +405,4 @@ aws sns publish --region eu-north-1 \
 **See also**: `specs/architecture/push-notifications-architecture.md` (design),
 `specs/contracts/push-alerts-api.md` (API contract), `.ai/deployment.md` (full deploy reference).
 
-**Last Updated**: 2026-06-19
+**Last Updated**: 2026-10-26

@@ -42,7 +42,8 @@ interface DynamoTableDef {
  * Cost: ~$7/month (1 dashboard @ $3 + 12 alarms @ $0.10 + 9 custom metrics from the log
  * filters @ $0.30). The live gateway adds 5 alarms and 2 metrics on the API alarm ($0.70),
  * 2 log metrics ($0.60) and the webhook route's 6 detailed API Gateway metrics (at most
- * $1.80, billed only for hours with webhook traffic; FUP-39). Metric filters are free.
+ * $1.80, billed only for hours with webhook traffic; FUP-39). The order notification
+ * stream adds 3 alarms ($0.30; ESC-21). Metric filters are free.
  *
  * References Lambda functions and DynamoDB tables by name (no cross-stack refs needed).
  */
@@ -1507,6 +1508,92 @@ export class MonitoringStack extends cdk.Stack {
     accountDeletionStuckAlarm.addAlarmAction(snsAction);
     accountDeletionStuckAlarm.addOkAction(snsAction);
 
+    // ESC-21: the order notification stream consumer (orders, deliveries and escrows streams
+    // into the inbox table and FCM). Three standalone alarms: the aggregate LambdaErrors
+    // expression is already at its 10 metric cap. Names follow the api-stack resources
+    // (`${prefix}-notify-dlq`, `${prefix}-order-notify-stream`); no cross-stack refs.
+    const notifyStreamFunctionName = `${prefix}-order-notify-stream`;
+
+    // A batch that failed every retry, or a record older than one day, is dropped from the
+    // stream and its metadata lands in the DLQ. Messages stay visible until purged (14 day
+    // retention), so the alarm holds until someone drains the queue.
+    const notifyDlqAlarm = new cloudwatch.Alarm(this, 'NotifyDlqMessages', {
+      alarmName: `${prefix}-notify-dlq-messages`,
+      alarmDescription:
+        'Order notifications were dropped: a stream batch from the orders, deliveries or escrows ' +
+        'table failed all its retries or was older than one day, so its inbox rows and pushes were ' +
+        'never written (the orders, deliveries and escrows themselves are unaffected). Each message ' +
+        'in the notify-dlq queue holds the stream ARN, shard and sequence range of the dropped ' +
+        'records, not the records; the table stream keeps them for 24 hours. Find the derive or ' +
+        'inbox write error in the order-notify-stream log group, fix it, then purge the queue to ' +
+        'clear this alarm.',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/SQS',
+        metricName: 'ApproximateNumberOfMessagesVisible',
+        dimensionsMap: { QueueName: `${prefix}-notify-dlq` },
+        statistic: 'Maximum',
+        period: cdk.Duration.minutes(5),
+        label: 'Notify DLQ Messages',
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator:
+        cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    notifyDlqAlarm.addAlarmAction(snsAction);
+    notifyDlqAlarm.addOkAction(snsAction);
+
+    // The consumer is falling behind its streams: notifications arrive late, and a record that
+    // reaches one day of age is dropped to the DLQ instead of delivered.
+    const notifyIteratorAgeAlarm = new cloudwatch.Alarm(this, 'NotifyStreamIteratorAge', {
+      alarmName: `${prefix}-notify-stream-iterator-age`,
+      alarmDescription:
+        'order-notify-stream is more than 15 minutes behind the orders, deliveries or escrows ' +
+        'stream, so order notifications and pushes are late. Usual causes: a record failing and ' +
+        'retrying (see the log group), throttling at its reserved concurrency, or slow SNS or ' +
+        'DynamoDB calls. A record that reaches one day of age is dropped to the notify-dlq queue.',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/Lambda',
+        metricName: 'IteratorAge',
+        dimensionsMap: { FunctionName: notifyStreamFunctionName },
+        statistic: 'Maximum',
+        period: cdk.Duration.minutes(5),
+        label: 'Notify Stream Iterator Age',
+      }),
+      threshold: 900000,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    notifyIteratorAgeAlarm.addAlarmAction(snsAction);
+    notifyIteratorAgeAlarm.addOkAction(snsAction);
+
+    // The handler reports a failed record through the partial batch response, which is not a
+    // Lambda error. Errors here mean the invocation itself died.
+    const notifyStreamErrorsAlarm = new cloudwatch.Alarm(this, 'NotifyStreamErrors', {
+      alarmName: `${prefix}-notify-stream-errors`,
+      alarmDescription:
+        'order-notify-stream invocations failed: timeout, out of memory, a runtime crash or a ' +
+        'missing environment variable. A failed record alone never counts here (it is retried ' +
+        'through the partial batch response). The whole batch is retried, bisected, and dropped ' +
+        'to the notify-dlq queue if it keeps failing. Check the order-notify-stream log group.',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/Lambda',
+        metricName: 'Errors',
+        dimensionsMap: { FunctionName: notifyStreamFunctionName },
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(5),
+        label: 'Notify Stream Errors',
+      }),
+      threshold: 0,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    notifyStreamErrorsAlarm.addAlarmAction(snsAction);
+    notifyStreamErrorsAlarm.addOkAction(snsAction);
+
     // ─── Alarm Status Widget (summary at bottom of dashboard) ────────
     dashboard.addWidgets(
       new cloudwatch.AlarmStatusWidget({
@@ -1533,6 +1620,10 @@ export class MonitoringStack extends cdk.Stack {
           orderMoneyMismatchAlarm,
           riskSettlementSkippedAlarm,
           accountDeletionStuckAlarm,
+          // ESC-21 order notification stream
+          notifyDlqAlarm,
+          notifyIteratorAgeAlarm,
+          notifyStreamErrorsAlarm,
           ...(orderPaymentProblemsAlarm ? [orderPaymentProblemsAlarm] : []),
           ...(webhook5xxAlarm ? [webhook5xxAlarm] : []),
           ...(webhookErrorsAlarm ? [webhookErrorsAlarm] : []),
