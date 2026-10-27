@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-2.0.0
+2.1.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -566,14 +566,37 @@ therefore returned only after the trucker's accept, and an order or delivery thr
 takes messages only then (`MESSAGE_CONTACT_LOCKED` before). Behind the flag; off, the 1.18.0 rule
 applies unchanged.
 
-### Clients (what the client PRs add before the flag is turned on)
+### Clients (2.1.0, app build 3: ESC-22, ESC-23)
 
-- Mobile and web: `awaiting_transport` in the wire mapping, the timeline step and its tooltip
-  (`statusAwaitingTransportInfo`, en, am and om); Accept and Decline for the trucker on a `funded`
-  order asked of them; the farmer's accept that leaves a trip order `funded` ("waiting for the
-  trucker"); the buyer's Cancel in `awaiting_transport` and none on `funded`; the deadlines as
-  "Answer by" rows; the `AUTH_040` prompt on the committed cancels; the local guards (a trucker
-  response only from the order's trucker on a pending request).
+- Mobile and web parse `awaiting_transport` and every commitment field, and read a status they do
+  not know as `unknown` ("Updating", no actions; spec K1). The timeline has an
+  `awaiting_transport` branch (created, funded, transport fell through) with its tooltip in en, am
+  and om.
+- **The server decides, the client mirrors.** `farmerResponseOf` / `truckerResponseOf` derive an
+  unstamped row's answers as the server does (K2). A `fulfillment` stamp, written at funding only
+  with `COMMITMENTS_ENABLED` on, tells the client the server runs the commitments. Without it the
+  client keeps the rules from before 2.0.0: the farmer's accept is final, the buyer may cancel a
+  `funded` order, and there is no trucker command, drop-out or farmer committed cancel. A staging
+  or production server with the flag off therefore sees the same requests as from build 2, except
+  that the farmer's answer is sent as the command (`sync-protocol.md` 1.30.0).
+- Order detail: a "Who has agreed" section on `funded`, `awaiting_transport` and `accepted` (one row
+  per party with its state and deadline in Ethiopia time) and a note for the viewer: the answer
+  they owe and by when, why a paid order cannot be cancelled while the parties decide, or what to do
+  after the transport failed. The farmer's Accept and Reject show only while the farmer's answer is
+  pending; the trucker's Accept and Decline (with a reason sheet) only once the farmer accepted;
+  the committed trucker's "I can't make this delivery" on `accepted`; the farmer's "Cancel without
+  penalty" on `awaiting_transport` and the warned cancel on `accepted`; the buyer's Cancel on
+  `awaiting_transport` (full refund) and not on `funded`.
+- The local guards refuse what the server would: a trucker answer from anyone but the order's
+  trucker or before the farmer accepted, and the cancels above. The optimistic row shows the
+  server's result (a trip order stays `funded` with the trucker asked) until the next pull.
+- Contact per party: the trucker appears in an order's contact list, and sees the parties, only
+  once committed (`truckerResponse: accepted`); a funded order opens contact at the farmer's accept.
+- Home shows "Action needed" cards per role (answer, keep the crops, set up the delivery, pay, pay
+  again, decide after a failed transport, check a delivery), each opening the order.
+- Trips: the owner sees the trip's booked orders; cards show the room left
+  (`remainingQuintals`); match suggestions skip trips without room for the intent; with several
+  suggested trips the buyer chooses one, and place order names the trucker, route, day and room.
 - Older clients keep working while the flag is off. With the flag on, a client that sends
   `status: cancelled` on a `funded` order gets `ORDER_CANCEL_NOT_ALLOWED` and reverts (1.11.0); a
   farmer's legacy `status: accepted` on a trip order is taken as `farmerResponse: accept` and the
@@ -585,8 +608,8 @@ applies unchanged.
   refunds through the ledger.
 - Reputation points for a decline, an expiry or a drop-out (`faultParty` is recorded for them;
   ESC-26 and later).
-- Push notifications for the asks, reminders and failures (markers only; ESC-21).
-- Client UI (PRs 2 to 4 of this change).
+- Push notifications for the asks, reminders and failures (ESC-21, `notifications-api.md`).
+- The fleet acceptance run (PR 4 of this change).
 
 ---
 
@@ -704,6 +727,8 @@ its stock. Ratings stay blocked, and contact closes at `dispute_resolved`
 (1.18.0). The clients already show `dispute_resolved`; no client change.
 
 ## Changelog
+
+- **2.1.0 (2026-10-27)**: Clients for the commitments (ESC-22, ESC-23, app build 3): `awaiting_transport` and `unknown` on mobile and web, the commitment fields parsed, the farmer's answer sent as `farmerResponse`, the trucker's command and drop-out, the cancel rules mirrored, per-party contact, the "Who has agreed" section, Action-needed cards, trip bookings and room left. The `fulfillment` stamp is the client's signal that the server runs the commitments; without it the client keeps the rules from before 2.0.0. `COMMITMENTS_ENABLED` is on in dev, off in staging and production. No server change.
 
 - **2.0.0 (2026-10-26)**: Sequential commitments (ESC-15, server slice, behind `COMMITMENTS_ENABLED`, off everywhere until the clients ship): funding stamps `fulfillment`, `pickupDate`, `farmerResponse: pending`, `farmerDeadlineAt` and `truckerResponse: not_asked | none` and reserves the trip capacity; the farmer answers with `farmerResponse: accept | decline` (legacy `status: accepted | rejected` mapped), and an accept on a trip order keeps the order `funded` and asks the trucker (`truckerResponse: pending`, `truckerAskedAt`, `truckerDeadlineAt`); the trucker answers with `truckerResponse: accept | decline`, the accept makes the order `accepted`, stamps `pickupDeadlineAt` and confirms the booking in one transaction, the decline moves it to the new system-managed status `awaiting_transport` (`transportFailure`, `buyerChoiceDeadlineAt` = now + 48h, `faultParty: trucker`); a trip full or cancelled while the money is held goes there too without asking the farmer, as does a trucker drop-out from `accepted` (fresh sign-in, `AUTH_040`); the exits are the buyer's cancel (full refund), the farmer's cancel (no penalty) and the 48 hour deadline (`transport_not_arranged`); a buyer `funded → cancelled` is refused with `ORDER_CANCEL_NOT_ALLOWED`, and the farmer may cancel from `accepted` before pickup with a fresh sign-in (`farmer_cancelled`); the hourly cron action `commitment_deadlines` cancels a farmer's no-answer (`farmer_response_expired`), expires the trucker's (`trucker_expired`), stamps the 6 hour reminder markers and `pickupOverdueNotifiedAt`, and catches orders of a cancelled trip; the payment gate refuses a trip that is no longer open, too small or departing in under 12 hours, and order create a trip departing in under 24 hours or a quantity above `remainingQuintals` (`TRIP_CAPACITY_EXCEEDED`); contact opens per party (buyer and farmer at the farmer's accept, the trucker at theirs); `ORDER_RESPONSE_NOT_PENDING` and `ORDER_DEADLINE_PASSED` are permanent; 18 new server-only order fields, all returned by `GET /orders`. Companion contracts: `trip-listing-api.md` 2.0.0, `sync-protocol.md` 1.29.0, `escrow-protocol.md` 1.34.0, `data-models.md` 1.1.0. Replacement truck and the self-pickup switch stay ESC-19/20.
 - **1.27.0 (2026-10-23)**: Payout delay (FRD-13, `escrow-protocol.md` 1.33.0): a `delivered` order whose farmer or trucker is new or flagged stays `delivered` until its escrow's `releaseNotBefore` (at most 72 hours after delivery with the defaults, never before the 48 hour dispute window ends), then follows the money as before. The dispute window is unchanged. No status, transition or client change on the order.

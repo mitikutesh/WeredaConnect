@@ -25,6 +25,9 @@ import {
   deliveryStatusLabel,
   timelineActionLabel,
   adminQueueLabel,
+  commitmentResponseLabel,
+  transportFailureLabel,
+  partyLabel,
   deriveStage,
 } from "@/lib/transaction";
 import { partyName } from "@/lib/user";
@@ -131,6 +134,40 @@ export function TransactionDetailPage() {
                 <Badge variant="warning">{adminQueueLabel(s(order.adminQueueReason), t)}</Badge>{" "}
                 {order.adminQueuedAt ? formatDateTime(s(order.adminQueuedAt)) : ""}
               </Field>
+            ) : null}
+            {/* ESC-15: the farmer is asked first, then the trucker; the deadlines the cron enforces. */}
+            {order.farmerResponse ? (
+              <Field label={t("transactions.farmerResponse")}>
+                {commitmentResponseLabel(s(order.farmerResponse), t)}
+              </Field>
+            ) : null}
+            {order.farmerDeadlineAt ? (
+              <Field label={t("transactions.farmerDeadline")}>
+                {formatDateTime(s(order.farmerDeadlineAt))}
+              </Field>
+            ) : null}
+            {order.truckerResponse ? (
+              <Field label={t("transactions.truckerResponse")}>
+                {commitmentResponseLabel(s(order.truckerResponse), t)}
+              </Field>
+            ) : null}
+            {order.truckerDeadlineAt ? (
+              <Field label={t("transactions.truckerDeadline")}>
+                {formatDateTime(s(order.truckerDeadlineAt))}
+              </Field>
+            ) : null}
+            {order.transportFailure ? (
+              <Field label={t("transactions.transportFailureLabel")}>
+                <Badge variant="warning">{transportFailureLabel(s(order.transportFailure), t)}</Badge>
+              </Field>
+            ) : null}
+            {order.buyerChoiceDeadlineAt ? (
+              <Field label={t("transactions.buyerChoiceDeadline")}>
+                {formatDateTime(s(order.buyerChoiceDeadlineAt))}
+              </Field>
+            ) : null}
+            {order.cancelledBy ? (
+              <Field label={t("transactions.cancelledBy")}>{partyLabel(s(order.cancelledBy), t)}</Field>
             ) : null}
           </dl>
         </Card>

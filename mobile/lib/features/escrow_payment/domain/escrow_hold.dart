@@ -19,6 +19,7 @@ String orderEscrowId(String orderId) => 'escrow-order-$orderId';
 /// money), so the order screens show "Under Review" only at these.
 const orderHoldableStatuses = {
   OrderStatus.funded,
+  OrderStatus.awaitingTransport,
   OrderStatus.accepted,
   OrderStatus.pickupConfirmed,
   OrderStatus.inTransit,

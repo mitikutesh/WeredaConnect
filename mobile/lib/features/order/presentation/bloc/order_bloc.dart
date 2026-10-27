@@ -39,6 +39,8 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
     on<FilterOrders>(_onFilterOrders);
     on<AcceptOrder>(_onAcceptOrder);
     on<RejectOrder>(_onRejectOrder);
+    on<TruckerAcceptOrder>(_onTruckerAcceptOrder);
+    on<TruckerDeclineOrder>(_onTruckerDeclineOrder);
     on<CreateOrder>(_onCreateOrder);
     on<SubmitPayment>(_onSubmitPayment);
     on<CancelOrder>(_onCancelOrder);
@@ -119,6 +121,41 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
         reason: event.reason,
       );
       emit(const OrderRejected());
+    } on Object catch (e) {
+      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
+    }
+  }
+
+  Future<void> _onTruckerAcceptOrder(
+    TruckerAcceptOrder event,
+    Emitter<OrderState> emit,
+  ) async {
+    emit(const OrderLoading());
+    try {
+      await _repository.respondAsTrucker(
+        event.orderId,
+        event.truckerId,
+        accept: true,
+      );
+      emit(const TruckerResponded(accepted: true));
+    } on Object catch (e) {
+      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
+    }
+  }
+
+  Future<void> _onTruckerDeclineOrder(
+    TruckerDeclineOrder event,
+    Emitter<OrderState> emit,
+  ) async {
+    emit(const OrderLoading());
+    try {
+      await _repository.respondAsTrucker(
+        event.orderId,
+        event.truckerId,
+        accept: false,
+        declineReason: event.declineReason,
+      );
+      emit(const TruckerResponded(accepted: false));
     } on Object catch (e) {
       emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
     }

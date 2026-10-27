@@ -124,6 +124,36 @@ class Order {
   String? buyerPhone;
   String? farmerPhone;
   String? truckerPhone;
+
+  /// ESC-15: `trucker` (trip order) or `self_pickup`, stamped by the server
+  /// when the money is held; null before (see order_commitment.dart).
+  String? fulfillment;
+
+  /// ESC-15: the farmer's answer to the paid order: `pending`, `accepted`,
+  /// `declined` or `expired`. Server-written; null on a row it never stamped.
+  String? farmerResponse;
+
+  /// ESC-15: the trucker's answer: `none` (self-pickup), `not_asked` (the
+  /// farmer has not accepted yet), `pending`, `accepted`, `declined`,
+  /// `expired`, `cancelled` or `failed_capacity`. Server-written.
+  String? truckerResponse;
+
+  /// ESC-15: when the farmer's and the trucker's answers are due (UTC).
+  DateTime? farmerDeadlineAt;
+  DateTime? truckerDeadlineAt;
+
+  /// ESC-15: in `awaitingTransport`, until when the buyer may decide (UTC).
+  DateTime? buyerChoiceDeadlineAt;
+
+  /// ESC-15: why the transport failed (`trucker_declined`, `trucker_expired`,
+  /// `trucker_cancelled`, `trip_cancelled`, `trip_full`).
+  String? transportFailure;
+
+  /// ESC-15: the decline reason code the farmer or trucker gave.
+  String? declineReason;
+
+  /// ESC-15: who ended the order: `buyer`, `farmer`, `trucker` or `system`.
+  String? cancelledBy;
 }
 
 /// Status of an order in its lifecycle
@@ -172,4 +202,12 @@ enum OrderStatus {
 
   /// Dispute has been resolved
   disputeResolved,
+
+  /// ESC-15: the transport fell through after payment; the buyer decides
+  /// (cancel for a full refund). Server-managed.
+  awaitingTransport,
+
+  /// A status this app version does not know (a newer server). Shown as
+  /// "Updating" with no actions until the app is updated.
+  unknown,
 }

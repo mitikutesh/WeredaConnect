@@ -3073,4 +3073,434 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deletedUser => 'የተሰረዘ ተጠቃሚ';
+
+  @override
+  String get statusAwaitingTransport => 'ማጓጓዣ አልተገኘም';
+
+  @override
+  String get statusAwaitingTransportInfo =>
+      'የጭነት መኪና ሹፌሩ ይህን ትዕዛዝ ማጓጓዝ አልቻለም። ገንዘቡ በጥንቃቄ ተይዞ ይቆያል። ገዢው ሰርዘው ገንዘቡን ሙሉ በሙሉ ማስመለስ ይችላሉ፤ በጊዜው ካልወሰኑ ትዕዛዙ ተሰርዞ ገንዘቡ ይመለሳል።';
+
+  @override
+  String get orderStatusUpdating => 'በመዘመን ላይ';
+
+  @override
+  String get orderStatusUpdatingInfo =>
+      'ይህ ትዕዛዝ ይህ የመተግበሪያ ስሪት ሊያሳየው በማይችለው መንገድ ተቀይሯል። እባክዎ መተግበሪያውን ያዘምኑ።';
+
+  @override
+  String get commitmentTitle => 'ማን ተስማምቷል';
+
+  @override
+  String get commitmentAccepted => 'ተቀብለዋል';
+
+  @override
+  String commitmentWaitingUntil(String time) {
+    return 'እየተጠበቀ ነው፤ መልሱ እስከ $time';
+  }
+
+  @override
+  String get commitmentWaiting => 'መልስ እየተጠበቀ ነው';
+
+  @override
+  String get commitmentDeclined => 'ውድቅ አድርገዋል';
+
+  @override
+  String get commitmentExpired => 'በጊዜው አልመለሱም';
+
+  @override
+  String get commitmentNotAskedYet => 'ገበሬው ሲቀበሉ ይጠየቃሉ';
+
+  @override
+  String get commitmentTripCancelled => 'ጉዞው ተሰርዟል';
+
+  @override
+  String get commitmentTripFull => 'ጉዞው ሞልቶ ነበር';
+
+  @override
+  String get commitmentDroppedOut => 'አቋርጠዋል';
+
+  @override
+  String commitmentAnswerBy(String time) {
+    return 'እባክዎ እስከ $time ይመልሱ።';
+  }
+
+  @override
+  String get commitmentBuyerWaitingNote =>
+      'ገንዘብዎ በጥንቃቄ ተይዟል። መጀመሪያ ገበሬው ይጠየቃሉ፣ ከዚያ የጭነት መኪና ሹፌሩ። እነሱ እስኪወስኑ ድረስ የተከፈለ ትዕዛዝ መሰረዝ አይቻልም።';
+
+  @override
+  String get commitmentTruckerNotAskedNote => 'ገበሬው ገና አልተቀበሉም። ሲቀበሉ ይጠየቃሉ።';
+
+  @override
+  String get truckerAcceptRequest => 'ማጓጓዙን ተቀበል';
+
+  @override
+  String get truckerDeclineRequest => 'ውድቅ አድርግ';
+
+  @override
+  String get declineReasonTitle => 'ለምን ውድቅ ያደርጋሉ?';
+
+  @override
+  String get declineReasonDate => 'ቀኑ አይመቸኝም';
+
+  @override
+  String get declineReasonCapacity => 'በቂ ቦታ የለም';
+
+  @override
+  String get declineReasonPrice => 'ዋጋው አይመቸኝም';
+
+  @override
+  String get declineReasonRoute => 'መንገዱ አይመቸኝም';
+
+  @override
+  String get declineReasonCropNotReady => 'ሰብሉ ዝግጁ አይደለም';
+
+  @override
+  String get declineReasonOther => 'ሌላ ምክንያት';
+
+  @override
+  String get truckerDropOut => 'ይህን ማጓጓዝ አልችልም';
+
+  @override
+  String get truckerDropOutWarning =>
+      'ገዢው ይነገራቸዋል፣ ሰርዘው ገንዘባቸውን ሙሉ በሙሉ ማስመለስ ይችላሉ። ከተቀበሉ በኋላ ማቋረጥ በእርስዎ ላይ ይቆጠራል። እንደገና እንዲገቡ ይጠየቃሉ።';
+
+  @override
+  String get farmerCancelWithoutPenalty => 'ያለ ቅጣት ሰርዝ';
+
+  @override
+  String get farmerCancelCommittedWarning =>
+      'ከተቀበሉ በኋላ መሰረዝ በእርስዎ ላይ ይቆጠራል፣ ገዢውም ገንዘባቸውን ሙሉ በሙሉ ይመለስላቸዋል። እንደገና እንዲገቡ ይጠየቃሉ።';
+
+  @override
+  String get farmerCancelAwaitingTransportBody =>
+      'ማጓጓዣው ስለቀረ መሰረዝ በእርስዎ ላይ አይቆጠርም። ገዢው ገንዘባቸውን ሙሉ በሙሉ ይመለስላቸዋል።';
+
+  @override
+  String transportFailedBuyerBody(String deadline) {
+    return 'የጭነት መኪና ሹፌሩ ይህን ትዕዛዝ ማጓጓዝ አልቻለም። እስከ $deadline ሰርዘው ገንዘብዎን ሙሉ በሙሉ ያስመልሱ። እስከዚያ ካልወሰኑ ትዕዛዙ ተሰርዞ ገንዘብዎ ይመለሳል።';
+  }
+
+  @override
+  String get transportFailedBuyerBodyNoDeadline =>
+      'የጭነት መኪና ሹፌሩ ይህን ትዕዛዝ ማጓጓዝ አልቻለም። ሰርዘው ገንዘብዎን ሙሉ በሙሉ ማስመለስ ይችላሉ።';
+
+  @override
+  String get transportFailedFarmerBody =>
+      'የዚህ ትዕዛዝ ማጓጓዣ ቀርቷል። ገዢው እስኪወስኑ ድረስ እባክዎ ሰብሉን ይያዙ።';
+
+  @override
+  String get cancelOrderAwaitingTransportBody =>
+      'ለዚህ ትዕዛዝ የተያዘው ገንዘብ ሙሉ በሙሉ ይመለስልዎታል።';
+
+  @override
+  String get errorResponseNotPending =>
+      'ይህ ጥያቄ ለእርስዎ ክፍት አይደለም፤ ገበሬው ገና አልተቀበሉም ወይም ቀድሞ መልስ ተሰጥቶታል።';
+
+  @override
+  String get transportFailureTruckerDeclined => 'የጭነት መኪና ሹፌሩ ውድቅ አድርገዋል';
+
+  @override
+  String get transportFailureTruckerExpired => 'የጭነት መኪና ሹፌሩ በጊዜው አልመለሱም';
+
+  @override
+  String get transportFailureTruckerCancelled => 'የጭነት መኪና ሹፌሩ አቋርጠዋል';
+
+  @override
+  String get transportFailureTripCancelled => 'ጉዞው ተሰርዟል';
+
+  @override
+  String get transportFailureTripFull => 'ጉዞው ሞልቶ ነበር';
+
+  @override
+  String get actionNeededTitle => 'እርምጃ ያስፈልጋል';
+
+  @override
+  String get actionAnswerOrder => 'ለአዲሱ ትዕዛዝ መልስ ይስጡ';
+
+  @override
+  String get actionAnswerTransport => 'ለማጓጓዣ ጥያቄው መልስ ይስጡ';
+
+  @override
+  String get actionKeepCrops => 'ሰብሉን ይያዙ፤ ገዢው እየወሰኑ ነው';
+
+  @override
+  String get actionSetUpDelivery => 'ማጓጓዣውን ያዘጋጁ';
+
+  @override
+  String get actionPay => 'ለትዕዛዙ ይክፈሉ';
+
+  @override
+  String get actionPayAgain => 'ክፍያው አልተሳካም፤ እንደገና ይክፈሉ';
+
+  @override
+  String get actionDecideTransport => 'ማጓጓዣ አልተገኘም፤ ይወስኑ';
+
+  @override
+  String get actionCheckDelivery => 'የደረሰውን ያረጋግጡ';
+
+  @override
+  String actionDueBy(String time) {
+    return 'እስከ $time';
+  }
+
+  @override
+  String get tripBookings => 'የተያዙ ትዕዛዞች';
+
+  @override
+  String get tripNoBookings => 'ገና የተያዘ ትዕዛዝ የለም';
+
+  @override
+  String tripRemainingCapacity(String quintals) {
+    return '$quintals ኩንታል ክፍት';
+  }
+
+  @override
+  String get chooseTrip => 'የጭነት መኪና ይምረጡ';
+
+  @override
+  String get notifGenericTitle => 'የትዕዛዝ መረጃ';
+
+  @override
+  String get notifGenericBody => 'ምን እንደተለወጠ ለማየት ትዕዛዙን ይክፈቱ።';
+
+  @override
+  String get notifPaymentConfirmedTitle => 'ክፍያዎ ደርሷል';
+
+  @override
+  String get notifPaymentConfirmedBody =>
+      'የከፈሉት ገንዘብ በጥንቃቄ ተይዟል። ገበሬው መልስ ሲሰጡ እናሳውቅዎታለን።';
+
+  @override
+  String get notifOrderRequestTitle => 'አዲስ ትዕዛዝ';
+
+  @override
+  String notifOrderRequestBody(String buyer) {
+    return '$buyer ከፍለዋል፤ ገንዘቡ እስከ ርክክብ በጥንቃቄ ይቆያል። እባክዎ ይቀበሉ ወይም ውድቅ ያድርጉ።';
+  }
+
+  @override
+  String get notifFarmerAcceptedTitle => 'ገበሬው ተቀብለዋል';
+
+  @override
+  String notifFarmerAcceptedBody(String farmer) {
+    return '$farmer ትዕዛዝዎን ተቀብለዋል። አሁን የጭነት መኪና ሹፌሩን እየጠየቅን ነው።';
+  }
+
+  @override
+  String get notifTransportRequestTitle => 'የማጓጓዝ ጥያቄ';
+
+  @override
+  String notifTransportRequestBody(String farmer) {
+    return '$farmer በጉዞዎ ላይ ያለ ትዕዛዝ ተቀብለዋል። እባክዎ ማጓጓዙን ይቀበሉ ወይም ውድቅ ያድርጉ።';
+  }
+
+  @override
+  String get notifOrderConfirmedTitle => 'ትዕዛዙ ተረጋግጧል';
+
+  @override
+  String get notifOrderConfirmedBody => 'ሁሉም ወገኖች በትዕዛዙ ተስማምተዋል።';
+
+  @override
+  String get notifOrderRejectedTitle => 'ትዕዛዙ ውድቅ ሆኗል';
+
+  @override
+  String notifOrderRejectedBody(String farmer) {
+    return '$farmer ትዕዛዝዎን አልተቀበሉም። ገንዘብዎ ይመለስልዎታል።';
+  }
+
+  @override
+  String get notifTransportFailedTitle => 'ማጓጓዣ አልተገኘም';
+
+  @override
+  String get notifTransportFailedBody =>
+      'የጭነት መኪና ሹፌሩ ትዕዛዝዎን ማጓጓዝ አልቻለም። እባክዎ ይወስኑ፤ ሰርዘው ገንዘብዎን ሙሉ በሙሉ ማስመለስ ይችላሉ።';
+
+  @override
+  String get notifTransportFailedKeepCropsTitle => 'ማጓጓዣው ቀርቷል';
+
+  @override
+  String get notifTransportFailedKeepCropsBody =>
+      'የዚህ ትዕዛዝ የጭነት መኪና ሹፌር አቋርጠዋል። ገዢው እስኪወስኑ ድረስ እባክዎ ሰብሉን ይያዙ።';
+
+  @override
+  String get notifRequestExpiredTitle => 'ጥያቄው ተዘግቷል';
+
+  @override
+  String get notifRequestExpiredBody => 'በጊዜው መልስ ስላልተሰጠ ጥያቄው ተዘግቷል።';
+
+  @override
+  String get notifRequestOnHoldTitle => 'ጥያቄው ለጊዜው ቆሟል';
+
+  @override
+  String get notifRequestOnHoldBody =>
+      'ለዚህ ትዕዛዝ ማጓጓዣ አልተገኘም። ገዢው እየወሰኑ ስለሆነ አሁን መልስ መስጠት አያስፈልግዎትም።';
+
+  @override
+  String get notifOrderCancelledTitle => 'ትዕዛዙ ተሰርዟል';
+
+  @override
+  String get notifOrderCancelledBody => 'ትዕዛዙ ተሰርዟል። የተያዘ ገንዘብ ካለ ለገዢው ይመለሳል።';
+
+  @override
+  String get notifOrderExpiredUnpaidTitle => 'ትዕዛዙ ተዘግቷል';
+
+  @override
+  String get notifOrderExpiredUnpaidBody =>
+      'ትዕዛዝዎ በጊዜው ስላልተከፈለ ተዘግቷል። አዲስ ትዕዛዝ ማስገባት ይችላሉ።';
+
+  @override
+  String get notifPaymentFailedTitle => 'ክፍያው አልተሳካም';
+
+  @override
+  String get notifPaymentFailedBody => 'ክፍያዎ አልተሳካም። እባክዎ እንደገና ይሞክሩ።';
+
+  @override
+  String get notifRequestReminderTitle => 'መልስዎ ያስፈልጋል';
+
+  @override
+  String get notifRequestReminderBody => 'ይህ ትዕዛዝ መልስዎን እየጠበቀ ነው።';
+
+  @override
+  String get notifPickupOverdueTitle => 'ሰብሉ በጊዜው አልተነሳም';
+
+  @override
+  String get notifPickupOverdueBody =>
+      'ትዕዛዝዎ በጊዜው አልተነሳም። ሙሉ ገንዘብ ማስመለስን ጨምሮ አማራጮችዎን ለማየት ይክፈቱት።';
+
+  @override
+  String get notifPickupMissedTitle => 'የመጫኛ ጊዜው አልፏል';
+
+  @override
+  String get notifPickupMissedBody =>
+      'ትዕዛዙ በጊዜው አልተነሳም። ገዢው አሁን ሰርዘው ገንዘባቸውን ማስመለስ ይችላሉ።';
+
+  @override
+  String get notifDeliveryScheduledTitle => 'ማጓጓዣ ተዘጋጅቷል';
+
+  @override
+  String notifDeliveryScheduledBody(String trucker) {
+    return '$trucker ትዕዛዙን ያጓጉዛሉ።';
+  }
+
+  @override
+  String get notifBuyerCollectingTitle => 'ገዢው ሊወስዱ ይመጣሉ';
+
+  @override
+  String notifBuyerCollectingBody(String buyer) {
+    return '$buyer ትዕዛዙን ከእርስዎ ይወስዳሉ። እባክዎ ሰብሉን ያዘጋጁ።';
+  }
+
+  @override
+  String get notifPickedUpTitle => 'ሰብሉ ተነስቷል';
+
+  @override
+  String get notifPickedUpBody => 'ትዕዛዝዎ ከገበሬው ተነስቷል።';
+
+  @override
+  String get notifHandoffRecordedTitle => 'ርክክቡ ተመዝግቧል';
+
+  @override
+  String get notifHandoffRecordedBody =>
+      'ርክክቡ ተመዝግቧል። ገዢው ሰብሉን ከተረከቡ በኋላ ይከፈልዎታል።';
+
+  @override
+  String get notifInTransitTitle => 'በመንገድ ላይ ነው';
+
+  @override
+  String get notifInTransitBody => 'ትዕዛዝዎ ወደ እርስዎ በመንገድ ላይ ነው።';
+
+  @override
+  String get notifDeliveredTitle => 'ትዕዛዝዎ ደርሷል';
+
+  @override
+  String get notifDeliveredBody =>
+      'ትዕዛዝዎ ደርሷል። ችግር ካለ ጊዜው ከማለቁ በፊት ያሳውቁ፤ ካልሆነ ገበሬው ይከፈላቸዋል።';
+
+  @override
+  String get notifDeliveredPayoutPendingTitle => 'ደርሷል፤ ክፍያዎ ይመጣል';
+
+  @override
+  String get notifDeliveredPayoutPendingBody =>
+      'ትዕዛዙ ደርሷል። የገዢው የ48 ሰዓት ማረጋገጫ ካለቀ በኋላ ክፍያዎ ይላካል።';
+
+  @override
+  String get notifOrderSettledTitle => 'ትዕዛዙ ተጠናቋል';
+
+  @override
+  String get notifOrderSettledBody => 'ትዕዛዙ ተጠናቋል፤ ሁሉም ተከፍሏቸዋል። እናመሰግናለን።';
+
+  @override
+  String get notifRefundSentTitle => 'ገንዘብዎ ተመልሷል';
+
+  @override
+  String get notifRefundSentBody => 'ተመላሽ ገንዘብዎ ተልኮልዎታል።';
+
+  @override
+  String get notifPayoutSentTitle => 'ክፍያ ተልኳል';
+
+  @override
+  String get notifPayoutSentBody => 'ክፍያዎ ተልኮልዎታል። እናመሰግናለን።';
+
+  @override
+  String get notifPayoutBlockedTitle => 'ክፍያዎ ቆሟል';
+
+  @override
+  String notifPayoutBlockedBody(String hint) {
+    return 'ክፍያዎ እየጠበቀ ነው። $hint';
+  }
+
+  @override
+  String get notifPayoutProcessingTitle => 'ክፍያዎ እየተሰራ ነው';
+
+  @override
+  String get notifPayoutProcessingBody =>
+      'ቡድናችን ክፍያዎን በእጅ እየላከ ነው። ጥቂት ቀናት ሊወስድ ይችላል።';
+
+  @override
+  String get notifDisputeOpenedTitle => 'ችግር ሪፖርት ተደርጓል';
+
+  @override
+  String get notifDisputeOpenedBody =>
+      'ትዕዛዝዎ ላይ ችግር ሪፖርት ተደርጓል። ቡድናችን እስኪወስን ድረስ ገንዘቡ ተይዞ ይቆያል።';
+
+  @override
+  String get notifDisputeReceivedTitle => 'ሪፖርትዎ ደርሶናል';
+
+  @override
+  String get notifDisputeReceivedBody =>
+      'ሪፖርትዎ ደርሶናል። ቡድናችን እስኪወስን ድረስ ገንዘቡ ተይዞ ይቆያል።';
+
+  @override
+  String get notifDisputeResolvedTitle => 'ውሳኔ ተሰጥቷል';
+
+  @override
+  String get notifUnderReviewTitle => 'ክፍያው እየተገመገመ ነው';
+
+  @override
+  String get notifUnderReviewBody =>
+      'የትዕዛዝዎ ክፍያ በቡድናችን እየተመረመረ ነው። ሲጠናቀቅ እናሳውቅዎታለን።';
+
+  @override
+  String get notifDisputeResolvedFarmerWins => 'ቡድናችን ወስኗል፤ ገንዘቡ ለገበሬው ይከፈላል።';
+
+  @override
+  String get notifDisputeResolvedBuyerWins => 'ቡድናችን ወስኗል፤ ገንዘቡ ለገዢው ይመለሳል።';
+
+  @override
+  String get notifDisputeResolvedBody =>
+      'ቡድናችን ሪፖርት በተደረገው ችግር ላይ ወስኗል። ዝርዝሩን ለማየት ትዕዛዙን ይክፈቱ።';
+
+  @override
+  String get notifPayoutHintFayda => 'እባክዎ በመተግበሪያው የፋይዳ መታወቂያዎን ያረጋግጡ።';
+
+  @override
+  String get notifPayoutHintPhone => 'እባክዎ በመተግበሪያው ስልክ ቁጥርዎን ያረጋግጡ።';
+
+  @override
+  String get notifPayoutHintProfile => 'እባክዎ በመተግበሪያው መገለጫዎን ያሟሉ።';
+
+  @override
+  String get notifPayoutHintOther => 'ምን እንደሚያስፈልግ ለማየት መተግበሪያውን ይክፈቱ።';
 }

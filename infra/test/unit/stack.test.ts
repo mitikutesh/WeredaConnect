@@ -1142,7 +1142,7 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     },
   );
 
-  test('order cron gets the commitment walk tables, grants and the flag, off in dev (ESC-15)', () => {
+  test('order cron gets the commitment walk tables, grants and the flag, on in dev (ESC-15)', () => {
     const t = buildTemplate(false);
     t.hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-order-cron',
@@ -1154,7 +1154,7 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
           TRIPS_TABLE: Match.anyValue(),
           DELIVERIES_TABLE: Match.anyValue(),
           USERS_TABLE: Match.anyValue(),
-          COMMITMENTS_ENABLED: 'false',
+          COMMITMENTS_ENABLED: 'true',
         }),
       },
     });
@@ -1199,10 +1199,10 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     });
   });
 
-  test.each([false, true])('sync carries COMMITMENTS_ENABLED, off in dev (live=%s, ESC-15)', (live) => {
+  test.each([false, true])('sync carries COMMITMENTS_ENABLED, on in dev (live=%s, ESC-15)', (live) => {
     buildTemplate(live).hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-sync',
-      Environment: { Variables: Match.objectLike({ COMMITMENTS_ENABLED: 'false' }) },
+      Environment: { Variables: Match.objectLike({ COMMITMENTS_ENABLED: 'true' }) },
     });
   });
 
@@ -1210,7 +1210,7 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     const t = buildTemplate(true);
     t.hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-telebirr-webhook',
-      Environment: { Variables: Match.objectLike({ TRIPS_TABLE: Match.anyValue(), COMMITMENTS_ENABLED: 'false' }) },
+      Environment: { Variables: Match.objectLike({ TRIPS_TABLE: Match.anyValue(), COMMITMENTS_ENABLED: 'true' }) },
     });
     const onTrips = Object.entries(t.findResources('AWS::IAM::Policy'))
       .filter(([id]) => id.startsWith('TelebirrWebhookFunction'))
@@ -1429,6 +1429,18 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
         FunctionName: functionName,
         Environment: { Variables: Match.objectLike({ FRAUD_HOLD_ENABLED: 'false' }) },
       });
+    }
+  });
+
+  test('ESC-15: staging and prod keep the commitments off on sync and order-cron', () => {
+    for (const envName of ['staging', 'prod']) {
+      const template = liveTemplate(environments[envName]);
+      for (const fn of ['sync', 'order-cron']) {
+        template.hasResourceProperties('AWS::Lambda::Function', {
+          FunctionName: `wereda-connect-${envName}-${fn}`,
+          Environment: { Variables: Match.objectLike({ COMMITMENTS_ENABLED: 'false' }) },
+        });
+      }
     }
   });
 

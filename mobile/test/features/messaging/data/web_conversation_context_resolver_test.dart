@@ -214,6 +214,28 @@ void main() {
         expect(contact.open, isFalse);
       });
 
+      // ESC-15: a thread with the trucker opens only once the trucker
+      // committed; buyer and farmer talk from the farmer's accept.
+      test('a funded order opens buyer and farmer, not the asked trucker',
+          () async {
+        stubGet('/orders/order-1', {
+          'order': {
+            ...(serverOrder('funded')['order'] as Map<String, dynamic>),
+            'farmerResponse': 'accepted',
+            'truckerResponse': 'pending',
+          },
+        });
+
+        expect(
+          (await resolver.resolveContact('order', 'order-1', 'farmer-1')).open,
+          isTrue,
+        );
+        final trucker =
+            await resolver.resolveContact('order', 'order-1', 'trucker-1');
+        expect(trucker.open, isFalse);
+        expect(trucker.phone, isNull);
+      });
+
       test('a failed read is unknown, not closed', () async {
         when(() => api.get<Map<String, dynamic>>('/orders/order-1'))
             .thenThrow(const NetworkException());

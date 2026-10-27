@@ -31,8 +31,10 @@ class ApiConfig {
   static const Duration receiveTimeout = Duration(seconds: 30);
 
   /// This build's number: the `+N` of `version:` in pubspec.yaml. Bump both
-  /// together (a test compares them).
-  static const int appBuild = 2;
+  /// together (a test compares them). 3 is the first build that knows the
+  /// `awaiting_transport` status and the farmer and trucker commands
+  /// (ESC-15); no server gate reads it yet.
+  static const int appBuild = 3;
 
   /// Sent with [appBuild] on every request. The server answers builds before
   /// 2, which send nothing, with the escrow statuses they parse

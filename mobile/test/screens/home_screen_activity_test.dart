@@ -37,9 +37,13 @@ void main() {
       }
     });
 
-    test('missing or unknown order status falls back to created', () {
-      expect(orderStatusFromApi(null), OrderStatus.created);
-      expect(orderStatusFromApi('bogus'), OrderStatus.created);
+    test('missing or unknown order status reads as unknown (Updating)', () {
+      expect(orderStatusFromApi(null), OrderStatus.unknown);
+      expect(orderStatusFromApi('bogus'), OrderStatus.unknown);
+      expect(
+        orderStatusFromApi('awaiting_transport'),
+        OrderStatus.awaitingTransport,
+      );
     });
 
     test('delivery statuses are camelCase with a pending fallback', () {

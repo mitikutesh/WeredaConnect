@@ -1,7 +1,7 @@
 # Notifications API Contract
 
 ## Version
-1.0.0
+1.1.0
 
 ## Parties
 - **Mobile** (client): pulls the inbox, renders the entries and the Action-needed cards, receives the Android push, opens the order on tap
@@ -143,8 +143,10 @@ Rules:
   action-required type (section 3) it is the seconds left until the deadline, at least 60. For
   every other type it is 24 hours (86400). A phone that comes back online after the deadline
   never gets "accept by tonight" the next morning; the inbox entry is still there.
-- A tap opens `/orders/{orderId}` (PR 3 of ESC-21; until then the app opens on the inbox). The
-  foreground handler pulls the inbox with `since` instead of showing a tray entry.
+- A tap opens the order (`orderId`), from the background and after a cold start; the app reads an
+  order the device has not pulled yet from `GET /orders/{orderId}` first. A push without `orderId`
+  opens the app. The foreground handler pulls the inbox with `since` (and the order) instead of
+  showing a tray entry, with one follow-up pull 3 seconds later.
 - Inbox-only events send no push: `dispute_received` (the disputer's own receipt) and
   `under_review` (an escrow frozen for fraud review).
 - Never a phone number in `title`, `body` or `data`. Names are the display names the order row
@@ -280,6 +282,32 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 
 ---
 
+## 6. Client rendering (1.1.0)
+
+- The bell lists the inbox on mobile and web (mobile also lists the sync queue's failed and
+  pending changes). Opening it marks every entry seen; the dot shows while one is unseen. Tapping
+  an entry with an `orderId` opens the order. Web also routes `/orders/{orderId}`.
+- Each type has a title and a body in en, am and om; the body places only the names (`buyerName`,
+  `farmerName`, `truckerName`; a missing name reads as the role). A detail line under it shows the
+  crop and quantity, the amount (`amountEtb`, formatted, with the currency word) and, for an
+  action-required type, when it is due (`deadlineAt` in Ethiopia time). `payout_blocked` names what
+  is needed from `reason` (Fayda, phone or profile), `dispute_resolved` who gets the money from
+  `resolution`. A type the client does not know reads "Order update".
+- Mobile keeps the newest 200 entries per user in Isar and the cursor in shared preferences; a pull
+  with no entries on the device (first sign-in, or after a logout cleared them) ignores the stored
+  cursor and reads the newest page. Web keeps the entries for the session and the read marker (the
+  newest `createdAt` seen) in shared preferences; an entry an incremental pull brings after the bell
+  was opened counts as unseen whatever its `createdAt` (rows arrive out of event order). Logout
+  deletes the user's entries from Isar.
+- One pull follows at most 5 pages and stores the first page's cursor. Entries beyond those pages
+  (a phone offline for days) are left to history, as on a first pull: re-reading from the old
+  cursor would fetch the same newest pages on every pull.
+- A user's pulls are at least 30 seconds apart unless a push forces one (Home rebuilds the bell on
+  every sync result); a failed pull does not hold the next one back. Web, which has no push, pulls
+  every 2 minutes while Home is shown.
+
+---
+
 ## Invariants
 
 1. **Offline-first.** The inbox and the Action-needed cards work without push: a party without
@@ -305,9 +333,10 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.1.0 | 2026-10-27 | Clients (ESC-21 PR 3, app build 3): the bell lists the inbox on mobile and web, a tap opens the order (push from the background or a cold start too), web route `/orders/{orderId}`, inbox text per type in three languages with a detail line, read state on the device, the 200-entry cap and the cursor rules (section 6). No server change. |
 | 1.0.0 | 2026-10-26 | Initial: `GET /notifications` inbox, FCM push payload with `data.type: order`, the event matrix over the orders, deliveries and escrows streams, params, at-least-once delivery with the conditional inbox put, DLQ and alarms (ESC-21). |
 
 ---
 
-**Last Updated**: 2026-10-26
+**Last Updated**: 2026-10-27
 **Status**: Draft

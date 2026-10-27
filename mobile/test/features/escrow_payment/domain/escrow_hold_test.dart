@@ -13,6 +13,8 @@ void main() {
   test('only statuses that can hold money show Under Review', () {
     expect(orderHoldableStatuses, {
       OrderStatus.funded,
+      // ESC-15: the money is held while the buyer decides.
+      OrderStatus.awaitingTransport,
       OrderStatus.accepted,
       OrderStatus.pickupConfirmed,
       OrderStatus.inTransit,
@@ -30,6 +32,7 @@ void main() {
       OrderStatus.paymentFailed,
       OrderStatus.disbursing,
       OrderStatus.settled,
+      OrderStatus.unknown,
     ]) {
       expect(orderHoldableStatuses, isNot(contains(status)), reason: '$status');
     }

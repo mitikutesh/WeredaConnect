@@ -87,8 +87,9 @@ export interface EnvironmentConfig {
   readonly fraudHoldEnabled?: boolean;
   /**
    * COMMITMENTS_ENABLED on the sync, order-cron and telebirr-webhook Lambdas (ESC-15): sequential
-   * farmer-then-trucker commitments and the awaiting_transport status; off until the clients that
-   * render it are deployed. Default false for every environment.
+   * farmer-then-trucker commitments and the awaiting_transport status. Default false. Turn it on for
+   * an environment only once its web app and store builds render awaiting_transport and send the
+   * farmer and trucker commands (app build 3, the ESC-15 client PR); dev is on, staging and prod off.
    */
   readonly commitmentsEnabled?: boolean;
 }
@@ -107,6 +108,9 @@ export const environments: Record<string, EnvironmentConfig> = {
     faydaSandboxClientId: 'aQ7xN2kLm9_Vp4RzT8cY-hW3sJ6FdE0uXbKqP1',
     // FUP-61: dev holds the escrows of flagged parties; staging and prod stay off.
     fraudHoldEnabled: true,
+    // ESC-15: the farmer, then the trucker, must accept a paid order; staging and prod stay off
+    // until their clients ship app build 3.
+    commitmentsEnabled: true,
     tags: {
       Environment: 'development',
       Project: 'WeredaConnect',

@@ -239,6 +239,10 @@ Wire-up (IMPLEMENTED — `run_mobile.dart`, on every auth transition, all roles)
 ```dart
 PushNotificationService(api: ApiClient()).init(
   onMessagePush: () { /* dispatches InboxPollRequested (+ one 3s follow-up) */ },
+  // ESC-21: a foreground order push pulls the notification inbox (forced) and the order.
+  onOrderPush: (orderId) { /* pull(userId, force: true) + pullOrder(orderId), 3s follow-up */ },
+  // ESC-21: a tapped order push (background or cold start) opens the order.
+  onOpenOrder: (orderId) { /* pullOrderIfMissing, then orderDetailRoute on the navigatorKey */ },
 );
 ```
 
@@ -257,8 +261,11 @@ pushes carry `data.type == "message"` plus `conversationId`/`messageId`/`senderI
 (ESC-21, §5a) carry `data.type == "order"` plus `event`/`orderId`/`notificationId`;
 see `specs/contracts/notifications-api.md` section 2.
 
-Tap-to-open routing — still DEFERRED (needs a global navigator key). When built,
-register a background handler in `main()` and handle taps:
+Tap-to-open routing: IMPLEMENTED for order pushes (ESC-21). `WeredaConnectApp.navigatorKey`
+sits on the `MaterialApp`; `FirebaseMessaging.onMessageOpenedApp` and `getInitialMessage()` (once
+per launch) call `onOpenOrder(orderId)`, which reads an order the device has not pulled yet and
+opens its detail screen. A chat or match push still only opens the app. For a match alert, still
+DEFERRED: register a background handler in `main()` and handle taps:
 ```dart
 @pragma('vm:entry-point')
 Future<void> _firebaseBgHandler(RemoteMessage message) async {}
@@ -317,7 +324,9 @@ Lambda on the orders, deliveries and escrows streams, `GET /notifications`, the
    quantity, the amount and `deadlineAt`. The buyer's own inbox shows `payment_confirmed`
    for the same order.
 3. With a registered device the farmer also gets the push (title and body in the farmer's
-   `preferredLanguage`, tag `order-<orderId>`), and the tap opens the order.
+   `preferredLanguage`, tag `order-<orderId>`), and the tap opens the order. In the app, the bell
+   (mobile and web) lists the same entries in the app's language, and the farmer's Home shows an
+   "Action needed" card for the order.
 
 **The log line to look for** (one per emitted event):
 

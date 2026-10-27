@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
@@ -115,9 +116,12 @@ class OrderCard extends StatelessWidget {
               // has paid into escrow). This matches the order detail screen, the
               // repositories, and the server's funded→accepted transition — at
               // `created` the farmer can't act yet, so the action would no-op
-              // (mobile) or be rejected by the server (web).
+              // (mobile) or be rejected by the server (web). ESC-15: a trip
+              // order stays funded after the farmer's accept while the trucker
+              // is asked, so the buttons go once the farmer answered.
               if (isFarmerView &&
                   order.status == OrderStatus.funded &&
+                  farmerResponseOf(order) == CommitmentResponse.pending &&
                   (onAccept != null || onReject != null)) ...[
                 const SizedBox(height: 12),
                 Row(
@@ -174,6 +178,8 @@ StatusKind orderStatusKind(OrderStatus status) {
     OrderStatus.paymentFailed => StatusKind.error,
     OrderStatus.disputed => StatusKind.error,
     OrderStatus.disputeResolved => StatusKind.neutral,
+    OrderStatus.awaitingTransport => StatusKind.warning,
+    OrderStatus.unknown => StatusKind.neutral,
   };
 }
 
@@ -196,6 +202,8 @@ String orderStatusLabel(OrderStatus status, AppLocalizations l10n) {
     OrderStatus.paymentFailed => l10n.statusPaymentFailed,
     OrderStatus.disputed => l10n.statusDisputed,
     OrderStatus.disputeResolved => l10n.statusDisputeResolved,
+    OrderStatus.awaitingTransport => l10n.statusAwaitingTransport,
+    OrderStatus.unknown => l10n.orderStatusUpdating,
   };
 }
 

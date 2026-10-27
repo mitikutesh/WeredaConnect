@@ -62,6 +62,12 @@ class Trip {
   /// Market rate varies by distance and road conditions
   late double pricePerQuintal;
 
+  /// ESC-15: quintals booked by paid orders, and the room left. Server-written;
+  /// null on a trip nobody booked yet (the room left is then [capacity], see
+  /// trip_capacity.dart).
+  double? bookedQuintals;
+  double? remainingQuintals;
+
   /// Current status of the trip
   @Index()
   @Enumerated(EnumType.name)

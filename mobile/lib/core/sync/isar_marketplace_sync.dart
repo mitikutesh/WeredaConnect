@@ -7,8 +7,10 @@ import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/message.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
@@ -159,7 +161,9 @@ class IsarMarketplaceSync implements MarketplaceSync {
   /// `GET /orders/{id}`: the server's order, or null when the response holds
   /// none. Errors (offline, 404, 403) propagate.
   Future<Order?> _getServerOrder(String orderId) async {
-    final data = await _api.get<Map<String, dynamic>>('/orders/$orderId');
+    final data = await _api.get<Map<String, dynamic>>(
+      '/orders/${Uri.encodeComponent(orderId)}',
+    );
     // GET /orders/{id} returns {"order": {...}}; accept `item` and a bare
     // object too, like the web order repository.
     final envelope = data['order'] ?? data['item'];
@@ -667,6 +671,8 @@ class IsarMarketplaceSync implements MarketplaceSync {
               DateTime.now()
       ..capacity = (m['capacity'] as num?)?.toDouble() ?? 0
       ..pricePerQuintal = (m['pricePerQuintal'] as num?)?.toDouble() ?? 0
+      ..bookedQuintals = quintalsFromWire(m['bookedQuintals'])
+      ..remainingQuintals = quintalsFromWire(m['remainingQuintals'])
       ..status = TripStatus.values.firstWhere(
         (e) => e.name == (m['status'] as String? ?? 'open'),
         orElse: () => TripStatus.open,
@@ -804,7 +810,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
   }
 
   Order _parseOrder(Map<String, dynamic> m) {
-    return Order()
+    final order = Order()
       ..orderId = m['orderId'] as String? ?? ''
       ..listingId = m['listingId'] as String? ?? ''
       ..buyerId = m['buyerId'] as String? ?? ''
@@ -843,14 +849,18 @@ class IsarMarketplaceSync implements MarketplaceSync {
       ..buyerPhone = m['buyerPhone'] as String?
       ..farmerPhone = m['farmerPhone'] as String?
       ..truckerPhone = m['truckerPhone'] as String?;
+    // ESC-15: who has answered and until when.
+    applyOrderCommitmentFields(order, m);
+    return order;
   }
 
   OrderStatus _parseOrderStatus(String? s) {
     // Server sends order status in snake_case; map it back to the camelCase enum.
+    // A status this build does not know is `unknown` (shown as "Updating").
     final name = s == null ? null : orderStatusFromWire(s);
     return OrderStatus.values.firstWhere(
       (e) => e.name == name,
-      orElse: () => OrderStatus.created,
+      orElse: () => OrderStatus.unknown,
     );
   }
 

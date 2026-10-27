@@ -46,6 +46,8 @@ import 'package:wereda_connect/features/delivery_verification/data/repositories/
 import 'package:wereda_connect/features/escrow_payment/data/repositories/web_escrow_repository.dart';
 import 'package:wereda_connect/features/messaging/data/repositories/web_message_repository.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
+import 'package:wereda_connect/features/notifications/data/web_notification_repository.dart';
+import 'package:wereda_connect/features/notifications/domain/base_notification_repository.dart';
 import 'package:wereda_connect/features/order/data/repositories/web_order_repository.dart';
 import 'package:wereda_connect/features/rating/data/repositories/web_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
@@ -161,6 +163,10 @@ Future<void> _runWeb({
         // No Isar on web: matching/browse query the API directly, so there is
         // nothing to pull into a local cache. Screens read this as null.
         Provider<MarketplaceSync?>.value(value: null),
+        // ESC-21: the order-event inbox (bell), kept for the session.
+        Provider<BaseNotificationRepository>.value(
+          value: WebNotificationRepository(api: api),
+        ),
       ],
       child: MultiBlocProvider(
         providers: [

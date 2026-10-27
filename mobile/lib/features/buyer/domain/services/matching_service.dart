@@ -4,6 +4,7 @@ import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
 import 'package:wereda_connect/features/buyer/domain/services/base_matching_service.dart';
@@ -158,6 +159,9 @@ class MatchingService extends BaseMatchingService {
       if (startOfDayInEthiopia(trip.departureDate).isBefore(todayStart)) {
         return false;
       }
+      // ESC-15: a booked trip has only its remaining room (the capacity
+      // filter above is the upper bound).
+      if (tripRoomLeft(trip) < quantityNeeded - 0.01) return false;
       // Date-fit: drop trips departing after the buyer's deadline. This
       // compares DEPARTURE (not arrival) to the deadline — a proxy, since
       // trips carry no transit-time estimate; refine if one is added.
