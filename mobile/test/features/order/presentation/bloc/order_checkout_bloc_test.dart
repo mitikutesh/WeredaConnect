@@ -133,6 +133,19 @@ void main() {
     verifyNever(() => escrow.openOrderCheckout(any()));
   });
 
+  // ESC-15: the trip was full or gone at funding; the money is held.
+  test('awaiting transport on the first read is paid, not "not sent"',
+      () async {
+    serverReads.add(order(OrderStatus.awaitingTransport));
+    final b = bloc();
+    addTearDown(b.close);
+
+    b.add(const CheckoutStarted());
+    await expectLater(b.stream, emits(isA<CheckoutPaid>()));
+
+    verifyNever(() => escrow.openOrderCheckout(any()));
+  });
+
   test('ESCROW_031: waits for the automatic funding, then paid', () async {
     serverReads.addAll([
       order(OrderStatus.paymentSubmitted),

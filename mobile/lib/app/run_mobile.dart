@@ -39,9 +39,12 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/data/services/escrow_sync_service.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
+import 'package:wereda_connect/features/notifications/data/notification_repository.dart';
+import 'package:wereda_connect/features/notifications/domain/base_notification_repository.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
 import 'package:wereda_connect/features/order/data/repositories/order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/order/presentation/open_order_detail.dart';
 import 'package:wereda_connect/features/messaging/data/isar_conversation_context_resolver.dart';
 import 'package:wereda_connect/features/messaging/data/repositories/message_repository.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
@@ -247,6 +250,9 @@ class _AppLifecycleObserver extends WidgetsBindingObserver {
 }
 
 class WeredaConnectApp extends StatelessWidget {
+  /// The root navigator, so a tapped push can open an order (ESC-21).
+  static final navigatorKey = GlobalKey<NavigatorState>();
+
   final AuthBloc authBloc;
   final ConnectivityMonitor connectivityMonitor;
   final EscrowSyncService escrowSyncService;
@@ -302,6 +308,13 @@ class WeredaConnectApp extends StatelessWidget {
         // Exposed so non-BLoC screens (e.g. crop detail's suggested trips)
         // can refresh the marketplace cache before reading it. Null on web.
         Provider<MarketplaceSync?>.value(value: marketplaceSync),
+        // ESC-21: the order-event inbox (bell), kept in Isar.
+        Provider<BaseNotificationRepository>(
+          create: (_) => NotificationRepository(
+            isar: IsarService.instance.db,
+            api: ApiClient(),
+          ),
+        ),
       ],
       child: MultiBlocProvider(
         providers: [
@@ -401,6 +414,7 @@ class WeredaConnectApp extends StatelessWidget {
         child: Consumer<LanguageProvider>(
           builder: (context, languageProvider, child) {
             return MaterialApp(
+              navigatorKey: navigatorKey,
               title: 'WeredaConnect',
               locale: languageProvider.locale,
               localizationsDelegates: const [
@@ -435,7 +449,33 @@ class WeredaConnectApp extends StatelessWidget {
                   // Capture blocs, not context: the callbacks outlive builds.
                   final inbox = context.read<InboxBloc>();
                   final auth = context.read<AuthBloc>();
+                  final notifications =
+                      context.read<BaseNotificationRepository>();
+                  final orders = context.read<OrderBloc>().repository;
+                  final sync = marketplaceSync;
+                  // ESC-21: an order event pulls the inbox and the order, with
+                  // one follow-up like the chat pull.
+                  void pullOrderEvent(String? orderId) {
+                    final state = auth.state;
+                    if (state is! AuthAuthenticated) return;
+                    notifications.pull(state.userId, force: true).ignore();
+                    if (orderId != null) sync?.pullOrder(orderId).ignore();
+                    Timer(const Duration(seconds: 3), () {
+                      final now = auth.state;
+                      if (now is AuthAuthenticated) {
+                        notifications.pull(now.userId, force: true).ignore();
+                      }
+                    });
+                  }
+
                   PushNotificationService(api: ApiClient()).init(
+                    onOrderPush: pullOrderEvent,
+                    onOpenOrder: (orderId) async {
+                      if (auth.state is! AuthAuthenticated) return;
+                      await pullOrderIfMissing(orders, sync, orderId);
+                      await navigatorKey.currentState
+                          ?.push(orderDetailRoute(orders, orderId));
+                    },
                     onMessagePush: () {
                       // A push for the PREVIOUS user can arrive after logout
                       // (tokens aren't deregistered yet) — ignore it.

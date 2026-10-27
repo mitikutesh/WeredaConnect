@@ -97,6 +97,11 @@ enum AppErrorCode {
   /// undone.
   deadlinePassed,
 
+  /// ESC-15: the farmer's or trucker's answer is not open
+  /// (`ORDER_RESPONSE_NOT_PENDING`): the farmer has not accepted yet, or the
+  /// request was already answered; the local change was undone.
+  responseNotPending,
+
   /// The trip an order names cannot take it (`ORDER_TRIP_NOT_ELIGIBLE`): the
   /// buyer chooses again.
   tripNotEligible,
@@ -223,6 +228,9 @@ AppErrorCode mapErrorToCode(Object error) {
         when isOrderDeadlinePassedMessage(message) =>
       AppErrorCode.deadlinePassed,
     SyncRejectedException(:final message)
+        when isOrderResponseNotPendingMessage(message) =>
+      AppErrorCode.responseNotPending,
+    SyncRejectedException(:final message)
         when isOrderTripNotEligibleMessage(message) =>
       AppErrorCode.tripNotEligible,
     SyncRejectedException(:final message)
@@ -312,6 +320,7 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.orderCancelNotAllowed => l10n.errorOrderCancelNotAllowed,
     AppErrorCode.contactLocked => l10n.contactClosedNote,
     AppErrorCode.deadlinePassed => l10n.errorDeadlinePassed,
+    AppErrorCode.responseNotPending => l10n.errorResponseNotPending,
     AppErrorCode.tripNotEligible => l10n.errorTripNotEligible,
     AppErrorCode.transportAttemptsExceeded =>
       l10n.errorTransportAttemptsExceeded,
@@ -380,6 +389,9 @@ AppErrorCode syncRejectionErrorCode({
     }
     if (isOrderDeadlinePassedMessage(message)) {
       return AppErrorCode.deadlinePassed;
+    }
+    if (isOrderResponseNotPendingMessage(message)) {
+      return AppErrorCode.responseNotPending;
     }
     if (isOrderTransportAttemptsExceededMessage(message)) {
       return AppErrorCode.transportAttemptsExceeded;

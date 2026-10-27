@@ -60,6 +60,33 @@ void main() {
             () => repo.cancelOrder(any(), any(), reason: any(named: 'reason')),
           ).thenAnswer((_) async => throw error),
     ),
+    // ESC-15: the trucker's answer and drop-out.
+    'truckerAccept': (
+      const TruckerAcceptOrder(orderId: 'o-1', truckerId: 'trucker-1'),
+      (error) => when(
+            () => repo.respondAsTrucker(
+              any(),
+              any(),
+              accept: any(named: 'accept'),
+              declineReason: any(named: 'declineReason'),
+            ),
+          ).thenAnswer((_) async => throw error),
+    ),
+    'truckerDecline': (
+      const TruckerDeclineOrder(
+        orderId: 'o-1',
+        truckerId: 'trucker-1',
+        declineReason: 'date',
+      ),
+      (error) => when(
+            () => repo.respondAsTrucker(
+              any(),
+              any(),
+              accept: any(named: 'accept'),
+              declineReason: any(named: 'declineReason'),
+            ),
+          ).thenAnswer((_) async => throw error),
+    ),
     'submitPayment': (
       const SubmitPayment(orderId: 'o-1', cbeTransactionId: 'REF-1'),
       (error) => when(
@@ -135,6 +162,7 @@ void main() {
   // what happened instead of the generic refusal (web throws them from /sync).
   for (final (code, expected) in [
     ('ORDER_DEADLINE_PASSED', AppErrorCode.deadlinePassed),
+    ('ORDER_RESPONSE_NOT_PENDING', AppErrorCode.responseNotPending),
     ('ORDER_TRIP_NOT_ELIGIBLE', AppErrorCode.tripNotEligible),
     (
       'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED',
@@ -300,6 +328,51 @@ void main() {
         ),
         AppErrorCode.kycRequired,
       );
+    });
+  });
+
+  group('ESC-15 trucker events', () {
+    test('an accept sends accept and ends in TruckerResponded', () async {
+      when(
+        () => repo.respondAsTrucker(
+          any(),
+          any(),
+          accept: any(named: 'accept'),
+          declineReason: any(named: 'declineReason'),
+        ),
+      ).thenAnswer((_) async {});
+      final bloc = OrderBloc(repository: repo);
+      final states = <OrderState>[];
+      final sub = bloc.stream.listen(states.add);
+
+      bloc.add(
+        const TruckerDeclineOrder(
+          orderId: 'o-1',
+          truckerId: 'trucker-1',
+          declineReason: 'route',
+        ),
+      );
+      await waitForStates(states, 2);
+      bloc.add(
+        const TruckerAcceptOrder(orderId: 'o-1', truckerId: 'trucker-1'),
+      );
+      await waitForStates(states, 4);
+      await sub.cancel();
+      await bloc.close();
+
+      expect(states[1], const TruckerResponded(accepted: false));
+      expect(states[3], const TruckerResponded(accepted: true));
+      verify(
+        () => repo.respondAsTrucker(
+          'o-1',
+          'trucker-1',
+          accept: false,
+          declineReason: 'route',
+        ),
+      ).called(1);
+      verify(
+        () => repo.respondAsTrucker('o-1', 'trucker-1', accept: true),
+      ).called(1);
     });
   });
 }

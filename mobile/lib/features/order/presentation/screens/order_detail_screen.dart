@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/user.dart';
@@ -32,6 +33,7 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/order_checkout_screen.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/order_commitment_section.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/features/rating/presentation/widgets/rate_counterparty_dialog.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -158,6 +160,12 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                 .add(LoadOrderById(orderId: widget.orderId));
           } else if (state is OrderAccepted || state is OrderRejected) {
             Navigator.of(context).pop();
+          } else if (state is TruckerResponded) {
+            // ESC-15: stay on the order, which now shows the next step
+            // (Create Delivery after an accept).
+            context
+                .read<OrderBloc>()
+                .add(LoadOrderById(orderId: widget.orderId));
           } else if (state is OrderCancelled) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text(l10n.orderCancelledSuccess)),
@@ -294,6 +302,9 @@ class _OrderDetailBody extends StatelessWidget {
             ),
             const SizedBox(height: 24),
 
+            // ── Who has agreed (ESC-15) ──────────────────────────
+            OrderCommitmentSection(order: order, userId: userId),
+
             // ── Price breakdown ──────────────────────────────────
             Text(
               l10n.priceBreakdown,
@@ -417,10 +428,11 @@ class _OrderDetailBody extends StatelessWidget {
       widgets.add(const SizedBox(height: 12));
     }
 
-    // Farmer + funded → Accept / Reject. Under review the server refuses the
-    // accept (FRD-03), so only Reject is offered; Accept stays disabled until
-    // the hold check has answered.
-    if (userRole == UserRole.farmer && order.status == OrderStatus.funded) {
+    // Farmer + funded and not answered yet → Accept / Reject (ESC-15: a
+    // farmer who accepted a trip order waits for the trucker). Under review
+    // the server refuses the accept (FRD-03), so only Reject is offered;
+    // Accept stays disabled until the hold check has answered.
+    if (userRole == UserRole.farmer && canFarmerRespond(order, userId)) {
       widgets.add(
         Row(
           children: [
@@ -460,6 +472,49 @@ class _OrderDetailBody extends StatelessWidget {
                     minimumSize: const Size.fromHeight(48),
                   ),
                   child: Text(l10n.acceptOrder),
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+      widgets.add(const SizedBox(height: 12));
+    }
+
+    // ESC-15: the trucker answers the transport request once the farmer
+    // accepted. Like the farmer's, the accept waits for the hold check and is
+    // not offered while the money is under review.
+    if (canTruckerRespond(order, userId)) {
+      widgets.add(
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => _declineTransport(context, order, userId),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.statusError,
+                  side: const BorderSide(color: AppTheme.statusError),
+                  minimumSize: const Size.fromHeight(48),
+                ),
+                child: Text(l10n.truckerDeclineRequest),
+              ),
+            ),
+            if (!underReview) ...[
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  onPressed: holdChecked
+                      ? () => context.read<OrderBloc>().add(
+                            TruckerAcceptOrder(
+                              orderId: order.orderId,
+                              truckerId: userId,
+                            ),
+                          )
+                      : null,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                  child: Text(l10n.truckerAcceptRequest),
                 ),
               ),
             ],
@@ -522,16 +577,22 @@ class _OrderDetailBody extends StatelessWidget {
       widgets.add(const SizedBox(height: 12));
     }
 
-    // Cancellable statuses — only the BUYER may cancel (the server rejects a
-    // cancel from anyone else), so don't show a dead button to farmers/truckers.
-    // An accepted order only after a transport failure (ESC-06).
-    const cancellable = {
-      OrderStatus.created,
-      OrderStatus.pendingPayment,
-      OrderStatus.funded,
-    };
-    if ((cancellable.contains(order.status) || transportFailed) &&
-        order.buyerId == userId) {
+    // Who may cancel (ESC-15, order-lifecycle.md 2.0.0): the buyer before
+    // paying and after the transport fell through, not while the farmer and
+    // the trucker decide; an accepted order only after a transport failure
+    // (ESC-06). The farmer after the transport fell through (no penalty) or
+    // before pickup (counts against them). Not while the money is under
+    // review, which the server refuses.
+    final buyerMayCancel = order.buyerId == userId &&
+        (transportFailed ||
+            (order.status != OrderStatus.accepted &&
+                (order.status != OrderStatus.awaitingTransport ||
+                    !underReview) &&
+                canCancelOrder(order, userId, DateTime.now().toUtc())));
+    final farmerMayCancel = order.farmerId == userId &&
+        !underReview &&
+        canCancelOrder(order, userId, DateTime.now().toUtc());
+    if (buyerMayCancel || farmerMayCancel) {
       widgets.add(
         SizedBox(
           width: double.infinity,
@@ -542,13 +603,77 @@ class _OrderDetailBody extends StatelessWidget {
               side: const BorderSide(color: AppTheme.statusError),
               minimumSize: const Size.fromHeight(48),
             ),
-            child: Text(l10n.cancelOrder),
+            child: Text(
+              farmerMayCancel && order.status == OrderStatus.awaitingTransport
+                  ? l10n.farmerCancelWithoutPenalty
+                  : l10n.cancelOrder,
+            ),
+          ),
+        ),
+      );
+      widgets.add(const SizedBox(height: 12));
+    }
+
+    // ESC-15: the committed trucker of an order not picked up yet may drop
+    // out; the order then waits for the buyer.
+    if (!underReview && canTruckerDropOut(order, userId)) {
+      widgets.add(
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton(
+            onPressed: () => _dropOut(context, order, userId),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppTheme.statusError,
+              side: const BorderSide(color: AppTheme.statusError),
+              minimumSize: const Size.fromHeight(48),
+            ),
+            child: Text(l10n.truckerDropOut),
           ),
         ),
       );
     }
 
     return widgets;
+  }
+
+  /// ESC-15: the trucker declines the transport request, with a reason.
+  Future<void> _declineTransport(
+    BuildContext context,
+    Order order,
+    String userId,
+  ) async {
+    final bloc = context.read<OrderBloc>();
+    final reason = await showDeclineReasonSheet(context);
+    if (reason == null || bloc.isClosed) return;
+    bloc.add(
+      TruckerDeclineOrder(
+        orderId: order.orderId,
+        truckerId: userId,
+        declineReason: reason,
+      ),
+    );
+  }
+
+  /// ESC-15: the committed trucker drops out before pickup (fresh sign-in).
+  Future<void> _dropOut(
+    BuildContext context,
+    Order order,
+    String userId,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final bloc = context.read<OrderBloc>();
+    final reason = await showDeclineReasonSheet(
+      context,
+      warning: l10n.truckerDropOutWarning,
+    );
+    if (reason == null || bloc.isClosed) return;
+    bloc.add(
+      TruckerDeclineOrder(
+        orderId: order.orderId,
+        truckerId: userId,
+        declineReason: reason,
+      ),
+    );
   }
 
   /// Order statuses at which the order can have a delivery to open.
@@ -673,18 +798,20 @@ class _OrderDetailBody extends StatelessWidget {
         );
         return AlertDialog(
           title: Text(l10n.cancelOrder),
-          // ESC-06: cancelling after a transport failure refunds everything.
-          content: order.status == OrderStatus.accepted
-              ? Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(l10n.cancelOrderTransportFailedBody),
-                    const SizedBox(height: 12),
-                    reasonField,
-                  ],
-                )
-              : reasonField,
+          // ESC-06 / ESC-15: what the cancel means for the money and for the
+          // farmer's record.
+          content: switch (_cancelDialogBody(order, userId, l10n)) {
+            final String body => Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(body),
+                  const SizedBox(height: 12),
+                  reasonField,
+                ],
+              ),
+            null => reasonField,
+          },
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
@@ -713,6 +840,20 @@ class _OrderDetailBody extends StatelessWidget {
       },
     );
   }
+}
+
+/// The cancel dialog's explanation for [userId] on [order], or null.
+String? _cancelDialogBody(Order order, String userId, AppLocalizations l10n) {
+  final isFarmer = userId == order.farmerId;
+  return switch (order.status) {
+    OrderStatus.accepted => isFarmer
+        ? l10n.farmerCancelCommittedWarning
+        : l10n.cancelOrderTransportFailedBody,
+    OrderStatus.awaitingTransport => isFarmer
+        ? l10n.farmerCancelAwaitingTransportBody
+        : l10n.cancelOrderAwaitingTransportBody,
+    _ => null,
+  };
 }
 
 /// The order's delivery on the order detail screen, for every party.
@@ -1117,6 +1258,36 @@ class _StatusTimeline extends StatelessWidget {
   }
 
   List<_TimelineStep> get _timelineSteps {
+    // A status this build does not know: one "Updating" step, no guesses.
+    if (status == OrderStatus.unknown) {
+      return [
+        _TimelineStep(
+          OrderStatus.unknown,
+          l10n.orderStatusUpdating,
+          l10n.orderStatusUpdatingInfo,
+        ),
+      ];
+    }
+    // ESC-15: the money is held and the transport fell through.
+    if (status == OrderStatus.awaitingTransport) {
+      return [
+        _TimelineStep(
+          OrderStatus.created,
+          l10n.statusCreated,
+          l10n.statusCreatedInfo,
+        ),
+        _TimelineStep(
+          OrderStatus.funded,
+          l10n.statusFunded,
+          l10n.statusFundedInfo,
+        ),
+        _TimelineStep(
+          OrderStatus.awaitingTransport,
+          l10n.statusAwaitingTransport,
+          l10n.statusAwaitingTransportInfo,
+        ),
+      ];
+    }
     // Show different flows based on terminal status
     if (status == OrderStatus.cancelled) {
       return [
@@ -1270,6 +1441,16 @@ class _OrderContactSection extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
 
+    // ESC-15: the trucker joins the contact only once committed to the
+    // transport, and leaves it after declining or dropping out.
+    final truckerCommitted =
+        truckerResponseOf(order) == CommitmentResponse.accepted;
+    final viewerIsTrucker = userId.isNotEmpty &&
+        userId == order.truckerId &&
+        userId != order.buyerId &&
+        userId != order.farmerId;
+    if (viewerIsTrucker && !truckerCommitted) return const SizedBox.shrink();
+
     if (!isOrderContactOpen(order)) {
       if (!contactNotYetOpenOrderStatuses.contains(order.status)) {
         return const SizedBox.shrink();
@@ -1300,7 +1481,7 @@ class _OrderContactSection extends StatelessWidget {
           role: l10n.farmer,
           label: l10n.contactFarmer,
         ),
-      if (truckerId.isNotEmpty && truckerId != userId)
+      if (truckerId.isNotEmpty && truckerId != userId && truckerCommitted)
         (
           id: truckerId,
           name: order.truckerName ?? '',

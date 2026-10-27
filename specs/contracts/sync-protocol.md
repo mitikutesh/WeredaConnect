@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.29.0
+1.30.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -733,12 +733,23 @@ client since 1.10.0, so no client change is needed for them. The ESC-15 client P
 the `awaiting_transport` status and the texts. Clients older than those PRs never send a trucker
 command and send the farmer's answer as the legacy status.
 
+**Clients (1.30.0, app build 3).** The farmer's accept and reject are sent as
+`{"farmerResponse": "accept" | "decline", "respondedAt", "rejectionReason"?, "version"}` on every
+server: with `COMMITMENTS_ENABLED` off the server translates the command into the old status write.
+The trucker's command is sent only on an order whose `fulfillment` was stamped (the server runs the
+commitments); a server without the flag answers it `ORDER_VALIDATION: Transport requests are not
+enabled on this server yet.` `ORDER_RESPONSE_NOT_PENDING:` now has its own text
+(`errorResponseNotPending`, en, am and om) on mobile and web; it stays permanent and reverts the
+local order like any `ORDER_*` refusal. On mobile an `AUTH_040` on the drop-out or the farmer's
+committed cancel waits in the queue for the password prompt, as for a payment.
+
 ---
 
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.30.0 | 2026-10-27 | Order commitments, clients (ESC-22, ESC-23, app build 3): the farmer's answer is sent as `farmerResponse: accept \| decline` on every server (translated with the flag off); the trucker's command only on an order with a `fulfillment` stamp; `ORDER_RESPONSE_NOT_PENDING:` has its own text. No server change. |
 | 1.29.0 | 2026-10-26 | Order commitments (ESC-15, `order-lifecycle.md` 2.0.0, behind `COMMITMENTS_ENABLED`): the farmer answers a `funded` order with `farmerResponse: accept \| decline` (legacy `status: accepted \| rejected` mapped) and the trucker, once the farmer accepted, with `truckerResponse: accept \| decline`, each with an optional `declineReason` (`date`, `capacity`, `price`, `route`, `crop_not_ready`, `other`) and the pre-increment `version`; these three are the only new allowed update keys, every other new order field and the system-managed status `awaiting_transport` are server-written and returned by `GET /orders`; `ORDER_RESPONSE_NOT_PENDING:` and `ORDER_DEADLINE_PASSED:` are permanent under the `ORDER_*` rule (no client change for them); `AUTH_040:` on the trucker's drop-out from `accepted` and the farmer's cancel from `accepted`; `ORDER_CANCEL_NOT_ALLOWED:` on a buyer's `funded -> cancelled`; the server now sends `TRIP_CAPACITY_EXCEEDED:` (order create above `remainingQuintals`) and `TRIP_HAS_BOOKINGS:` (a trip change the bookings forbid) behind the flag; header and footer versions aligned (the footer had stayed at 1.27.0) |
 | 1.28.0 | 2026-10-24 | User profile updates (SIM-37): the `user` entity takes `action: update` from the caller on their own row with the single allow-listed field `preferredLanguage` (`en`, `am`, `om`), version-less last-write-wins, an unchanged value a no-op `success`; errors `USER_PROFILE_VALIDATION`, `USER_PROFILE_UNAUTHORIZED`, `USER_PROFILE_NOT_FOUND`, `USER_PROFILE_CONFLICT` (retried) and `USER_PROFILE_UNAVAILABLE` (row added 2026-10-26; the section was in the body without one) |
 | 1.27.0 | 2026-10-23 | Fraud signals from refusals (FRD-08, fraud spec 3.9.0): create conflicts on another user's id, the `*_UNAUTHORIZED` refusals, identity and money field changes, QR nonce failures and a burst of 10 version conflicts in one batch write a typed signal on the caller, at most one row per type per hour, counted once per refused entity; responses unchanged, a failed write only logged; clients unchanged |
@@ -769,5 +780,5 @@ command and send the farmer's answer as the legacy status.
 
 ---
 
-**Last Updated**: 2026-10-26
-**Version**: 1.29.0
+**Last Updated**: 2026-10-27
+**Version**: 1.30.0

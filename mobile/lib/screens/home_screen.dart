@@ -34,7 +34,6 @@ import 'package:wereda_connect/features/buyer/presentation/screens/create_intent
 import 'package:wereda_connect/features/buyer/presentation/screens/match_results_screen.dart';
 import 'package:wereda_connect/features/buyer/presentation/widgets/intent_card.dart';
 import 'package:wereda_connect/core/models/trip.dart';
-import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/find_crops_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
@@ -42,6 +41,10 @@ import 'package:wereda_connect/features/crop_listing/presentation/screens/create
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
+import 'package:wereda_connect/features/notifications/domain/base_notification_repository.dart';
+import 'package:wereda_connect/features/notifications/presentation/notification_text.dart';
+import 'package:wereda_connect/features/order/presentation/open_order_detail.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/action_needed_list.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
@@ -179,6 +182,12 @@ class _HomeScreenState extends State<HomeScreen> {
             onRefresh: _refreshData,
           ),
 
+          // ── Action needed: orders waiting for this user (ESC-15) ──
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+            child: _buildActionNeeded(role: role, userId: userId),
+          ),
+
           // ── At a glance: counts + shortcuts, every tile tappable ──
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
@@ -207,6 +216,18 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildActionNeeded({
+    required UserRole role,
+    required String userId,
+  }) {
+    return ActionNeededList(
+      key: ValueKey('action_needed_$_refreshKey'),
+      userId: userId,
+      role: role,
+      onRefresh: _refreshData,
     );
   }
 
@@ -291,9 +312,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 // ── Flat page header (no green curve) ────────────
                 _DesktopPageHeader(
                   userName: userName,
+                  userId: userId,
                   woreda: woreda,
                   isOnline: widget.isOnline,
                   l10n: l10n,
+                  onNavigateToTab: widget.onNavigateToTab,
                 ),
 
                 const SizedBox(height: 24),
@@ -340,6 +363,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _buildActionNeeded(role: role, userId: userId),
+        const SizedBox(height: 12),
         _SectionTitle(l10n.atAGlance),
         const SizedBox(height: 12),
         _buildDashboard(role: role, userId: userId, l10n: l10n, columns: 3),
@@ -369,6 +394,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _buildActionNeeded(role: role, userId: userId),
+        const SizedBox(height: 12),
         _SectionTitle(l10n.atAGlance),
         const SizedBox(height: 12),
         _buildDashboard(role: role, userId: userId, l10n: l10n, columns: 3),
@@ -653,15 +680,19 @@ class _BannerCard extends StatelessWidget {
 /// and location + sync status inline.
 class _DesktopPageHeader extends StatelessWidget {
   final String userName;
+  final String userId;
   final String woreda;
   final bool isOnline;
   final AppLocalizations l10n;
+  final ValueChanged<int>? onNavigateToTab;
 
   const _DesktopPageHeader({
     required this.userName,
+    required this.userId,
     required this.woreda,
     required this.isOnline,
     required this.l10n,
+    this.onNavigateToTab,
   });
 
   @override
@@ -705,6 +736,16 @@ class _DesktopPageHeader extends StatelessWidget {
               ),
               const SizedBox(width: 16),
               _DesktopSyncChip(isOnline: isOnline),
+              const SizedBox(width: 12),
+              // ESC-21: the inbox bell, on web too.
+              _NotificationIcon(
+                userId: userId,
+                l10n: l10n,
+                isOnline: isOnline,
+                onNavigateToTab: onNavigateToTab,
+                iconColor: AppTheme.textDark,
+                ringColor: AppTheme.surfaceWhite,
+              ),
             ],
           ),
         ],
@@ -1940,13 +1981,14 @@ class _RecentActivityListState extends State<_RecentActivityList> {
 /// Parses an order status from an API response. The server sends order
 /// statuses in snake_case (`payment_submitted`), so the token goes through
 /// [orderStatusFromWire] first; dropping that step makes every multi-word
-/// status read as [OrderStatus.created].
+/// status read as [OrderStatus.unknown]. A status this build does not know
+/// is [OrderStatus.unknown] too.
 @visibleForTesting
 OrderStatus orderStatusFromApi(String? raw) {
   final name = raw == null ? null : orderStatusFromWire(raw);
   return OrderStatus.values.firstWhere(
     (e) => e.name == name,
-    orElse: () => OrderStatus.created,
+    orElse: () => OrderStatus.unknown,
   );
 }
 
@@ -2584,20 +2626,31 @@ class _SyncInfoRow extends StatelessWidget {
 
 /// Notification bell icon with dynamic red dot indicator.
 ///
-/// Shows a red dot when there are unread notifications (failed syncs,
-/// new deliveries, pending payments). The dot disappears when the user
-/// taps the bell and views the notification sheet.
+/// Lists the user's inbox (ESC-21, `GET /notifications`: every order,
+/// delivery and money event of the user's orders) on mobile and web, and on
+/// mobile the sync queue's failed and pending changes. The dot shows while
+/// an inbox entry is unseen or a sync item is waiting; opening the sheet
+/// marks the inbox seen. Tapping an entry opens its order.
 class _NotificationIcon extends StatefulWidget {
   final String userId;
   final AppLocalizations l10n;
   final bool isOnline;
   final ValueChanged<int>? onNavigateToTab;
 
+  /// The bell's colour: white on the green mobile header, dark on the flat
+  /// desktop header.
+  final Color iconColor;
+
+  /// The ring around the unread dot, the header's background.
+  final Color ringColor;
+
   const _NotificationIcon({
     required this.userId,
     required this.l10n,
     required this.isOnline,
     this.onNavigateToTab,
+    this.iconColor = Colors.white,
+    this.ringColor = AppTheme.primaryGreen,
   });
 
   @override
@@ -2609,11 +2662,25 @@ class _NotificationIconState extends State<_NotificationIcon> {
   bool _hasUnread = false;
   late Future<void> _loadFuture;
   final Set<String> _dismissedKeys = {};
+  StreamSubscription<void>? _inboxChanges;
+
+  /// Web has no push: the bell pulls on a timer while Home is shown (each
+  /// pull is throttled by the repository).
+  Timer? _webRefresh;
+  static const _webRefreshInterval = Duration(minutes: 2);
 
   @override
   void initState() {
     super.initState();
+    _inboxChanges = _inbox()?.changes.listen((_) {
+      if (mounted) _loadNotifications(pull: false);
+    });
     _loadFuture = _loadNotifications();
+    if (kIsWeb) {
+      _webRefresh = Timer.periodic(_webRefreshInterval, (_) {
+        if (mounted) _loadNotifications();
+      });
+    }
   }
 
   @override
@@ -2624,114 +2691,108 @@ class _NotificationIconState extends State<_NotificationIcon> {
     }
   }
 
-  Future<void> _loadNotifications() async {
-    if (kIsWeb) return;
-    final items = <_NotifItem>[];
+  @override
+  void dispose() {
+    _inboxChanges?.cancel();
+    _webRefresh?.cancel();
+    super.dispose();
+  }
+
+  /// The inbox, or null when the app provides none (widget tests).
+  BaseNotificationRepository? _inbox() {
     try {
-      final isar = IsarService.instance.db;
-      final syncQueue = SyncQueue(isar);
-      final userId = widget.userId;
-
-      // Failed sync operations
-      final failedCount = await syncQueue.getFailedCount();
-      if (failedCount > 0) {
-        items.add(
-          _NotifItem(
-            icon: Icons.sync_problem,
-            title: widget.l10n.syncFailed,
-            subtitle: widget.l10n.syncFailureCount(failedCount),
-            color: AppTheme.statusError,
-            time: DateTime.now(),
-            action: _NotifAction.syncStatus,
-            key: 'sync_failed',
-          ),
-        );
-      }
-
-      // Pending sync operations
-      final pendingCount = await syncQueue.getPendingCount();
-      if (pendingCount > 0) {
-        items.add(
-          _NotifItem(
-            icon: Icons.cloud_upload_outlined,
-            title: widget.l10n.syncPending,
-            subtitle: widget.l10n.syncPendingCount(pendingCount),
-            color: AppTheme.accentGold,
-            time: DateTime.now(),
-            action: _NotifAction.syncStatus,
-            key: 'sync_pending',
-          ),
-        );
-      }
-
-      // Recent deliveries
-      final deliveries = userId.isNotEmpty
-          ? await isar.deliverys
-              .where()
-              .filter()
-              .farmerIdEqualTo(userId)
-              .or()
-              .buyerIdEqualTo(userId)
-              .sortByCreatedAtDesc()
-              .limit(3)
-              .findAll()
-          : <Delivery>[];
-      for (final d in deliveries) {
-        items.add(
-          _NotifItem(
-            icon: d.status == DeliveryStatus.delivered
-                ? Icons.check_circle_outline
-                : Icons.local_shipping_outlined,
-            title: widget.l10n.deliveryStatusActivity(
-              deliveryStatusLabel(d.status, widget.l10n),
-            ),
-            subtitle: partyDisplayName(d.farmerName, widget.l10n),
-            color: d.status == DeliveryStatus.delivered
-                ? AppTheme.statusSuccess
-                : AppTheme.statusInfo,
-            time: d.createdAt,
-            action: _NotifAction.deliveriesTab,
-            key: 'delivery_${d.deliveryId}',
-          ),
-        );
-      }
-
-      // Recent payments
-      final payments = userId.isNotEmpty
-          ? await isar.payments
-              .where()
-              .filter()
-              .farmerIdEqualTo(userId)
-              .or()
-              .buyerIdEqualTo(userId)
-              .sortByCreatedAtDesc()
-              .limit(2)
-              .findAll()
-          : <Payment>[];
-      for (final p in payments) {
-        items.add(
-          _NotifItem(
-            icon: Icons.account_balance_wallet_outlined,
-            title: paymentActivityTitle(widget.l10n, p.status),
-            subtitle: '${p.amount} ETB',
-            color: p.status == PaymentStatus.released
-                ? AppTheme.statusSuccess
-                : AppTheme.accentGold,
-            time: p.createdAt,
-            action: _NotifAction.paymentsTab,
-            key: 'payment_${p.paymentId}',
-          ),
-        );
-      }
-
-      items.sort((a, b) => b.time.compareTo(a.time));
-    } on Object {
-      // Silently ignore — show empty state
+      return context.read<BaseNotificationRepository>();
+    } on ProviderNotFoundException {
+      return null;
     }
+  }
+
+  /// [pull]: read new entries from the server first (best-effort; offline
+  /// the device's entries show).
+  Future<void> _loadNotifications({bool pull = true}) async {
+    final items = <_NotifItem>[];
+    var unread = 0;
+    final userId = widget.userId;
+    if (!kIsWeb) {
+      try {
+        final syncQueue = SyncQueue(IsarService.instance.db);
+
+        // Failed sync operations
+        final failedCount = await syncQueue.getFailedCount();
+        if (failedCount > 0) {
+          items.add(
+            _NotifItem(
+              icon: Icons.sync_problem,
+              title: widget.l10n.syncFailed,
+              subtitle: widget.l10n.syncFailureCount(failedCount),
+              color: AppTheme.statusError,
+              time: DateTime.now(),
+              action: _NotifAction.syncStatus,
+              key: 'sync_failed',
+            ),
+          );
+        }
+
+        // Pending sync operations
+        final pendingCount = await syncQueue.getPendingCount();
+        if (pendingCount > 0) {
+          items.add(
+            _NotifItem(
+              icon: Icons.cloud_upload_outlined,
+              title: widget.l10n.syncPending,
+              subtitle: widget.l10n.syncPendingCount(pendingCount),
+              color: AppTheme.accentGold,
+              time: DateTime.now(),
+              action: _NotifAction.syncStatus,
+              key: 'sync_pending',
+            ),
+          );
+        }
+      } on Object {
+        // No local queue: the inbox below still shows.
+      }
+    }
+
+    final inbox = _inbox();
+    if (inbox != null && userId.isNotEmpty) {
+      if (pull) {
+        try {
+          await inbox.pull(userId);
+        } on Object {
+          // Offline or the server failed: show what the device has.
+        }
+      }
+      try {
+        for (final entry in await inbox.recent(userId, limit: 30)) {
+          final text = notificationText(widget.l10n, entry);
+          final style = notificationStyle(entry.type);
+          items.add(
+            _NotifItem(
+              icon: style.icon,
+              title: text.title,
+              subtitle: text.body,
+              detail: notificationDetailLine(widget.l10n, entry),
+              color: style.color,
+              time: entry.createdAt,
+              action: _NotifAction.openOrder,
+              key: 'inbox_${entry.notificationId}',
+              orderId: entry.orderId,
+              unread: !entry.read,
+            ),
+          );
+        }
+        unread = await inbox.unreadCount(userId);
+      } on Object {
+        // Show the sync items alone.
+      }
+    }
+
+    items.sort((a, b) => b.time.compareTo(a.time));
     if (mounted) {
       setState(() {
         _notifications = items;
-        _hasUnread = items.isNotEmpty;
+        _hasUnread =
+            unread > 0 || items.any((n) => n.action == _NotifAction.syncStatus);
       });
     }
   }
@@ -2750,30 +2811,14 @@ class _NotificationIconState extends State<_NotificationIcon> {
   }
 
   void _handleNotifTap(BuildContext sheetContext, _NotifItem item) {
-    _dismissNotification(item.key);
     Navigator.of(sheetContext).pop(); // close sheet
-    final authState = context.read<AuthBloc>().state;
-    final role =
-        authState is AuthAuthenticated ? authState.role : UserRole.farmer;
     switch (item.action) {
       case _NotifAction.syncStatus:
+        _dismissNotification(item.key);
         _openSyncStatusSheet();
-      case _NotifAction.deliveriesTab:
-        final index = roleTabIndex(role, RoleTab.deliveries);
-        if (index != null) widget.onNavigateToTab?.call(index);
-      case _NotifAction.paymentsTab:
-        // Payments is only a trucker tab; other roles push history.
-        final index = roleTabIndex(role, RoleTab.payments);
-        if (index != null) {
-          widget.onNavigateToTab?.call(index);
-        } else {
-          Navigator.push(
-            context,
-            MaterialPageRoute<void>(
-              builder: (_) => const PaymentHistoryScreen(),
-            ),
-          );
-        }
+      case _NotifAction.openOrder:
+        final orderId = item.orderId;
+        if (orderId != null) openOrderDetail(context, orderId);
     }
   }
 
@@ -2807,10 +2852,10 @@ class _NotificationIconState extends State<_NotificationIcon> {
             padding: const EdgeInsets.all(4),
             child: Stack(
               children: [
-                const Icon(
+                Icon(
                   Icons.notifications_outlined,
                   size: 24,
-                  color: Colors.white,
+                  color: widget.iconColor,
                 ),
                 if (_hasUnread)
                   Positioned(
@@ -2823,7 +2868,7 @@ class _NotificationIconState extends State<_NotificationIcon> {
                         color: AppTheme.statusError,
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: AppTheme.primaryGreen,
+                          color: widget.ringColor,
                           width: 1.5,
                         ),
                       ),
@@ -2840,6 +2885,10 @@ class _NotificationIconState extends State<_NotificationIcon> {
   void _showNotifications(BuildContext context) {
     // Mark as read when opened
     setState(() => _hasUnread = false);
+    final inbox = _inbox();
+    if (inbox != null && widget.userId.isNotEmpty) {
+      inbox.markAllRead(widget.userId).ignore();
+    }
 
     showModalBottomSheet<void>(
       context: context,
@@ -2998,16 +3047,26 @@ class _NotificationIconState extends State<_NotificationIcon> {
   }
 }
 
-enum _NotifAction { syncStatus, deliveriesTab, paymentsTab }
+enum _NotifAction { syncStatus, openOrder }
 
 class _NotifItem {
   final IconData icon;
   final String title;
   final String subtitle;
+
+  /// Crop, quantity, amount and deadline of an inbox entry.
+  final String? detail;
   final Color color;
   final DateTime time;
   final _NotifAction action;
   final String key;
+
+  /// The order an inbox entry opens; null for sync items and entries
+  /// without an order.
+  final String? orderId;
+
+  /// An inbox entry the user has not seen in the bell yet.
+  final bool unread;
 
   _NotifItem({
     required this.icon,
@@ -3017,6 +3076,9 @@ class _NotifItem {
     required this.time,
     required this.action,
     required this.key,
+    this.detail,
+    this.orderId,
+    this.unread = false,
   });
 }
 
@@ -3066,9 +3128,10 @@ class _NotifCard extends StatelessWidget {
                   children: [
                     Text(
                       item.title,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 14,
-                        fontWeight: FontWeight.w600,
+                        fontWeight:
+                            item.unread ? FontWeight.w800 : FontWeight.w600,
                         color: AppTheme.textDark,
                       ),
                       maxLines: 1,
@@ -3081,9 +3144,22 @@ class _NotifCard extends StatelessWidget {
                         fontSize: 12,
                         color: AppTheme.textMuted,
                       ),
-                      maxLines: 1,
+                      maxLines: item.action == _NotifAction.openOrder ? 3 : 1,
                       overflow: TextOverflow.ellipsis,
                     ),
+                    if (item.detail != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        item.detail!,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.textDark,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ],
                 ),
               ),

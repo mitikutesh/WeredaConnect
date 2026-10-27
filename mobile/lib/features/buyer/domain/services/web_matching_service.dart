@@ -2,6 +2,7 @@ import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
@@ -215,7 +216,7 @@ class WebMatchingService extends BaseMatchingService {
   ///   whole-word partial, so "Adama, Oromia" meets "Ādama")
   /// - toWoreda names the delivery woreda (same rule)
   /// - departureDate in the future
-  /// - capacity >= quantityNeeded
+  /// - room left (`remainingQuintals`, else capacity) >= quantityNeeded
   /// - departureDate on/before the buyer's deadline when one is set
   /// - Sorted by pricePerQuintal ascending
   ///
@@ -248,7 +249,9 @@ class WebMatchingService extends BaseMatchingService {
       if (startOfDayInEthiopia(trip.departureDate).isBefore(todayStart)) {
         return false;
       }
-      if (trip.capacity < quantityNeeded) return false;
+      // ESC-15: the room left, not the whole capacity, once the trip has
+      // bookings.
+      if (tripRoomLeft(trip) < quantityNeeded) return false;
       // Date-fit: drop trips departing after the buyer's delivery deadline.
       if (deadline != null && trip.departureDate.isAfter(deadline)) {
         return false;
@@ -282,6 +285,8 @@ class WebMatchingService extends BaseMatchingService {
               DateTime.now()
       ..capacity = (m['capacity'] as num?)?.toDouble() ?? 0
       ..pricePerQuintal = (m['pricePerQuintal'] as num?)?.toDouble() ?? 0
+      ..bookedQuintals = quintalsFromWire(m['bookedQuintals'])
+      ..remainingQuintals = quintalsFromWire(m['remainingQuintals'])
       ..status = TripStatus.values.firstWhere(
         (e) => e.name == (m['status'] as String? ?? 'open'),
         orElse: () => TripStatus.open,

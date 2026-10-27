@@ -12,6 +12,7 @@ import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart'
     if (dart.library.html) 'package:wereda_connect/core/auth/offline_auth_cache_web.dart';
 import 'package:wereda_connect/core/auth/session_signals.dart';
+import 'package:wereda_connect/core/models/app_notification.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/conversation_read.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
@@ -1183,16 +1184,22 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       }
       await isar.payments.deleteAll(paymentIds.toList());
 
-      // Delete orders where user is a participant
+      // Delete orders where user is a participant (the trucker's too: a
+      // trucker pulls the orders of their trips, ESC-15).
       final buyerOrders =
           await isar.orders.filter().buyerIdEqualTo(userId).findAll();
       final farmerOrders =
           await isar.orders.filter().farmerIdEqualTo(userId).findAll();
+      final truckerOrders =
+          await isar.orders.filter().truckerIdEqualTo(userId).findAll();
       final orderIds = <int>{};
-      for (final o in [...buyerOrders, ...farmerOrders]) {
+      for (final o in [...buyerOrders, ...farmerOrders, ...truckerOrders]) {
         orderIds.add(o.id);
       }
       await isar.orders.deleteAll(orderIds.toList());
+
+      // ESC-21: the user's inbox.
+      await isar.appNotifications.filter().userIdEqualTo(userId).deleteAll();
 
       // Delete chat messages the user sent or received.
       final sent =
