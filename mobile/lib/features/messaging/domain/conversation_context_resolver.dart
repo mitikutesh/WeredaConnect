@@ -1,4 +1,5 @@
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 
@@ -108,7 +109,12 @@ abstract class ConversationContextResolver {
     try {
       final order = await lookupContactOrder(contextType, contextId);
       if (order == null) return ConversationContact.unknown;
-      if (isOrderContactOpen(order)) {
+      // ESC-15: a thread with the trucker opens only once the trucker
+      // committed (the server's ContactReveal.IsTruckerOpen).
+      final truckerOutside = counterpartId.isNotEmpty &&
+          counterpartId == order.truckerId &&
+          truckerResponseOf(order) != CommitmentResponse.accepted;
+      if (!truckerOutside && isOrderContactOpen(order)) {
         return ConversationContact(
           open: true,
           phone: orderPartyPhone(order, counterpartId),

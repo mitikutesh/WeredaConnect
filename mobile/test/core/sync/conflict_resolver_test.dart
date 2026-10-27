@@ -164,6 +164,83 @@ void main() {
       }
     });
 
+    // ESC-15: the trucker leaves the contact when the commitment ends. A
+    // refused trucker change on the trucker's own device drops the parties'
+    // numbers; on another party's device only the trucker's goes.
+    for (final (opUser, keepsParties) in [
+      ('trucker-001', false),
+      ('buyer-001', true),
+    ]) {
+      test('an awaiting-transport row, refused op of $opUser', () async {
+        await isar.writeTxn(() async {
+          await isar.orders.put(
+            Order()
+              ..orderId = 'order-003'
+              ..listingId = 'listing-001'
+              ..buyerId = 'buyer-001'
+              ..farmerId = 'farmer-001'
+              ..truckerId = 'trucker-001'
+              ..tripId = 'trip-001'
+              ..buyerName = 'Buyer'
+              ..farmerName = 'Farmer'
+              ..cropType = 'teff'
+              ..quantity = 500
+              ..pricePerUnit = 45.5
+              ..totalPrice = 22750
+              ..status = OrderStatus.accepted
+              ..createdAt = DateTime.utc(2026, 10)
+              ..version = 4
+              ..contactOpen = true
+              ..buyerPhone = '+251911000001'
+              ..farmerPhone = '+251911000002'
+              ..truckerPhone = '+251911000003',
+          );
+        });
+        final operation = SyncOperation()
+          ..operationId = 'op-order-3'
+          ..idempotencyKey = '$opUser:order:order-003:update:1'
+          ..entityType = 'order'
+          ..entityId = 'order-003'
+          ..action = 'update'
+          ..data = '{}'
+          ..status = SyncStatus.syncing
+          ..retryCount = 0
+          ..createdAt = DateTime.now().toUtc();
+
+        await resolver.resolve(
+          operation: operation,
+          serverData: {
+            'orderId': 'order-003',
+            'listingId': 'listing-001',
+            'buyerId': 'buyer-001',
+            'farmerId': 'farmer-001',
+            'truckerId': 'trucker-001',
+            'tripId': 'trip-001',
+            'buyerName': 'Buyer',
+            'farmerName': 'Farmer',
+            'cropType': 'teff',
+            'quantity': 500,
+            'pricePerUnit': 45.5,
+            'totalPrice': 22750,
+            'status': 'awaiting_transport',
+            'fulfillment': 'trucker',
+            'farmerResponse': 'accepted',
+            'truckerResponse': 'cancelled',
+            'createdAt': '2026-10-01T08:00:00Z',
+          },
+          serverVersion: 6,
+        );
+
+        final order =
+            await isar.orders.filter().orderIdEqualTo('order-003').findFirst();
+        expect(order!.status, OrderStatus.awaitingTransport);
+        expect(order.truckerPhone, isNull);
+        expect(order.buyerPhone, keepsParties ? '+251911000001' : isNull);
+        expect(order.farmerPhone, keepsParties ? '+251911000002' : isNull);
+        expect(order.contactOpen, keepsParties ? isNull : isFalse);
+      });
+    }
+
     group('CropListing conflict resolution', () {
       test('resolves conflict when server version > client version', () async {
         // Arrange: Create local CropListing with version 1

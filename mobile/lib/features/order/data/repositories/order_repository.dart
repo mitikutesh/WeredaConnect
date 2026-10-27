@@ -6,7 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
-import 'package:wereda_connect/core/models/order_status_sets.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
@@ -44,7 +44,7 @@ class OrderRepository extends BaseOrderRepository {
     if (statusFilter != null) {
       final status = OrderStatus.values.firstWhere(
         (s) => s.name == statusFilter,
-        orElse: () => OrderStatus.created,
+        orElse: () => OrderStatus.unknown,
       );
       query = query.statusEqualTo(status);
     }
@@ -63,7 +63,7 @@ class OrderRepository extends BaseOrderRepository {
     if (statusFilter != null) {
       final status = OrderStatus.values.firstWhere(
         (s) => s.name == statusFilter,
-        orElse: () => OrderStatus.created,
+        orElse: () => OrderStatus.unknown,
       );
       query = query.statusEqualTo(status);
     }
@@ -97,7 +97,7 @@ class OrderRepository extends BaseOrderRepository {
     if (statusFilter != null) {
       final status = OrderStatus.values.firstWhere(
         (s) => s.name == statusFilter,
-        orElse: () => OrderStatus.created,
+        orElse: () => OrderStatus.unknown,
       );
       query = query.statusEqualTo(status);
     }
@@ -115,7 +115,7 @@ class OrderRepository extends BaseOrderRepository {
     if (statusFilter != null) {
       final status = OrderStatus.values.firstWhere(
         (s) => s.name == statusFilter,
-        orElse: () => OrderStatus.created,
+        orElse: () => OrderStatus.unknown,
       );
       query = query.statusEqualTo(status);
     }
@@ -347,13 +347,7 @@ class OrderRepository extends BaseOrderRepository {
     if (order.status == OrderStatus.cancelled) return;
 
     final now = DateTime.now().toUtc();
-    // ESC-06: an accepted order is cancelled only after a transport failure.
-    if (order.status == OrderStatus.accepted &&
-        !isTransportFailureCancelOpen(order, now)) {
-      throw const OrderCancelNotAllowedException(
-        'An accepted order can be cancelled only after its pickup deadline.',
-      );
-    }
+    checkOrderCancelAllowed(order, userId, now);
 
     final baseVersion = order.version;
 
@@ -385,21 +379,31 @@ class OrderRepository extends BaseOrderRepository {
     );
   }
 
-  /// Accept an order (farmer action).
+  /// Accept an order (farmer action). ESC-15: sent as the farmer command; the
+  /// local row shows the sequential result until the next pull (a server with
+  /// commitments off accepts a trip order at once).
   @override
   Future<void> acceptOrder(String orderId, String farmerId) async {
     final order = await _findOrder(orderId);
     _checkFarmerResponse(order, farmerId);
-    if (order.status == OrderStatus.accepted) return;
+    if (order.status == OrderStatus.accepted ||
+        order.farmerResponse == CommitmentResponse.accepted) {
+      return;
+    }
     _checkFunded(order);
 
     final now = DateTime.now().toUtc();
     final baseVersion = order.version;
+    final nextStatus = farmerAcceptStatus(order);
 
     await _writeThenEnqueue(
       order,
       (o) {
-        o.status = OrderStatus.accepted;
+        o.status = nextStatus;
+        o.farmerResponse = CommitmentResponse.accepted;
+        if (nextStatus == OrderStatus.funded) {
+          o.truckerResponse = CommitmentResponse.pending;
+        }
         o.respondedAt = now;
         o.updatedAt = now;
         o.version = baseVersion + 1;
@@ -414,7 +418,7 @@ class OrderRepository extends BaseOrderRepository {
         action: 'update',
         data: jsonEncode({
           'orderId': orderId,
-          'status': orderStatusToWire(OrderStatus.accepted.name),
+          'farmerResponse': CommitmentCommand.accept,
           'respondedAt': now.toIso8601String(),
           'updatedAt': now.toIso8601String(),
           'version': baseVersion,
@@ -443,6 +447,8 @@ class OrderRepository extends BaseOrderRepository {
       order,
       (o) {
         o.status = OrderStatus.rejected;
+        o.farmerResponse = CommitmentResponse.declined;
+        o.cancelledBy = 'farmer';
         o.respondedAt = now;
         o.rejectionReason = reason;
         o.updatedAt = now;
@@ -456,9 +462,83 @@ class OrderRepository extends BaseOrderRepository {
         action: 'update',
         data: jsonEncode({
           'orderId': orderId,
-          'status': orderStatusToWire(OrderStatus.rejected.name),
+          'farmerResponse': CommitmentCommand.decline,
           'respondedAt': now.toIso8601String(),
           if (reason != null) 'rejectionReason': reason,
+          'updatedAt': now.toIso8601String(),
+          'version': baseVersion,
+        }),
+        operationId: _uuid.v4(),
+      ),
+    );
+  }
+
+  /// ESC-15: the trucker's answer to a transport request, or the drop-out
+  /// from an accepted order before pickup (the server asks for a fresh
+  /// sign-in, which the sync queue waits for).
+  @override
+  Future<void> respondAsTrucker(
+    String orderId,
+    String truckerId, {
+    required bool accept,
+    String? declineReason,
+  }) async {
+    final order = await _findOrder(orderId);
+    if (truckerId.isEmpty || order.truckerId != truckerId) {
+      throw const OrderActionNotAllowedException(
+        'Only the trucker of this order can answer its transport request.',
+      );
+    }
+    final answered = truckerResponseOf(order);
+    if (accept && answered == CommitmentResponse.accepted) return;
+    if (!accept &&
+        order.status == OrderStatus.awaitingTransport &&
+        (answered == CommitmentResponse.declined ||
+            answered == CommitmentResponse.cancelled)) {
+      return;
+    }
+    final dropOut = !accept && canTruckerDropOut(order, truckerId);
+    if (!dropOut && !canTruckerRespond(order, truckerId)) {
+      throw const OrderActionNotAllowedException(
+        'This transport request is not open: the farmer has not accepted '
+        'yet, or it was already answered.',
+      );
+    }
+
+    final now = DateTime.now().toUtc();
+    final baseVersion = order.version;
+
+    await _writeThenEnqueue(
+      order,
+      (o) {
+        if (accept) {
+          o.status = OrderStatus.accepted;
+          o.truckerResponse = CommitmentResponse.accepted;
+          o.contactOpen = null;
+        } else {
+          o.status = OrderStatus.awaitingTransport;
+          o.truckerResponse = dropOut
+              ? CommitmentResponse.cancelled
+              : CommitmentResponse.declined;
+          o.transportFailure =
+              dropOut ? 'trucker_cancelled' : 'trucker_declined';
+          o.declineReason = declineReason;
+          // The trucker leaves the order's contact at once.
+          _closeContact(o);
+        }
+        o.updatedAt = now;
+        o.version = baseVersion + 1;
+      },
+      () => _syncQueue.enqueue(
+        userId: truckerId,
+        entityType: 'order',
+        entityId: orderId,
+        action: 'update',
+        data: jsonEncode({
+          'orderId': orderId,
+          'truckerResponse':
+              accept ? CommitmentCommand.accept : CommitmentCommand.decline,
+          if (!accept && declineReason != null) 'declineReason': declineReason,
           'updatedAt': now.toIso8601String(),
           'version': baseVersion,
         }),
@@ -514,6 +594,11 @@ class OrderRepository extends BaseOrderRepository {
   ) async {
     final before = (
       status: order.status,
+      farmerResponse: order.farmerResponse,
+      truckerResponse: order.truckerResponse,
+      transportFailure: order.transportFailure,
+      declineReason: order.declineReason,
+      cancelledBy: order.cancelledBy,
       respondedAt: order.respondedAt,
       rejectionReason: order.rejectionReason,
       cancelledAt: order.cancelledAt,
@@ -537,6 +622,11 @@ class OrderRepository extends BaseOrderRepository {
       await _isar.writeTxn(() async {
         order
           ..status = before.status
+          ..farmerResponse = before.farmerResponse
+          ..truckerResponse = before.truckerResponse
+          ..transportFailure = before.transportFailure
+          ..declineReason = before.declineReason
+          ..cancelledBy = before.cancelledBy
           ..respondedAt = before.respondedAt
           ..rejectionReason = before.rejectionReason
           ..cancelledAt = before.cancelledAt

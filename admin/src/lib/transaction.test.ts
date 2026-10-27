@@ -4,12 +4,16 @@ import { t as translate } from "@/lib/i18n";
 
 import {
   adminQueueLabel,
+  commitmentResponseLabel,
   deriveStage,
   escrowStatusLabel,
   escrowStatusVariant,
   orderStatusLabel,
+  orderStatusVariant,
+  partyLabel,
   stageLabel,
   timelineActionLabel,
+  transportFailureLabel,
 } from "./transaction";
 
 describe("held escrow (FRD-03)", () => {
@@ -34,6 +38,7 @@ describe("deriveStage", () => {
     for (const s of [
       "payment_submitted",
       "funded",
+      "awaiting_transport",
       "accepted",
       "pickup_confirmed",
       "in_transit",
@@ -65,6 +70,25 @@ describe("deriveStage", () => {
       expect(orderStatusLabel("rejected", tr)).not.toBe("rejected");
       expect(timelineActionLabel("order_money_mismatch", tr)).not.toBe("order_money_mismatch");
     }
+  });
+
+  // ESC-15: the commitment status and fields read as words in every locale.
+  it("labels awaiting_transport and the commitment values in every locale", () => {
+    for (const locale of ["en", "am", "om"] as const) {
+      const tr = (key: string) => translate(key, locale);
+      expect(orderStatusLabel("awaiting_transport", tr)).not.toBe("awaiting_transport");
+      expect(tr("transactions.action_trucker_responded")).not.toBe("transactions.action_trucker_responded");
+      for (const r of ["pending", "accepted", "declined", "expired", "cancelled", "not_asked", "failed_capacity", "none"]) {
+        expect(commitmentResponseLabel(r, tr)).not.toBe(r);
+      }
+      for (const f of ["trucker_declined", "trucker_expired", "trucker_cancelled", "trip_cancelled", "trip_full"]) {
+        expect(transportFailureLabel(f, tr)).not.toBe(f);
+      }
+      for (const p of ["buyer", "farmer", "trucker", "system"]) {
+        expect(partyLabel(p, tr)).not.toBe(p);
+      }
+    }
+    expect(orderStatusVariant.awaiting_transport).toBe("warning");
   });
 
   it("falls back to unknown for unmapped statuses", () => {

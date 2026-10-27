@@ -12,6 +12,7 @@ export 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/database/crypto_failure.dart';
 import 'package:wereda_connect/core/database/field_encryptor.dart';
+import 'package:wereda_connect/core/database/schemas/app_notification.dart';
 import 'package:wereda_connect/core/database/schemas/buyer_intent.dart';
 import 'package:wereda_connect/core/database/schemas/conversation_read.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
@@ -176,6 +177,7 @@ class IsarService {
         RatingSchema,
         MessageSchema,
         ConversationReadSchema,
+        AppNotificationSchema,
       ],
       directory: dir.path,
       name: 'wereda_connect',

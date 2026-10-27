@@ -62,6 +62,35 @@ class RejectOrder extends OrderEvent {
   List<Object?> get props => [orderId, farmerId, reason];
 }
 
+/// ESC-15: the trucker accepts the transport request of an order whose
+/// farmer accepted.
+class TruckerAcceptOrder extends OrderEvent {
+  final String orderId;
+  final String truckerId;
+
+  const TruckerAcceptOrder({required this.orderId, required this.truckerId});
+
+  @override
+  List<Object?> get props => [orderId, truckerId];
+}
+
+/// ESC-15: the trucker declines the transport request, or drops out of an
+/// accepted order before pickup. [declineReason] is a reason code.
+class TruckerDeclineOrder extends OrderEvent {
+  final String orderId;
+  final String truckerId;
+  final String? declineReason;
+
+  const TruckerDeclineOrder({
+    required this.orderId,
+    required this.truckerId,
+    this.declineReason,
+  });
+
+  @override
+  List<Object?> get props => [orderId, truckerId, declineReason];
+}
+
 /// Create a new order (buyer action).
 class CreateOrder extends OrderEvent {
   final String listingId;

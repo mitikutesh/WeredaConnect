@@ -55,6 +55,16 @@ class OrderRejected extends OrderState {
   const OrderRejected();
 }
 
+/// ESC-15: state after the trucker answered a transport request.
+class TruckerResponded extends OrderState {
+  final bool accepted;
+
+  const TruckerResponded({required this.accepted});
+
+  @override
+  List<Object?> get props => [accepted];
+}
+
 /// State after a new order has been created.
 class OrderCreated extends OrderState {
   final Order order;

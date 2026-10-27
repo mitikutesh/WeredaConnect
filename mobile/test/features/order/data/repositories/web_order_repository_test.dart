@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
@@ -323,6 +324,138 @@ void main() {
           ),
         ),
       );
+    });
+  });
+
+  group('WebOrderRepository commitments (ESC-15)', () {
+    Map<String, dynamic>? sentBody;
+
+    void stub(Map<String, dynamic> order) {
+      sentBody = null;
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-1'))
+          .thenAnswer((_) async => {'order': order});
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer((invocation) async {
+        sentBody = invocation.namedArguments[#data] as Map<String, dynamic>;
+        return {
+          'results': [
+            {'status': 'success'},
+          ],
+        };
+      });
+    }
+
+    Map<String, dynamic> sentData() => ((sentBody!['operations'] as List).single
+        as Map<String, dynamic>)['data'] as Map<String, dynamic>;
+
+    Map<String, dynamic> tripOrder(
+      String status, {
+      String farmer = 'accepted',
+      String trucker = 'pending',
+    }) =>
+        orderDto(status: status)
+          ..['tripId'] = 'trip-1'
+          ..['truckerId'] = 'trucker-1'
+          ..['fulfillment'] = 'trucker'
+          ..['farmerResponse'] = farmer
+          ..['truckerResponse'] = trucker;
+
+    test('the farmer accepts and declines with the command', () async {
+      stub(tripOrder('funded', farmer: 'pending', trucker: 'not_asked'));
+
+      await repo.acceptOrder('ord-1', 'farmer-1');
+      expect(sentData(), {'farmerResponse': 'accept', 'version': 1});
+
+      await repo.rejectOrder('ord-1', 'farmer-1', reason: 'No stock');
+      expect(sentData(), {
+        'farmerResponse': 'decline',
+        'rejectionReason': 'No stock',
+        'version': 1,
+      });
+    });
+
+    test('the trucker accepts or declines with a reason', () async {
+      stub(tripOrder('funded'));
+
+      await repo.respondAsTrucker('ord-1', 'trucker-1', accept: true);
+      expect(sentData(), {'truckerResponse': 'accept', 'version': 1});
+
+      await repo.respondAsTrucker(
+        'ord-1',
+        'trucker-1',
+        accept: false,
+        declineReason: 'route',
+      );
+      expect(sentData(), {
+        'truckerResponse': 'decline',
+        'declineReason': 'route',
+        'version': 1,
+      });
+    });
+
+    test('the trucker cannot answer before the farmer accepted', () async {
+      stub(tripOrder('funded', farmer: 'pending', trucker: 'not_asked'));
+
+      await expectLater(
+        repo.respondAsTrucker('ord-1', 'trucker-1', accept: true),
+        throwsA(isA<OrderActionNotAllowedException>()),
+      );
+      expect(sentBody, isNull);
+    });
+
+    test('the buyer cannot cancel a funded order while they decide', () async {
+      stub(tripOrder('funded', farmer: 'pending', trucker: 'not_asked'));
+
+      await expectLater(
+        repo.cancelOrder('ord-1', 'buyer-1'),
+        throwsA(isA<OrderCancelNotAllowedException>()),
+      );
+      expect(sentBody, isNull);
+    });
+
+    test('the buyer cancels after the transport fell through', () async {
+      stub(tripOrder('awaiting_transport', trucker: 'declined'));
+
+      await repo.cancelOrder('ord-1', 'buyer-1');
+
+      expect(sentData()['status'], 'cancelled');
+    });
+
+    test('the commitment fields and the new status are read', () async {
+      stub(
+        tripOrder('awaiting_transport', trucker: 'declined')
+          ..['buyerChoiceDeadlineAt'] = '2026-10-29T08:00:00Z'
+          ..['transportFailure'] = 'trucker_declined',
+      );
+
+      final order = (await repo.getOrderById('ord-1'))!;
+
+      expect(order.status, OrderStatus.awaitingTransport);
+      expect(order.truckerResponse, 'declined');
+      expect(order.transportFailure, 'trucker_declined');
+      expect(order.buyerChoiceDeadlineAt, DateTime.utc(2026, 10, 29, 8));
+    });
+
+    test('the order id is encoded in the path', () async {
+      when(
+        () => api.get<Map<String, dynamic>>('/orders/..%2Fescrow%2Fhistory'),
+      ).thenAnswer((_) async => {'order': orderDto()});
+
+      await repo.fetchOrder('../escrow/history');
+
+      verify(
+        () => api.get<Map<String, dynamic>>('/orders/..%2Fescrow%2Fhistory'),
+      ).called(1);
+    });
+
+    test('a status this build does not know reads as unknown', () async {
+      stub(orderDto(status: 'some_new_status'));
+
+      expect((await repo.getOrderById('ord-1'))!.status, OrderStatus.unknown);
     });
   });
 

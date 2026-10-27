@@ -3,12 +3,14 @@ import 'package:isar/isar.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/payment_status_wire.dart';
 import 'package:wereda_connect/core/models/sync_operation.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/user.dart';
 
 /// Service for resolving sync conflicts when server reports version mismatch.
@@ -289,6 +291,9 @@ class ConflictResolver {
         trip!.capacity = (serverData['capacity'] as num).toDouble();
         trip!.pricePerQuintal =
             (serverData['pricePerQuintal'] as num).toDouble();
+        trip!.bookedQuintals = quintalsFromWire(serverData['bookedQuintals']);
+        trip!.remainingQuintals =
+            quintalsFromWire(serverData['remainingQuintals']);
         trip!.vehiclePlate = serverData['vehiclePlate'] as String?;
         trip!.vehicleDescription = serverData['vehicleDescription'] as String?;
 
@@ -331,6 +336,14 @@ class ConflictResolver {
     }
   }
 
+  /// The user an operation was queued for: its idempotency key starts with
+  /// the user id (`SyncQueue.enqueue`).
+  static String? _operationUserId(SyncOperation operation) {
+    final key = operation.idempotencyKey;
+    final separator = key.indexOf(':');
+    return separator > 0 ? key.substring(0, separator) : null;
+  }
+
   /// Whether a `/sync` row field holds a value (a non-empty string).
   static bool _hasValue(Object? value) =>
       value != null && value.toString().isNotEmpty;
@@ -364,7 +377,7 @@ class ConflictResolver {
         final statusStr = orderStatusFromWire(serverData['status'] as String);
         order!.status = OrderStatus.values.firstWhere(
           (e) => e.name == statusStr,
-          orElse: () => OrderStatus.created,
+          orElse: () => OrderStatus.unknown,
         );
 
         // Timestamps
@@ -414,6 +427,9 @@ class ConflictResolver {
             (serverData['commissionAmount'] as num?)?.toDouble();
         order!.orderTotal = (serverData['orderTotal'] as num?)?.toDouble();
 
+        // ESC-15: who has answered and until when.
+        applyOrderCommitmentFields(order!, serverData);
+
         // ESC-48: /sync rows carry no contact flag or phones. An admin override
         // refund leaves the order in an open status but flags the row, which
         // closes contact; otherwise the status set decides until the next pull.
@@ -428,6 +444,22 @@ class ConflictResolver {
             ..buyerPhone = null
             ..farmerPhone = null
             ..truckerPhone = null;
+        }
+        // ESC-15: the trucker is in the contact only once committed. An
+        // uncommitted trucker's number goes; on the trucker's own device (the
+        // refused operation was theirs) the parties' numbers go too.
+        if (truckerResponseOf(order!) != CommitmentResponse.accepted) {
+          order!.truckerPhone = null;
+          final opUser = _operationUserId(operation);
+          if (opUser != null &&
+              opUser == order!.truckerId &&
+              opUser != order!.buyerId &&
+              opUser != order!.farmerId) {
+            order!
+              ..contactOpen = false
+              ..buyerPhone = null
+              ..farmerPhone = null;
+          }
         }
 
         // CRITICAL: Update version to server version

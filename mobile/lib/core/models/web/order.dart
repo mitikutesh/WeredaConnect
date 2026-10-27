@@ -42,6 +42,17 @@ class Order {
   String? buyerPhone;
   String? farmerPhone;
   String? truckerPhone;
+
+  /// ESC-15 commitment fields (server-written; see the Isar schema).
+  String? fulfillment;
+  String? farmerResponse;
+  String? truckerResponse;
+  DateTime? farmerDeadlineAt;
+  DateTime? truckerDeadlineAt;
+  DateTime? buyerChoiceDeadlineAt;
+  String? transportFailure;
+  String? declineReason;
+  String? cancelledBy;
 }
 
 /// Status of an order in its lifecycle.
@@ -61,4 +72,6 @@ enum OrderStatus {
   paymentFailed,
   disputed,
   disputeResolved,
+  awaitingTransport,
+  unknown,
 }

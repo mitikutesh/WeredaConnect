@@ -219,6 +219,17 @@ const String orderTripNotEligibleCode = 'ORDER_TRIP_NOT_ELIGIBLE';
 const String orderTransportAttemptsExceededCode =
     'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED';
 
+/// Sync rejection prefix when a farmer's or trucker's answer is not open:
+/// the farmer has not accepted yet (the trucker waits), or the request was
+/// already answered or closed (ESC-15, sync-protocol.md 1.29.0). Permanent
+/// under the `ORDER_*` rule; has its own text.
+const String orderResponseNotPendingCode = 'ORDER_RESPONSE_NOT_PENDING';
+
+/// Whether a /sync per-operation error message refuses an answer that is not
+/// open (`ORDER_RESPONSE_NOT_PENDING: ...`).
+bool isOrderResponseNotPendingMessage(String? message) =>
+    message != null && message.startsWith(orderResponseNotPendingCode);
+
 /// Whether a /sync per-operation error message is a response after the
 /// order's deadline (`ORDER_DEADLINE_PASSED: ...`).
 bool isOrderDeadlinePassedMessage(String? message) =>

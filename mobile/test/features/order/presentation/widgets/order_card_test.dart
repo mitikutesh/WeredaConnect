@@ -5,7 +5,8 @@ import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
-Order _order(OrderStatus status) => Order()
+Order _order(OrderStatus status, {String? farmerResponse}) => Order()
+  ..farmerResponse = farmerResponse
   ..orderId = 'o1'
   ..listingId = 'l1'
   ..buyerId = 'b1'
@@ -24,6 +25,7 @@ Future<void> _pumpCard(
   WidgetTester tester, {
   required OrderStatus status,
   required bool isFarmerView,
+  String? farmerResponse,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -31,7 +33,7 @@ Future<void> _pumpCard(
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(
         body: OrderCard(
-          order: _order(status),
+          order: _order(status, farmerResponse: farmerResponse),
           isFarmerView: isFarmerView,
           onAccept: () {},
           onReject: () {},
@@ -75,6 +77,33 @@ void main() {
       final l10n = l10nOf(tester);
       expect(find.text(l10n.acceptOrder), findsNothing);
       expect(find.text(l10n.rejectOrder), findsNothing);
+    });
+
+    // ESC-15: a trip order stays funded while the trucker is asked.
+    testWidgets('hides Accept/Reject once the farmer accepted a funded order',
+        (tester) async {
+      await _pumpCard(
+        tester,
+        status: OrderStatus.funded,
+        isFarmerView: true,
+        farmerResponse: 'accepted',
+      );
+      final l10n = l10nOf(tester);
+      expect(find.text(l10n.acceptOrder), findsNothing);
+      expect(find.text(l10n.rejectOrder), findsNothing);
+    });
+
+    testWidgets('labels awaiting transport and an unknown status',
+        (tester) async {
+      await _pumpCard(
+        tester,
+        status: OrderStatus.awaitingTransport,
+        isFarmerView: true,
+      );
+      expect(find.text(l10nOf(tester).statusAwaitingTransport), findsOneWidget);
+      await _pumpCard(tester, status: OrderStatus.unknown, isFarmerView: true);
+      expect(find.text(l10nOf(tester).orderStatusUpdating), findsOneWidget);
+      expect(find.text(l10nOf(tester).acceptOrder), findsNothing);
     });
 
     testWidgets('never shows Accept/Reject for a non-farmer, even when funded',

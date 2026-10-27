@@ -70,6 +70,11 @@ void main() {
     ..tripId = 'trip-001'
     ..truckerId = 'trucker-001'
     ..truckerName = 'Abebe'
+    ..fromWoreda = 'Adama'
+    ..toWoreda = 'Bishoftu'
+    ..departureDate = DateTime.utc(2026, 11, 2)
+    ..capacity = 200
+    ..remainingQuintals = 120
     ..pricePerQuintal = pricePerQuintal;
 
   Future<void> open(
@@ -160,6 +165,9 @@ void main() {
     expect(find.text('850.00 ETB'), findsOneWidget);
     expect(find.text('18350.00 ETB'), findsOneWidget);
     expect(find.text('18375.00 ETB'), findsNothing);
+    // ESC-15: the buyer sees which trucker the order will ask, and the room.
+    expect(find.text('Trucker: Abebe'), findsOneWidget);
+    expect(find.textContaining('120 quintals free'), findsOneWidget);
 
     await tester.ensureVisible(find.byType(FilledButton));
     await tester.tap(find.byType(FilledButton));

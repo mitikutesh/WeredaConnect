@@ -5739,6 +5739,768 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Deleted user'**
   String get deletedUser;
+
+  /// ESC-15 order status awaiting_transport: the trucker cannot carry a paid order and the buyer decides
+  ///
+  /// In en, this message translates to:
+  /// **'Transport fell through'**
+  String get statusAwaitingTransport;
+
+  /// Timeline tooltip for the awaiting_transport status
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker can\'t carry this order. The money stays held safely. The buyer can cancel for a full refund; without a decision in time the order is cancelled and refunded.'**
+  String get statusAwaitingTransportInfo;
+
+  /// Label for an order status this app version does not know (a newer server)
+  ///
+  /// In en, this message translates to:
+  /// **'Updating'**
+  String get orderStatusUpdating;
+
+  /// Timeline tooltip for an unknown order status
+  ///
+  /// In en, this message translates to:
+  /// **'This order changed in a way this app version can\'t show yet. Please update the app.'**
+  String get orderStatusUpdatingInfo;
+
+  /// Order detail: heading of the section showing the farmer and trucker answers (ESC-15)
+  ///
+  /// In en, this message translates to:
+  /// **'Who has agreed'**
+  String get commitmentTitle;
+
+  /// Commitment row: this party accepted
+  ///
+  /// In en, this message translates to:
+  /// **'Accepted'**
+  String get commitmentAccepted;
+
+  /// Commitment row: this party has not answered yet; time is the deadline in Ethiopia time
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting, answer due {time}'**
+  String commitmentWaitingUntil(String time);
+
+  /// Commitment row: this party has not answered yet (no deadline known)
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for an answer'**
+  String get commitmentWaiting;
+
+  /// Commitment row: this party declined
+  ///
+  /// In en, this message translates to:
+  /// **'Declined'**
+  String get commitmentDeclined;
+
+  /// Commitment row: this party let the request expire
+  ///
+  /// In en, this message translates to:
+  /// **'Did not answer in time'**
+  String get commitmentExpired;
+
+  /// Commitment row for the trucker: not asked yet, the farmer answers first
+  ///
+  /// In en, this message translates to:
+  /// **'Asked once the farmer accepts'**
+  String get commitmentNotAskedYet;
+
+  /// Commitment row for the trucker: the trip was cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'Trip cancelled'**
+  String get commitmentTripCancelled;
+
+  /// Commitment row for the trucker: the trip had no room left
+  ///
+  /// In en, this message translates to:
+  /// **'Trip was full'**
+  String get commitmentTripFull;
+
+  /// Commitment row for the trucker: dropped out after accepting
+  ///
+  /// In en, this message translates to:
+  /// **'Dropped out'**
+  String get commitmentDroppedOut;
+
+  /// Order detail: the deadline of the answer the viewer owes
+  ///
+  /// In en, this message translates to:
+  /// **'Please answer by {time}.'**
+  String commitmentAnswerBy(String time);
+
+  /// Order detail, buyer, funded order: what happens while the farmer and the trucker decide
+  ///
+  /// In en, this message translates to:
+  /// **'Your money is held safely. The farmer is asked first, then the trucker. A paid order can\'t be cancelled while they decide.'**
+  String get commitmentBuyerWaitingNote;
+
+  /// Order detail, trucker, funded order the farmer has not accepted yet
+  ///
+  /// In en, this message translates to:
+  /// **'The farmer has not accepted yet. You will be asked once they do.'**
+  String get commitmentTruckerNotAskedNote;
+
+  /// Trucker button: accept the transport request
+  ///
+  /// In en, this message translates to:
+  /// **'Accept transport'**
+  String get truckerAcceptRequest;
+
+  /// Trucker button: decline the transport request
+  ///
+  /// In en, this message translates to:
+  /// **'Decline'**
+  String get truckerDeclineRequest;
+
+  /// Title of the decline reason sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Why are you declining?'**
+  String get declineReasonTitle;
+
+  /// Decline reason code date
+  ///
+  /// In en, this message translates to:
+  /// **'The date doesn\'t work'**
+  String get declineReasonDate;
+
+  /// Decline reason code capacity
+  ///
+  /// In en, this message translates to:
+  /// **'Not enough room'**
+  String get declineReasonCapacity;
+
+  /// Decline reason code price
+  ///
+  /// In en, this message translates to:
+  /// **'The price doesn\'t work'**
+  String get declineReasonPrice;
+
+  /// Decline reason code route
+  ///
+  /// In en, this message translates to:
+  /// **'The route doesn\'t work'**
+  String get declineReasonRoute;
+
+  /// Decline reason code crop_not_ready
+  ///
+  /// In en, this message translates to:
+  /// **'The crops are not ready'**
+  String get declineReasonCropNotReady;
+
+  /// Decline reason code other
+  ///
+  /// In en, this message translates to:
+  /// **'Another reason'**
+  String get declineReasonOther;
+
+  /// Trucker button on an accepted order before pickup: drop out
+  ///
+  /// In en, this message translates to:
+  /// **'I can\'t make this delivery'**
+  String get truckerDropOut;
+
+  /// Body of the trucker drop-out sheet
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer is told and may cancel for a full refund. Dropping out after you accepted counts against you. You will be asked to sign in again.'**
+  String get truckerDropOutWarning;
+
+  /// Farmer button on an order whose transport fell through
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel without penalty'**
+  String get farmerCancelWithoutPenalty;
+
+  /// Cancel dialog body: the farmer cancels an accepted order before pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelling after you accepted counts against you, and the buyer gets a full refund. You will be asked to sign in again.'**
+  String get farmerCancelCommittedWarning;
+
+  /// Cancel dialog body: the farmer cancels an order whose transport fell through
+  ///
+  /// In en, this message translates to:
+  /// **'The transport fell through, so cancelling does not count against you. The buyer gets a full refund.'**
+  String get farmerCancelAwaitingTransportBody;
+
+  /// Order detail, buyer, awaiting_transport with a deadline (Ethiopia time)
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker can\'t carry this order. Cancel for a full refund by {deadline}. If you don\'t decide by then, the order is cancelled and refunded for you.'**
+  String transportFailedBuyerBody(String deadline);
+
+  /// Order detail, buyer, awaiting_transport without a known deadline
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker can\'t carry this order. You can cancel it for a full refund.'**
+  String get transportFailedBuyerBodyNoDeadline;
+
+  /// Order detail, farmer who accepted, awaiting_transport
+  ///
+  /// In en, this message translates to:
+  /// **'The transport for this order fell through. Please keep the crops until the buyer decides.'**
+  String get transportFailedFarmerBody;
+
+  /// Cancel dialog body: the buyer cancels an order whose transport fell through
+  ///
+  /// In en, this message translates to:
+  /// **'The money held for this order comes back to you in full.'**
+  String get cancelOrderAwaitingTransportBody;
+
+  /// Error ORDER_RESPONSE_NOT_PENDING
+  ///
+  /// In en, this message translates to:
+  /// **'This request is not open for you: the farmer has not accepted yet, or it was already answered.'**
+  String get errorResponseNotPending;
+
+  /// transportFailure trucker_declined
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker declined'**
+  String get transportFailureTruckerDeclined;
+
+  /// transportFailure trucker_expired
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker did not answer in time'**
+  String get transportFailureTruckerExpired;
+
+  /// transportFailure trucker_cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker dropped out'**
+  String get transportFailureTruckerCancelled;
+
+  /// transportFailure trip_cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'The trip was cancelled'**
+  String get transportFailureTripCancelled;
+
+  /// transportFailure trip_full
+  ///
+  /// In en, this message translates to:
+  /// **'The trip was full'**
+  String get transportFailureTripFull;
+
+  /// Home: heading of the list of orders waiting for the user
+  ///
+  /// In en, this message translates to:
+  /// **'Action needed'**
+  String get actionNeededTitle;
+
+  /// Action card, farmer: a paid order waits for an answer
+  ///
+  /// In en, this message translates to:
+  /// **'Answer the new order'**
+  String get actionAnswerOrder;
+
+  /// Action card, trucker: a transport request waits for an answer
+  ///
+  /// In en, this message translates to:
+  /// **'Answer the transport request'**
+  String get actionAnswerTransport;
+
+  /// Action card, farmer: transport fell through
+  ///
+  /// In en, this message translates to:
+  /// **'Keep the crops: the buyer is deciding'**
+  String get actionKeepCrops;
+
+  /// Action card, trucker: an agreed order has no delivery yet
+  ///
+  /// In en, this message translates to:
+  /// **'Set up the delivery'**
+  String get actionSetUpDelivery;
+
+  /// Action card, buyer: an order waits for payment
+  ///
+  /// In en, this message translates to:
+  /// **'Pay for the order'**
+  String get actionPay;
+
+  /// Action card, buyer: the payment failed
+  ///
+  /// In en, this message translates to:
+  /// **'Payment failed: pay again'**
+  String get actionPayAgain;
+
+  /// Action card, buyer: awaiting_transport
+  ///
+  /// In en, this message translates to:
+  /// **'Transport fell through: decide'**
+  String get actionDecideTransport;
+
+  /// Action card, buyer: the order was delivered (48 hours to report a problem)
+  ///
+  /// In en, this message translates to:
+  /// **'Check the delivery'**
+  String get actionCheckDelivery;
+
+  /// Deadline of an action card or inbox entry (Ethiopia time)
+  ///
+  /// In en, this message translates to:
+  /// **'Due {time}'**
+  String actionDueBy(String time);
+
+  /// Trip detail: heading of the orders booked on the trip
+  ///
+  /// In en, this message translates to:
+  /// **'Booked orders'**
+  String get tripBookings;
+
+  /// Trip detail: no orders booked on the trip
+  ///
+  /// In en, this message translates to:
+  /// **'No orders booked yet'**
+  String get tripNoBookings;
+
+  /// Room left on a trip
+  ///
+  /// In en, this message translates to:
+  /// **'{quintals} quintals free'**
+  String tripRemainingCapacity(String quintals);
+
+  /// Match results: sheet title to pick one of several suggested trips
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a truck'**
+  String get chooseTrip;
+
+  /// Inbox entry of a type this app version does not know
+  ///
+  /// In en, this message translates to:
+  /// **'Order update'**
+  String get notifGenericTitle;
+
+  /// Inbox entry of a type this app version does not know
+  ///
+  /// In en, this message translates to:
+  /// **'Open the order to see what changed.'**
+  String get notifGenericBody;
+
+  /// Inbox entry title, notification type payment_confirmed
+  ///
+  /// In en, this message translates to:
+  /// **'Payment received'**
+  String get notifPaymentConfirmedTitle;
+
+  /// Inbox entry body, notification type payment_confirmed; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your payment is held safely. We will tell you when the farmer answers.'**
+  String get notifPaymentConfirmedBody;
+
+  /// Inbox entry title, notification type order_request
+  ///
+  /// In en, this message translates to:
+  /// **'New order'**
+  String get notifOrderRequestTitle;
+
+  /// Inbox entry body, notification type order_request; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'{buyer} paid, and the money is held safely until delivery. Please accept or decline.'**
+  String notifOrderRequestBody(String buyer);
+
+  /// Inbox entry title, notification type farmer_accepted
+  ///
+  /// In en, this message translates to:
+  /// **'Farmer accepted'**
+  String get notifFarmerAcceptedTitle;
+
+  /// Inbox entry body, notification type farmer_accepted; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'{farmer} accepted your order. We are now asking the trucker.'**
+  String notifFarmerAcceptedBody(String farmer);
+
+  /// Inbox entry title, notification type transport_request
+  ///
+  /// In en, this message translates to:
+  /// **'Transport request'**
+  String get notifTransportRequestTitle;
+
+  /// Inbox entry body, notification type transport_request; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'{farmer} accepted an order on your trip. Please accept or decline the transport.'**
+  String notifTransportRequestBody(String farmer);
+
+  /// Inbox entry title, notification type order_confirmed
+  ///
+  /// In en, this message translates to:
+  /// **'Order confirmed'**
+  String get notifOrderConfirmedTitle;
+
+  /// Inbox entry body, notification type order_confirmed; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Everyone has agreed to the order.'**
+  String get notifOrderConfirmedBody;
+
+  /// Inbox entry title, notification type order_rejected
+  ///
+  /// In en, this message translates to:
+  /// **'Order declined'**
+  String get notifOrderRejectedTitle;
+
+  /// Inbox entry body, notification type order_rejected; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'{farmer} declined your order. Your money will be returned to you.'**
+  String notifOrderRejectedBody(String farmer);
+
+  /// Inbox entry title, notification type transport_failed
+  ///
+  /// In en, this message translates to:
+  /// **'Transport fell through'**
+  String get notifTransportFailedTitle;
+
+  /// Inbox entry body, notification type transport_failed; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker can\'t carry your order. Please decide: you can cancel for a full refund.'**
+  String get notifTransportFailedBody;
+
+  /// Inbox entry title, notification type transport_failed_keep_crops
+  ///
+  /// In en, this message translates to:
+  /// **'Transport fell through'**
+  String get notifTransportFailedKeepCropsTitle;
+
+  /// Inbox entry body, notification type transport_failed_keep_crops; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker for this order dropped out. Please keep the crops until the buyer decides.'**
+  String get notifTransportFailedKeepCropsBody;
+
+  /// Inbox entry title, notification type request_expired
+  ///
+  /// In en, this message translates to:
+  /// **'Request closed'**
+  String get notifRequestExpiredTitle;
+
+  /// Inbox entry body, notification type request_expired; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'The request closed because it was not answered in time.'**
+  String get notifRequestExpiredBody;
+
+  /// Inbox entry title, notification type request_on_hold
+  ///
+  /// In en, this message translates to:
+  /// **'Request on hold'**
+  String get notifRequestOnHoldTitle;
+
+  /// Inbox entry body, notification type request_on_hold; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Transport for this order is not available. The buyer is deciding, so you do not need to answer now.'**
+  String get notifRequestOnHoldBody;
+
+  /// Inbox entry title, notification type order_cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'Order cancelled'**
+  String get notifOrderCancelledTitle;
+
+  /// Inbox entry body, notification type order_cancelled; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'The order was cancelled. Any money held goes back to the buyer.'**
+  String get notifOrderCancelledBody;
+
+  /// Inbox entry title, notification type order_expired_unpaid
+  ///
+  /// In en, this message translates to:
+  /// **'Order closed'**
+  String get notifOrderExpiredUnpaidTitle;
+
+  /// Inbox entry body, notification type order_expired_unpaid; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your order was closed because it was not paid in time. You can place a new order.'**
+  String get notifOrderExpiredUnpaidBody;
+
+  /// Inbox entry title, notification type payment_failed
+  ///
+  /// In en, this message translates to:
+  /// **'Payment failed'**
+  String get notifPaymentFailedTitle;
+
+  /// Inbox entry body, notification type payment_failed; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your payment did not go through. Please try again.'**
+  String get notifPaymentFailedBody;
+
+  /// Inbox entry title, notification type request_reminder
+  ///
+  /// In en, this message translates to:
+  /// **'Your answer is needed'**
+  String get notifRequestReminderTitle;
+
+  /// Inbox entry body, notification type request_reminder; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'This order is waiting for your answer.'**
+  String get notifRequestReminderBody;
+
+  /// Inbox entry title, notification type pickup_overdue
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup is late'**
+  String get notifPickupOverdueTitle;
+
+  /// Inbox entry body, notification type pickup_overdue; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your order was not picked up on time. Open it to see your options, including a full refund.'**
+  String get notifPickupOverdueBody;
+
+  /// Inbox entry title, notification type pickup_missed
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup missed'**
+  String get notifPickupMissedTitle;
+
+  /// Inbox entry body, notification type pickup_missed; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'The order was not picked up on time. The buyer may now cancel it for a refund.'**
+  String get notifPickupMissedBody;
+
+  /// Inbox entry title, notification type delivery_scheduled
+  ///
+  /// In en, this message translates to:
+  /// **'Transport arranged'**
+  String get notifDeliveryScheduledTitle;
+
+  /// Inbox entry body, notification type delivery_scheduled; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'{trucker} will carry the order.'**
+  String notifDeliveryScheduledBody(String trucker);
+
+  /// Inbox entry title, notification type buyer_collecting
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer is coming'**
+  String get notifBuyerCollectingTitle;
+
+  /// Inbox entry body, notification type buyer_collecting; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'{buyer} will collect the order from you. Please have the crops ready.'**
+  String notifBuyerCollectingBody(String buyer);
+
+  /// Inbox entry title, notification type picked_up
+  ///
+  /// In en, this message translates to:
+  /// **'Crops picked up'**
+  String get notifPickedUpTitle;
+
+  /// Inbox entry body, notification type picked_up; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your order was picked up from the farmer.'**
+  String get notifPickedUpBody;
+
+  /// Inbox entry title, notification type handoff_recorded
+  ///
+  /// In en, this message translates to:
+  /// **'Handoff recorded'**
+  String get notifHandoffRecordedTitle;
+
+  /// Inbox entry body, notification type handoff_recorded; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'The handoff is recorded. You are paid after the buyer receives the crops.'**
+  String get notifHandoffRecordedBody;
+
+  /// Inbox entry title, notification type in_transit
+  ///
+  /// In en, this message translates to:
+  /// **'On the way'**
+  String get notifInTransitTitle;
+
+  /// Inbox entry body, notification type in_transit; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your order is on the way to you.'**
+  String get notifInTransitBody;
+
+  /// Inbox entry title, notification type delivered
+  ///
+  /// In en, this message translates to:
+  /// **'Order delivered'**
+  String get notifDeliveredTitle;
+
+  /// Inbox entry body, notification type delivered; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your order was delivered. If something is wrong, report it before the time is up. If not, the farmer is paid.'**
+  String get notifDeliveredBody;
+
+  /// Inbox entry title, notification type delivered_payout_pending
+  ///
+  /// In en, this message translates to:
+  /// **'Delivered, payment coming'**
+  String get notifDeliveredPayoutPendingTitle;
+
+  /// Inbox entry body, notification type delivered_payout_pending; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'The order was delivered. Your payment is sent after the buyer\'s 48 hour check.'**
+  String get notifDeliveredPayoutPendingBody;
+
+  /// Inbox entry title, notification type order_settled
+  ///
+  /// In en, this message translates to:
+  /// **'Order complete'**
+  String get notifOrderSettledTitle;
+
+  /// Inbox entry body, notification type order_settled; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'The order is complete and everyone is paid. Thank you.'**
+  String get notifOrderSettledBody;
+
+  /// Inbox entry title, notification type refund_sent
+  ///
+  /// In en, this message translates to:
+  /// **'Refund sent'**
+  String get notifRefundSentTitle;
+
+  /// Inbox entry body, notification type refund_sent; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your refund has been sent to you.'**
+  String get notifRefundSentBody;
+
+  /// Inbox entry title, notification type payout_sent
+  ///
+  /// In en, this message translates to:
+  /// **'Payment sent'**
+  String get notifPayoutSentTitle;
+
+  /// Inbox entry body, notification type payout_sent; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your payment has been sent to you. Thank you.'**
+  String get notifPayoutSentBody;
+
+  /// Inbox entry title, notification type payout_blocked
+  ///
+  /// In en, this message translates to:
+  /// **'Payment on hold'**
+  String get notifPayoutBlockedTitle;
+
+  /// Inbox entry body, notification type payout_blocked; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your payment is waiting. {hint}'**
+  String notifPayoutBlockedBody(String hint);
+
+  /// Inbox entry title, notification type payout_processing
+  ///
+  /// In en, this message translates to:
+  /// **'Payment being processed'**
+  String get notifPayoutProcessingTitle;
+
+  /// Inbox entry body, notification type payout_processing; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Our team is sending your payment by hand. It can take a few days.'**
+  String get notifPayoutProcessingBody;
+
+  /// Inbox entry title, notification type dispute_opened
+  ///
+  /// In en, this message translates to:
+  /// **'Problem reported'**
+  String get notifDisputeOpenedTitle;
+
+  /// Inbox entry body, notification type dispute_opened; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'A problem was reported on your order. The money stays held until our team decides.'**
+  String get notifDisputeOpenedBody;
+
+  /// Inbox entry title, notification type dispute_received
+  ///
+  /// In en, this message translates to:
+  /// **'Report received'**
+  String get notifDisputeReceivedTitle;
+
+  /// Inbox entry body, notification type dispute_received; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'We received your report. The money stays held until our team decides.'**
+  String get notifDisputeReceivedBody;
+
+  /// Inbox entry title, notification type dispute_resolved
+  ///
+  /// In en, this message translates to:
+  /// **'Decision made'**
+  String get notifDisputeResolvedTitle;
+
+  /// Inbox entry title, notification type under_review
+  ///
+  /// In en, this message translates to:
+  /// **'Payment under review'**
+  String get notifUnderReviewTitle;
+
+  /// Inbox entry body, notification type under_review; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Our team is checking the payment for your order. We will tell you when it is done.'**
+  String get notifUnderReviewBody;
+
+  /// Inbox body, dispute_resolved, resolution farmer_wins
+  ///
+  /// In en, this message translates to:
+  /// **'Our team has decided: the money goes to the farmer.'**
+  String get notifDisputeResolvedFarmerWins;
+
+  /// Inbox body, dispute_resolved, resolution buyer_wins
+  ///
+  /// In en, this message translates to:
+  /// **'Our team has decided: the money goes back to the buyer.'**
+  String get notifDisputeResolvedBuyerWins;
+
+  /// Inbox body, dispute_resolved, no known resolution
+  ///
+  /// In en, this message translates to:
+  /// **'Our team has decided on the reported problem. Open the order for the details.'**
+  String get notifDisputeResolvedBody;
+
+  /// payout_blocked hint: reason fayda_required
+  ///
+  /// In en, this message translates to:
+  /// **'Please verify your Fayda ID in the app.'**
+  String get notifPayoutHintFayda;
+
+  /// payout_blocked hint: reason phone_unverified
+  ///
+  /// In en, this message translates to:
+  /// **'Please verify your phone number in the app.'**
+  String get notifPayoutHintPhone;
+
+  /// payout_blocked hint: reason profile_missing
+  ///
+  /// In en, this message translates to:
+  /// **'Please complete your profile in the app.'**
+  String get notifPayoutHintProfile;
+
+  /// payout_blocked hint: any other reason
+  ///
+  /// In en, this message translates to:
+  /// **'Open the app to see what is needed.'**
+  String get notifPayoutHintOther;
 }
 
 class _AppLocalizationsDelegate

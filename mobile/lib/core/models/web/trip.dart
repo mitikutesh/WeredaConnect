@@ -15,6 +15,10 @@ class Trip {
   late DateTime departureDate;
   late double capacity;
   late double pricePerQuintal;
+
+  /// ESC-15: booked quintals and the room left (server-written; null = none booked).
+  double? bookedQuintals;
+  double? remainingQuintals;
   late TripStatus status;
   late List<String> matchedListings;
   late DateTime createdAt;

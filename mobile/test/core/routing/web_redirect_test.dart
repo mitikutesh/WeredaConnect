@@ -65,5 +65,27 @@ void main() {
       expect(webRedirect(_signedIn(UserRole.buyer), '/marketplace'), isNull);
       expect(webRedirect(_signedIn(UserRole.buyer), '/trips'), isNull);
     });
+
+    test('ESC-21: an order page opens for every role, nothing deeper', () {
+      for (final role in UserRole.values) {
+        expect(
+          webRedirect(_signedIn(role), '/orders/ord-7f3a'),
+          isNull,
+          reason: role.name,
+        );
+        expect(webRedirect(_signedIn(role), '/orders/a/b'), '/');
+        expect(webRedirect(_signedIn(role), '/orders/'), '/');
+        // An encoded slash or dot segment never reaches an API path.
+        expect(
+          webRedirect(_signedIn(role), '/orders/..%2F..%2Fescrow%2Fhistory'),
+          '/',
+        );
+        expect(webRedirect(_signedIn(role), '/orders/..'), '/');
+      }
+      expect(
+        webRedirect(const AuthUnauthenticated(), '/orders/ord-7f3a'),
+        '/login',
+      );
+    });
   });
 }
