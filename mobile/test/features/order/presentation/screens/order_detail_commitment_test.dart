@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -19,6 +20,7 @@ import 'package:wereda_connect/features/order/presentation/screens/order_detail_
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
 
 class MockOrderBloc extends Mock implements OrderBloc {}
 
@@ -128,8 +130,9 @@ void main() {
     WidgetTester tester,
     Order order,
     UserRole role,
-    String userId,
-  ) async {
+    String userId, {
+    Locale locale = const Locale('en'),
+  }) async {
     tester.view.physicalSize = const Size(1000, 6000);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -145,10 +148,17 @@ void main() {
           BlocProvider<DeliveryBloc>.value(value: deliveryBloc),
           BlocProvider<RatingBloc>.value(value: ratingBloc),
         ],
-        child: const MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+        child: MaterialApp(
+          locale: locale,
+          // The app's delegates: Afan Oromo has no built-in Material strings.
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            FallbackMaterialLocalizationsDelegate(),
+            GlobalWidgetsLocalizations.delegate,
+            FallbackCupertinoLocalizationsDelegate(),
+          ],
           supportedLocales: AppLocalizations.supportedLocales,
-          home: OrderDetailScreen(orderId: 'order-001'),
+          home: const OrderDetailScreen(orderId: 'order-001'),
         ),
       ),
     );
@@ -362,5 +372,97 @@ void main() {
     expect(find.text(en.orderStatusUpdating), findsOneWidget);
     expect(find.text(en.cancelOrder), findsNothing);
     expect(find.text(en.payNow), findsNothing);
+  });
+
+  // LT-03: deadlines on the viewer's clock. 08:00 UTC is 11:00 in Ethiopia,
+  // 5:00 in the morning on the Ethiopian clock.
+  group('Ethiopian clock', () {
+    final am = lookupAppLocalizations(const Locale('am'));
+    final om = lookupAppLocalizations(const Locale('om'));
+
+    String withSmall24h(String sentence, String time, String time24) =>
+        sentence.replaceFirst(time, '$time ($time24)');
+
+    testWidgets('English keeps the 24-hour clock, no companion',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded),
+        UserRole.farmer,
+        'farmer-001',
+      );
+      expect(find.text(en.commitmentAnswerBy('Oct 27 11:00')), findsOneWidget);
+    });
+
+    testWidgets('farmer in Amharic: the answer deadline with the 24-hour time',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded),
+        UserRole.farmer,
+        'farmer-001',
+        locale: const Locale('am'),
+      );
+      const time = 'Oct 27 ከጠዋቱ 5:00';
+      expect(
+        find.text(withSmall24h(am.commitmentAnswerBy(time), time, '11:00')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('trucker in Amharic: the answer deadline with the 24-hour time',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded, farmer: 'accepted', trucker: 'pending'),
+        UserRole.trucker,
+        'trucker-001',
+        locale: const Locale('am'),
+      );
+      const time = 'Oct 28 ከጠዋቱ 5:00';
+      expect(
+        find.text(withSmall24h(am.commitmentAnswerBy(time), time, '11:00')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('buyer in Afaan Oromo: who is waiting, and until when',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded),
+        UserRole.buyer,
+        'buyer-001',
+        locale: const Locale('om'),
+      );
+      const time = 'Oct 27 5:00 ganama';
+      expect(
+        find.text(withSmall24h(om.commitmentWaitingUntil(time), time, '11:00')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('buyer in Amharic: the refund choice deadline after a failure',
+        (tester) async {
+      await show(
+        tester,
+        _order(
+          OrderStatus.awaitingTransport,
+          farmer: 'accepted',
+          trucker: 'declined',
+          transportFailure: 'trucker_declined',
+        ),
+        UserRole.buyer,
+        'buyer-001',
+        locale: const Locale('am'),
+      );
+      const time = 'Oct 29 ከጠዋቱ 5:00';
+      expect(
+        find.textContaining(
+          withSmall24h(am.transportFailedBuyerBody(time), time, '11:00'),
+        ),
+        findsOneWidget,
+      );
+    });
   });
 }

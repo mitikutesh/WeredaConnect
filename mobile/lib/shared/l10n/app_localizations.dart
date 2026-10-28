@@ -6501,6 +6501,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Open the app to see what is needed.'**
   String get notifPayoutHintOther;
+
+  /// Settings: row and dialog title for the clock that times are shown on (LT-03)
+  ///
+  /// In en, this message translates to:
+  /// **'Clock'**
+  String get clockSetting;
+
+  /// Clock setting option: follow the app language (Ethiopian clock for Amharic and Afaan Oromo, 24-hour clock for English)
+  ///
+  /// In en, this message translates to:
+  /// **'Auto'**
+  String get clockAuto;
+
+  /// Clock setting: helper text under the Auto option
+  ///
+  /// In en, this message translates to:
+  /// **'Follows the app language'**
+  String get clockAutoHint;
+
+  /// Clock setting option: the Ethiopian clock (the day starts at 6:00 in the morning)
+  ///
+  /// In en, this message translates to:
+  /// **'Ethiopian'**
+  String get clockEthiopian;
+
+  /// Clock setting option: the 24-hour clock
+  ///
+  /// In en, this message translates to:
+  /// **'International (24-hour)'**
+  String get clockInternational;
+
+  /// Ethiopian clock: a time from 00:00 to 05:59 with its part of the day. Amharic puts the part before {time}, Afaan Oromo after it. Never drop {time}.
+  ///
+  /// In en, this message translates to:
+  /// **'{time} at night'**
+  String clockNight(String time);
+
+  /// Ethiopian clock: a time from 06:00 to 11:59 with its part of the day. Never drop {time}.
+  ///
+  /// In en, this message translates to:
+  /// **'{time} in the morning'**
+  String clockMorning(String time);
+
+  /// Ethiopian clock: a time from 12:00 to 17:59 with its part of the day. Never drop {time}.
+  ///
+  /// In en, this message translates to:
+  /// **'{time} in the afternoon'**
+  String clockDay(String time);
+
+  /// Ethiopian clock: a time from 18:00 to 23:59 with its part of the day. Never drop {time}.
+  ///
+  /// In en, this message translates to:
+  /// **'{time} in the evening'**
+  String clockEvening(String time);
 }
 
 class _AppLocalizationsDelegate

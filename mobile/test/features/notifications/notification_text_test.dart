@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/core/models/app_notification.dart';
+import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/features/notifications/presentation/notification_text.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -113,31 +114,55 @@ void main() {
 
   group('detail line', () {
     final en = lookupAppLocalizations(const Locale('en'));
+    final am = lookupAppLocalizations(const Locale('am'));
+    final enClock = ClockFormat.resolve(en, ClockPreference.auto);
+    final amClock = ClockFormat.resolve(am, ClockPreference.auto);
+    final orderRequest = _entry('order_request', {
+      'cropType': 'teff',
+      'quantityKg': '500',
+      'amountEtb': '42500.00',
+      'deadlineAt': '2026-10-27T08:15:02Z',
+    });
 
     test('crop, quantity, amount and, for an act type, when it is due', () {
-      final line = notificationDetailLine(
-        en,
-        _entry('order_request', {
-          'cropType': 'teff',
-          'quantityKg': '500',
-          'amountEtb': '42500.00',
-          'deadlineAt': '2026-10-27T08:15:02Z',
-        }),
-      )!;
-      expect(line, contains('500 kg'));
-      expect(line, contains('42,500.00 ETB'));
-      // 08:15 UTC is 11:15 in Ethiopia.
-      final due = formatEthiopiaDeadline(DateTime.utc(2026, 10, 27, 8, 15, 2));
-      expect(due, startsWith('Oct 27 11:15'));
-      expect(line, contains(en.actionDueBy(due)));
+      final line = notificationDetailLine(en, enClock, orderRequest)!;
+      final text = line.toString();
+      expect(text, contains('500 kg'));
+      expect(text, contains('42,500.00 ETB'));
+      // 08:15 UTC is 11:15 in Ethiopia, on the 24-hour clock in English.
+      expect(line.time, 'Oct 27 11:15');
+      expect(line.time24, isNull);
+      expect(text, endsWith(en.actionDueBy('Oct 27 11:15')));
+    });
+
+    test('LT-03: Amharic shows the Ethiopian clock, the 24-hour time beside',
+        () {
+      final line = notificationDetailLine(am, amClock, orderRequest)!;
+      expect(line.time, 'Oct 27 ከጠዋቱ 5:15');
+      expect(line.time24, '11:15');
+      expect(
+        '${line.before}${line.time}${line.after}',
+        endsWith(am.actionDueBy('Oct 27 ከጠዋቱ 5:15')),
+      );
     });
 
     test('no deadline on a type that asks nothing', () {
       final line = notificationDetailLine(
         en,
+        enClock,
         _entry('order_confirmed', {'deadlineAt': '2026-10-27T08:15:02Z'}),
       );
       expect(line, isNull);
+    });
+
+    test('facts alone when there is no deadline', () {
+      final line = notificationDetailLine(
+        en,
+        enClock,
+        _entry('order_confirmed', {'quantityKg': '500'}),
+      )!;
+      expect(line.toString(), en.quantityKg('500'));
+      expect(line.time24, isNull);
     });
   });
 }

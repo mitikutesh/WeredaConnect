@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
-import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
@@ -11,6 +9,7 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
 
 /// Raise a dispute within 48 hours of delivery confirmation.
 ///
@@ -98,7 +97,7 @@ class _DisputeScreenState extends State<DisputeScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
-    final dateFormat = DateFormat.yMMMd().add_jm();
+    final clock = clockFormatOf(context);
     final remaining = _timeRemaining;
 
     return BlocListener<DeliveryBloc, DeliveryState>(
@@ -153,9 +152,7 @@ class _DisputeScreenState extends State<DisputeScreen> {
                     const SizedBox(height: 4),
                     Text(
                       l10n.deliveryConfirmedAtLabel(
-                        dateFormat.format(
-                          instantInEthiopia(widget.delivery.confirmedAt!),
-                        ),
+                        clock.dateTime(widget.delivery.confirmedAt!),
                       ),
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color:

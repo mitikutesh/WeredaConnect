@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
+import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
-import 'package:wereda_connect/features/notifications/presentation/notification_text.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
 
 /// Order statuses at which the commitment rows are shown (ESC-15).
 const Set<OrderStatus> commitmentSectionStatuses = {
@@ -34,8 +36,9 @@ class OrderCommitmentSection extends StatelessWidget {
       return const SizedBox.shrink();
     }
     final l10n = AppLocalizations.of(context)!;
+    final clock = clockFormatOf(context);
     final theme = Theme.of(context);
-    final note = _viewerNote(l10n);
+    final note = _viewerNote(l10n, clock);
     final failure = order.status == OrderStatus.awaitingTransport
         ? transportFailureLabel(l10n, order.transportFailure)
         : null;
@@ -60,14 +63,14 @@ class OrderCommitmentSection extends StatelessWidget {
                   _PartyRow(
                     role: l10n.farmer,
                     name: partyDisplayName(order.farmerName, l10n),
-                    state: _farmerState(l10n),
+                    state: _farmerState(l10n, clock),
                   ),
                   if (orderHasTrip(order)) ...[
                     const Divider(height: 16),
                     _PartyRow(
                       role: l10n.trucker,
                       name: partyDisplayName(order.truckerName, l10n),
-                      state: _truckerState(l10n),
+                      state: _truckerState(l10n, clock),
                     ),
                   ],
                 ],
@@ -77,8 +80,12 @@ class OrderCommitmentSection extends StatelessWidget {
           if (failure != null || note != null) ...[
             const SizedBox(height: 12),
             _CommitmentNote(
-              text: [if (failure != null) '$failure.', if (note != null) note]
-                  .join(' '),
+              label: switch ((failure, note)) {
+                (final String f, final ClockLabel n) => n.prefixed('$f. '),
+                (final String f, null) => ClockLabel.text('$f.'),
+                (null, final ClockLabel n) => n,
+                (null, null) => const ClockLabel.text(''),
+              },
               warning: order.status == OrderStatus.awaitingTransport,
             ),
           ],
@@ -87,7 +94,7 @@ class OrderCommitmentSection extends StatelessWidget {
     );
   }
 
-  _RowState _farmerState(AppLocalizations l10n) {
+  _RowState _farmerState(AppLocalizations l10n, ClockFormat clock) {
     return switch (farmerResponseOf(order)) {
       CommitmentResponse.accepted =>
         _RowState(l10n.commitmentAccepted, _Tone.done),
@@ -95,15 +102,16 @@ class OrderCommitmentSection extends StatelessWidget {
         _RowState(l10n.commitmentDeclined, _Tone.failed),
       CommitmentResponse.expired =>
         _RowState(l10n.commitmentExpired, _Tone.failed),
-      _ => _waiting(l10n, order.farmerDeadlineAt),
+      _ => _waiting(l10n, clock, order.farmerDeadlineAt),
     };
   }
 
-  _RowState _truckerState(AppLocalizations l10n) {
+  _RowState _truckerState(AppLocalizations l10n, ClockFormat clock) {
     return switch (truckerResponseOf(order)) {
       CommitmentResponse.accepted =>
         _RowState(l10n.commitmentAccepted, _Tone.done),
-      CommitmentResponse.pending => _waiting(l10n, order.truckerDeadlineAt),
+      CommitmentResponse.pending =>
+        _waiting(l10n, clock, order.truckerDeadlineAt),
       CommitmentResponse.declined =>
         _RowState(l10n.commitmentDeclined, _Tone.failed),
       CommitmentResponse.expired =>
@@ -120,40 +128,58 @@ class OrderCommitmentSection extends StatelessWidget {
     };
   }
 
-  static _RowState _waiting(AppLocalizations l10n, DateTime? deadline) =>
-      _RowState(
+  static _RowState _waiting(
+    AppLocalizations l10n,
+    ClockFormat clock,
+    DateTime? deadline,
+  ) =>
+      _RowState.label(
         deadline == null
-            ? l10n.commitmentWaiting
-            : l10n.commitmentWaitingUntil(formatEthiopiaDeadline(deadline)),
+            ? ClockLabel.text(l10n.commitmentWaiting)
+            : clock.deadline(
+                deadline,
+                date: DateFormat.MMMd(),
+                sentence: l10n.commitmentWaitingUntil,
+              ),
         _Tone.waiting,
       );
 
   /// What the viewer should know: their own answer and its deadline, why the
   /// buyer cannot cancel yet, or what to do after the transport failed.
-  String? _viewerNote(AppLocalizations l10n) {
+  ClockLabel? _viewerNote(AppLocalizations l10n, ClockFormat clock) {
     if (order.status == OrderStatus.awaitingTransport) {
       if (userId == order.buyerId) {
         final deadline = order.buyerChoiceDeadlineAt;
         return deadline == null
-            ? l10n.transportFailedBuyerBodyNoDeadline
-            : l10n.transportFailedBuyerBody(formatEthiopiaDeadline(deadline));
+            ? ClockLabel.text(l10n.transportFailedBuyerBodyNoDeadline)
+            : clock.deadline(
+                deadline,
+                date: DateFormat.MMMd(),
+                sentence: l10n.transportFailedBuyerBody,
+              );
       }
       if (userId == order.farmerId &&
           farmerResponseOf(order) == CommitmentResponse.accepted) {
-        return l10n.transportFailedFarmerBody;
+        return ClockLabel.text(l10n.transportFailedFarmerBody);
       }
       return null;
     }
     if (order.status != OrderStatus.funded) return null;
     final deadline = commitmentDeadlineFor(order, userId);
     if (deadline != null) {
-      return l10n.commitmentAnswerBy(formatEthiopiaDeadline(deadline));
+      return clock.deadline(
+        deadline,
+        date: DateFormat.MMMd(),
+        sentence: l10n.commitmentAnswerBy,
+      );
     }
-    if (userId == order.buyerId) return l10n.commitmentBuyerWaitingNote;
+    if (userId == order.buyerId) {
+      return ClockLabel.text(l10n.commitmentBuyerWaitingNote);
+    }
     if (userId.isNotEmpty &&
         userId == order.truckerId &&
         truckerResponseOf(order) == CommitmentResponse.notAsked) {
-      return l10n.commitmentTruckerNotAskedNote;
+      return ClockLabel.text(l10n.commitmentTruckerNotAskedNote);
     }
     return null;
   }
@@ -210,7 +236,7 @@ Future<String?> showDeclineReasonSheet(
             ),
             if (warning != null) ...[
               const SizedBox(height: 12),
-              _CommitmentNote(text: warning, warning: true),
+              _CommitmentNote(label: ClockLabel.text(warning), warning: true),
             ],
             const SizedBox(height: 8),
             for (final code in commitmentDeclineReasons)
@@ -235,10 +261,13 @@ Future<String?> showDeclineReasonSheet(
 enum _Tone { done, waiting, failed, idle }
 
 class _RowState {
-  final String label;
+  /// What the party has done; a waiting row carries its deadline.
+  final ClockLabel text;
   final _Tone tone;
 
-  const _RowState(this.label, this.tone);
+  _RowState(String label, this.tone) : text = ClockLabel.text(label);
+
+  const _RowState.label(this.text, this.tone);
 }
 
 class _PartyRow extends StatelessWidget {
@@ -276,7 +305,7 @@ class _PartyRow extends StatelessWidget {
                     ?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 2),
-              Text(state.label, style: theme.textTheme.bodyMedium),
+              ClockText(state.text, style: theme.textTheme.bodyMedium),
             ],
           ),
         ),
@@ -286,10 +315,10 @@ class _PartyRow extends StatelessWidget {
 }
 
 class _CommitmentNote extends StatelessWidget {
-  final String text;
+  final ClockLabel label;
   final bool warning;
 
-  const _CommitmentNote({required this.text, this.warning = false});
+  const _CommitmentNote({required this.label, this.warning = false});
 
   @override
   Widget build(BuildContext context) {
@@ -315,7 +344,7 @@ class _CommitmentNote extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(text, style: TextStyle(color: ink)),
+            child: ClockText(label, style: TextStyle(color: ink)),
           ),
         ],
       ),

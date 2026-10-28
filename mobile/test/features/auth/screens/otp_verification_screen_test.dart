@@ -34,15 +34,21 @@ void main() {
 
   tearDown(() => states.close());
 
-  Widget app({Duration cooldown = const Duration(seconds: 60)}) =>
+  Widget app({
+    Duration cooldown = const Duration(seconds: 60),
+    DateTime? expiresAt,
+    Locale locale = const Locale('en'),
+  }) =>
       BlocProvider<AuthBloc>.value(
         value: bloc,
         child: MaterialApp(
+          locale: locale,
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: OtpVerificationScreen(
             phoneNumber: '+251911234567',
             resendCooldown: cooldown,
+            expiresAt: expiresAt,
           ),
         ),
       );
@@ -53,6 +59,34 @@ void main() {
 
     expect(
       find.text('We sent a 6-digit code by SMS to +251911234567.'),
+      findsOneWidget,
+    );
+  });
+
+  // LT-03: the expiry on the viewer's clock, in Ethiopia time. 10:05 UTC is
+  // 13:05 in Ethiopia, 7:05 in the day on the Ethiopian clock.
+  testWidgets('English shows the expiry on the 24-hour clock', (tester) async {
+    await tester.pumpWidget(app(expiresAt: DateTime.utc(2026, 9, 25, 10, 5)));
+    await tester.pumpAndSettle();
+
+    expect(find.text('The code expires at 13:05.'), findsOneWidget);
+  });
+
+  testWidgets('Amharic shows the expiry on the Ethiopian clock, 24-hour small',
+      (tester) async {
+    await tester.pumpWidget(
+      app(
+        expiresAt: DateTime.utc(2026, 9, 25, 10, 5),
+        locale: const Locale('am'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final am = lookupAppLocalizations(const Locale('am'));
+    expect(
+      find.text(
+        am.otpExpiresAt('ከቀኑ 7:05').replaceFirst('7:05', '7:05 (13:05)'),
+      ),
       findsOneWidget,
     );
   });
