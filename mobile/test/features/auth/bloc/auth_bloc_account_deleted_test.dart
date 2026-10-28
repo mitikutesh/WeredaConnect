@@ -16,6 +16,7 @@ import 'package:wereda_connect/core/database/schemas/buyer_intent.dart';
 import 'package:wereda_connect/core/database/schemas/conversation_read.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/schemas/location_ping.dart';
 import 'package:wereda_connect/core/database/schemas/message.dart';
 import 'package:wereda_connect/core/database/schemas/order.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
@@ -172,6 +173,17 @@ Rating _rating(String id, String rater, String ratee) => Rating()
   ..updatedAt = _at
   ..version = 1;
 
+LocationPing _ping(String pingId, String truckerId) => LocationPing()
+  ..pingId = pingId
+  ..tripId = pingId.split('#').first
+  ..truckerId = truckerId
+  ..kind = 'fix'
+  ..source = 'hourly'
+  ..capturedAt = DateTime.utc(2026, 10, 28)
+  ..latitude = 8.75
+  ..longitude = 38.98
+  ..accuracyM = 30;
+
 ConversationRead _read(String conversationId) => ConversationRead()
   ..conversationId = conversationId
   ..lastReadAt = _at;
@@ -253,6 +265,7 @@ void main() {
         MessageSchema,
         ConversationReadSchema,
         AppNotificationSchema,
+        LocationPingSchema,
       ],
       directory: dir.path,
       name: 'account_deleted_${DateTime.now().microsecondsSinceEpoch}',
@@ -353,6 +366,8 @@ void main() {
       ]);
       await isar.users
           .putAll([_user(_me, _phone), _user(_other, '+251911000002')]);
+      await isar.locationPings
+          .putAll([_ping('t-me#1', _me), _ping('t-x#1', _other)]);
     });
     final queue = SyncQueue(isar);
     await queue.enqueue(
@@ -430,6 +445,10 @@ void main() {
     expect(
       (await isar.users.where().findAll()).map((u) => u.userId),
       [_other],
+    );
+    expect(
+      (await isar.locationPings.where().findAll()).map((p) => p.pingId),
+      ['t-x#1'],
     );
 
     // Secure storage (auth slots), offline cache, push token, read markers.

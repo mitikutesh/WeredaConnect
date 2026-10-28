@@ -165,6 +165,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
               gpsPickup: gps,
               photoRef: _photoRef,
               scannedQrNonce: _scannedNonce,
+              tripId: widget.delivery.tripId,
             ),
           );
     } else {
@@ -175,6 +176,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
               gpsDropoff: gps,
               photoRef: _photoRef,
               scannedQrNonce: _scannedNonce,
+              tripId: widget.delivery.tripId,
             ),
           );
     }

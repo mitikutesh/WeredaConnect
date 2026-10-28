@@ -17,6 +17,7 @@ import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/conversation_read.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/models/location_ping.dart';
 import 'package:wereda_connect/core/models/message.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
@@ -1200,6 +1201,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
       // ESC-21: the user's inbox.
       await isar.appNotifications.filter().userIdEqualTo(userId).deleteAll();
+
+      // LT-08: the trucker's check-ins (where the truck was).
+      await isar.locationPings.filter().truckerIdEqualTo(userId).deleteAll();
 
       // Delete chat messages the user sent or received.
       final sent =
