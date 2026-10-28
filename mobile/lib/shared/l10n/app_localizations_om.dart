@@ -204,6 +204,11 @@ class AppLocalizationsOm extends AppLocalizations {
       'Qonnaan buultota Itoophiyaa, konkolaatota fe\'aa fi bitootaa walitti dhufeenya';
 
   @override
+  String aboutMapDataCredit(String credit) {
+    return 'Odeeffannoo kaartaa: $credit';
+  }
+
+  @override
   String get activeListings => 'tarreewwan socho\'oo';
 
   @override

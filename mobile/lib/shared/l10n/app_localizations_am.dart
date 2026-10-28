@@ -196,6 +196,11 @@ class AppLocalizationsAm extends AppLocalizations {
   String get aboutTagline => 'የኢትዮጵያ ገበሬዎችን፣ የጭነት መኪና ሹፌሮችን እና ገዢዎችን ማገናኘት';
 
   @override
+  String aboutMapDataCredit(String credit) {
+    return 'የካርታ መረጃ: $credit';
+  }
+
+  @override
   String get activeListings => 'ንቁ ዝርዝሮች';
 
   @override

@@ -237,6 +237,11 @@
   "@aboutTagline": {
     "description": "About dialog tagline"
   },
+  "aboutMapDataCredit": "Map data: {credit}",
+  "@aboutMapDataCredit": {
+    "description": "About dialog: the attribution the GeoNames licence (CC BY 4.0) requires for the place names and positions the live trip map draws. {credit} is the fixed credit line, never translated. Amharic and Afaan Oromo need a native speaker review.",
+    "placeholders": {"credit": {"type": "String", "example": "© GeoNames (CC BY 4.0)"}}
+  },
   "activeListings": "active listings",
   "@activeListings": {
     "description": "Active listings count label"

@@ -203,6 +203,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'Connecting Ethiopian farmers, truckers, and buyers';
 
   @override
+  String aboutMapDataCredit(String credit) {
+    return 'Map data: $credit';
+  }
+
+  @override
   String get activeListings => 'active listings';
 
   @override
