@@ -130,4 +130,72 @@ public class TripLocationRepositoryTests
         first.IndexName.Should().BeNullOrEmpty();
         requests[1].ExclusiveStartKey.Should().BeSameAs(page2);
     }
+
+    [Fact]
+    public async Task ListByTrip_ReadsTheWholeTripInCaptureOrder_OverEveryPage_AndParsesTheRows()
+    {
+        var requests = new List<QueryRequest>();
+        var page2 = new Dictionary<string, AttributeValue>
+        {
+            ["tripId"] = new() { S = "trip-101" },
+            ["sortKey"] = new() { S = "2026-10-27T07:55:00.000Z#paused" }
+        };
+        _dynamoDb.QueryAsync(Arg.Do<QueryRequest>(r => requests.Add(r)), Arg.Any<CancellationToken>())
+            .Returns(
+                new QueryResponse
+                {
+                    Items = new List<Dictionary<string, AttributeValue>>
+                    {
+                        new()
+                        {
+                            ["tripId"] = new AttributeValue { S = "trip-101" },
+                            ["sortKey"] = new AttributeValue { S = "2026-10-27T05:05:00.000Z#fix" },
+                            ["truckerId"] = new AttributeValue { S = "trucker-789" },
+                            ["latitude"] = new AttributeValue { N = "8.1504" },
+                            ["longitude"] = new AttributeValue { N = "38.8196" },
+                            ["accuracyM"] = new AttributeValue { N = "12.5" },
+                            ["source"] = new AttributeValue { S = "scan" },
+                            ["mocked"] = new AttributeValue { BOOL = true },
+                            ["receivedAt"] = new AttributeValue { S = "2026-10-27T05:05:02.000Z" },
+                            ["expiresAt"] = new AttributeValue { N = "1798000000" }
+                        },
+                        // No sort key: skipped.
+                        new() { ["tripId"] = new AttributeValue { S = "trip-101" } }
+                    },
+                    LastEvaluatedKey = page2
+                },
+                new QueryResponse
+                {
+                    Items = new List<Dictionary<string, AttributeValue>>
+                    {
+                        new()
+                        {
+                            ["tripId"] = new AttributeValue { S = "trip-101" },
+                            ["sortKey"] = new AttributeValue { S = "2026-10-27T07:55:00.000Z#paused" },
+                            ["truckerId"] = new AttributeValue { S = "trucker-789" },
+                            ["pausedUntil"] = new AttributeValue { S = "2026-10-27T08:25:00.000Z" },
+                            ["receivedAt"] = new AttributeValue { S = "2026-10-27T07:55:01.000Z" },
+                            ["expiresAt"] = new AttributeValue { N = "1798000000" }
+                        }
+                    },
+                    LastEvaluatedKey = new Dictionary<string, AttributeValue>()
+                });
+
+        var rows = await _repo.ListByTripAsync("trip-101");
+
+        rows.Should().Equal(
+            new TripLocationRow("trip-101", "2026-10-27T05:05:00.000Z#fix", "trucker-789", 8.1504, 38.8196, 12.5, "scan", true,
+                null, "2026-10-27T05:05:02.000Z", 1_798_000_000),
+            new TripLocationRow("trip-101", "2026-10-27T07:55:00.000Z#paused", "trucker-789", null, null, null, null, null,
+                "2026-10-27T08:25:00.000Z", "2026-10-27T07:55:01.000Z", 1_798_000_000));
+        requests.Should().HaveCount(2);
+        var first = requests[0];
+        first.TableName.Should().Be(Table);
+        first.KeyConditionExpression.Should().Be("#t = :t");
+        first.ExpressionAttributeNames["#t"].Should().Be("tripId");
+        first.ExpressionAttributeValues[":t"].S.Should().Be("trip-101");
+        first.ScanIndexForward.Should().BeTrue();
+        first.IndexName.Should().BeNullOrEmpty();
+        requests[1].ExclusiveStartKey.Should().BeSameAs(page2);
+    }
 }

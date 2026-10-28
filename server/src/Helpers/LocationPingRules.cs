@@ -268,7 +268,12 @@ public static class LocationPingRules
     private static long ToEpochMs(DateTime utc)
         => new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
 
-    private static DateTime? LeftRoadAt(Dictionary<string, object> delivery, string status)
+    /// <summary>
+    /// When a delivery that ended left the road: <c>confirmedAt</c> for <c>delivered</c> and
+    /// <c>disputed</c>, <c>cancelledAt</c> for <c>cancelled</c>, else the verdict or last update time.
+    /// Null when none is readable. Also the end of the track window (LT-06).
+    /// </summary>
+    internal static DateTime? LeftRoadAt(Dictionary<string, object> delivery, string status)
     {
         var keys = status == "cancelled"
             ? new[] { "cancelledAt", "disputeResolvedAt", "updatedAt" }
@@ -287,7 +292,7 @@ public static class LocationPingRules
     private static string? Text(Dictionary<string, object> item, string key)
         => item.TryGetValue(key, out var value) ? value?.ToString() : null;
 
-    private static bool TryParseUtc(string? raw, out DateTime utc)
+    internal static bool TryParseUtc(string? raw, out DateTime utc)
     {
         utc = default;
         return !string.IsNullOrWhiteSpace(raw)
