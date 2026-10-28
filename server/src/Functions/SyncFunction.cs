@@ -662,6 +662,13 @@ public partial class SyncFunction
         _qrSecretRepo = qrSecretsTable != null
             ? new DeliveryQrSecretRepository(_dynamoDb, qrSecretsTable)
             : null;
+
+        // LT-05: the trip-locations table (location_ping check-ins). Absent env → null (a ping answers
+        // an unprefixed error, which clients retry).
+        var tripLocationsTable = Environment.GetEnvironmentVariable("TRIP_LOCATIONS_TABLE");
+        _tripLocationRepo = tripLocationsTable != null
+            ? new TripLocationRepository(_dynamoDb, tripLocationsTable)
+            : null;
     }
 
     /// <summary>
@@ -682,7 +689,8 @@ public partial class SyncFunction
         IMessageRepository? messageRepo = null,
         EscrowService? orderEscrowService = null,
         IDeliveryRepository? deliveryRepo = null,
-        ITripRepository? tripRepo = null)
+        ITripRepository? tripRepo = null,
+        ITripLocationRepository? tripLocationRepo = null)
     {
         _syncMetadataRepo = syncMetadataRepo ?? throw new ArgumentNullException(nameof(syncMetadataRepo));
         _cropRepo = cropRepo ?? throw new ArgumentNullException(nameof(cropRepo));
@@ -703,6 +711,7 @@ public partial class SyncFunction
         _orderEscrowService = orderEscrowService;
         _deliveryRepo = deliveryRepo ?? new DeliveryRepository(_dynamoDb, _deliveriesTable);
         _tripRepo = tripRepo ?? new TripRepository(_dynamoDb, _tripsTable);
+        _tripLocationRepo = tripLocationRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -750,6 +759,7 @@ public partial class SyncFunction
         _batchRiskScores = _fraudService == null ? null : new RiskScoreMemo(_fraudService);
         _batchSignals.Clear();
         _batchStaleConflicts = 0;
+        _batchDeliveryWritten = false;
         _batchPayoutDelays = new PayoutDelayBatch(_batchRiskScores);
 
         // Per-user rate limiting (F-11 Finding 3)
@@ -909,6 +919,7 @@ public partial class SyncFunction
                 "rating" => await ProcessRatingAsync(operation, authenticatedUserId, authenticatedRole, context),
                 "message" => await ProcessMessageAsync(operation, authenticatedUserId, authenticatedRole, context),
                 "user" => await ProcessUserAsync(operation, authenticatedUserId, context),
+                LocationPingRules.EntityType => await ProcessLocationPingAsync(operation, authenticatedUserId, context),
                 _ => new SyncOperationResult
                 {
                     OperationId = operation.OperationId,
@@ -916,6 +927,12 @@ public partial class SyncFunction
                     Message = $"Unsupported entity type: '{operation.EntityType}'."
                 }
             };
+
+            // LT-05: a later location_ping in this batch may not see this write in the deliveries-by-trip index.
+            if (operation.EntityType == "delivery" && result.Status == "success")
+            {
+                _batchDeliveryWritten = true;
+            }
 
             // 3. Store the caller-scoped idempotency key (for successful or conflict results)
             if (result.Status is "success" or "conflict" or "duplicate")
