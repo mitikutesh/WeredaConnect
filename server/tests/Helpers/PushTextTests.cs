@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using FluentAssertions;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Services;
@@ -9,7 +11,9 @@ namespace WeredaConnect.Server.Tests.Helpers;
 /// <summary>
 /// ESC-21: push text parity. Every notification type has a title and a body in en, am and om
 /// that read cleanly with or without params: no template characters, no phone number, a body
-/// under 140 characters; amounts and Ethiopia-time deadlines formatted for reading.
+/// under 140 characters; amounts and Ethiopia-time deadlines formatted for reading. LT-04: the
+/// deadline clock in am and om is the Ethiopian clock, checked against the cases shared with the
+/// app (<c>specs/contracts/fixtures/ethiopian-clock-cases.json</c>).
 /// </summary>
 public class PushTextTests
 {
@@ -85,6 +89,22 @@ public class PushTextTests
         body.Should().NotEndWith("…", "a typical order fits the body limit");
     }
 
+    [Theory]
+    [MemberData(nameof(TypesAndLanguages))]
+    public void TypicalText_WithTheLongestDeadline_FitsWithoutBeingCut(string type, string language)
+    {
+        // The longest deadlines on the Ethiopian clock: 02:59Z is 05:59 in Ethiopia ("ከሌሊቱ 11:59"),
+        // 14:59Z is 17:59 ("11:59 waaree booda").
+        foreach (var deadline in new[] { "2026-10-27T02:59:00Z", "2026-10-27T14:59:00Z" })
+        {
+            var p = new Dictionary<string, string>(Full) { [P.DeadlineAt] = deadline };
+
+            var (_, body) = PushText.Render(type, language, p);
+
+            body.Should().NotEndWith("…", $"a typical order fits the body limit whatever the part of the day ({deadline})");
+        }
+    }
+
     [Fact]
     public void LanguagesAndFallback_AreTheContractsThree()
     {
@@ -142,8 +162,12 @@ public class PushTextTests
     [InlineData("en", "2026-10-27T15:00:00.0000000Z", "27 Oct 18:00")]
     [InlineData("en", "2026-10-31T22:30:00Z", "1 Nov 01:30")]
     [InlineData("en", "2026-10-27T15:00:00+00:00", "27 Oct 18:00")]
-    [InlineData("am", "2026-10-27T15:00:00Z", "27 ኦክቶ 18:00")]
-    [InlineData("om", "2026-10-27T15:00:00Z", "27 Onk 18:00")]
+    [InlineData("am", "2026-10-27T15:00:00Z", "27 ኦክቶ ከምሽቱ 12:00")]
+    [InlineData("om", "2026-10-27T15:00:00Z", "27 Onk 12:00 galgala")]
+    [InlineData("am", "2026-10-31T22:30:00Z", "1 ኖቬም ከሌሊቱ 7:30")]
+    [InlineData("om", "2026-10-31T22:30:00Z", "1 Sad 7:30 halkan")]
+    [InlineData("am", "not a date", "")]
+    [InlineData("om", null, "")]
     [InlineData("en", "not a date", "")]
     [InlineData("en", null, "")]
     public void Deadlines_AreShownInEthiopiaTime(string language, string? iso, string expected)
@@ -164,6 +188,100 @@ public class PushTextTests
 
         title.Should().Be("New order: 500 kg teff");
         body.Should().Be("Buyer Abebe Tesfaye paid 42,500 ETB, held safely until delivery. Please accept or decline by 27 Oct 18:00.");
+    }
+
+    [Fact]
+    public void OrderRequest_InAmharicAndOromo_GivesTheDeadlineOnTheEthiopianClock()
+    {
+        PushText.Render(NotificationTypes.OrderRequest, "am", Full).Body.Should().Contain("እስከ 27 ኦክቶ ከምሽቱ 12:00");
+        PushText.Render(NotificationTypes.OrderRequest, "om", Full).Body.Should().Contain("hanga 27 Onk 12:00 galgala tti");
+    }
+
+    // ===== LT-04: the Ethiopian clock, driven by the cases shared with the app =====
+
+    private static readonly Lazy<JsonElement> ClockFixture = new(LoadClockFixture);
+
+    /// <summary>The shared cases file, found by walking up from the test output to the repository root.</summary>
+    private static JsonElement LoadClockFixture()
+    {
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir != null; dir = dir.Parent)
+        {
+            var candidate = Path.Combine(dir.FullName, "specs", "contracts", "fixtures", "ethiopian-clock-cases.json");
+            if (File.Exists(candidate))
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(candidate));
+                return document.RootElement.Clone();
+            }
+        }
+
+        throw new InvalidOperationException(
+            "specs/contracts/fixtures/ethiopian-clock-cases.json not found above the test output directory.");
+    }
+
+    private static string Text(JsonElement row, string name) => row.GetProperty(name).GetString()!;
+
+    private static (int Hour, int Minute) Clock(string hhmm)
+    {
+        var time = TimeOnly.ParseExact(hhmm, "HH:mm", CultureInfo.InvariantCulture);
+        return (time.Hour, time.Minute);
+    }
+
+    public static IEnumerable<object[]> ClockCases()
+        => ClockFixture.Value.GetProperty("cases").EnumerateArray()
+            .Select(c => new object[] { Text(c, "time"), Text(c, "am"), Text(c, "om"), Text(c, "en") });
+
+    public static IEnumerable<object[]> ClockRanges()
+        => ClockFixture.Value.GetProperty("ranges").EnumerateArray()
+            .Select(r => new object[] { Text(r, "from"), Text(r, "to"), Text(r, "am"), Text(r, "om"), Text(r, "en") });
+
+    [Theory]
+    [MemberData(nameof(ClockCases))]
+    public void Clock_ReadsTheSharedCases(string time, string am, string om, string en)
+    {
+        var (hour, minute) = Clock(time);
+
+        PushText.FormatClock("am", hour, minute).Should().Be(am);
+        PushText.FormatClock("om", hour, minute).Should().Be(om);
+        PushText.FormatClock("en", hour, minute).Should().Be(en);
+    }
+
+    [Theory]
+    [MemberData(nameof(ClockRanges))]
+    public void ClockRanges_ReadTheSharedCases(string from, string to, string am, string om, string en)
+    {
+        var (fromHour, fromMinute) = Clock(from);
+        var (toHour, toMinute) = Clock(to);
+
+        PushText.FormatClockRange("am", fromHour, fromMinute, toHour, toMinute).Should().Be(am);
+        PushText.FormatClockRange("om", fromHour, fromMinute, toHour, toMinute).Should().Be(om);
+        PushText.FormatClockRange("en", fromHour, fromMinute, toHour, toMinute).Should().Be(en);
+    }
+
+    [Theory]
+    [MemberData(nameof(ClockCases))]
+    public void Deadlines_PutTheSharedClockAfterTheGregorianDay(string time, string am, string om, string en)
+    {
+        // The case's Ethiopia wall-clock time on 27 October, sent as the UTC instant it stands for.
+        var (hour, minute) = Clock(time);
+        var utc = new DateTime(2026, 10, 27, hour, minute, 0, DateTimeKind.Utc) - PushText.EthiopiaOffset;
+        var iso = utc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
+
+        PushText.FormatDeadline("am", iso).Should().Be($"27 ኦክቶ {am}");
+        PushText.FormatDeadline("om", iso).Should().Be($"27 Onk {om}");
+        PushText.FormatDeadline("en", iso).Should().Be($"27 Oct {en}", "English keeps the 24-hour clock");
+    }
+
+    [Fact]
+    public void ClockParts_AreTheSharedWords()
+    {
+        var parts = ClockFixture.Value.GetProperty("parts");
+        var hours = new[] { ("night", 2), ("morning", 8), ("day", 13), ("evening", 20) };
+
+        foreach (var (part, hour) in hours)
+        {
+            PushText.FormatClock("am", hour, 0).Should().StartWith(Text(parts.GetProperty("am"), part) + " ");
+            PushText.FormatClock("om", hour, 0).Should().EndWith(" " + Text(parts.GetProperty("om"), part));
+        }
     }
 
     [Fact]
