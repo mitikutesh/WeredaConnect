@@ -34,6 +34,7 @@ export class DatabaseStack extends cdk.Stack {
   public readonly ratingsTable: dynamodb.Table;
   public readonly messagesTable: dynamodb.Table;
   public readonly notificationsTable: dynamodb.Table;
+  public readonly tripLocationsTable: dynamodb.Table;
   public readonly uploadsBucket: s3.Bucket;
   public readonly accessLogsBucket: s3.Bucket;
 
@@ -690,6 +691,24 @@ export class DatabaseStack extends cdk.Stack {
     });
     this.notificationsTable = notifications.table;
 
+    // ─── Trip Locations Table (live trip check-ins, LT-05) ─────────
+    // One row per check-in or sharing event of a trip, written by the sync
+    // Lambda (`location_ping`, live-trip-api.md section 1). The sort key is
+    // `{capturedAt}#{kind}`, so a trip's rows read in capture order and a
+    // resent ping lands on the same key (conditional put). Rows expire on
+    // `expiresAt` (epoch seconds, capturedAt + 60 days); the TTL attribute
+    // can never be renamed on a live table, so it matches the other tables.
+    // No GSI: every read is one trip's own partition. Live location never goes
+    // on trip rows, which every buyer can browse (live-trip.md D6).
+    const tripLocations = new WeredaDynamoTable(this, "TripLocationsTable", {
+      tableName: `${prefix}-trip-locations`,
+      partitionKey: { name: "tripId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "sortKey", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+      timeToLiveAttribute: "expiresAt",
+    });
+    this.tripLocationsTable = tripLocations.table;
+
     // S3 access logs bucket (F-18: audit logging for compliance)
     this.accessLogsBucket = new s3.Bucket(this, "AccessLogsBucket", {
       bucketName: `${bucketPrefix}-access-logs-${this.account}`,
@@ -822,6 +841,11 @@ export class DatabaseStack extends cdk.Stack {
     new cdk.CfnOutput(this, "NotificationsTableName", {
       value: this.notificationsTable.tableName,
       description: "DynamoDB Notifications Table (order notification inbox)",
+    });
+
+    new cdk.CfnOutput(this, "TripLocationsTableName", {
+      value: this.tripLocationsTable.tableName,
+      description: "DynamoDB Trip Locations Table (live trip check-ins)",
     });
   }
 }
