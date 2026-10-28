@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.19.0
+1.20.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -521,6 +521,9 @@ server refused the whole confirmation (`DELIVERY_INVALID_FIELD`).
 | `disputeReason` | string | No | 0-500 chars | Reason for dispute (if status is disputed) |
 | `disputeResolution` | string | No | Server-only: `farmer_wins` or `buyer_wins` | The admin's dispute verdict, stamped on a `disputed` delivery (v1.8.0) |
 | `disputeResolvedAt` | string (ISO 8601) | No | Server-only | When the verdict was recorded (v1.8.0) |
+| `nearbyNotifiedAt` | string (ISO 8601) | No | Server-only | When a check-in first put the truck within 5 km of the drop-off point (v1.20.0, LT-07): stamped once, conditional on the status `pickedUp` or `inTransit` and on no stamp yet, without moving `version` or `updatedAt`; its stream record tells the buyer `truck_nearby` (`notifications-api.md` 1.3.0) |
+| `nearbyDistanceKm` | number | No | Server-only, one decimal | The truck's great circle distance to the drop-off point at that check-in (v1.20.0) |
+| `nearbyMinutes` | number | No | Server-only, a multiple of 5 | Minutes from that check-in to the start of the arrival window (v1.20.0); absent when unknown |
 | `createdAt` | string (ISO 8601) | Yes | -- | Timestamp when delivery was created |
 | `updatedAt` | string (ISO 8601) | Yes | -- | Timestamp when delivery was last updated |
 | `deletedAt` | string (ISO 8601) | No | -- | Only on deliveries soft-deleted before 1.9.0 (such rows are hidden from lists and `GET /deliveries/{id}` answers `404`); a cancel no longer writes it |
@@ -559,6 +562,23 @@ delivered → disputed     (any participant raises a dispute within 48 hours; th
 
 System only, never through sync (1.16.0): `pending`, `pickedUp` or `inTransit` `→ cancelled` or
 `→ disputed`, by an admin's dispute disposition (see the dispute verdict paragraphs above).
+
+System, on a check-in (1.20.0, LT-07, `live-trip-api.md` section 5): `pickedUp → inTransit` when
+an accepted `location_ping` `fix` of the delivery's trip was captured at or after its
+`pickedUpAt` and is 2 km or more (great circle) from its pickup point, its `gpsPickup`, else its
+listing's location. The delivery is read strongly consistent first, and the write is the same as
+the trucker's own transition (status, `updatedAt`, `version` + 1), conditional on the status
+`pickedUp` and the version read; a delivery that moved on in between is left alone. It is
+audited in transaction-audit as the trucker's transition is (`delivery_updated`, `pickedUp` to
+`inTransit`) but with the actor `system` and `metadata` `source=check_in;distanceKm=<km>`, and
+the order follows exactly as for the trucker's own `inTransit` (`pickup_confirmed → in_transit`,
+forward only, system-audited, 1.4.0). The trucker's button stays as the fallback (a driver who
+shares no location, a check-in that waited offline from before the pickup synced). The
+trucker's own `inTransit` for a delivery that is already `inTransit` (the tap reached the server
+after a check-in moved it) answers `conflict` with the row and its version, nothing written, so
+the app takes the server's row instead of keeping a failed change; anyone else still gets
+`DELIVERY_INVALID_TRANSITION`. A check-in never moves money: the QR handoffs, the admin verdicts
+and the timers do.
 
 Since 1.9.0 (ESC-08) nothing cancels a delivery after pickup through sync (before, `pickedUp →
 cancelled` was allowed and the trucker's delete skipped the transitions).
@@ -1056,10 +1076,11 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.15.0 | 2026-10-17 | Contact only after the money is held (ESC-48): `GET /deliveries/{id}` and every delivery row in `/sync` data (create, update, conflict, cancel, dispute) carry no `farmerPhone`, `truckerPhone` or `buyerPhone`; the server still stamps them at create for the admin transaction view. No shipped client reads them. |
 | 1.16.0 | 2026-10-22 | Dispute dispositions (FUP-16, `escrow-protocol.md` 1.21.0): an admin's disposition closes a delivery that never reached `delivered` as a system actor, conditional on the status read and on no verdict yet, version added to: `return_to_farmer` and `settle_now` to `cancelled` with `cancelReason` (`dispute_buyer_wins`, `dispute_farmer_wins`) and `cancelledAt`, `delivered_anyway` to `disputed` with `confirmedAt` set when missing; the verdict is stamped on both, audited in transaction-audit; a sync dispute still starts only from `delivered`, so the escrow's pickup rule (`ESCROW_041`) needs no change here. No client change: the statuses are known and the extra keys are ignored. |
 | 1.17.0 | 2026-10-23 | QR gate money check (FUP-42): with no nonce on record, a `pickedUp` or `delivered` (trucker flow and self-pickup) is money-bearing when the order's escrow `escrow-order-{orderId}` exists (strongly consistent, any status) or the `DeliveryIndex` finds an escrow; before, only the `DeliveryIndex` was asked, so an order escrow whose delivery link failed or lagged let the transition pass with no QR. A failed read answers `deferred` (`DELIVERY_NONCE_PENDING`), writes nothing, never hard-fails, and logs the alarmed `QR_GATE_UNDECIDED` (order escrow problems alarm); web shows its QR-pending text for it. Cash deliveries and the nonce checks are unchanged. No client change (`sync-protocol.md` 1.19.0). |
+| 1.20.0 | 2026-10-28 | Check-in effects (LT-07, `live-trip-api.md` sections 4 and 5): a system `pickedUp → inTransit` when an accepted check-in captured after the pickup is 2 km or more from the pickup point (fresh read, conditional on the status and the version read, the trucker's write, audited with the actor `system` and `source=check_in`, the same order coupling to `in_transit`); the trucker's own `inTransit` on an `inTransit` delivery answers `conflict` with the row instead of `DELIVERY_INVALID_TRANSITION`; the server-only `nearbyNotifiedAt`, `nearbyDistanceKm` and `nearbyMinutes`, stamped once when a check-in is within 5 km of the drop-off point (conditional on `pickedUp` or `inTransit` and no stamp; `version` and `updatedAt` unchanged), which sends the buyer `truck_nearby` (`notifications-api.md` 1.3.0). No client change: the status is known and the extra keys are ignored. |
 | 1.19.0 | 2026-10-23 | Payout delay (FRD-13, `escrow-protocol.md` 1.33.0): the `delivered` transition stamps the linked escrow's `releaseNotBefore` in the same write as `deliveryConfirmedAt` and `disputeWindowEndsAt` (the trucker named by the delivery when the escrow has none yet); the automatic release waits for it. The dispute window and the delivery's own fields are unchanged; no client change on deliveries. |
 
 ---
 
-**Last Updated**: 2026-10-23
-**Version**: 1.19.0
+**Last Updated**: 2026-10-28
+**Version**: 1.20.0
 **Status**: Draft (Phase R4.2)
