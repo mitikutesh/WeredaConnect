@@ -10,6 +10,8 @@ import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/escrow_hold.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/initiate_payment_screen.dart';
+import 'package:wereda_connect/features/live_trip/domain/live_trip_rules.dart';
+import 'package:wereda_connect/features/live_trip/presentation/open_live_trip.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/photo_manager.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/device_signing_key_service.dart';
@@ -318,6 +320,29 @@ class DeliveryDetailScreen extends StatelessWidget {
     final isTrucker = currentUserId == delivery.truckerId;
     final isBuyer = currentUserId == delivery.buyerId;
     final isParticipant = isFarmer || isTrucker || isBuyer;
+
+    // LT-11: the buyer and the farmer follow the truck from pickup on, and
+    // see the trip summary after delivery. Never the trucker (their own trip
+    // mode is LT-09).
+    if (liveTripViewerOf(delivery, currentUserId) != null &&
+        hasLiveTrip(delivery) &&
+        !isWaitingForPickup(delivery)) {
+      widgets.add(
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            key: const Key('delivery_live_trip'),
+            onPressed: () => openLiveTrip(context, delivery, currentUserId),
+            icon: const Icon(Icons.map_outlined),
+            label: Text(l10n.liveTripTitle),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+            ),
+          ),
+        ),
+      );
+      widgets.add(const SizedBox(height: 12));
+    }
 
     // Farmer + pending → Show QR Code
     if (isFarmer && delivery.status == DeliveryStatus.pending) {

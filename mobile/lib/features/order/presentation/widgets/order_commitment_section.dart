@@ -23,16 +23,22 @@ class OrderCommitmentSection extends StatelessWidget {
   final Order order;
   final String userId;
 
+  /// Also after pickup, when both answers are in (the live trip's trip log,
+  /// LT-11); the order screen shows the rows only while someone decides.
+  final bool showAfterPickup;
+
   const OrderCommitmentSection({
     required this.order,
     required this.userId,
+    this.showAfterPickup = false,
     super.key,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (!commitmentSectionStatuses.contains(order.status) ||
-        !orderUsesCommitments(order)) {
+    if (!showAfterPickup &&
+        (!commitmentSectionStatuses.contains(order.status) ||
+            !orderUsesCommitments(order))) {
       return const SizedBox.shrink();
     }
     final l10n = AppLocalizations.of(context)!;

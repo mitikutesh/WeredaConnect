@@ -10,9 +10,11 @@ import 'package:wereda_connect/shared/services/place_repository.dart';
 /// it a bounded size (for example an [AspectRatio] or a [SizedBox]).
 ///
 /// [now] decides the freshness band and the halo; pass the screen's clock so
-/// the map ages while it is shown. [places] defaults to the bundled list,
-/// loaded once through [PlaceRepository.instance]; until it is loaded the map
-/// draws without town labels.
+/// the map ages while it is shown. The town labels are kept between paints
+/// ([TrackLabelCache]), so a new [now] alone does not search the place list
+/// again. [places] defaults to the bundled list, loaded once through
+/// [PlaceRepository.instance]; until it is loaded the map draws without town
+/// labels.
 class TrackMap extends StatefulWidget {
   const TrackMap({
     required this.track,
@@ -38,6 +40,7 @@ class TrackMap extends StatefulWidget {
 class _TrackMapState extends State<TrackMap> {
   List<Place> _bundled = const [];
   bool _loading = false;
+  final TrackLabelCache _labelCache = TrackLabelCache();
 
   @override
   void initState() {
@@ -76,6 +79,7 @@ class _TrackMapState extends State<TrackMap> {
       style: widget.style,
       textDirection: Directionality.of(context),
       textScaler: MediaQuery.textScalerOf(context),
+      labelCache: _labelCache,
     );
     return Semantics(
       image: true,

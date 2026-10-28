@@ -994,4 +994,73 @@ void main() {
       expect(find.textContaining('911000002'), findsNothing);
     });
   });
+
+  // LT-11: the buyer and the farmer follow the truck from the order; the
+  // trucker never gets the buyer's map here.
+  group('OrderDetailScreen live trip (LT-11)', () {
+    Order tripOrder({OrderStatus status = OrderStatus.inTransit}) => _makeOrder(
+          status: status,
+          tripId: _tripId,
+          truckerId: _truckerId,
+          truckerName: 'Trucker Tesfaye',
+        );
+
+    for (final (role, userId) in [
+      (UserRole.buyer, _buyerId),
+      (UserRole.farmer, _farmerId),
+    ]) {
+      testWidgets('${role.name} sees Live trip once the truck has the crop',
+          (tester) async {
+        stubAuth(role, userId);
+        activeDelivery = _makeDelivery(
+          status: DeliveryStatus.inTransit,
+          truckerId: _truckerId,
+        );
+        await tester.pumpWidget(buildScreen(tripOrder()));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('order_delivery_live_trip')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('order_live_trip_hint')), findsNothing);
+      });
+
+      testWidgets('${role.name} is told where the map will be before pickup',
+          (tester) async {
+        stubAuth(role, userId);
+        await tester.pumpWidget(
+          buildScreen(tripOrder(status: OrderStatus.accepted)),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('order_live_trip_hint')), findsOneWidget);
+        expect(
+          find.byKey(const Key('order_delivery_live_trip')),
+          findsNothing,
+        );
+      });
+    }
+
+    testWidgets('the trucker gets neither the button nor the hint',
+        (tester) async {
+      stubAuth(UserRole.trucker, _truckerId);
+      activeDelivery = _makeDelivery(
+        status: DeliveryStatus.inTransit,
+        truckerId: _truckerId,
+      );
+      await tester.pumpWidget(buildScreen(tripOrder()));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('order_delivery_live_trip')), findsNothing);
+      expect(find.byKey(const Key('order_live_trip_hint')), findsNothing);
+    });
+
+    testWidgets('a self-pickup has no truck to follow', (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      activeDelivery = _makeDelivery(status: DeliveryStatus.delivered);
+      await tester.pumpWidget(
+        buildScreen(_makeOrder(status: OrderStatus.delivered)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('order_delivery_live_trip')), findsNothing);
+    });
+  });
 }

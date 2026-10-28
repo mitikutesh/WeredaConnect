@@ -46,6 +46,8 @@ import 'package:wereda_connect/features/buyer/domain/services/web_matching_servi
 import 'package:wereda_connect/features/crop_listing/data/repositories/web_crop_listing_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/web_delivery_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/web_escrow_repository.dart';
+import 'package:wereda_connect/features/live_trip/data/repositories/web_track_repository.dart';
+import 'package:wereda_connect/features/live_trip/domain/repositories/base_track_repository.dart';
 import 'package:wereda_connect/features/messaging/data/repositories/web_message_repository.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
 import 'package:wereda_connect/features/notifications/data/web_notification_repository.dart';
@@ -177,6 +179,11 @@ Future<void> _runWeb({
         ),
         // LT-08: the trucker's check-in engine (trip screens, LT-09).
         Provider<CheckInEngine?>.value(value: checkInEngine),
+        // LT-11: where the truck of a delivery is (the live trip screens);
+        // the last answer per delivery is kept in localStorage.
+        Provider<BaseTrackRepository>.value(
+          value: WebTrackRepository(api: api),
+        ),
       ],
       child: MultiBlocProvider(
         providers: [
