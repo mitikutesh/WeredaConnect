@@ -20,6 +20,8 @@ namespace WeredaConnect.Server.Functions;
 /// (<see cref="NotificationRules"/>, the ESC-21 pipeline).</item>
 /// <item>Fraud signals: <c>GPS_JUMP</c> and <c>GPS_MOCKED</c> on the trucker, best effort.</item>
 /// </list>
+/// Only a check-in with <c>accuracyM</c> of 1,000 or less moves, stamps or jumps
+/// (<see cref="CheckInEffects.MaxAccuracyM"/>); <c>GPS_MOCKED</c> does not depend on it.
 /// A check-in never moves money (live-trip-api.md invariant 4).
 /// </summary>
 public partial class SyncFunction
@@ -51,10 +53,15 @@ public partial class SyncFunction
             AddRow(cached, row);
         }
 
-        await IsolatedEffectAsync("auto_in_transit", row.TripId,
-            () => AutoInTransitAsync(ping, fix, deliveries, row.TruckerId, context), context);
-        await IsolatedEffectAsync("truck_nearby", row.TripId,
-            () => TruckNearbyAsync(ping, row, fix, tripItem, deliveries, now, context), context);
+        // A coarse check-in (accuracy over 1 km) moves, stamps and jumps nothing; a mock flag counts anyway.
+        if (CheckInEffects.PreciseEnough(row.AccuracyM))
+        {
+            await IsolatedEffectAsync("auto_in_transit", row.TripId,
+                () => AutoInTransitAsync(ping, fix, deliveries, row.TruckerId, context), context);
+            await IsolatedEffectAsync("truck_nearby", row.TripId,
+                () => TruckNearbyAsync(ping, row, fix, tripItem, deliveries, now, context), context);
+        }
+
         await IsolatedEffectAsync("fraud_signals", row.TripId,
             () => CheckInFraudSignalsAsync(ping, row, context), context);
     }
@@ -229,8 +236,8 @@ public partial class SyncFunction
     /// <summary>
     /// <c>GPS_MOCKED</c> when the phone flagged the check-in as a mock location; <c>GPS_JUMP</c> when it
     /// and the trip's check-in just before or just after it (in capture order) are more than 1 km apart
-    /// at over 130 km/h. On the trucker, the trip as the entity; one row per user, type and hour at
-    /// most (<see cref="TryRecordFraudSignalAsync"/>).
+    /// at over 130 km/h, both with an accuracy of 1 km or better. On the trucker, the trip as the
+    /// entity; one row per user, type and hour at most (<see cref="TryRecordFraudSignalAsync"/>).
     /// </summary>
     private async Task CheckInFraudSignalsAsync(LocationPing ping, TripLocationRow row, ILambdaContext context)
     {
@@ -241,7 +248,14 @@ public partial class SyncFunction
                 $"Check-in {capturedAt} was flagged by the phone as a mock location.", context);
         }
 
+        if (!CheckInEffects.PreciseEnough(row.AccuracyM))
+        {
+            return;
+        }
+
+        // A coarse check-in is no neighbour either: the pairs are the trip's precise check-ins.
         var fixes = TripTrack.FixesIn(await TripRowsAsync(row), DateTime.MinValue, DateTime.MaxValue);
+        fixes.RemoveAll(f => !CheckInEffects.PreciseEnough(f.AccuracyM));
         var current = fixes.Find(f => f.CapturedAtUtc == ping.CapturedAtUtc);
         if (current == null)
         {

@@ -23,6 +23,12 @@ public static class CheckInEffects
     /// <summary>Check-ins closer than this are never a jump (GPS noise between two fixes taken close in time).</summary>
     public const double JumpMinKm = 1.0;
 
+    /// <summary>
+    /// A check-in less precise than this (a cell tower guess) has no effect by its position: its error
+    /// alone could cross the 2 km, 5 km and 1 km lines. It is still stored and drawn on the track.
+    /// </summary>
+    public const double MaxAccuracyM = 1000;
+
     /// <summary>Server-only: when <c>truck_nearby</c> was decided for the delivery. Stamped once, conditionally.</summary>
     public const string NearbyNotifiedAtField = "nearbyNotifiedAt";
 
@@ -43,6 +49,9 @@ public static class CheckInEffects
     /// </summary>
     public static bool CapturedOnRoad(Dictionary<string, object> delivery, DateTime capturedAtUtc)
         => TripTrack.PickedUpAt(delivery) is { } pickedUpAt && capturedAtUtc >= pickedUpAt;
+
+    /// <summary>Whether a check-in is precise enough for the effects of its position: <c>accuracyM</c> at most <see cref="MaxAccuracyM"/>.</summary>
+    public static bool PreciseEnough(double? accuracyM) => accuracyM is { } accuracy && accuracy <= MaxAccuracyM;
 
     /// <summary>
     /// The distance from the pickup when a <c>pickedUp</c> delivery has left it: the check-in is on

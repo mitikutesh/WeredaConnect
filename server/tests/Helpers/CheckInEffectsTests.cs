@@ -77,6 +77,15 @@ public class CheckInEffectsTests
         CheckInEffects.DepartedKm(Delivery("pickedUp", pickedUpAt: "soon"), Pickup, North(Pickup, 0.5), Captured).Should().BeNull();
     }
 
+    [Theory]
+    [InlineData(0.0, true)]
+    [InlineData(1000.0, true)]
+    [InlineData(1000.1, false)] // a cell tower guess: its error alone crosses the 2 km, 5 km and 1 km lines
+    [InlineData(5000.0, false)]
+    [InlineData(null, false)]
+    public void PreciseEnough_UpTo1KmOfAccuracy(double? accuracyM, bool precise)
+        => CheckInEffects.PreciseEnough(accuracyM).Should().Be(precise);
+
     // ===== near the drop-off =====
 
     [Theory]
