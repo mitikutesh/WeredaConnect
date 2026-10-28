@@ -5,6 +5,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -18,6 +19,7 @@ import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dar
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/widgets/green_header.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
@@ -173,6 +175,41 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('No matches yet'), findsOneWidget);
+    });
+
+    testWidgets('My Requests list ends clear of the floating create button',
+        (tester) async {
+      // LT-01: on web this screen is the buyer's tab under the shell FAB.
+      final intent = BuyerIntent()
+        ..intentId = 'intent-001'
+        ..buyerId = 'buyer-001'
+        ..cropType = 'wheat'
+        ..quantityNeeded = 100
+        ..maxPricePerKg = 30
+        ..deliveryWoreda = 'Adama'
+        ..status = BuyerIntentStatus.active
+        ..createdAt = DateTime.utc(2026)
+        ..updatedAt = DateTime.utc(2026)
+        ..version = 1;
+      final state = ActiveIntentsLoaded(intents: [intent]);
+      when(() => buyerIntentBloc.state).thenReturn(state);
+      when(() => buyerIntentBloc.stream).thenAnswer((_) => Stream.value(state));
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('My Requests'));
+      await tester.pumpAndSettle();
+
+      final list = tester.widget<ListView>(
+        find.descendant(
+          of: find.byType(RefreshIndicator),
+          matching: find.byType(ListView),
+        ),
+      );
+      expect(
+        list.padding!.resolve(TextDirection.ltr).bottom,
+        Breakpoints.fabClearance,
+      );
     });
   });
 }

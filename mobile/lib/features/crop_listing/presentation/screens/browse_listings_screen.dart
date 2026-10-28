@@ -17,6 +17,7 @@ import 'package:wereda_connect/features/rating/domain/repositories/base_rating_r
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/green_header.dart';
 import 'package:wereda_connect/shared/widgets/listing_card.dart';
@@ -479,9 +480,11 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                       onRefresh: () async => _applyFilters(),
                       child: ListView.separated(
                         physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 12,
+                        padding: const EdgeInsets.fromLTRB(
+                          20,
+                          12,
+                          20,
+                          Breakpoints.fabClearance,
                         ),
                         itemCount: state.listings.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
