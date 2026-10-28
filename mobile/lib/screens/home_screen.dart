@@ -589,7 +589,7 @@ class _HomeHeaderWithBanner extends StatelessWidget {
                     userName,
                     style: const TextStyle(
                       fontSize: 22,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w800,
                       color: Colors.white,
                     ),
                   ),
@@ -642,7 +642,7 @@ class _BannerCard extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withAlpha(25),
@@ -662,7 +662,7 @@ class _BannerCard extends StatelessWidget {
                   headline,
                   style: const TextStyle(
                     fontSize: 16,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
                     color: Colors.white,
                   ),
                 ),
@@ -747,7 +747,7 @@ class _DesktopPageHeader extends StatelessWidget {
             l10n.welcomeBackUser(userName),
             style: const TextStyle(
               fontSize: 24,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w800,
               color: AppTheme.textDark,
             ),
             textAlign: TextAlign.center,
@@ -807,7 +807,7 @@ class _DesktopSyncChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: color.withAlpha(20),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -937,15 +937,15 @@ class _DashboardTile extends StatelessWidget {
 
     return Material(
       color: background,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(18),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: emphasized ? null : Border.all(color: AppTheme.borderLight),
+            borderRadius: BorderRadius.circular(18),
+            border: emphasized ? null : Border.all(color: AppTheme.whisperBorder),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -974,7 +974,7 @@ class _DashboardTile extends StatelessWidget {
                       '$count',
                       style: TextStyle(
                         fontSize: 20,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w800,
                         color: emphasized ? Colors.white : color,
                       ),
                     ),
@@ -2131,15 +2131,15 @@ class _ActivityCard extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 6),
       child: Material(
         color: AppTheme.surfaceWhite,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(18),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.borderLight),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: AppTheme.whisperBorder),
             ),
             child: Row(
               children: [
@@ -2570,7 +2570,7 @@ class _SyncStatusSheetState extends State<_SyncStatusSheet> {
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(18),
                     ),
                   ),
                 ),
@@ -2598,7 +2598,7 @@ class _SyncStatusSheetState extends State<_SyncStatusSheet> {
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(18),
                     ),
                   ),
                 ),
@@ -2643,7 +2643,7 @@ class _SyncInfoRow extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(
             color: color.withAlpha(20),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(18),
           ),
           child: Text(
             value,
@@ -2967,7 +2967,7 @@ class _NotificationIconState extends State<_NotificationIcon> {
                                 widget.l10n.notifications,
                                 style: const TextStyle(
                                   fontSize: 18,
-                                  fontWeight: FontWeight.w700,
+                                  fontWeight: FontWeight.w800,
                                   color: AppTheme.textDark,
                                 ),
                               ),
@@ -3059,7 +3059,7 @@ class _NotificationIconState extends State<_NotificationIcon> {
                                     padding: const EdgeInsets.only(right: 20),
                                     decoration: BoxDecoration(
                                       color: AppTheme.statusError,
-                                      borderRadius: BorderRadius.circular(12),
+                                      borderRadius: BorderRadius.circular(18),
                                     ),
                                     child: const Icon(
                                       Icons.delete_outline,
@@ -3140,15 +3140,15 @@ class _NotifCard extends StatelessWidget {
 
     return Material(
       color: AppTheme.surfaceWhite,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(18),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.borderLight),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppTheme.whisperBorder),
           ),
           child: Row(
             children: [

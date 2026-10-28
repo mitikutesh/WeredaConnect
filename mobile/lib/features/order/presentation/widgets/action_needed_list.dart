@@ -15,7 +15,6 @@ import 'package:wereda_connect/features/order/presentation/open_order_detail.dar
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
-import 'package:wereda_connect/shared/widgets/wc_card.dart';
 
 /// What an order is waiting for from the signed-in user (ESC-15/21).
 enum ActionNeededKind {
@@ -315,45 +314,74 @@ class _ActionNeededCard extends StatelessWidget {
             .prefixed('$facts · ');
     return Semantics(
       button: true,
-      child: WcCard(
-        onTap: onTap,
-        color: AppTheme.statusWarningContainer,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Row(
-          children: [
-            const Icon(
-              Icons.assignment_late_outlined,
-              color: AppTheme.onStatusWarningContainer,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    actionNeededLabel(l10n, item.kind),
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.onStatusWarningContainer,
+      child: Material(
+        color: const Color(0xFFFAEED8),
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'ACTION NEEDED',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.8,
+                        color: Color(0xFF8A5410),
+                      ),
                     ),
+                    if (due != null)
+                      ClockText(
+                        details,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF6B400B),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  actionNeededLabel(l10n, item.kind),
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.soilDark,
                   ),
-                  const SizedBox(height: 2),
-                  ClockText(
-                    details,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.onStatusWarningContainer,
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        facts,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF6B400B),
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                    const Icon(
+                      Icons.arrow_forward_ios,
+                      size: 14,
+                      color: Color(0xFF6B400B),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            const Icon(
-              Icons.chevron_right,
-              color: AppTheme.onStatusWarningContainer,
-            ),
-          ],
+          ),
         ),
       ),
     );

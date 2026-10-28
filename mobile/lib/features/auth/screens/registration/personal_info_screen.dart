@@ -141,37 +141,40 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                     widget.faydaVerifiedName != null) ...[
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.all(12),
+                    height: 52,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     decoration: BoxDecoration(
-                      border: Border.all(color: AppTheme.primaryGreen),
-                      borderRadius: BorderRadius.circular(8),
+                      color: const Color(0xFFECEAE2),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                     child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Icon(
-                          Icons.check_circle,
-                          color: AppTheme.primaryGreen,
-                          size: 20,
+                        Text(
+                          widget.faydaVerifiedName!,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.soilDark,
+                          ),
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE3EEE6),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
+                              Icon(Icons.lock, size: 13, color: AppTheme.fieldGreen),
+                              SizedBox(width: 4),
                               Text(
-                                l10n.verifiedLegalName,
-                                style: const TextStyle(
+                                'From Fayda',
+                                style: TextStyle(
                                   fontSize: 12,
-                                  color: AppTheme.textMuted,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                widget.faydaVerifiedName!,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppTheme.textDark,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.fieldGreen,
                                 ),
                               ),
                             ],

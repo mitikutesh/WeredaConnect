@@ -159,7 +159,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     return BlocListener<AuthBloc, AuthState>(
       listener: _onAuthState,
       child: Scaffold(
-        backgroundColor: AppTheme.backgroundCream,
+        backgroundColor: AppTheme.chalkBackground,
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
@@ -177,18 +177,39 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Icon(
-                        Icons.sms_outlined,
-                        size: 56,
-                        color: AppTheme.primaryGreen,
+                      Center(
+                        child: Container(
+                          width: 56,
+                          height: 56,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE3EEE6),
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: const Icon(
+                            Icons.sms_outlined,
+                            size: 28,
+                            color: AppTheme.fieldGreen,
+                          ),
+                        ),
                       ),
                       const SizedBox(height: 16),
+                      Text(
+                        l10n.otpVerificationTitle,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.soilDark,
+                          letterSpacing: -0.4,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
                       Text(
                         l10n.otpSentTo(widget.phoneNumber),
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           fontSize: 15,
-                          color: AppTheme.textDark,
+                          color: AppTheme.mutedSteel,
                         ),
                       ),
                       if (_expiresAt != null) ...[

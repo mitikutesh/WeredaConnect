@@ -4,7 +4,7 @@ import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
-/// Step 1: Role Selection — pick Farmer, Trucker, or Buyer.
+/// Step 1: Role Selection — pick Farmer, Trucker, or Buyer (Fieldway Canvas).
 class RoleSelectionScreen extends StatelessWidget {
   final UserRole? selectedRole;
   final ValueChanged<UserRole> onRoleSelected;
@@ -23,49 +23,65 @@ class RoleSelectionScreen extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 l10n.selectRole,
                 style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.textDark,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.soilDark,
+                  letterSpacing: -0.5,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Text(
                 l10n.selectRoleDescription,
                 style: const TextStyle(
-                  fontSize: 14,
-                  color: AppTheme.textMuted,
+                  fontSize: 15,
+                  color: AppTheme.mutedSteel,
                 ),
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 24),
               _RoleCard(
-                icon: Icons.agriculture,
+                icon: Icons.eco,
+                iconBg: const Color(0xFFE3EEE6),
+                iconColor: AppTheme.fieldGreen,
                 title: l10n.farmer,
                 description: l10n.farmerDescription,
                 isSelected: selectedRole == UserRole.farmer,
                 onTap: () => onRoleSelected(UserRole.farmer),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               _RoleCard(
-                icon: Icons.local_shipping,
+                icon: Icons.local_shipping_outlined,
+                iconBg: const Color(0xFFFAEED8),
+                iconColor: const Color(0xFF8A5410),
                 title: l10n.trucker,
                 description: l10n.truckerDescription,
                 isSelected: selectedRole == UserRole.trucker,
                 onTap: () => onRoleSelected(UserRole.trucker),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               _RoleCard(
-                icon: Icons.shopping_bag,
+                icon: Icons.shopping_bag_outlined,
+                iconBg: const Color(0xFFE6ECF5),
+                iconColor: const Color(0xFF2E4C7D),
                 title: l10n.buyer,
                 description: l10n.buyerDescription,
                 isSelected: selectedRole == UserRole.buyer,
                 onTap: () => onRoleSelected(UserRole.buyer),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Next you verify with Fayda, then add your details. Farmers skip the role details step.',
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.5,
+                  color: AppTheme.mutedSteel,
+                ),
               ),
             ],
           ),
@@ -77,6 +93,8 @@ class RoleSelectionScreen extends StatelessWidget {
 
 class _RoleCard extends StatelessWidget {
   final IconData icon;
+  final Color iconBg;
+  final Color iconColor;
   final String title;
   final String description;
   final bool isSelected;
@@ -84,6 +102,8 @@ class _RoleCard extends StatelessWidget {
 
   const _RoleCard({
     required this.icon,
+    required this.iconBg,
+    required this.iconColor,
     required this.title,
     required this.description,
     required this.isSelected,
@@ -96,70 +116,69 @@ class _RoleCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.all(20),
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            color: isSelected
-                ? AppTheme.primaryGreen.withAlpha(15)
-                : AppTheme.surfaceWhite,
-            borderRadius: BorderRadius.circular(16),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: isSelected ? AppTheme.primaryGreen : AppTheme.borderLight,
+              color: isSelected ? AppTheme.soilDark : AppTheme.whisperBorder,
               width: isSelected ? 2 : 1,
             ),
           ),
           child: Row(
             children: [
               Container(
-                width: 56,
-                height: 56,
+                width: 52,
+                height: 52,
                 decoration: BoxDecoration(
-                  color: isSelected
-                      ? AppTheme.primaryGreen.withAlpha(30)
-                      : AppTheme.backgroundCream,
-                  borderRadius: BorderRadius.circular(14),
+                  color: iconBg,
+                  borderRadius: BorderRadius.circular(16),
                 ),
                 child: Icon(
                   icon,
-                  size: 28,
-                  color:
-                      isSelected ? AppTheme.primaryGreen : AppTheme.textMuted,
+                  size: 26,
+                  color: iconColor,
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       title,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: isSelected
-                            ? AppTheme.primaryGreen
-                            : AppTheme.textDark,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.soilDark,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Text(
                       description,
                       style: const TextStyle(
                         fontSize: 13,
-                        color: AppTheme.textMuted,
+                        color: AppTheme.mutedSteel,
                       ),
                     ),
                   ],
                 ),
               ),
-              if (isSelected)
-                const Icon(
-                  Icons.check_circle,
-                  color: AppTheme.primaryGreen,
-                  size: 24,
+              const SizedBox(width: 8),
+              Container(
+                width: 22,
+                height: 22,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isSelected ? AppTheme.soilDark : AppTheme.whisperBorder,
+                    width: isSelected ? 6 : 2,
+                  ),
                 ),
+              ),
             ],
           ),
         ),
