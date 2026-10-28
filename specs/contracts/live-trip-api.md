@@ -47,17 +47,17 @@ A create-only entity. One operation per check-in or sharing event.
 | `latitude`, `longitude` | number | `fix` only | latitude 3 to 15, longitude 32.5 to 48.5 |
 | `accuracyM` | number | `fix` only | 0 to 5,000 |
 | `mocked` | boolean | no | the platform flagged a mock location |
-| `pausedUntil` | ISO 8601 UTC | `paused` only | after `capturedAt`, at most 14 hours later |
+| `pausedUntil` | ISO 8601 UTC | `paused` only | after `capturedAt`, at most 18 hours later (an overnight pause from mid afternoon fits) |
 
 Accepted when the caller is the trip's trucker and the trip has a delivery that is `pickedUp` or `inTransit`, or that left those statuses after `capturedAt`. At most 20 `fix` operations per trip per clock hour.
 
-**Results** (the `sync-protocol.md` statuses): `success` (stored, or an idempotent repeat of the same `entityId` and `kind`; a repeated idempotency key answers `duplicate`, as for every entity), or `error` with a `message` that starts with one of the codes below (`CODE: text`). All of them are permanent: the client drops the operation and does not retry.
+**Results** (the `sync-protocol.md` statuses): `success` (stored, or an idempotent repeat of the same `entityId` and `kind`; a repeated idempotency key answers `duplicate`, as for every entity), or `error` with a `message` that starts with one of the codes below (`CODE: text`). All of them are permanent (the client drops the operation and does not retry) except `LOCATION_NOT_ACTIVE`, which answers `deferred` with a `message` starting `LOCATION_NOT_ACTIVE:`: the trip's first pickup may still be waiting in a queue (for example a pickup held back until its QR handoff secret syncs), so the client re-queues the ping without spending a retry. Once the ping is older than 7 days it answers `LOCATION_STALE` like any other.
 
 | Code | When |
 |---|---|
 | `LOCATION_VALIDATION` | a missing or out-of-range field, an unknown `kind` or `source`, an `entityId` that does not match `tripId` and `capturedAt` |
 | `LOCATION_NOT_TRUCKER` | the caller is not the trip's trucker (or the trip does not exist) |
-| `LOCATION_NOT_ACTIVE` | no delivery on the trip has been picked up yet |
+| `LOCATION_NOT_ACTIVE` | no delivery on the trip has been picked up yet (status `deferred`, not `error`) |
 | `LOCATION_SHARING_ENDED` | every delivery on the trip left `pickedUp` and `inTransit` before `capturedAt`; the client stops sharing |
 | `LOCATION_RATE_LIMITED` | more than 20 fixes for the trip in that clock hour |
 | `LOCATION_STALE` | `capturedAt` is older than 7 days or more than 2 minutes in the future |
