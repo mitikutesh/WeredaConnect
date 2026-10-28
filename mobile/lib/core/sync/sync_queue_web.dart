@@ -21,7 +21,12 @@ class SyncQueue {
     throw UnsupportedError('SyncQueue not available on web');
   }
 
-  Future<List<SyncOperation>> getPendingOperations({int? limit}) async => [];
+  Future<List<SyncOperation>> getPendingOperations({
+    int? limit,
+    String? onlyEntityType,
+    String? exceptEntityType,
+  }) async =>
+      [];
 
   Future<int> getPendingCount() async => 0;
 
@@ -51,6 +56,21 @@ class SyncQueue {
 
   /// No queue on web, so nothing is ever reverted.
   Future<int> markRevertedFor(String entityType, String entityId) async => 0;
+
+  /// No queue on web: the web check-in sender keeps its own unsent pings
+  /// (LT-08, WebLocationPingRepository).
+  Future<int> pendingLocationPingCount({String? tripId}) async => 0;
+
+  /// No queue on web, so nothing to coalesce.
+  Future<List<String>> coalesceLocationPings({int? threshold}) async =>
+      const [];
+
+  /// No queue on web, so nothing to drop.
+  Future<List<String>> dropLocationPingsForTrip(
+    String tripId, {
+    DateTime? capturedAfter,
+  }) async =>
+      const [];
 }
 
 /// Exception thrown when the sync queue is full.

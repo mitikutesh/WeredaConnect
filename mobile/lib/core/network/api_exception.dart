@@ -347,6 +347,34 @@ const String orderPaymentMethodUnavailableCode =
 bool isPaymentMethodUnavailableMessage(String? message) =>
     message != null && message.startsWith(orderPaymentMethodUnavailableCode);
 
+/// Prefix of every `location_ping` refusal (live-trip-api.md section 1,
+/// sync-protocol.md 1.31.0).
+const String locationCodePrefix = 'LOCATION_';
+
+/// The one `location_ping` answer that is not a refusal: the server sends it
+/// with status `deferred` while no delivery of the trip is on the road yet, so
+/// the client re-queues the ping without spending a retry.
+const String locationNotActiveCode = 'LOCATION_NOT_ACTIVE';
+
+/// Refusal of a ping captured after every delivery of the trip left the road:
+/// the phone also stops sharing for that trip.
+const String locationSharingEndedCode = 'LOCATION_SHARING_ENDED';
+
+/// Whether a /sync per-operation error message refuses a check-in for good
+/// (`LOCATION_VALIDATION`, `LOCATION_NOT_TRUCKER`, `LOCATION_SHARING_ENDED`,
+/// `LOCATION_RATE_LIMITED`, `LOCATION_STALE`). Every `LOCATION_*` code is
+/// permanent except `LOCATION_NOT_ACTIVE`; an unprefixed error (a failed read
+/// on the server) is retried.
+bool isLocationRejectionMessage(String? message) =>
+    message != null &&
+    message.startsWith(locationCodePrefix) &&
+    !message.startsWith(locationNotActiveCode);
+
+/// Whether a /sync per-operation error message ends sharing for the ping's
+/// trip (`LOCATION_SHARING_ENDED: ...`).
+bool isLocationSharingEndedMessage(String? message) =>
+    message != null && message.startsWith(locationSharingEndedCode);
+
 /// Request validation error (400)
 final class ValidationException extends ApiException {
   const ValidationException(

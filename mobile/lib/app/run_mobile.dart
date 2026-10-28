@@ -39,6 +39,13 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/data/services/escrow_sync_service.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
+import 'package:wereda_connect/features/live_trip/check_in_engine_binding.dart';
+import 'package:wereda_connect/features/live_trip/check_in_notice.dart';
+import 'package:wereda_connect/features/live_trip/data/geolocator_location_source.dart';
+import 'package:wereda_connect/features/live_trip/data/location_ping_repository.dart';
+import 'package:wereda_connect/features/live_trip/data/prefs_sharing_state_store.dart';
+import 'package:wereda_connect/features/live_trip/data/repository_trip_progress_reader.dart';
+import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
 import 'package:wereda_connect/features/notifications/data/notification_repository.dart';
 import 'package:wereda_connect/features/notifications/domain/base_notification_repository.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
@@ -135,6 +142,29 @@ Future<void> runMobile({
     getCurrentUserId: () => secureStorage.read(key: AuthBloc.currentUserIdKey),
   );
 
+  // LT-08: the trucker's check-in engine (where the truck is after pickup).
+  // Built before the executor, which tells it when the server ended sharing
+  // for a trip or refused a pickup for good.
+  final checkInEngine = CheckInEngine(
+    pings: LocationPingRepository(
+      isar: IsarService.instance.db,
+      syncQueue: syncQueue,
+    ),
+    location: GeolocatorLocationSource(),
+    trips: RepositoryTripProgressReader(
+      deliveries: DeliveryRepository(
+        isar: IsarService.instance.db,
+        syncQueue: syncQueue,
+      ),
+      trips: TripListingRepository(
+        isar: IsarService.instance.db,
+        syncQueue: syncQueue,
+      ),
+    ),
+    states: PrefsSharingStateStore(),
+    notice: () => checkInNoticeFor(languageProvider.locale),
+  );
+
   final syncExecutor = SyncExecutor(
     syncQueue: syncQueue,
     connectivityMonitor: connectivityMonitor,
@@ -159,6 +189,10 @@ Future<void> runMobile({
     // back to the server's view (sync-protocol.md 1.10.0); so do refused
     // deliveries, crop listings and trips (1.11.0, 1.12.0, 1.17.0).
     onPermanentRejection: marketplaceSync.revertRejected,
+    // LT-08: LOCATION_SHARING_ENDED stops sharing for the trip; a pickup
+    // refused for good drops the trip's waiting check-ins.
+    onLocationSharingEnded: checkInEngine.onSharingEnded,
+    onPickupRejected: checkInEngine.onPickupRejected,
   );
   final syncWorker = SyncWorker(
     executor: syncExecutor,
@@ -183,6 +217,8 @@ Future<void> runMobile({
     pushTokenDeleter: PushNotificationService.deleteToken,
   )..add(const AuthCheckRequested());
   bindDataUsageToAuth(dataUsageTracker, authBloc);
+  // LT-08: only a signed-in trucker shares; a sign out stops the service.
+  CheckInEngineBinding(engine: checkInEngine, authBloc: authBloc).attach();
 
   // SIM-37: when the user changes language in Settings, sync the choice to the
   // server profile so it follows them to other devices. Offline-first: the
@@ -227,6 +263,7 @@ Future<void> runMobile({
         syncExecutor: syncExecutor,
         syncWorker: syncWorker,
         marketplaceSync: marketplaceSync,
+        checkInEngine: checkInEngine,
       ),
     ),
   );
@@ -265,6 +302,10 @@ class WeredaConnectApp extends StatelessWidget {
   /// without triggering network pulls; `runMobile` always supplies it.
   final MarketplaceSync? marketplaceSync;
 
+  /// The trucker's check-in engine (LT-08). Optional for the same reason;
+  /// `runMobile` always supplies it.
+  final CheckInEngine? checkInEngine;
+
   const WeredaConnectApp({
     required this.authBloc,
     required this.connectivityMonitor,
@@ -274,6 +315,7 @@ class WeredaConnectApp extends StatelessWidget {
     required this.syncExecutor,
     required this.syncWorker,
     this.marketplaceSync,
+    this.checkInEngine,
     super.key,
   });
 
@@ -308,6 +350,8 @@ class WeredaConnectApp extends StatelessWidget {
         // Exposed so non-BLoC screens (e.g. crop detail's suggested trips)
         // can refresh the marketplace cache before reading it. Null on web.
         Provider<MarketplaceSync?>.value(value: marketplaceSync),
+        // LT-08: the trucker's check-in engine (trip screens, LT-09).
+        Provider<CheckInEngine?>.value(value: checkInEngine),
         // ESC-21: the order-event inbox (bell), kept in Isar.
         Provider<BaseNotificationRepository>(
           create: (_) => NotificationRepository(
@@ -349,6 +393,7 @@ class WeredaConnectApp extends StatelessWidget {
                 syncQueue: syncQueue,
               ),
               marketplaceSync: marketplaceSync,
+              scanCheckIns: checkInEngine,
             ),
           ),
           BlocProvider<OrderBloc>(

@@ -4244,5 +4244,11 @@
   "clockDay": "{time} in the afternoon",
   "@clockDay": {"description": "Ethiopian clock: a time from 12:00 to 17:59 with its part of the day. Never drop {time}.", "placeholders": {"time": {"type": "String"}}},
   "clockEvening": "{time} in the evening",
-  "@clockEvening": {"description": "Ethiopian clock: a time from 18:00 to 23:59 with its part of the day. Never drop {time}.", "placeholders": {"time": {"type": "String"}}}
+  "@clockEvening": {"description": "Ethiopian clock: a time from 18:00 to 23:59 with its part of the day. Never drop {time}.", "placeholders": {"time": {"type": "String"}}},
+  "liveTripNotificationTitle": "Sharing the truck's location",
+  "@liveTripNotificationTitle": {"description": "Android notification title while the trucker shares the trip's location (LT-08)"},
+  "liveTripNotificationText": "Buyers and farmers on this trip see where the truck is. Sharing stops after the last delivery.",
+  "@liveTripNotificationText": {"description": "Android notification text while the trucker shares the trip's location (LT-08)"},
+  "liveTripNotificationChannel": "Trip location",
+  "@liveTripNotificationChannel": {"description": "Name of the Android notification channel for trip location sharing, shown in the phone's settings (LT-08)"}
 }

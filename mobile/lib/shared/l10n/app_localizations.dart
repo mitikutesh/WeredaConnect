@@ -6567,6 +6567,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{time} in the evening'**
   String clockEvening(String time);
+
+  /// Android notification title while the trucker shares the trip's location (LT-08)
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing the truck\'s location'**
+  String get liveTripNotificationTitle;
+
+  /// Android notification text while the trucker shares the trip's location (LT-08)
+  ///
+  /// In en, this message translates to:
+  /// **'Buyers and farmers on this trip see where the truck is. Sharing stops after the last delivery.'**
+  String get liveTripNotificationText;
+
+  /// Name of the Android notification channel for trip location sharing, shown in the phone's settings (LT-08)
+  ///
+  /// In en, this message translates to:
+  /// **'Trip location'**
+  String get liveTripNotificationChannel;
 }
 
 class _AppLocalizationsDelegate
