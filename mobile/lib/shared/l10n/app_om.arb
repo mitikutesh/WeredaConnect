@@ -2739,6 +2739,8 @@
   "notifHandoffRecordedBody": "Kenniinsi galmeeffameera. Erga bitataan midhaan fudhatee booda isiniif ni kaffalama.",
   "notifInTransitTitle": "Daandii irra jira",
   "notifInTransitBody": "Ajajni keessan gara keessan daandii irra jira.",
+  "notifTruckNearbyTitle": "Konkolaataan dhihaateera",
+  "notifTruckNearbyBody": "{trucker} isin irraa km 5 gadi fagaata. Midhaan fudhachuuf qophaa'aa.",
   "notifDeliveredTitle": "Ajajni ga'eera",
   "notifDeliveredBody": "Ajajni keessan ga'eera. Rakkoon yoo jiraate yeroon osoo hin darbin gabaasaa; yoo hin jiraanne qonnaan bulaaf ni kaffalama.",
   "notifDeliveredPayoutPendingTitle": "Ga'eera, kaffaltiin ni dhufa",

@@ -3412,6 +3412,14 @@ class AppLocalizationsAm extends AppLocalizations {
   String get notifInTransitBody => 'ትዕዛዝዎ ወደ እርስዎ በመንገድ ላይ ነው።';
 
   @override
+  String get notifTruckNearbyTitle => 'የጭነት መኪናው ቀርቧል';
+
+  @override
+  String notifTruckNearbyBody(String trucker) {
+    return '$trucker ከእርስዎ ከ5 ኪ.ሜ ባነሰ ርቀት ላይ ናቸው። እባክዎ ሰብሉን ለመረከብ ይዘጋጁ።';
+  }
+
+  @override
   String get notifDeliveredTitle => 'ትዕዛዝዎ ደርሷል';
 
   @override

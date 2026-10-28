@@ -6334,6 +6334,18 @@ abstract class AppLocalizations {
   /// **'Your order is on the way to you.'**
   String get notifInTransitBody;
 
+  /// Inbox entry title, notification type truck_nearby (LT-07: a check-in put the truck within 5 km of the buyer's drop-off)
+  ///
+  /// In en, this message translates to:
+  /// **'Truck nearby'**
+  String get notifTruckNearbyTitle;
+
+  /// Inbox entry body, notification type truck_nearby; names are display names. No minutes or clock time: the entry stays in the history
+  ///
+  /// In en, this message translates to:
+  /// **'{trucker} is less than 5 km from you. Please be ready to receive the crops.'**
+  String notifTruckNearbyBody(String trucker);
+
   /// Inbox entry title, notification type delivered
   ///
   /// In en, this message translates to:

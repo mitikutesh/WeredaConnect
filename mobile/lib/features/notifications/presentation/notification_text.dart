@@ -34,6 +34,7 @@ const List<String> notificationTypes = [
   'picked_up',
   'handoff_recorded',
   'in_transit',
+  'truck_nearby',
   'delivered',
   'delivered_payout_pending',
   'order_settled',
@@ -159,6 +160,10 @@ const Set<String> actionRequiredNotificationTypes = {
         title: l10n.notifInTransitTitle,
         body: l10n.notifInTransitBody,
       ),
+    'truck_nearby' => (
+        title: l10n.notifTruckNearbyTitle,
+        body: l10n.notifTruckNearbyBody(trucker),
+      ),
     'delivered' => (
         title: l10n.notifDeliveredTitle,
         body: l10n.notifDeliveredBody,
@@ -274,7 +279,8 @@ ClockLabel? notificationDetailLine(
     'buyer_collecting' ||
     'picked_up' ||
     'handoff_recorded' ||
-    'in_transit' =>
+    'in_transit' ||
+    'truck_nearby' =>
       (icon: Icons.local_shipping_outlined, color: AppTheme.statusInfo),
     'delivered' ||
     'delivered_payout_pending' ||

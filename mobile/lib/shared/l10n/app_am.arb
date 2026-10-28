@@ -2746,6 +2746,8 @@
   "notifHandoffRecordedBody": "ርክክቡ ተመዝግቧል። ገዢው ሰብሉን ከተረከቡ በኋላ ይከፈልዎታል።",
   "notifInTransitTitle": "በመንገድ ላይ ነው",
   "notifInTransitBody": "ትዕዛዝዎ ወደ እርስዎ በመንገድ ላይ ነው።",
+  "notifTruckNearbyTitle": "የጭነት መኪናው ቀርቧል",
+  "notifTruckNearbyBody": "{trucker} ከእርስዎ ከ5 ኪ.ሜ ባነሰ ርቀት ላይ ናቸው። እባክዎ ሰብሉን ለመረከብ ይዘጋጁ።",
   "notifDeliveredTitle": "ትዕዛዝዎ ደርሷል",
   "notifDeliveredBody": "ትዕዛዝዎ ደርሷል። ችግር ካለ ጊዜው ከማለቁ በፊት ያሳውቁ፤ ካልሆነ ገበሬው ይከፈላቸዋል።",
   "notifDeliveredPayoutPendingTitle": "ደርሷል፤ ክፍያዎ ይመጣል",
