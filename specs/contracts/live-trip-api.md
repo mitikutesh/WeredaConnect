@@ -1,7 +1,7 @@
 # Live Trip API Contract
 
 ## Version
-1.0.2
+1.0.3
 
 ## Parties
 - **Mobile / Web** (client): the trucker's phone writes check-ins through `POST /sync`; the buyer's, farmer's and trucker's apps read the track; the admin app reads the trail.
@@ -105,7 +105,7 @@ Accepted when the caller is the trip's trucker and the trip has a delivery that 
 | `receivedAt` | lets the client tag "sent late" (received more than 15 minutes after capture) |
 | `pickup` | the delivery's `gpsPickup` (else the listing location) at 3 decimals, and `pickedUpAt` |
 | `dropoff` | the buyer's registered place, else the trip's destination place; `note` is the order's `dropoffNote` (LT-12) or `null`. As built (LT-06) the server has no coordinates for a registered place (users carry a woreda name only), so the point is the trip's `destinationLatitude` and `destinationLongitude`, the reference the delivered GPS check uses; without them `latitude` and `longitude` are `null`, and so are `eta` and `remainingKm`. No client writes those trip attributes yet, so clients must expect a `null` point |
-| `otherStops` | the other orders on the trip, never named: their pickup (its `gpsPickup`, else its listing location) and drop-off (its `gpsDropoff` once made, else the trip's destination point) at 2 decimals and whether each is done (pickup: picked up; drop-off: `delivered` or `disputed`); exactly `kind`, `latitude`, `longitude`, `done`. A cancelled delivery has no stops; a stop without coordinates is left out; `[]` when `not_started` or `ended` |
+| `otherStops` | the other orders on the trip, never named, at their planned points only (never their `gpsPickup` or `gpsDropoff`, which tell where the truck stood): the pickup at its listing location, the drop-off at the same planned drop-off point as `dropoff` (the trip's destination point until LT-12 gives each order its own), at 2 decimals, with whether each is done (pickup: picked up; drop-off: `delivered` or `disputed`); exactly `kind`, `latitude`, `longitude`, `done`. A stop done before this delivery's `pickedUpAt` (or done at an unknown time) is outside the viewer's window and left out; a cancelled delivery has no stops; a stop without coordinates is left out; `[]` when `not_started` or `ended` |
 | `eta`, `remainingKm` | §6.2 of the design; `null` when `not_started`, `declined` with no fix, `ended`, or without a drop-off point. As built: leg speeds are great circle distance over time; while `paused` the travel time counts from `pausedUntil` (the truck stands still until then); after rounding to 5 minutes `from` is moved up to the first 5 minute mark at or after now, and `to` is kept at least 10 minutes after `from`; `remainingKm` (the great circle × 1.3) at 1 decimal |
 | `summary` | only when `ended`: `{ "distanceKm", "durationMin", "fixes" }` over the window from `pickedUpAt` to `confirmedAt` (`cancelledAt` for `cancelled`): the sum of the great circle legs between its fixes at 1 decimal, whole minutes, the fix count; all `0` for a delivery never picked up. When `ended` no field carries coordinates: `pickup` keeps only `at`, `dropoff` has `null` coordinates |
 
@@ -149,6 +149,7 @@ Push and inbox text in en, am and om; no clock times in the text. `data.type` `o
 
 | Version | Date | Change |
 |---|---|---|
+| 1.0.3 | 2026-10-28 | Section 2, `otherStops` (privacy, design §7 and D7): planned points only, the listing location for a pickup and the planned drop-off point for a drop-off, never another order's `gpsPickup` or `gpsDropoff`; a stop done before this delivery's `pickedUpAt`, or at an unknown time, is left out. |
 | 1.0.2 | 2026-10-28 | Section 2 as built (LT-06): the route `GET /deliveries/{id}/track`; a soft-deleted delivery is `404`; the latest event is the trip's; the window end allows the 2 minute phone clock skew; how pauses are cut; the drop-off point is the trip's destination point (no coordinates exist for a registered place), `null` without it; which points the other stops use, `[]` before pickup and after delivery; while `paused` the arrival window counts from `pausedUntil`, the start moves to the first 5 minute mark at or after now and the window stays at least 10 minutes wide; the summary's window, rounding and zeros; no coordinates in any field when `ended`. |
 | 1.0.1 | 2026-10-28 | Section 1 as built (LT-05): when a delivery left the road (`confirmedAt`, or `cancelledAt` after pickup); `LOCATION_NOT_ACTIVE` (deferred) also while another delivery on the trip is still `pending`, and in place of `LOCATION_SHARING_ENDED` after a delivery write earlier in the same batch; the window is checked first, so a ping older than 7 days answers `LOCATION_STALE`; the fix limit counts the clock hour (UTC) of `capturedAt`. |
 | 1.0.0 | 2026-10-28 | First version (EPIC LT): `location_ping`, track, admin trail, `truck_nearby`. |

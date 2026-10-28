@@ -17,6 +17,8 @@ public class TripTrackTests
     private static readonly DateTime Now = new(2026, 10, 27, 8, 0, 0, DateTimeKind.Utc);
     private static readonly TrackPoint Dropoff = new(9.0, Meridian);
     private static readonly List<TrackStop> NoStops = new();
+    private static readonly DateTime WindowStart = new(2026, 10, 27, 5, 5, 0, DateTimeKind.Utc);
+    private static readonly TrackPoint Planned = new(8.2, Meridian);
 
     // ===== Arrival window =====
 
@@ -176,8 +178,17 @@ public class TripTrackTests
     public void StopsOf_AnotherDelivery_SayWhetherEachIsDone(string status, bool pickupDone, bool dropoffDone)
     {
         var other = new Dictionary<string, object> { ["deliveryId"] = "del-102", ["status"] = status };
+        if (pickupDone)
+        {
+            other["pickedUpAt"] = "2026-10-27T06:00:00.0000000Z";
+        }
 
-        var stops = TripTrack.StopsOf(other, new TrackPoint(8.2, 38.8), new TrackPoint(9.0, 38.7)).ToList();
+        if (dropoffDone)
+        {
+            other["confirmedAt"] = "2026-10-27T07:00:00.0000000Z";
+        }
+
+        var stops = TripTrack.StopsOf(other, new TrackPoint(8.2, 38.8), new TrackPoint(9.0, 38.7), WindowStart).ToList();
 
         stops.Should().Equal(
             new TrackStop("pickup", 8.2, 38.8, pickupDone),
@@ -185,13 +196,60 @@ public class TripTrackTests
     }
 
     [Fact]
+    public void StopsOf_DoneBeforeThisPickup_AreOutsideTheWindow()
+    {
+        var bothBefore = new Dictionary<string, object>
+        {
+            ["status"] = "delivered",
+            ["pickedUpAt"] = "2026-10-27T04:30:00.0000000Z",
+            ["confirmedAt"] = "2026-10-27T05:04:59.9990000Z"
+        };
+        var pickedUpBefore = new Dictionary<string, object>
+        {
+            ["status"] = "inTransit",
+            ["pickedUpAt"] = "2026-10-27T04:30:00.0000000Z"
+        };
+        var pickedUpAtThePickup = new Dictionary<string, object>
+        {
+            ["status"] = "delivered",
+            ["pickedUpAt"] = "2026-10-27T05:05:00.0000000Z",
+            ["confirmedAt"] = "2026-10-27T06:00:00.0000000Z"
+        };
+        // Done, but when is unknown: left out rather than shown.
+        var doneAtUnknownTime = new Dictionary<string, object> { ["status"] = "pickedUp" };
+
+        TripTrack.StopsOf(bothBefore, Planned, Dropoff, WindowStart).Should().BeEmpty();
+        TripTrack.StopsOf(pickedUpBefore, Planned, Dropoff, WindowStart)
+            .Should().Equal(new TrackStop("dropoff", 9.0, Meridian, false));
+        TripTrack.StopsOf(pickedUpAtThePickup, Planned, Dropoff, WindowStart).Should().Equal(
+            new TrackStop("pickup", 8.2, Meridian, true),
+            new TrackStop("dropoff", 9.0, Meridian, true));
+        TripTrack.StopsOf(doneAtUnknownTime, Planned, Dropoff, WindowStart)
+            .Should().Equal(new TrackStop("dropoff", 9.0, Meridian, false));
+    }
+
+    [Fact]
     public void StopsOf_ACancelledDelivery_OrAPointNotKnown_AreLeftOut()
     {
-        var cancelled = new Dictionary<string, object> { ["status"] = "cancelled", ["pickedUpAt"] = "2026-10-27T05:00:00Z" };
+        var cancelled = new Dictionary<string, object> { ["status"] = "cancelled", ["pickedUpAt"] = "2026-10-27T06:00:00Z" };
         var pending = new Dictionary<string, object> { ["status"] = "pending" };
 
-        TripTrack.StopsOf(cancelled, new TrackPoint(8.2, 38.8), new TrackPoint(9.0, 38.7)).Should().BeEmpty();
-        TripTrack.StopsOf(pending, null, new TrackPoint(9.0, 38.7)).Should().Equal(new TrackStop("dropoff", 9.0, 38.7, false));
+        TripTrack.StopsOf(cancelled, new TrackPoint(8.2, 38.8), new TrackPoint(9.0, 38.7), WindowStart).Should().BeEmpty();
+        TripTrack.StopsOf(pending, null, new TrackPoint(9.0, 38.7), WindowStart)
+            .Should().Equal(new TrackStop("dropoff", 9.0, 38.7, false));
+    }
+
+    [Fact]
+    public void PlannedDropoff_IsTheTripsDestination_NeverTheDeliverysRealDropoff()
+    {
+        var trip = new Dictionary<string, object> { ["destinationLatitude"] = "9.03", ["destinationLongitude"] = "38.74" };
+        var delivery = new Dictionary<string, object>
+        {
+            ["gpsDropoff"] = new Dictionary<string, object> { ["latitude"] = "8.6012", ["longitude"] = "38.9149" }
+        };
+
+        TripTrack.PlannedDropoff(trip, delivery).Should().Be(new TrackPoint(9.03, 38.74));
+        TripTrack.PlannedDropoff(null, delivery).Should().BeNull();
     }
 
     [Fact]

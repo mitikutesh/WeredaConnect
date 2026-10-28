@@ -429,16 +429,23 @@ public class DeliveryFunctionTrackTests
     // ===== Other stops =====
 
     [Fact]
-    public async Task OtherStops_AreTheOtherOrdersPoints_At2Decimals_WithDone_AndNeverNamed()
+    public async Task OtherStops_AreTheOtherOrdersPlannedPoints_At2Decimals_WithDone_AndNeverNamed()
     {
         var pending = OtherDelivery("del-102", "pending", "listing-102");
-        var delivered = OtherDelivery("del-103", "delivered", "listing-103");
-        delivered["pickedUpAt"] = "2026-10-27T04:30:00.0000000Z";
-        delivered["gpsPickup"] = new Dictionary<string, object> { ["latitude"] = "8.2049", ["longitude"] = "38.8351" };
+        // Picked up before this pickup (05:05): its pickup is outside the window, its drop-off is not.
+        var onTheRoad = OtherDelivery("del-103", "inTransit", "listing-103");
+        onTheRoad["pickedUpAt"] = "2026-10-27T04:30:00.0000000Z";
+        // Picked up and delivered inside the window, with real GPS that must never show.
+        var delivered = OtherDelivery("del-105", "delivered", "listing-105");
+        delivered["pickedUpAt"] = "2026-10-27T06:00:00.0000000Z";
+        delivered["confirmedAt"] = "2026-10-27T07:30:00.0000000Z";
+        delivered["gpsPickup"] = new Dictionary<string, object> { ["latitude"] = "8.4049", ["longitude"] = "38.8851" };
         delivered["gpsDropoff"] = new Dictionary<string, object> { ["latitude"] = "8.6012", ["longitude"] = "38.9149" };
         var cancelled = OtherDelivery("del-104", "cancelled", "listing-104");
-        TripDeliveries(Delivery("inTransit"), pending, delivered, cancelled);
+        TripDeliveries(Delivery("inTransit"), pending, onTheRoad, delivered, cancelled);
         _crops.GetByIdAsync("listing-102").Returns(Listing("8.155", "38.825"));
+        _crops.GetByIdAsync("listing-103").Returns(Listing("8.2", "38.83"));
+        _crops.GetByIdAsync("listing-105").Returns(Listing("8.3549", "38.8751"));
 
         var (_, track) = await TrackAsync(FarmerId);
 
@@ -452,15 +459,20 @@ public class DeliveryFunctionTrackTests
         stops.Should().Equal(
             ("pickup", 8.16, 38.83, false),
             ("dropoff", 9.03, 38.74, false),
-            ("pickup", 8.2, 38.84, true),
-            ("dropoff", 8.6, 38.91, true));
+            ("dropoff", 9.03, 38.74, false),
+            ("pickup", 8.35, 38.88, true),
+            ("dropoff", 9.03, 38.74, true));
         foreach (var stop in track.GetProperty("otherStops").EnumerateArray())
         {
             stop.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo("kind", "latitude", "longitude", "done");
         }
 
         var body = track.GetRawText();
-        foreach (var secret in new[] { "del-102", "del-103", "del-104", "listing-10", "order-", "Other Farmer", "Other Buyer", "buyer-9", "quantity" })
+        foreach (var secret in new[]
+                 {
+                     "del-102", "del-103", "del-104", "del-105", "listing-10", "order-", "Other Farmer", "Other Buyer",
+                     "buyer-9", "quantity", "8.4", "38.89", "8.6", "38.91"
+                 })
         {
             body.Should().NotContain(secret);
         }

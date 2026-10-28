@@ -295,11 +295,15 @@ public static class TripTrack
     }
 
     /// <summary>
-    /// Another delivery's stops on the trip: its pickup (gpsPickup, else its listing location) and its
-    /// drop-off, each with whether it is done. A cancelled delivery has no stops left; a stop without
-    /// coordinates is left out. Nothing that identifies the order is kept.
+    /// Another delivery's stops on the trip, from its planned points only (never where the truck
+    /// really stopped): its pickup (its listing location) and its drop-off (<see cref="PlannedDropoff"/>),
+    /// each with whether it is done. A stop done before <paramref name="windowStartUtc"/> (this delivery's
+    /// pickup) is outside the viewer's window and left out, and so is a done stop whose time is unknown.
+    /// A cancelled delivery has no stops left; a stop without coordinates is left out. Nothing that
+    /// identifies the order is kept.
     /// </summary>
-    public static IEnumerable<TrackStop> StopsOf(Dictionary<string, object> other, TrackPoint? pickup, TrackPoint? dropoff)
+    public static IEnumerable<TrackStop> StopsOf(
+        Dictionary<string, object> other, TrackPoint? plannedPickup, TrackPoint? plannedDropoff, DateTime windowStartUtc)
     {
         var status = Text(other, "status");
         if (status == "cancelled")
@@ -308,18 +312,31 @@ public static class TripTrack
         }
 
         var droppedOff = status is "delivered" or "disputed";
-        var pickedUp = droppedOff || status is "pickedUp" or "inTransit" || !string.IsNullOrEmpty(Text(other, "pickedUpAt"));
+        var pickedUpAtText = Text(other, "pickedUpAt");
+        var pickedUp = droppedOff || status is "pickedUp" or "inTransit" || !string.IsNullOrEmpty(pickedUpAtText);
 
-        if (pickup != null)
+        if (plannedPickup != null && InWindow(pickedUp, pickedUpAtText, windowStartUtc))
         {
-            yield return new TrackStop(StopPickup, pickup.Latitude, pickup.Longitude, pickedUp);
+            yield return new TrackStop(StopPickup, plannedPickup.Latitude, plannedPickup.Longitude, pickedUp);
         }
 
-        if (dropoff != null)
+        if (plannedDropoff != null && InWindow(droppedOff, Text(other, "confirmedAt"), windowStartUtc))
         {
-            yield return new TrackStop(StopDropoff, dropoff.Latitude, dropoff.Longitude, droppedOff);
+            yield return new TrackStop(StopDropoff, plannedDropoff.Latitude, plannedDropoff.Longitude, droppedOff);
         }
     }
+
+    /// <summary>
+    /// The planned drop-off point of a delivery: the trip's destination point today, the reference the
+    /// delivered GPS check uses (the server has no coordinates for the buyer's registered place). The
+    /// one place LT-12 switches to the order's own point; <paramref name="delivery"/> is for that.
+    /// </summary>
+    public static TrackPoint? PlannedDropoff(Dictionary<string, object>? trip, Dictionary<string, object> delivery)
+        => PointOf(trip, "destinationLatitude", "destinationLongitude");
+
+    /// <summary>A stop still to do, or one done at a known time no earlier than the window's start.</summary>
+    private static bool InWindow(bool done, string? doneAtText, DateTime windowStartUtc)
+        => !done || (LocationPingRules.TryParseUtc(doneAtText, out var doneAt) && doneAt >= windowStartUtc);
 
     /// <summary>Rounds half away from zero on the decimal value (so 8.7525 gives 8.753, not 8.752).</summary>
     public static double Round(double value, int decimals)
@@ -470,7 +487,8 @@ public static class TripTrack
         return true;
     }
 
-    private static DateTime? PickedUpAt(Dictionary<string, object> delivery)
+    /// <summary>The delivery's <c>pickedUpAt</c> as UTC, or null when missing or unreadable.</summary>
+    public static DateTime? PickedUpAt(Dictionary<string, object> delivery)
         => LocationPingRules.TryParseUtc(Text(delivery, "pickedUpAt"), out var at) ? at : null;
 
     private static DateTime RoundToStep(DateTime utc)

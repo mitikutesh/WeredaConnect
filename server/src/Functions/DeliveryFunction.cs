@@ -372,12 +372,11 @@ public class DeliveryFunction
                 var listings = new Dictionary<string, TrackPoint?>(StringComparer.Ordinal);
                 pickup = await PickupPointAsync(delivery, listings);
                 var trip = hasTrip ? await _tripRepo.GetByIdAsync(tripId!) : null;
-                // The reference the delivered GPS check already uses: the trip's destination point.
-                // The buyer's registered place is a woreda name with no coordinates on the server.
-                dropoff = TripTrack.PointOf(trip, "destinationLatitude", "destinationLongitude");
+                dropoff = TripTrack.PlannedDropoff(trip, delivery);
 
                 if (phase == TrackPhase.OnRoad && hasTrip)
                 {
+                    var windowStart = TripTrack.PickedUpAt(delivery)!.Value;
                     foreach (var other in await ReadTripDeliveriesAsync(tripId!, context))
                     {
                         // A cancelled delivery has no stops left, so its listing is not read.
@@ -387,11 +386,13 @@ public class DeliveryFunction
                             continue;
                         }
 
-                        // A drop-off already made has its own GPS; one still to come is the trip's destination.
+                        // Planned points only: another order's real gpsPickup or gpsDropoff would tell
+                        // where the truck stood, and a stop done before this pickup is left out.
                         otherStops.AddRange(TripTrack.StopsOf(
                             other,
-                            await PickupPointAsync(other, listings),
-                            TripTrack.MapPointOf(other, "gpsDropoff") ?? dropoff));
+                            await ListingPointAsync(other, listings),
+                            TripTrack.PlannedDropoff(trip, other),
+                            windowStart));
                     }
                 }
             }
@@ -410,16 +411,18 @@ public class DeliveryFunction
         => LambdaResponse.Error(500, "TRACK_UNAVAILABLE", "The live trip is unavailable right now. Try again later.");
 
     /// <summary>
-    /// A delivery's pickup point: its gpsPickup, else its listing's location (read once per listing
-    /// and kept in <paramref name="listings"/>). Null when neither has coordinates.
+    /// This delivery's pickup point: its gpsPickup, else its listing's location. Null when neither has
+    /// coordinates.
     /// </summary>
     private async Task<TrackPoint?> PickupPointAsync(Dictionary<string, object> delivery, Dictionary<string, TrackPoint?> listings)
-    {
-        if (TripTrack.MapPointOf(delivery, "gpsPickup") is { } gps)
-        {
-            return gps;
-        }
+        => TripTrack.MapPointOf(delivery, "gpsPickup") ?? await ListingPointAsync(delivery, listings);
 
+    /// <summary>
+    /// A delivery's planned pickup point: its listing's location (read once per listing and kept in
+    /// <paramref name="listings"/>). Null without a listing or coordinates.
+    /// </summary>
+    private async Task<TrackPoint?> ListingPointAsync(Dictionary<string, object> delivery, Dictionary<string, TrackPoint?> listings)
+    {
         var listingId = GetStringOrNull(delivery, "listingId");
         if (string.IsNullOrEmpty(listingId))
         {
