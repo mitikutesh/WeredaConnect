@@ -321,6 +321,56 @@ public class OrderNotifyStreamFunctionTests
             .Should().Be(OrderNotifyStreamFunction.DefaultPushTtlSeconds);
     }
 
+    [Fact]
+    public void PushTtl_OfTruckNearby_IsAnHour()
+    {
+        // LT-07: "the truck is 3 km away" is stale within the hour; the inbox entry stays.
+        OrderNotifyStreamFunction.PushTtlSeconds(Event("buyer-1", NotificationTypes.TruckNearby), RecordTime)
+            .Should().Be(3600).And.Be(OrderNotifyStreamFunction.TruckNearbyPushTtlSeconds);
+    }
+
+    [Fact]
+    public async Task TheCheckInStamp_WritesTheBuyersInbox_AndPushesTruckNearby()
+    {
+        var response = await RunAsync(NearbyStampRecord());
+
+        response.BatchItemFailures.Should().BeEmpty();
+        var row = _rows.Should().ContainSingle().Subject;
+        row.UserId.Should().Be("buyer-1");
+        row.Type.Should().Be(NotificationTypes.TruckNearby);
+        row.Entity.Should().Be("delivery");
+        row.EntityId.Should().Be("delivery-1");
+        row.OrderId.Should().Be("order-1");
+        row.SortKey.Should().Be($"{RecordTime:o}#truck_nearby#delivery-1");
+        row.Params[NotificationParams.DistanceKm].Should().Be("3.2");
+        row.Params[NotificationParams.Minutes].Should().Be("25");
+
+        var push = _published.Should().ContainSingle().Subject;
+        push.TargetArn.Should().Be("arn:endpoint/buyer-1");
+        push.MessageAttributes["AWS.SNS.MOBILE.FCM.TTL"].StringValue.Should().Be("3600");
+        var fcm = JsonDocument.Parse(JsonDocument.Parse(push.Message).RootElement.GetProperty("GCM").GetString()!).RootElement;
+        fcm.GetProperty("data").GetProperty("type").GetString().Should().Be("order");
+        fcm.GetProperty("data").GetProperty("event").GetString().Should().Be("truck_nearby");
+        fcm.GetProperty("data").GetProperty("orderId").GetString().Should().Be("order-1");
+        fcm.GetProperty("notification").GetProperty("tag").GetString().Should().Be("order-order-1");
+        // The buyer reads English: the distance and the minutes, no clock time.
+        fcm.GetProperty("notification").GetProperty("body").GetString().Should()
+            .Be("Trucker Tadesse Worku is near you, 3.2 km away, arriving in about 25 minutes. Please be ready to receive the crops.");
+        push.Message.Should().NotContain("+251");
+    }
+
+    [Fact]
+    public async Task ARetriedStampRecord_WritesNoSecondInboxRow()
+    {
+        _inbox.TryPutAsync(Arg.Any<NotificationRow>()).Returns(true, false);
+
+        await RunAsync(NearbyStampRecord("seq-1"));
+        await RunAsync(NearbyStampRecord("seq-1"));
+
+        await _inbox.Received(2).TryPutAsync(Arg.Is<NotificationRow>(r => r.SortKey == $"{RecordTime:o}#truck_nearby#delivery-1"));
+        ((TestLambdaLogger)_context.Logger).Buffer.ToString().Should().Contain("type=truck_nearby").And.Contain("new=false");
+    }
+
     // ===== helpers =====
 
     private async Task<WeredaConnect.Server.Models.StreamBatchResponse> RunAsync(params string[] records)
@@ -346,6 +396,30 @@ public class OrderNotifyStreamFunctionTests
           }
         }
         """;
+
+    /// <summary>A recorded deliveries-table MODIFY: a check-in stamped nearbyNotifiedAt (LT-07).</summary>
+    private static string NearbyStampRecord(string sequenceNumber = "seq-1")
+    {
+        var common = """
+            "deliveryId": { "S": "delivery-1" }, "tripId": { "S": "trip-1" }, "orderId": { "S": "order-1" },
+            "buyerId": { "S": "buyer-1" }, "farmerId": { "S": "farmer-1" }, "truckerId": { "S": "trucker-1" },
+            "buyerName": { "S": "Meron Alemu" }, "farmerName": { "S": "Abebe Kebede" }, "truckerName": { "S": "Tadesse Worku" },
+            "truckerPhone": { "S": "+251911000003" }, "status": { "S": "inTransit" }, "version": { "N": "5" }
+            """;
+        return $$"""
+            {
+              "eventName": "MODIFY",
+              "eventSourceARN": "{{DeliveriesArn}}",
+              "dynamodb": {
+                "ApproximateCreationDateTime": {{RecordEpochSeconds}},
+                "SequenceNumber": "{{sequenceNumber}}",
+                "OldImage": { {{common}} },
+                "NewImage": { {{common}}, "nearbyNotifiedAt": { "S": "2026-10-26T11:59:59.000Z" },
+                  "nearbyDistanceKm": { "N": "3.2" }, "nearbyMinutes": { "N": "25" } }
+              }
+            }
+            """;
+    }
 
     /// <summary>A recorded orders-table MODIFY: the mock payment was verified (payment_submitted to funded).</summary>
     private static string FundedRecord(string sequenceNumber = "seq-1", string orderId = "order-1")

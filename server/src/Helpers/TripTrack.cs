@@ -367,8 +367,11 @@ public static class TripTrack
         };
     }
 
-    /// <summary>The fixes captured from <paramref name="fromUtc"/> to <paramref name="toUtc"/> (both included), in capture order.</summary>
-    private static List<TrackFix> FixesIn(IReadOnlyList<TripLocationRow> rows, DateTime fromUtc, DateTime toUtc)
+    /// <summary>
+    /// The fixes captured from <paramref name="fromUtc"/> to <paramref name="toUtc"/> (both included), in
+    /// capture order. Also the trip's fixes for the impossible-jump check of a new check-in (LT-07).
+    /// </summary>
+    internal static List<TrackFix> FixesIn(IReadOnlyList<TripLocationRow> rows, DateTime fromUtc, DateTime toUtc)
     {
         var fixes = new List<TrackFix>();
         foreach (var row in rows)

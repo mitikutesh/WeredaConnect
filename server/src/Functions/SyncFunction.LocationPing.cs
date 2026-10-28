@@ -9,7 +9,7 @@ namespace WeredaConnect.Server.Functions;
 /// Create only. The trip's trucker records a check-in (<c>fix</c>) or a sharing event (<c>paused</c>,
 /// <c>resumed</c>, <c>declined</c>) while a delivery on the trip is on the road. Rows go to the
 /// trip-locations table only, never to the trip row (live-trip.md D6). The side effects of an
-/// accepted fix (auto in transit, truck nearby, fraud signals) are LT-07.
+/// accepted fix (auto in transit, truck nearby, fraud signals) are in SyncFunction.CheckInEffects.cs (LT-07).
 /// </summary>
 public partial class SyncFunction
 {
@@ -125,6 +125,11 @@ public partial class SyncFunction
         {
             return LocationRepeat(operation);
         }
+
+        // LT-07: only a new fix has effects (a repeat's ran with its first write, or the next fix
+        // runs them, since the moves and the stamp follow the deliveries' state). They never change
+        // this answer.
+        await RunCheckInEffectsAsync(ping, row, trip, deliveries, now, context);
 
         return new SyncOperationResult
         {

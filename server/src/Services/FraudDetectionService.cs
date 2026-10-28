@@ -297,6 +297,15 @@ public sealed class FraudDetectionService : IFraudDetectionService
     /// <summary>A suspended profile's refresh token was refused. The app does this on its own: never scores.</summary>
     internal const string SuspendedTokenUseSignal = "SUSPENDED_TOKEN_USE";
 
+    // LT-07 check-in signals (live-trip.md section 6.3), written on the trip's trucker with the trip
+    // as the entity. Flag-only: the trail is supporting evidence, the QR scans prove the handoffs.
+
+    /// <summary>Two consecutive check-ins of a trip more than 1 km apart at over 130 km/h. A GPS glitch can do it too.</summary>
+    internal const string GpsJumpSignal = "GPS_JUMP";
+
+    /// <summary>A check-in the phone flagged as a mock location (a location-faking app is in use).</summary>
+    internal const string GpsMockedSignal = "GPS_MOCKED";
+
     // Weights per fraud-detection-architecture.md §2 Rule 5 and section 15.
     internal static int SignalWeight(string signalType) => signalType switch
     {
@@ -312,18 +321,21 @@ public sealed class FraudDetectionService : IFraudDetectionService
         TelebirrPayerRefusedSignal => 5,
         StaleVersionBurstSignal => 0,
         SuspendedTokenUseSignal => 0,
+        GpsJumpSignal => 10,
+        GpsMockedSignal => 25,
         _ => 10
     };
 
     /// <summary>
     /// Soft class of the signal catalogue (section 15): flag-only rules whose weight an active
     /// whitelist skips. Every other type is hard and always counts. FRD-08 adds the rejects an
-    /// honest client can also produce.
+    /// honest client can also produce; LT-07 the check-in signals, which refuse nothing.
     /// </summary>
     internal static bool IsSoftSignal(string signalType) =>
         signalType is "GPS_ANOMALY" or "PRICE_ANOMALY"
             or QrHandoffFailureSignal or TelebirrPayerMismatchSignal or TelebirrPayerRefusedSignal
-            or StaleVersionBurstSignal or SuspendedTokenUseSignal;
+            or StaleVersionBurstSignal or SuspendedTokenUseSignal
+            or GpsJumpSignal or GpsMockedSignal;
 
     /// <summary>
     /// FRD-08 types the scorer counts once per (type, entityId) over the whole window, not once per
@@ -332,11 +344,14 @@ public sealed class FraudDetectionService : IFraudDetectionService
     /// still add up, and an approved row clears its entity. A row without an entityId falls back to
     /// the hourly bucket. <c>IDOR_CREATE_CONFLICT</c> is not one of them: a conflict is final for the
     /// client (marked synced) and web makes a new id per create, so no honest retry repeats it.
+    /// LT-07: the check-in signals count once per trip, since a trip with a mock-location app on (or
+    /// a phone with a bad GPS) writes a row in every hour it drives.
     /// </summary>
     internal static bool CountsOncePerEntity(string signalType) =>
         signalType is RoleForbiddenSignal or ImmutableFieldChangeSignal
             or QrHandoffFailureSignal or TelebirrPayerMismatchSignal or TelebirrPayerRefusedSignal
-            or StaleVersionBurstSignal or SuspendedTokenUseSignal;
+            or StaleVersionBurstSignal or SuspendedTokenUseSignal
+            or GpsJumpSignal or GpsMockedSignal;
 
     /// <summary>
     /// FRD-08 types whose counted weight is capped per type over the window (<c>RISK_REJECT_TYPE_CAP</c>):
