@@ -7,6 +7,7 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/screens/data_usage_screen.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
 import 'package:wereda_connect/shared/providers/settings_provider.dart';
+import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/widgets/clock_selection_dialog.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
@@ -97,6 +98,11 @@ class SettingsScreen extends StatelessWidget {
                 Text(l10n.aboutDescription),
                 const SizedBox(height: 8),
                 Text(l10n.aboutTagline),
+                const SizedBox(height: 8),
+                Text(
+                  l10n.aboutMapDataCredit(PlaceRepository.attribution),
+                  key: const Key('about_map_data_credit'),
+                ),
               ],
             );
           },

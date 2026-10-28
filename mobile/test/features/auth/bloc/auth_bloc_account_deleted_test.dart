@@ -204,6 +204,7 @@ void main() {
   late int tokenDeletes;
   late List<String> forgottenMarkers;
   late List<String> forgottenUsage;
+  late List<String> forgottenTracks;
   late StreamController<String> accountGone;
 
   setUpAll(() async {
@@ -236,6 +237,7 @@ void main() {
     tokenDeletes = 0;
     forgottenMarkers = [];
     forgottenUsage = [];
+    forgottenTracks = [];
     accountGone = StreamController<String>.broadcast();
     dir = Directory.systemTemp.createTempSync('account_deleted_test_');
     isar = await Isar.open(
@@ -297,6 +299,7 @@ void main() {
       pushTokenDeleter: pushTokenDeleter ?? () async => tokenDeletes++,
       forgetReadMarkers: (userId) async => forgottenMarkers.add(userId),
       forgetDataUsage: (userId) async => forgottenUsage.add(userId),
+      forgetTrackSnapshots: (userId) async => forgottenTracks.add(userId),
       sessionExpired: const Stream.empty(),
       accountGone: accountGone.stream,
     );
@@ -441,6 +444,8 @@ void main() {
     verifyNever(() => cache.clearCredentials(any()));
     expect(tokenDeletes, 1);
     expect(forgottenMarkers, [_me]);
+    // LT-10: the stored live trip snapshots go with the account.
+    expect(forgottenTracks, [_me]);
 
     // The server already ended the sessions and removed the device tokens.
     verifyNever(
