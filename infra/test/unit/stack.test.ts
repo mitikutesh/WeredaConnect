@@ -302,7 +302,7 @@ describe('ApiStack', () => {
       .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
   }
 
-  test('ESC-21: five stream mappings; the notifier reads orders and escrows on MODIFY, deliveries on INSERT', () => {
+  test('ESC-21, LT-07: five stream mappings; the notifier reads orders and escrows on MODIFY, deliveries on INSERT and the nearby stamp', () => {
     // crop-match-stream + message-stream + the three order notifier sources.
     template.resourceCountIs('AWS::Lambda::EventSourceMapping', 5);
 
@@ -320,11 +320,20 @@ describe('ApiStack', () => {
     ).map((m) => m.Properties);
     expect(mappings).toHaveLength(3);
 
-    for (const [tableLogicalPrefix, eventName] of [
-      ['OrdersTable', 'MODIFY'],
-      ['DeliveriesTable', 'INSERT'],
-      ['EscrowsTable', 'MODIFY'],
-    ]) {
+    // LT-07: on the deliveries stream, only the MODIFY that stamps nearbyNotifiedAt (absent before,
+    // present after) reaches the notifier; every other delivery update is filtered out.
+    const nearbyStamped = {
+      eventName: ['MODIFY'],
+      dynamodb: {
+        NewImage: { nearbyNotifiedAt: { S: [{ exists: true }] } },
+        OldImage: { nearbyNotifiedAt: { S: [{ exists: false }] } },
+      },
+    };
+    for (const [tableLogicalPrefix, patterns] of [
+      ['OrdersTable', [{ eventName: ['MODIFY'] }]],
+      ['DeliveriesTable', [{ eventName: ['INSERT'] }, nearbyStamped]],
+      ['EscrowsTable', [{ eventName: ['MODIFY'] }]],
+    ] as const) {
       const onTable = mappings.filter((m) =>
         JSON.stringify(m.EventSourceArn).includes(`FnGetAtt${tableLogicalPrefix}`),
       );
@@ -334,7 +343,7 @@ describe('ApiStack', () => {
       expect(JSON.stringify(m.EventSourceArn)).toContain('StreamArn');
       expect([tableLogicalPrefix, m.FilterCriteria]).toEqual([
         tableLogicalPrefix,
-        { Filters: [{ Pattern: JSON.stringify({ eventName: [eventName] }) }] },
+        { Filters: patterns.map((p) => ({ Pattern: JSON.stringify(p) })) },
       ]);
       expect(m).toMatchObject({
         StartingPosition: 'LATEST',

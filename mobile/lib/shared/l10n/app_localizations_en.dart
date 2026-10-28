@@ -3515,6 +3515,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get notifInTransitBody => 'Your order is on the way to you.';
 
   @override
+  String get notifTruckNearbyTitle => 'Truck nearby';
+
+  @override
+  String notifTruckNearbyBody(String trucker) {
+    return '$trucker is less than 5 km from you. Please be ready to receive the crops.';
+  }
+
+  @override
   String get notifDeliveredTitle => 'Order delivered';
 
   @override

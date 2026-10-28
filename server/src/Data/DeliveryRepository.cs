@@ -525,6 +525,93 @@ public sealed class DeliveryRepository : IDeliveryRepository
         }
     }
 
+    /// <inheritdoc />
+    public async Task<bool> TryMarkInTransitAsync(string deliveryId, string tripId, int expectedVersion)
+    {
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "deliveryId", new AttributeValue { S = deliveryId } },
+                { "tripId", new AttributeValue { S = tripId } }
+            },
+            UpdateExpression = "SET #status = :inTransit, #updated = :now, #v = :next",
+            ConditionExpression = "#status = :pickedUp AND #v = :expected",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" }, { "#updated", "updatedAt" }, { "#v", "version" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":inTransit", new AttributeValue { S = "inTransit" } },
+                { ":pickedUp", new AttributeValue { S = "pickedUp" } },
+                { ":now", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
+                { ":expected", new AttributeValue { N = expectedVersion.ToString(System.Globalization.CultureInfo.InvariantCulture) } },
+                { ":next", new AttributeValue { N = (expectedVersion + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryStampNearbyAsync(
+        string deliveryId, string tripId, string notifiedAt, double distanceKm, int? minutes)
+    {
+        var names = new Dictionary<string, string>
+        {
+            { "#status", "status" }, { "#at", "nearbyNotifiedAt" }, { "#km", "nearbyDistanceKm" }
+        };
+        var values = new Dictionary<string, AttributeValue>
+        {
+            { ":pickedUp", new AttributeValue { S = "pickedUp" } },
+            { ":inTransit", new AttributeValue { S = "inTransit" } },
+            { ":at", new AttributeValue { S = notifiedAt } },
+            { ":km", new AttributeValue { N = distanceKm.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) } }
+        };
+        var set = "#at = :at, #km = :km";
+        if (minutes is { } m)
+        {
+            names["#min"] = "nearbyMinutes";
+            values[":min"] = new AttributeValue { N = m.ToString(System.Globalization.CultureInfo.InvariantCulture) };
+            set += ", #min = :min";
+        }
+
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "deliveryId", new AttributeValue { S = deliveryId } },
+                { "tripId", new AttributeValue { S = tripId } }
+            },
+            // No version and no updatedAt: a server-only stamp must not make a party's queued update conflict.
+            UpdateExpression = "SET " + set,
+            ConditionExpression = "#status IN (:pickedUp, :inTransit) AND attribute_not_exists(#at)",
+            ExpressionAttributeNames = names,
+            ExpressionAttributeValues = values
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// Query for an item by deliveryId (partition key). Since sort key is createdAt,
     /// we query with limit 1 to get the single matching item.

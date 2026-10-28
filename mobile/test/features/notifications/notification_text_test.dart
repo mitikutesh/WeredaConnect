@@ -24,9 +24,9 @@ AppNotification _entry(String type, [Map<String, String> params = const {}]) =>
 void main() {
   const locales = [Locale('en'), Locale('am'), Locale('om')];
 
-  test('the type list matches the server (32 types, no repeats)', () {
-    expect(notificationTypes, hasLength(32));
-    expect(notificationTypes.toSet(), hasLength(32));
+  test('the type list matches the server (33 types, no repeats)', () {
+    expect(notificationTypes, hasLength(33));
+    expect(notificationTypes.toSet(), hasLength(33));
     expect(
       notificationTypes.toSet().containsAll(actionRequiredNotificationTypes),
       isTrue,
@@ -80,6 +80,53 @@ void main() {
       ).body,
       'Dawit will carry the order.',
     );
+  });
+
+  group('LT-07: truck_nearby', () {
+    for (final locale in locales) {
+      final l10n = lookupAppLocalizations(locale);
+      final code = locale.languageCode;
+
+      test('$code: its own text, naming the trucker, with no minutes', () {
+        final text = notificationText(
+          l10n,
+          _entry('truck_nearby', {
+            'truckerName': 'Dawit',
+            'distanceKm': '3.2',
+            'minutes': '25',
+          }),
+        );
+        expect(text.title, l10n.notifTruckNearbyTitle);
+        expect(text.title, isNot(l10n.notifGenericTitle));
+        expect(text.body, l10n.notifTruckNearbyBody('Dawit'));
+        expect(text.body, contains('Dawit'));
+        // The entry stays in the history: no "in 25 minutes", no clock.
+        expect(text.body, isNot(contains('25')));
+        expect(text.body, isNot(matches(RegExp(r'\d{1,2}:\d{2}'))));
+      });
+
+      test('$code: a missing name reads as the role', () {
+        final text = notificationText(l10n, _entry('truck_nearby'));
+        expect(text.body, contains(l10n.trucker));
+      });
+    }
+
+    test('English reads as a whole sentence', () {
+      final en = lookupAppLocalizations(const Locale('en'));
+      expect(
+        notificationText(en, _entry('truck_nearby', {'truckerName': 'Dawit'}))
+            .body,
+        'Dawit is less than 5 km from you. '
+        'Please be ready to receive the crops.',
+      );
+    });
+
+    test('a delivery entry: the truck icon', () {
+      expect(
+        notificationStyle('truck_nearby').icon,
+        notificationStyle('in_transit').icon,
+      );
+    });
   });
 
   test('a held payout says what is needed', () {

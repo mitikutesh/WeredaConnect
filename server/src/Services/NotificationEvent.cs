@@ -49,12 +49,16 @@ public static class NotificationTypes
     public const string PickupOverdue = "pickup_overdue";
     public const string PickupMissed = "pickup_missed";
 
-    // Logistics (orders table, mirrored from the delivery; deliveries table for the create).
+    // Logistics (orders table, mirrored from the delivery; deliveries table for the create and the nearby stamp).
     public const string DeliveryScheduled = "delivery_scheduled";
     public const string BuyerCollecting = "buyer_collecting";
     public const string PickedUp = "picked_up";
     public const string HandoffRecorded = "handoff_recorded";
     public const string InTransit = "in_transit";
+
+    /// <summary>LT-07: a check-in put the truck within 5 km of the drop-off (deliveries table, the <c>nearbyNotifiedAt</c> stamp).</summary>
+    public const string TruckNearby = "truck_nearby";
+
     public const string Delivered = "delivered";
     public const string DeliveredPayoutPending = "delivered_payout_pending";
 
@@ -76,7 +80,7 @@ public static class NotificationTypes
         PaymentConfirmed, OrderRequest, FarmerAccepted, TransportRequest, OrderConfirmed, OrderRejected,
         TransportFailed, TransportFailedKeepCrops, RequestExpired, RequestOnHold, OrderCancelled, OrderExpiredUnpaid,
         PaymentFailed, RequestReminder, PickupOverdue, PickupMissed,
-        DeliveryScheduled, BuyerCollecting, PickedUp, HandoffRecorded, InTransit, Delivered, DeliveredPayoutPending,
+        DeliveryScheduled, BuyerCollecting, PickedUp, HandoffRecorded, InTransit, TruckNearby, Delivered, DeliveredPayoutPending,
         OrderSettled, RefundSent, PayoutSent, PayoutBlocked, PayoutProcessing,
         DisputeOpened, DisputeReceived, DisputeResolved, UnderReview
     };
@@ -103,4 +107,10 @@ public static class NotificationParams
     public const string CancelledBy = "cancelledBy";
     public const string Resolution = "resolution";
     public const string Party = "party";
+
+    /// <summary>LT-07, <c>truck_nearby</c>: the truck's distance to the drop-off in km, one decimal (<c>3.2</c>).</summary>
+    public const string DistanceKm = "distanceKm";
+
+    /// <summary>LT-07, <c>truck_nearby</c>: minutes to the start of the arrival window, a multiple of 5; absent when 0 or unknown.</summary>
+    public const string Minutes = "minutes";
 }

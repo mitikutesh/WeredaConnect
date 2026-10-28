@@ -760,6 +760,8 @@ public partial class SyncFunction
         _batchSignals.Clear();
         _batchStaleConflicts = 0;
         _batchDeliveryWritten = false;
+        _batchTripRows.Clear();
+        _batchListingPoints.Clear();
         _batchPayoutDelays = new PayoutDelayBatch(_batchRiskScores);
 
         // Per-user rate limiting (F-11 Finding 3)
@@ -4642,6 +4644,23 @@ public partial class SyncFunction
                         if (newStatus == "disputed" && currentStatus == "disputed")
                         {
                             return await RepeatDeliveryDisputeAsync(operation, existing, authenticatedUserId, context);
+                        }
+
+                        // LT-07: a check-in may have moved the delivery to inTransit before the
+                        // trucker's own tap reached the server. The trucker is answered with the row
+                        // (server wins, nothing written), not a failed change that retries.
+                        if (newStatus == "inTransit" && currentStatus == "inTransit"
+                            && authenticatedUserId == (existing.TryGetValue("truckerId", out var transitTruckerAttr) ? transitTruckerAttr.S : null))
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "conflict",
+                                ServerVersion = existing.TryGetValue("version", out var transitVersionAttr)
+                                    && int.TryParse(transitVersionAttr.N, out var transitVersion) ? transitVersion : 0,
+                                ServerData = ScrubDeliveryForClient(CropRepository.FromItem(existing)),
+                                Message = "The delivery is already in transit."
+                            };
                         }
 
                         // Validate status transition

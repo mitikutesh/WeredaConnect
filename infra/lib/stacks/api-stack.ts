@@ -763,21 +763,30 @@ export class ApiStack extends cdk.Stack {
       onFailure: new lambdaEventSources.SqsDlq(notifyDlq),
     };
     // Orders and escrows are read on MODIFY (status moves), deliveries on
-    // INSERT (a delivery created for an order). The filter runs before the
-    // invoke, so every other event costs no Lambda time.
-    for (const [table, eventName] of [
-      [props.ordersTable, "MODIFY"],
-      [props.deliveriesTable, "INSERT"],
-      [props.escrowsTable, "MODIFY"],
+    // INSERT (a delivery created for an order) and on the one MODIFY that
+    // stamps nearbyNotifiedAt (LT-07: a check-in put the truck within 5 km
+    // of the drop-off, the buyer hears truck_nearby). The filters run before
+    // the invoke, so every other event costs no Lambda time.
+    const onEvent = (eventName: string) =>
+      lambda.FilterCriteria.filter({
+        eventName: lambda.FilterRule.isEqual(eventName),
+      });
+    const nearbyStamped = lambda.FilterCriteria.filter({
+      eventName: lambda.FilterRule.isEqual("MODIFY"),
+      dynamodb: {
+        NewImage: { nearbyNotifiedAt: { S: lambda.FilterRule.exists() } },
+        OldImage: { nearbyNotifiedAt: { S: lambda.FilterRule.notExists() } },
+      },
+    });
+    for (const [table, filters] of [
+      [props.ordersTable, [onEvent("MODIFY")]],
+      [props.deliveriesTable, [onEvent("INSERT"), nearbyStamped]],
+      [props.escrowsTable, [onEvent("MODIFY")]],
     ] as const) {
       orderNotifyStreamFn.function.addEventSource(
         new lambdaEventSources.DynamoEventSource(table, {
           ...notifySourceProps,
-          filters: [
-            lambda.FilterCriteria.filter({
-              eventName: lambda.FilterRule.isEqual(eventName),
-            }),
-          ],
+          filters: [...filters],
         }),
       );
     }

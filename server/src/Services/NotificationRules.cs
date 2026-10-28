@@ -66,7 +66,8 @@ public static class NotificationRules
     /// The events one stream record produces. <paramref name="table"/> is <c>orders</c>,
     /// <c>deliveries</c> or <c>escrows</c>; <paramref name="eventName"/> the record's
     /// <c>INSERT</c>, <c>MODIFY</c> or <c>REMOVE</c>. Orders and escrows speak on <c>MODIFY</c>
-    /// (both images needed), deliveries on <c>INSERT</c>; everything else is empty.
+    /// (both images needed), deliveries on <c>INSERT</c> and, for the <c>nearbyNotifiedAt</c> stamp
+    /// (LT-07), on <c>MODIFY</c>; everything else is empty.
     /// </summary>
     public static IReadOnlyList<NotificationEvent> Derive(
         string table, string eventName, StreamImage oldImage, StreamImage newImage, DateTime recordTimeUtc)
@@ -77,6 +78,8 @@ public static class NotificationRules
                 => DeriveOrder(oldImage, newImage, recordTimeUtc),
             DeliveriesTable when eventName == InsertEvent && newImage.Exists
                 => DeriveDelivery(newImage),
+            DeliveriesTable when eventName == ModifyEvent && oldImage.Exists && newImage.Exists
+                => DeriveDeliveryMarkers(oldImage, newImage),
             EscrowsTable when eventName == ModifyEvent && oldImage.Exists && newImage.Exists
                 => DeriveEscrow(oldImage, newImage),
             _ => NoEvents
@@ -401,9 +404,7 @@ public static class NotificationRules
             return NoEvents;
         }
 
-        var p = Names(row);
-        Put(p, NotificationParams.CropType, row.String("cropType"));
-        Put(p, NotificationParams.QuantityKg, Quantity(row.Number("quantity")));
+        var p = DeliveryParams(row);
         Put(p, NotificationParams.PickupDate, row.String(PickupDateField));
 
         var orderId = row.String("orderId");
@@ -419,6 +420,39 @@ public static class NotificationRules
         }
 
         return events.Events;
+    }
+
+    /// <summary>
+    /// LT-07: a delivery changed. Only the <c>nearbyNotifiedAt</c> stamp speaks: a check-in put the
+    /// truck within 5 km of the drop-off, and the buyer hears <c>truck_nearby</c> with the distance and
+    /// the minutes the stamp carries. The stamp is written once (conditionally), so the buyer hears it
+    /// once; a status change says nothing here (the order's mirror tells the parties).
+    /// </summary>
+    private static IReadOnlyList<NotificationEvent> DeriveDeliveryMarkers(StreamImage old, StreamImage row)
+    {
+        var deliveryId = row.String("deliveryId");
+        if (deliveryId.Length == 0 || !Appeared(old, row, CheckInEffects.NearbyNotifiedAtField))
+        {
+            return NoEvents;
+        }
+
+        var orderId = row.String("orderId");
+        var events = new EventSet(DeliveryEntity, deliveryId, orderId.Length > 0 ? orderId : null, DeliveryParams(row));
+        var km = row.Number(CheckInEffects.NearbyDistanceKmField);
+        var minutes = row.Number(CheckInEffects.NearbyMinutesField);
+        events.Add(row.String("buyerId"), NotificationTypes.TruckNearby, Params(
+            (NotificationParams.DistanceKm, km is >= 0 ? CheckInEffects.FormatKm(km.Value) : null),
+            (NotificationParams.Minutes, minutes is >= 1 ? ((long)minutes.Value).ToString(CultureInfo.InvariantCulture) : null)));
+        return events.Events;
+    }
+
+    /// <summary>What every delivery event can say: the names, the crop and the quantity.</summary>
+    private static Dictionary<string, string> DeliveryParams(StreamImage row)
+    {
+        var p = Names(row);
+        Put(p, NotificationParams.CropType, row.String("cropType"));
+        Put(p, NotificationParams.QuantityKg, Quantity(row.Number("quantity")));
+        return p;
     }
 
     // ===== escrows =====

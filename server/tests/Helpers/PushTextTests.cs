@@ -30,7 +30,9 @@ public class PushTextTests
         [P.Reason] = "fayda_required",
         [P.CancelledBy] = "buyer",
         [P.Resolution] = "farmer_wins",
-        [P.Party] = "buyer"
+        [P.Party] = "buyer",
+        [P.DistanceKm] = "3.2",
+        [P.Minutes] = "25"
     };
 
     /// <summary>The longest values the rows allow: 100-character names and seven-digit amounts.</summary>
@@ -45,7 +47,9 @@ public class PushTextTests
         [P.DeadlineAt] = "2026-12-31T20:59:00Z",
         [P.PickupDate] = "2026-12-31T20:59:00Z",
         [P.Reason] = "phone_unverified",
-        [P.Resolution] = "buyer_wins"
+        [P.Resolution] = "buyer_wins",
+        [P.DistanceKm] = "5.0",
+        [P.Minutes] = "1080"
     };
 
     private static readonly IReadOnlyDictionary<string, string> Empty = new Dictionary<string, string>();
@@ -385,6 +389,44 @@ public class PushTextTests
 
         PushText.Render(NotificationTypes.DisputeResolved, "en", p).Body
             .Should().Be($"Our team has decided on the reported problem. {sentence}");
+    }
+
+    [Fact]
+    public void TruckNearby_SaysTheDistanceAndTheMinutes_InEachLanguage()
+    {
+        PushText.Render(NotificationTypes.TruckNearby, "en", Full).Should().Be((
+            "Truck nearby",
+            "Trucker Dawit Kebede is near you, 3.2 km away, arriving in about 25 minutes. Please be ready to receive the crops."));
+
+        var (amTitle, amBody) = PushText.Render(NotificationTypes.TruckNearby, "am", Full);
+        amTitle.Should().Be("የጭነት መኪናው ቀርቧል");
+        amBody.Should().Contain("Dawit Kebede").And.Contain("3.2 ኪ.ሜ").And.Contain("በ25 ደቂቃ");
+
+        var (omTitle, omBody) = PushText.Render(NotificationTypes.TruckNearby, "om", Full);
+        omTitle.Should().Be("Konkolaataan dhihaateera");
+        omBody.Should().Contain("Dawit Kebede").And.Contain("km 3.2").And.Contain("daqiiqaa 25");
+    }
+
+    [Fact]
+    public void TruckNearby_WithoutMinutes_DropsTheTimePart_AndNeverReadsAClockTime()
+    {
+        var p = new Dictionary<string, string>(Full);
+        p.Remove(P.Minutes);
+
+        PushText.Render(NotificationTypes.TruckNearby, "en", p).Body
+            .Should().Be("Trucker Dawit Kebede is near you, 3.2 km away. Please be ready to receive the crops.");
+        PushText.Render(NotificationTypes.TruckNearby, "en", new Dictionary<string, string>(p) { [P.Minutes] = "0" }).Body
+            .Should().NotContain("arriving");
+        PushText.Render(NotificationTypes.TruckNearby, "en", new Dictionary<string, string> { [P.TruckerName] = "Dawit" }).Body
+            .Should().Be("Trucker Dawit is near you. Please be ready to receive the crops.");
+
+        // No clock times: the minutes are a count, whatever the deadline params say.
+        foreach (var language in PushText.Languages)
+        {
+            var (title, body) = PushText.Render(NotificationTypes.TruckNearby, language, Full);
+            (title + body).Should().NotMatchRegex(@"\d{1,2}:\d{2}");
+            body.Should().NotContain("{").And.NotContain("[");
+        }
     }
 
     [Fact]

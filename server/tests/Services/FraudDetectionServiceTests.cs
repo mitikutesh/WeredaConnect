@@ -486,6 +486,8 @@ public class FraudDetectionServiceTests
     [InlineData("TELEBIRR_PAYER_REFUSED", 5, true, "low")]
     [InlineData("STALE_VERSION_BURST", 0, true, "low")]
     [InlineData("SUSPENDED_TOKEN_USE", 0, true, "low")]
+    [InlineData("GPS_JUMP", 10, true, "medium")]
+    [InlineData("GPS_MOCKED", 25, true, "high")]
     public async Task RecordFraudSignal_RejectSignalsCarryTheCatalogueWeightAndClass(
         string signalType, int weight, bool soft, string severity)
     {
@@ -669,6 +671,23 @@ public class FraudDetectionServiceTests
         // A row without an id keeps the hourly bucket of section 14.2: SUSPENDED_TOKEN_USE weighs 0, so
         // use TELEBIRR_PAYER_REFUSED rows without an id.
         Assert.Equal(15, ScoreOf(Enumerable.Range(1, 3).Select(h => (h, "TELEBIRR_PAYER_REFUSED", (string?)null)).ToArray()).Score);
+    }
+
+    [Theory]
+    [InlineData("GPS_MOCKED", 25)]
+    [InlineData("GPS_JUMP", 10)]
+    public void CheckInSignals_CountOncePerTrip_HoweverManyHoursTheTruckDrives(string type, int weight)
+    {
+        // LT-07: a mock-location app on for a 20 hour trip writes a row in each hour: it counts once
+        // for the trip, and a second trip counts again.
+        var oneTrip = Enumerable.Range(1, 20).Select(h => (h, type, (string?)"trip-1")).ToArray();
+        var twoTrips = oneTrip.Append((30, type, (string?)"trip-2")).ToArray();
+
+        Assert.Equal(weight, ScoreOf(oneTrip).Score);
+        Assert.Equal(2 * weight, ScoreOf(twoTrips).Score);
+        Assert.Equal(RiskTier.Low, ScoreOf(oneTrip).Tier);
+        Assert.True(FraudDetectionService.CountsOncePerEntity(type));
+        Assert.False(FraudDetectionService.IsCappedRejectType(type));
     }
 
     [Fact]
