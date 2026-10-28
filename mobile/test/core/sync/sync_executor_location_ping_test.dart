@@ -318,6 +318,94 @@ void main() {
     expect(refusedPickups, ['delivery-pickup-1']);
   });
 
+  group('a trip whose pings wait as deferred', () {
+    const deferredAnswer = {
+      'status': 'deferred',
+      'message': 'LOCATION_NOT_ACTIVE: No delivery on the road yet.',
+    };
+
+    setUp(() {
+      adapter.onGet('/health', (server) => server.reply(200, {'ok': true}));
+    });
+
+    List<Object?> sentIds(Map<String, dynamic> request) =>
+        (request['operations'] as List)
+            .map((op) => (op as Map)['operationId'])
+            .toList();
+
+    test('sends one probe per sync, the rest once the probe goes', () async {
+      for (var i = 0; i < 5; i++) {
+        await enqueuePing('a-$i');
+        answers['a-$i'] = deferredAnswer;
+      }
+
+      await executor.syncNow();
+      // The first sync cannot know: every waiting ping goes once.
+      expect(sentIds(requests.last), hasLength(5));
+
+      await executor.syncNow();
+      await executor.syncNow();
+      expect(requests, hasLength(3));
+      expect(sentIds(requests[1]), ['a-0']);
+      expect(sentIds(requests[2]), ['a-0']);
+      for (var i = 0; i < 5; i++) {
+        final op = (await queue.getOperation('a-$i'))!;
+        expect(op.status, SyncStatus.pending);
+        expect(op.retryCount, 0);
+      }
+
+      // The pickup reached the road: the probe is stored, the rest follow
+      // in the same sync.
+      answers.clear();
+      await executor.syncNow();
+      expect(sentIds(requests[3]), ['a-0']);
+      expect(sentIds(requests[4]), ['a-1', 'a-2', 'a-3', 'a-4']);
+      expect(await queue.pendingLocationPingCount(), 0);
+    });
+
+    test('another trip and other writes are not held back', () async {
+      for (var i = 0; i < 3; i++) {
+        await enqueuePing('a-$i');
+        answers['a-$i'] = deferredAnswer;
+      }
+      await executor.syncNow();
+
+      await enqueuePing('b-0', trip: 'trip-b');
+      await enqueueDelivery('pickup-1');
+      await executor.syncNow();
+
+      expect(sentIds(requests.last), ['pickup-1', 'a-0', 'b-0']);
+      expect((await queue.getOperation('b-0'))!.status, SyncStatus.synced);
+    });
+
+    // A batch sent on its own (executeBatch) is one sync run.
+    test('a refused probe ends probing; a transient error keeps it', () async {
+      for (var i = 0; i < 3; i++) {
+        await enqueuePing('a-$i');
+        answers['a-$i'] = deferredAnswer;
+      }
+      await executor.executeBatch();
+      expect(sentIds(requests.last), ['a-0', 'a-1', 'a-2']);
+
+      answers['a-0'] = {'status': 'error', 'message': 'Read failed.'};
+      await executor.executeBatch();
+      expect(sentIds(requests.last), ['a-0']);
+      await executor.executeBatch();
+      expect(sentIds(requests.last), ['a-0']);
+
+      answers['a-0'] = {'status': 'error', 'message': 'LOCATION_STALE: old.'};
+      await executor.executeBatch();
+      expect(sentIds(requests.last), ['a-0']);
+
+      answers
+        ..remove('a-1')
+        ..remove('a-2');
+      await executor.executeBatch();
+      expect(sentIds(requests.last), ['a-1', 'a-2']);
+      expect(await queue.pendingLocationPingCount(), 0);
+    });
+  });
+
   // The data cost line of live-trip.md section 5.3.
   test('one check-in costs about 600 bytes of request body', () async {
     await enqueuePing('7c1e2f3a-4b5c-4d6e-8f70-1a2b3c4d5e6f');

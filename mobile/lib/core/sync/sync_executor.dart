@@ -355,6 +355,18 @@ class SyncExecutor {
   /// only stops the current sync.
   final Set<String?> _deletedAccounts = {};
 
+  /// Trips whose check-ins the server answered `deferred`
+  /// (`LOCATION_NOT_ACTIVE`, LT-08): their pickup is not on the road yet.
+  /// Each sync sends only one of their pings, the oldest, as a probe; the
+  /// rest wait until a probe is answered with anything but `deferred`, so a
+  /// pickup that stays deferred for days does not resend every waiting ping
+  /// on every sync. In memory: after a restart the first sync learns it
+  /// again.
+  final Set<String> _deferredPingTrips = {};
+
+  /// Trips of [_deferredPingTrips] already probed in the current sync run.
+  final Set<String> _probedPingTrips = {};
+
   static String _entityKey(SyncOperation op) =>
       '${op.entityType}:${op.entityId}';
 
@@ -489,6 +501,7 @@ class SyncExecutor {
     }
 
     _isSyncing = true;
+    _probedPingTrips.clear();
     var aggregated = const SyncBatchResult.empty();
     debugPrint('[SYNC] syncNow() started');
 
@@ -615,6 +628,8 @@ class SyncExecutor {
   ///
   /// Returns [SyncBatchResult] with counts of succeeded/conflicted/failed.
   Future<SyncBatchResult> executeBatch() async {
+    // A batch sent outside syncNow is a sync run of its own (probes, LT-08).
+    if (!_isSyncing) _probedPingTrips.clear();
     final currentUserId = await _getCurrentUserId?.call();
     if (_deletedAccounts.contains(currentUserId)) {
       return const SyncBatchResult(status: SyncBatchStatus.accountDeleted);
@@ -634,15 +649,24 @@ class SyncExecutor {
         .take(batchSize)
         .toList();
     if (pending.length < batchSize) {
-      pending.addAll(
-        (await _syncQueue.getPendingOperationsForUser(
-          userId: currentUserId,
-          limit: readLimit,
-          onlyEntityType: locationPingEntityType,
-        ))
-            .where((op) => !_heldForUpdate.contains(_entityKey(op)))
-            .take(batchSize - pending.length),
+      // A trip whose pings were deferred sends one probe per sync run; read
+      // past its other pings so the pings of another trip still go.
+      final pings = await _syncQueue.getPendingOperationsForUser(
+        userId: currentUserId,
+        limit: _deferredPingTrips.isEmpty ? readLimit : SyncQueue.maxQueueSize,
+        onlyEntityType: locationPingEntityType,
       );
+      for (final op in pings) {
+        if (pending.length >= batchSize) break;
+        if (_heldForUpdate.contains(_entityKey(op))) continue;
+        final tripId = tripIdOfLocationPing(op.entityId);
+        if (tripId != null &&
+            _deferredPingTrips.contains(tripId) &&
+            !_probedPingTrips.add(tripId)) {
+          continue;
+        }
+        pending.add(op);
+      }
     }
     if (pending.isEmpty) return const SyncBatchResult.empty();
 
@@ -748,6 +772,10 @@ class SyncExecutor {
       final message = result['message'] as String?;
       final serverData = result['serverData'] as Map<String, dynamic>?;
       final serverVersion = result['serverVersion'] as int?;
+
+      if (operation.entityType == locationPingEntityType) {
+        _notePingAnswer(operation, status, message);
+      }
 
       switch (status) {
         case 'success':
@@ -905,6 +933,28 @@ class SyncExecutor {
       errorMessage: fraudError,
       operationErrors: operationErrors,
     );
+  }
+
+  /// Track which trips' check-ins wait as `deferred` (see
+  /// [_deferredPingTrips]). A deferral puts the trip in probe mode (and
+  /// counts as this run's probe). A stored ping or a `LOCATION_*` refusal
+  /// ends it: the server decided, so the trip's other pings go from the next
+  /// batch on. A transient error tells nothing and keeps it.
+  void _notePingAnswer(
+    SyncOperation operation,
+    String? status,
+    String? message,
+  ) {
+    final tripId = tripIdOfLocationPing(operation.entityId);
+    if (tripId == null) return;
+    if (status == 'deferred') {
+      _deferredPingTrips.add(tripId);
+      _probedPingTrips.add(tripId);
+    } else if (status == 'success' ||
+        status == 'duplicate' ||
+        (status == 'error' && isLocationRejectionMessage(message))) {
+      if (_deferredPingTrips.remove(tripId)) _probedPingTrips.remove(tripId);
+    }
   }
 
   /// Handle Dio-level errors (network, auth, rate limit, server errors).
