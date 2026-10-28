@@ -46,13 +46,17 @@ class PlaceRepository {
     final byId = <String, Place>{};
     for (final place in places) {
       byId[place.id] = place;
-      final terms = <String>[
-        normalizeForSearch(place.en),
-        if (place.am.isNotEmpty) normalizeForSearch(place.am),
-        if (place.om.isNotEmpty) normalizeForSearch(place.om),
+      // Keys drop transliteration marks, so "Meki" finds "Mek’ī"; the
+      // curated display name ("Adama" for "Nazrēt") is a term too.
+      final terms = <String>{
+        placeSearchKey(place.en),
+        if (place.display.isNotEmpty) placeSearchKey(place.display),
+        if (place.am.isNotEmpty) placeSearchKey(place.am),
+        if (place.om.isNotEmpty) placeSearchKey(place.om),
         for (final alt in place.alts)
-          if (alt.isNotEmpty) normalizeForSearch(alt),
-      ]..removeWhere((t) => t.isEmpty);
+          if (alt.isNotEmpty) placeSearchKey(alt),
+      }.toList()
+        ..removeWhere((t) => t.isEmpty);
       index.add(_IndexedPlace(place, terms));
     }
 
@@ -77,9 +81,9 @@ class PlaceRepository {
 
   /// Resolves an existing free-text value (a legacy stored woreda, or
   /// `authState.woreda`) to a [Place] by exact normalized name match across
-  /// en/am/om/alts. Returns null for off-list values.
+  /// en/display/am/om/alts. Returns null for off-list values.
   Place? findByDisplayName(String name) {
-    final normalized = normalizeForSearch(name);
+    final normalized = placeSearchKey(name);
     if (normalized.isEmpty) return null;
     return _byNormalizedName[normalized];
   }
@@ -89,7 +93,7 @@ class PlaceRepository {
   List<Place> search(String query, {int limit = 8}) {
     final index = _index;
     if (index == null) return const [];
-    final normalized = normalizeForSearch(query);
+    final normalized = placeSearchKey(query);
     if (normalized.isEmpty) return const [];
 
     final prefix = <_IndexedPlace>[];
@@ -129,7 +133,7 @@ class _IndexedPlace {
   _IndexedPlace(this.place, this.terms);
 
   final Place place;
-  final List<String> terms; // pre-normalized en/am/om/alts
+  final List<String> terms; // placeSearchKey of en/display/am/om/alts
 
   _MatchKind matchKind(String normalizedQuery) {
     var substring = false;

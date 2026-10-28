@@ -56,6 +56,54 @@ Map<int, String> _buildFold() {
   return map;
 }
 
+/// Display form of a GeoNames place name: transliteration marks dropped,
+/// Latin diacritics folded, case kept, whitespace collapsed.
+///
+/// GeoNames writes Ethiopian ejectives and the glottal stop with apostrophe
+/// marks and long vowels with macrons ("Mek’ī", "‘Alem T’ēna", "Mek'ele"),
+/// which read as noise to users. This gives "Meki", "Alem Tena" and
+/// "Mekele". Ge'ez passes through verbatim. Use it for English (Latin)
+/// GeoNames names only: Afaan Oromo writes a glottal stop with an apostrophe
+/// that belongs to the word ("Bu'ee").
+///
+/// `clean_display_name` in `scripts/build_ethiopia_places.py` is the twin
+/// used when merging the place overrides; keep the two in lockstep.
+String cleanPlaceName(String input) {
+  final buf = StringBuffer();
+  for (final rune in input.replaceAll(_placeMarks, '').runes) {
+    buf.write(_latinFoldCased[rune] ?? String.fromCharCode(rune));
+  }
+  return buf.toString().replaceAll(_whitespace, ' ').trim();
+}
+
+/// Search key for place typeahead: [normalizeForSearch] with transliteration
+/// marks dropped, so "Meki", "Mek'i" and "Mek’ī" all give "meki".
+///
+/// Matches `search_key` in `scripts/build_ethiopia_places.py`. Unlike
+/// [normalizeWoreda] it keeps hyphens and any region suffix, and it does not
+/// feed server matching, so changing it never affects the server mirror.
+String placeSearchKey(String input) =>
+    normalizeForSearch(input.replaceAll(_placeMarks, ''));
+
+/// GeoNames transliteration marks: straight and typographic apostrophes, the
+/// modifier letter apostrophe and turned comma, and the backtick.
+final RegExp _placeMarks = RegExp("['‘’ʼʻ`]");
+
+/// [_latinFold] plus the uppercase accented forms, folding to an uppercase
+/// base ("Ā" to "A"), for [cleanPlaceName], which keeps the case.
+final Map<int, String> _latinFoldCased = _buildCasedFold();
+
+Map<int, String> _buildCasedFold() {
+  final map = <int, String>{..._latinFold};
+  _latinFold.forEach((rune, base) {
+    final upper = String.fromCharCode(rune).toUpperCase();
+    // Skip letters without a distinct one-letter uppercase form ("ı", "ŉ").
+    if (upper.runes.length != 1 || upper.runes.first < 0x80) return;
+    map[upper.runes.first] = base.toUpperCase();
+  });
+  return map;
+}
+
 /// Canonical comparison key for free-text woreda / place names.
 ///
 /// Place strings reach the matcher from sources that never agree on spelling:
