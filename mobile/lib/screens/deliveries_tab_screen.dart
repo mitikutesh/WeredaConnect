@@ -268,9 +268,11 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
             return RefreshIndicator(
               onRefresh: () async => _loadDeliveries(),
               child: ListView.separated(
-                padding: EdgeInsets.symmetric(
-                  horizontal: listHPad,
-                  vertical: 12,
+                padding: EdgeInsets.fromLTRB(
+                  listHPad,
+                  12,
+                  listHPad,
+                  Breakpoints.fabClearance,
                 ),
                 itemCount: state.deliveries.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 10),

@@ -26,14 +26,19 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
-/// Main navigation with a labeled center FAB + role-shaped 4-tab bar.
+/// Main navigation with a labeled FAB floating above a role-shaped 4-tab bar.
 ///
 /// Tab sets come from [tabsForRole] — each role's bar reflects its actual
 /// job (see role_navigation.dart). The FAB is the role's create verb.
 /// No AppBar — each screen manages its own header.
 /// Profile accessible from header icon on each screen.
 class MainNavigation extends StatefulWidget {
-  const MainNavigation({super.key});
+  const MainNavigation({super.key, this.tabBodyBuilder});
+
+  /// Replaces the real tab screens, so a test can lay out the bar and FAB
+  /// without every screen's blocs and repositories.
+  @visibleForTesting
+  final Widget Function(RoleTab tab)? tabBodyBuilder;
 
   @override
   State<MainNavigation> createState() => _MainNavigationState();
@@ -69,6 +74,10 @@ class _MainNavigationState extends State<MainNavigation> {
   }
 
   List<Widget> _buildScreens(UserRole role) {
+    final tabBodyBuilder = widget.tabBodyBuilder;
+    if (tabBodyBuilder != null) {
+      return [for (final tab in tabsForRole(role)) tabBodyBuilder(tab)];
+    }
     return [
       for (final tab in tabsForRole(role))
         switch (tab) {
@@ -205,28 +214,26 @@ class _MainNavigationState extends State<MainNavigation> {
                 },
               ),
             ),
+            // Floats above the bar: docked, the label is far wider than a
+            // notch gap and covered the second and third tabs (LT-01).
+            // Scrollable tab bodies end with Breakpoints.fabClearance so it
+            // never hides their last item.
             floatingActionButtonLocation:
-                FloatingActionButtonLocation.centerDocked,
+                FloatingActionButtonLocation.centerFloat,
             bottomNavigationBar: BottomAppBar(
-              shape: const AutomaticNotchedShape(
-                RoundedRectangleBorder(),
-                StadiumBorder(),
-              ),
-              notchMargin: 8,
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  for (var i = 0; i < tabs.length; i++) ...[
-                    if (i == 2) const SizedBox(width: 48), // FAB gap
-                    _NavItem(
-                      icon: tabs[i].icon,
-                      activeIcon: tabs[i].activeIcon,
-                      label: tabs[i].label(l10n),
-                      index: i,
-                      currentIndex: _currentIndex,
-                      onTap: () => setState(() => _currentIndex = i),
+                  for (var i = 0; i < tabs.length; i++)
+                    Expanded(
+                      child: _NavItem(
+                        icon: tabs[i].icon,
+                        activeIcon: tabs[i].activeIcon,
+                        label: tabs[i].label(l10n),
+                        index: i,
+                        currentIndex: _currentIndex,
+                        onTap: () => setState(() => _currentIndex = i),
+                      ),
                     ),
-                  ],
                 ],
               ),
             ),
@@ -263,18 +270,24 @@ class _NavItem extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(isActive ? activeIcon : icon, color: color, size: 24),
             const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: color,
+            // Each tab gets a quarter of the bar; a long am/om label shrinks
+            // a little rather than lose its end to an ellipsis.
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: color,
+                ),
               ),
             ),
           ],

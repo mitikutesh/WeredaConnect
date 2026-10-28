@@ -74,7 +74,7 @@ extension RoleTabVisual on RoleTab {
       };
 }
 
-/// The four bar destinations for [role] (the FAB occupies the center slot).
+/// The four bar destinations for [role] (the FAB floats centred above them).
 List<RoleTab> tabsForRole(UserRole role) {
   return switch (role) {
     UserRole.farmer => const [

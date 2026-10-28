@@ -14,6 +14,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
@@ -130,6 +131,18 @@ void main() {
       expect(find.textContaining('Addis Ababa'), findsOneWidget);
       // Status badge
       expect(find.text('Open'), findsOneWidget);
+
+      // LT-01: the list ends clear of the floating create button.
+      final list = tester.widget<ListView>(
+        find.descendant(
+          of: find.byType(RefreshIndicator),
+          matching: find.byType(ListView),
+        ),
+      );
+      expect(
+        list.padding!.resolve(TextDirection.ltr).bottom,
+        Breakpoints.fabClearance,
+      );
     });
 
     testWidgets('shows filter fields', (tester) async {

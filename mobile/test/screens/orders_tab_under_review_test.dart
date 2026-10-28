@@ -19,6 +19,7 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/screens/orders_tab_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
 
 class MockOrderBloc extends Mock implements OrderBloc {}
 
@@ -163,6 +164,26 @@ void main() {
       ).called(1);
     });
   }
+
+  testWidgets('the list ends clear of the floating create button (LT-01)',
+      (tester) async {
+    tallView(tester);
+    signIn(UserRole.buyer);
+
+    await tester.pumpWidget(screen());
+    await tester.pumpAndSettle();
+
+    final list = tester.widget<ListView>(
+      find.descendant(
+        of: find.byType(RefreshIndicator),
+        matching: find.byType(ListView),
+      ),
+    );
+    expect(
+      list.padding!.resolve(TextDirection.ltr).bottom,
+      Breakpoints.fabClearance,
+    );
+  });
 
   testWidgets('farmer: Accept is offered on the other order only',
       (tester) async {

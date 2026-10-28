@@ -316,9 +316,11 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
                     );
               },
               child: ListView.separated(
-                padding: EdgeInsets.symmetric(
-                  horizontal: listHPad,
-                  vertical: 12,
+                padding: EdgeInsets.fromLTRB(
+                  listHPad,
+                  12,
+                  listHPad,
+                  Breakpoints.fabClearance,
                 ),
                 itemCount: state.orders.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 10),

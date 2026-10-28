@@ -17,6 +17,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/screens/browse
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/widgets/green_header.dart';
 import 'package:wereda_connect/shared/widgets/listing_card.dart';
 
@@ -186,6 +187,25 @@ void main() {
       expect(find.text('4.6 (12)'), findsOneWidget);
       expect(find.text('4.5'), findsNothing);
       expect(find.text('Escrow'), findsNothing);
+    });
+
+    testWidgets('the list ends clear of the floating create button (LT-01)',
+        (tester) async {
+      loaded([_listing()]);
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      final list = tester.widget<ListView>(
+        find.descendant(
+          of: find.byType(RefreshIndicator),
+          matching: find.byType(ListView),
+        ),
+      );
+      expect(
+        list.padding!.resolve(TextDirection.ltr).bottom,
+        Breakpoints.fabClearance,
+      );
     });
 
     testWidgets('hides the rating when the seller has none', (tester) async {
