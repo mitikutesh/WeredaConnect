@@ -6591,6 +6591,619 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Trip location'**
   String get liveTripNotificationChannel;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Screen title and button: where the truck carrying the order is, after pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Live trip'**
+  String get liveTripTitle;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Deliveries tab: heading over the deliveries a truck is carrying now
+  ///
+  /// In en, this message translates to:
+  /// **'On the road now'**
+  String get liveTripOnTheRoadNow;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). A delivery the truck has not picked up yet
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for pickup'**
+  String get liveTripWaitingForPickup;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Before pickup there is no map: it starts at the pickup scan
+  ///
+  /// In en, this message translates to:
+  /// **'The map appears when the driver scans the farmer\'s QR.'**
+  String get liveTripMapStartsAtPickup;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). A duration under an hour, used inside other live trip messages
+  ///
+  /// In en, this message translates to:
+  /// **'{minutes} min'**
+  String liveTripDurationMinutes(int minutes);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). A duration of an hour or more, used inside other live trip messages
+  ///
+  /// In en, this message translates to:
+  /// **'{hours} h {minutes} min'**
+  String liveTripDurationHours(int hours, int minutes);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). How old the last check-in is; {duration} is liveTripDurationMinutes or liveTripDurationHours
+  ///
+  /// In en, this message translates to:
+  /// **'{duration} ago'**
+  String liveTripAgo(String duration);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The last check-in is under a minute old
+  ///
+  /// In en, this message translates to:
+  /// **'Just now'**
+  String get liveTripJustNow;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Deliveries card: when the truck last reported where it is
+  ///
+  /// In en, this message translates to:
+  /// **'Checked in {duration} ago'**
+  String liveTripCheckedInAgo(String duration);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Deliveries card: the truck reported where it is under a minute ago
+  ///
+  /// In en, this message translates to:
+  /// **'Checked in just now'**
+  String get liveTripCheckedInJustNow;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The last check-in is over 75 minutes old (usually no network on the road)
+  ///
+  /// In en, this message translates to:
+  /// **'No check-in for {duration}'**
+  String liveTripNoCheckInFor(String duration);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The driver paused sharing the location (rest stop, night)
+  ///
+  /// In en, this message translates to:
+  /// **'Paused'**
+  String get liveTripPaused;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Until when sharing is paused; {time} is a clock time
+  ///
+  /// In en, this message translates to:
+  /// **'until {time}'**
+  String liveTripUntil(String time);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The driver chose not to share the location; only the QR scans record where the truck was
+  ///
+  /// In en, this message translates to:
+  /// **'Scans only'**
+  String get liveTripScansOnly;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Chip line under Scans only
+  ///
+  /// In en, this message translates to:
+  /// **'Location not shared'**
+  String get liveTripScansOnlyChip;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). After delivery the truck's location is no longer shared
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing ended at delivery'**
+  String get liveTripSharingEnded;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Status: the truck carries the order
+  ///
+  /// In en, this message translates to:
+  /// **'On the road'**
+  String get liveTripStatusOnTheRoad;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Status: the truck is within 5 km of the drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'Arriving'**
+  String get liveTripStatusArriving;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Heading over the arrival window; {place} is the buyer's drop-off landmark
+  ///
+  /// In en, this message translates to:
+  /// **'Arriving at {place}'**
+  String liveTripArrivingAt(String place);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Heading over the arrival window when the drop-off has no landmark
+  ///
+  /// In en, this message translates to:
+  /// **'Expected arrival'**
+  String get liveTripArrivalWindow;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Under the arrival window; {km} has one decimal
+  ///
+  /// In en, this message translates to:
+  /// **'About {km} km to go, from the last check-in'**
+  String liveTripKmToGo(String km);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Under the arrival window when the last check-in is late
+  ///
+  /// In en, this message translates to:
+  /// **'Wider window: no check-in for a while'**
+  String get liveTripWiderWindow;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The server has no arrival window yet (no drop-off point or no check-in)
+  ///
+  /// In en, this message translates to:
+  /// **'No arrival estimate yet'**
+  String get liveTripNoEta;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Progress step 1: the parties agreed
+  ///
+  /// In en, this message translates to:
+  /// **'Agreed'**
+  String get liveTripStepAgreed;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Progress step 2: the truck picked the crop up
+  ///
+  /// In en, this message translates to:
+  /// **'Picked up'**
+  String get liveTripStepPickedUp;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer: the money is safe; {amount} is the order total with its currency (etbCurrency)
+  ///
+  /// In en, this message translates to:
+  /// **'Your {amount} stays in escrow until you scan the driver\'s QR.'**
+  String liveTripEscrowNote(String amount);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer: the money is safe, when the order total is not on this device
+  ///
+  /// In en, this message translates to:
+  /// **'Your money stays in escrow until you scan the driver\'s QR.'**
+  String get liveTripEscrowNoteNoAmount;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The last check-in is late; {trucker} is the driver's name
+  ///
+  /// In en, this message translates to:
+  /// **'Likely no network on this road. Check-ins saved on {trucker}\'s phone will show when it reconnects.'**
+  String liveTripLateNote(String trucker);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The driver paused; {time} is when sharing resumes (a clock time)
+  ///
+  /// In en, this message translates to:
+  /// **'{trucker} paused sharing for a rest stop. It turns back on by itself at {time}.'**
+  String liveTripPausedNote(String trucker, String time);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The driver declined sharing (Scans only)
+  ///
+  /// In en, this message translates to:
+  /// **'{trucker} chose not to share the truck\'s location. The QR scans still record the pickup and the delivery.'**
+  String liveTripScansOnlyNote(String trucker);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Offline: the map saved on the phone is shown; {time} is when it was fetched (a clock time)
+  ///
+  /// In en, this message translates to:
+  /// **'You are offline. This is the map from {time}, it updates when you reconnect.'**
+  String liveTripOfflineNote(String time);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Offline and no map saved on the phone yet
+  ///
+  /// In en, this message translates to:
+  /// **'You are offline. The map shows when you reconnect.'**
+  String get liveTripOfflineNoMap;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The server could not read the track; the last saved map stays
+  ///
+  /// In en, this message translates to:
+  /// **'The map cannot be updated right now.'**
+  String get liveTripUnavailable;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The server does not know this delivery for this person
+  ///
+  /// In en, this message translates to:
+  /// **'This trip cannot be found.'**
+  String get liveTripNotFound;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Link from the live trip to the trip log screen
+  ///
+  /// In en, this message translates to:
+  /// **'Trip log and order'**
+  String get liveTripTripLogLink;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). How many check-ins the truck sent
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 check-in} other{{count} check-ins}}'**
+  String liveTripCheckIns(int count);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log screen title
+  ///
+  /// In en, this message translates to:
+  /// **'Trip log'**
+  String get liveTripTripLogTitle;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). A distance; {km} has one decimal or none
+  ///
+  /// In en, this message translates to:
+  /// **'{km} km'**
+  String liveTripKm(String km);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log stat label under a distance driven so far
+  ///
+  /// In en, this message translates to:
+  /// **'done'**
+  String get liveTripStatDone;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log stat label under the distance left
+  ///
+  /// In en, this message translates to:
+  /// **'to go'**
+  String get liveTripStatToGo;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Stat label under the time since pickup
+  ///
+  /// In en, this message translates to:
+  /// **'on the road'**
+  String get liveTripStatOnTheRoad;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Delivered summary stat label under the distance
+  ///
+  /// In en, this message translates to:
+  /// **'driven'**
+  String get liveTripStatDriven;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Delivered summary stat label under the check-in count
+  ///
+  /// In en, this message translates to:
+  /// **'check-ins'**
+  String get liveTripStatCheckIns;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log: heading over the list of check-ins
+  ///
+  /// In en, this message translates to:
+  /// **'Check-ins about every hour'**
+  String get liveTripCheckInCadence;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log row: the viewer's pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Picked up, the farmer\'s QR was scanned'**
+  String get liveTripLogPickup;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log row: the phone's hourly check-in
+  ///
+  /// In en, this message translates to:
+  /// **'Hourly check-in'**
+  String get liveTripLogHourly;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log row: a check-in every 15 minutes near a drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'Check-in near a stop'**
+  String get liveTripLogNearStop;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log row: the driver tapped Check in now
+  ///
+  /// In en, this message translates to:
+  /// **'The driver checked in'**
+  String get liveTripLogManual;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log row: the driver tapped I've arrived
+  ///
+  /// In en, this message translates to:
+  /// **'The driver arrived at a stop'**
+  String get liveTripLogArrived;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log row: the driver turned sharing on
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing started'**
+  String get liveTripLogStart;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log row: another order's stop on the same truck. Never named (privacy)
+  ///
+  /// In en, this message translates to:
+  /// **'Another stop on this truck'**
+  String get liveTripLogOtherStop;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log row: a check-in of an unknown kind
+  ///
+  /// In en, this message translates to:
+  /// **'Check-in'**
+  String get liveTripLogCheckIn;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log row: the driver paused sharing
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing paused'**
+  String get liveTripLogPaused;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log tag on the newest check-in
+  ///
+  /// In en, this message translates to:
+  /// **'latest'**
+  String get liveTripLogLatest;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log tag: the check-in waited on the phone over 15 minutes before it arrived
+  ///
+  /// In en, this message translates to:
+  /// **'Sent late, no network'**
+  String get liveTripLogSentLate;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log tag: another stop the truck has done
+  ///
+  /// In en, this message translates to:
+  /// **'passed'**
+  String get liveTripLogPassed;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log heading over the stops still to come
+  ///
+  /// In en, this message translates to:
+  /// **'Ahead'**
+  String get liveTripLogAhead;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log: the buyer's own drop-off, last
+  ///
+  /// In en, this message translates to:
+  /// **'Your drop-off: you scan the driver\'s QR here'**
+  String get liveTripLogYourDropoff;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log: what proves the pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup proof'**
+  String get liveTripPickupProof;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Delivered summary: what proves the drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off proof'**
+  String get liveTripDropoffProof;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). When the QR handoff was scanned; {time} is a clock time
+  ///
+  /// In en, this message translates to:
+  /// **'QR scanned {time}'**
+  String liveTripQrScannedAt(String time);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The phone recorded where the scan happened
+  ///
+  /// In en, this message translates to:
+  /// **'GPS recorded'**
+  String get liveTripGpsRecorded;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Chip: the order's money is held in escrow
+  ///
+  /// In en, this message translates to:
+  /// **'In escrow'**
+  String get liveTripInEscrow;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log: who gets which part of the money; amounts carry their currency
+  ///
+  /// In en, this message translates to:
+  /// **'{farmer} is paid {farmerAmount} and {trucker} {truckerAmount}, 48 h after you confirm delivery.'**
+  String liveTripPayoutNote(
+      String farmer, String farmerAmount, String trucker, String truckerAmount);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log: the farmer's part of the money when the order has no transport cost
+  ///
+  /// In en, this message translates to:
+  /// **'{farmer} is paid {amount}, 48 h after you confirm delivery.'**
+  String liveTripPayoutNoteFarmerOnly(String farmer, String amount);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log: help heading
+  ///
+  /// In en, this message translates to:
+  /// **'Something wrong on the way?'**
+  String get liveTripHelpTitle;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log: no cancel after pickup, 48 h to report after delivery
+  ///
+  /// In en, this message translates to:
+  /// **'A picked-up order can no longer be cancelled. Talk to {trucker} or {farmer} now. After delivery you have 48 h to report a problem, and the money waits until it is settled.'**
+  String liveTripHelpBody(String trucker, String farmer);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Button: open the order chat with this party
+  ///
+  /// In en, this message translates to:
+  /// **'Message {name}'**
+  String liveTripMessageParty(String name);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log: who sees the trail (privacy, spec section 7)
+  ///
+  /// In en, this message translates to:
+  /// **'Only you and {farmer} see where this truck is, from the pickup until your delivery. Other stops are never named.'**
+  String liveTripPrivacyNote(String farmer);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Under the map: what the grey rings are (privacy)
+  ///
+  /// In en, this message translates to:
+  /// **'Grey rings are other stops on this truck. They are never named.'**
+  String get liveTripGreyRingsNote;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving screen title: the truck is within 5 km
+  ///
+  /// In en, this message translates to:
+  /// **'Truck arriving'**
+  String get liveTripArrivingTitle;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving: minutes to the start of the arrival window
+  ///
+  /// In en, this message translates to:
+  /// **'{trucker} is about {minutes} min away'**
+  String liveTripArrivingMinutes(String trucker, int minutes);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving, when no arrival window is known
+  ///
+  /// In en, this message translates to:
+  /// **'{trucker} is less than 5 km away'**
+  String liveTripArrivingNear(String trucker);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving: the truck's distance to the drop-off; {km} has one decimal
+  ///
+  /// In en, this message translates to:
+  /// **'{km} km from the drop-off'**
+  String liveTripKmFromDropoff(String km);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving: checklist heading
+  ///
+  /// In en, this message translates to:
+  /// **'Before you scan'**
+  String get liveTripBeforeYouScan;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving checklist item
+  ///
+  /// In en, this message translates to:
+  /// **'Count the sacks and check the total weight'**
+  String get liveTripCheckCount;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving checklist item
+  ///
+  /// In en, this message translates to:
+  /// **'Check the crop is dry and clean'**
+  String get liveTripCheckQuality;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving checklist item
+  ///
+  /// In en, this message translates to:
+  /// **'Weigh a few sacks if you can'**
+  String get liveTripCheckWeigh;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving: what the scan does to the money
+  ///
+  /// In en, this message translates to:
+  /// **'Scanning confirms delivery. {farmer} and {trucker} are paid after a 48 h check window, unless you report a problem.'**
+  String liveTripScanConfirmsNote(String farmer, String trucker);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving: button that opens the delivery QR scan
+  ///
+  /// In en, this message translates to:
+  /// **'Scan driver\'s QR'**
+  String get liveTripScanDriversQr;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Delivered summary heading; {time} is a clock time
+  ///
+  /// In en, this message translates to:
+  /// **'Delivered at {time}'**
+  String liveTripDeliveredAt(String time);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The trip ended before this device saw the delivery's new status
+  ///
+  /// In en, this message translates to:
+  /// **'This trip has ended'**
+  String get liveTripEnded;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Delivered: button to report a problem while the 48 h window lasts; {time} is a date and clock time
+  ///
+  /// In en, this message translates to:
+  /// **'Report a problem until {time}'**
+  String liveTripReportProblemUntil(String time);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Delivered: heading over Rate Farmer and Rate Trucker
+  ///
+  /// In en, this message translates to:
+  /// **'How did it go?'**
+  String get liveTripHowDidItGo;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer: heading of the order on the road; {crop} is the crop name
+  ///
+  /// In en, this message translates to:
+  /// **'Your {crop} is on the road'**
+  String liveTripFarmerTitle(String crop);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer: heading when the crop is not known on this device
+  ///
+  /// In en, this message translates to:
+  /// **'Your order is on the road'**
+  String get liveTripFarmerTitleNoCrop;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer: how much goes to which buyer; {quantity} carries its unit
+  ///
+  /// In en, this message translates to:
+  /// **'{quantity} to {buyer}'**
+  String liveTripFarmerTo(String quantity, String buyer);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The arrival window; {time} is a clock time range
+  ///
+  /// In en, this message translates to:
+  /// **'Arrives {time}'**
+  String liveTripArrives(String time);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer: heading over the payment steps
+  ///
+  /// In en, this message translates to:
+  /// **'Your payment'**
+  String get liveTripYourPayment;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer payment step 1
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer paid, held in escrow'**
+  String get liveTripPayStepPaid;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer payment step 2
+  ///
+  /// In en, this message translates to:
+  /// **'You handed over, QR scanned'**
+  String get liveTripPayStepHandedOver;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer payment step 3
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer confirms delivery'**
+  String get liveTripPayStepBuyerConfirms;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer payment step 4
+  ///
+  /// In en, this message translates to:
+  /// **'48 h check window, then paid out'**
+  String get liveTripPayStepPaidOut;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer: link to the order detail screen
+  ///
+  /// In en, this message translates to:
+  /// **'Order details, price and timeline'**
+  String get liveTripOrderDetailsLink;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Order detail, buyer and farmer, before pickup: where the live map will be
+  ///
+  /// In en, this message translates to:
+  /// **'After pickup you will see the truck on a map in Deliveries.'**
+  String get liveTripAfterPickupHint;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Deliveries card: the farmer the crop comes from
+  ///
+  /// In en, this message translates to:
+  /// **'From {name}'**
+  String liveTripFrom(String name);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Screen reader label of the map
+  ///
+  /// In en, this message translates to:
+  /// **'Map of the trip. The truck was last near {place}.'**
+  String liveTripMapSemantics(String place);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Screen reader label of the map without a town
+  ///
+  /// In en, this message translates to:
+  /// **'Map of the trip'**
+  String get liveTripMapSemanticsNoPlace;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Route ribbon: the buyer's own drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'You'**
+  String get liveTripYou;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Route ribbon: the drop-off, for the farmer
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off'**
+  String get liveTripDropoff;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Route ribbon: the pickup when its town is unknown
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup'**
+  String get liveTripPickup;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer card: when the truck picked the crop up; {time} is a clock time
+  ///
+  /// In en, this message translates to:
+  /// **'On the road since {time}'**
+  String liveTripOnTheRoadSince(String time);
 }
 
 class _AppLocalizationsDelegate

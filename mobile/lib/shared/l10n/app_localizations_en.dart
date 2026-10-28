@@ -3670,4 +3670,389 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get liveTripNotificationChannel => 'Trip location';
+
+  @override
+  String get liveTripTitle => 'Live trip';
+
+  @override
+  String get liveTripOnTheRoadNow => 'On the road now';
+
+  @override
+  String get liveTripWaitingForPickup => 'Waiting for pickup';
+
+  @override
+  String get liveTripMapStartsAtPickup =>
+      'The map appears when the driver scans the farmer\'s QR.';
+
+  @override
+  String liveTripDurationMinutes(int minutes) {
+    return '$minutes min';
+  }
+
+  @override
+  String liveTripDurationHours(int hours, int minutes) {
+    return '$hours h $minutes min';
+  }
+
+  @override
+  String liveTripAgo(String duration) {
+    return '$duration ago';
+  }
+
+  @override
+  String get liveTripJustNow => 'Just now';
+
+  @override
+  String liveTripCheckedInAgo(String duration) {
+    return 'Checked in $duration ago';
+  }
+
+  @override
+  String get liveTripCheckedInJustNow => 'Checked in just now';
+
+  @override
+  String liveTripNoCheckInFor(String duration) {
+    return 'No check-in for $duration';
+  }
+
+  @override
+  String get liveTripPaused => 'Paused';
+
+  @override
+  String liveTripUntil(String time) {
+    return 'until $time';
+  }
+
+  @override
+  String get liveTripScansOnly => 'Scans only';
+
+  @override
+  String get liveTripScansOnlyChip => 'Location not shared';
+
+  @override
+  String get liveTripSharingEnded => 'Sharing ended at delivery';
+
+  @override
+  String get liveTripStatusOnTheRoad => 'On the road';
+
+  @override
+  String get liveTripStatusArriving => 'Arriving';
+
+  @override
+  String liveTripArrivingAt(String place) {
+    return 'Arriving at $place';
+  }
+
+  @override
+  String get liveTripArrivalWindow => 'Expected arrival';
+
+  @override
+  String liveTripKmToGo(String km) {
+    return 'About $km km to go, from the last check-in';
+  }
+
+  @override
+  String get liveTripWiderWindow => 'Wider window: no check-in for a while';
+
+  @override
+  String get liveTripNoEta => 'No arrival estimate yet';
+
+  @override
+  String get liveTripStepAgreed => 'Agreed';
+
+  @override
+  String get liveTripStepPickedUp => 'Picked up';
+
+  @override
+  String liveTripEscrowNote(String amount) {
+    return 'Your $amount stays in escrow until you scan the driver\'s QR.';
+  }
+
+  @override
+  String get liveTripEscrowNoteNoAmount =>
+      'Your money stays in escrow until you scan the driver\'s QR.';
+
+  @override
+  String liveTripLateNote(String trucker) {
+    return 'Likely no network on this road. Check-ins saved on $trucker\'s phone will show when it reconnects.';
+  }
+
+  @override
+  String liveTripPausedNote(String trucker, String time) {
+    return '$trucker paused sharing for a rest stop. It turns back on by itself at $time.';
+  }
+
+  @override
+  String liveTripScansOnlyNote(String trucker) {
+    return '$trucker chose not to share the truck\'s location. The QR scans still record the pickup and the delivery.';
+  }
+
+  @override
+  String liveTripOfflineNote(String time) {
+    return 'You are offline. This is the map from $time, it updates when you reconnect.';
+  }
+
+  @override
+  String get liveTripOfflineNoMap =>
+      'You are offline. The map shows when you reconnect.';
+
+  @override
+  String get liveTripUnavailable => 'The map cannot be updated right now.';
+
+  @override
+  String get liveTripNotFound => 'This trip cannot be found.';
+
+  @override
+  String get liveTripTripLogLink => 'Trip log and order';
+
+  @override
+  String liveTripCheckIns(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count check-ins',
+      one: '1 check-in',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get liveTripTripLogTitle => 'Trip log';
+
+  @override
+  String liveTripKm(String km) {
+    return '$km km';
+  }
+
+  @override
+  String get liveTripStatDone => 'done';
+
+  @override
+  String get liveTripStatToGo => 'to go';
+
+  @override
+  String get liveTripStatOnTheRoad => 'on the road';
+
+  @override
+  String get liveTripStatDriven => 'driven';
+
+  @override
+  String get liveTripStatCheckIns => 'check-ins';
+
+  @override
+  String get liveTripCheckInCadence => 'Check-ins about every hour';
+
+  @override
+  String get liveTripLogPickup => 'Picked up, the farmer\'s QR was scanned';
+
+  @override
+  String get liveTripLogHourly => 'Hourly check-in';
+
+  @override
+  String get liveTripLogNearStop => 'Check-in near a stop';
+
+  @override
+  String get liveTripLogManual => 'The driver checked in';
+
+  @override
+  String get liveTripLogArrived => 'The driver arrived at a stop';
+
+  @override
+  String get liveTripLogStart => 'Sharing started';
+
+  @override
+  String get liveTripLogOtherStop => 'Another stop on this truck';
+
+  @override
+  String get liveTripLogCheckIn => 'Check-in';
+
+  @override
+  String get liveTripLogPaused => 'Sharing paused';
+
+  @override
+  String get liveTripLogLatest => 'latest';
+
+  @override
+  String get liveTripLogSentLate => 'Sent late, no network';
+
+  @override
+  String get liveTripLogPassed => 'passed';
+
+  @override
+  String get liveTripLogAhead => 'Ahead';
+
+  @override
+  String get liveTripLogYourDropoff =>
+      'Your drop-off: you scan the driver\'s QR here';
+
+  @override
+  String get liveTripPickupProof => 'Pickup proof';
+
+  @override
+  String get liveTripDropoffProof => 'Drop-off proof';
+
+  @override
+  String liveTripQrScannedAt(String time) {
+    return 'QR scanned $time';
+  }
+
+  @override
+  String get liveTripGpsRecorded => 'GPS recorded';
+
+  @override
+  String get liveTripInEscrow => 'In escrow';
+
+  @override
+  String liveTripPayoutNote(String farmer, String farmerAmount, String trucker,
+      String truckerAmount) {
+    return '$farmer is paid $farmerAmount and $trucker $truckerAmount, 48 h after you confirm delivery.';
+  }
+
+  @override
+  String liveTripPayoutNoteFarmerOnly(String farmer, String amount) {
+    return '$farmer is paid $amount, 48 h after you confirm delivery.';
+  }
+
+  @override
+  String get liveTripHelpTitle => 'Something wrong on the way?';
+
+  @override
+  String liveTripHelpBody(String trucker, String farmer) {
+    return 'A picked-up order can no longer be cancelled. Talk to $trucker or $farmer now. After delivery you have 48 h to report a problem, and the money waits until it is settled.';
+  }
+
+  @override
+  String liveTripMessageParty(String name) {
+    return 'Message $name';
+  }
+
+  @override
+  String liveTripPrivacyNote(String farmer) {
+    return 'Only you and $farmer see where this truck is, from the pickup until your delivery. Other stops are never named.';
+  }
+
+  @override
+  String get liveTripGreyRingsNote =>
+      'Grey rings are other stops on this truck. They are never named.';
+
+  @override
+  String get liveTripArrivingTitle => 'Truck arriving';
+
+  @override
+  String liveTripArrivingMinutes(String trucker, int minutes) {
+    return '$trucker is about $minutes min away';
+  }
+
+  @override
+  String liveTripArrivingNear(String trucker) {
+    return '$trucker is less than 5 km away';
+  }
+
+  @override
+  String liveTripKmFromDropoff(String km) {
+    return '$km km from the drop-off';
+  }
+
+  @override
+  String get liveTripBeforeYouScan => 'Before you scan';
+
+  @override
+  String get liveTripCheckCount => 'Count the sacks and check the total weight';
+
+  @override
+  String get liveTripCheckQuality => 'Check the crop is dry and clean';
+
+  @override
+  String get liveTripCheckWeigh => 'Weigh a few sacks if you can';
+
+  @override
+  String liveTripScanConfirmsNote(String farmer, String trucker) {
+    return 'Scanning confirms delivery. $farmer and $trucker are paid after a 48 h check window, unless you report a problem.';
+  }
+
+  @override
+  String get liveTripScanDriversQr => 'Scan driver\'s QR';
+
+  @override
+  String liveTripDeliveredAt(String time) {
+    return 'Delivered at $time';
+  }
+
+  @override
+  String get liveTripEnded => 'This trip has ended';
+
+  @override
+  String liveTripReportProblemUntil(String time) {
+    return 'Report a problem until $time';
+  }
+
+  @override
+  String get liveTripHowDidItGo => 'How did it go?';
+
+  @override
+  String liveTripFarmerTitle(String crop) {
+    return 'Your $crop is on the road';
+  }
+
+  @override
+  String get liveTripFarmerTitleNoCrop => 'Your order is on the road';
+
+  @override
+  String liveTripFarmerTo(String quantity, String buyer) {
+    return '$quantity to $buyer';
+  }
+
+  @override
+  String liveTripArrives(String time) {
+    return 'Arrives $time';
+  }
+
+  @override
+  String get liveTripYourPayment => 'Your payment';
+
+  @override
+  String get liveTripPayStepPaid => 'Buyer paid, held in escrow';
+
+  @override
+  String get liveTripPayStepHandedOver => 'You handed over, QR scanned';
+
+  @override
+  String get liveTripPayStepBuyerConfirms => 'Buyer confirms delivery';
+
+  @override
+  String get liveTripPayStepPaidOut => '48 h check window, then paid out';
+
+  @override
+  String get liveTripOrderDetailsLink => 'Order details, price and timeline';
+
+  @override
+  String get liveTripAfterPickupHint =>
+      'After pickup you will see the truck on a map in Deliveries.';
+
+  @override
+  String liveTripFrom(String name) {
+    return 'From $name';
+  }
+
+  @override
+  String liveTripMapSemantics(String place) {
+    return 'Map of the trip. The truck was last near $place.';
+  }
+
+  @override
+  String get liveTripMapSemanticsNoPlace => 'Map of the trip';
+
+  @override
+  String get liveTripYou => 'You';
+
+  @override
+  String get liveTripDropoff => 'Drop-off';
+
+  @override
+  String get liveTripPickup => 'Pickup';
+
+  @override
+  String liveTripOnTheRoadSince(String time) {
+    return 'On the road since $time';
+  }
 }

@@ -3706,4 +3706,392 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get liveTripNotificationChannel => 'Bakka imalaa';
+
+  @override
+  String get liveTripTitle => 'Imala kallattii';
+
+  @override
+  String get liveTripOnTheRoadNow => 'Amma karaa irra';
+
+  @override
+  String get liveTripWaitingForPickup => 'Fe\'umsa eeggachaa';
+
+  @override
+  String get liveTripMapStartsAtPickup =>
+      'Yeroo konkolaachisaan QR qonnaan bulaa iskaan godhu kaartaan ni mul\'ata.';
+
+  @override
+  String liveTripDurationMinutes(int minutes) {
+    return 'daqiiqaa $minutes';
+  }
+
+  @override
+  String liveTripDurationHours(int hours, int minutes) {
+    return 'sa\'aatii $hours daqiiqaa $minutes';
+  }
+
+  @override
+  String liveTripAgo(String duration) {
+    return '$duration dura';
+  }
+
+  @override
+  String get liveTripJustNow => 'Amma';
+
+  @override
+  String liveTripCheckedInAgo(String duration) {
+    return '$duration dura gabaase';
+  }
+
+  @override
+  String get liveTripCheckedInJustNow => 'Amma gabaase';
+
+  @override
+  String liveTripNoCheckInFor(String duration) {
+    return 'Yeroo $duration gabaasni hin jiru';
+  }
+
+  @override
+  String get liveTripPaused => 'Dhaabbateera';
+
+  @override
+  String liveTripUntil(String time) {
+    return 'hanga $time';
+  }
+
+  @override
+  String get liveTripScansOnly => 'Iskaanii qofa';
+
+  @override
+  String get liveTripScansOnlyChip => 'Bakki hin qoodamne';
+
+  @override
+  String get liveTripSharingEnded => 'Qooduun yeroo geejjibaatti dhaabbate';
+
+  @override
+  String get liveTripStatusOnTheRoad => 'Geejjibarra Jira';
+
+  @override
+  String get liveTripStatusArriving => 'Ga\'aa jira';
+
+  @override
+  String liveTripArrivingAt(String place) {
+    return 'Yeroo $place ga\'u';
+  }
+
+  @override
+  String get liveTripArrivalWindow => 'Yeroo ga\'u';
+
+  @override
+  String liveTripKmToGo(String km) {
+    return 'Gara km $km hafe, gabaasa dhumaa irraa';
+  }
+
+  @override
+  String get liveTripWiderWindow =>
+      'Yeroon bal\'ateera: yeroo muraasaaf gabaasni hin dhufne';
+
+  @override
+  String get liveTripNoEta => 'Tilmaamni yeroo ga\'umsaa ammallee hin jiru';
+
+  @override
+  String get liveTripStepAgreed => 'Waliigalan';
+
+  @override
+  String get liveTripStepPickedUp => 'Fe\'ame';
+
+  @override
+  String liveTripEscrowNote(String amount) {
+    return '$amount keessan hanga QR konkolaachisaa iskaan gootanitti Eeskiroo keessa tursiifama.';
+  }
+
+  @override
+  String get liveTripEscrowNoteNoAmount =>
+      'Maallaqni keessan hanga QR konkolaachisaa iskaan gootanitti Eeskiroo keessa tursiifama.';
+
+  @override
+  String liveTripLateNote(String trucker) {
+    return 'Daandii kana irratti neetworkiin hin jiru ta\'a. Gabaasni bilbila $trucker irratti kuufame yeroo walqunnamu ni mul\'ata.';
+  }
+
+  @override
+  String liveTripPausedNote(String trucker, String time) {
+    return '$trucker boqonnaaf qooduu dhaabaniiru. $time irratti ofumaan deebi\'ee ni jalqaba.';
+  }
+
+  @override
+  String liveTripScansOnlyNote(String trucker) {
+    return '$trucker bakka konkolaataa qooduu dhiisuu filataniiru. Iskaaniin QR ammallee fe\'umsaa fi geejjiba ni galmeessa.';
+  }
+
+  @override
+  String liveTripOfflineNote(String time) {
+    return 'Toora ala jirtu. Kun kaartaa $time ti, yeroo walqunnamtan ni haaromfama.';
+  }
+
+  @override
+  String get liveTripOfflineNoMap =>
+      'Toora ala jirtu. Kaartaan yeroo walqunnamtan ni mul\'ata.';
+
+  @override
+  String get liveTripUnavailable => 'Kaartaan amma haaromfamuu hin dandeenye.';
+
+  @override
+  String get liveTripNotFound => 'Imalli kun hin argamne.';
+
+  @override
+  String get liveTripTripLogLink => 'Galmee imalaa fi ajaja';
+
+  @override
+  String liveTripCheckIns(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'gabaasa $count',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get liveTripTripLogTitle => 'Galmee imalaa';
+
+  @override
+  String liveTripKm(String km) {
+    return 'km $km';
+  }
+
+  @override
+  String get liveTripStatDone => 'deemame';
+
+  @override
+  String get liveTripStatToGo => 'hafe';
+
+  @override
+  String get liveTripStatOnTheRoad => 'imala irra';
+
+  @override
+  String get liveTripStatDriven => 'oofame';
+
+  @override
+  String get liveTripStatCheckIns => 'gabaasa';
+
+  @override
+  String get liveTripCheckInCadence => 'Gabaasni gara sa\'aatii hundaa';
+
+  @override
+  String get liveTripLogPickup => 'Fe\'ame, QR qonnaan bulaa iskaan godhame';
+
+  @override
+  String get liveTripLogHourly => 'Gabaasa sa\'aatii';
+
+  @override
+  String get liveTripLogNearStop => 'Gabaasa bakka dhaabbii bira';
+
+  @override
+  String get liveTripLogManual => 'Konkolaachisaan gabaase';
+
+  @override
+  String get liveTripLogArrived => 'Konkolaachisaan bakka dhaabbii ga\'e';
+
+  @override
+  String get liveTripLogStart => 'Qooduun jalqabe';
+
+  @override
+  String get liveTripLogOtherStop => 'Dhaabbii biraa konkolaataa kanaa';
+
+  @override
+  String get liveTripLogCheckIn => 'Gabaasa';
+
+  @override
+  String get liveTripLogPaused => 'Qooduun dhaabbateera';
+
+  @override
+  String get liveTripLogLatest => 'isa dhumaa';
+
+  @override
+  String get liveTripLogSentLate => 'Booda ergame, neetworkiin hin turre';
+
+  @override
+  String get liveTripLogPassed => 'darbe';
+
+  @override
+  String get liveTripLogAhead => 'Fuuldura';
+
+  @override
+  String get liveTripLogYourDropoff =>
+      'Bakka itti fudhattan: asitti QR konkolaachisaa iskaan gootu';
+
+  @override
+  String get liveTripPickupProof => 'Ragaa fe\'umsaa';
+
+  @override
+  String get liveTripDropoffProof => 'Ragaa geejjibaa';
+
+  @override
+  String liveTripQrScannedAt(String time) {
+    return 'QR kan iskaan godhame $time';
+  }
+
+  @override
+  String get liveTripGpsRecorded => 'GPS galmaa\'eera';
+
+  @override
+  String get liveTripInEscrow => 'Eeskiroo keessa';
+
+  @override
+  String liveTripPayoutNote(String farmer, String farmerAmount, String trucker,
+      String truckerAmount) {
+    return 'Erga geejjiba mirkaneessitanii sa\'aatii 48 booda ni kaffalama: $farmer $farmerAmount, $trucker $truckerAmount.';
+  }
+
+  @override
+  String liveTripPayoutNoteFarmerOnly(String farmer, String amount) {
+    return 'Erga geejjiba mirkaneessitanii sa\'aatii 48 booda $farmer $amount ni kaffalamu.';
+  }
+
+  @override
+  String get liveTripHelpTitle => 'Karaa irratti rakkoon jiraa?';
+
+  @override
+  String liveTripHelpBody(String trucker, String farmer) {
+    return 'Ajajni fe\'ame kana booda haqamuu hin danda\'u. Amma $trucker ykn $farmer haasofsiisaa. Erga geejjibamee booda rakkoo gabaasuuf sa\'aatii 48 qabdu, maallaqnis hanga dhimmichi furamutti eeggata.';
+  }
+
+  @override
+  String liveTripMessageParty(String name) {
+    return '${name}f ergaa ergi';
+  }
+
+  @override
+  String liveTripPrivacyNote(String farmer) {
+    return 'Konkolaataan kun eessa akka jiru kan argitan isinii fi $farmer qofa, fe\'umsa irraa hanga geejjiba keessaniitti. Dhaabbiiwwan biroo gonkumaa hin moggaafaman.';
+  }
+
+  @override
+  String get liveTripGreyRingsNote =>
+      'Geengoon daalachaa dhaabbiiwwan biroo konkolaataa kanaati. Gonkumaa hin moggaafaman.';
+
+  @override
+  String get liveTripArrivingTitle => 'Konkolaataan ga\'aa jira';
+
+  @override
+  String liveTripArrivingMinutes(String trucker, int minutes) {
+    return '$trucker gara daqiiqaa $minutes fagaatu';
+  }
+
+  @override
+  String liveTripArrivingNear(String trucker) {
+    return '$trucker km 5 gadi fagaatu';
+  }
+
+  @override
+  String liveTripKmFromDropoff(String km) {
+    return 'bakka geejjibaa irraa km $km';
+  }
+
+  @override
+  String get liveTripBeforeYouScan => 'Osoo iskaan hin godhiin dura';
+
+  @override
+  String get liveTripCheckCount =>
+      'Kuusaawwan lakkaa\'aa, ulfaatina waliigalaa mirkaneeffadhaa';
+
+  @override
+  String get liveTripCheckQuality =>
+      'Midhaan gogaa fi qulqulluu ta\'uu mirkaneeffadhaa';
+
+  @override
+  String get liveTripCheckWeigh => 'Yoo dandeessan kuusaa muraasa madaalaa';
+
+  @override
+  String liveTripScanConfirmsNote(String farmer, String trucker) {
+    return 'Iskaan gochuun geejjiba mirkaneessa. Yoo rakkoo hin gabaasne, $farmer fi $trucker yeroo mirkaneessaa sa\'aatii 48 booda ni kaffalamu.';
+  }
+
+  @override
+  String get liveTripScanDriversQr => 'QR konkolaachisaa iskaan godhaa';
+
+  @override
+  String liveTripDeliveredAt(String time) {
+    return '$time geejjibame';
+  }
+
+  @override
+  String get liveTripEnded => 'Imalli kun xumurameera';
+
+  @override
+  String liveTripReportProblemUntil(String time) {
+    return 'Hanga $time rakkoo gabaasaa';
+  }
+
+  @override
+  String get liveTripHowDidItGo => 'Akkam ture?';
+
+  @override
+  String liveTripFarmerTitle(String crop) {
+    return '${crop}n keessan karaa irra jira';
+  }
+
+  @override
+  String get liveTripFarmerTitleNoCrop => 'Ajajni keessan karaa irra jira';
+
+  @override
+  String liveTripFarmerTo(String quantity, String buyer) {
+    return '$quantity gara $buyer';
+  }
+
+  @override
+  String liveTripArrives(String time) {
+    return 'Yeroo ga\'u $time';
+  }
+
+  @override
+  String get liveTripYourPayment => 'Kaffaltii keessan';
+
+  @override
+  String get liveTripPayStepPaid => 'Bitaan kaffaleera, Eeskiroo keessa qabame';
+
+  @override
+  String get liveTripPayStepHandedOver => 'Dabarsitaniittu, QR iskaan godhame';
+
+  @override
+  String get liveTripPayStepBuyerConfirms => 'Bitaan geejjiba mirkaneessa';
+
+  @override
+  String get liveTripPayStepPaidOut =>
+      'Yeroo mirkaneessaa sa\'aatii 48, sana booda ni kaffalama';
+
+  @override
+  String get liveTripOrderDetailsLink => 'Ibsa ajajaa, gatii fi sarara yeroo';
+
+  @override
+  String get liveTripAfterPickupHint =>
+      'Erga fe\'amee booda konkolaataa kaartaa irratti Geejjibaalee keessatti ni argitu.';
+
+  @override
+  String liveTripFrom(String name) {
+    return '$name irraa';
+  }
+
+  @override
+  String liveTripMapSemantics(String place) {
+    return 'Kaartaa imalaa. Konkolaataan dhuma irratti $place bira ture.';
+  }
+
+  @override
+  String get liveTripMapSemanticsNoPlace => 'Kaartaa imalaa';
+
+  @override
+  String get liveTripYou => 'Isin';
+
+  @override
+  String get liveTripDropoff => 'Bakka geejjibaa';
+
+  @override
+  String get liveTripPickup => 'Bakka fe\'umsaa';
+
+  @override
+  String liveTripOnTheRoadSince(String time) {
+    return '$time irraa kaasee karaa irra';
+  }
 }
