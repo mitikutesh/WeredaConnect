@@ -3812,4 +3812,386 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get sharingDefaultScansOnly => 'በፍጹም አታጋራ (ቅኝት ብቻ)';
+
+  @override
+  String get liveTripTitle => 'የቀጥታ ጉዞ';
+
+  @override
+  String get liveTripOnTheRoadNow => 'አሁን በመንገድ ላይ';
+
+  @override
+  String get liveTripWaitingForPickup => 'መነሻን በመጠበቅ ላይ';
+
+  @override
+  String get liveTripMapStartsAtPickup => 'ሹፌሩ የገበሬውን ኪዩአር ኮድ ሲቃኙ ካርታው ይታያል።';
+
+  @override
+  String liveTripDurationMinutes(int minutes) {
+    return '$minutes ደቂቃ';
+  }
+
+  @override
+  String liveTripDurationHours(int hours, int minutes) {
+    return '$hours ሰዓት $minutes ደቂቃ';
+  }
+
+  @override
+  String liveTripAgo(String duration) {
+    return 'ከ$duration በፊት';
+  }
+
+  @override
+  String get liveTripJustNow => 'አሁን';
+
+  @override
+  String liveTripCheckedInAgo(String duration) {
+    return 'ከ$duration በፊት ሪፖርት አድርጓል';
+  }
+
+  @override
+  String get liveTripCheckedInJustNow => 'አሁን ሪፖርት አድርጓል';
+
+  @override
+  String liveTripNoCheckInFor(String duration) {
+    return 'ለ$duration ሪፖርት የለም';
+  }
+
+  @override
+  String get liveTripPaused => 'ቆሟል';
+
+  @override
+  String liveTripUntil(String time) {
+    return 'እስከ $time';
+  }
+
+  @override
+  String get liveTripScansOnly => 'ስካን ብቻ';
+
+  @override
+  String get liveTripScansOnlyChip => 'ቦታው አልተጋራም';
+
+  @override
+  String get liveTripSharingEnded => 'ማጋራቱ በማድረሻው ጊዜ አብቅቷል';
+
+  @override
+  String get liveTripStatusOnTheRoad => 'በመጓጓዣ ላይ';
+
+  @override
+  String get liveTripStatusArriving => 'እየደረሰ ነው';
+
+  @override
+  String liveTripArrivingAt(String place) {
+    return '$place የሚደርስበት';
+  }
+
+  @override
+  String get liveTripArrivalWindow => 'የሚደርስበት ጊዜ';
+
+  @override
+  String liveTripKmToGo(String km) {
+    return '$km ኪ.ሜ ገደማ ቀርቷል፣ ከመጨረሻው ሪፖርት';
+  }
+
+  @override
+  String get liveTripWiderWindow => 'ሰፊ የጊዜ ክልል፤ ለተወሰነ ጊዜ ሪፖርት አልመጣም';
+
+  @override
+  String get liveTripNoEta => 'የሚደርስበት ግምት ገና የለም';
+
+  @override
+  String get liveTripStepAgreed => 'ተስማምተዋል';
+
+  @override
+  String get liveTripStepPickedUp => 'ተነስቷል';
+
+  @override
+  String liveTripEscrowNote(String amount) {
+    return '$amountዎ የሹፌሩን ኪዩአር ኮድ እስኪቃኙ ድረስ በኢስክሮ ይቆያል።';
+  }
+
+  @override
+  String get liveTripEscrowNoteNoAmount =>
+      'ገንዘብዎ የሹፌሩን ኪዩአር ኮድ እስኪቃኙ ድረስ በኢስክሮ ይቆያል።';
+
+  @override
+  String liveTripLateNote(String trucker) {
+    return 'በዚህ መንገድ ላይ ኔትወርክ ላይኖር ይችላል። በ$trucker ስልክ ላይ የተቀመጡ ሪፖርቶች ስልኩ ሲገናኝ ይታያሉ።';
+  }
+
+  @override
+  String liveTripPausedNote(String trucker, String time) {
+    return '$trucker ለእረፍት ማጋራቱን አቁመዋል። $time ላይ በራሱ እንደገና ይጀምራል።';
+  }
+
+  @override
+  String liveTripScansOnlyNote(String trucker) {
+    return '$trucker የመኪናውን ቦታ ላለማጋራት መርጠዋል። የኪዩአር ስካኖቹ አሁንም መነሻውንና ማድረሻውን ይመዘግባሉ።';
+  }
+
+  @override
+  String liveTripOfflineNote(String time) {
+    return 'ከመስመር ውጭ ነዎት። ይህ ከ$time የተቀመጠ ካርታ ነው፤ ሲገናኙ ይዘምናል።';
+  }
+
+  @override
+  String get liveTripOfflineNoMap => 'ከመስመር ውጭ ነዎት። ካርታው ሲገናኙ ይታያል።';
+
+  @override
+  String get liveTripUnavailable => 'ካርታው አሁን ሊዘምን አልቻለም።';
+
+  @override
+  String get liveTripNotFound => 'ይህ ጉዞ አልተገኘም።';
+
+  @override
+  String get liveTripTripLogLink => 'የጉዞ መዝገብ እና ትዕዛዝ';
+
+  @override
+  String liveTripCheckIns(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ሪፖርቶች',
+      one: '1 ሪፖርት',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get liveTripTripLogTitle => 'የጉዞ መዝገብ';
+
+  @override
+  String liveTripKm(String km) {
+    return '$km ኪ.ሜ';
+  }
+
+  @override
+  String get liveTripStatDone => 'ተጉዟል';
+
+  @override
+  String get liveTripStatToGo => 'ቀርቷል';
+
+  @override
+  String get liveTripStatOnTheRoad => 'በጉዞ ላይ';
+
+  @override
+  String get liveTripStatDriven => 'ተነድቷል';
+
+  @override
+  String get liveTripStatCheckIns => 'ሪፖርቶች';
+
+  @override
+  String get liveTripCheckInCadence => 'ሪፖርቶች በየሰዓቱ ገደማ';
+
+  @override
+  String get liveTripLogPickup => 'ተነስቷል፤ የገበሬው ኪዩአር ተቃኝቷል';
+
+  @override
+  String get liveTripLogHourly => 'የሰዓት ሪፖርት';
+
+  @override
+  String get liveTripLogNearStop => 'በማቆሚያ አቅራቢያ ሪፖርት';
+
+  @override
+  String get liveTripLogManual => 'ሹፌሩ ሪፖርት አድርገዋል';
+
+  @override
+  String get liveTripLogArrived => 'ሹፌሩ ማቆሚያ ደርሰዋል';
+
+  @override
+  String get liveTripLogStart => 'ማጋራት ተጀመረ';
+
+  @override
+  String get liveTripLogOtherStop => 'የዚህ መኪና ሌላ ማቆሚያ';
+
+  @override
+  String get liveTripLogCheckIn => 'ሪፖርት';
+
+  @override
+  String get liveTripLogPaused => 'ማጋራት ቆሟል';
+
+  @override
+  String get liveTripLogLatest => 'የመጨረሻ';
+
+  @override
+  String get liveTripLogSentLate => 'ዘግይቶ ደርሷል፤ ኔትወርክ አልነበረም';
+
+  @override
+  String get liveTripLogPassed => 'ታልፏል';
+
+  @override
+  String get liveTripLogAhead => 'ወደፊት';
+
+  @override
+  String get liveTripLogYourDropoff => 'የእርስዎ መረከቢያ፤ እዚህ የሹፌሩን ኪዩአር ይቃኛሉ';
+
+  @override
+  String get liveTripPickupProof => 'የመነሻ ማረጋገጫ';
+
+  @override
+  String get liveTripDropoffProof => 'የመረከቢያ ማረጋገጫ';
+
+  @override
+  String liveTripQrScannedAt(String time) {
+    return 'ኪዩአር የተቃኘው $time';
+  }
+
+  @override
+  String get liveTripGpsRecorded => 'ጂፒኤስ ተመዝግቧል';
+
+  @override
+  String get liveTripInEscrow => 'በኢስክሮ';
+
+  @override
+  String liveTripPayoutNote(String farmer, String farmerAmount, String trucker,
+      String truckerAmount) {
+    return 'ማድረሻውን ካረጋገጡ ከ48 ሰዓት በኋላ $farmer $farmerAmount፣ $trucker ደግሞ $truckerAmount ይከፈላቸዋል።';
+  }
+
+  @override
+  String liveTripPayoutNoteFarmerOnly(String farmer, String amount) {
+    return 'ማድረሻውን ካረጋገጡ ከ48 ሰዓት በኋላ $farmer $amount ይከፈላቸዋል።';
+  }
+
+  @override
+  String get liveTripHelpTitle => 'በመንገድ ላይ ችግር አለ?';
+
+  @override
+  String liveTripHelpBody(String trucker, String farmer) {
+    return 'የተነሳ ትዕዛዝ ከእንግዲህ ሊሰረዝ አይችልም። አሁን $truckerን ወይም $farmerን ያነጋግሩ። ከደረሰ በኋላ ችግር ለማሳወቅ 48 ሰዓት አለዎት፤ ጉዳዩ እስኪፈታ ገንዘቡ ይጠብቃል።';
+  }
+
+  @override
+  String liveTripMessageParty(String name) {
+    return 'ለ$name መልእክት ይላኩ';
+  }
+
+  @override
+  String liveTripPrivacyNote(String farmer) {
+    return 'ይህ መኪና የት እንዳለ የሚያዩት እርስዎና $farmer ብቻ ናቸው፤ ከመነሻው እስከ ማድረሻዎ ድረስ። ሌሎች ማቆሚያዎች ፈጽሞ አይጠቀሱም።';
+  }
+
+  @override
+  String get liveTripGreyRingsNote =>
+      'ግራጫ ቀለበቶቹ የዚህ መኪና ሌሎች ማቆሚያዎች ናቸው። ስማቸው ፈጽሞ አይገለጽም።';
+
+  @override
+  String get liveTripArrivingTitle => 'መኪናው እየደረሰ ነው';
+
+  @override
+  String liveTripArrivingMinutes(String trucker, int minutes) {
+    return '$trucker $minutes ደቂቃ ገደማ ቀርቷቸዋል';
+  }
+
+  @override
+  String liveTripArrivingNear(String trucker) {
+    return '$trucker ከ5 ኪ.ሜ ባነሰ ርቀት ላይ ናቸው';
+  }
+
+  @override
+  String liveTripKmFromDropoff(String km) {
+    return 'ከመረከቢያው $km ኪ.ሜ';
+  }
+
+  @override
+  String get liveTripBeforeYouScan => 'ከመቃኘትዎ በፊት';
+
+  @override
+  String get liveTripCheckCount => 'ጆንያዎቹን ይቁጠሩ፤ ጠቅላላ ክብደቱን ያረጋግጡ';
+
+  @override
+  String get liveTripCheckQuality => 'ሰብሉ ደረቅና ንጹሕ መሆኑን ያረጋግጡ';
+
+  @override
+  String get liveTripCheckWeigh => 'ከተቻለ ጥቂት ጆንያዎችን ይመዝኑ';
+
+  @override
+  String liveTripScanConfirmsNote(String farmer, String trucker) {
+    return 'መቃኘት ማድረሻውን ያረጋግጣል። ችግር ካላሳወቁ በቀር $farmer እና $trucker ከ48 ሰዓት የማጣሪያ ጊዜ በኋላ ይከፈላቸዋል።';
+  }
+
+  @override
+  String get liveTripScanDriversQr => 'የሹፌሩን ኪዩአር ይቃኙ';
+
+  @override
+  String liveTripDeliveredAt(String time) {
+    return '$time ደርሷል';
+  }
+
+  @override
+  String get liveTripEnded => 'ይህ ጉዞ አብቅቷል';
+
+  @override
+  String liveTripReportProblemUntil(String time) {
+    return 'እስከ $time ችግር ያሳውቁ';
+  }
+
+  @override
+  String get liveTripHowDidItGo => 'እንዴት ነበር?';
+
+  @override
+  String liveTripFarmerTitle(String crop) {
+    return '$cropዎ በመንገድ ላይ ነው';
+  }
+
+  @override
+  String get liveTripFarmerTitleNoCrop => 'ትዕዛዝዎ በመንገድ ላይ ነው';
+
+  @override
+  String liveTripFarmerTo(String quantity, String buyer) {
+    return '$quantity ለ$buyer';
+  }
+
+  @override
+  String liveTripArrives(String time) {
+    return 'የሚደርስበት $time';
+  }
+
+  @override
+  String get liveTripYourPayment => 'ክፍያዎ';
+
+  @override
+  String get liveTripPayStepPaid => 'ገዢው ከፍለዋል፤ በኢስክሮ ተይዟል';
+
+  @override
+  String get liveTripPayStepHandedOver => 'አስረክበዋል፤ ኪዩአር ተቃኝቷል';
+
+  @override
+  String get liveTripPayStepBuyerConfirms => 'ገዢው ማድረሻውን ያረጋግጣሉ';
+
+  @override
+  String get liveTripPayStepPaidOut => 'የ48 ሰዓት የማጣሪያ ጊዜ፣ ከዚያም ይከፈላል';
+
+  @override
+  String get liveTripOrderDetailsLink => 'የትዕዛዝ ዝርዝር፣ ዋጋ እና ሂደት';
+
+  @override
+  String get liveTripAfterPickupHint =>
+      'ከተነሳ በኋላ መኪናውን በማድረሻዎች ውስጥ በካርታ ላይ ያያሉ።';
+
+  @override
+  String liveTripFrom(String name) {
+    return 'ከ$name';
+  }
+
+  @override
+  String liveTripMapSemantics(String place) {
+    return 'የጉዞው ካርታ። መኪናው መጨረሻ የታየው በ$place አቅራቢያ ነው።';
+  }
+
+  @override
+  String get liveTripMapSemanticsNoPlace => 'የጉዞው ካርታ';
+
+  @override
+  String get liveTripYou => 'እርስዎ';
+
+  @override
+  String get liveTripDropoff => 'መረከቢያ';
+
+  @override
+  String get liveTripPickup => 'መነሻ';
+
+  @override
+  String liveTripOnTheRoadSince(String time) {
+    return 'ከ$time ጀምሮ በመንገድ ላይ';
+  }
 }

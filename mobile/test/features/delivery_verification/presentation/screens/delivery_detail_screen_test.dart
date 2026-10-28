@@ -368,4 +368,58 @@ void main() {
       expect(find.text('Not yet delivered'), findsOneWidget);
     });
   });
+
+  // LT-11: the buyer and the farmer open the live trip from the delivery;
+  // the trucker never gets the buyer's map here.
+  group('DeliveryDetailScreen live trip (LT-11)', () {
+    for (final status in [
+      DeliveryStatus.pickedUp,
+      DeliveryStatus.inTransit,
+      DeliveryStatus.delivered,
+    ]) {
+      for (final userId in ['buyer-001', 'farmer-001']) {
+        testWidgets('$userId sees Live trip on a ${status.name} delivery',
+            (tester) async {
+          await tester.pumpWidget(
+            buildTestWidget(
+              delivery: _makeDelivery(status: status),
+              currentUserId: userId,
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(find.byKey(const Key('delivery_live_trip')), findsOneWidget);
+        });
+      }
+
+      testWidgets('the trucker sees no Live trip on a ${status.name} delivery',
+          (tester) async {
+        await tester.pumpWidget(
+          buildTestWidget(
+            delivery: _makeDelivery(status: status),
+            currentUserId: 'trucker-001',
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('delivery_live_trip')), findsNothing);
+      });
+    }
+
+    testWidgets('nobody gets it before pickup or on a self-pickup',
+        (tester) async {
+      for (final delivery in [
+        _makeDelivery(),
+        _makeDelivery(
+          status: DeliveryStatus.delivered,
+          truckerId: '',
+          deliveryType: 'self_pickup',
+        ),
+      ]) {
+        await tester.pumpWidget(
+          buildTestWidget(delivery: delivery, currentUserId: 'buyer-001'),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('delivery_live_trip')), findsNothing);
+      }
+    });
+  });
 }

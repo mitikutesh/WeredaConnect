@@ -46,6 +46,7 @@ import 'package:wereda_connect/features/live_trip/presentation/widgets/trip_mode
 import 'package:wereda_connect/features/notifications/domain/base_notification_repository.dart';
 import 'package:wereda_connect/features/notifications/presentation/notification_text.dart';
 import 'package:wereda_connect/features/order/presentation/open_order_detail.dart';
+import 'package:wereda_connect/features/live_trip/presentation/widgets/on_the_road_card.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/action_needed_list.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
@@ -191,6 +192,13 @@ class _HomeScreenState extends State<HomeScreen> {
             child: _buildActionNeeded(role: role, userId: userId),
           ),
 
+          // ── Farmer: "Your wheat is on the road" (LT-11) ──────────
+          if (role == UserRole.farmer)
+            _buildFarmerOnTheRoad(
+              userId: userId,
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+            ),
+
           // ── At a glance: counts + shortcuts, every tile tappable ──
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
@@ -232,6 +240,19 @@ class _HomeScreenState extends State<HomeScreen> {
       userId: userId,
       role: role,
       onRefresh: _refreshData,
+    );
+  }
+
+  /// LT-11: the farmer's own deliveries a truck carries now; nothing (not
+  /// even the [padding]) when none is on the road.
+  Widget _buildFarmerOnTheRoad({
+    required String userId,
+    EdgeInsets padding = const EdgeInsets.only(top: 12),
+  }) {
+    return FarmerOnTheRoadSection(
+      key: ValueKey('farmer_on_road_$_refreshKey'),
+      userId: userId,
+      padding: padding,
     );
   }
 
@@ -376,6 +397,7 @@ class _HomeScreenState extends State<HomeScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildActionNeeded(role: role, userId: userId),
+        if (role == UserRole.farmer) _buildFarmerOnTheRoad(userId: userId),
         const SizedBox(height: 12),
         _SectionTitle(l10n.atAGlance),
         const SizedBox(height: 12),
@@ -407,6 +429,7 @@ class _HomeScreenState extends State<HomeScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildActionNeeded(role: role, userId: userId),
+        if (role == UserRole.farmer) _buildFarmerOnTheRoad(userId: userId),
         const SizedBox(height: 12),
         _SectionTitle(l10n.atAGlance),
         const SizedBox(height: 12),

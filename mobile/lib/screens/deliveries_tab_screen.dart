@@ -9,6 +9,9 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_detail_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
+import 'package:wereda_connect/features/live_trip/domain/live_trip_rules.dart';
+import 'package:wereda_connect/features/live_trip/presentation/open_live_trip.dart';
+import 'package:wereda_connect/features/live_trip/presentation/widgets/on_the_road_card.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -20,6 +23,12 @@ import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 ///
 /// Uses GreenHeader for visual consistency with other tabs.
 /// Reads from DeliveryBloc (provided at app root) via LoadUserDeliveries.
+///
+/// LT-11: the buyer's and the farmer's own deliveries a truck carries now
+/// come first, under "On the road now", as live trip cards; a buyer's
+/// delivery waiting for pickup says the map starts there. On a desktop
+/// width the selected live trip shows beside the list (the Web · Buyer
+/// deliveries board). The trucker's list is unchanged: no buyer map.
 class DeliveriesTabScreen extends StatefulWidget {
   const DeliveriesTabScreen({super.key});
 
@@ -30,6 +39,9 @@ class DeliveriesTabScreen extends StatefulWidget {
 class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
   String? _selectedStatus;
   String? _userRole;
+
+  /// The live trip shown beside the list on a desktop width.
+  String? _selectedLiveId;
 
   @override
   void initState() {
@@ -85,6 +97,18 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
         ),
       ),
     );
+    if (!mounted) return;
+    _applyFilter(_selectedStatus);
+  }
+
+  /// A delivery on the road that [userId] follows as its buyer or farmer.
+  static bool _isOwnLiveTrip(Delivery delivery, String userId) =>
+      isOnTheRoad(delivery) && liveTripViewerOf(delivery, userId) != null;
+
+  /// Opens the viewer's live trip and reloads the list on return: the
+  /// buyer's QR scan there confirms the delivery through the shared bloc.
+  Future<void> _openLiveTrip(Delivery delivery, String userId) async {
+    await openLiveTrip(context, delivery, userId);
     if (!mounted) return;
     _applyFilter(_selectedStatus);
   }
@@ -265,7 +289,70 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
               );
             }
 
-            return RefreshIndicator(
+            final userId = _getUserId() ?? '';
+            // The viewer's own deliveries on the road (never the
+            // trucker's: liveTripViewerOf answers null for them).
+            final live = [
+              for (final d in state.deliveries)
+                if (_isOwnLiveTrip(d, userId)) d,
+            ];
+            final others = [
+              for (final d in state.deliveries)
+                if (!live.contains(d)) d,
+            ];
+            final split = isDesktop && live.isNotEmpty;
+            final selected = !split
+                ? null
+                : live.firstWhere(
+                    (d) => d.deliveryId == _selectedLiveId,
+                    orElse: () => live.first,
+                  );
+            final items = <Widget>[
+              if (live.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    l10n.liveTripOnTheRoadNow,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.textDark,
+                    ),
+                  ),
+                ),
+              for (final delivery in live)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: OnTheRoadCard(
+                    key: ValueKey('on-road-${delivery.deliveryId}'),
+                    delivery: delivery,
+                    currentUserId: userId,
+                    selected: delivery == selected,
+                    onTap: split
+                        ? () => setState(
+                              () => _selectedLiveId = delivery.deliveryId,
+                            )
+                        : () => _openLiveTrip(delivery, userId),
+                  ),
+                ),
+              for (final delivery in others)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    DeliveryCard(
+                      delivery: delivery,
+                      currentUserId: userId,
+                      onTap: () => _openDeliveryDetail(delivery, userId),
+                    ),
+                    if (isWaitingForPickup(delivery) &&
+                        liveTripViewerOf(delivery, userId) ==
+                            LiveTripViewer.buyer)
+                      const WaitingForPickupNote(),
+                  ],
+                ),
+            ];
+
+            final list = RefreshIndicator(
               onRefresh: () async => _loadDeliveries(),
               child: ListView.separated(
                 padding: EdgeInsets.fromLTRB(
@@ -274,18 +361,23 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
                   listHPad,
                   Breakpoints.fabClearance,
                 ),
-                itemCount: state.deliveries.length,
+                itemCount: items.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (context, index) {
-                  final delivery = state.deliveries[index];
-                  final userId = _getUserId() ?? '';
-                  return DeliveryCard(
-                    delivery: delivery,
-                    currentUserId: userId,
-                    onTap: () => _openDeliveryDetail(delivery, userId),
-                  );
-                },
+                itemBuilder: (context, index) => items[index],
               ),
+            );
+            if (selected == null) return list;
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(flex: 2, child: list),
+                const VerticalDivider(width: 1),
+                Expanded(
+                  flex: 3,
+                  child:
+                      liveTripPane(selected, userId) ?? const SizedBox.shrink(),
+                ),
+              ],
             );
           }
 
@@ -358,9 +450,17 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
     }
 
     // ── Desktop / Tablet layout ───────────────────────────────────
+    // Wider on a desktop while a live trip shows beside the list.
+    final deliveryState = context.watch<DeliveryBloc>().state;
+    final splitView = isDesktop &&
+        deliveryState is DeliveriesLoaded &&
+        deliveryState.deliveries
+            .any((d) => _isOwnLiveTrip(d, _getUserId() ?? ''));
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 900),
+        constraints: BoxConstraints(
+          maxWidth: splitView ? Breakpoints.maxContentWidth : 900,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

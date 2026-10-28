@@ -118,6 +118,7 @@ class TrackMapPainter extends CustomPainter {
     this.style = const TrackMapStyle(),
     this.textDirection = TextDirection.ltr,
     this.textScaler = TextScaler.noScaling,
+    this.labelCache,
   });
 
   final DeliveryTrack track;
@@ -132,6 +133,10 @@ class TrackMapPainter extends CustomPainter {
   final TrackMapStyle style;
   final TextDirection textDirection;
   final TextScaler textScaler;
+
+  /// Keeps the labels between paints (see [TrackLabelCache]); null chooses
+  /// them again on every paint.
+  final TrackLabelCache? labelCache;
 
   /// The town labels of the last paint, for tests and semantics.
   List<TrackLabel> get labels => _labels;
@@ -209,28 +214,48 @@ class TrackMapPainter extends CustomPainter {
       for (final stop in track.otherStops)
         Rect.fromCircle(center: projection.project(stop.point), radius: 5.5),
     ];
-    final note = track.dropoffNote?.trim() ?? '';
-    final noteLabel = dropoff == null || note.isEmpty
-        ? null
-        : placeTrackLabels(
-            candidates: [
-              TrackLabelCandidate(
-                text: note,
-                anchor: projection.project(dropoff),
-              ),
-            ],
-            canvas: size,
-            measure: (text) => _measure(text, bold: true),
-            reserved: reserved,
-          ).firstOrNull;
-    _labels = selectTrackLabels(
+    // Where the labels go depends on the track, the places, the language,
+    // the size and the text settings, never on [now]: a repaint for the age
+    // ticking on screen reuses them instead of searching the place list.
+    final labelKey = _TrackLabelKey(
+      track: track,
       places: places,
-      projection: projection,
-      fixes: [for (final fix in fixes) fix.point],
       languageCode: languageCode,
-      measure: _measure,
-      reserved: [...reserved, if (noteLabel != null) noteLabel.rect],
+      size: size,
+      labelStyle: style.labelStyle,
+      textDirection: textDirection,
+      textScaler: textScaler,
     );
+    final cached = labelCache?._lookup(labelKey);
+    final TrackLabel? noteLabel;
+    if (cached != null) {
+      _labels = cached.towns;
+      noteLabel = cached.note;
+    } else {
+      final note = track.dropoffNote?.trim() ?? '';
+      noteLabel = dropoff == null || note.isEmpty
+          ? null
+          : placeTrackLabels(
+              candidates: [
+                TrackLabelCandidate(
+                  text: note,
+                  anchor: projection.project(dropoff),
+                ),
+              ],
+              canvas: size,
+              measure: (text) => _measure(text, bold: true),
+              reserved: reserved,
+            ).firstOrNull;
+      _labels = selectTrackLabels(
+        places: places,
+        projection: projection,
+        fixes: [for (final fix in fixes) fix.point],
+        languageCode: languageCode,
+        measure: _measure,
+        reserved: [...reserved, if (noteLabel != null) noteLabel.rect],
+      );
+      labelCache?._store(labelKey, _labels, noteLabel);
+    }
 
     final townPaint = Paint()..color = style.town;
     for (final label in _labels) {
@@ -444,4 +469,77 @@ class TrackMapPainter extends CustomPainter {
       oldDelegate.style != style ||
       oldDelegate.textDirection != textDirection ||
       oldDelegate.textScaler != textScaler;
+}
+
+/// The town labels of a map's last paint, kept between paints (LT-11). A
+/// track screen repaints every minute so the age of the check-in stays
+/// current; choosing the labels again would search the whole place list
+/// (about 3,860 towns) each time. The labels are chosen again only when the
+/// track, the places, the language, the canvas size or the text settings
+/// change. One cache per map: [TrackMap] keeps one for as long as it is
+/// shown.
+class TrackLabelCache {
+  _TrackLabelKey? _key;
+  List<TrackLabel> _towns = const [];
+  TrackLabel? _note;
+
+  /// How many times the labels were chosen, for tests.
+  @visibleForTesting
+  int get selections => _selections;
+  int _selections = 0;
+
+  ({List<TrackLabel> towns, TrackLabel? note})? _lookup(_TrackLabelKey key) =>
+      key == _key ? (towns: _towns, note: _note) : null;
+
+  void _store(_TrackLabelKey key, List<TrackLabel> towns, TrackLabel? note) {
+    _key = key;
+    _towns = towns;
+    _note = note;
+    _selections++;
+  }
+}
+
+/// What the labels of a paint depend on. The track and the place list are
+/// compared by identity: a new answer from the server is a new track.
+@immutable
+class _TrackLabelKey {
+  const _TrackLabelKey({
+    required this.track,
+    required this.places,
+    required this.languageCode,
+    required this.size,
+    required this.labelStyle,
+    required this.textDirection,
+    required this.textScaler,
+  });
+
+  final DeliveryTrack track;
+  final List<Place> places;
+  final String languageCode;
+  final Size size;
+  final TextStyle labelStyle;
+  final TextDirection textDirection;
+  final TextScaler textScaler;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _TrackLabelKey &&
+      identical(other.track, track) &&
+      identical(other.places, places) &&
+      other.languageCode == languageCode &&
+      other.size == size &&
+      other.labelStyle == labelStyle &&
+      other.textDirection == textDirection &&
+      other.textScaler == textScaler;
+
+  @override
+  int get hashCode => Object.hash(
+        identityHashCode(track),
+        identityHashCode(places),
+        languageCode,
+        size,
+        labelStyle,
+        textDirection,
+        textScaler,
+      );
 }

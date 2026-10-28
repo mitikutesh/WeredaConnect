@@ -24,6 +24,8 @@ import 'package:wereda_connect/features/delivery_verification/presentation/deliv
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_detail_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_generate_screen.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/escrow_hold.dart';
+import 'package:wereda_connect/features/live_trip/domain/live_trip_rules.dart';
+import 'package:wereda_connect/features/live_trip/presentation/open_live_trip.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
@@ -34,8 +36,7 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart
 import 'package:wereda_connect/features/order/presentation/screens/order_checkout_screen.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_commitment_section.dart';
-import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
-import 'package:wereda_connect/features/rating/presentation/widgets/rate_counterparty_dialog.dart';
+import 'package:wereda_connect/features/rating/presentation/widgets/rate_counterparties_section.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
@@ -553,7 +554,14 @@ class _OrderDetailBody extends StatelessWidget {
     if (userRole == UserRole.buyer &&
         deliveredOrderStatuses.contains(order.status)) {
       widgets.add(
-        _RateCounterpartiesSection(order: order, buyerId: userId),
+        RateCounterpartiesSection(
+          orderId: order.orderId,
+          buyerId: userId,
+          farmerId: order.farmerId,
+          farmerName: order.farmerName,
+          truckerId: order.truckerId,
+          truckerName: order.truckerName,
+        ),
       );
       widgets.add(const SizedBox(height: 12));
     }
@@ -997,6 +1005,26 @@ class _OrderDeliveryActionsState extends State<_OrderDeliveryActions> {
 
     final buttons = <Widget>[];
     if (delivery != null) {
+      // LT-11: the buyer and the farmer follow the truck from pickup on
+      // (the trucker has their own trip mode, never this map).
+      if (liveTripViewerOf(delivery, widget.userId) != null &&
+          hasLiveTrip(delivery) &&
+          !isWaitingForPickup(delivery)) {
+        buttons.add(
+          FilledButton.icon(
+            key: const Key('order_delivery_live_trip'),
+            onPressed: () async {
+              await openLiveTrip(context, delivery, widget.userId);
+              if (mounted) await _lookUp();
+            },
+            icon: const Icon(Icons.map_outlined),
+            label: Text(l10n.liveTripTitle),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+            ),
+          ),
+        );
+      }
       if (widget.userId == delivery.farmerId &&
           delivery.status == DeliveryStatus.pending) {
         buttons.add(
@@ -1052,6 +1080,15 @@ class _OrderDeliveryActionsState extends State<_OrderDeliveryActions> {
       );
     }
 
+    // LT-11: before pickup the buyer and the farmer of a trucked order learn
+    // where the map will be.
+    final order = widget.order;
+    final waiting = delivery == null
+        ? order.status == OrderStatus.accepted && orderHasTrip(order)
+        : isWaitingForPickup(delivery);
+    final party = widget.userId.isNotEmpty &&
+        (widget.userId == order.buyerId || widget.userId == order.farmerId);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1059,138 +1096,23 @@ class _OrderDeliveryActionsState extends State<_OrderDeliveryActions> {
           button,
           const SizedBox(height: 12),
         ],
-      ],
-    );
-  }
-}
-
-/// Buyer-only section (delivered, disbursing or settled orders) to rate the farmer and, when
-/// the order was transported, the trucker. Tracks which counterparties have
-/// already been rated (local check) and hides them once done.
-class _RateCounterpartiesSection extends StatefulWidget {
-  final Order order;
-  final String buyerId;
-
-  const _RateCounterpartiesSection({
-    required this.order,
-    required this.buyerId,
-  });
-
-  @override
-  State<_RateCounterpartiesSection> createState() =>
-      _RateCounterpartiesSectionState();
-}
-
-class _RateCounterpartiesSectionState
-    extends State<_RateCounterpartiesSection> {
-  bool _farmerRated = false;
-  bool _truckerRated = false;
-  bool _loading = true;
-
-  bool get _hasTrucker =>
-      widget.order.truckerId != null && widget.order.truckerId!.isNotEmpty;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final repo = context.read<RatingBloc>().repository;
-    final order = widget.order;
-    final farmerRated = order.farmerId.isEmpty ||
-        await repo.hasRated(orderId: order.orderId, rateeId: order.farmerId);
-    var truckerRated = true;
-    if (_hasTrucker) {
-      truckerRated = await repo.hasRated(
-        orderId: order.orderId,
-        rateeId: order.truckerId!,
-      );
-    }
-    if (!mounted) return;
-    setState(() {
-      _farmerRated = farmerRated;
-      _truckerRated = truckerRated;
-      _loading = false;
-    });
-  }
-
-  Future<void> _rate(String rateeId, String role, String name) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => BlocProvider.value(
-        value: context.read<RatingBloc>(),
-        child: RateCounterpartyDialog(
-          orderId: widget.order.orderId,
-          raterId: widget.buyerId,
-          rateeId: rateeId,
-          rateeRole: role,
-          rateeName: name,
-        ),
-      ),
-    );
-    if (result == true) await _load();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) return const SizedBox.shrink();
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final order = widget.order;
-
-    // Everything already rated → confirmation line.
-    if (_farmerRated && (!_hasTrucker || _truckerRated)) {
-      return Row(
-        children: [
-          const Icon(
-            Icons.check_circle,
-            color: AppTheme.statusSuccess,
-            size: 18,
-          ),
-          const SizedBox(width: 8),
-          Text(l10n.alreadyRated, style: theme.textTheme.bodyMedium),
-        ],
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // FUP-105: no Rate button for a party who deleted their account; the
-        // server refuses the rating and the name reads as the sentinel.
-        if (!_farmerRated &&
-            order.farmerId.isNotEmpty &&
-            order.farmerName != deletedUserSentinel) ...[
-          OutlinedButton.icon(
-            onPressed: () => _rate(
-              order.farmerId,
-              'farmer',
-              partyDisplayName(order.farmerName, l10n),
-            ),
-            icon: const Icon(Icons.star_outline),
-            label: Text(l10n.rateFarmer),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
-        if (_hasTrucker &&
-            !_truckerRated &&
-            order.truckerName != deletedUserSentinel) ...[
-          OutlinedButton.icon(
-            onPressed: () => _rate(
-              order.truckerId!,
-              'trucker',
-              partyDisplayName(order.truckerName, l10n),
-            ),
-            icon: const Icon(Icons.star_outline),
-            label: Text(l10n.rateTrucker),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-            ),
+        if (waiting && party) ...[
+          Row(
+            key: const Key('order_live_trip_hint'),
+            children: [
+              const Icon(
+                Icons.map_outlined,
+                size: 18,
+                color: AppTheme.textMuted,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  l10n.liveTripAfterPickupHint,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
         ],

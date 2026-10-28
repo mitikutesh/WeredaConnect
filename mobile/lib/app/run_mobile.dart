@@ -44,8 +44,10 @@ import 'package:wereda_connect/features/live_trip/check_in_notice.dart';
 import 'package:wereda_connect/features/live_trip/data/geolocator_location_source.dart';
 import 'package:wereda_connect/features/live_trip/data/location_ping_repository.dart';
 import 'package:wereda_connect/features/live_trip/data/prefs_sharing_state_store.dart';
+import 'package:wereda_connect/features/live_trip/data/repositories/track_repository.dart';
 import 'package:wereda_connect/features/live_trip/data/repository_trip_progress_reader.dart';
 import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
+import 'package:wereda_connect/features/live_trip/domain/repositories/base_track_repository.dart';
 import 'package:wereda_connect/features/notifications/data/notification_repository.dart';
 import 'package:wereda_connect/features/notifications/domain/base_notification_repository.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
@@ -357,6 +359,14 @@ class WeredaConnectApp extends StatelessWidget {
           create: (_) => NotificationRepository(
             isar: IsarService.instance.db,
             api: ApiClient(),
+          ),
+        ),
+        // LT-11: where the truck of a delivery is (the live trip screens);
+        // the last answer per delivery is kept for offline display.
+        Provider<BaseTrackRepository>(
+          create: (_) => TrackRepository(
+            api: ApiClient(),
+            connectivity: connectivityMonitor,
           ),
         ),
       ],

@@ -68,6 +68,13 @@ Board names refer to the design canvas.
 
 **Every role**: freshness chips, the route ribbon and the map language follow the Foundations board.
 
+**As built (LT-11)**, in `mobile/lib/features/live_trip/presentation/` (buyer and farmer only; the trucker gets none of these screens or cards):
+- Arriving is a state of the Live trip screen, not a screen of its own: the last check-in within 5 km of the drop-off by great circle (else `remainingKm` within 5 km when the point is unknown), or a `truck_nearby` entry for the delivery in the buyer's inbox. Scan driver's QR opens the existing delivery QR scan.
+- The trip log shows the answer the Live trip screen last read (no read of its own). Other stops from `otherStops` are rows without a town; a QR scan after the viewer's pickup is "Another stop on this truck" under the town of that check-in, which the trail already shows. Who has agreed reuses the order's commitment rows, without answer times (the order carries none).
+- The drop-off is named by the buyer's `dropoffNote`, else "You" (buyer) or "Drop-off" (farmer): the track has no place name for it. The driver card has no truck model or plate (no such data), and the arrival checklist names no sack count.
+- Entry points: the deliveries tab ("On the road now" cards first, a "map starts at pickup" line under the buyer's deliveries waiting for pickup), a Live trip button on the delivery and order details, and the farmer's home card under Action needed. On a desktop width the deliveries tab shows the selected live trip beside the list (the Web · Buyer deliveries board).
+- The screens read the track while their route is the top one and the app is in the foreground, tick their clock every minute while shown, and trust the track over a delivery status the device has not pulled yet.
+
 ## 5. Check-in model
 
 ### 5.1 Kinds
