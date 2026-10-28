@@ -63,14 +63,14 @@ Each contract file follows this structure:
 | Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.1.0 | Mobile, Backend, Admin |
 | Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 1.34.0 | Mobile, Backend, Admin, Infrastructure, Telebirr Gateway |
 | Delivery Verification API | `delivery-verification-api.md` | 1.19.0 | Mobile, Backend |
-| Account Deletion | `account-deletion.md` | 1.3.1 | Mobile, Backend, Infrastructure, Admin |
+| Account Deletion | `account-deletion.md` | 1.3.2 | Mobile, Backend, Infrastructure, Admin |
 | Crop Listing API | `crop-listing-api.md` | 1.5.0 | Mobile, Backend |
 | Trip Listing API | `trip-listing-api.md` | 2.0.0 | Mobile, Backend |
 | Buyer Match API | `match-api.md` | 1.1.0 | Mobile, Backend |
 | Match Events (`match_event` sync entity) | `match-events.md` | n/a | Mobile, Backend |
 | Push Alerts API | `push-alerts-api.md` | 1.3.0 | Mobile, Backend |
 | Notifications API (order, delivery and money inbox + push) | `notifications-api.md` | 1.1.0 | Mobile, Web, Backend, Infrastructure |
-| Live Trip (`location_ping` check-ins, track, admin trail, `truck_nearby`) | `live-trip-api.md` | 1.0.0 | Mobile, Web, Backend, Infrastructure, Admin |
+| Live Trip (`location_ping` check-ins, track, admin trail, `truck_nearby`) | `live-trip-api.md` | 1.0.1 | Mobile, Web, Backend, Infrastructure, Admin |
 | In-App Messaging (context-scoped chat) | `messaging.md` | 1.2.0 | Mobile, Backend |
 | Data Models | `data-models.md` | 1.1.0 | Mobile, Backend |
 
