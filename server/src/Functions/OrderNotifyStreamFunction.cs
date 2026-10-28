@@ -34,6 +34,12 @@ public class OrderNotifyStreamFunction
     /// <summary>FCM time to live for an informational push.</summary>
     public const int DefaultPushTtlSeconds = 86400;
 
+    /// <summary>
+    /// LT-07: FCM time to live of <c>truck_nearby</c>. "The truck is 3 km away" is stale within the
+    /// hour; a phone that comes back later has the inbox entry instead.
+    /// </summary>
+    public const int TruckNearbyPushTtlSeconds = 3600;
+
     /// <summary>Shortest time to live for a push about a request that is about to close.</summary>
     public const int MinPushTtlSeconds = 60;
 
@@ -365,7 +371,8 @@ public class OrderNotifyStreamFunction
     /// <summary>
     /// FCM time to live: until the deadline for an event that asks the recipient to act (at least
     /// <see cref="MinPushTtlSeconds"/>, so a push about a request closing right now still lands),
-    /// <see cref="DefaultPushTtlSeconds"/> otherwise.
+    /// <see cref="TruckNearbyPushTtlSeconds"/> for <c>truck_nearby</c>, <see cref="DefaultPushTtlSeconds"/>
+    /// otherwise.
     /// </summary>
     internal static int PushTtlSeconds(NotificationEvent notification, DateTime nowUtc)
     {
@@ -375,7 +382,7 @@ public class OrderNotifyStreamFunction
             return (int)Math.Clamp(seconds, MinPushTtlSeconds, MaxPushTtlSeconds);
         }
 
-        return DefaultPushTtlSeconds;
+        return notification.Type == NotificationTypes.TruckNearby ? TruckNearbyPushTtlSeconds : DefaultPushTtlSeconds;
     }
 
     /// <summary>

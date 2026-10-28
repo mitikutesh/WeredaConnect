@@ -16,7 +16,9 @@ namespace WeredaConnect.Server.Helpers;
 ///   (<c>500 kg</c>), <c>{amount}</c> (<c>9,640 ETB</c>, <c>9,640 ብር</c>), <c>{deadline}</c> (Ethiopia time:
 ///   <c>27 Oct 18:00</c> in en, on the Ethiopian clock in am and om, <c>27 ኦክቶ ከምሽቱ 12:00</c>,
 ///   <c>27 Onk 12:00 galgala</c>), <c>{pickup}</c> (<c>28 Oct</c>), <c>{decision}</c> (the dispute
-///   verdict as a sentence) and <c>{hint}</c> (what a held payout needs, from the reason code);
+///   verdict as a sentence), <c>{hint}</c> (what a held payout needs, from the reason code), and for
+///   <c>truck_nearby</c> (LT-07) <c>{km}</c> (<c>3.2 km</c>, <c>3.2 ኪ.ሜ</c>, <c>km 3.2</c>) and
+///   <c>{minutes}</c> (a whole number, never a clock time);
 /// - <c>[ ... ]</c> is an optional part, dropped whole when any token in it has no value, so a
 ///   missing param never leaves a dangling word; a missing token outside one renders as nothing;
 /// - an unknown language renders <see cref="FallbackLanguage"/>, an unknown type a generic line.
@@ -231,6 +233,8 @@ public static class PushText
         "pickup" => FormatDate(language, Get(p, NotificationParams.PickupDate)),
         "decision" => Pick(Decisions, language, Get(p, NotificationParams.Resolution)),
         "hint" => Pick(PayoutHints, language, Get(p, NotificationParams.Reason)),
+        "km" => Distance(language, Get(p, NotificationParams.DistanceKm)),
+        "minutes" => Minutes(Get(p, NotificationParams.Minutes)),
         _ => string.Empty
     };
 
@@ -347,6 +351,29 @@ public static class PushText
             _ => number + " ኪ.ግ"
         };
     }
+
+    /// <summary>LT-07: a distance in kilometres, one decimal, with the unit the language writes: <c>3.2 km</c>, <c>3.2 ኪ.ሜ</c>, <c>km 3.2</c>.</summary>
+    private static string Distance(string language, string? km)
+    {
+        if (!decimal.TryParse(km, NumberStyles.Number, CultureInfo.InvariantCulture, out var value) || value < 0)
+        {
+            return string.Empty;
+        }
+
+        var number = value.ToString("0.0", CultureInfo.InvariantCulture);
+        return language switch
+        {
+            "en" => number + " km",
+            "om" => "km " + number,
+            _ => number + " ኪ.ሜ"
+        };
+    }
+
+    /// <summary>LT-07: a whole number of minutes above zero; anything else drops its optional part.</summary>
+    private static string Minutes(string? minutes)
+        => int.TryParse(minutes, NumberStyles.None, CultureInfo.InvariantCulture, out var value) && value > 0
+            ? value.ToString(CultureInfo.InvariantCulture)
+            : string.Empty;
 
     private static string Pick(Dictionary<string, string[]> sentences, string language, string? code)
         => sentences.TryGetValue(code ?? string.Empty, out var byLanguage)
@@ -567,6 +594,9 @@ public static class PushText
         [NotificationTypes.InTransit] = new(
             "On the way",
             "Your order[ of {qty} {crop}] is on the way to you."),
+        [NotificationTypes.TruckNearby] = new(
+            "Truck nearby",
+            "Trucker {trucker} is near you[, {km} away][, arriving in about {minutes} minutes]. Please be ready to receive the crops."),
         [NotificationTypes.Delivered] = new(
             "Order delivered",
             "Your order[ of {qty} {crop}] was delivered. If something is wrong, report it[ by {deadline}]. If not, the farmer is paid."),
@@ -667,6 +697,9 @@ public static class PushText
         [NotificationTypes.InTransit] = new(
             "በመንገድ ላይ ነው",
             "[የ{qty} {crop} ]ትዕዛዝዎ ወደ እርስዎ በመንገድ ላይ ነው።"),
+        [NotificationTypes.TruckNearby] = new(
+            "የጭነት መኪናው ቀርቧል",
+            "የጭነት መኪና ሹፌር {trucker} ወደ እርስዎ ቀርበዋል[፤ {km} ይቀራቸዋል][፤ በ{minutes} ደቂቃ ገደማ ይደርሳሉ]። እባክዎ ሰብሉን ለመረከብ ይዘጋጁ።"),
         [NotificationTypes.Delivered] = new(
             "ትዕዛዝዎ ደርሷል",
             "[የ{qty} {crop} ]ትዕዛዝዎ ደርሷል። ችግር ካለ[ እስከ {deadline}] ያሳውቁ፤ ካልሆነ ገበሬው ይከፈላቸዋል።"),
@@ -767,6 +800,9 @@ public static class PushText
         [NotificationTypes.InTransit] = new(
             "Daandii irra jira",
             "Ajajni keessan[ {crop} {qty}] gara keessan daandii irra jira."),
+        [NotificationTypes.TruckNearby] = new(
+            "Konkolaataan dhihaateera",
+            "Konkolaataan fe'aa {trucker} dhihaateera[, {km} hafa][, gara daqiiqaa {minutes} keessatti ga'a]. Midhaan fudhachuuf qophaa'aa."),
         [NotificationTypes.Delivered] = new(
             "Ajajni ga'eera",
             "Ajajni[ {crop} {qty}] ga'eera. Rakkoon yoo jiraate[ hanga {deadline} tti] gabaasaa; yoo hin jiraanne qonnaan bulaaf kaffalama."),

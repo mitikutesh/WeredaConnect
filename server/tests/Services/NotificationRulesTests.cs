@@ -656,6 +656,81 @@ public class NotificationRulesTests
             .Should().BeEmpty();
     }
 
+    // ===== deliveries: the check-in stamp (LT-07) =====
+
+    private static IReadOnlyList<NotificationEvent> NearbyStamp(params (string Key, object? Value)[] stamp)
+    {
+        var old = Delivery("trucker", ("status", "inTransit"), ("cropType", "teff"), ("quantity", 500));
+        return NotificationRules.Derive("deliveries", "MODIFY", Image(old), Image(With(old, stamp)), RecordTime);
+    }
+
+    [Fact]
+    public void NearbyStamp_TellsOnlyTheBuyer_TruckNearby_WithTheDistanceAndTheMinutes()
+    {
+        var events = NearbyStamp(
+            (CheckInEffects.NearbyNotifiedAtField, "2026-10-26T08:14:58.000Z"),
+            (CheckInEffects.NearbyDistanceKmField, 3.2),
+            (CheckInEffects.NearbyMinutesField, 25));
+
+        Tells(events, (Buyer, T.TruckNearby));
+        var buyer = For(events, Buyer);
+        buyer.Push.Should().BeTrue();
+        buyer.Entity.Should().Be("delivery");
+        buyer.EntityId.Should().Be("delivery-1");
+        buyer.OrderId.Should().Be("order-1");
+        buyer.DeadlineUtc.Should().BeNull();
+        buyer.Params[P.TruckerName].Should().Be("Dawit K.");
+        buyer.Params[P.DistanceKm].Should().Be("3.2");
+        buyer.Params[P.Minutes].Should().Be("25");
+        buyer.Params[P.CropType].Should().Be("teff");
+        buyer.Params[P.QuantityKg].Should().Be("500");
+        buyer.Params.Values.Should().NotContain(v => v.Contains("+251"));
+    }
+
+    [Fact]
+    public void NearbyStamp_AWindowOpeningNow_LeavesTheMinutesOut()
+    {
+        var events = NearbyStamp(
+            (CheckInEffects.NearbyNotifiedAtField, "2026-10-26T08:14:58.000Z"),
+            (CheckInEffects.NearbyDistanceKmField, 4),
+            (CheckInEffects.NearbyMinutesField, 0));
+
+        var buyer = For(events, Buyer);
+        buyer.Params[P.DistanceKm].Should().Be("4.0");
+        buyer.Params.Should().NotContainKey(P.Minutes);
+    }
+
+    [Fact]
+    public void NearbyStamp_WithoutItsNumbers_StillTellsTheBuyer()
+    {
+        var buyer = For(NearbyStamp((CheckInEffects.NearbyNotifiedAtField, "2026-10-26T08:14:58.000Z")), Buyer);
+
+        buyer.Type.Should().Be(T.TruckNearby);
+        buyer.Params.Should().NotContainKey(P.DistanceKm).And.NotContainKey(P.Minutes);
+    }
+
+    [Fact]
+    public void NearbyStamp_IsTold_OnlyWhenItAppears()
+    {
+        // A later write (the delivery confirmed) keeps the stamp: nobody is told again.
+        var stamped = Delivery("trucker", ("status", "inTransit"),
+            (CheckInEffects.NearbyNotifiedAtField, "2026-10-26T08:14:58.000Z"), (CheckInEffects.NearbyDistanceKmField, 3.2));
+
+        NotificationRules.Derive("deliveries", "MODIFY", Image(stamped), Image(With(stamped, ("status", "delivered"))), RecordTime)
+            .Should().BeEmpty();
+        NotificationRules.Derive("deliveries", "MODIFY", Image(stamped), Image(stamped), RecordTime)
+            .Should().BeEmpty();
+    }
+
+    [Fact]
+    public void NearbyStamp_OnAnInsert_IsNotTruckNearby()
+    {
+        var events = NotificationRules.Derive("deliveries", "INSERT", new StreamImage(null),
+            Image(Delivery("trucker", (CheckInEffects.NearbyNotifiedAtField, "2026-10-26T08:14:58.000Z"))), RecordTime);
+
+        events.Should().NotContain(e => e.Type == T.TruckNearby);
+    }
+
     // ===== escrows =====
 
     private const string EscrowId = "escrow-order-order-1";

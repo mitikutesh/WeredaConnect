@@ -114,4 +114,22 @@ public interface IDeliveryRepository
     /// </summary>
     Task<bool> TryCloseForVerdictAsync(
         string deliveryId, string fromStatus, string toStatus, string resolution, string resolvedAt, string? cancelReason);
+
+    /// <summary>
+    /// LT-07: move a delivery <c>pickedUp</c> to <c>inTransit</c> as a system actor, because a check-in
+    /// was 2 km or more past its pickup. The same write as the trucker's own transition (status,
+    /// <c>updatedAt</c>, version + 1), conditional on the status <c>pickedUp</c> and the version read.
+    /// Returns false when the delivery is missing or moved on (another status or version).
+    /// </summary>
+    Task<bool> TryMarkInTransitAsync(string deliveryId, string tripId, int expectedVersion);
+
+    /// <summary>
+    /// LT-07: stamp <c>nearbyNotifiedAt</c> (with <c>nearbyDistanceKm</c> and, when known,
+    /// <c>nearbyMinutes</c>) once, conditional on the status <c>pickedUp</c> or <c>inTransit</c> and on
+    /// no stamp yet. The stamp's stream record sends the buyer <c>truck_nearby</c>, so a repeat never
+    /// sends twice. Neither the version nor <c>updatedAt</c> moves: a party's queued update, sent at the
+    /// version it last pulled, must not conflict over a server-only stamp. Returns false when the
+    /// delivery is missing, not on the road or already stamped.
+    /// </summary>
+    Task<bool> TryStampNearbyAsync(string deliveryId, string tripId, string notifiedAt, double distanceKm, int? minutes);
 }
