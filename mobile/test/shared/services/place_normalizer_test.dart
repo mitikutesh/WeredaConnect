@@ -34,6 +34,50 @@ void main() {
     });
   });
 
+  // Same cases as CleanDisplayNameTest in
+  // scripts/test_build_ethiopia_places.py; keep the two lists identical.
+  group('cleanPlaceName', () {
+    const cases = {
+      'Mek’ī': 'Meki',
+      '‘Alem T’ēna': 'Alem Tena',
+      'K’ok’a': 'Koka',
+      'Ādama': 'Adama',
+      'Nazrēt': 'Nazret',
+      "Mek'ele": 'Mekele',
+      'Debre Mark’os': 'Debre Markos',
+      'Yirga ‘Alem': 'Yirga Alem',
+      'ĪTANG': 'ITANG',
+      'Addis Ababa': 'Addis Ababa',
+      '  Dirē   Dawa ': 'Dire Dawa',
+      'ጎንደር': 'ጎንደር',
+    };
+
+    test('drops marks, folds diacritics and keeps the case', () {
+      cases.forEach((raw, expected) {
+        expect(cleanPlaceName(raw), expected, reason: raw);
+      });
+    });
+  });
+
+  group('placeSearchKey', () {
+    test('old and new spellings share one key', () {
+      expect(placeSearchKey('Mek’ī'), 'meki');
+      expect(placeSearchKey("Mek'i"), 'meki');
+      expect(placeSearchKey('MEKI'), 'meki');
+      expect(placeSearchKey('‘Alem T’ēna'), 'alem tena');
+    });
+
+    test('keeps Ge\'ez and hyphens', () {
+      expect(placeSearchKey('ባሕር-ዳር'), 'ባሕር-ዳር');
+      expect(placeSearchKey('Bahir-Dar'), 'bahir-dar');
+    });
+
+    test('blank input is empty', () {
+      expect(placeSearchKey(''), '');
+      expect(placeSearchKey(" ' "), '');
+    });
+  });
+
   // Golden vectors shared with the server (WoredaNamesTests.cs). Keep both
   // lists identical so mobile and server woreda matching never drift.
   group('normalizeWoreda', () {

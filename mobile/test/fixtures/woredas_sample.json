@@ -86,5 +86,27 @@
     "region": "Amhara",
     "lat": 10.43,
     "lng": 38.21
+  },
+  {
+    "id": "gn-meki",
+    "en": "Mek’ī",
+    "am": "መቂ",
+    "alts": ["Mek'i"],
+    "region": "Oromiya",
+    "lat": 8.15,
+    "lng": 38.8167,
+    "population": 75200
+  },
+  {
+    "id": "gn-ziway",
+    "en": "Ziway",
+    "display": "Batu",
+    "am": "ባቱ",
+    "om": "Baatuu",
+    "alts": ["Batu", "Zway"],
+    "region": "Oromiya",
+    "lat": 7.9333,
+    "lng": 38.7167,
+    "population": 90500
   }
 ]

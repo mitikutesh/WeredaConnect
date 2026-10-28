@@ -2,10 +2,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
@@ -19,11 +21,18 @@ Widget _harness({
   required PlaceRepository repo,
   ValueChanged<Place?>? onSelected,
   ValueChanged<String>? onChanged,
+  Locale locale = const Locale('en'),
 }) {
   return MaterialApp(
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    // The app's delegates: Afan Oromo has no built-in Material strings.
+    localizationsDelegates: const [
+      AppLocalizations.delegate,
+      FallbackMaterialLocalizationsDelegate(),
+      GlobalWidgetsLocalizations.delegate,
+      FallbackCupertinoLocalizationsDelegate(),
+    ],
     supportedLocales: AppLocalizations.supportedLocales,
-    locale: const Locale('en'),
+    locale: locale,
     home: Scaffold(
       body: PlaceSelector(
         controller: controller,
@@ -38,6 +47,7 @@ Widget _harness({
 }
 
 Future<void> _type(WidgetTester tester, String text) async {
+  await tester.pumpAndSettle(); // the fallback delegates load asynchronously
   await tester.enterText(find.byType(TextField), text);
   await tester.pump(const Duration(milliseconds: 30)); // let debounce fire
   await tester.pump(); // build the options overlay
@@ -168,5 +178,76 @@ void main() {
 
     // en shown; no crash despite empty am/om.
     expect(find.text('Mertule Maryam'), findsOneWidget);
+  });
+
+  testWidgets('shows the display name without marks; a pick stores en',
+      (tester) async {
+    final controller = TextEditingController();
+    Place? selected;
+    await tester.pumpWidget(
+      _harness(
+        controller: controller,
+        repo: _loadRepo(),
+        onSelected: (p) => selected = p,
+      ),
+    );
+
+    await _type(tester, 'meki');
+
+    expect(find.text('Meki'), findsOneWidget); // tile title
+    expect(find.text('Mek’ī'), findsNothing);
+    expect(find.text('መቂ'), findsOneWidget); // other names beneath
+
+    await tester.tap(find.text('Meki'));
+    await tester.pumpAndSettle();
+
+    expect(selected?.id, 'gn-meki');
+    expect(controller.text, 'Mek’ī'); // canonical en for legacy fields
+  });
+
+  testWidgets('a renamed place shows its current name and the old one',
+      (tester) async {
+    await tester.pumpWidget(
+      _harness(controller: TextEditingController(), repo: _loadRepo()),
+    );
+
+    await _type(tester, 'Ziway');
+
+    expect(find.text('Batu'), findsOneWidget);
+    expect(find.text('ባቱ  ·  Baatuu  ·  Ziway'), findsOneWidget);
+  });
+
+  testWidgets('shows the Amharic name first in am', (tester) async {
+    await tester.pumpWidget(
+      _harness(
+        controller: TextEditingController(),
+        repo: _loadRepo(),
+        locale: const Locale('am'),
+      ),
+    );
+
+    await _type(tester, 'Batu');
+
+    expect(find.text('ባቱ'), findsOneWidget);
+    expect(find.text('Batu  ·  Baatuu  ·  Ziway'), findsOneWidget);
+  });
+
+  testWidgets('shows the Oromo name first in om, else the English one',
+      (tester) async {
+    await tester.pumpWidget(
+      _harness(
+        controller: TextEditingController(),
+        repo: _loadRepo(),
+        locale: const Locale('om'),
+      ),
+    );
+
+    await _type(tester, 'Batu');
+    expect(find.text('Baatuu'), findsOneWidget);
+    expect(find.text('Batu  ·  ባቱ  ·  Ziway'), findsOneWidget);
+
+    await _type(tester, 'Meki');
+    expect(find.text('Meki'), findsWidgets); // field text + tile title
+    expect(find.text('መቂ'), findsOneWidget);
   });
 }

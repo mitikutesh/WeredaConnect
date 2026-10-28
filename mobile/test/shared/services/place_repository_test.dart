@@ -62,6 +62,18 @@ void main() {
     test('caps results at the given limit', () {
       expect(repo.search('a', limit: 2), hasLength(2));
     });
+
+    test('matches the cleaned name and the old marked spellings', () {
+      for (final query in ['Meki', 'meki', 'Mek’ī', "Mek'i"]) {
+        expect(repo.search(query).first.id, 'gn-meki', reason: query);
+      }
+    });
+
+    test('matches the curated display name and the old name', () {
+      expect(repo.search('Batu').first.id, 'gn-ziway');
+      expect(repo.search('Ziway').first.id, 'gn-ziway');
+      expect(repo.search('Baatuu').first.id, 'gn-ziway');
+    });
   });
 
   group('findByDisplayName', () {
@@ -73,6 +85,11 @@ void main() {
     test('resolves the most-populous place when a name is shared', () {
       // "Bure" exists in Amhara (20000) and Oromia (5000).
       expect(repo.findByDisplayName('Bure')?.id, 'gn-bure-amhara');
+    });
+
+    test('resolves the cleaned and the curated display names', () {
+      expect(repo.findByDisplayName('Meki')?.id, 'gn-meki');
+      expect(repo.findByDisplayName('Batu')?.id, 'gn-ziway');
     });
 
     test('returns null for an off-list value', () {
@@ -88,6 +105,61 @@ void main() {
 
     test('returns null for an unknown id', () {
       expect(repo.byId('does-not-exist'), isNull);
+    });
+  });
+
+  // The real bundled asset, regenerated with the overrides merged
+  // (scripts/build_ethiopia_places.py --apply-overrides).
+  group('bundled asset', () {
+    late PlaceRepository bundled;
+
+    setUpAll(() {
+      final json = File('assets/data/ethiopia_woredas.json').readAsStringSync();
+      bundled = PlaceRepository()..loadFromStringForTest(json);
+    });
+
+    test('loads every place', () {
+      expect(bundled.isLoaded, isTrue);
+      expect(bundled.byId('gn-330186')?.en, 'Nazrēt'); // en is never changed
+      expect(bundled.search('a', limit: 1000).length, greaterThan(100));
+    });
+
+    test('finds the right town for the current and old names', () {
+      const expected = {
+        'Adama': 'gn-330186', // Oromia city, not the Amhara village "Ādama"
+        'Nazret': 'gn-330186',
+        'Batu': 'gn-325579',
+        'Ziway': 'gn-325579',
+        'Debre Zeyit': 'gn-339666', // Bishoftu, not the Benishangul village
+        'Debre Zeit': 'gn-339666',
+        'Bishoftu': 'gn-339666',
+        'Meki': 'gn-331163',
+        'Mek’ī': 'gn-331163',
+        'Hawassa': 'gn-343137',
+        'Awasa': 'gn-343137',
+        'Ādīs Ābeba': 'gn-344979',
+        'Finfinnee': 'gn-344979',
+        'አዳማ': 'gn-330186',
+      };
+      expected.forEach((query, id) {
+        expect(bundled.search(query).first.id, id, reason: query);
+      });
+    });
+
+    test('shows display names in en, am and om', () {
+      final adama = bundled.byId('gn-330186')!;
+      expect(adama.displayName('en'), 'Adama');
+      expect(adama.displayName('am'), 'አዳማ');
+      expect(adama.displayName('om'), 'Adaamaa');
+
+      final meki = bundled.byId('gn-331163')!;
+      expect(meki.displayName('en'), 'Meki');
+      expect(meki.displayName('am'), 'መቂ');
+      expect(meki.displayName('om'), 'Meki'); // no Oromo name curated yet
+
+      final alemTena = bundled.byId('gn-344267')!;
+      expect(alemTena.displayName('en'), 'Alem Tena');
+      expect(bundled.byId('gn-332917')!.displayName('en'), 'Koka');
     });
   });
 }

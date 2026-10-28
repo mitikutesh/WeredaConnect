@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/services/place_normalizer.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
@@ -15,7 +16,9 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 /// - Matches as the user types across en / am / om / alternate names; Latin
 ///   input is accent-folded, Ge'ez is matched directly (see [PlaceRepository]).
 /// - Prefix matches rank above substring; results capped at [maxResults].
-/// - Each result shows the English name with Amharic + Oromo beneath.
+/// - Each result shows the place's name in the app language
+///   ([Place.displayName]: no transliteration marks, current official names)
+///   with its other names beneath.
 /// - Selecting a result writes the **canonical English name** ([Place.en]) into
 ///   [controller] (so server-side substring matching keeps working) and reports
 ///   the chosen [Place] via [onPlaceSelected]. The place **id** is what callers
@@ -279,8 +282,9 @@ class _PlaceSelectorState extends State<PlaceSelector> {
   }
 }
 
-/// One result row: English name, with Amharic + Oromo beneath (only when
-/// present), and a muted region/zone suffix to disambiguate repeated names.
+/// One result row: the name in the app language, the place's other names
+/// beneath (only when known), and a muted region/zone suffix to disambiguate
+/// repeated names.
 class _PlaceOptionTile extends StatelessWidget {
   const _PlaceOptionTile({
     required this.place,
@@ -295,10 +299,23 @@ class _PlaceOptionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final subtitle = [
-      if (place.am.isNotEmpty) place.am,
-      if (place.om.isNotEmpty) place.om,
-    ].join('  ·  ');
+    final title =
+        place.displayName(Localizations.localeOf(context).languageCode);
+    // The other names, each once. The cleaned canonical name comes last so a
+    // renamed place ("Adama") also shows the name a pick writes ("Nazret").
+    final shownKeys = {placeSearchKey(title)};
+    final otherNames = <String>[];
+    for (final name in [
+      place.displayEn,
+      place.amGeez,
+      place.om,
+      cleanPlaceName(place.en),
+    ]) {
+      if (name.isNotEmpty && shownKeys.add(placeSearchKey(name))) {
+        otherNames.add(name);
+      }
+    }
+    final subtitle = otherNames.join('  ·  ');
     final locality = [
       if (place.zone.isNotEmpty) place.zone,
       if (place.region.isNotEmpty) place.region,
@@ -330,7 +347,7 @@ class _PlaceOptionTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    place.en,
+                    title,
                     style: theme.textTheme.bodyMedium
                         ?.copyWith(fontWeight: FontWeight.w600),
                   ),
