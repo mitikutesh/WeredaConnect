@@ -39,6 +39,7 @@ function buildApi(
     ratingsTable: dbStack.ratingsTable,
     messagesTable: dbStack.messagesTable,
     notificationsTable: dbStack.notificationsTable,
+    tripLocationsTable: dbStack.tripLocationsTable,
     transactionAuditTable: dbStack.transactionAuditTable,
     uploadsBucket: dbStack.uploadsBucket,
   });

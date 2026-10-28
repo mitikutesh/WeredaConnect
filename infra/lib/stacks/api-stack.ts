@@ -49,6 +49,7 @@ export interface ApiStackProps extends cdk.StackProps {
   readonly ratingsTable: dynamodb.Table;
   readonly messagesTable: dynamodb.Table;
   readonly notificationsTable: dynamodb.Table;
+  readonly tripLocationsTable: dynamodb.Table;
   readonly uploadsBucket: s3.Bucket;
 }
 
@@ -466,6 +467,8 @@ export class ApiStack extends cdk.Stack {
         MESSAGES_TABLE: props.messagesTable.tableName,
         TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
         DELIVERY_QR_SECRETS_TABLE: props.deliveryQrSecretsTable.tableName,
+        // LT-05: location_ping check-ins land here, never on the trip row.
+        TRIP_LOCATIONS_TABLE: props.tripLocationsTable.tableName,
         // Confirming a delivery stamps the linked escrow so the auto-release cron
         // can pay the farmer. Without this env var (+ grant below) _escrowRepo is
         // null and the delivery-confirmation -> escrow payout bridge is disabled.
@@ -518,6 +521,10 @@ export class ApiStack extends cdk.Stack {
     // ESC-07: a refused delivery dispute is audited once per escrow, delivery and reason a day,
     // so the sync Lambda reads the escrow's trail first (Query only, no Scan or GetItem).
     props.escrowAuditTable.grant(syncFn.function, "dynamodb:Query");
+    // LT-05: a location_ping is one conditional PutItem, and a fix first reads its clock hour of
+    // the trip's partition (Query) for the rate limit and the repeat check. No GetItem, Scan,
+    // update or delete: rows are written once and expire by TTL.
+    props.tripLocationsTable.grant(syncFn.function, "dynamodb:PutItem", "dynamodb:Query");
 
     // ─── Pagination Secret (Secrets Manager prod / SSM dev+staging) ───
     // SECURITY: Generated at deploy time (prod) or by the seed script

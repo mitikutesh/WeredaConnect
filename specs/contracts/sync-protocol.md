@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.30.0
+1.31.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -34,7 +34,7 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
     {
       "operationId": "uuid-v4",
       "idempotencyKey": "farmer-123:crop_listing:crop-456:create:1707998400000",
-      "entityType": "crop_listing | trip | delivery | order | buyer_intent | match_event | rating | message | user",
+      "entityType": "crop_listing | trip | delivery | order | buyer_intent | match_event | rating | message | user | location_ping",
       "entityId": "uuid-v4",
       "action": "create | update | delete",
       "clientVersion": 3,
@@ -95,7 +95,9 @@ This format ensures:
   it instead). This keeps offline-first: the op is never lost. Currently emitted for a
   delivery `pickedUp`/`delivered` transition whose QR handoff secret (farmer-authored nonce)
   has not yet reached the server, and (1.19.0) for one without a nonce whose escrow could
-  not be read to decide whether it needs the QR (`delivery-verification-api.md` 1.17.0).
+  not be read to decide whether it needs the QR (`delivery-verification-api.md` 1.17.0),
+  and (1.31.0) for a `location_ping` whose trip has no delivery on the road yet
+  (`LOCATION_NOT_ACTIVE:`, see Location pings).
   `serverData`/`serverVersion` are absent.
 - `status: "error"` — operation failed (validation, auth, etc.); `message` explains why
 
@@ -206,6 +208,7 @@ These rules must always hold:
 - `DELIVERY_CANCEL_NOT_ALLOWED` (since 1.11.0) → Mark as permanently rejected and revert the local delivery (see Delivery cancel)
 - `DELIVERY_DISPUTE_REFUSED` and `DELIVERY_DISPUTE_EXPIRED` (since 1.12.0) → Mark as permanently rejected and revert the local delivery (see Delivery dispute); `DELIVERY_DISPUTE_RETRY` is transient and retried
 - `CROP_CONTACT_IN_TEXT` and `TRIP_CONTACT_IN_TEXT` (since 1.23.0) → Mark as permanently rejected, not reverted (see Listing text refusal)
+- `LOCATION_VALIDATION`, `LOCATION_NOT_TRUCKER`, `LOCATION_SHARING_ENDED`, `LOCATION_RATE_LIMITED` and `LOCATION_STALE` (since 1.31.0) → Mark as permanently rejected, not reverted (see Location pings); `LOCATION_NOT_ACTIVE` comes as `deferred`, not as an error
 
 **Retry State Management**:
 - `retryCount` field in `SyncOperation` entity tracks attempts (only incremented by server errors, not network failures)
@@ -745,10 +748,44 @@ committed cancel waits in the queue for the password prompt, as for a payment.
 
 ---
 
+## Location pings (1.31.0, LT-05)
+
+The `location_ping` entity carries one check-in (`fix`) or sharing event (`paused`, `resumed`,
+`declined`) of the trucker's phone after pickup. The fields, bounds, storage and the read side are
+in `live-trip-api.md` 1.0.0, section 1. What matters to the sync queue:
+
+- `action: "create"` only. `entityId` is `{tripId}#{capturedAt in epoch ms}` and must match `data`.
+  Fields that belong to another kind (a `source` on a `paused` event) are ignored and not stored.
+- Accepted only from the trip's trucker while a delivery on the trip is `pickedUp` or `inTransit`,
+  or left those statuses after `capturedAt` (`delivered` and `disputed` at `confirmedAt`, an admin
+  cancel after pickup at `cancelledAt`), so a ping that waited offline is kept.
+- A resend of the same `entityId` and `kind` is an idempotent `success` with
+  `message: "Location already stored."`; nothing is written twice. A repeated idempotency key
+  answers `duplicate`, as for every entity.
+
+| Server answer | Meaning | Mobile client (sync queue) |
+|---|---|---|
+| `success` | Stored, or an idempotent resend. | Synced. |
+| `deferred` with `LOCATION_NOT_ACTIVE:` | No delivery on the trip is on the road yet: the first pickup may still wait in a queue (for example held back until its QR handoff secret syncs), or another delivery of the trip is still `pending`. Also sent instead of `LOCATION_SHARING_ENDED` when an earlier operation of the same batch wrote a delivery, because the server's deliveries-by-trip read may not show that write yet. | Re-queue without using a retry (the `deferred` rule above). Once the ping is older than 7 days it answers `LOCATION_STALE`. |
+| `LOCATION_VALIDATION:` | A missing or out-of-range field, an unknown `kind`, `source` or field, an `entityId` that does not match `tripId` and `capturedAt`, or an `update` or `delete`. | Permanent: mark rejected, never resent. |
+| `LOCATION_NOT_TRUCKER:` | The caller is not the trip's trucker, or the trip does not exist. | Permanent. |
+| `LOCATION_SHARING_ENDED:` | Every delivery on the trip that was picked up left the road before `capturedAt`, and none is still `pending`. | Permanent; the phone also stops sharing for the trip. |
+| `LOCATION_RATE_LIMITED:` | The trip already has 20 `fix` pings in the clock hour (UTC) of `capturedAt`. Events do not count. | Permanent. |
+| `LOCATION_STALE:` | `capturedAt` is more than 2 minutes in the future or more than 7 days old by the server clock. | Permanent. |
+| unprefixed error (a read failed, or the server has no trip-locations table) | Nothing was written. | Retried. |
+
+A refused or deferred ping writes nothing and stores no idempotency key. Refused pings are not
+reverted and not announced to the user: there is no local row to put back, and a lost check-in
+only leaves a gap in the trail. The server sends these answers since 1.31.0; the mobile and web
+handling ships with LT-08, and no client sends the entity before it.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.31.0 | 2026-10-28 | Location pings (LT-05, `live-trip-api.md` 1.0.0): new create-only entity `location_ping` (the trucker's check-ins and sharing events after pickup), accepted from the trip's trucker while a delivery on the trip is on the road or left it after `capturedAt` (late offline pings kept); `LOCATION_VALIDATION`, `LOCATION_NOT_TRUCKER`, `LOCATION_SHARING_ENDED`, `LOCATION_RATE_LIMITED` and `LOCATION_STALE` are permanent errors, not reverted; `LOCATION_NOT_ACTIVE` answers `deferred` (no delivery on the road yet, another still pending, or a delivery written earlier in the same batch); a resend of the same `entityId` and `kind` is `success`; clients handle it from LT-08 |
 | 1.30.0 | 2026-10-27 | Order commitments, clients (ESC-22, ESC-23, app build 3): the farmer's answer is sent as `farmerResponse: accept \| decline` on every server (translated with the flag off); the trucker's command only on an order with a `fulfillment` stamp; `ORDER_RESPONSE_NOT_PENDING:` has its own text. No server change. |
 | 1.29.0 | 2026-10-26 | Order commitments (ESC-15, `order-lifecycle.md` 2.0.0, behind `COMMITMENTS_ENABLED`): the farmer answers a `funded` order with `farmerResponse: accept \| decline` (legacy `status: accepted \| rejected` mapped) and the trucker, once the farmer accepted, with `truckerResponse: accept \| decline`, each with an optional `declineReason` (`date`, `capacity`, `price`, `route`, `crop_not_ready`, `other`) and the pre-increment `version`; these three are the only new allowed update keys, every other new order field and the system-managed status `awaiting_transport` are server-written and returned by `GET /orders`; `ORDER_RESPONSE_NOT_PENDING:` and `ORDER_DEADLINE_PASSED:` are permanent under the `ORDER_*` rule (no client change for them); `AUTH_040:` on the trucker's drop-out from `accepted` and the farmer's cancel from `accepted`; `ORDER_CANCEL_NOT_ALLOWED:` on a buyer's `funded -> cancelled`; the server now sends `TRIP_CAPACITY_EXCEEDED:` (order create above `remainingQuintals`) and `TRIP_HAS_BOOKINGS:` (a trip change the bookings forbid) behind the flag; header and footer versions aligned (the footer had stayed at 1.27.0) |
 | 1.28.0 | 2026-10-24 | User profile updates (SIM-37): the `user` entity takes `action: update` from the caller on their own row with the single allow-listed field `preferredLanguage` (`en`, `am`, `om`), version-less last-write-wins, an unchanged value a no-op `success`; errors `USER_PROFILE_VALIDATION`, `USER_PROFILE_UNAUTHORIZED`, `USER_PROFILE_NOT_FOUND`, `USER_PROFILE_CONFLICT` (retried) and `USER_PROFILE_UNAVAILABLE` (row added 2026-10-26; the section was in the body without one) |
@@ -780,5 +817,5 @@ committed cancel waits in the queue for the password prompt, as for a payment.
 
 ---
 
-**Last Updated**: 2026-10-27
-**Version**: 1.30.0
+**Last Updated**: 2026-10-28
+**Version**: 1.31.0
