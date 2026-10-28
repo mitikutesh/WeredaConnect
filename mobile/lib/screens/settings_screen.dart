@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'package:wereda_connect/features/live_trip/presentation/widgets/sharing_default_tile.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -61,6 +62,9 @@ class SettingsScreen extends StatelessWidget {
           },
         ),
         const Divider(),
+        // LT-09: a trucker's default for sharing the trip's location (the
+        // row and its divider show only for a signed-in trucker).
+        const SharingDefaultTile(),
         ListTile(
           leading: const Icon(Icons.data_usage),
           title: Text(l10n.dataUsage),

@@ -3670,4 +3670,263 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get liveTripNotificationChannel => 'Trip location';
+
+  @override
+  String get liveTripConsentTitle => 'Share where the truck is?';
+
+  @override
+  String get liveTripConsentLede =>
+      'Buyers and farmers who can see the truck worry less and call you less while you drive.';
+
+  @override
+  String get liveTripConsentWhoTitle => 'Who sees it';
+
+  @override
+  String get liveTripConsentWhoText =>
+      'The buyer and farmer of each order on this trip, each only for their own order. Other truckers and buyers browsing trips never see it.';
+
+  @override
+  String get liveTripConsentOftenTitle => 'How often';
+
+  @override
+  String get liveTripConsentOftenText =>
+      'About once an hour and at each QR scan. Every 15 minutes when you are near a drop-off.';
+
+  @override
+  String get liveTripConsentStopsTitle => 'When it stops';
+
+  @override
+  String get liveTripConsentStopsText =>
+      'By itself when the last delivery on this trip is done. You can pause any time.';
+
+  @override
+  String get liveTripConsentDataTitle => 'Data';
+
+  @override
+  String get liveTripConsentDataText =>
+      'About 170 KB a day. With no network, check-ins wait on the phone and send later.';
+
+  @override
+  String get liveTripConsentAndroidNote =>
+      'Android shows a notification while sharing is on.';
+
+  @override
+  String get liveTripConsentWebNote =>
+      'On the web, check-ins are sent only while this page is open.';
+
+  @override
+  String get liveTripConsentShare => 'Share trip location';
+
+  @override
+  String get liveTripConsentDecline => 'Not now, scans only';
+
+  @override
+  String get liveTripSharingStarted =>
+      'Sharing the truck\'s location for this trip.';
+
+  @override
+  String get liveTripScansOnlyChosen =>
+      'Scans only for this trip. You can still share from trip mode.';
+
+  @override
+  String get tripModeTitle => 'Trip mode';
+
+  @override
+  String get tripModeOpen => 'Open trip';
+
+  @override
+  String tripModeOrders(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count orders',
+      one: '1 order',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get tripModeSharingLive => 'Sharing your location';
+
+  @override
+  String tripModeLastCheckIn(String time) {
+    return 'Last check-in $time';
+  }
+
+  @override
+  String get tripModeNoCheckInYet => 'No check-in yet';
+
+  @override
+  String tripModeNextBy(String time) {
+    return 'next by $time';
+  }
+
+  @override
+  String get tripModePrivacy =>
+      'Each buyer and farmer sees only the part for their own order.';
+
+  @override
+  String get tripModePause => 'Pause';
+
+  @override
+  String get tripModeCheckInNow => 'Check in now';
+
+  @override
+  String get tripModePausedTitle => 'Sharing paused';
+
+  @override
+  String tripModePausedUntil(String time) {
+    return 'Comes back by itself at $time';
+  }
+
+  @override
+  String get tripModeResume => 'Resume now';
+
+  @override
+  String get tripModeScansOnlyTitle => 'Scans only';
+
+  @override
+  String get tripModeScansOnlyText =>
+      'Your location is not shared. QR scans still record pickup and delivery.';
+
+  @override
+  String get tripModeEndedTitle => 'Sharing ended';
+
+  @override
+  String get tripModeEndedText =>
+      'Every delivery on this trip is done, so sharing stopped.';
+
+  @override
+  String get tripModeNoTrip =>
+      'No trip is on the road. Trip mode starts with your first pickup scan.';
+
+  @override
+  String get tripModeNextPickup => 'Next stop: pickup';
+
+  @override
+  String get tripModeNextDropoff => 'Next stop: drop-off';
+
+  @override
+  String get tripModeArrived => 'I\'ve arrived';
+
+  @override
+  String get tripModeStops => 'Stops';
+
+  @override
+  String tripModeStopPickup(String name) {
+    return 'Pickup: $name';
+  }
+
+  @override
+  String tripModeStopDropoff(String name) {
+    return 'Drop-off: $name';
+  }
+
+  @override
+  String tripModeScannedAt(String time) {
+    return 'scanned $time';
+  }
+
+  @override
+  String tripModeDeliveredAt(String time) {
+    return 'delivered $time';
+  }
+
+  @override
+  String get tripModeNextLabel => 'Next';
+
+  @override
+  String get tripModePayTitle => 'Your pay for this trip';
+
+  @override
+  String get tripModePayNote => 'Paid 48 h after each drop-off';
+
+  @override
+  String get tripModeCheckInSaved => 'Check-in saved.';
+
+  @override
+  String get tripModeNoFix =>
+      'No location right now. Check that location is on, then try again.';
+
+  @override
+  String get tripModeNotSharing => 'This trip does not share its location.';
+
+  @override
+  String get tripModeLoadFailed => 'Could not load the stops of this trip.';
+
+  @override
+  String get tripModeOfflineTitle => 'No network here';
+
+  @override
+  String tripModeOfflineWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count check-ins wait on this phone. They send by themselves when you are back in coverage.',
+      one:
+          '1 check-in waits on this phone. It sends by itself when you are back in coverage.',
+      zero:
+          'Check-ins wait on this phone and send by themselves when you are back in coverage.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get tripModeCardTitle => 'Trip on the road';
+
+  @override
+  String get pauseSheetTitle => 'Pause sharing?';
+
+  @override
+  String get pauseSheetText =>
+      'For a rest stop or the night. Buyers and farmers see that sharing is paused and when it comes back.';
+
+  @override
+  String get pauseSheetFor => 'Pause for';
+
+  @override
+  String get pauseSheet15 => '15 minutes';
+
+  @override
+  String get pauseSheet30 => '30 minutes';
+
+  @override
+  String get pauseSheet60 => '1 hour';
+
+  @override
+  String pauseSheetOvernight(String time) {
+    return 'Overnight, until $time';
+  }
+
+  @override
+  String pauseSheetBackAt(String time) {
+    return 'back at $time';
+  }
+
+  @override
+  String get pauseSheetNote =>
+      'Sharing comes back by itself. QR scans still record their place.';
+
+  @override
+  String get pauseSheetConfirm => 'Pause sharing';
+
+  @override
+  String get pauseSheetKeep => 'Keep sharing';
+
+  @override
+  String get sharingDefaultSetting => 'Trip location';
+
+  @override
+  String get sharingDefaultHint =>
+      'What happens at the first pickup scan of a trip. The buyer and farmer of each order see the truck until their delivery.';
+
+  @override
+  String get sharingDefaultAsk => 'Ask on each trip';
+
+  @override
+  String get sharingDefaultShare => 'Always share';
+
+  @override
+  String get sharingDefaultScansOnly => 'Never share (scans only)';
 }

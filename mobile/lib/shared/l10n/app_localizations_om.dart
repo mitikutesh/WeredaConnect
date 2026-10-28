@@ -3706,4 +3706,264 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get liveTripNotificationChannel => 'Bakka imalaa';
+
+  @override
+  String get liveTripConsentTitle => 'Bakki konkolaataan jiru haa qoodamu?';
+
+  @override
+  String get liveTripConsentLede =>
+      'Bitoonni fi qonnaan bultoonni konkolaataa arguu danda\'an yaaddoon isaanii ni hir\'ata, yeroo konkolaachiftanis xiqqoo isin bilbilu.';
+
+  @override
+  String get liveTripConsentWhoTitle => 'Eenyutu arga';
+
+  @override
+  String get liveTripConsentWhoText =>
+      'Bitaa fi qonnaan bulaa ajaja imala kanaa tokkoon tokkoo, tokkoon isaanii ajaja ofii qofaaf. Konkolaachiftoonni biroo fi bitoonni imaltoota ilaalan gonkumaa hin argan.';
+
+  @override
+  String get liveTripConsentOftenTitle => 'Irra deddeebii';
+
+  @override
+  String get liveTripConsentOftenText =>
+      'Sa\'aatii tokkotti al tokko gara, akkasumas iskaanii QR hundatti. Yeroo bakka buusaatti dhihaattan daqiiqaa 15 hundaa.';
+
+  @override
+  String get liveTripConsentStopsTitle => 'Yoom dhaabata';
+
+  @override
+  String get liveTripConsentStopsText =>
+      'Yeroo geejjibni dhumaa imala kanaa xumuramu ofumaan dhaabata. Yeroo barbaaddanitti yeroof dhaabuu dandeessu.';
+
+  @override
+  String get liveTripConsentDataTitle => 'Deetaa';
+
+  @override
+  String get liveTripConsentDataText =>
+      'Guyyaatti gara KB 170. Neetworkiin yoo hin jiraanne, gabaasni bakkaa bilbila irra eegee booda ergama.';
+
+  @override
+  String get liveTripConsentAndroidNote =>
+      'Yeroo qooduun banaa ta\'etti Android beeksisa ni agarsiisa.';
+
+  @override
+  String get liveTripConsentWebNote =>
+      'Weebii irratti, gabaasni bakkaa kan ergamu yeroo fuulli kun banaa ta\'e qofa.';
+
+  @override
+  String get liveTripConsentShare => 'Bakka imalaa qoodi';
+
+  @override
+  String get liveTripConsentDecline => 'Amma miti, iskaanii qofa';
+
+  @override
+  String get liveTripSharingStarted =>
+      'Bakki konkolaataa imala kanaaf qoodamaa jira.';
+
+  @override
+  String get liveTripScansOnlyChosen =>
+      'Imala kanaaf iskaanii qofa. Ammas fuula haala imalaa irraa qooduu dandeessu.';
+
+  @override
+  String get tripModeTitle => 'Haala imalaa';
+
+  @override
+  String get tripModeOpen => 'Imala bani';
+
+  @override
+  String tripModeOrders(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'ajajoota $count',
+      one: 'ajaja 1',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get tripModeSharingLive => 'Bakki keessan qoodamaa jira';
+
+  @override
+  String tripModeLastCheckIn(String time) {
+    return 'Gabaasa dhumaa $time';
+  }
+
+  @override
+  String get tripModeNoCheckInYet => 'Hanga ammaatti gabaasni hin jiru';
+
+  @override
+  String tripModeNextBy(String time) {
+    return 'kan itti aanu $time';
+  }
+
+  @override
+  String get tripModePrivacy =>
+      'Bitaan fi qonnaan bulaan tokkoon tokkoon isaanii kutaa ajaja ofii qofa argu.';
+
+  @override
+  String get tripModePause => 'Yeroof dhaabi';
+
+  @override
+  String get tripModeCheckInNow => 'Amma gabaasi';
+
+  @override
+  String get tripModePausedTitle => 'Qooduun yeroof dhaabateera';
+
+  @override
+  String tripModePausedUntil(String time) {
+    return '$time ofumaan deebi\'a';
+  }
+
+  @override
+  String get tripModeResume => 'Amma itti fufi';
+
+  @override
+  String get tripModeScansOnlyTitle => 'Iskaanii qofa';
+
+  @override
+  String get tripModeScansOnlyText =>
+      'Bakki keessan hin qoodamu. Iskaaniin QR ammas fudhachuu fi geessuu ni galmeessa.';
+
+  @override
+  String get tripModeEndedTitle => 'Qooduun xumurameera';
+
+  @override
+  String get tripModeEndedText =>
+      'Geejjibni imala kanaa hundi waan xumurameef qooduun dhaabateera.';
+
+  @override
+  String get tripModeNoTrip =>
+      'Imalli karaa irra jiru hin jiru. Haalli imalaa iskaanii fudhachuu jalqabaatiin jalqaba.';
+
+  @override
+  String get tripModeNextPickup => 'Dhaabbii itti aanu: fudhachuu';
+
+  @override
+  String get tripModeNextDropoff => 'Dhaabbii itti aanu: buusuu';
+
+  @override
+  String get tripModeArrived => 'Ga\'eera';
+
+  @override
+  String get tripModeStops => 'Dhaabbiiwwan';
+
+  @override
+  String tripModeStopPickup(String name) {
+    return 'Fudhachuu: $name';
+  }
+
+  @override
+  String tripModeStopDropoff(String name) {
+    return 'Buusuu: $name';
+  }
+
+  @override
+  String tripModeScannedAt(String time) {
+    return '$time iskaan godhame';
+  }
+
+  @override
+  String tripModeDeliveredAt(String time) {
+    return '$time ga\'e';
+  }
+
+  @override
+  String get tripModeNextLabel => 'Itti aanu';
+
+  @override
+  String get tripModePayTitle => 'Kaffaltii keessan imala kanaaf';
+
+  @override
+  String get tripModePayNote => 'Buusii hundaa booda sa\'aatii 48tti kaffalama';
+
+  @override
+  String get tripModeCheckInSaved => 'Gabaasni olkaa\'ameera.';
+
+  @override
+  String get tripModeNoFix =>
+      'Amma bakka argachuun hin danda\'amne. Tajaajilli bakkaa banaa ta\'uu mirkaneessaatii irra deebi\'aa yaalaa.';
+
+  @override
+  String get tripModeNotSharing => 'Imalli kun bakka isaa hin qoodu.';
+
+  @override
+  String get tripModeLoadFailed =>
+      'Dhaabbiiwwan imala kanaa fe\'uun hin danda\'amne.';
+
+  @override
+  String get tripModeOfflineTitle => 'Asitti neetworkiin hin jiru';
+
+  @override
+  String tripModeOfflineWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Gabaasni $count bilbila kana irra eegaa jira. Yeroo neetworkiin deebi\'u ofumaan ergamu.',
+      one:
+          'Gabaasni 1 bilbila kana irra eegaa jira. Yeroo neetworkiin deebi\'u ofumaan ergama.',
+      zero:
+          'Gabaasni bilbila kana irra eegee yeroo neetworkiin deebi\'u ofumaan ergama.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get tripModeCardTitle => 'Imala karaa irra jiru';
+
+  @override
+  String get pauseSheetTitle => 'Qooduu yeroof dhaabuu?';
+
+  @override
+  String get pauseSheetText =>
+      'Boqonnaaf ykn halkaniif. Bitoonni fi qonnaan bultoonni akka qooduun dhaabate fi yoom akka deebi\'u ni argu.';
+
+  @override
+  String get pauseSheetFor => 'Yeroo hammamiif';
+
+  @override
+  String get pauseSheet15 => 'Daqiiqaa 15';
+
+  @override
+  String get pauseSheet30 => 'Daqiiqaa 30';
+
+  @override
+  String get pauseSheet60 => 'Sa\'aatii 1';
+
+  @override
+  String pauseSheetOvernight(String time) {
+    return 'Halkan guutuu, hanga $time';
+  }
+
+  @override
+  String pauseSheetBackAt(String time) {
+    return '$time deebi\'a';
+  }
+
+  @override
+  String get pauseSheetNote =>
+      'Qooduun ofumaan deebi\'a. Iskaaniin QR ammas bakka isaa ni galmeessa.';
+
+  @override
+  String get pauseSheetConfirm => 'Qooduu yeroof dhaabi';
+
+  @override
+  String get pauseSheetKeep => 'Qooduu itti fufi';
+
+  @override
+  String get sharingDefaultSetting => 'Bakka imalaa';
+
+  @override
+  String get sharingDefaultHint =>
+      'Iskaanii fudhachuu jalqabaa imalaa irratti kan ta\'u. Bitaan fi qonnaan bulaan ajaja tokkoon tokkoo hanga geejjiba isaaniitti konkolaataa ni argu.';
+
+  @override
+  String get sharingDefaultAsk => 'Imala hundatti na gaafadhu';
+
+  @override
+  String get sharingDefaultShare => 'Yeroo hunda qoodi';
+
+  @override
+  String get sharingDefaultScansOnly => 'Gonkumaa hin qoodin (iskaanii qofa)';
 }

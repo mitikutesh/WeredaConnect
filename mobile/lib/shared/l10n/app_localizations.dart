@@ -6591,6 +6591,414 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Trip location'**
   String get liveTripNotificationChannel;
+
+  /// Consent sheet title after a trip's first pickup scan (LT-09)
+  ///
+  /// In en, this message translates to:
+  /// **'Share where the truck is?'**
+  String get liveTripConsentTitle;
+
+  /// Consent sheet: why sharing helps (LT-09)
+  ///
+  /// In en, this message translates to:
+  /// **'Buyers and farmers who can see the truck worry less and call you less while you drive.'**
+  String get liveTripConsentLede;
+
+  /// Consent sheet row title: who sees the truck's location
+  ///
+  /// In en, this message translates to:
+  /// **'Who sees it'**
+  String get liveTripConsentWhoTitle;
+
+  /// Consent sheet: who sees the location (the parties of each order only)
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer and farmer of each order on this trip, each only for their own order. Other truckers and buyers browsing trips never see it.'**
+  String get liveTripConsentWhoText;
+
+  /// Consent sheet row title: how often the phone checks in
+  ///
+  /// In en, this message translates to:
+  /// **'How often'**
+  String get liveTripConsentOftenTitle;
+
+  /// Consent sheet: the check-in cadence (live-trip.md section 5.2)
+  ///
+  /// In en, this message translates to:
+  /// **'About once an hour and at each QR scan. Every 15 minutes when you are near a drop-off.'**
+  String get liveTripConsentOftenText;
+
+  /// Consent sheet row title: when sharing stops
+  ///
+  /// In en, this message translates to:
+  /// **'When it stops'**
+  String get liveTripConsentStopsTitle;
+
+  /// Consent sheet: sharing ends by itself at the last delivery
+  ///
+  /// In en, this message translates to:
+  /// **'By itself when the last delivery on this trip is done. You can pause any time.'**
+  String get liveTripConsentStopsText;
+
+  /// Consent sheet row title: the mobile data it costs
+  ///
+  /// In en, this message translates to:
+  /// **'Data'**
+  String get liveTripConsentDataTitle;
+
+  /// Consent sheet: the data cost on the wire per day (live-trip.md section 5.3) and offline behaviour
+  ///
+  /// In en, this message translates to:
+  /// **'About 170 KB a day. With no network, check-ins wait on the phone and send later.'**
+  String get liveTripConsentDataText;
+
+  /// Consent sheet note on Android: the foreground service notification
+  ///
+  /// In en, this message translates to:
+  /// **'Android shows a notification while sharing is on.'**
+  String get liveTripConsentAndroidNote;
+
+  /// Consent sheet note on web: no background check-ins
+  ///
+  /// In en, this message translates to:
+  /// **'On the web, check-ins are sent only while this page is open.'**
+  String get liveTripConsentWebNote;
+
+  /// Button: share the truck's location for this trip
+  ///
+  /// In en, this message translates to:
+  /// **'Share trip location'**
+  String get liveTripConsentShare;
+
+  /// Button: do not share; only QR scans record a place (sends declined)
+  ///
+  /// In en, this message translates to:
+  /// **'Not now, scans only'**
+  String get liveTripConsentDecline;
+
+  /// Snackbar after the trucker started sharing
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing the truck\'s location for this trip.'**
+  String get liveTripSharingStarted;
+
+  /// Snackbar after Not now, scans only
+  ///
+  /// In en, this message translates to:
+  /// **'Scans only for this trip. You can still share from trip mode.'**
+  String get liveTripScansOnlyChosen;
+
+  /// Title of the trucker's trip mode screen (LT-09)
+  ///
+  /// In en, this message translates to:
+  /// **'Trip mode'**
+  String get tripModeTitle;
+
+  /// Snackbar action that opens trip mode
+  ///
+  /// In en, this message translates to:
+  /// **'Open trip'**
+  String get tripModeOpen;
+
+  /// Trip mode header: how many orders the trip carries
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 order} other{{count} orders}}'**
+  String tripModeOrders(int count);
+
+  /// Trip mode: sharing is on
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing your location'**
+  String get tripModeSharingLive;
+
+  /// Trip mode: time of the last check-in (Ethiopian clock in am and om)
+  ///
+  /// In en, this message translates to:
+  /// **'Last check-in {time}'**
+  String tripModeLastCheckIn(String time);
+
+  /// Trip mode: no check-in recorded yet
+  ///
+  /// In en, this message translates to:
+  /// **'No check-in yet'**
+  String get tripModeNoCheckInYet;
+
+  /// Trip mode: when the next check-in is due, after the last check-in
+  ///
+  /// In en, this message translates to:
+  /// **'next by {time}'**
+  String tripModeNextBy(String time);
+
+  /// Trip mode: privacy note under the sharing state
+  ///
+  /// In en, this message translates to:
+  /// **'Each buyer and farmer sees only the part for their own order.'**
+  String get tripModePrivacy;
+
+  /// Trip mode button: pause sharing
+  ///
+  /// In en, this message translates to:
+  /// **'Pause'**
+  String get tripModePause;
+
+  /// Trip mode button: record a check-in now
+  ///
+  /// In en, this message translates to:
+  /// **'Check in now'**
+  String get tripModeCheckInNow;
+
+  /// Trip mode: sharing is paused
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing paused'**
+  String get tripModePausedTitle;
+
+  /// Trip mode: when a pause ends (Ethiopian clock in am and om)
+  ///
+  /// In en, this message translates to:
+  /// **'Comes back by itself at {time}'**
+  String tripModePausedUntil(String time);
+
+  /// Trip mode button: end the pause early
+  ///
+  /// In en, this message translates to:
+  /// **'Resume now'**
+  String get tripModeResume;
+
+  /// Trip mode: the trucker chose not to share for this trip
+  ///
+  /// In en, this message translates to:
+  /// **'Scans only'**
+  String get tripModeScansOnlyTitle;
+
+  /// Trip mode: explanation of scans only
+  ///
+  /// In en, this message translates to:
+  /// **'Your location is not shared. QR scans still record pickup and delivery.'**
+  String get tripModeScansOnlyText;
+
+  /// Trip mode: sharing stopped for good
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing ended'**
+  String get tripModeEndedTitle;
+
+  /// Trip mode: why sharing ended
+  ///
+  /// In en, this message translates to:
+  /// **'Every delivery on this trip is done, so sharing stopped.'**
+  String get tripModeEndedText;
+
+  /// Trip mode: no trip is active
+  ///
+  /// In en, this message translates to:
+  /// **'No trip is on the road. Trip mode starts with your first pickup scan.'**
+  String get tripModeNoTrip;
+
+  /// Trip mode: label of the next stop card at a pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Next stop: pickup'**
+  String get tripModeNextPickup;
+
+  /// Trip mode: label of the next stop card at a drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'Next stop: drop-off'**
+  String get tripModeNextDropoff;
+
+  /// Trip mode button: record an arrived check-in at the next stop
+  ///
+  /// In en, this message translates to:
+  /// **'I\'ve arrived'**
+  String get tripModeArrived;
+
+  /// Trip mode: title of the stop list
+  ///
+  /// In en, this message translates to:
+  /// **'Stops'**
+  String get tripModeStops;
+
+  /// Trip mode stop row: a pickup at the farmer {name}
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup: {name}'**
+  String tripModeStopPickup(String name);
+
+  /// Trip mode stop row: a drop-off at the buyer {name} (and the place)
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off: {name}'**
+  String tripModeStopDropoff(String name);
+
+  /// Trip mode stop row: when the pickup QR was scanned
+  ///
+  /// In en, this message translates to:
+  /// **'scanned {time}'**
+  String tripModeScannedAt(String time);
+
+  /// Trip mode stop row: when the buyer confirmed the drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'delivered {time}'**
+  String tripModeDeliveredAt(String time);
+
+  /// Trip mode stop row: this is the next stop
+  ///
+  /// In en, this message translates to:
+  /// **'Next'**
+  String get tripModeNextLabel;
+
+  /// Trip mode: the trucker's pay for the trip
+  ///
+  /// In en, this message translates to:
+  /// **'Your pay for this trip'**
+  String get tripModePayTitle;
+
+  /// Trip mode: when the pay is released
+  ///
+  /// In en, this message translates to:
+  /// **'Paid 48 h after each drop-off'**
+  String get tripModePayNote;
+
+  /// Snackbar: a check-in the trucker asked for was recorded
+  ///
+  /// In en, this message translates to:
+  /// **'Check-in saved.'**
+  String get tripModeCheckInSaved;
+
+  /// Snackbar: no GPS fix in time
+  ///
+  /// In en, this message translates to:
+  /// **'No location right now. Check that location is on, then try again.'**
+  String get tripModeNoFix;
+
+  /// Snackbar: the trip does not share now (scans only or ended)
+  ///
+  /// In en, this message translates to:
+  /// **'This trip does not share its location.'**
+  String get tripModeNotSharing;
+
+  /// Trip mode: the deliveries of the trip could not be read
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load the stops of this trip.'**
+  String get tripModeLoadFailed;
+
+  /// Trip mode offline banner title
+  ///
+  /// In en, this message translates to:
+  /// **'No network here'**
+  String get tripModeOfflineTitle;
+
+  /// Trip mode offline banner: how many check-ins wait on the phone
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Check-ins wait on this phone and send by themselves when you are back in coverage.} =1{1 check-in waits on this phone. It sends by itself when you are back in coverage.} other{{count} check-ins wait on this phone. They send by themselves when you are back in coverage.}}'**
+  String tripModeOfflineWaiting(int count);
+
+  /// Trucker home card that opens trip mode
+  ///
+  /// In en, this message translates to:
+  /// **'Trip on the road'**
+  String get tripModeCardTitle;
+
+  /// Pause sheet title (LT-09)
+  ///
+  /// In en, this message translates to:
+  /// **'Pause sharing?'**
+  String get pauseSheetTitle;
+
+  /// Pause sheet: what pausing does
+  ///
+  /// In en, this message translates to:
+  /// **'For a rest stop or the night. Buyers and farmers see that sharing is paused and when it comes back.'**
+  String get pauseSheetText;
+
+  /// Pause sheet: heading of the durations
+  ///
+  /// In en, this message translates to:
+  /// **'Pause for'**
+  String get pauseSheetFor;
+
+  /// Pause sheet option
+  ///
+  /// In en, this message translates to:
+  /// **'15 minutes'**
+  String get pauseSheet15;
+
+  /// Pause sheet option
+  ///
+  /// In en, this message translates to:
+  /// **'30 minutes'**
+  String get pauseSheet30;
+
+  /// Pause sheet option
+  ///
+  /// In en, this message translates to:
+  /// **'1 hour'**
+  String get pauseSheet60;
+
+  /// Pause sheet option: until 06:00 in Ethiopia, {time} on the viewer's clock (12:00 in the morning on the Ethiopian clock)
+  ///
+  /// In en, this message translates to:
+  /// **'Overnight, until {time}'**
+  String pauseSheetOvernight(String time);
+
+  /// Pause sheet: when sharing comes back for an option
+  ///
+  /// In en, this message translates to:
+  /// **'back at {time}'**
+  String pauseSheetBackAt(String time);
+
+  /// Pause sheet note
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing comes back by itself. QR scans still record their place.'**
+  String get pauseSheetNote;
+
+  /// Pause sheet button: pause for the chosen time
+  ///
+  /// In en, this message translates to:
+  /// **'Pause sharing'**
+  String get pauseSheetConfirm;
+
+  /// Pause sheet button: close without pausing
+  ///
+  /// In en, this message translates to:
+  /// **'Keep sharing'**
+  String get pauseSheetKeep;
+
+  /// Settings row and dialog title for the trucker's location sharing default (LT-09)
+  ///
+  /// In en, this message translates to:
+  /// **'Trip location'**
+  String get sharingDefaultSetting;
+
+  /// Settings dialog: what the trip location default controls
+  ///
+  /// In en, this message translates to:
+  /// **'What happens at the first pickup scan of a trip. The buyer and farmer of each order see the truck until their delivery.'**
+  String get sharingDefaultHint;
+
+  /// Trip location setting option: show the consent sheet (default)
+  ///
+  /// In en, this message translates to:
+  /// **'Ask on each trip'**
+  String get sharingDefaultAsk;
+
+  /// Trip location setting option: share without asking
+  ///
+  /// In en, this message translates to:
+  /// **'Always share'**
+  String get sharingDefaultShare;
+
+  /// Trip location setting option: scans only without asking
+  ///
+  /// In en, this message translates to:
+  /// **'Never share (scans only)'**
+  String get sharingDefaultScansOnly;
 }
 
 class _AppLocalizationsDelegate

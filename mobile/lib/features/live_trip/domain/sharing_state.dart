@@ -1,6 +1,20 @@
 /// The trucker's answer to "Share where the truck is?" for one trip.
 enum SharingAnswer { shared, declined }
 
+/// What the phone does at a trip's first pickup scan when the trucker has
+/// not answered for that trip yet (Settings, LT-09). Stored by [name], so do
+/// not rename the values.
+enum SharingDefault {
+  /// Ask with the consent sheet (the default).
+  ask,
+
+  /// Share without asking.
+  share,
+
+  /// Scans only without asking: the trip records `declined`.
+  scansOnly,
+}
+
 /// The phone's sharing state for one trip.
 class TripSharing {
   const TripSharing({
@@ -50,15 +64,22 @@ class TripSharing {
   }
 }
 
-/// One trucker's sharing state: the trip the phone shares for now and the
-/// answers per trip.
+/// One trucker's sharing state: the trip the phone shares for now, the
+/// answers per trip and the default for trips not answered yet.
 class SharingState {
-  const SharingState({this.activeTripId, this.trips = const {}});
+  const SharingState({
+    this.activeTripId,
+    this.trips = const {},
+    this.sharingDefault = SharingDefault.ask,
+  });
 
   /// The trip the cadence runs for (or that shows "Scans only").
   final String? activeTripId;
 
   final Map<String, TripSharing> trips;
+
+  /// What a trip's first pickup scan does while the trip has no answer.
+  final SharingDefault sharingDefault;
 
   /// At most this many trips are remembered; the oldest ended ones go first.
   static const maxTrips = 20;
@@ -81,14 +102,29 @@ class SharingState {
       if (oldest == null) break;
       next.remove(oldest.key);
     }
-    return SharingState(activeTripId: activeTripId, trips: next);
+    return SharingState(
+      activeTripId: activeTripId,
+      trips: next,
+      sharingDefault: sharingDefault,
+    );
   }
 
-  SharingState withActive(String? tripId) =>
-      SharingState(activeTripId: tripId, trips: trips);
+  SharingState withActive(String? tripId) => SharingState(
+        activeTripId: tripId,
+        trips: trips,
+        sharingDefault: sharingDefault,
+      );
+
+  SharingState withDefault(SharingDefault value) => SharingState(
+        activeTripId: activeTripId,
+        trips: trips,
+        sharingDefault: value,
+      );
 
   Map<String, Object> toJson() => {
         if (activeTripId != null) 'active': activeTripId!,
+        if (sharingDefault != SharingDefault.ask)
+          'default': sharingDefault.name,
         'trips': {
           for (final e in trips.entries) e.key: e.value.toJson(),
         },
@@ -111,6 +147,10 @@ class SharingState {
       activeTripId:
           active is String && trips.containsKey(active) ? active : null,
       trips: trips,
+      sharingDefault: SharingDefault.values
+              .where((d) => d.name == json['default'])
+              .firstOrNull ??
+          SharingDefault.ask,
     );
   }
 }

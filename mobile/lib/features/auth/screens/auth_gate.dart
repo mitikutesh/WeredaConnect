@@ -8,6 +8,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/screens/login_screen.dart';
 import 'package:wereda_connect/features/auth/widgets/app_lock_gate.dart';
 import 'package:wereda_connect/features/auth/widgets/security_prompt_listener.dart';
+import 'package:wereda_connect/features/live_trip/presentation/share_consent_listener.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_event.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_state.dart';
@@ -59,8 +60,12 @@ class _AuthGateState extends State<AuthGate> {
           // from MaterialApp.builder) so it also covers pushed routes.
           // A Telebirr return link that no checkout screen takes (the app
           // was killed while the buyer paid) checks the payment (ESC-44).
+          // LT-09: a trucker's first pickup scan of a trip asks whether to
+          // share where the truck is.
           return const SecurityPromptListener(
-            child: PaymentReturnListener(child: MainNavigation()),
+            child: ShareConsentListener(
+              child: PaymentReturnListener(child: MainNavigation()),
+            ),
           );
         }
 

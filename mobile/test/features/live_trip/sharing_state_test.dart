@@ -34,6 +34,29 @@ void main() {
     expect((await store.load('trucker-1')).trips, isEmpty);
   });
 
+  test('the sharing default round trips; ask is the default', () async {
+    final store = PrefsSharingStateStore();
+    expect(
+      (await store.load('trucker-1')).sharingDefault,
+      SharingDefault.ask,
+    );
+
+    final state = const SharingState()
+        .withDefault(SharingDefault.scansOnly)
+        .withTrip('trip-1', const TripSharing(answer: SharingAnswer.shared))
+        .withActive('trip-1');
+    await store.save('trucker-1', state);
+    final back = await store.load('trucker-1');
+
+    expect(back.sharingDefault, SharingDefault.scansOnly);
+    expect(back.activeTripId, 'trip-1');
+    expect(
+      SharingState.fromJson({'default': 'nonsense'}).sharingDefault,
+      SharingDefault.ask,
+    );
+    expect(const SharingState().toJson().containsKey('default'), isFalse);
+  });
+
   test('a broken entry reads as empty', () async {
     SharedPreferences.setMockInitialValues({
       'live_trip_sharing_trucker-1': '{not json',

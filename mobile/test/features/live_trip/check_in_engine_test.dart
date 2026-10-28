@@ -703,4 +703,91 @@ void main() {
       expect(engine.status.unsent, 2);
     });
   });
+
+  group('first pickup scan and the sharing default (LT-09)', () {
+    test('asks once through consentRequests and records nothing', () async {
+      final asked = <String>[];
+      final sub = engine.consentRequests.listen(asked.add);
+      addTearDown(sub.cancel);
+
+      await engine.onScan(trip);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(asked, [trip]);
+      expect(pings.rows, isEmpty);
+      expect(engine.sharingFor(trip), isNull);
+      expect(engine.status.mode, SharingMode.off);
+    });
+
+    test('a trip with an answer is not asked again', () async {
+      final asked = <String>[];
+      final sub = engine.consentRequests.listen(asked.add);
+      addTearDown(sub.cancel);
+      await engine.decline(trip);
+
+      await engine.onScan(trip);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(asked, isEmpty);
+      expect(pings.fixes.single.source, CheckInSource.scan);
+    });
+
+    test('"always share" starts sharing at the scan without asking', () async {
+      final asked = <String>[];
+      final sub = engine.consentRequests.listen(asked.add);
+      addTearDown(sub.cancel);
+      await engine.setSharingDefault(SharingDefault.share);
+
+      await engine.onScan(trip);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(asked, isEmpty);
+      expect(engine.sharingFor(trip)?.answer, SharingAnswer.shared);
+      expect(pings.fixes.single.source, CheckInSource.start);
+      expect(location.running, isTrue);
+      expect(engine.status.mode, SharingMode.live);
+    });
+
+    test('"never share" records declined, then the scan fix', () async {
+      await engine.setSharingDefault(SharingDefault.scansOnly);
+
+      await engine.onScan(trip);
+
+      expect(engine.sharingFor(trip)?.answer, SharingAnswer.declined);
+      expect(pings.events.single.kind, PingKind.declined);
+      expect(pings.fixes.single.source, CheckInSource.scan);
+      expect(location.running, isFalse);
+      expect(engine.status.mode, SharingMode.declined);
+    });
+
+    test('the default is kept per account across a restart', () async {
+      expect(engine.sharingDefault, SharingDefault.ask);
+      await engine.setSharingDefault(SharingDefault.share);
+      await engine.dispose();
+
+      engine = build();
+      await engine.signIn(trucker);
+      expect(engine.sharingDefault, SharingDefault.share);
+      expect(engine.userId, trucker);
+
+      await engine.signOut();
+      expect(engine.userId, isNull);
+      await engine.signIn('trucker-2');
+      expect(engine.sharingDefault, SharingDefault.ask);
+    });
+
+    test('a signed-out engine neither asks nor stores a default', () async {
+      final asked = <String>[];
+      final sub = engine.consentRequests.listen(asked.add);
+      addTearDown(sub.cancel);
+      await engine.signOut();
+
+      await engine.setSharingDefault(SharingDefault.share);
+      await engine.onScan(trip);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(asked, isEmpty);
+      expect((await states.load(trucker)).sharingDefault, SharingDefault.ask);
+    });
+  });
 }

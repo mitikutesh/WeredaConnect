@@ -156,6 +156,8 @@ class CheckInEngine implements ScanCheckInSink {
 
   final StreamController<CheckInStatus> _statusController =
       StreamController<CheckInStatus>.broadcast();
+  final StreamController<String> _consentController =
+      StreamController<String>.broadcast();
   CheckInStatus _status = const CheckInStatus();
 
   String? _userId;
@@ -180,9 +182,20 @@ class CheckInEngine implements ScanCheckInSink {
   CheckInStatus get status => _status;
 
   /// The phone's sharing state for [tripId] (null: the driver was not asked
-  /// yet). LT-09 shows the consent sheet after the trip's first pickup scan
-  /// while this is null.
+  /// yet).
   TripSharing? sharingFor(String tripId) => _state.trips[tripId];
+
+  /// The signed-in trucker, or null (signed out, or not a trucker).
+  String? get userId => _userId;
+
+  /// What a trip's first pickup scan does while the driver has not answered
+  /// for that trip yet (Settings, LT-09).
+  SharingDefault get sharingDefault => _state.sharingDefault;
+
+  /// Trips whose first pickup scan found no answer while the default is
+  /// [SharingDefault.ask]: the trucker's screens ask "Share where the truck
+  /// is?" once and answer with [start] or [decline] (LT-09).
+  Stream<String> get consentRequests => _consentController.stream;
 
   // ---------------------------------------------------------------------
   // Account
@@ -234,54 +247,19 @@ class CheckInEngine implements ScanCheckInSink {
   /// foreground): record the `start` fix, run the cadence and, on Android,
   /// the foreground service. Refused ([CheckInResult.notSharing]) when the
   /// trip already ended.
-  Future<CheckInResult> start(String tripId) => _serial(() async {
-        final userId = _userId;
-        if (userId == null || tripId.isEmpty) return CheckInResult.notSharing;
-        if (_state.trips[tripId]?.ended ?? false) {
-          return CheckInResult.notSharing;
-        }
-        final progress = await _readProgress(tripId);
-        if (progress != null && progress.allDone) {
-          await _setTrip(
-            tripId,
-            const TripSharing(answer: SharingAnswer.shared, ended: true),
-          );
-          await _publish();
-          return CheckInResult.notSharing;
-        }
-        await _setTrip(
-          tripId,
-          const TripSharing(answer: SharingAnswer.shared),
-          activate: true,
-        );
-        await _activate(tripId, progress: progress);
-        // The start fix first: it asks for the location permission, which
-        // the foreground service needs.
-        final result = await _takeFix(
-          tripId,
-          CheckInSource.start,
-          askPermission: true,
-        );
-        await _ensureBackground(force: true);
-        _schedule();
-        await _publish();
-        return result;
-      });
+  Future<CheckInResult> start(String tripId) =>
+      _serial(() => _startTrip(tripId));
 
   /// The driver chose "Not now, scans only" for [tripId]: record `declined`.
   /// No cadence and no foreground service; QR scans still record a fix.
-  Future<void> decline(String tripId) => _serial(() async {
-        final userId = _userId;
-        if (userId == null || tripId.isEmpty) return;
-        await _halt();
-        await _setTrip(
-          tripId,
-          const TripSharing(answer: SharingAnswer.declined),
-          activate: true,
-        );
-        await _activate(tripId);
-        await _recordEvent(tripId, PingKind.declined, _now());
-        await _publish();
+  Future<void> decline(String tripId) => _serial(() => _declineTrip(tripId));
+
+  /// Change what a trip's first pickup scan does while the trip has no
+  /// answer (Settings, LT-09). Trips with an answer keep it.
+  Future<void> setSharingDefault(SharingDefault value) => _serial(() async {
+        if (_userId == null) return;
+        _state = _state.withDefault(value);
+        await _saveState();
       });
 
   /// Pause the cadence until [until] (cut to 18 hours after the event, the
@@ -343,13 +321,32 @@ class CheckInEngine implements ScanCheckInSink {
   /// A pickup or drop-off QR scan of [tripId] succeeded: a `scan` fix when
   /// the driver shares (also while paused) or chose scans only. Resets the
   /// cadence clock. Never throws.
+  ///
+  /// A trip with no answer yet (its first pickup scan: only the trucker's
+  /// own phone scans, at pickup) follows [sharingDefault]: ask through
+  /// [consentRequests] and record nothing, start sharing (the start fix
+  /// records this place), or record `declined` and then the scan fix.
   @override
   Future<void> onScan(String tripId) async {
     try {
       await _serial(() async {
+        if (_userId == null || tripId.isEmpty) return;
+        if (_state.trips[tripId] == null) {
+          switch (_state.sharingDefault) {
+            case SharingDefault.ask:
+              if (!_consentController.isClosed) {
+                _consentController.add(tripId);
+              }
+              return;
+            case SharingDefault.share:
+              await _startTrip(tripId);
+              return;
+            case SharingDefault.scansOnly:
+              await _declineTrip(tripId);
+          }
+        }
         final sharing = _state.trips[tripId];
-        if (_userId == null || tripId.isEmpty || sharing == null) return;
-        if (sharing.ended) return;
+        if (sharing == null || sharing.ended) return;
         if (sharing.answer == SharingAnswer.shared &&
             _state.activeTripId != tripId) {
           _state = _state.withActive(tripId);
@@ -453,6 +450,7 @@ class CheckInEngine implements ScanCheckInSink {
     _disposed = true;
     await _serial(_halt);
     await _statusController.close();
+    await _consentController.close();
   }
 
   // ---------------------------------------------------------------------
@@ -469,6 +467,56 @@ class CheckInEngine implements ScanCheckInSink {
       }
     });
     return completer.future;
+  }
+
+  /// [start] inside the serial queue.
+  Future<CheckInResult> _startTrip(String tripId) async {
+    final userId = _userId;
+    if (userId == null || tripId.isEmpty) return CheckInResult.notSharing;
+    if (_state.trips[tripId]?.ended ?? false) {
+      return CheckInResult.notSharing;
+    }
+    final progress = await _readProgress(tripId);
+    if (progress != null && progress.allDone) {
+      await _setTrip(
+        tripId,
+        const TripSharing(answer: SharingAnswer.shared, ended: true),
+      );
+      await _publish();
+      return CheckInResult.notSharing;
+    }
+    await _setTrip(
+      tripId,
+      const TripSharing(answer: SharingAnswer.shared),
+      activate: true,
+    );
+    await _activate(tripId, progress: progress);
+    // The start fix first: it asks for the location permission, which the
+    // foreground service needs.
+    final result = await _takeFix(
+      tripId,
+      CheckInSource.start,
+      askPermission: true,
+    );
+    await _ensureBackground(force: true);
+    _schedule();
+    await _publish();
+    return result;
+  }
+
+  /// [decline] inside the serial queue.
+  Future<void> _declineTrip(String tripId) async {
+    final userId = _userId;
+    if (userId == null || tripId.isEmpty) return;
+    await _halt();
+    await _setTrip(
+      tripId,
+      const TripSharing(answer: SharingAnswer.declined),
+      activate: true,
+    );
+    await _activate(tripId);
+    await _recordEvent(tripId, PingKind.declined, _now());
+    await _publish();
   }
 
   void _resetSession() {

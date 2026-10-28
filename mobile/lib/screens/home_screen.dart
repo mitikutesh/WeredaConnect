@@ -42,6 +42,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/screens/create
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
+import 'package:wereda_connect/features/live_trip/presentation/widgets/trip_mode_card.dart';
 import 'package:wereda_connect/features/notifications/domain/base_notification_repository.dart';
 import 'package:wereda_connect/features/notifications/presentation/notification_text.dart';
 import 'package:wereda_connect/features/order/presentation/open_order_detail.dart';
@@ -266,7 +267,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// The role's companion card: the trucker's current trip or the buyer's
+  /// The role's companion card: the trucker's current trip (with the way
+  /// into trip mode while a trip is on the road, LT-09) or the buyer's
   /// active intents. Farmers have none.
   Widget? _buildRoleCard({
     required UserRole role,
@@ -274,10 +276,17 @@ class _HomeScreenState extends State<HomeScreen> {
     required AppLocalizations l10n,
   }) {
     return switch (role) {
-      UserRole.trucker => TruckerHeroCard(
-          key: ValueKey('hero_$_refreshKey'),
-          userId: userId,
-          onRefresh: _refreshData,
+      UserRole.trucker => Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const TripModeCard(),
+            TruckerHeroCard(
+              key: ValueKey('hero_$_refreshKey'),
+              userId: userId,
+              onRefresh: _refreshData,
+            ),
+          ],
         ),
       UserRole.buyer => _ActiveIntentsSection(
           key: ValueKey('intents_$_refreshKey'),

@@ -3561,4 +3561,255 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get liveTripNotificationChannel => 'የጉዞ ቦታ';
+
+  @override
+  String get liveTripConsentTitle => 'መኪናው የት እንዳለ ይጋራ?';
+
+  @override
+  String get liveTripConsentLede =>
+      'መኪናውን ማየት የሚችሉ ገዥዎችና ገበሬዎች ያነሰ ይጨነቃሉ፤ በሚነዱበት ጊዜም ያነሰ ይደውሉልዎታል።';
+
+  @override
+  String get liveTripConsentWhoTitle => 'ማን ያየዋል';
+
+  @override
+  String get liveTripConsentWhoText =>
+      'በዚህ ጉዞ ላይ ያለው የእያንዳንዱ ትዕዛዝ ገዥና ገበሬ፣ እያንዳንዳቸው ለራሳቸው ትዕዛዝ ብቻ። ሌሎች ሹፌሮችና ጉዞዎችን የሚመለከቱ ገዥዎች በፍጹም አያዩትም።';
+
+  @override
+  String get liveTripConsentOftenTitle => 'ምን ያህል ጊዜ';
+
+  @override
+  String get liveTripConsentOftenText =>
+      'በሰዓት አንድ ጊዜ ገደማ እና በእያንዳንዱ የኪዩአር ቅኝት። ወደ ማውረጃ ቦታ ሲቀርቡ በየ15 ደቂቃው።';
+
+  @override
+  String get liveTripConsentStopsTitle => 'መቼ ይቆማል';
+
+  @override
+  String get liveTripConsentStopsText =>
+      'በዚህ ጉዞ ላይ የመጨረሻው ርክክብ ሲጠናቀቅ በራሱ ይቆማል። በማንኛውም ጊዜ ለአፍታ ማቆም ይችላሉ።';
+
+  @override
+  String get liveTripConsentDataTitle => 'ውሂብ';
+
+  @override
+  String get liveTripConsentDataText =>
+      'በቀን 170 KB ገደማ። ኔትወርክ ከሌለ የቦታ ሪፖርቶች ስልኩ ላይ ይቆያሉ፤ በኋላ ይላካሉ።';
+
+  @override
+  String get liveTripConsentAndroidNote => 'ማጋራቱ በርቶ ሳለ አንድሮይድ ማሳወቂያ ያሳያል።';
+
+  @override
+  String get liveTripConsentWebNote =>
+      'በድር ላይ የቦታ ሪፖርቶች የሚላኩት ይህ ገጽ ክፍት ሲሆን ብቻ ነው።';
+
+  @override
+  String get liveTripConsentShare => 'የጉዞ ቦታን አጋራ';
+
+  @override
+  String get liveTripConsentDecline => 'አሁን አይደለም፣ ቅኝት ብቻ';
+
+  @override
+  String get liveTripSharingStarted => 'ለዚህ ጉዞ የመኪናው ቦታ እየተጋራ ነው።';
+
+  @override
+  String get liveTripScansOnlyChosen =>
+      'ለዚህ ጉዞ ቅኝት ብቻ። ከጉዞ ሁኔታ ገጽ አሁንም ማጋራት ይችላሉ።';
+
+  @override
+  String get tripModeTitle => 'የጉዞ ሁኔታ';
+
+  @override
+  String get tripModeOpen => 'ጉዞውን ክፈት';
+
+  @override
+  String tripModeOrders(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ትዕዛዞች',
+      one: '1 ትዕዛዝ',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get tripModeSharingLive => 'ቦታዎ እየተጋራ ነው';
+
+  @override
+  String tripModeLastCheckIn(String time) {
+    return 'የመጨረሻ ሪፖርት $time';
+  }
+
+  @override
+  String get tripModeNoCheckInYet => 'እስካሁን ሪፖርት የለም';
+
+  @override
+  String tripModeNextBy(String time) {
+    return 'ቀጣዩ $time ላይ';
+  }
+
+  @override
+  String get tripModePrivacy => 'እያንዳንዱ ገዥና ገበሬ የሚያየው የራሱን ትዕዛዝ ክፍል ብቻ ነው።';
+
+  @override
+  String get tripModePause => 'ለአፍታ አቁም';
+
+  @override
+  String get tripModeCheckInNow => 'አሁን ሪፖርት አድርግ';
+
+  @override
+  String get tripModePausedTitle => 'ማጋራቱ ለአፍታ ቆሟል';
+
+  @override
+  String tripModePausedUntil(String time) {
+    return '$time ላይ በራሱ ይመለሳል';
+  }
+
+  @override
+  String get tripModeResume => 'አሁን ቀጥል';
+
+  @override
+  String get tripModeScansOnlyTitle => 'ቅኝት ብቻ';
+
+  @override
+  String get tripModeScansOnlyText =>
+      'ቦታዎ አይጋራም። የኪዩአር ቅኝቶች አሁንም ማንሳትንና ማድረስን ይመዘግባሉ።';
+
+  @override
+  String get tripModeEndedTitle => 'ማጋራቱ አብቅቷል';
+
+  @override
+  String get tripModeEndedText => 'በዚህ ጉዞ ላይ ያሉ ሁሉም ርክክቦች ስለተጠናቀቁ ማጋራቱ ቆሟል።';
+
+  @override
+  String get tripModeNoTrip =>
+      'በመንገድ ላይ ያለ ጉዞ የለም። የጉዞ ሁኔታ የሚጀምረው በመጀመሪያው የማንሳት ቅኝት ነው።';
+
+  @override
+  String get tripModeNextPickup => 'ቀጣይ ማቆሚያ: ማንሳት';
+
+  @override
+  String get tripModeNextDropoff => 'ቀጣይ ማቆሚያ: ማውረድ';
+
+  @override
+  String get tripModeArrived => 'ደርሻለሁ';
+
+  @override
+  String get tripModeStops => 'ማቆሚያዎች';
+
+  @override
+  String tripModeStopPickup(String name) {
+    return 'ማንሳት: $name';
+  }
+
+  @override
+  String tripModeStopDropoff(String name) {
+    return 'ማውረድ: $name';
+  }
+
+  @override
+  String tripModeScannedAt(String time) {
+    return '$time ላይ ተቃኝቷል';
+  }
+
+  @override
+  String tripModeDeliveredAt(String time) {
+    return '$time ላይ ደርሷል';
+  }
+
+  @override
+  String get tripModeNextLabel => 'ቀጣይ';
+
+  @override
+  String get tripModePayTitle => 'የዚህ ጉዞ ክፍያዎ';
+
+  @override
+  String get tripModePayNote => 'ከእያንዳንዱ ማውረድ 48 ሰዓት በኋላ ይከፈላል';
+
+  @override
+  String get tripModeCheckInSaved => 'ሪፖርቱ ተቀምጧል።';
+
+  @override
+  String get tripModeNoFix =>
+      'አሁን ቦታ ማግኘት አልተቻለም። የቦታ አገልግሎት መብራቱን አረጋግጠው እንደገና ይሞክሩ።';
+
+  @override
+  String get tripModeNotSharing => 'ይህ ጉዞ ቦታውን አያጋራም።';
+
+  @override
+  String get tripModeLoadFailed => 'የዚህን ጉዞ ማቆሚያዎች መጫን አልተቻለም።';
+
+  @override
+  String get tripModeOfflineTitle => 'እዚህ ኔትወርክ የለም';
+
+  @override
+  String tripModeOfflineWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ሪፖርቶች ስልኩ ላይ እየጠበቁ ነው። ኔትወርክ ሲመለስ በራሳቸው ይላካሉ።',
+      one: '1 ሪፖርት ስልኩ ላይ እየጠበቀ ነው። ኔትወርክ ሲመለስ በራሱ ይላካል።',
+      zero: 'ሪፖርቶች ስልኩ ላይ ይቆያሉ፤ ኔትወርክ ሲመለስ በራሳቸው ይላካሉ።',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get tripModeCardTitle => 'በመንገድ ላይ ያለ ጉዞ';
+
+  @override
+  String get pauseSheetTitle => 'ማጋራቱን ለአፍታ ላቁም?';
+
+  @override
+  String get pauseSheetText =>
+      'ለእረፍት ወይም ለሌሊት። ገዥዎችና ገበሬዎች ማጋራቱ መቆሙንና መቼ እንደሚመለስ ያያሉ።';
+
+  @override
+  String get pauseSheetFor => 'ለምን ያህል ጊዜ';
+
+  @override
+  String get pauseSheet15 => '15 ደቂቃ';
+
+  @override
+  String get pauseSheet30 => '30 ደቂቃ';
+
+  @override
+  String get pauseSheet60 => '1 ሰዓት';
+
+  @override
+  String pauseSheetOvernight(String time) {
+    return 'ሌሊቱን ሙሉ፣ $time ድረስ';
+  }
+
+  @override
+  String pauseSheetBackAt(String time) {
+    return '$time ላይ ይመለሳል';
+  }
+
+  @override
+  String get pauseSheetNote => 'ማጋራቱ በራሱ ይመለሳል። የኪዩአር ቅኝቶች አሁንም ቦታቸውን ይመዘግባሉ።';
+
+  @override
+  String get pauseSheetConfirm => 'ማጋራቱን ለአፍታ አቁም';
+
+  @override
+  String get pauseSheetKeep => 'ማጋራቱን ቀጥል';
+
+  @override
+  String get sharingDefaultSetting => 'የጉዞ ቦታ';
+
+  @override
+  String get sharingDefaultHint =>
+      'በጉዞ የመጀመሪያ የማንሳት ቅኝት ላይ የሚሆነው። የእያንዳንዱ ትዕዛዝ ገዥና ገበሬ መኪናውን እስከ ርክክባቸው ድረስ ያያሉ።';
+
+  @override
+  String get sharingDefaultAsk => 'በየጉዞው ጠይቀኝ';
+
+  @override
+  String get sharingDefaultShare => 'ሁልጊዜ አጋራ';
+
+  @override
+  String get sharingDefaultScansOnly => 'በፍጹም አታጋራ (ቅኝት ብቻ)';
 }

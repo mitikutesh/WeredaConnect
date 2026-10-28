@@ -15,6 +15,7 @@ import 'package:wereda_connect/features/auth/screens/reset_password_screen.dart'
 import 'package:wereda_connect/features/auth/widgets/security_prompt_listener.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/find_crops_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
+import 'package:wereda_connect/features/live_trip/presentation/share_consent_listener.dart';
 import 'package:wereda_connect/features/messaging/presentation/screens/messages_inbox_screen.dart';
 import 'package:wereda_connect/features/messaging/presentation/widgets/message_arrival_listener.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
@@ -105,7 +106,11 @@ GoRouter createWebRouter(AuthBloc authBloc) {
         observers: [pushedRoutes],
         builder: (context, state, child) => MessageArrivalListener(
           child: SecurityPromptListener(
-            child: AdaptiveShell(pushedRoutes: pushedRoutes, child: child),
+            // LT-09: a trucker's first pickup scan of a trip asks whether
+            // to share where the truck is.
+            child: ShareConsentListener(
+              child: AdaptiveShell(pushedRoutes: pushedRoutes, child: child),
+            ),
           ),
         ),
         routes: [
