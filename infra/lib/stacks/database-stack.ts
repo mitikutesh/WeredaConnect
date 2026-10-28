@@ -192,7 +192,8 @@ export class DatabaseStack extends cdk.Stack {
     });
 
     // Deliveries table. The NEW_AND_OLD_IMAGES stream feeds
-    // OrderNotifyStreamFunction (ESC-21), which only reads INSERT events here.
+    // OrderNotifyStreamFunction (ESC-21), which only reads INSERT events here
+    // and the MODIFY that stamps nearbyNotifiedAt (LT-07, truck_nearby).
     const deliveries = new WeredaDynamoTable(this, "DeliveriesTable", {
       tableName: `${prefix}-deliveries`,
       partitionKey: { name: "deliveryId", type: dynamodb.AttributeType.STRING },
