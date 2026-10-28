@@ -32,4 +32,10 @@ public interface ITripLocationRepository
     /// the repeat check.
     /// </summary>
     Task<List<string>> ListSortKeysAsync(string tripId, string sortKeyPrefix);
+
+    /// <summary>
+    /// LT-06: every row of the trip in capture order (all pages up to a bound, eventually consistent),
+    /// for the track read. The caller cuts the window it may show.
+    /// </summary>
+    Task<List<TripLocationRow>> ListByTripAsync(string tripId);
 }

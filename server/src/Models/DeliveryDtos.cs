@@ -236,3 +236,129 @@ public sealed record DeliveryDto
     /// </summary>
     public required int Version { get; init; }
 }
+
+/// <summary>
+/// LT-06: GET /deliveries/{id}/track response (live-trip-api.md section 2). Only the delivery's
+/// buyer, farmer and trucker read it. Coordinates are rounded (party points at 3 decimals, other
+/// stops at 2) and limited to the delivery's own window, from pickup to delivery. Nullable fields
+/// are written as <c>null</c>, as the contract shows them.
+/// </summary>
+public sealed record DeliveryTrackResponse
+{
+    public required string DeliveryId { get; init; }
+
+    /// <summary><c>not_started</c>, <c>live</c>, <c>paused</c>, <c>declined</c> or <c>ended</c>.</summary>
+    public required string Sharing { get; init; }
+
+    /// <summary>The end of the running pause, only while <c>paused</c>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? PausedUntil { get; init; }
+
+    /// <summary>The server time of this answer.</summary>
+    public required string AsOf { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public TrackLastFixDto? LastFix { get; init; }
+
+    public required List<TrackTrailPointDto> Trail { get; init; }
+
+    public required List<TrackPauseDto> Pauses { get; init; }
+
+    public required TrackPickupDto Pickup { get; init; }
+
+    public required TrackDropoffDto Dropoff { get; init; }
+
+    public required List<TrackStopDto> OtherStops { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public TrackEtaDto? Eta { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? RemainingKm { get; init; }
+
+    /// <summary>Only when <c>ended</c>; carries no coordinates.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public TrackSummaryDto? Summary { get; init; }
+}
+
+/// <summary>The latest check-in of the window.</summary>
+public sealed record TrackLastFixDto
+{
+    public required double Latitude { get; init; }
+    public required double Longitude { get; init; }
+    public required string CapturedAt { get; init; }
+    public required string ReceivedAt { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? AccuracyM { get; init; }
+}
+
+/// <summary>One check-in of the window, in capture order.</summary>
+public sealed record TrackTrailPointDto
+{
+    public required double Latitude { get; init; }
+    public required double Longitude { get; init; }
+    public required string CapturedAt { get; init; }
+    public required string ReceivedAt { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? Source { get; init; }
+}
+
+/// <summary>A pause of the driver inside the window.</summary>
+public sealed record TrackPauseDto
+{
+    public required string From { get; init; }
+    public required string Until { get; init; }
+}
+
+/// <summary>The pickup point (gpsPickup, else the listing location) and the pickup time.</summary>
+public sealed record TrackPickupDto
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? Latitude { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? Longitude { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? At { get; init; }
+}
+
+/// <summary>The drop-off point and the buyer's landmark note (LT-12; null until then).</summary>
+public sealed record TrackDropoffDto
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? Latitude { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? Longitude { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? Note { get; init; }
+}
+
+/// <summary>Another order's pickup or drop-off on the same truck: never named, 2 decimals.</summary>
+public sealed record TrackStopDto
+{
+    /// <summary><c>pickup</c> or <c>dropoff</c>.</summary>
+    public required string Kind { get; init; }
+    public required double Latitude { get; init; }
+    public required double Longitude { get; init; }
+    public required bool Done { get; init; }
+}
+
+/// <summary>The arrival window, on 5 minute marks.</summary>
+public sealed record TrackEtaDto
+{
+    public required string From { get; init; }
+    public required string To { get; init; }
+}
+
+/// <summary>The trip after delivery: distance of the legs, pickup to delivery, number of check-ins.</summary>
+public sealed record TrackSummaryDto
+{
+    public required double DistanceKm { get; init; }
+    public required int DurationMin { get; init; }
+    public required int Fixes { get; init; }
+}

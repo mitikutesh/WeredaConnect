@@ -67,6 +67,7 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(List<DeliveryDto>))]
 [JsonSerializable(typeof(GetDeliveriesResponse))]
 [JsonSerializable(typeof(GetDeliveryResponse))]
+[JsonSerializable(typeof(DeliveryTrackResponse))]
 [JsonSerializable(typeof(LatLngDto))]
 [JsonSerializable(typeof(UploadPhotoRequest))]
 [JsonSerializable(typeof(UploadPhotoResponse))]

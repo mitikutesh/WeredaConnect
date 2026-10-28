@@ -1011,7 +1011,7 @@ export class ApiStack extends cdk.Stack {
     const deliveryFn = new WeredaLambda(this, "DeliveryFunction", {
       functionName: `${prefix}-deliveries`,
       description:
-        "GET /deliveries, POST /deliveries/{id}/photos — delivery verification",
+        "GET /deliveries, GET /deliveries/{id}/track, POST /deliveries/{id}/photos: delivery verification and live trip",
       handlerName: "DeliveryFunction",
       environment: {
         DELIVERIES_TABLE: props.deliveriesTable.tableName,
@@ -1019,6 +1019,9 @@ export class ApiStack extends cdk.Stack {
         UPLOADS_BUCKET: props.uploadsBucket.bucketName,
         USERS_TABLE: props.usersTable.tableName,
         PAGINATION_SECRET_ARN: paginationSecret.reference,
+        // LT-06: the track reads the trip's check-ins and the listings (pickup points).
+        TRIP_LOCATIONS_TABLE: props.tripLocationsTable.tableName,
+        CROPS_TABLE: props.cropsTable.tableName,
       },
       timeout: cdk.Duration.seconds(15),
       memorySize: 512,
@@ -1029,6 +1032,10 @@ export class ApiStack extends cdk.Stack {
     props.usersTable.grantReadData(deliveryFn.function);
     props.uploadsBucket.grantReadWrite(deliveryFn.function);
     paginationSecret.grantRead(deliveryFn.function);
+    // LT-06: the track only reads. A trip's check-ins are one Query; a listing is read by a Query on
+    // its id (the crops table is keyed cropId + createdAt). No write on either table.
+    props.tripLocationsTable.grant(deliveryFn.function, "dynamodb:Query");
+    props.cropsTable.grant(deliveryFn.function, "dynamodb:Query");
 
     // ─── Telebirr live gateway (gated) ────────────────────────────────
     // Off by default: dev/staging run MockTelebirrGateway (TELEBIRR_MOCK=true)
@@ -2133,6 +2140,21 @@ export class ApiStack extends cdk.Stack {
       authorizer: jwtAuthorizer,
       integration: new integrations.HttpLambdaIntegration(
         "DeliveriesGetInt",
+        deliveryFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    // LT-06: where the truck is, for the delivery's three parties (the handler answers 404 to anyone
+    // else). Without this route the request never reaches the Lambda.
+    httpApi.addRoutes({
+      path: "/deliveries/{id}/track",
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration(
+        "DeliveriesTrackInt",
         deliveryFn.function,
         {
           payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
