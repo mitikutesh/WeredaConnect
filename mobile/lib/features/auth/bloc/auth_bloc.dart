@@ -31,6 +31,7 @@ import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/live_trip/data/track_snapshot_store.dart';
 import 'package:wereda_connect/features/messaging/data/repositories/web_message_repository.dart';
 
 /// BLoC for managing authentication state.
@@ -60,6 +61,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final Future<void> Function()? _pushTokenDeleter;
   final Future<void> Function(String userId) _forgetReadMarkers;
   final Future<void> Function(String userId) _forgetDataUsage;
+  final Future<void> Function(String userId) _forgetTrackSnapshots;
   final SecurityEvents _securityEvents;
   StreamSubscription<void>? _sessionExpiredSub;
   StreamSubscription<String>? _accountGoneSub;
@@ -105,6 +107,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   /// deleted (mobile only).
   /// [forgetReadMarkers] removes the web read markers of a deleted account,
   /// [forgetDataUsage] the data usage counters of one that is not signed in.
+  /// [forgetTrackSnapshots] removes the user's stored live trip snapshots
+  /// (truck positions) on logout and account deletion.
   /// [sessionExpired] fires when the server rejects the refresh token,
   /// [accountGone] when it refuses a request with `410 ACCOUNT_004`.
   /// [securityEvents] defaults to the app-wide bus (tests inject one).
@@ -116,6 +120,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Future<void> Function()? pushTokenDeleter,
     Future<void> Function(String userId)? forgetReadMarkers,
     Future<void> Function(String userId)? forgetDataUsage,
+    Future<void> Function(String userId)? forgetTrackSnapshots,
     Stream<void>? sessionExpired,
     Stream<String>? accountGone,
     SecurityEvents? securityEvents,
@@ -127,6 +132,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         _forgetReadMarkers =
             forgetReadMarkers ?? WebMessageRepository.forgetReadMarkers,
         _forgetDataUsage = forgetDataUsage ?? DataUsageTracker.forgetStoredUser,
+        _forgetTrackSnapshots =
+            forgetTrackSnapshots ?? TrackSnapshotStore.forgetStoredUser,
         _securityEvents = securityEvents ?? SecurityEvents.instance,
         super(const AuthInitial()) {
     // Register event handlers
@@ -736,6 +743,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       }
       // Sync refusals kept for a listener belong to the leaving user.
       _securityEvents.clearKeptRejections();
+      // LT-10: where the trucks of this user's deliveries were. Kept outside
+      // Isar (both platforms), so it is cleared here.
+      try {
+        await _forgetTrackSnapshots(userId);
+      } on Object catch (e) {
+        debugPrint('[AuthBloc] track snapshot clear skipped: $e');
+      }
 
       // Clear offline credentials by default (event.clearCache). Hardcoding
       // false left the password hash + tokens on the device after an
@@ -882,6 +896,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       await step('offline cache', () => _offlineCache.forgetAccount(phone));
     }
     await step('read markers', () => _forgetReadMarkers(userId));
+    await step('track snapshots', () => _forgetTrackSnapshots(userId));
     if (!signedIn) {
       await step('data usage', () => _forgetDataUsage(userId));
       return;

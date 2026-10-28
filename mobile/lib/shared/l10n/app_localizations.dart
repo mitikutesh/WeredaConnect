@@ -466,6 +466,12 @@ abstract class AppLocalizations {
   /// **'Connecting Ethiopian farmers, truckers, and buyers'**
   String get aboutTagline;
 
+  /// About dialog: the attribution the GeoNames licence (CC BY 4.0) requires for the place names and positions the live trip map draws. {credit} is the fixed credit line, never translated. Amharic and Afaan Oromo need a native speaker review.
+  ///
+  /// In en, this message translates to:
+  /// **'Map data: {credit}'**
+  String aboutMapDataCredit(String credit);
+
   /// Active listings count label
   ///
   /// In en, this message translates to:

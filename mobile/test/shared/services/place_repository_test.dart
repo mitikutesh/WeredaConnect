@@ -108,6 +108,19 @@ void main() {
     });
   });
 
+  // LT-10: the live trip map labels its towns from the whole list.
+  group('places', () {
+    test('is empty until loaded', () {
+      expect(PlaceRepository().places, isEmpty);
+    });
+
+    test('lists every place in the dataset order, read-only', () {
+      expect(repo.places, hasLength(12));
+      expect(repo.places.first.id, 'gn-addis');
+      expect(() => repo.places.removeLast(), throwsUnsupportedError);
+    });
+  });
+
   // The real bundled asset, regenerated with the overrides merged
   // (scripts/build_ethiopia_places.py --apply-overrides).
   group('bundled asset', () {
