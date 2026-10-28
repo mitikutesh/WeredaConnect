@@ -6,6 +6,7 @@ import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/models/sync_operation.dart';
 import 'package:wereda_connect/core/sync/idempotency_key_generator.dart';
+import 'package:wereda_connect/core/sync/location_ping_rules.dart';
 
 /// Manages the offline sync queue using Isar as persistent storage.
 ///
@@ -55,6 +56,9 @@ class SyncQueue {
   /// - [action]: The operation ('create', 'update', 'delete')
   /// - [data]: Serialized JSON payload of the entity
   /// - [operationId]: Pre-generated UUID v4 for the operation
+  /// - [keyTimestamp]: the time in the idempotency key, when it is not the
+  ///   enqueue time (a check-in uses its capture time, live-trip-api.md
+  ///   section 1)
   ///
   /// Returns the created [SyncOperation].
   ///
@@ -67,6 +71,7 @@ class SyncQueue {
     required String action,
     required String data,
     required String operationId,
+    DateTime? keyTimestamp,
   }) async {
     // Check queue capacity
     final currentCount = await getPendingCount();
@@ -85,7 +90,7 @@ class SyncQueue {
       entityType: entityType,
       entityId: entityId,
       action: action,
-      timestamp: now,
+      timestamp: keyTimestamp ?? now,
     );
 
     // Check for duplicate idempotency key
@@ -126,10 +131,24 @@ class SyncQueue {
   ///
   /// Returns operations with status [SyncStatus.pending], oldest first.
   /// The [limit] parameter controls batch size (default 50 for data efficiency).
-  Future<List<SyncOperation>> getPendingOperations({int limit = 50}) async {
+  /// [onlyEntityType] keeps one entity type, [exceptEntityType] leaves one out
+  /// (the sync executor sends check-ins after every other operation, LT-08).
+  Future<List<SyncOperation>> getPendingOperations({
+    int limit = 50,
+    String? onlyEntityType,
+    String? exceptEntityType,
+  }) async {
     return _isar.syncOperations
         .filter()
         .statusEqualTo(SyncStatus.pending)
+        .optional(
+          onlyEntityType != null,
+          (q) => q.entityTypeEqualTo(onlyEntityType!),
+        )
+        .optional(
+          exceptEntityType != null,
+          (q) => q.not().entityTypeEqualTo(exceptEntityType!),
+        )
         .sortByCreatedAt()
         .limit(limit)
         .findAll();
@@ -145,14 +164,28 @@ class SyncQueue {
   Future<List<SyncOperation>> getPendingOperationsForUser({
     required String? userId,
     int limit = 50,
+    String? onlyEntityType,
+    String? exceptEntityType,
   }) async {
     if (userId == null || userId.isEmpty) {
-      return getPendingOperations(limit: limit);
+      return getPendingOperations(
+        limit: limit,
+        onlyEntityType: onlyEntityType,
+        exceptEntityType: exceptEntityType,
+      );
     }
     return _isar.syncOperations
         .filter()
         .statusEqualTo(SyncStatus.pending)
         .idempotencyKeyStartsWith('$userId:')
+        .optional(
+          onlyEntityType != null,
+          (q) => q.entityTypeEqualTo(onlyEntityType!),
+        )
+        .optional(
+          exceptEntityType != null,
+          (q) => q.not().entityTypeEqualTo(exceptEntityType!),
+        )
         .sortByCreatedAt()
         .limit(limit)
         .findAll();
@@ -354,12 +387,14 @@ class SyncQueue {
 
   /// Get the count of failed operations: those that ran out of retries and
   /// those the server rejected for good, except rejected order operations,
-  /// match events and operations flagged reverted ([markRevertedFor]). A
-  /// rejected order change was undone (the order went back to the server's
-  /// view) and explained, a reverted crop or trip change likewise, and a
-  /// match event is background analytics the user never made, so nothing is
-  /// left for the user to act on. Any other rejected change still sits in
-  /// local data that never reached the server, so it keeps counting.
+  /// match events, check-ins and operations flagged reverted
+  /// ([markRevertedFor]). A rejected order change was undone (the order went
+  /// back to the server's view) and explained, a reverted crop or trip change
+  /// likewise, a match event is background analytics the user never made,
+  /// and a refused check-in only leaves a gap in the trail (sync-protocol.md
+  /// Location pings), so nothing is left for the user to act on. Any other
+  /// rejected change still sits in local data that never reached the server,
+  /// so it keeps counting.
   Future<int> getFailedCount() async {
     return _isar.syncOperations
         .filter()
@@ -375,7 +410,10 @@ class SyncQueue {
                     .entityTypeEqualTo('order')
                     .and()
                     .not()
-                    .entityTypeEqualTo('match_event'),
+                    .entityTypeEqualTo('match_event')
+                    .and()
+                    .not()
+                    .entityTypeEqualTo(locationPingEntityType),
               ),
         )
         .count();
@@ -407,6 +445,107 @@ class SyncQueue {
   /// Get an operation by its operationId.
   Future<SyncOperation?> getOperation(String operationId) async {
     return _findByOperationId(operationId);
+  }
+
+  /// The check-ins that still wait to reach the server (pending or on their
+  /// way), of one trip when [tripId] is given (LT-08: "N check-ins wait on
+  /// the phone").
+  Future<int> pendingLocationPingCount({String? tripId}) async {
+    return _isar.syncOperations
+        .filter()
+        .entityTypeEqualTo(locationPingEntityType)
+        .group(
+          (q) => q
+              .statusEqualTo(SyncStatus.pending)
+              .or()
+              .statusEqualTo(SyncStatus.syncing),
+        )
+        .optional(
+          tripId != null,
+          (q) => q.entityIdStartsWith('$tripId#'),
+        )
+        .count();
+  }
+
+  /// Coalesce the unsent check-ins when more than [threshold] wait
+  /// (live-trip.md section 5.3): per trip and clock hour at most one `fix`
+  /// stays, plus every sharing event, so a long dead zone does not flood the
+  /// queue. Only `pending` operations are touched: one on its way gets its
+  /// own answer.
+  ///
+  /// Returns the entity ids (ping ids) of the operations removed.
+  Future<List<String>> coalesceLocationPings({
+    int threshold = locationPingCoalesceThreshold,
+  }) async {
+    final unsent = await _isar.syncOperations
+        .filter()
+        .entityTypeEqualTo(locationPingEntityType)
+        .statusEqualTo(SyncStatus.pending)
+        .findAll();
+    if (unsent.length <= threshold) return const [];
+
+    final candidates = <UnsentLocationPing<SyncOperation>>[];
+    for (final op in unsent) {
+      final ping = _unsentPingOf(op);
+      if (ping != null) candidates.add(ping);
+    }
+    final drop = locationPingsToCoalesce(candidates, threshold: threshold);
+    if (drop.isEmpty) return const [];
+
+    await _isar.writeTxn(() async {
+      await _isar.syncOperations.deleteAll([for (final op in drop) op.id]);
+    });
+    debugPrint('[SYNC] coalesced ${drop.length} queued check-ins');
+    return [for (final op in drop) op.entityId];
+  }
+
+  /// Remove the check-ins of [tripId] that still wait to be sent: the trip's
+  /// pickup was refused for good, so they could only wait as `deferred` for
+  /// 7 days (LT-08). Operations on their way are left to their answer.
+  ///
+  /// Returns the entity ids (ping ids) of the operations removed.
+  Future<List<String>> dropLocationPingsForTrip(String tripId) async {
+    final ops = await _isar.syncOperations
+        .filter()
+        .entityTypeEqualTo(locationPingEntityType)
+        .entityIdStartsWith('$tripId#')
+        .group(
+          (q) => q.statusEqualTo(SyncStatus.pending).or().group(
+                (r) => r
+                    .statusEqualTo(SyncStatus.failed)
+                    .retryCountLessThan(maxRetries, include: true),
+              ),
+        )
+        .findAll();
+    if (ops.isEmpty) return const [];
+
+    await _isar.writeTxn(() async {
+      await _isar.syncOperations.deleteAll([for (final op in ops) op.id]);
+    });
+    return [for (final op in ops) op.entityId];
+  }
+
+  static UnsentLocationPing<SyncOperation>? _unsentPingOf(SyncOperation op) {
+    try {
+      final data = jsonDecode(op.data);
+      if (data is! Map) return null;
+      final tripId = data['tripId'];
+      final kind = data['kind'];
+      final capturedAt = DateTime.tryParse('${data['capturedAt']}');
+      if (tripId is! String || kind is! String || capturedAt == null) {
+        return null;
+      }
+      final source = data['source'];
+      return UnsentLocationPing(
+        key: op,
+        tripId: tripId,
+        kind: kind,
+        source: source is String ? source : null,
+        capturedAt: capturedAt,
+      );
+    } on FormatException {
+      return null;
+    }
   }
 
   /// One-time migration: fix trip sync operations that contain fields

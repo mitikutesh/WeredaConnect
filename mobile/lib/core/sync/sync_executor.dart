@@ -12,6 +12,7 @@ import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/sync/conflict_resolver.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
+import 'package:wereda_connect/core/sync/location_ping_rules.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/models/conflict_event.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/services/conflict_notification_service.dart';
@@ -60,6 +61,16 @@ typedef PermanentRejectionHandler = Future<void> Function(
   SyncOperation operation,
   String message,
 );
+
+/// Called once per trip when the server refused a check-in with
+/// `LOCATION_SHARING_ENDED` (every delivery of the trip left the road before
+/// it was captured): the phone stops sharing for that trip (LT-08).
+typedef LocationSharingEndedHandler = Future<void> Function(String tripId);
+
+/// Called when the server refused a delivery's pickup (`pickedUp`) for good,
+/// with the delivery id: the check-ins of its trip would otherwise wait as
+/// `deferred` for 7 days (LT-08).
+typedef PickupRejectedHandler = Future<void> Function(String deliveryId);
 
 /// The operation data the server gets. Keys the client keeps for itself
 /// (prefixed `_`, such as the order status a refused payment goes back to)
@@ -271,11 +282,21 @@ class SyncBatchResult {
 ///   sends the same payload), explain it once, and do not send it, or the
 ///   operations queued behind it for the same entity, again while this
 ///   executor lives (an app update or restart starts a new one)
+/// - `error` with a `LOCATION_*` code (a check-in, LT-08) → reject, never
+///   retried and never announced; `LOCATION_SHARING_ENDED` also stops
+///   sharing for the trip ([LocationSharingEndedHandler]).
+///   `LOCATION_NOT_ACTIVE` comes as `deferred` and is re-queued like any
+///   deferral
 /// - `error` → mark failed (retry up to 3 times via [SyncQueue])
 ///
 /// A refused `create` also rejects the operations queued behind it for that
 /// entity: the server never stored it, so they could only loop on a
-/// transient "not found".
+/// transient "not found". A delivery pickup refused for good is reported
+/// through [PickupRejectedHandler], so its trip's check-ins can be dropped.
+///
+/// Check-ins (`location_ping`) fill a batch only after every other pending
+/// operation: a trip's check-ins can only be accepted once its pickup is,
+/// and check-ins that wait as `deferred` never hold back other writes.
 ///
 /// Error handling per HTTP error:
 /// - Network/timeout → revert to pending without retry count increment
@@ -306,6 +327,8 @@ class SyncExecutor {
   final SessionSignals _sessionSignals;
   final KycRejectionHandler? _onKycRequired;
   final PermanentRejectionHandler? _onPermanentRejection;
+  final LocationSharingEndedHandler? _onLocationSharingEnded;
+  final PickupRejectedHandler? _onPickupRejected;
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   StreamSubscription<void>? _stepUpSubscription;
@@ -386,6 +409,8 @@ class SyncExecutor {
     SessionSignals? sessionSignals,
     KycRejectionHandler? onKycRequired,
     PermanentRejectionHandler? onPermanentRejection,
+    LocationSharingEndedHandler? onLocationSharingEnded,
+    PickupRejectedHandler? onPickupRejected,
   })  : _syncQueue = syncQueue,
         _connectivityMonitor = connectivityMonitor,
         _dio = dio,
@@ -398,7 +423,9 @@ class SyncExecutor {
         _securityEvents = securityEvents ?? SecurityEvents.instance,
         _sessionSignals = sessionSignals ?? SessionSignals.instance,
         _onKycRequired = onKycRequired,
-        _onPermanentRejection = onPermanentRejection;
+        _onPermanentRejection = onPermanentRejection,
+        _onLocationSharingEnded = onLocationSharingEnded,
+        _onPickupRejected = onPickupRejected;
 
   /// Stream of sync batch results for UI indicators.
   ///
@@ -593,14 +620,30 @@ class SyncExecutor {
       return const SyncBatchResult(status: SyncBatchStatus.accountDeleted);
     }
     // While an entity is held, read past its operations (the queue holds at
-    // most maxQueueSize) so they cannot starve newer ones.
+    // most maxQueueSize) so they cannot starve newer ones. Check-ins come
+    // after every other operation (LT-08): they depend on the trip's pickup,
+    // and a run of deferred ones must not hold back other writes.
+    final readLimit =
+        _heldForUpdate.isEmpty ? batchSize : SyncQueue.maxQueueSize;
     final pending = (await _syncQueue.getPendingOperationsForUser(
       userId: currentUserId,
-      limit: _heldForUpdate.isEmpty ? batchSize : SyncQueue.maxQueueSize,
+      limit: readLimit,
+      exceptEntityType: locationPingEntityType,
     ))
         .where((op) => !_heldForUpdate.contains(_entityKey(op)))
         .take(batchSize)
         .toList();
+    if (pending.length < batchSize) {
+      pending.addAll(
+        (await _syncQueue.getPendingOperationsForUser(
+          userId: currentUserId,
+          limit: readLimit,
+          onlyEntityType: locationPingEntityType,
+        ))
+            .where((op) => !_heldForUpdate.contains(_entityKey(op)))
+            .take(batchSize - pending.length),
+      );
+    }
     if (pending.isEmpty) return const SyncBatchResult.empty();
 
     // Mark all as syncing to prevent concurrent processing
@@ -998,7 +1041,8 @@ class SyncExecutor {
   /// full trip, a listing with active orders, and an order command from an
   /// app below the minimum version (any other operation refused for the app
   /// version was held back earlier), and a crop listing or trip whose text
-  /// holds a phone number (1.23.0, FUP-49).
+  /// holds a phone number (1.23.0, FUP-49), and every `LOCATION_*` refusal
+  /// of a check-in (1.31.0, LT-08).
   static bool _isPermanentRejection(String? message) {
     if (message == null) return false;
     return message.startsWith('FRAUD_') ||
@@ -1012,7 +1056,8 @@ class SyncExecutor {
         isTripCapacityExceededMessage(message) ||
         isCropHasActiveOrdersMessage(message) ||
         isAppUpdateRequiredMessage(message) ||
-        isContactInTextMessage(message);
+        isContactInTextMessage(message) ||
+        isLocationRejectionMessage(message);
   }
 
   /// Whether a crop listing or trip refusal undoes the local change
@@ -1039,9 +1084,14 @@ class SyncExecutor {
       isContactLockedMessage(message) ||
       _isRevertableListingOrTripRejection(operation.entityType, message);
 
-  /// Background operations the user never made (matching analytics): a
-  /// refusal is not announced.
-  static const _unannouncedEntityTypes = {'match_event'};
+  /// Background operations the user never made (matching analytics,
+  /// check-ins): a refusal is not announced. A refused check-in has no local
+  /// row to put back and only leaves a gap in the trail (sync-protocol.md
+  /// Location pings).
+  static const _unannouncedEntityTypes = {
+    'match_event',
+    locationPingEntityType,
+  };
 
   /// The UI event for a refused (or, for `APP_UPDATE_REQUIRED`, held)
   /// operation. The idempotency key starts with its user's id, the same
@@ -1146,6 +1196,50 @@ class SyncExecutor {
       announcements.add(_rejectionEvent(operation, message ?? ''));
     }
     announcements.forEach(_securityEvents.emit);
+
+    await _settleLiveTrip(rejected);
+  }
+
+  /// Tell the check-in engine (LT-08) what a batch's refusals mean for it:
+  /// sharing ended for a trip (`LOCATION_SHARING_ENDED`, once per trip), or a
+  /// delivery's pickup was refused for good (its trip's check-ins would wait
+  /// as `deferred` for 7 days).
+  Future<void> _settleLiveTrip(List<(SyncOperation, String?)> rejected) async {
+    final ended = <String>{};
+    final pickups = <String>{};
+    for (final (operation, message) in rejected) {
+      if (operation.entityType == locationPingEntityType &&
+          isLocationSharingEndedMessage(message)) {
+        final tripId = tripIdOfLocationPing(operation.entityId);
+        if (tripId != null) ended.add(tripId);
+      } else if (operation.entityType == 'delivery' && _isPickup(operation)) {
+        pickups.add(operation.entityId);
+      }
+    }
+    for (final tripId in ended) {
+      try {
+        await _onLocationSharingEnded?.call(tripId);
+      } on Object catch (e) {
+        debugPrint('[SYNC] sharing-ended handler failed: $e');
+      }
+    }
+    for (final deliveryId in pickups) {
+      try {
+        await _onPickupRejected?.call(deliveryId);
+      } on Object catch (e) {
+        debugPrint('[SYNC] pickup-rejected handler failed: $e');
+      }
+    }
+  }
+
+  /// Whether a delivery operation moves the delivery to `pickedUp`.
+  static bool _isPickup(SyncOperation operation) {
+    try {
+      final data = jsonDecode(operation.data);
+      return data is Map && data['status'] == 'pickedUp';
+    } on FormatException {
+      return false;
+    }
   }
 
   /// Mark all operations in a batch as failed (increments retry count).
