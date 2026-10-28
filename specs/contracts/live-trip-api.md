@@ -1,7 +1,7 @@
 # Live Trip API Contract
 
 ## Version
-1.0.0
+1.0.1
 
 ## Parties
 - **Mobile / Web** (client): the trucker's phone writes check-ins through `POST /sync`; the buyer's, farmer's and trucker's apps read the track; the admin app reads the trail.
@@ -49,16 +49,16 @@ A create-only entity. One operation per check-in or sharing event.
 | `mocked` | boolean | no | the platform flagged a mock location |
 | `pausedUntil` | ISO 8601 UTC | `paused` only | after `capturedAt`, at most 18 hours later (an overnight pause from mid afternoon fits) |
 
-Accepted when the caller is the trip's trucker and the trip has a delivery that is `pickedUp` or `inTransit`, or that left those statuses after `capturedAt`. At most 20 `fix` operations per trip per clock hour.
+Accepted when the caller is the trip's trucker and the trip has a delivery that is `pickedUp` or `inTransit`, or that left those statuses after `capturedAt`: a `delivered` or `disputed` delivery left at its `confirmedAt`, a `cancelled` delivery that was picked up (it has a `pickedUpAt`) at its `cancelledAt`. A delivery cancelled before pickup counts for nothing. The deliveries are read from the deliveries' `TripIdIndex`. At most 20 `fix` operations per trip per clock hour (UTC) of `capturedAt`; events do not count.
 
-**Results** (the `sync-protocol.md` statuses): `success` (stored, or an idempotent repeat of the same `entityId` and `kind`; a repeated idempotency key answers `duplicate`, as for every entity), or `error` with a `message` that starts with one of the codes below (`CODE: text`). All of them are permanent (the client drops the operation and does not retry) except `LOCATION_NOT_ACTIVE`, which answers `deferred` with a `message` starting `LOCATION_NOT_ACTIVE:`: the trip's first pickup may still be waiting in a queue (for example a pickup held back until its QR handoff secret syncs), so the client re-queues the ping without spending a retry. Once the ping is older than 7 days it answers `LOCATION_STALE` like any other.
+**Results** (the `sync-protocol.md` statuses): `success` (stored, or an idempotent repeat of the same `entityId` and `kind`; a repeated idempotency key answers `duplicate`, as for every entity), or `error` with a `message` that starts with one of the codes below (`CODE: text`). All of them are permanent (the client drops the operation and does not retry) except `LOCATION_NOT_ACTIVE`, which answers `deferred` with a `message` starting `LOCATION_NOT_ACTIVE:`: the trip's first pickup may still be waiting in a queue (for example a pickup held back until its QR handoff secret syncs), so the client re-queues the ping without spending a retry. The window is checked before the trip and its deliveries are read, so once the ping is older than 7 days it answers `LOCATION_STALE` like any other, whatever the deliveries say.
 
 | Code | When |
 |---|---|
 | `LOCATION_VALIDATION` | a missing or out-of-range field, an unknown `kind` or `source`, an `entityId` that does not match `tripId` and `capturedAt` |
 | `LOCATION_NOT_TRUCKER` | the caller is not the trip's trucker (or the trip does not exist) |
-| `LOCATION_NOT_ACTIVE` | no delivery on the trip has been picked up yet (status `deferred`, not `error`) |
-| `LOCATION_SHARING_ENDED` | every delivery on the trip left `pickedUp` and `inTransit` before `capturedAt`; the client stops sharing |
+| `LOCATION_NOT_ACTIVE` | status `deferred`, not `error`. No delivery is `pickedUp` or `inTransit` or left those statuses after `capturedAt`, and either a delivery on the trip is still `pending` (another leg may still be picked up, so sharing is not ended) or no delivery has been picked up (none, or only ones cancelled before pickup). Also sent instead of `LOCATION_SHARING_ENDED` when an earlier delivery operation of the same sync batch succeeded, because the deliveries' `TripIdIndex` may not show that write yet; the next sync decides |
+| `LOCATION_SHARING_ENDED` | every delivery on the trip that was picked up left `pickedUp` and `inTransit` before `capturedAt`, none is still `pending`, and no earlier delivery operation of the same sync batch succeeded; the client stops sharing |
 | `LOCATION_RATE_LIMITED` | more than 20 fixes for the trip in that clock hour |
 | `LOCATION_STALE` | `capturedAt` is older than 7 days or more than 2 minutes in the future |
 
@@ -147,4 +147,5 @@ Push and inbox text in en, am and om; no clock times in the text. `data.type` `o
 
 | Version | Date | Change |
 |---|---|---|
+| 1.0.1 | 2026-10-28 | Section 1 as built (LT-05): when a delivery left the road (`confirmedAt`, or `cancelledAt` after pickup); `LOCATION_NOT_ACTIVE` (deferred) also while another delivery on the trip is still `pending`, and in place of `LOCATION_SHARING_ENDED` after a delivery write earlier in the same batch; the window is checked first, so a ping older than 7 days answers `LOCATION_STALE`; the fix limit counts the clock hour (UTC) of `capturedAt`. |
 | 1.0.0 | 2026-10-28 | First version (EPIC LT): `location_ping`, track, admin trail, `truck_nearby`. |
