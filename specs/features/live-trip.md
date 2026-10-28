@@ -177,7 +177,7 @@ The place list has towns, not neighbourhoods (Merkato, Kality and Saris are miss
 
 - New: `specs/contracts/live-trip-api.md` 1.0.0 (the entity, the endpoints, the push type, the error codes).
 - New fixture: `specs/contracts/fixtures/ethiopian-clock-cases.json`.
-- Bumped by the ticket that implements the change: `sync-protocol.md` (LT-05, the `location_ping` entity and its permanent codes), `delivery-verification-api.md` (LT-07, the system `pickedUp → inTransit` and `nearbyNotifiedAt`), `notifications-api.md` (LT-04 the clock in push text, LT-07 `truck_nearby`), `order-lifecycle.md` and `data-models.md` (LT-12 `dropoffNote`).
+- Bumped by the ticket that implements the change: `sync-protocol.md` (LT-05, the `location_ping` entity, its permanent codes and the `deferred` `LOCATION_NOT_ACTIVE`), `delivery-verification-api.md` (LT-07, the system `pickedUp → inTransit` and `nearbyNotifiedAt`), `notifications-api.md` (LT-04 the clock in push text, LT-07 `truck_nearby`), `order-lifecycle.md` and `data-models.md` (LT-12 `dropoffNote`).
 
 ## 13. Constraints check
 
