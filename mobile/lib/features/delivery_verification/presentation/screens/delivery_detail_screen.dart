@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
-import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/escrow_hold.dart';
@@ -27,6 +26,7 @@ import 'package:wereda_connect/features/delivery_verification/presentation/widge
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
 
 /// Full delivery details with status timeline and action buttons.
 ///
@@ -46,7 +46,7 @@ class DeliveryDetailScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
-    final dateFormat = DateFormat.yMMMd().add_jm();
+    final clock = clockFormatOf(context);
 
     return BlocListener<DeliveryBloc, DeliveryState>(
       listener: (context, state) {
@@ -142,11 +142,11 @@ class DeliveryDetailScreen extends StatelessWidget {
                       const SizedBox(height: 24),
 
                       // Pickup section
-                      _buildPickupSection(theme, dateFormat, l10n),
+                      _buildPickupSection(theme, clock, l10n),
                       const SizedBox(height: 16),
 
                       // Delivery section
-                      _buildDeliverySection(theme, dateFormat, l10n),
+                      _buildDeliverySection(theme, clock, l10n),
 
                       // Dispute section
                       if (delivery.status == DeliveryStatus.disputed) ...[
@@ -171,7 +171,7 @@ class DeliveryDetailScreen extends StatelessWidget {
 
   Widget _buildPickupSection(
     ThemeData theme,
-    DateFormat dateFormat,
+    ClockFormat clock,
     AppLocalizations l10n,
   ) {
     return Column(
@@ -188,7 +188,7 @@ class DeliveryDetailScreen extends StatelessWidget {
           _InfoRow(
             icon: Icons.access_time,
             label: l10n.deliveryTimeLabel,
-            value: dateFormat.format(instantInEthiopia(delivery.pickedUpAt!)),
+            value: clock.dateTime(delivery.pickedUpAt!),
           ),
           const SizedBox(height: 8),
           if (delivery.gpsPickup != null)
@@ -224,7 +224,7 @@ class DeliveryDetailScreen extends StatelessWidget {
 
   Widget _buildDeliverySection(
     ThemeData theme,
-    DateFormat dateFormat,
+    ClockFormat clock,
     AppLocalizations l10n,
   ) {
     return Column(
@@ -241,7 +241,7 @@ class DeliveryDetailScreen extends StatelessWidget {
           _InfoRow(
             icon: Icons.access_time,
             label: l10n.deliveryTimeLabel,
-            value: dateFormat.format(instantInEthiopia(delivery.confirmedAt!)),
+            value: clock.dateTime(delivery.confirmedAt!),
           ),
           const SizedBox(height: 8),
           if (delivery.gpsDropoff != null)

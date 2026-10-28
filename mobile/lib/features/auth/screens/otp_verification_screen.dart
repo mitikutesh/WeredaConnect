@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/presentation/auth_error_l10n.dart';
@@ -12,6 +11,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
 
 /// Confirms the SMS OTP sent after registration (or after a login for an
 /// account whose phone was never confirmed).
@@ -193,9 +193,10 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                       ),
                       if (_expiresAt != null) ...[
                         const SizedBox(height: 4),
-                        Text(
-                          l10n.otpExpiresAt(
-                            DateFormat.Hm().format(_expiresAt!.toLocal()),
+                        ClockText(
+                          clockFormatOf(context).deadline(
+                            _expiresAt!,
+                            sentence: l10n.otpExpiresAt,
                           ),
                           textAlign: TextAlign.center,
                           style: const TextStyle(

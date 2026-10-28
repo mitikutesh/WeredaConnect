@@ -5,6 +5,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/models/message.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -228,5 +229,42 @@ void main() {
     final am = lookupAppLocalizations(const Locale('am'));
     expect(find.text(am.deletedUser), findsOneWidget);
     expect(find.text(deletedUserSentinel), findsNothing);
+  });
+
+  // LT-03: chat times on the viewer's clock, in Ethiopia time.
+  group('message time', () {
+    setUp(() {
+      when(() => repository.loadThread(any())).thenAnswer(
+        (_) async => [
+          Message()
+            ..messageId = 'm1'
+            ..conversationId = 'c1'
+            ..contextType = 'crop'
+            ..contextId = 'crop-1'
+            ..senderId = 'farmer-1'
+            ..recipientId = 'buyer-1'
+            ..body = 'Hello'
+            // 10:20 UTC is 13:20 in Ethiopia.
+            ..createdAt = DateTime.utc(2026, 10, 28, 10, 20)
+            ..version = 1,
+        ],
+      );
+    });
+
+    testWidgets('English shows the 24-hour clock', (tester) async {
+      await tester.pumpWidget(buildScreen('crop', 'crop-1'));
+      await tester.pumpAndSettle();
+      expect(find.text('Hello'), findsOneWidget);
+      expect(find.text('13:20'), findsOneWidget);
+    });
+
+    testWidgets('Amharic shows the Ethiopian clock', (tester) async {
+      await tester.pumpWidget(
+        buildScreen('crop', 'crop-1', locale: const Locale('am')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('ከቀኑ 7:20'), findsOneWidget);
+      expect(find.text('13:20'), findsNothing);
+    });
   });
 }

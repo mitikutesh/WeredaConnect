@@ -10,7 +10,7 @@ import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
-import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -38,6 +38,7 @@ import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dar
 import 'package:wereda_connect/features/rating/presentation/widgets/rate_counterparty_dialog.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/contact_actions_sheet.dart';
 import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
 
@@ -220,7 +221,7 @@ class _OrderDetailBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
-    final dateFormat = DateFormat.yMMMd().add_jm();
+    final clock = clockFormatOf(context);
     final authState = context.read<AuthBloc>().state;
     final userId = authState is AuthAuthenticated ? authState.userId : '';
     final userRole =
@@ -281,8 +282,7 @@ class _OrderDetailBody extends StatelessWidget {
                     const Divider(height: 16),
                     _InfoRow(
                       label: l10n.statusCreated,
-                      value:
-                          dateFormat.format(instantInEthiopia(order.createdAt)),
+                      value: clock.dateTime(order.createdAt),
                     ),
                     // ESC-06: when the crops must be collected by, for all
                     // three parties of an accepted order.
@@ -291,8 +291,9 @@ class _OrderDetailBody extends StatelessWidget {
                       const Divider(height: 16),
                       _InfoRow(
                         label: l10n.orderPickupDeadline,
-                        value: dateFormat.format(
-                          instantInEthiopia(order.pickupDeadlineAt!),
+                        clock: clock.deadline(
+                          order.pickupDeadlineAt!,
+                          date: DateFormat.yMMMd(),
                         ),
                       ),
                     ],
@@ -1588,7 +1589,11 @@ class _InfoRow extends StatelessWidget {
   final String label;
   final String value;
 
-  const _InfoRow({required this.label, required this.value});
+  /// A deadline value, shown with its small 24-hour time (LT-03); replaces
+  /// [value].
+  final ClockLabel? clock;
+
+  const _InfoRow({required this.label, this.value = '', this.clock});
 
   @override
   Widget build(BuildContext context) {
@@ -1603,8 +1608,8 @@ class _InfoRow extends StatelessWidget {
           ),
         ),
         Flexible(
-          child: Text(
-            value,
+          child: ClockText(
+            clock ?? ClockLabel.text(value),
             style: theme.textTheme.bodyMedium
                 ?.copyWith(fontWeight: FontWeight.w500),
             textAlign: TextAlign.end,

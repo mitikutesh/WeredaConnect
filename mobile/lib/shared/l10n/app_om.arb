@@ -2766,5 +2766,14 @@
   "notifPayoutHintFayda": "Maaloo appii keessatti Fayda ID keessan mirkaneessaa.",
   "notifPayoutHintPhone": "Maaloo appii keessatti lakkoofsa bilbilaa keessan mirkaneessaa.",
   "notifPayoutHintProfile": "Maaloo appii keessatti odeeffannoo keessan guutaa.",
-  "notifPayoutHintOther": "Maal akka barbaachisu ilaaluuf appii banaa."
+  "notifPayoutHintOther": "Maal akka barbaachisu ilaaluuf appii banaa.",
+  "clockSetting": "Sa'aatii",
+  "clockAuto": "Ofumaan",
+  "clockAutoHint": "Afaan appii hordofa",
+  "clockEthiopian": "Kan Itoophiyaa",
+  "clockInternational": "Idil-addunyaa (sa'aatii 24)",
+  "clockNight": "{time} halkan",
+  "clockMorning": "{time} ganama",
+  "clockDay": "{time} waaree booda",
+  "clockEvening": "{time} galgala"
 }
