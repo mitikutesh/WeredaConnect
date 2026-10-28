@@ -6,8 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 ///
 /// Goldens are made on a developer Mac and checked on the Linux CI runner,
 /// whose rasterizer anti-aliases curves a little differently. A small
-/// tolerance absorbs that edge noise while a missing or moved element (a
-/// halo, a pin, a label) still fails.
+/// tolerance absorbs that edge noise while a large change (a missing halo,
+/// a moved trail) still fails. A small marker can stay under it, so check
+/// those on the paint calls too (the `paints` matcher).
 class TolerantGoldenComparator extends LocalFileComparator {
   TolerantGoldenComparator(super.testFile, {required this.tolerance})
       : assert(tolerance >= 0 && tolerance <= 1);

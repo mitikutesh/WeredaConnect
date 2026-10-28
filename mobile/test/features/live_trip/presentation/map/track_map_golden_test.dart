@@ -112,6 +112,36 @@ void main() {
     expect(painter.labels.first.place!.en, 'Mojo');
   });
 
+  // The goldens accept 1% of the pixels changed, more than the truck marker
+  // (about 0.4% of the map) or an ended track drawn with its truck and road
+  // ahead (about 0.7%). So both are checked on the paint calls as well: the
+  // truck's 9 px outline is the only circle of that size, the road ahead the
+  // only straight line.
+  testWidgets('the truck and the road ahead show while live, never after',
+      (tester) async {
+    final map = find.descendant(
+      of: find.byType(TrackMap),
+      matching: find.byType(CustomPaint),
+    );
+    bool truck(Symbol method, List<dynamic> args) =>
+        method == #drawCircle && args[1] == 9.0;
+
+    await pumpMap(tester, corridorTrack(), at(9, 0));
+    expect(tester.renderObject(map), paints..something(truck));
+    expect(tester.renderObject(map), paints..line());
+
+    await pumpMap(
+      tester,
+      corridorTrack(sharing: TrackSharing.ended),
+      at(12, 0),
+    );
+    expect(
+      tester.renderObject(map),
+      paints..everything((method, args) => !truck(method, args)),
+    );
+    expect(tester.renderObject(map), isNot(paints..line()));
+  });
+
   testWidgets('an ended answer without coordinates draws only the background',
       (tester) async {
     final ended = DeliveryTrack.fromJson(endedTrackJson());
