@@ -12,6 +12,7 @@ import 'package:wereda_connect/features/messaging/presentation/screens/conversat
 import 'package:wereda_connect/features/messaging/presentation/widgets/conversation_context_tag.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
 
 /// The conversations inbox — the current user's chats across all roles.
 class MessagesInboxScreen extends StatefulWidget {
@@ -127,9 +128,7 @@ class _ConversationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final t = summary.lastMessageAt.toLocal();
-    final time =
-        '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+    final time = clockFormatOf(context).time(summary.lastMessageAt);
     final hasUnread = summary.unreadCount > 0;
 
     return ListTile(

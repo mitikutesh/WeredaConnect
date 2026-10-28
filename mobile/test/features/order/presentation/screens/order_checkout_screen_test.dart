@@ -12,6 +12,7 @@ import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_
 import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_checkout_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/screens/order_checkout_screen.dart';
+import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
 
@@ -154,6 +155,24 @@ void main() {
     verify(() => escrow.openOrderCheckout(orderId)).called(1);
     await leave(tester);
   });
+
+  // LT-03: the checkout window on the viewer's clock, in Ethiopia time.
+  for (final locale in ['en', 'am', 'om']) {
+    testWidgets('$locale: the payment window shows on the viewer clock',
+        (tester) async {
+      opens();
+      await open(tester, locale: locale);
+
+      final l10n = lookupAppLocalizations(Locale(locale));
+      // The device clock reads 13:00 and the page is open for 130 minutes.
+      final until = DateTime(2026, 10, 9, 13).add(const Duration(minutes: 130));
+      final label = ClockFormat.resolve(l10n, ClockPreference.auto)
+          .deadline(until, sentence: l10n.orderCheckoutOpenUntil);
+      expect(label.time24 == null, locale == 'en');
+      expect(find.text(label.toString()), findsOneWidget);
+      await leave(tester);
+    });
+  }
 
   testWidgets('web never opens on its own; it offers a real link',
       (tester) async {

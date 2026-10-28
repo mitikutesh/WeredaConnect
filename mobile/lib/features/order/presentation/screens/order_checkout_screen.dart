@@ -4,7 +4,6 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 import 'package:url_launcher/link.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
@@ -20,6 +19,7 @@ import 'package:wereda_connect/features/order/presentation/order_checkout_l10n.d
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
 
 /// The live Telebirr checkout of a `payment_submitted` order (ESC-44).
 ///
@@ -370,9 +370,10 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
       CheckoutAwaitingPayment() => [
           _Status(text: l10n.escrowAwaitingPayment, busy: true),
           const SizedBox(height: 12),
-          Text(
-            l10n.orderCheckoutOpenUntil(
-              DateFormat.jm().format(state.payableUntil),
+          ClockText(
+            clockFormatOf(context).deadline(
+              state.payableUntil,
+              sentence: l10n.orderCheckoutOpenUntil,
             ),
           ),
           if (state.offline) ...[

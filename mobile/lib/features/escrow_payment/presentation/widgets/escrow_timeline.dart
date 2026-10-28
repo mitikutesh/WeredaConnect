@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
-import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
 
 /// Visual timeline of escrow state transitions.
 ///
@@ -210,7 +209,7 @@ class _TimelineStep extends StatelessWidget {
                   ),
                   if (timestamp != null)
                     Text(
-                      _formatTimestamp(timestamp!),
+                      clockFormatOf(context).dateTime(timestamp!),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color:
                             theme.colorScheme.onSurface.withValues(alpha: 0.6),
@@ -223,9 +222,5 @@ class _TimelineStep extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  String _formatTimestamp(DateTime dt) {
-    return DateFormat.yMMMd().add_jm().format(instantInEthiopia(dt));
   }
 }

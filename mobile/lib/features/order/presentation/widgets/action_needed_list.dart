@@ -1,18 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
-import 'package:wereda_connect/features/notifications/presentation/notification_text.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/open_order_detail.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/wc_card.dart';
 
 /// What an order is waiting for from the signed-in user (ESC-15/21).
@@ -300,11 +302,17 @@ class _ActionNeededCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final order = item.order;
     final due = item.dueAt;
-    final details = [
-      '${CropType.labelFor(order.cropType, l10n)} · '
-          '${l10n.quantityKg(order.quantity.toStringAsFixed(0))}',
-      if (due != null) l10n.actionDueBy(formatEthiopiaDeadline(due)),
-    ].join(' · ');
+    final facts = '${CropType.labelFor(order.cropType, l10n)} · '
+        '${l10n.quantityKg(order.quantity.toStringAsFixed(0))}';
+    final details = due == null
+        ? ClockLabel.text(facts)
+        : clockFormatOf(context)
+            .deadline(
+              due,
+              date: DateFormat.MMMd(),
+              sentence: l10n.actionDueBy,
+            )
+            .prefixed('$facts · ');
     return Semantics(
       button: true,
       child: WcCard(
@@ -331,7 +339,7 @@ class _ActionNeededCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 2),
-                  Text(
+                  ClockText(
                     details,
                     style: const TextStyle(
                       fontSize: 12,

@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_timeline.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Wrap a widget in MaterialApp with l10n delegates.
-Widget _wrapWithL10n(Widget child) {
+Widget _wrapWithL10n(Widget child, {Locale locale = const Locale('en')}) {
   return MaterialApp(
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
-    locale: const Locale('en'),
+    locale: locale,
     home: Scaffold(body: SingleChildScrollView(child: child)),
   );
 }
@@ -43,6 +44,32 @@ Payment _makePayment({
 }
 
 void main() {
+  // LT-03: timeline times on the viewer's clock. 10:20 UTC is 13:20 in
+  // Ethiopia; dates stay Gregorian.
+  group('EscrowTimeline clock', () {
+    final created = DateTime.utc(2026, 10, 28, 10, 20);
+    final day = DateFormat.yMMMd().format(DateTime.utc(2026, 10, 28));
+
+    testWidgets('English shows the 24-hour clock', (tester) async {
+      final payment = _makePayment()..createdAt = created;
+      await tester.pumpWidget(_wrapWithL10n(EscrowTimeline(payment: payment)));
+      await tester.pumpAndSettle();
+      expect(find.text('$day 13:20'), findsOneWidget);
+    });
+
+    testWidgets('Amharic shows the Ethiopian clock', (tester) async {
+      final payment = _makePayment()..createdAt = created;
+      await tester.pumpWidget(
+        _wrapWithL10n(
+          EscrowTimeline(payment: payment),
+          locale: const Locale('am'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('$day ከቀኑ 7:20'), findsOneWidget);
+    });
+  });
+
   group('EscrowTimeline', () {
     testWidgets('renders initiated status with 4 steps',
         (WidgetTester tester) async {

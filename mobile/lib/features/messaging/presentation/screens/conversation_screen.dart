@@ -18,6 +18,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/screens/trip_detail_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/contact_actions_sheet.dart';
 import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
 
@@ -265,7 +266,7 @@ class _ConversationViewState extends State<_ConversationView> {
                       final m = state.messages[i];
                       return _MessageBubble(
                         body: m.body,
-                        time: m.createdAt.toLocal(),
+                        time: m.createdAt,
                         isMine: m.senderId == widget.me,
                       );
                     },
@@ -320,8 +321,7 @@ class _MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hh = time.hour.toString().padLeft(2, '0');
-    final mm = time.minute.toString().padLeft(2, '0');
+    final clockTime = clockFormatOf(context).time(time);
 
     return Align(
       alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
@@ -353,7 +353,7 @@ class _MessageBubble extends StatelessWidget {
             ),
             const SizedBox(height: 2),
             Text(
-              '$hh:$mm',
+              clockTime,
               style: theme.textTheme.labelSmall?.copyWith(
                 color: (isMine ? Colors.white : theme.colorScheme.onSurface)
                     .withValues(alpha: 0.6),

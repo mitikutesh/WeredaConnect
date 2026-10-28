@@ -6,7 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
-import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/payout_expectation.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
@@ -19,6 +19,7 @@ import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escr
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/payout_expected_text.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
 
 /// Escrow detail screen showing status, amount, timeline, and actions.
 ///
@@ -50,7 +51,6 @@ class EscrowStatusScreen extends StatefulWidget {
 
 class _EscrowStatusScreenState extends State<EscrowStatusScreen>
     with WidgetsBindingObserver {
-  static final _dateFormat = DateFormat.yMMMd().add_jm();
   static final _amountFormat = NumberFormat('#,##0.00', 'en_US');
 
   // Poll the escrow while the buyer completes payment in Telebirr. The webhook
@@ -241,6 +241,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
     Payment payment,
   ) {
     final l10n = AppLocalizations.of(context)!;
+    final clock = clockFormatOf(context);
     final staleMinutes =
         DateTime.now().toUtc().difference(payment.updatedAt).inMinutes;
 
@@ -349,14 +350,16 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
             _InfoRow(
               icon: Icons.calendar_today,
               label: l10n.escrowCreatedLabel,
-              value: _dateFormat.format(instantInEthiopia(payment.createdAt)),
+              value: clock.dateTime(payment.createdAt),
             ),
             if (payment.expiresAt != null)
               _InfoRow(
                 icon: Icons.timer,
                 label: l10n.escrowExpiresLabel,
-                value:
-                    _dateFormat.format(instantInEthiopia(payment.expiresAt!)),
+                clock: clock.deadline(
+                  payment.expiresAt!,
+                  date: DateFormat.yMMMd(),
+                ),
               ),
             if (payment.telebirrRef != null)
               _InfoRow(
@@ -589,10 +592,15 @@ class _InfoRow extends StatelessWidget {
   final String label;
   final String value;
 
+  /// A deadline value, shown with its small 24-hour time (LT-03); replaces
+  /// [value].
+  final ClockLabel? clock;
+
   const _InfoRow({
     required this.icon,
     required this.label,
-    required this.value,
+    this.value = '',
+    this.clock,
   });
 
   @override
@@ -617,7 +625,12 @@ class _InfoRow extends StatelessWidget {
               ),
             ),
           ),
-          Expanded(child: Text(value, style: theme.textTheme.bodyMedium)),
+          Expanded(
+            child: ClockText(
+              clock ?? ClockLabel.text(value),
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
         ],
       ),
     );

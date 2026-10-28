@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -10,7 +9,6 @@ import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/user.dart';
-import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
 import 'package:wereda_connect/features/buyer/domain/services/matching_service.dart'
     if (dart.library.html) 'package:wereda_connect/features/buyer/domain/services/matching_service_web.dart';
@@ -23,6 +21,7 @@ import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dar
 import 'package:wereda_connect/features/rating/presentation/widgets/star_rating.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
 
 /// Full detail view for a single crop listing.
@@ -175,7 +174,6 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final cropType = CropType.fromKey(widget.listing.cropType);
-    final dateFormat = DateFormat.yMMMd().add_jm();
 
     return Scaffold(
       appBar: AppBar(
@@ -199,7 +197,6 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
               _DetailsCard(
                 listing: widget.listing,
                 cropType: cropType,
-                dateFormat: dateFormat,
               ),
 
               // Suggested transport section (buyer with delivery woreda)
@@ -549,12 +546,10 @@ class _StatusChip extends StatelessWidget {
 class _DetailsCard extends StatelessWidget {
   final CropListing listing;
   final CropType cropType;
-  final DateFormat dateFormat;
 
   const _DetailsCard({
     required this.listing,
     required this.cropType,
-    required this.dateFormat,
   });
 
   @override
@@ -612,7 +607,7 @@ class _DetailsCard extends StatelessWidget {
             _DetailRow(
               icon: Icons.access_time,
               label: l10n.detailCreated,
-              value: dateFormat.format(instantInEthiopia(listing.createdAt)),
+              value: clockFormatOf(context).dateTime(listing.createdAt),
             ),
           ],
         ),

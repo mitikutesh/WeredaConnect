@@ -2535,7 +2535,7 @@
   "otpVerificationTitle": "ስልክዎን ያረጋግጡ",
   "otpSentTo": "ባለ 6 አሃዝ ኮድ በኤስኤምኤስ ወደ {phone} ልከናል።",
   "otpCodeHint": "ባለ 6 አሃዝ ኮድ",
-  "otpExpiresAt": "ኮዱ በ{time} ጊዜው ያልፋል።",
+  "otpExpiresAt": "ኮዱ {time} ላይ ጊዜው ያልፋል።",
   "faydaStepUpMessage": "ይህን ክፍያ ለመቀጠል እርስዎ መሆንዎን በፋይዳ ያረጋግጡ። የይለፍ ቃልዎም ሊጠየቅ ይችላል።",
   "stepUpTitle": "እርስዎ መሆንዎን ያረጋግጡ",
   "stepUpPhoneLabel": "ስልክ፦ {phone}",
@@ -2773,5 +2773,14 @@
   "notifPayoutHintFayda": "እባክዎ በመተግበሪያው የፋይዳ መታወቂያዎን ያረጋግጡ።",
   "notifPayoutHintPhone": "እባክዎ በመተግበሪያው ስልክ ቁጥርዎን ያረጋግጡ።",
   "notifPayoutHintProfile": "እባክዎ በመተግበሪያው መገለጫዎን ያሟሉ።",
-  "notifPayoutHintOther": "ምን እንደሚያስፈልግ ለማየት መተግበሪያውን ይክፈቱ።"
+  "notifPayoutHintOther": "ምን እንደሚያስፈልግ ለማየት መተግበሪያውን ይክፈቱ።",
+  "clockSetting": "የሰዓት አቆጣጠር",
+  "clockAuto": "ራስ-ሰር",
+  "clockAutoHint": "የመተግበሪያውን ቋንቋ ይከተላል",
+  "clockEthiopian": "የኢትዮጵያ",
+  "clockInternational": "ዓለም አቀፍ (24 ሰዓት)",
+  "clockNight": "ከሌሊቱ {time}",
+  "clockMorning": "ከጠዋቱ {time}",
+  "clockDay": "ከቀኑ {time}",
+  "clockEvening": "ከምሽቱ {time}"
 }

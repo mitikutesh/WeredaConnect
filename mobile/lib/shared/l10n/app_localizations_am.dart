@@ -2667,7 +2667,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String otpExpiresAt(String time) {
-    return 'ኮዱ በ$time ጊዜው ያልፋል።';
+    return 'ኮዱ $time ላይ ጊዜው ያልፋል።';
   }
 
   @override
@@ -3503,4 +3503,39 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get notifPayoutHintOther => 'ምን እንደሚያስፈልግ ለማየት መተግበሪያውን ይክፈቱ።';
+
+  @override
+  String get clockSetting => 'የሰዓት አቆጣጠር';
+
+  @override
+  String get clockAuto => 'ራስ-ሰር';
+
+  @override
+  String get clockAutoHint => 'የመተግበሪያውን ቋንቋ ይከተላል';
+
+  @override
+  String get clockEthiopian => 'የኢትዮጵያ';
+
+  @override
+  String get clockInternational => 'ዓለም አቀፍ (24 ሰዓት)';
+
+  @override
+  String clockNight(String time) {
+    return 'ከሌሊቱ $time';
+  }
+
+  @override
+  String clockMorning(String time) {
+    return 'ከጠዋቱ $time';
+  }
+
+  @override
+  String clockDay(String time) {
+    return 'ከቀኑ $time';
+  }
+
+  @override
+  String clockEvening(String time) {
+    return 'ከምሽቱ $time';
+  }
 }

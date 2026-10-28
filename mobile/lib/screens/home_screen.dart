@@ -20,6 +20,7 @@ import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart'
     if (dart.library.html) 'package:wereda_connect/core/sync/sync_executor_web.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart'
@@ -55,6 +56,7 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/wc_card.dart';
 
 /// Home screen — compact dashboard matching mockup.
@@ -2714,6 +2716,11 @@ class _NotificationIconState extends State<_NotificationIcon> {
     final items = <_NotifItem>[];
     var unread = 0;
     final userId = widget.userId;
+    // Read before any await: the deadline line uses the viewer's clock.
+    final clock = ClockFormat.resolve(
+      widget.l10n,
+      clockPreferenceOf(context, listen: false),
+    );
     if (!kIsWeb) {
       try {
         final syncQueue = SyncQueue(IsarService.instance.db);
@@ -2772,7 +2779,7 @@ class _NotificationIconState extends State<_NotificationIcon> {
               icon: style.icon,
               title: text.title,
               subtitle: text.body,
-              detail: notificationDetailLine(widget.l10n, entry),
+              detail: notificationDetailLine(widget.l10n, clock, entry),
               color: style.color,
               time: entry.createdAt,
               action: _NotifAction.openOrder,
@@ -3056,7 +3063,7 @@ class _NotifItem {
   final String subtitle;
 
   /// Crop, quantity, amount and deadline of an inbox entry.
-  final String? detail;
+  final ClockLabel? detail;
   final Color color;
   final DateTime time;
   final _NotifAction action;
@@ -3150,7 +3157,7 @@ class _NotifCard extends StatelessWidget {
                     ),
                     if (item.detail != null) ...[
                       const SizedBox(height: 2),
-                      Text(
+                      ClockText(
                         item.detail!,
                         style: const TextStyle(
                           fontSize: 11,
