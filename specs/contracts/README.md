@@ -70,7 +70,7 @@ Each contract file follows this structure:
 | Match Events (`match_event` sync entity) | `match-events.md` | n/a | Mobile, Backend |
 | Push Alerts API | `push-alerts-api.md` | 1.3.0 | Mobile, Backend |
 | Notifications API (order, delivery and money inbox + push) | `notifications-api.md` | 1.3.0 | Mobile, Web, Backend, Infrastructure |
-| Live Trip (`location_ping` check-ins, track, admin trail, `truck_nearby`) | `live-trip-api.md` | 1.0.4 | Mobile, Web, Backend, Infrastructure, Admin |
+| Live Trip (`location_ping` check-ins, track, admin trail, `truck_nearby`) | `live-trip-api.md` | 1.0.5 | Mobile, Web, Backend, Infrastructure, Admin |
 | In-App Messaging (context-scoped chat) | `messaging.md` | 1.2.0 | Mobile, Backend |
 | Data Models | `data-models.md` | 1.1.0 | Mobile, Backend |
 

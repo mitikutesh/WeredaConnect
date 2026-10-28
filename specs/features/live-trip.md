@@ -135,6 +135,8 @@ Stored in `{prefix}-trip-locations`: PK `tripId`, SK `{capturedAt}#{kind}`, coor
 
 Admin group only. Every fix and event from pickup to delivery at 4 decimals, with leg distance, minutes and speed, and the pauses.
 
+As built (LT-13): the response with the QR scan points, the `coarse` and `late` flags, the jump flag on each leg (the `GPS_JUMP` rule), the gaps (over 90 minutes without a check-in, pauses left out) and the summary is in `live-trip-api.md` section 3 (1.0.5). The admin app shows it in a Trip trail tab on a new dispute page (`/disputes/{escrowId}`, linked from the Disputes list), a minimal shell FRD-14 adds its evidence tabs to. Not built: "stops off the stop list" from section 4, which needs the planned stops of every order on the trip; a follow-up for FRD-14.
+
 ## 7. Privacy and roles
 
 - Farmer: only their own order's trail; other stops unnamed. Trucker: their own trips. Buyer: their own deliveries. Admin: dispute evidence. Nobody can follow a trucker before pickup or after delivery.
