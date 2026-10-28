@@ -13,9 +13,10 @@ namespace WeredaConnect.Server.Helpers;
 /// Templates:
 /// - <c>{token}</c> is a param rendered for reading: <c>{buyer}</c>, <c>{farmer}</c>,
 ///   <c>{trucker}</c> (display names), <c>{crop}</c> (the crop's local name), <c>{qty}</c>
-///   (<c>500 kg</c>), <c>{amount}</c> (<c>9,640 ETB</c>, <c>9,640 ብር</c>), <c>{deadline}</c> (Ethiopia time,
-///   <c>27 Oct 18:00</c>), <c>{pickup}</c> (<c>28 Oct</c>), <c>{decision}</c> (the dispute verdict
-///   as a sentence) and <c>{hint}</c> (what a held payout needs, from the reason code);
+///   (<c>500 kg</c>), <c>{amount}</c> (<c>9,640 ETB</c>, <c>9,640 ብር</c>), <c>{deadline}</c> (Ethiopia time:
+///   <c>27 Oct 18:00</c> in en, on the Ethiopian clock in am and om, <c>27 ኦክቶ ከምሽቱ 12:00</c>,
+///   <c>27 Onk 12:00 galgala</c>), <c>{pickup}</c> (<c>28 Oct</c>), <c>{decision}</c> (the dispute
+///   verdict as a sentence) and <c>{hint}</c> (what a held payout needs, from the reason code);
 /// - <c>[ ... ]</c> is an optional part, dropped whole when any token in it has no value, so a
 ///   missing param never leaves a dangling word; a missing token outside one renders as nothing;
 /// - an unknown language renders <see cref="FallbackLanguage"/>, an unknown type a generic line.
@@ -103,15 +104,50 @@ public static class PushText
         return value.ToString(format, CultureInfo.InvariantCulture) + " " + CurrencyUnits[Index(language)];
     }
 
-    /// <summary>An ISO UTC time in Ethiopia time: <c>27 Oct 18:00</c> (the month in the language).</summary>
+    /// <summary>
+    /// An ISO UTC time in Ethiopia time: the Gregorian day and month in the language, then the
+    /// time on the clock the language reads (<see cref="FormatClock"/>): <c>27 Oct 18:00</c> (en),
+    /// <c>27 ኦክቶ ከምሽቱ 12:00</c> (am), <c>27 Onk 12:00 galgala</c> (om).
+    /// </summary>
     public static string FormatDeadline(string language, string? iso)
         => TryEthiopiaTime(iso, out var local)
-            ? $"{FormatDay(language, local)} {local.ToString("HH:mm", CultureInfo.InvariantCulture)}"
+            ? $"{FormatDay(language, local)} {FormatClock(language, local.Hour, local.Minute)}"
             : string.Empty;
 
     /// <summary>An ISO UTC date in Ethiopia time, day and month only: <c>28 Oct</c>.</summary>
     public static string FormatDate(string language, string? iso)
         => TryEthiopiaTime(iso, out var local) ? FormatDay(language, local) : string.Empty;
+
+    /// <summary>
+    /// LT-04: an Ethiopia wall-clock time (24-hour <paramref name="hour"/>, 0 to 23) as the
+    /// language reads it. Amharic and Afaan Oromo read the Ethiopian clock, whose day starts at 6
+    /// in the morning, always with the part of the day: <c>ከቀኑ 7:20</c> (am, the part first) and
+    /// <c>7:20 waaree booda</c> (om, the part after). English keeps the 24-hour clock: <c>13:20</c>.
+    /// Spec live-trip.md section 9. The cases in
+    /// <c>specs/contracts/fixtures/ethiopian-clock-cases.json</c> are shared with the app's
+    /// <c>EthiopianClock</c>, so a notification and the screen it opens read the same time.
+    /// </summary>
+    internal static string FormatClock(string language, int hour, int minute)
+        => Index(language) == 0
+            ? TwentyFourHourTime(hour, minute)
+            : WithDayPart(language, hour, EthiopianTime(hour, minute));
+
+    /// <summary>
+    /// LT-04: a window between two Ethiopia wall-clock times. On the Ethiopian clock the part of
+    /// the day is said once when both ends share it (<c>ከቀኑ 7:20-8:00</c>) and at each end when it
+    /// changes (<c>ከቀኑ 11:30-ከምሽቱ 12:30</c>); English reads <c>13:20-14:00</c>.
+    /// </summary>
+    internal static string FormatClockRange(string language, int fromHour, int fromMinute, int toHour, int toMinute)
+    {
+        if (Index(language) == 0)
+        {
+            return $"{TwentyFourHourTime(fromHour, fromMinute)}-{TwentyFourHourTime(toHour, toMinute)}";
+        }
+
+        return DayPart(fromHour) == DayPart(toHour)
+            ? WithDayPart(language, fromHour, $"{EthiopianTime(fromHour, fromMinute)}-{EthiopianTime(toHour, toMinute)}")
+            : $"{FormatClock(language, fromHour, fromMinute)}-{FormatClock(language, toHour, toMinute)}";
+    }
 
     // ===== rendering =====
 
@@ -334,6 +370,29 @@ public static class PushText
     private static string FormatDay(string language, DateTime local)
         => $"{local.Day.ToString(CultureInfo.InvariantCulture)} {Months[Index(language)][local.Month - 1]}";
 
+    /// <summary>The 24-hour clock: <c>13:20</c>, <c>02:00</c>.</summary>
+    private static string TwentyFourHourTime(int hour, int minute)
+        => $"{hour.ToString("00", CultureInfo.InvariantCulture)}:{minute.ToString("00", CultureInfo.InvariantCulture)}";
+
+    /// <summary>
+    /// The Ethiopian clock without the part of the day: the hour is (h - 6) mod 12, written
+    /// (h + 6) % 12 so it never goes negative, with 0 shown as 12; <c>13:20</c> is <c>7:20</c>.
+    /// </summary>
+    private static string EthiopianTime(int hour, int minute)
+    {
+        var h = (hour + 6) % 12;
+        return $"{(h == 0 ? 12 : h).ToString(CultureInfo.InvariantCulture)}:{minute.ToString("00", CultureInfo.InvariantCulture)}";
+    }
+
+    /// <summary>The part of the day of a 24-hour hour: 0 night (0 to 5), 1 morning (6 to 11), 2 day (12 to 17), 3 evening (18 to 23).</summary>
+    private static int DayPart(int hour) => hour / 6;
+
+    /// <summary>The part of the day where the language says it: before the time in am, after it in om.</summary>
+    private static string WithDayPart(string language, int hour, string time)
+        => Index(language) == 2
+            ? $"{time} {OmDayParts[DayPart(hour)]}"
+            : $"{AmDayParts[DayPart(hour)]} {time}";
+
     /// <summary>Column of a language in the per-language arrays: en, am, om.</summary>
     private static int Index(string language) => language switch
     {
@@ -353,6 +412,12 @@ public static class PushText
         new[] { "ጃን", "ፌብ", "ማርች", "ኤፕሪ", "ሜይ", "ጁን", "ጁላይ", "ኦገስ", "ሴፕቴ", "ኦክቶ", "ኖቬም", "ዲሴም" },
         new[] { "Ama", "Gur", "Bit", "Elb", "Cam", "Wax", "Ado", "Hag", "Ful", "Onk", "Sad", "Mud" }
     };
+
+    /// <summary>The parts of the day on the Ethiopian clock, by <see cref="DayPart"/>: night, morning, day, evening.</summary>
+    private static readonly string[] AmDayParts = { "ከሌሊቱ", "ከጠዋቱ", "ከቀኑ", "ከምሽቱ" };
+
+    /// <summary>The same parts in Afaan Oromoo, said after the time.</summary>
+    private static readonly string[] OmDayParts = { "halkan", "ganama", "waaree booda", "galgala" };
 
     /// <summary>The crop codes order create accepts, as the app's own crop names (en, am, om).</summary>
     private static readonly Dictionary<string, string[]> CropNames = new(StringComparer.Ordinal)
@@ -659,7 +724,7 @@ public static class PushText
             "Qonnaan bulaan {farmer} ajaja keessan[ {crop} {qty}] hin fudhanne. Maallaqni keessan isiniif deebi'a."),
         [NotificationTypes.TransportFailed] = new(
             "Geejjibni hin argamne",
-            "Konkolaataan fe'aa ajaja keessan fe'uu hin danda'u. Maaloo[ hanga {deadline} tti] murteessaa. Yoo haqxan maallaqni guutuun deebi'a."),
+            "Konkolaataan ajaja keessan fe'uu hin danda'u. Maaloo[ hanga {deadline} tti] murteessaa. Yoo haqxan maallaqni guutuun deebi'a."),
         [NotificationTypes.TransportFailedKeepCrops] = new(
             "Geejjibni addaan citeera",
             "Konkolaataan fe'aa ajaja[ {crop} {qty}] dhiiseera. Hanga bitataan murteessutti maaloo midhaan qabadhaa."),

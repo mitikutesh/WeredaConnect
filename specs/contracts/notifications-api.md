@@ -1,7 +1,7 @@
 # Notifications API Contract
 
 ## Version
-1.1.0
+1.2.0
 
 ## Parties
 - **Mobile** (client): pulls the inbox, renders the entries and the Action-needed cards, receives the Android push, opens the order on tap
@@ -113,7 +113,7 @@ envelope as the chat and match pushes. The FCM payload:
 {
   "notification": {
     "title": "New order: 500 kg teff",
-    "body": "Abebe T. paid 42,500 ETB into escrow. Accept by 27 Oct, 11:15.",
+    "body": "Abebe T. paid 42,500 ETB into escrow. Accept by 27 Oct 11:15.",
     "tag": "order-ord-7f3a"
   },
   "data": {
@@ -132,6 +132,13 @@ Rules:
 - `title` and `body` are rendered on the server (`PushText`) in the recipient's
   `preferredLanguage`: `en`, `am` or `om`; any other or missing value renders `am`. Both exist
   for every type in `NotificationTypes.All` (parity-tested).
+- A deadline in the text (`deadlineAt`, section 4) is Ethiopia time (UTC+3): the Gregorian day
+  and month in the language, then the time of day (1.2.0, LT-04). `en` reads the 24-hour clock:
+  `27 Oct 18:00`. `am` and `om` read the Ethiopian clock, always with the part of the day: `am`
+  says it before the time (`27 ኦክቶ ከምሽቱ 12:00`), `om` after it (`27 Onk 12:00 galgala`). The
+  rule is `specs/features/live-trip.md` section 9 and the expected times are
+  `fixtures/ethiopian-clock-cases.json`, which the server and the app both test against. The
+  server does not know the app's Clock setting, so the text follows `preferredLanguage` only.
 - `tag` is `order-<orderId>`. The device collapses successive pushes about one order into the
   latest, so a party who was away sees one tray entry per order, not a stack. An event with no
   `orderId` (an escrow row from before order-funded escrows) sends no tag and no `orderId`; a
@@ -236,7 +243,7 @@ a type carries only the keys its text needs, and a missing key renders as nothin
 | `cropType` | The order's crop type code (`teff`, `wheat`, ...); clients localize it |
 | `quantityKg` | The order quantity in kilograms, digits only |
 | `amountEtb` | The amount moved or held, in ETB with two decimals, digits and a point only; clients format it |
-| `deadlineAt` | ISO 8601 UTC; when the request closes or the window ends; clients show it in Ethiopia time |
+| `deadlineAt` | ISO 8601 UTC; when the request closes or the window ends; clients show it in Ethiopia time (the clock per language: section 2) |
 | `pickupDate` | ISO 8601 UTC; the agreed pickup date (the trip's departure on a trip order) |
 | `reason` | A code, never free text: a `transportFailure`, `declineReason`, `cancelReason` or payout-block reason; clients localize it |
 | `cancelledBy` | `buyer`, `farmer`, `trucker` or `system` |
@@ -333,10 +340,11 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.2.0 | 2026-10-28 | Push text deadlines on the Ethiopian clock in `am` and `om` (LT-04, `live-trip.md` section 9): `27 ኦክቶ ከምሽቱ 12:00`, `27 Onk 12:00 galgala`; `en` unchanged (`27 Oct 18:00`). Section 2 states the format per language. No payload, param or endpoint change. |
 | 1.1.0 | 2026-10-27 | Clients (ESC-21 PR 3, app build 3): the bell lists the inbox on mobile and web, a tap opens the order (push from the background or a cold start too), web route `/orders/{orderId}`, inbox text per type in three languages with a detail line, read state on the device, the 200-entry cap and the cursor rules (section 6). No server change. |
 | 1.0.0 | 2026-10-26 | Initial: `GET /notifications` inbox, FCM push payload with `data.type: order`, the event matrix over the orders, deliveries and escrows streams, params, at-least-once delivery with the conditional inbox put, DLQ and alarms (ESC-21). |
 
 ---
 
-**Last Updated**: 2026-10-27
+**Last Updated**: 2026-10-28
 **Status**: Draft
