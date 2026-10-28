@@ -564,8 +564,8 @@ System only, never through sync (1.16.0): `pending`, `pickedUp` or `inTransit` `
 `→ disputed`, by an admin's dispute disposition (see the dispute verdict paragraphs above).
 
 System, on a check-in (1.20.0, LT-07, `live-trip-api.md` section 5): `pickedUp → inTransit` when
-an accepted `location_ping` `fix` of the delivery's trip was captured at or after its
-`pickedUpAt` and is 2 km or more (great circle) from its pickup point, its `gpsPickup`, else its
+an accepted `location_ping` `fix` of the delivery's trip with `accuracyM` at most 1,000 was
+captured at or after its `pickedUpAt` and is 2 km or more (great circle) from its pickup point, its `gpsPickup`, else its
 listing's location. The delivery is read strongly consistent first, and the write is the same as
 the trucker's own transition (status, `updatedAt`, `version` + 1), conditional on the status
 `pickedUp` and the version read; a delivery that moved on in between is left alone. It is

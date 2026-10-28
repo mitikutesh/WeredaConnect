@@ -1,7 +1,7 @@
 # Live Trip API Contract
 
 ## Version
-1.0.3
+1.0.4
 
 ## Parties
 - **Mobile / Web** (client): the trucker's phone writes check-ins through `POST /sync`; the buyer's, farmer's and trucker's apps read the track; the admin app reads the trail.
@@ -127,9 +127,9 @@ Sent once per delivery to its buyer, when an accepted fix is within 5 km of the 
 
 | Param | Value |
 |---|---|
-| `trucker` | the trucker's display name |
+| `truckerName` | the trucker's display name |
 | `distanceKm` | rounded to one decimal |
-| `minutes` | the lower end of the arrival window, in minutes from now, rounded to 5 |
+| `minutes` | the lower end of the arrival window, in minutes from now, rounded to 5; left out when it rounds to 0 or is unknown |
 
 Push and inbox text in en, am and om; no clock times in the text. `data.type` `order`, `data.event` `truck_nearby`, `tag` `order-<orderId>`.
 
@@ -142,6 +142,7 @@ Push and inbox text in en, am and om; no clock times in the text. `data.type` `o
 3. Other orders on the same trip are never identified in a track response.
 4. Check-ins never move money. Only the existing QR handoffs, admin verdicts and timers do.
 5. Side effects never fail an ingest; each is idempotent (conditional writes).
+6. Only a `fix` with `accuracyM` at most 1,000 has effects by its position (the move to `inTransit`, `truck_nearby`, `GPS_JUMP`, whose neighbours are the trip's fixes within that bound too); a coarser fix is stored and drawn but moves, stamps and flags nothing. `GPS_MOCKED` does not depend on accuracy.
 
 ---
 
@@ -149,6 +150,7 @@ Push and inbox text in en, am and om; no clock times in the text. `data.type` `o
 
 | Version | Date | Change |
 |---|---|---|
+| 1.0.4 | 2026-10-28 | Section 4 as built (LT-07): the trucker param is `truckerName` (the wire name, `notifications-api.md` section 4), not `trucker`; `minutes` is left out when it rounds to 0 or is unknown. Section 5, invariant 6: only a fix with `accuracyM` at most 1,000 has effects by its position (a cell tower guess could cross the 2 km, 5 km and 1 km lines on its error alone); `GPS_MOCKED` does not depend on it. |
 | 1.0.3 | 2026-10-28 | Section 2, `otherStops` (privacy, design §7 and D7): planned points only, the listing location for a pickup and the planned drop-off point for a drop-off, never another order's `gpsPickup` or `gpsDropoff`; a stop done before this delivery's `pickedUpAt`, or at an unknown time, is left out. |
 | 1.0.2 | 2026-10-28 | Section 2 as built (LT-06): the route `GET /deliveries/{id}/track`; a soft-deleted delivery is `404`; the latest event is the trip's; the window end allows the 2 minute phone clock skew; how pauses are cut; the drop-off point is the trip's destination point (no coordinates exist for a registered place), `null` without it; which points the other stops use, `[]` before pickup and after delivery; while `paused` the arrival window counts from `pausedUntil`, the start moves to the first 5 minute mark at or after now and the window stays at least 10 minutes wide; the summary's window, rounding and zeros; no coordinates in any field when `ended`. |
 | 1.0.1 | 2026-10-28 | Section 1 as built (LT-05): when a delivery left the road (`confirmedAt`, or `cancelledAt` after pickup); `LOCATION_NOT_ACTIVE` (deferred) also while another delivery on the trip is still `pending`, and in place of `LOCATION_SHARING_ENDED` after a delivery write earlier in the same batch; the window is checked first, so a ping older than 7 days answers `LOCATION_STALE`; the fix limit counts the clock hour (UTC) of `capturedAt`. |
