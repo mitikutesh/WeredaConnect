@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.31.0
+1.32.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -779,12 +779,34 @@ reverted and not announced to the user: there is no local row to put back, and a
 only leaves a gap in the trail. The server sends these answers since 1.31.0; the mobile and web
 handling ships with LT-08, and no client sends the entity before it.
 
+**Client handling as built (1.32.0, LT-08).** No server change.
+
+- Mobile queues each ping as a `location_ping` create with the idempotency key
+  `{userId}:location_ping:{entityId}:create:{capturedAt in epoch ms}` and keeps its own copy in
+  Isar (`LocationPing`, platform pair `core/models/web/location_ping.dart`).
+- A batch takes every other pending operation first (FIFO) and fills the rest with pings (FIFO
+  among them): a trip's pickup always goes before its pings, and pings that wait as `deferred`
+  never hold back other writes.
+- A `LOCATION_*` error is rejected for good, not reverted, not announced and not counted in the
+  "Sync failed" badge. `LOCATION_SHARING_ENDED` also stops sharing for the ping's trip, once per
+  trip per batch. `deferred` is re-queued without a retry; an unprefixed error is retried.
+- Coalescing: when more than 24 pings wait unsent (`pending`), at most one `fix` per trip and
+  clock hour (UTC) of `capturedAt` stays (by source: `start`, `scan`, `arrived`, `manual`,
+  `near_stop`, `hourly`; the latest on a tie) plus every event. A ping on its way is never
+  coalesced.
+- A delivery update to `pickedUp` rejected for good (any permanent code, or a refused batch)
+  drops the waiting pings of its trip, unless another delivery of the trip is on the road on the
+  phone; they could only wait as `deferred` for 7 days.
+- Web has no queue: each ping goes to `/sync` at once, together with any that wait, with the
+  same key, codes and coalescing; what waits is kept in memory while the page is open.
+
 ---
 
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.32.0 | 2026-10-28 | Location pings, clients (LT-08): mobile queues `location_ping` with the capture time in the idempotency key, fills a batch with pings only after every other operation, rejects `LOCATION_*` errors for good without announcing or counting them (`LOCATION_SHARING_ENDED` also stops sharing), coalesces over 24 waiting pings to one `fix` per trip and clock hour plus every event, and drops a trip's waiting pings when its pickup is refused for good; web posts each ping at once with the same rules. No server change |
 | 1.31.0 | 2026-10-28 | Location pings (LT-05, `live-trip-api.md` 1.0.0): new create-only entity `location_ping` (the trucker's check-ins and sharing events after pickup), accepted from the trip's trucker while a delivery on the trip is on the road or left it after `capturedAt` (late offline pings kept); `LOCATION_VALIDATION`, `LOCATION_NOT_TRUCKER`, `LOCATION_SHARING_ENDED`, `LOCATION_RATE_LIMITED` and `LOCATION_STALE` are permanent errors, not reverted; `LOCATION_NOT_ACTIVE` answers `deferred` (no delivery on the road yet, another still pending, or a delivery written earlier in the same batch); a resend of the same `entityId` and `kind` is `success`; clients handle it from LT-08 |
 | 1.30.0 | 2026-10-27 | Order commitments, clients (ESC-22, ESC-23, app build 3): the farmer's answer is sent as `farmerResponse: accept \| decline` on every server (translated with the flag off); the trucker's command only on an order with a `fulfillment` stamp; `ORDER_RESPONSE_NOT_PENDING:` has its own text. No server change. |
 | 1.29.0 | 2026-10-26 | Order commitments (ESC-15, `order-lifecycle.md` 2.0.0, behind `COMMITMENTS_ENABLED`): the farmer answers a `funded` order with `farmerResponse: accept \| decline` (legacy `status: accepted \| rejected` mapped) and the trucker, once the farmer accepted, with `truckerResponse: accept \| decline`, each with an optional `declineReason` (`date`, `capacity`, `price`, `route`, `crop_not_ready`, `other`) and the pre-increment `version`; these three are the only new allowed update keys, every other new order field and the system-managed status `awaiting_transport` are server-written and returned by `GET /orders`; `ORDER_RESPONSE_NOT_PENDING:` and `ORDER_DEADLINE_PASSED:` are permanent under the `ORDER_*` rule (no client change for them); `AUTH_040:` on the trucker's drop-out from `accepted` and the farmer's cancel from `accepted`; `ORDER_CANCEL_NOT_ALLOWED:` on a buyer's `funded -> cancelled`; the server now sends `TRIP_CAPACITY_EXCEEDED:` (order create above `remainingQuintals`) and `TRIP_HAS_BOOKINGS:` (a trip change the bookings forbid) behind the flag; header and footer versions aligned (the footer had stayed at 1.27.0) |

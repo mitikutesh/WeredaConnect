@@ -93,7 +93,8 @@ Board names refer to the design canvas.
 
 - Each fix and event is a `location_ping` create in the existing sync queue (FIFO), so it waits offline like every other write.
 - Coalescing: when more than 24 location pings wait unsent, keep at most one `fix` per clock hour plus every event, so a long dead zone does not flood the queue ahead of a delivery scan.
-- About 600 bytes per ping in the sync request body with real ids (the operation envelope is most of it), so about 15 KB a day per truck at the hourly rate. A ping that goes up alone also carries the HTTP headers with the ID token, and often a new TLS connection, a few KB more. LT-08 measures the real daily figure with `DataUsageTracker` before the consent sheet quotes one.
+- Measured in LT-08 with real ids (`mobile/test/core/sync/sync_executor_location_ping_test.dart`): 635 bytes of sync request body for a ping that goes up alone, 531 bytes per ping when several go in one request. The operation envelope and its ids are most of it; the `data` is about 175 bytes. At the hourly rate that is about 15 KB of bodies a day per truck (24 × 635 B), plus 4 pings an hour while within 10 km of a drop-off. A ping that goes up alone also carries the request headers with the ID token and the answer with its headers (roughly 2 KB together, estimated), and after an hour idle usually a new TLS connection (roughly 5 KB, estimated): about 7 KB on the wire per hourly ping, about 170 KB a day. Pings that waited offline go up together and share that overhead. The consent sheet (LT-09) quotes the wire figure; a device run with `DataUsageTracker` confirms it before release.
+- The phone sends a ping only after every other waiting write (the trip's pickup first), so check-ins that wait as `deferred` never hold back a delivery scan, and a ping the server would refuse for its bounds (outside Ethiopia, accuracy over 5,000 m) is never sent.
 
 ### 5.4 Android
 
@@ -101,6 +102,7 @@ Board names refer to the design canvas.
 - The installed `geolocator_android` 5.0.4 supports the foreground notification (`ForegroundNotificationConfig`); no new package is needed.
 - The manifest adds `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_LOCATION`; the Play Console foreground-service declaration (location type) is filed before release. The consent sheet is the in-app disclosure.
 - Web drivers check in only while the page is open (manual and a visible-page timer); no background.
+- As built (LT-08): the service is the position stream of `geolocator` with a `ForegroundNotificationConfig`, asking for a low power position (cell and wifi, no GPS) about every 5 minutes. Those positions only wake the cadence when the phone sleeps (Dart timers do not run in deep sleep); each check-in is its own fix with the medium accuracy setting. The service keeps running through a pause, so sharing resumes by itself, and stops when sharing ends or the trucker signs out. The notification title, text and channel name are in en, am and om.
 
 ## 6. Server
 
@@ -182,7 +184,7 @@ The place list has towns, not neighbourhoods (Merkato, Kality and Saris are miss
 ## 13. Constraints check
 
 - **Offline first**: pings queue offline; the buyer's map shows the last snapshot with its age; Fayda and payments already say they need network.
-- **Low-end phones and data**: no tiles, no new packages, about 15 KB a day of check-in bodies per truck (§5.3), about 2 KB per map refresh, a repaint only when data changes.
+- **Low-end phones and data**: no tiles, no new packages, about 15 KB a day of check-in bodies per truck and about 170 KB on the wire (§5.3), about 2 KB per map refresh, a repaint only when data changes.
 - **Roles**: §7. Farmer never sees another farmer's crop; buyer browse is unchanged.
 - **Mobile and web**: every new screen exists on both. New Isar schemas get their web model pair; sync executor and queue changes land on both sides.
 - **Three languages**: every new string in en, am and om; the Amharic and Oromo copy on the canvas needs a native speaker's review before release.
