@@ -8,6 +8,7 @@ import { DashboardPage } from "@/pages/DashboardPage";
 import { EscrowsPage } from "@/pages/EscrowsPage";
 import { EscrowDetailPage } from "@/pages/EscrowDetailPage";
 import { DisputesPage } from "@/pages/DisputesPage";
+import { DisputeDetailPage } from "@/pages/DisputeDetailPage";
 import { ManualPayoutsPage } from "@/pages/ManualPayoutsPage";
 import { UnappliedPaymentsPage } from "@/pages/UnappliedPaymentsPage";
 import { FraudReviewPage } from "@/pages/FraudReviewPage";
@@ -69,6 +70,7 @@ function AppRoutes() {
         <Route path="escrows" element={<EscrowsPage />} />
         <Route path="escrows/:id" element={<EscrowDetailPage />} />
         <Route path="disputes" element={<DisputesPage />} />
+        <Route path="disputes/:id" element={<DisputeDetailPage />} />
         <Route path="payouts" element={<ManualPayoutsPage />} />
         <Route path="unapplied-payments" element={<UnappliedPaymentsPage />} />
         <Route path="fraud-review" element={<FraudReviewPage />} />

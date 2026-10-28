@@ -393,14 +393,15 @@ public static class TripTrack
         return fixes;
     }
 
-    private sealed record TrackEvent(DateTime CapturedAtUtc, string Kind, DateTime? PausedUntilUtc);
+    /// <summary>A sharing event of the trip (paused, resumed, declined), without coordinates.</summary>
+    internal sealed record TrackEvent(DateTime CapturedAtUtc, string Kind, DateTime? PausedUntilUtc);
 
     /// <summary>
     /// The trip's sharing events (paused, resumed, declined) up to <paramref name="toUtc"/>, in capture
     /// order. The whole trip counts, not only the window: a driver declines once per trip, at the first
-    /// pickup. Events carry no coordinates.
+    /// pickup. Events carry no coordinates. Also the admin trail's events (LT-13).
     /// </summary>
-    private static List<TrackEvent> EventsUntil(IReadOnlyList<TripLocationRow> rows, DateTime toUtc)
+    internal static List<TrackEvent> EventsUntil(IReadOnlyList<TripLocationRow> rows, DateTime toUtc)
     {
         var events = new List<TrackEvent>();
         foreach (var row in rows)
@@ -420,12 +421,22 @@ public static class TripTrack
         return events.OrderBy(e => e.CapturedAtUtc).ToList();
     }
 
+    /// <summary>The pauses of <see cref="PauseSpans"/> as the track and the admin trail write them.</summary>
+    internal static List<TrackPauseDto> PausesOf(List<TrackEvent> events, DateTime pickedUpAt)
+        => PauseSpans(events, pickedUpAt)
+            .Select(s => new TrackPauseDto
+            {
+                From = LocationPingRules.FormatUtc(s.From),
+                Until = LocationPingRules.FormatUtc(s.Until)
+            })
+            .ToList();
+
     /// <summary>
     /// The pauses: each <c>paused</c> event runs to its <c>pausedUntil</c>, or to the next event when
     /// that comes first (a <c>resumed</c>, a new pause, a decline). Only pauses that reach past pickup,
-    /// and those start no earlier than pickup.
+    /// and those start no earlier than pickup. In capture order, never overlapping.
     /// </summary>
-    private static List<TrackPauseDto> PausesOf(List<TrackEvent> events, DateTime pickedUpAt)
+    internal static List<(DateTime From, DateTime Until)> PauseSpans(List<TrackEvent> events, DateTime pickedUpAt)
     {
         var spans = new List<(DateTime From, DateTime Until)>();
         (DateTime From, DateTime Until)? current = null;
@@ -451,11 +462,7 @@ public static class TripTrack
 
         return spans
             .Where(s => s.Until > pickedUpAt)
-            .Select(s => new TrackPauseDto
-            {
-                From = LocationPingRules.FormatUtc(s.From < pickedUpAt ? pickedUpAt : s.From),
-                Until = LocationPingRules.FormatUtc(s.Until)
-            })
+            .Select(s => (s.From < pickedUpAt ? pickedUpAt : s.From, s.Until))
             .ToList();
     }
 
@@ -475,7 +482,7 @@ public static class TripTrack
     };
 
     /// <summary>The sort key <c>{capturedAt}#{kind}</c>.</summary>
-    private static bool TryParseSortKey(string sortKey, out DateTime capturedAtUtc, out string kind)
+    internal static bool TryParseSortKey(string sortKey, out DateTime capturedAtUtc, out string kind)
     {
         capturedAtUtc = default;
         kind = string.Empty;

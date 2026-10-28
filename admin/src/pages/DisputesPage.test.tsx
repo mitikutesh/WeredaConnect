@@ -1,5 +1,6 @@
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DisputesPage } from "./DisputesPage";
@@ -102,7 +103,7 @@ describe("DisputesPage", () => {
 
   it("sends a plain verdict, and on ADMIN_015 offers the goods choices for buyer_wins", async () => {
     const user = userEvent.setup();
-    render(<DisputesPage />);
+    render(<DisputesPage />, { wrapper: MemoryRouter });
 
     await user.click(within(table()).getByRole("button", { name: "Buyer Wins" }));
 
@@ -121,7 +122,7 @@ describe("DisputesPage", () => {
 
   it("records the chosen disposition with a trimmed reason, and only with a valid reason", async () => {
     const user = userEvent.setup();
-    render(<DisputesPage />);
+    render(<DisputesPage />, { wrapper: MemoryRouter });
     await user.click(within(table()).getByRole("button", { name: "Buyer Wins" }));
     failWith("ADMIN_015");
     const record = screen.getByRole("button", { name: "Record the verdict" }) as HTMLButtonElement;
@@ -150,7 +151,7 @@ describe("DisputesPage", () => {
 
   it("lists recorded verdicts awaiting settlement and offers the farmer_wins choices", async () => {
     const user = userEvent.setup();
-    render(<DisputesPage />);
+    render(<DisputesPage />, { wrapper: MemoryRouter });
 
     await user.click(screen.getByRole("button", { name: "Awaiting settlement" }));
     expect(within(table()).getByText("Farmer wins")).toBeTruthy();
@@ -173,7 +174,7 @@ describe("DisputesPage", () => {
 
   it("shows ADMIN_016 when the choice does not fit the order", async () => {
     const user = userEvent.setup();
-    render(<DisputesPage />);
+    render(<DisputesPage />, { wrapper: MemoryRouter });
     await user.click(screen.getByRole("button", { name: "Awaiting settlement" }));
     await user.click(within(table()).getByRole("button", { name: "Choose what happens" }));
     await user.click(screen.getByLabelText(/Pay the farmer now/));
@@ -196,7 +197,7 @@ describe("DisputesPage", () => {
     // An empty first page (the scan found no match there) still has more behind it.
     mocks.awaiting.data = { pages: [{ escrows: [] }, { escrows: [recordedVerdict(), waiting] }] };
     mocks.awaiting.hasNextPage = true;
-    render(<DisputesPage />);
+    render(<DisputesPage />, { wrapper: MemoryRouter });
 
     await user.click(screen.getByRole("button", { name: "Awaiting settlement" }));
 
@@ -209,7 +210,7 @@ describe("DisputesPage", () => {
   });
 
   it("offers Load more on the open list only when the server has more", async () => {
-    const { rerender } = render(<DisputesPage />);
+    const { rerender } = render(<DisputesPage />, { wrapper: MemoryRouter });
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
 
     mocks.disputes.hasNextPage = true;
@@ -218,9 +219,18 @@ describe("DisputesPage", () => {
     expect(screen.getByRole("button", { name: "Load more" })).toBeTruthy();
   });
 
+  it("links each dispute to its page with the evidence tabs (LT-13)", async () => {
+    const user = userEvent.setup();
+    render(<DisputesPage />, { wrapper: MemoryRouter });
+
+    expect(within(table()).getByRole("link", { name: "escrow-1" }).getAttribute("href")).toBe("/disputes/escrow-1");
+    await user.click(screen.getByRole("button", { name: "Awaiting settlement" }));
+    expect(within(table()).getByRole("link", { name: "escrow-2" }).getAttribute("href")).toBe("/disputes/escrow-2");
+  });
+
   it("cancel closes the choice without sending anything", async () => {
     const user = userEvent.setup();
-    render(<DisputesPage />);
+    render(<DisputesPage />, { wrapper: MemoryRouter });
     await user.click(screen.getByRole("button", { name: "Awaiting settlement" }));
     await user.click(within(table()).getByRole("button", { name: "Choose what happens" }));
 

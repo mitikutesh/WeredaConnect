@@ -1,7 +1,7 @@
 # Live Trip API Contract
 
 ## Version
-1.0.4
+1.0.5
 
 ## Parties
 - **Mobile / Web** (client): the trucker's phone writes check-ins through `POST /sync`; the buyer's, farmer's and trucker's apps read the track; the admin app reads the trail.
@@ -117,7 +117,49 @@ Clients poll at most every 5 minutes while a track screen is visible and keep th
 
 ## 3. Trail for admins: `GET /admin/deliveries/{deliveryId}/trail`
 
-Admin group only (`403` otherwise). Every `fix` and event for the delivery's trip from `pickedUpAt` to `confirmedAt`, at 4 decimals, plus legs: `{ "fromCapturedAt", "toCapturedAt", "distanceKm", "minutes", "kmh" }` and pauses. Used by the dispute evidence tab (LT-13).
+**Auth**: admin pool ID token, member of the `admin` group (`cognito:groups`). Anyone else, an admin role claim without the group included, gets the admin refusal `403` `{"error":{"code":"ADMIN_001","message":"Admin access required."}}`. An unknown or soft-deleted delivery: `404` with code `ADMIN_018` ("Delivery not found."). The route is `GET /admin/deliveries/{id}/trail` on the admin JWT authorizer, served by the admin Lambda, which reads the delivery by its key and the trip's rows (`Query` on trip-locations) and writes nothing. Used by the Trip trail tab of the admin dispute page (LT-13).
+
+**Response** `200` (two of the points and one of the legs shown):
+
+```json
+{
+  "deliveryId": "del-101",
+  "tripId": "trip-101",
+  "status": "disputed",
+  "open": false,
+  "from": "2026-10-27T05:05:00.000Z",
+  "until": "2026-10-27T09:00:00.000Z",
+  "asOf": "2026-10-27T09:10:00.000Z",
+  "pickup": { "latitude": 8.1504, "longitude": 38.8196, "at": "2026-10-27T05:05:00.000Z" },
+  "dropoff": { "latitude": 9.0301, "longitude": 38.7402, "at": "2026-10-27T09:00:00.000Z" },
+  "points": [
+    { "capturedAt": "2026-10-27T06:00:00.000Z", "receivedAt": "2026-10-27T06:00:03.000Z", "kind": "fix", "source": "hourly", "latitude": 8.1, "longitude": 38.74, "accuracyM": 35, "mocked": false, "pausedUntil": null, "coarse": false, "late": false },
+    { "capturedAt": "2026-10-27T06:40:00.000Z", "receivedAt": "2026-10-27T06:40:02.000Z", "kind": "paused", "source": null, "latitude": null, "longitude": null, "accuracyM": null, "mocked": null, "pausedUntil": "2026-10-27T07:10:00.000Z", "coarse": false, "late": false }
+  ],
+  "legs": [
+    { "fromCapturedAt": "2026-10-27T06:00:00.000Z", "toCapturedAt": "2026-10-27T07:00:00.000Z", "distanceKm": 27.8, "minutes": 60.0, "kmh": 27.8, "jump": false }
+  ],
+  "pauses": [ { "from": "2026-10-27T06:40:00.000Z", "until": "2026-10-27T07:10:00.000Z" } ],
+  "gaps": [ { "from": "2026-10-27T07:20:00.000Z", "until": "2026-10-27T09:00:00.000Z", "minutes": 100 } ],
+  "summary": { "sharedWholeWay": false, "declined": false, "fixes": 4, "coarseFixes": 1, "mockedFixes": 0, "lateFixes": 1, "jumps": 1, "gaps": 1, "distanceKm": 139.0, "durationMin": 235, "maxKmh": 333.6 }
+}
+```
+
+| Field | Rule |
+|---|---|
+| window | from the delivery's `pickedUpAt` to the time it left the road (`confirmedAt` for `delivered` and `disputed`, `cancelledAt` for a `cancelled` delivery that was picked up, as section 1 and the track's `summary`), both ends included; while `pickedUp` or `inTransit` to now plus 2 minutes (the phone clock skew the ingest accepts). Before pickup there is no window: `from` is `null` and every list is empty. A pickup scan fix the phone took before the server stamped `pickedUpAt` falls outside the window, as on the track; `pickup` still gives the scan point |
+| `tripId` | the trip of the check-ins; `null` for a self-pickup (no truck: its stored `tripId` is the delivery's own id), whose trail is always empty |
+| `open`, `from`, `until` | `open` while `pickedUp` or `inTransit`; `until` is `null` while open |
+| `pickup`, `dropoff` | the QR scan points `gpsPickup` and `gpsDropoff` at 4 decimals with `pickedUpAt` and `confirmedAt`; `null` coordinates (and time) when missing |
+| `points` | every row of the trip in the window, fixes and events (`paused`, `resumed`, `declined`), in capture order; coordinates at 4 decimals; `source`, the coordinates, `accuracyM` and `mocked` only on a fix, `pausedUntil` only on `paused` (`null` otherwise); `coarse`: a fix with `accuracyM` over 1,000 (section 5, invariant 6), drawn but no end of a leg; `late`: received more than 15 minutes after capture |
+| `legs` | one per pair of consecutive fixes with `accuracyM` at most 1,000 (a coarse fix is skipped, so the leg runs from the precise fix before it to the one after, as `GPS_JUMP` pairs them): great circle `distanceKm` at 2 decimals, `minutes` at 1, `kmh` at 1 (`null` when both fixes carry the same time); `jump` is the `GPS_JUMP` rule itself (more than 1 km apart at more than 130 km/h) |
+| `pauses` | the track's pauses (section 2): each `paused` event runs to its `pausedUntil` or the next event; those reaching past pickup, cut to start at it |
+| `gaps` | stretches longer than 90 minutes (the hourly cadence plus half an hour) without a fix, the paused time inside them left out: from pickup to the first fix, between fixes (coarse ones count: the phone was sharing), and from the last fix to the end (now while open); `minutes` whole. None for a self-pickup |
+| `summary` | `sharedWholeWay`: at least one fix, no gap and no decline; `declined`: the trip's latest event before pickup is `declined`, or a `declined` event falls in the window; the counts of fixes, coarse, mocked and late fixes, jump legs and gaps; `distanceKm` the sum of the legs at 1 decimal; `durationMin` the window in whole minutes (to now while open); `maxKmh` the fastest leg with a speed, `null` without one |
+
+**Errors**: `403 ADMIN_001` as above (API Gateway answers `401` without a valid admin token); `404 ADMIN_018`; `503 ADMIN_004` when the deliveries or trip-locations table is not configured; `500 ADMIN_500` on a read failure.
+
+The admin app's dispute page (`/disputes/{escrowId}`, linked from the Disputes list) shows it in a Trip trail tab: an SVG map drawn with a plain equirectangular projection (no tiles), the check-ins with the leg since the last one and their flags, the pauses and gaps, what the trail says, and the reminder that the trail shows where the truck was, not what it carried. Times in the admin's date and time style; en, am and om.
 
 ---
 
@@ -150,6 +192,7 @@ Push and inbox text in en, am and om; no clock times in the text. `data.type` `o
 
 | Version | Date | Change |
 |---|---|---|
+| 1.0.5 | 2026-10-28 | Section 3 as built (LT-13): the refusal is the admin `403 ADMIN_001` (an admin role claim without the admin group included), unknown or soft-deleted is `404 ADMIN_018`, `503 ADMIN_004` without the tables; the response in full: the window (to the time the delivery left the road, `cancelledAt` for a cancelled one; to now plus the clock skew while open), `tripId` (`null` for a self-pickup), the QR scan points, every point with `receivedAt`, `kind`, `source`, `accuracyM`, `mocked`, `pausedUntil`, `coarse` and `late`, legs between precise fixes only with the `jump` flag of the `GPS_JUMP` rule, the track's pauses, the gaps (over 90 minutes without a fix, pauses left out) and the summary. |
 | 1.0.4 | 2026-10-28 | Section 4 as built (LT-07): the trucker param is `truckerName` (the wire name, `notifications-api.md` section 4), not `trucker`; `minutes` is left out when it rounds to 0 or is unknown. Section 5, invariant 6: only a fix with `accuracyM` at most 1,000 has effects by its position (a cell tower guess could cross the 2 km, 5 km and 1 km lines on its error alone); `GPS_MOCKED` does not depend on it. |
 | 1.0.3 | 2026-10-28 | Section 2, `otherStops` (privacy, design §7 and D7): planned points only, the listing location for a pickup and the planned drop-off point for a drop-off, never another order's `gpsPickup` or `gpsDropoff`; a stop done before this delivery's `pickedUpAt`, or at an unknown time, is left out. |
 | 1.0.2 | 2026-10-28 | Section 2 as built (LT-06): the route `GET /deliveries/{id}/track`; a soft-deleted delivery is `404`; the latest event is the trip's; the window end allows the 2 minute phone clock skew; how pauses are cut; the drop-off point is the trip's destination point (no coordinates exist for a registered place), `null` without it; which points the other stops use, `[]` before pickup and after delivery; while `paused` the arrival window counts from `pausedUntil`, the start moves to the first 5 minute mark at or after now and the window stays at least 10 minutes wide; the summary's window, rounding and zeros; no coordinates in any field when `ended`. |

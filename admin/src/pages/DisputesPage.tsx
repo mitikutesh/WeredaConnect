@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Badge } from "@/components/ui/Badge";
@@ -91,7 +92,19 @@ export function DisputesPage() {
   const reasonValid = trimmedReason.length >= REASON_MIN && trimmedReason.length <= REASON_MAX;
 
   const partyColumns = [
-    { key: "escrowId", header: t("escrows.id") },
+    {
+      key: "escrowId",
+      header: t("escrows.id"),
+      // LT-13: the dispute page with its evidence tabs (Trip trail today; FRD-14 adds the rest).
+      render: (row: Row) => (
+        <Link
+          to={`/disputes/${encodeURIComponent(String(row.escrowId || ""))}`}
+          className="font-medium text-primary hover:underline"
+        >
+          {String(row.escrowId || "")}
+        </Link>
+      ),
+    },
     {
       key: "buyerName",
       header: t("escrows.buyer"),

@@ -431,3 +431,163 @@ public sealed record AdminAuditListResponse
     public required List<AdminAuditEntryDto> Entries { get; init; }
     public required int Total { get; init; }
 }
+
+// ──────────────────────────────────────────────
+// Delivery trail (LT-13, dispute evidence)
+// ──────────────────────────────────────────────
+
+/// <summary>
+/// LT-13: GET /admin/deliveries/{deliveryId}/trail response (live-trip-api.md section 3). Every
+/// check-in and sharing event of the delivery's trip from its pickup to its delivery (or now while
+/// it is on the road), at 4 decimals, with the legs between precise check-ins, the pauses, the gaps
+/// and what they add up to. Admin group only; read only. Nullable fields are written as <c>null</c>.
+/// </summary>
+public sealed record AdminDeliveryTrailResponse
+{
+    public required string DeliveryId { get; init; }
+
+    /// <summary>The trip of the check-ins; null for a self-pickup (no truck, no trail).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? TripId { get; init; }
+
+    public required string Status { get; init; }
+
+    /// <summary>True while the delivery is <c>pickedUp</c> or <c>inTransit</c>: the window runs to now.</summary>
+    public required bool Open { get; init; }
+
+    /// <summary>The window's start, the delivery's <c>pickedUpAt</c>; null before pickup.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? From { get; init; }
+
+    /// <summary>The window's end, when the delivery left the road; null while open or before pickup.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? Until { get; init; }
+
+    /// <summary>The server time of this answer.</summary>
+    public required string AsOf { get; init; }
+
+    /// <summary>The pickup QR scan: <c>gpsPickup</c> and <c>pickedUpAt</c>.</summary>
+    public required AdminTrailStopDto Pickup { get; init; }
+
+    /// <summary>The drop-off QR scan: <c>gpsDropoff</c> and <c>confirmedAt</c>.</summary>
+    public required AdminTrailStopDto Dropoff { get; init; }
+
+    /// <summary>Every fix and event of the window, in capture order.</summary>
+    public required List<AdminTrailPointDto> Points { get; init; }
+
+    /// <summary>One leg per pair of consecutive precise fixes (a coarse fix is no end of a leg).</summary>
+    public required List<AdminTrailLegDto> Legs { get; init; }
+
+    public required List<TrackPauseDto> Pauses { get; init; }
+
+    /// <summary>Stretches of the window without a check-in for longer than the cadence allows, pauses left out.</summary>
+    public required List<AdminTrailGapDto> Gaps { get; init; }
+
+    public required AdminTrailSummaryDto Summary { get; init; }
+}
+
+/// <summary>A QR handoff point of the delivery at 4 decimals, with its time.</summary>
+public sealed record AdminTrailStopDto
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? Latitude { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? Longitude { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? At { get; init; }
+}
+
+/// <summary>One stored check-in (<c>fix</c>) or sharing event (<c>paused</c>, <c>resumed</c>, <c>declined</c>).</summary>
+public sealed record AdminTrailPointDto
+{
+    public required string CapturedAt { get; init; }
+    public required string ReceivedAt { get; init; }
+
+    /// <summary><c>fix</c>, <c>paused</c>, <c>resumed</c> or <c>declined</c>.</summary>
+    public required string Kind { get; init; }
+
+    /// <summary>A fix's source (<c>hourly</c>, <c>scan</c>, ...); null on an event.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? Source { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? Latitude { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? Longitude { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? AccuracyM { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public bool? Mocked { get; init; }
+
+    /// <summary>The end the driver chose, on a <c>paused</c> event only.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? PausedUntil { get; init; }
+
+    /// <summary>A fix less precise than 1,000 m: drawn, but no end of a leg (live-trip-api.md section 5, invariant 6).</summary>
+    public required bool Coarse { get; init; }
+
+    /// <summary>Received more than 15 minutes after it was captured (it waited offline).</summary>
+    public required bool Late { get; init; }
+}
+
+/// <summary>The leg between two consecutive precise fixes: great circle distance, time and speed.</summary>
+public sealed record AdminTrailLegDto
+{
+    public required string FromCapturedAt { get; init; }
+    public required string ToCapturedAt { get; init; }
+
+    /// <summary>Great circle distance, 2 decimals.</summary>
+    public required double DistanceKm { get; init; }
+
+    /// <summary>1 decimal.</summary>
+    public required double Minutes { get; init; }
+
+    /// <summary>1 decimal; null when both fixes carry the same time.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? Kmh { get; init; }
+
+    /// <summary>The <c>GPS_JUMP</c> rule: more than 1 km apart at more than 130 km/h.</summary>
+    public required bool Jump { get; init; }
+}
+
+/// <summary>A stretch without a check-in: from a check-in (or the pickup) to the next (or the end).</summary>
+public sealed record AdminTrailGapDto
+{
+    public required string From { get; init; }
+    public required string Until { get; init; }
+
+    /// <summary>The minutes without a check-in, the paused time left out, whole.</summary>
+    public required int Minutes { get; init; }
+}
+
+/// <summary>What the trail says, for the "what the trail says" panel.</summary>
+public sealed record AdminTrailSummaryDto
+{
+    /// <summary>At least one fix, no gap and the driver never declined in the window.</summary>
+    public required bool SharedWholeWay { get; init; }
+
+    /// <summary>Sharing was declined at some time of the window (also by a decline before pickup).</summary>
+    public required bool Declined { get; init; }
+
+    public required int Fixes { get; init; }
+    public required int CoarseFixes { get; init; }
+    public required int MockedFixes { get; init; }
+    public required int LateFixes { get; init; }
+    public required int Jumps { get; init; }
+    public required int Gaps { get; init; }
+
+    /// <summary>The sum of the legs, 1 decimal.</summary>
+    public required double DistanceKm { get; init; }
+
+    /// <summary>The window in whole minutes (to now while open).</summary>
+    public required int DurationMin { get; init; }
+
+    /// <summary>The fastest leg with a speed, 1 decimal; null without one.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? MaxKmh { get; init; }
+}

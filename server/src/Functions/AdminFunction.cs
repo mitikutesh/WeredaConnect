@@ -34,8 +34,9 @@ namespace WeredaConnect.Server.Functions;
 /// - POST /admin/payouts/{escrowId}/{ref}/complete → record an admin-paid leg (admin group only)
 /// - GET  /admin/payments/unapplied      → captured payments the webhook did not apply (FUP-02)
 /// - POST /admin/payments/{orderId}/refund-manual → record their manual refund (admin group only)
+/// - GET  /admin/deliveries/{id}/trail → the trip trail of a delivery, dispute evidence (admin group only, LT-13)
 /// </summary>
-public class AdminFunction
+public partial class AdminFunction
 {
     private readonly IAmazonDynamoDB _dynamoDb;
     private readonly string _escrowsTable;
@@ -51,6 +52,12 @@ public class AdminFunction
 
     // FUP-02: the refund claim rows of the unapplied payment queue (PutItem only).
     private readonly string _escrowIdempotencyTable;
+
+    // LT-13: the check-ins of the delivery trail (Query only).
+    private readonly string _tripLocationsTable;
+
+    /// <summary>The server clock of the delivery trail (its open window); tests set it.</summary>
+    internal Func<DateTime> Clock { get; init; } = () => DateTime.UtcNow;
 
     // Account controls that must reach Cognito (disable, global sign-out, role
     // attribute); null in tests that only exercise DynamoDB behaviour.
@@ -77,6 +84,7 @@ public class AdminFunction
         _deliveriesTable = Environment.GetEnvironmentVariable("DELIVERIES_TABLE") ?? "";
         _paymentsTable = Environment.GetEnvironmentVariable("PAYMENTS_TABLE") ?? "";
         _escrowIdempotencyTable = Environment.GetEnvironmentVariable("ESCROW_IDEMPOTENCY_TABLE") ?? "";
+        _tripLocationsTable = Environment.GetEnvironmentVariable("TRIP_LOCATIONS_TABLE") ?? "";
     }
 
     /// <summary>
@@ -100,12 +108,14 @@ public class AdminFunction
         _deliveriesTable = "";
         _paymentsTable = "";
         _escrowIdempotencyTable = "";
+        _tripLocationsTable = "";
     }
 
     /// <summary>
     /// Test/DI constructor for the transaction-monitor endpoints: inject the client
     /// plus the tables those handlers touch (orders + escrows + deliveries + escrow
-    /// audit). Unrelated table names default to empty.
+    /// audit, and trip-locations for the delivery trail). Unrelated table names
+    /// default to empty.
     /// </summary>
     internal AdminFunction(
         IAmazonDynamoDB dynamoDb,
@@ -115,7 +125,8 @@ public class AdminFunction
         string deliveriesTable,
         string escrowAuditTable,
         string transactionAuditTable = "",
-        string escrowIdempotencyTable = "")
+        string escrowIdempotencyTable = "",
+        string tripLocationsTable = "")
     {
         _dynamoDb = dynamoDb;
         _usersTable = usersTable;
@@ -129,6 +140,7 @@ public class AdminFunction
         _tripsTable = "";
         _paymentsTable = "";
         _escrowIdempotencyTable = escrowIdempotencyTable;
+        _tripLocationsTable = tripLocationsTable;
     }
 
     /// <summary>
@@ -179,6 +191,7 @@ public class AdminFunction
                 ("POST", ["admin", "payouts", _, _, "complete"]) => await HandleCompleteManualPayoutAsync(segments[2], segments[3], request, context),
                 ("GET", ["admin", "payments", "unapplied"]) => await HandleListUnappliedPaymentsAsync(request),
                 ("POST", ["admin", "payments", _, "refund-manual"]) => await HandleRecordManualRefundAsync(segments[2], request, context),
+                ("GET", ["admin", "deliveries", _, "trail"]) => await HandleDeliveryTrailAsync(segments[2], request, context),
                 _ => LambdaResponse.Error(404, "ADMIN_002", "Admin endpoint not found.")
             };
         }
