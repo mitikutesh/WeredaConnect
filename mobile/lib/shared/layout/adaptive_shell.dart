@@ -125,11 +125,27 @@ class AdaptiveShell extends StatelessWidget {
       valueListenable: pushedRoutes?.count ?? _noPushedRoutes,
       builder: (context, pushed, _) {
         if (!onTabRoot || pushed > 0) return const SizedBox.shrink();
-        return FloatingActionButton.extended(
-          onPressed: () => _onFabPressed(context, role),
-          shape: const StadiumBorder(),
-          icon: const Icon(Icons.add),
-          label: Text(_fabTooltip(l10n, role)),
+        return SizedBox(
+          height: 44,
+          child: FloatingActionButton.extended(
+            heroTag: 'role_fab',
+            elevation: 0,
+            highlightElevation: 0,
+            onPressed: () => _onFabPressed(context, role),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            backgroundColor: AppTheme.soilDark,
+            foregroundColor: Colors.white,
+            icon: const Icon(Icons.add, size: 18),
+            label: Text(
+              _fabTooltip(l10n, role),
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
         );
       },
     );
@@ -198,7 +214,10 @@ class AdaptiveShell extends StatelessWidget {
     final dests = _destinations(l10n, role, includeSidebarExtras: true);
     final selectedIndex = _currentIndex(context, dests);
 
+    final desktopFab = _fab(context, l10n, role, onTabRoot: selectedIndex >= 0);
+
     return Scaffold(
+      backgroundColor: AppTheme.chalkBackground,
       body: Row(
         children: [
           // Sidebar / Rail
@@ -211,13 +230,13 @@ class AdaptiveShell extends StatelessWidget {
             onSelected: (i) => _onDestinationSelected(context, i, dests),
             onProfileTap: () => context.go('/profile'),
             onSettingsTap: () => context.go('/settings'),
+            actionButton: desktopFab,
+            role: role,
           ),
           // Content
           Expanded(child: child),
         ],
       ),
-      floatingActionButton:
-          _fab(context, l10n, role, onTabRoot: selectedIndex >= 0),
     );
   }
 }
@@ -280,16 +299,13 @@ class _Sidebar extends StatelessWidget {
   final bool expanded;
   final int selectedIndex;
   final List<_NavDestination> destinations;
-
-  /// Role identity accent (decorative) for the logo tile and the
-  /// selected item — always a dark-ground variant, since the rail is
-  /// dark teal in both themes.
   final Color accent;
-
   final String currentLocation;
   final ValueChanged<int> onSelected;
   final VoidCallback onProfileTap;
   final VoidCallback onSettingsTap;
+  final Widget? actionButton;
+  final UserRole role;
 
   const _Sidebar({
     required this.expanded,
@@ -300,6 +316,8 @@ class _Sidebar extends StatelessWidget {
     required this.onSelected,
     required this.onProfileTap,
     required this.onSettingsTap,
+    required this.role,
+    this.actionButton,
   });
 
   @override
@@ -307,24 +325,21 @@ class _Sidebar extends StatelessWidget {
     final width =
         expanded ? Breakpoints.sidebarExpanded : Breakpoints.sidebarCollapsed;
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
+    return Container(
       width: width,
       decoration: const BoxDecoration(
-        color: AppTheme.primaryGreenDark,
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x1A000000),
-            blurRadius: 8,
-            offset: Offset(2, 0),
+        color: Colors.white,
+        border: Border(
+          right: BorderSide(
+            color: AppTheme.whisperBorder,
           ),
-        ],
+        ),
       ),
       child: Column(
         children: [
           // App branding
           _SidebarHeader(expanded: expanded, accent: accent),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           // Navigation items
           Expanded(
             child: ListView(
@@ -338,13 +353,18 @@ class _Sidebar extends StatelessWidget {
                     accent: accent,
                     onTap: () => onSelected(i),
                   ),
+                if (expanded && actionButton != null) ...[
+                  const SizedBox(height: 16),
+                  actionButton!,
+                ],
               ],
             ),
           ),
           // Bottom section: profile + settings
-          const Divider(color: Colors.white12, height: 1),
+          const Divider(color: AppTheme.whisperBorder, height: 1),
           _SidebarFooter(
             expanded: expanded,
+            role: role,
             isSettingsActive: currentLocation.startsWith('/settings'),
             isProfileActive: currentLocation.startsWith('/profile'),
             onProfileTap: onProfileTap,
@@ -358,8 +378,6 @@ class _Sidebar extends StatelessWidget {
 
 class _SidebarHeader extends StatelessWidget {
   final bool expanded;
-
-  /// Role identity accent for the logo tile (decorative only).
   final Color accent;
 
   const _SidebarHeader({required this.expanded, required this.accent});
@@ -371,7 +389,7 @@ class _SidebarHeader extends StatelessWidget {
         expanded ? 20 : 12,
         MediaQuery.of(context).padding.top + 20,
         expanded ? 20 : 12,
-        16,
+        8,
       ),
       child: Row(
         children: [
@@ -379,44 +397,28 @@ class _SidebarHeader extends StatelessWidget {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: accent,
-              borderRadius: BorderRadius.circular(10),
+              color: AppTheme.fieldGreen,
+              borderRadius: BorderRadius.circular(12),
             ),
-            // Dark-teal glyph: ≥3.65:1 on every role accent (computed);
-            // white would fail on these light dark-ground tints.
             child: const Icon(
               Icons.agriculture,
-              color: AppTheme.primaryDeep,
-              size: 24,
+              color: Colors.white,
+              size: 22,
             ),
           ),
           if (expanded) ...[
             const SizedBox(width: 12),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    AppLocalizations.of(context)!.appName,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    AppLocalizations.of(context)!.aboutTagline,
-                    style: const TextStyle(
-                      color: Colors.white54,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w400,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+              child: Text(
+                AppLocalizations.of(context)!.appName,
+                style: const TextStyle(
+                  color: AppTheme.soilDark,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.4,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
@@ -430,10 +432,7 @@ class _SidebarItem extends StatefulWidget {
   final _NavDestination item;
   final bool selected;
   final bool expanded;
-
-  /// Role identity accent for the selected icon/left border (decorative).
   final Color accent;
-
   final VoidCallback onTap;
 
   const _SidebarItem({
@@ -451,8 +450,6 @@ class _SidebarItem extends StatefulWidget {
 class _SidebarItemState extends State<_SidebarItem> {
   bool _hovered = false;
 
-  /// The item's icon; the Messages item carries an unread-count badge
-  /// whenever the inbox has unread messages.
   Widget _icon(Color color, double size) {
     final icon = Icon(
       widget.selected ? widget.item.selectedIcon : widget.item.icon,
@@ -466,8 +463,8 @@ class _SidebarItemState extends State<_SidebarItem> {
         if (unread <= 0) return icon;
         return Badge(
           label: Text('$unread'),
-          backgroundColor: AppTheme.accentGold,
-          textColor: Colors.black87,
+          backgroundColor: AppTheme.statusWarning,
+          textColor: Colors.white,
           child: icon,
         );
       },
@@ -477,14 +474,14 @@ class _SidebarItemState extends State<_SidebarItem> {
   @override
   Widget build(BuildContext context) {
     final bgColor = widget.selected
-        ? Colors.white.withAlpha(25)
+        ? AppTheme.fieldGreenTint
         : _hovered
-            ? Colors.white.withAlpha(13)
+            ? const Color(0xFFF3F1EB)
             : Colors.transparent;
     final iconColor =
-        widget.selected ? widget.accent : Colors.white.withAlpha(180);
+        widget.selected ? AppTheme.fieldGreen : AppTheme.unselectedNav;
     final textColor =
-        widget.selected ? Colors.white : Colors.white.withAlpha(180);
+        widget.selected ? AppTheme.fieldGreen : AppTheme.unselectedNav;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
@@ -493,41 +490,34 @@ class _SidebarItemState extends State<_SidebarItem> {
         label: widget.item.label,
         selected: widget.selected,
         child: MouseRegion(
+          cursor: SystemMouseCursors.click,
           onEnter: (_) => setState(() => _hovered = true),
           onExit: (_) => setState(() => _hovered = false),
           child: GestureDetector(
             onTap: widget.onTap,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
+              height: 44,
               padding: EdgeInsets.symmetric(
-                horizontal: widget.expanded ? 14 : 0,
-                vertical: 12,
+                horizontal: widget.expanded ? 12 : 0,
               ),
               decoration: BoxDecoration(
                 color: bgColor,
-                borderRadius: BorderRadius.circular(10),
-                border: widget.selected
-                    ? Border(
-                        left: BorderSide(
-                          color: widget.accent,
-                          width: widget.expanded ? 3 : 0,
-                        ),
-                      )
-                    : null,
+                borderRadius: BorderRadius.circular(12),
               ),
               child: widget.expanded
                   ? Row(
                       children: [
-                        _icon(iconColor, 22),
-                        const SizedBox(width: 14),
+                        _icon(iconColor, 20),
+                        const SizedBox(width: 12),
                         Text(
                           widget.item.label,
                           style: TextStyle(
                             color: textColor,
                             fontSize: 14,
                             fontWeight: widget.selected
-                                ? FontWeight.w600
-                                : FontWeight.w400,
+                                ? FontWeight.w700
+                                : FontWeight.w600,
                           ),
                         ),
                       ],
@@ -535,7 +525,7 @@ class _SidebarItemState extends State<_SidebarItem> {
                   : Center(
                       child: Tooltip(
                         message: widget.item.label,
-                        child: _icon(iconColor, 24),
+                        child: _icon(iconColor, 22),
                       ),
                     ),
             ),
@@ -548,6 +538,7 @@ class _SidebarItemState extends State<_SidebarItem> {
 
 class _SidebarFooter extends StatelessWidget {
   final bool expanded;
+  final UserRole role;
   final bool isSettingsActive;
   final bool isProfileActive;
   final VoidCallback onProfileTap;
@@ -557,6 +548,7 @@ class _SidebarFooter extends StatelessWidget {
     required this.expanded,
     required this.onProfileTap,
     required this.onSettingsTap,
+    required this.role,
     this.isSettingsActive = false,
     this.isProfileActive = false,
   });
@@ -565,16 +557,27 @@ class _SidebarFooter extends StatelessWidget {
   Widget build(BuildContext context) {
     final authState = context.watch<AuthBloc>().state;
     final name = authState is AuthAuthenticated ? authState.userName : '';
-    final initials = name.isNotEmpty ? name[0].toUpperCase() : '?';
+    final woreda = authState is AuthAuthenticated ? (authState.woreda ?? '') : '';
+    final initials = name.isNotEmpty
+        ? (name.length > 1
+            ? name.substring(0, 2).toUpperCase()
+            : name[0].toUpperCase())
+        : 'WC';
+    final roleName = switch (role) {
+      UserRole.farmer => 'Farmer',
+      UserRole.trucker => 'Trucker',
+      UserRole.buyer => 'Buyer',
+    };
+    final subtitle = woreda.isNotEmpty ? ' · ' : roleName;
 
     return Padding(
       padding: EdgeInsets.symmetric(
-        horizontal: expanded ? 16 : 8,
+        horizontal: expanded ? 14 : 8,
         vertical: 12,
       ),
       child: Column(
         children: [
-          // Settings
+          // Settings Row
           _SidebarFooterButton(
             icon: Icons.settings_outlined,
             selectedIcon: Icons.settings,
@@ -584,7 +587,7 @@ class _SidebarFooter extends StatelessWidget {
             onTap: onSettingsTap,
           ),
           const SizedBox(height: 8),
-          // User profile
+          // User profile tile
           Semantics(
             button: true,
             label: name.isEmpty ? AppLocalizations.of(context)!.profile : name,
@@ -593,59 +596,78 @@ class _SidebarFooter extends StatelessWidget {
               child: MouseRegion(
                 cursor: SystemMouseCursors.click,
                 child: Container(
-                  padding: EdgeInsets.all(expanded ? 10 : 8),
+                  padding: EdgeInsets.all(expanded ? 8 : 6),
                   decoration: BoxDecoration(
                     color: isProfileActive
-                        ? Colors.white.withAlpha(25)
-                        : Colors.white.withAlpha(13),
-                    borderRadius: BorderRadius.circular(10),
+                        ? AppTheme.fieldGreenTint
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: expanded
                       ? Row(
                           children: [
-                            CircleAvatar(
-                              radius: 16,
-                              backgroundColor: AppTheme.accentGold,
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Color(0xFFE6ECF5),
+                              ),
+                              alignment: Alignment.center,
                               child: Text(
                                 initials,
                                 style: const TextStyle(
-                                  color: Colors.white,
+                                  color: Color(0xFF2E4C7D),
                                   fontSize: 13,
-                                  fontWeight: FontWeight.w700,
+                                  fontWeight: FontWeight.w800,
                                 ),
                               ),
                             ),
                             const SizedBox(width: 10),
                             Expanded(
-                              child: Text(
-                                name,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                                overflow: TextOverflow.ellipsis,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    name.isNotEmpty ? name : 'User',
+                                    style: const TextStyle(
+                                      color: AppTheme.soilDark,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  Text(
+                                    subtitle,
+                                    style: const TextStyle(
+                                      color: AppTheme.mutedSteel,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
                               ),
-                            ),
-                            Icon(
-                              Icons.chevron_right,
-                              size: 18,
-                              color: Colors.white.withAlpha(120),
                             ),
                           ],
                         )
                       : Center(
                           child: Tooltip(
                             message: name,
-                            child: CircleAvatar(
-                              radius: 16,
-                              backgroundColor: AppTheme.accentGold,
+                            child: Container(
+                              width: 34,
+                              height: 34,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Color(0xFFE6ECF5),
+                              ),
+                              alignment: Alignment.center,
                               child: Text(
                                 initials,
                                 style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF2E4C7D),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
                                 ),
                               ),
                             ),
@@ -687,16 +709,13 @@ class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
 
   @override
   Widget build(BuildContext context) {
-    final iconColor =
-        widget.isActive ? AppTheme.accentGold : Colors.white.withAlpha(180);
-    final textColor =
-        widget.isActive ? Colors.white : Colors.white.withAlpha(180);
+    final color = widget.isActive ? AppTheme.fieldGreen : AppTheme.mutedSteel;
     final displayIcon =
         widget.isActive ? (widget.selectedIcon ?? widget.icon) : widget.icon;
     final bgColor = widget.isActive
-        ? Colors.white.withAlpha(25)
+        ? AppTheme.fieldGreenTint
         : _hovered
-            ? Colors.white.withAlpha(13)
+            ? const Color(0xFFF3F1EB)
             : Colors.transparent;
 
     return Semantics(
@@ -710,9 +729,9 @@ class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
         child: GestureDetector(
           onTap: widget.onTap,
           child: Container(
+            height: 38,
             padding: EdgeInsets.symmetric(
-              horizontal: widget.expanded ? 14 : 0,
-              vertical: 10,
+              horizontal: widget.expanded ? 10 : 0,
             ),
             decoration: BoxDecoration(
               color: bgColor,
@@ -721,18 +740,24 @@ class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
             child: widget.expanded
                 ? Row(
                     children: [
-                      Icon(displayIcon, color: iconColor, size: 20),
-                      const SizedBox(width: 14),
+                      Icon(displayIcon, color: color, size: 20),
+                      const SizedBox(width: 10),
                       Text(
                         widget.label,
-                        style: TextStyle(color: textColor, fontSize: 13),
+                        style: TextStyle(
+                          color: color,
+                          fontSize: 13,
+                          fontWeight: widget.isActive
+                              ? FontWeight.w700
+                              : FontWeight.w600,
+                        ),
                       ),
                     ],
                   )
                 : Center(
                     child: Tooltip(
                       message: widget.label,
-                      child: Icon(displayIcon, color: iconColor, size: 22),
+                      child: Icon(displayIcon, color: color, size: 20),
                     ),
                   ),
           ),

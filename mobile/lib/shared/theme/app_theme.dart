@@ -37,6 +37,15 @@ class AppTheme {
   static const Color textMuted = Color(0xFF526071);
   static const Color borderLight = Color(0xFFE2E8F0);
 
+  // ── Fieldway Design Canvas tokens (specs/features/live-trip.md) ───────
+  static const Color fieldGreen = Color(0xFF1E5B3E);
+  static const Color fieldGreenTint = Color(0xFFE3EEE6);
+  static const Color soilDark = Color(0xFF15201A);
+  static const Color chalkBackground = Color(0xFFF5F4EE);
+  static const Color whisperBorder = Color(0xFFE3E1D8);
+  static const Color mutedSteel = Color(0xFF5E6862);
+  static const Color unselectedNav = Color(0xFF3F4843);
+
   // ── Role identity accents (decorative only — no status meaning) ──────
   // A single hue cue per signed-in role, used on nav chrome (sidebar logo
   // tile, selected nav item) so users always know which role they're

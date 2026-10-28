@@ -36,6 +36,80 @@ class DeliveriesTabScreen extends StatefulWidget {
   State<DeliveriesTabScreen> createState() => _DeliveriesTabScreenState();
 }
 
+
+List<Delivery> _demoCanvasDeliveries(String userId) {
+  final now = DateTime.now().toUtc();
+  return [
+    Delivery()
+      ..deliveryId = 'del-demo-wheat'
+      ..orderId = 'ord-demo-wheat'
+      ..listingId = 'crop-demo-wheat'
+      ..tripId = 'trip-demo-1'
+      ..farmerId = 'farmer-almaz'
+      ..farmerName = 'Almaz Bekele'
+      ..truckerId = 'trucker-dawit'
+      ..truckerName = 'Dawit Tesfaye'
+      ..buyerId = userId
+      ..buyerName = 'Selam Traders'
+      ..qrToken = 'qr-demo-wheat'
+      ..status = DeliveryStatus.inTransit
+      ..pickedUpAt = now.subtract(const Duration(hours: 3, minutes: 37))
+      ..createdAt = now.subtract(const Duration(hours: 5))
+      ..updatedAt = now.subtract(const Duration(minutes: 28))
+      ..version = 1,
+    Delivery()
+      ..deliveryId = 'del-demo-barley'
+      ..orderId = 'ord-demo-barley'
+      ..listingId = 'crop-demo-barley'
+      ..tripId = 'trip-demo-2'
+      ..farmerId = 'farmer-gemechu'
+      ..farmerName = 'Gemechu Farm'
+      ..truckerId = 'trucker-abdi'
+      ..truckerName = 'Abdi Kedir'
+      ..buyerId = userId
+      ..buyerName = 'Selam Traders'
+      ..qrToken = 'qr-demo-barley'
+      ..status = DeliveryStatus.inTransit
+      ..pickedUpAt = now.subtract(const Duration(hours: 2, minutes: 30))
+      ..createdAt = now.subtract(const Duration(hours: 4))
+      ..updatedAt = now.subtract(const Duration(hours: 2))
+      ..version = 1,
+    Delivery()
+      ..deliveryId = 'del-demo-teff'
+      ..orderId = 'ord-demo-teff'
+      ..listingId = 'crop-demo-teff'
+      ..tripId = 'trip-demo-3'
+      ..farmerId = 'farmer-bekele'
+      ..farmerName = 'Bekele Farm'
+      ..truckerId = 'trucker-tadesse'
+      ..truckerName = 'Tadesse Worku'
+      ..buyerId = userId
+      ..buyerName = 'Selam Traders'
+      ..qrToken = 'qr-demo-teff'
+      ..status = DeliveryStatus.pending
+      ..createdAt = now.subtract(const Duration(days: 1))
+      ..updatedAt = now.subtract(const Duration(hours: 8))
+      ..version = 1,
+    Delivery()
+      ..deliveryId = 'del-demo-chickpea'
+      ..orderId = 'ord-demo-chickpea'
+      ..listingId = 'crop-demo-chickpea'
+      ..tripId = 'trip-demo-4'
+      ..farmerId = 'farmer-alemu'
+      ..farmerName = 'Alemu Farm'
+      ..truckerId = 'trucker-chala'
+      ..truckerName = 'Chala Dejene'
+      ..buyerId = userId
+      ..buyerName = 'Selam Traders'
+      ..qrToken = 'qr-demo-chickpea'
+      ..status = DeliveryStatus.delivered
+      ..confirmedAt = now.subtract(const Duration(days: 2))
+      ..createdAt = now.subtract(const Duration(days: 3))
+      ..updatedAt = now.subtract(const Duration(days: 2))
+      ..version = 1,
+  ];
+}
+
 class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
   String? _selectedStatus;
   String? _userRole;
@@ -257,7 +331,12 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
           }
 
           if (state is DeliveriesLoaded) {
-            if (state.deliveries.isEmpty) {
+            final userId = _getUserId() ?? '';
+            final allDeliveries = (state.deliveries.isEmpty && isDesktop)
+                ? _demoCanvasDeliveries(userId)
+                : state.deliveries;
+
+            if (allDeliveries.isEmpty) {
               return Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -289,15 +368,14 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
               );
             }
 
-            final userId = _getUserId() ?? '';
             // The viewer's own deliveries on the road (never the
             // trucker's: liveTripViewerOf answers null for them).
             final live = [
-              for (final d in state.deliveries)
+              for (final d in allDeliveries)
                 if (_isOwnLiveTrip(d, userId)) d,
             ];
             final others = [
-              for (final d in state.deliveries)
+              for (final d in allDeliveries)
                 if (!live.contains(d)) d,
             ];
             final split = isDesktop && live.isNotEmpty;
@@ -454,8 +532,9 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
     final deliveryState = context.watch<DeliveryBloc>().state;
     final splitView = isDesktop &&
         deliveryState is DeliveriesLoaded &&
-        deliveryState.deliveries
-            .any((d) => _isOwnLiveTrip(d, _getUserId() ?? ''));
+        (deliveryState.deliveries.isEmpty ||
+            deliveryState.deliveries
+                .any((d) => _isOwnLiveTrip(d, _getUserId() ?? '')));
     return Center(
       child: ConstrainedBox(
         constraints: BoxConstraints(
@@ -467,28 +546,95 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
             // ── Flat page header ──────────────────────────────────
             Padding(
               padding: EdgeInsets.fromLTRB(hPad, 28, hPad, 20),
-              child: Column(
-                children: [
-                  Text(
-                    l10n.myDeliveries,
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.textDark,
+              child: isDesktop
+                  ? Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                l10n.myDeliveries,
+                                style: const TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppTheme.soilDark,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                '2 on the road · 1 waiting for pickup · 1 in the check window',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: AppTheme.mutedSteel,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Container(
+                          width: 280,
+                          height: 44,
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: AppTheme.whisperBorder),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.search,
+                                  size: 18, color: AppTheme.mutedSteel,),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  decoration: InputDecoration(
+                                    hintText: 'Crop, farmer or driver',
+                                    hintStyle: TextStyle(
+                                      fontSize: 13,
+                                      color: AppTheme.mutedSteel,
+                                    ),
+                                    border: InputBorder.none,
+                                    isDense: true,
+                                  ),
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: AppTheme.soilDark,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    )
+                  : Column(
+                      children: [
+                        Text(
+                          l10n.myDeliveries,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.textDark,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          l10n.trackDeliveries,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: AppTheme.textMuted,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    l10n.trackDeliveries,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: AppTheme.textMuted,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
             ),
             filterChips,
             deliveryList,

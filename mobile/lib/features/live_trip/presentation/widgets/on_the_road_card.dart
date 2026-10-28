@@ -109,19 +109,17 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
             ' · ${partyDisplayName(delivery.truckerName, l10n)}';
 
     return Material(
-      color: widget.selected
-          ? AppTheme.primary.withValues(alpha: 0.06)
-          : AppTheme.surfaceWhite,
+      color: AppTheme.surfaceWhite,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         side: BorderSide(
-          color: widget.selected ? AppTheme.primary : AppTheme.borderLight,
-          width: widget.selected ? 1.5 : 1,
+          color: widget.selected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+          width: widget.selected ? 2.0 : 1.0,
         ),
       ),
       child: InkWell(
         key: Key('on_the_road_${delivery.deliveryId}'),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         onTap: widget.onTap ??
             () => openLiveTrip(context, delivery, widget.currentUserId),
         child: Padding(
