@@ -13,6 +13,7 @@ import 'package:wereda_connect/features/buyer/presentation/screens/match_results
 import 'package:wereda_connect/features/buyer/presentation/widgets/intent_card.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/green_header.dart';
 
@@ -314,9 +315,11 @@ class _MyRequestsTab extends StatelessWidget {
                 child: RefreshIndicator(
                   onRefresh: onRefreshMatches,
                   child: ListView.separated(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 12,
+                    padding: const EdgeInsets.fromLTRB(
+                      20,
+                      12,
+                      20,
+                      Breakpoints.fabClearance,
                     ),
                     physics: const AlwaysScrollableScrollPhysics(),
                     itemCount: state.intents.length,

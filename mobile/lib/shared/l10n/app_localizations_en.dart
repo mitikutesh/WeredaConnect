@@ -3612,4 +3612,39 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get notifPayoutHintOther => 'Open the app to see what is needed.';
+
+  @override
+  String get clockSetting => 'Clock';
+
+  @override
+  String get clockAuto => 'Auto';
+
+  @override
+  String get clockAutoHint => 'Follows the app language';
+
+  @override
+  String get clockEthiopian => 'Ethiopian';
+
+  @override
+  String get clockInternational => 'International (24-hour)';
+
+  @override
+  String clockNight(String time) {
+    return '$time at night';
+  }
+
+  @override
+  String clockMorning(String time) {
+    return '$time in the morning';
+  }
+
+  @override
+  String clockDay(String time) {
+    return '$time in the afternoon';
+  }
+
+  @override
+  String clockEvening(String time) {
+    return '$time in the evening';
+  }
 }

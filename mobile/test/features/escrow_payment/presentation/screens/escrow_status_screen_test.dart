@@ -64,13 +64,16 @@ void main() {
     escrowBloc = MockEscrowBloc();
   });
 
-  Widget buildScreen({String escrowId = 'esc-001'}) {
+  Widget buildScreen({
+    String escrowId = 'esc-001',
+    Locale locale = const Locale('en'),
+  }) {
     return BlocProvider<EscrowBloc>.value(
       value: escrowBloc,
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        locale: const Locale('en'),
+        locale: locale,
         home: EscrowStatusScreen(escrowId: escrowId),
       ),
     );
@@ -291,6 +294,40 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('TLB-REF-123456'), findsOneWidget);
+    });
+
+    // LT-03: the payment expiry is a deadline. 10:20 UTC is 13:20 in
+    // Ethiopia, 7:20 in the day on the Ethiopian clock.
+    testWidgets(
+        'Amharic shows the expiry on the Ethiopian clock, 24-hour small',
+        (WidgetTester tester) async {
+      final payment = _makePayment()
+        ..expiresAt = DateTime.utc(2026, 10, 28, 10, 20);
+      when(() => escrowBloc.state)
+          .thenReturn(EscrowDetailLoaded(payment: payment));
+      when(() => escrowBloc.stream)
+          .thenAnswer((_) => const Stream<EscrowState>.empty());
+
+      await tester.pumpWidget(buildScreen(locale: const Locale('am')));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('ከቀኑ 7:20 (13:20)'), findsOneWidget);
+    });
+
+    testWidgets('English shows the expiry on the 24-hour clock, no companion',
+        (WidgetTester tester) async {
+      final payment = _makePayment()
+        ..expiresAt = DateTime.utc(2026, 10, 28, 10, 20);
+      when(() => escrowBloc.state)
+          .thenReturn(EscrowDetailLoaded(payment: payment));
+      when(() => escrowBloc.stream)
+          .thenAnswer((_) => const Stream<EscrowState>.empty());
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Oct 28, 2026 13:20'), findsOneWidget);
+      expect(find.textContaining('(13:20)'), findsNothing);
     });
 
     testWidgets('dispatches LoadEscrowDetail on init',

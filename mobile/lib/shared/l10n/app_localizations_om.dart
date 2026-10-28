@@ -3648,4 +3648,39 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get notifPayoutHintOther =>
       'Maal akka barbaachisu ilaaluuf appii banaa.';
+
+  @override
+  String get clockSetting => 'Sa\'aatii';
+
+  @override
+  String get clockAuto => 'Ofumaan';
+
+  @override
+  String get clockAutoHint => 'Afaan appii hordofa';
+
+  @override
+  String get clockEthiopian => 'Kan Itoophiyaa';
+
+  @override
+  String get clockInternational => 'Idil-addunyaa (sa\'aatii 24)';
+
+  @override
+  String clockNight(String time) {
+    return '$time halkan';
+  }
+
+  @override
+  String clockMorning(String time) {
+    return '$time ganama';
+  }
+
+  @override
+  String clockDay(String time) {
+    return '$time waaree booda';
+  }
+
+  @override
+  String clockEvening(String time) {
+    return '$time galgala';
+  }
 }

@@ -1,7 +1,7 @@
 # Account Deletion Contract
 
 ## Version
-1.3.1
+1.3.2
 
 ## Parties
 - **Mobile / Web** (client, ACC-03): Profile > "Delete account" flow, step-up re-auth, local wipe. Mobile and web are a platform pair and ship together.
@@ -287,6 +287,7 @@ Every DynamoDB table in `infra/lib/stacks/database-stack.ts` and `infra/lib/cons
 | `match-events` | Delete | For each of the user's intents, hard delete the rows with PK `intentId`. Any row missed expires through the 90 day `ttl` |
 | `device-tokens` | Delete | Per row (PK `userId`, SK `endpointArn`): SNS `DeleteEndpoint(endpointArn)`, then DeleteItem. NotFound counts as done |
 | `notifications` | Retain until TTL | Inbox rows (ESC-21, `notifications-api.md`): PK `userId`, SK `sortKey`, the notification type, ids and params (display names copied at event time, crop, kg, ETB, deadlines, reason codes; never a phone). `expiresAt` 90 days after the event. The deletion steps do not touch it: the user's own rows are readable only with their token, and the rows in other parties' inboxes keep the user's name as it was until they expire (they are keyed by the recipient, not by the parties). A purge of both is open (FUP-120) |
+| `trip-locations` | Retain until TTL | Live Trip check-ins (LT-05, `live-trip-api.md`): PK `tripId`, SK `sortKey` (`{capturedAt}#{kind}`), `truckerId`, coordinates (4 decimals), `accuracyM`, `source`, `mocked`, `pausedUntil`, `receivedAt`; `expiresAt` 60 days after capture. Kept as dispute and fraud evidence like the deliveries' `gpsPickup` and `gpsDropoff`; the deletion steps do not touch it |
 | `fraud-signals` | Retain until TTL | Fraud prevention. PK `userId`, SK `signalKey`, weight and rule text; `expiresAt` 30 days after the signal. The one `~whitelist` row per user (FRD-05, fraud spec section 20) carries no rule text and expires at its `whitelistUntil`, up to `FRAUD_WHITELIST_DAYS` days (at most 365) after the admin's whitelist, inside the 400-day bound of the TTL rows. Not rewritten |
 | `rate-limits` | Retain until TTL | Counters and auth state keyed by phone or `userId` (`LOGIN#`, `REGISTER#`, `OTP#`, `OTPSEND#`, `SYNC#`, `IP#`, `AUTHSTATE#OTP#`, `AUTHSTATE#OIDC#`, `AUTHSTATE#JTI#`). `expiresAt` within 24 hours. Kept so abuse limits still apply to a phone that re-registers; the OIDC state rows are the only Fayda-related rows outside the users row and hold no identity data |
 | `sync-metadata` | Retain until TTL | Idempotency keys `{userId}:{entityType}:{entityId}:{action}:{timestamp}` plus a result string; `expiresAt` 7 days. Deleted-account syncs are refused before this table is touched |
@@ -439,6 +440,7 @@ Not built yet (follow-ups):
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.3.2 | 2026-10-28 | Per-table policy: `trip-locations` (LT-05, Live Trip check-ins) retained until its 60 day TTL as dispute and fraud evidence; no deletion step |
 | 1.3.1 | 2026-10-26 | Per-table policy: `notifications` (ESC-21 inbox) retained until its 90 day TTL; no deletion step yet |
 | 1.3.0 | 2026-10-23 | Client wipe and refusals as built (ACC-03): the user-scoped Isar wipe, the 5 session keys, `forgetAccount` with `rate_limit_<phone>`, a local FCM `deleteToken` only, `msg_read_*` and data usage keys replace "Isar `clearAllData`"; other accounts' rows and public listings stay; the right-account check before every send (the stored ID token, sent as the request's own bearer only when its `sub` is the account; a `401` asks for the password; a failed check says another account is signed in) and the `userId` check of the `200`; a `200` for an account no longer signed in wipes only its local data; resume backoff; gateway errors read as unknown; `410 ACCOUNT_004` from `/sync` and other endpoints is terminal (no retry counted, final states not resent) and wipes unless `in_progress`; `AUTH_014` on refresh does not wipe |
 | 1.2.0 | 2026-10-23 | Built (ACC-02): Implementation Status added: the endpoint, the steps, the sweep Lambda, `reapply`, the caller-side `410 ACCOUNT_004` endpoints, login and refresh `AUTH_014`, the counterparty money entry refusals and their place in FRD-04's gate order (`order-lifecycle.md` 1.26.0, `escrow-protocol.md` 1.28.0), the sync refusals of a deleted counterparty, the sentinel display name refusal, the stuck alarm; the sweep runs every 6 hours (was 12) so the 24 hour bound holds with three runs; eight points the contract left open (request time budget, party indexes, one `payment_review` blocker per payment, the stateless stuck rule and budget cuts, audit actors and counts, where scrubs write, step 8 lost races, `reapply` guard); the login and refresh retry of steps 12 and 13, the `profilePhotoRef` delete and the `pending_payment` slot question are listed as not built. No wire change |
@@ -447,5 +449,5 @@ Not built yet (follow-ups):
 
 ---
 
-**Last Updated**: 2026-10-26
-**Version**: 1.3.1
+**Last Updated**: 2026-10-28
+**Version**: 1.3.2

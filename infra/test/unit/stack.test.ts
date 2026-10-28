@@ -21,11 +21,12 @@ describe('DatabaseStack', () => {
     template = Template.fromStack(stack);
   });
 
-  test('creates twenty DynamoDB tables with PAY_PER_REQUEST billing', () => {
+  test('creates twenty-one DynamoDB tables with PAY_PER_REQUEST billing', () => {
     // 12 core + intents + device_tokens + match_events + ratings + transaction-audit
     // + delivery-qr-secrets + messages (in-app chat) = 19,
-    // + notifications (order notification inbox, ESC-21) = 20.
-    template.resourceCountIs('AWS::DynamoDB::Table', 20);
+    // + notifications (order notification inbox, ESC-21) = 20,
+    // + trip-locations (live trip check-ins, LT-05) = 21.
+    template.resourceCountIs('AWS::DynamoDB::Table', 21);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       BillingMode: 'PAY_PER_REQUEST',
       PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
@@ -132,6 +133,40 @@ describe('DatabaseStack', () => {
     });
   });
 
+  test('LT-05: trip-locations is keyed by trip and sort key, expires on expiresAt, no index and no stream', () => {
+    const tables = template.findResources('AWS::DynamoDB::Table', {
+      Properties: { TableName: 'wereda-connect-dev-trip-locations' },
+    });
+    const ids = Object.keys(tables);
+    expect(ids).toHaveLength(1);
+    const props = tables[ids[0]].Properties;
+    // The sort key is `{capturedAt}#{kind}`: a trip's rows in capture order, a resent ping on the same key.
+    expect(props.KeySchema).toEqual([
+      { AttributeName: 'tripId', KeyType: 'HASH' },
+      { AttributeName: 'sortKey', KeyType: 'RANGE' },
+    ]);
+    expect(props.AttributeDefinitions).toEqual([
+      { AttributeName: 'tripId', AttributeType: 'S' },
+      { AttributeName: 'sortKey', AttributeType: 'S' },
+    ]);
+    // capturedAt + 60 days in epoch seconds. A live table's TTL attribute can never be renamed,
+    // so it is the same name as on the rate-limits, notifications and fraud-signals tables.
+    expect(props.TimeToLiveSpecification).toEqual({ AttributeName: 'expiresAt', Enabled: true });
+    expect(props.GlobalSecondaryIndexes).toBeUndefined();
+    expect(props.LocalSecondaryIndexes).toBeUndefined();
+    expect(props.StreamSpecification).toBeUndefined();
+    expect(props.BillingMode).toBe('PAY_PER_REQUEST');
+    expect(props.PointInTimeRecoverySpecification).toEqual({ PointInTimeRecoveryEnabled: true });
+    // Dev tables are destroyed with the stack; prod retains them (WeredaDynamoTable).
+    expect(tables[ids[0]].DeletionPolicy).toBe('Delete');
+  });
+
+  test('LT-05: the trip-locations table name is a stack output', () => {
+    template.hasOutput('TripLocationsTableName', {
+      Value: { Ref: Match.stringLikeRegexp('^TripLocationsTable') },
+    });
+  });
+
   test('creates S3 buckets with encryption (uploads + access logs)', () => {
     template.resourceCountIs('AWS::S3::Bucket', 2);
     template.hasResourceProperties('AWS::S3::Bucket', {
@@ -175,6 +210,7 @@ describe('ApiStack', () => {
       ratingsTable: dbStack.ratingsTable,
       messagesTable: dbStack.messagesTable,
       notificationsTable: dbStack.notificationsTable,
+      tripLocationsTable: dbStack.tripLocationsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -232,8 +268,9 @@ describe('ApiStack', () => {
     // plus GET /admin/payments/unapplied and POST /admin/payments/{orderId}/refund-manual
     // (FUP-02, manual refund of an unapplied payment) → 60,
     // plus DELETE /user/account (ACC-02) → 61,
-    // plus GET /notifications (ESC-21, order notification inbox) → 62 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 62);
+    // plus GET /notifications (ESC-21, order notification inbox) → 62,
+    // plus GET /deliveries/{id}/track (LT-06, live trip) → 63 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 63);
   });
 
   // ─── ESC-21: order notifications (stream consumer + inbox read) ───
@@ -404,6 +441,52 @@ describe('ApiStack', () => {
     expect(roleActions(role, (r) => r.includes('parameter/wereda-connect-dev/pagination-secret'))).toContain(
       'ssm:GetParameter',
     );
+  });
+
+  test('LT-05: the sync Lambda has the trip-locations table and only PutItem and Query on it', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-sync',
+      Environment: { Variables: Match.objectLike({ TRIP_LOCATIONS_TABLE: Match.anyValue() }) },
+    });
+    // A ping is one conditional PutItem; a fix first reads its clock hour of the trip (Query).
+    const onTable = roleActions('SyncFunctionServiceRole', (r) => r.includes('TripLocationsTable'));
+    expect([...new Set(onTable)].sort()).toEqual(['dynamodb:PutItem', 'dynamodb:Query']);
+    // Only one other Lambda touches the table: the delivery Lambda's track read (LT-06).
+    const deliveryReads = roleActions('DeliveryFunctionServiceRole', (r) => r.includes('TripLocationsTable'));
+    const everyRole = roleActions('', (r) => r.includes('TripLocationsTable'));
+    expect(everyRole.length).toBe(onTable.length + deliveryReads.length);
+  });
+
+  test('LT-06: GET /deliveries/{id}/track reaches the delivery Lambda on the mobile authorizer, which only reads', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const mobileAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'CognitoAuthorizer')?.[0];
+    expect(mobileAuthorizerId).toBeDefined();
+    const routes = template.findResources('AWS::ApiGatewayV2::Route', {
+      Properties: { RouteKey: 'GET /deliveries/{id}/track' },
+    });
+    expect(Object.keys(routes)).toHaveLength(1);
+    const route = Object.values(routes)[0].Properties;
+    expect(route.AuthorizationType).toBe('JWT');
+    expect(route.AuthorizerId).toEqual({ Ref: mobileAuthorizerId });
+
+    // The route's integration targets the deliveries Lambda with the 1.0 payload.
+    const integrationId = JSON.stringify(route.Target).match(/"Ref":"([^"]+)"/)?.[1];
+    expect(integrationId).toBeDefined();
+    const integration = template.findResources('AWS::ApiGatewayV2::Integration')[integrationId!];
+    expect(JSON.stringify(integration.Properties.IntegrationUri)).toContain(lambdaId('wereda-connect-dev-deliveries'));
+    expect(integration.Properties.PayloadFormatVersion).toBe('1.0');
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-deliveries',
+      Environment: {
+        Variables: Match.objectLike({ TRIP_LOCATIONS_TABLE: Match.anyValue(), CROPS_TABLE: Match.anyValue() }),
+      },
+    });
+    // Query only: the trip's check-ins, and a listing by its id. Never a write.
+    const role = 'DeliveryFunctionServiceRole';
+    expect([...new Set(roleActions(role, (r) => r.includes('TripLocationsTable')))]).toEqual(['dynamodb:Query']);
+    expect([...new Set(roleActions(role, (r) => r.includes('CropsTable')))]).toEqual(['dynamodb:Query']);
   });
 
   test('manual payout queue routes sit on the admin authorizer (ESC-02)', () => {
@@ -924,6 +1007,7 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
       ratingsTable: dbStack.ratingsTable,
       messagesTable: dbStack.messagesTable,
       notificationsTable: dbStack.notificationsTable,
+      tripLocationsTable: dbStack.tripLocationsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -1274,6 +1358,7 @@ describe('ApiStack (prod security)', () => {
       ratingsTable: dbStack.ratingsTable,
       messagesTable: dbStack.messagesTable,
       notificationsTable: dbStack.notificationsTable,
+      tripLocationsTable: dbStack.tripLocationsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -1399,6 +1484,7 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
       ratingsTable: dbStack.ratingsTable,
       messagesTable: dbStack.messagesTable,
       notificationsTable: dbStack.notificationsTable,
+      tripLocationsTable: dbStack.tripLocationsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });

@@ -40,6 +40,7 @@ function apiTemplate(): Template {
     ratingsTable: db.ratingsTable,
     messagesTable: db.messagesTable,
     notificationsTable: db.notificationsTable,
+    tripLocationsTable: db.tripLocationsTable,
     transactionAuditTable: db.transactionAuditTable,
     uploadsBucket: db.uploadsBucket,
   });

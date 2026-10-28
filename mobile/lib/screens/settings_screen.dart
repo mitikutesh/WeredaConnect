@@ -7,6 +7,8 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/screens/data_usage_screen.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
 import 'package:wereda_connect/shared/providers/settings_provider.dart';
+import 'package:wereda_connect/shared/widgets/clock_selection_dialog.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
 
 /// Settings screen - app configuration and preferences
@@ -35,6 +37,25 @@ class SettingsScreen extends StatelessWidget {
             showDialog<void>(
               context: context,
               builder: (context) => const LanguageSelectionDialog(),
+            );
+          },
+        ),
+        const Divider(),
+        // LT-03: the clock times are shown on; Auto follows the language.
+        ListTile(
+          key: const Key('settings_clock_tile'),
+          leading: const Icon(Icons.schedule),
+          title: Text(l10n.clockSetting),
+          subtitle: Text(
+            '${clockPreferenceLabel(l10n, settingsProvider.clockPreference)}'
+            ' \u00b7 '
+            '${clockExample(l10n, ethiopian: clockFormatOf(context).ethiopian)}',
+          ),
+          trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+          onTap: () {
+            showDialog<void>(
+              context: context,
+              builder: (context) => const ClockSelectionDialog(),
             );
           },
         ),

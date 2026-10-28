@@ -87,6 +87,12 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         "Ref": "SyncMetadataTable364BB44C",
       },
     },
+    "TripLocationsTableName": {
+      "Description": "DynamoDB Trip Locations Table (live trip check-ins)",
+      "Value": {
+        "Ref": "TripLocationsTable9D33FCFB",
+      },
+    },
     "TripsTableName": {
       "Description": "DynamoDB Trips Table",
       "Value": {
@@ -1613,6 +1619,42 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
           "PointInTimeRecoveryEnabled": true,
         },
         "TableName": "wereda-connect-dev-transaction-audit",
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "TripLocationsTable9D33FCFB": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "tripId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "sortKey",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "KeySchema": [
+          {
+            "AttributeName": "tripId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "sortKey",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-trip-locations",
+        "TimeToLiveSpecification": {
+          "AttributeName": "expiresAt",
+          "Enabled": true,
+        },
       },
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",

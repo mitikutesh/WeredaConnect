@@ -347,6 +347,7 @@ class _HistoryContent extends StatelessWidget {
         }
       },
       child: ListView(
+        padding: const EdgeInsets.only(bottom: Breakpoints.fabClearance),
         children: [
           // Pending intents section
           if (state.pendingIntents.isNotEmpty) ...[

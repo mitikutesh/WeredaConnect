@@ -150,9 +150,10 @@ void main() {
 
     testWidgets('renders created date', (tester) async {
       final listing = _makeListing();
-      final expectedDate = DateFormat.yMMMd()
-          .add_jm()
-          .format(instantInEthiopia(DateTime(2026, 2, 20)));
+      // LT-03: English keeps the 24-hour clock, in Ethiopia time.
+      final eat = instantInEthiopia(DateTime(2026, 2, 20));
+      final expectedDate =
+          '${DateFormat.yMMMd().format(eat)} ${DateFormat.Hm().format(eat)}';
 
       await tester.pumpWidget(_buildScreen(listing: listing));
       await tester.pumpAndSettle();

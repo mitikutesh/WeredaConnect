@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/app_notification.dart';
-import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/notifications/data/notification_api.dart';
@@ -222,10 +222,11 @@ String _payoutHint(AppLocalizations l10n, String? reason) {
 final _amountFormat = NumberFormat('#,##0.00', 'en_US');
 
 /// The facts line under an inbox entry: crop and quantity, the amount, and
-/// for a type that asks the user to act, when it is due (Ethiopia time).
-/// Null when the entry carries none of them.
-String? notificationDetailLine(
+/// for a type that asks the user to act, when it is due (Ethiopia time on
+/// the viewer's [clock], LT-03). Null when the entry carries none of them.
+ClockLabel? notificationDetailLine(
   AppLocalizations l10n,
+  ClockFormat clock,
   AppNotification notification,
 ) {
   final p = notificationParams(notification);
@@ -240,17 +241,19 @@ String? notificationDetailLine(
   }
   final amount = double.tryParse(p['amountEtb'] ?? '');
   if (amount != null) parts.add(l10n.etbCurrency(_amountFormat.format(amount)));
+  final facts = parts.join(' · ');
   final deadline = DateTime.tryParse(p['deadlineAt'] ?? '');
   if (deadline != null &&
       actionRequiredNotificationTypes.contains(notification.type)) {
-    parts.add(l10n.actionDueBy(formatEthiopiaDeadline(deadline)));
+    final due = clock.deadline(
+      deadline,
+      date: DateFormat.MMMd(),
+      sentence: l10n.actionDueBy,
+    );
+    return facts.isEmpty ? due : due.prefixed('$facts · ');
   }
-  return parts.isEmpty ? null : parts.join(' · ');
+  return facts.isEmpty ? null : ClockLabel.text(facts);
 }
-
-/// A deadline as the order screens show it: day, month and time in Ethiopia.
-String formatEthiopiaDeadline(DateTime instant) =>
-    DateFormat.MMMd().add_jm().format(instantInEthiopia(instant));
 
 /// The icon and colour of an inbox entry's type.
 ({IconData icon, Color color}) notificationStyle(String type) {

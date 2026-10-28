@@ -1,0 +1,29 @@
+{
+  "_doc": [
+    "Curated fixes merged into ethiopia_woredas.json by scripts/build_ethiopia_places.py (see ethiopia_woredas.SOURCE.md). Not bundled in the app: the merged asset is.",
+    "id: the place to fix. en: must equal the asset's canonical name; it is a guard and is never changed.",
+    "display: the English name the app shows, only where cleaning en is not enough (current official names).",
+    "am / om: Amharic and Afaan Oromo names; a replaced GeoNames value stays searchable in alts.",
+    "alts: extra search aliases (the display name and any replaced am / om are added automatically). review: true means a native speaker has not checked the am / om names yet."
+  ],
+  "places": [
+    {"id": "gn-344979", "en": "Addis Ababa", "am": "አዲስ አበባ", "om": "Finfinnee", "alts": ["Finfinne", "Addis Abeba"], "review": true},
+    {"id": "gn-330186", "en": "Nazrēt", "display": "Adama", "am": "አዳማ", "om": "Adaamaa", "alts": ["Nazareth"], "review": true},
+    {"id": "gn-339666", "en": "Bishoftu", "am": "ቢሾፍቱ", "om": "Bishooftuu", "alts": ["Debre Zeyit", "Debre Zeit", "ደብረ ዘይት"], "review": true},
+    {"id": "gn-330491", "en": "Mojo", "am": "ሞጆ", "om": "Mojoo", "alts": ["Modjo"], "review": true},
+    {"id": "gn-331163", "en": "Mek’ī", "am": "መቂ", "review": true},
+    {"id": "gn-325579", "en": "Ziway", "display": "Batu", "am": "ባቱ", "om": "Baatuu", "alts": ["Zway", "ዝዋይ"], "review": true},
+    {"id": "gn-343137", "en": "Awasa", "display": "Hawassa", "om": "Hawaasaa", "alts": ["Awassa"], "review": true},
+    {"id": "gn-336014", "en": "Gonder", "display": "Gondar", "am": "ጎንደር", "review": true},
+    {"id": "gn-331180", "en": "Mek'ele", "display": "Mekelle"},
+    {"id": "gn-338832", "en": "Dire Dawa", "om": "Dirree Dhawaa", "review": true},
+    {"id": "gn-343370", "en": "Āsela", "am": "አሰላ", "om": "Asallaa", "review": true},
+    {"id": "gn-328689", "en": "Shashamane", "display": "Shashemene", "om": "Shashamannee", "review": true},
+    {"id": "gn-330118", "en": "Nek’emtē", "am": "ነቀምቴ", "om": "Naqamte", "review": true},
+    {"id": "gn-339708", "en": "Debre Mark’os", "am": "ደብረ ማርቆስ", "review": true},
+    {"id": "gn-329114", "en": "Sebeta", "am": "ሰበታ", "om": "Sabbataa", "review": true},
+    {"id": "gn-338488", "en": "Dukem", "am": "ዱከም", "om": "Dukam", "review": true},
+    {"id": "gn-344267", "en": "‘Alem T’ēna", "am": "ዓለም ጤና", "review": true},
+    {"id": "gn-332917", "en": "K’ok’a", "am": "ቆቃ", "review": true}
+  ]
+}
