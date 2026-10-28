@@ -149,6 +149,7 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(AdminEscrowDetailResponse))]
 [JsonSerializable(typeof(AdminEscrowAuditResponse))]
 [JsonSerializable(typeof(AdminDisputeListResponse))]
+[JsonSerializable(typeof(AdminDeliveryTrailResponse))]
 [JsonSerializable(typeof(ResolveDisputeRequest))]
 [JsonSerializable(typeof(ResolveDisputeResponse))]
 [JsonSerializable(typeof(FraudSignalDto))]
