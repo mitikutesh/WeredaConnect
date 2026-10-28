@@ -3548,6 +3548,14 @@ class AppLocalizationsOm extends AppLocalizations {
       'Ajajni keessan gara keessan daandii irra jira.';
 
   @override
+  String get notifTruckNearbyTitle => 'Konkolaataan dhihaateera';
+
+  @override
+  String notifTruckNearbyBody(String trucker) {
+    return '$trucker isin irraa km 5 gadi fagaata. Midhaan fudhachuuf qophaa\'aa.';
+  }
+
+  @override
   String get notifDeliveredTitle => 'Ajajni ga\'eera';
 
   @override
