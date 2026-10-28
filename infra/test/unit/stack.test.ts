@@ -269,8 +269,9 @@ describe('ApiStack', () => {
     // (FUP-02, manual refund of an unapplied payment) → 60,
     // plus DELETE /user/account (ACC-02) → 61,
     // plus GET /notifications (ESC-21, order notification inbox) → 62,
-    // plus GET /deliveries/{id}/track (LT-06, live trip) → 63 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 63);
+    // plus GET /deliveries/{id}/track (LT-06, live trip) → 63,
+    // plus GET /admin/deliveries/{id}/trail (LT-13, dispute evidence) → 64 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 64);
   });
 
   // ─── ESC-21: order notifications (stream consumer + inbox read) ───
@@ -460,10 +461,12 @@ describe('ApiStack', () => {
     // A ping is one conditional PutItem; a fix first reads its clock hour of the trip (Query).
     const onTable = roleActions('SyncFunctionServiceRole', (r) => r.includes('TripLocationsTable'));
     expect([...new Set(onTable)].sort()).toEqual(['dynamodb:PutItem', 'dynamodb:Query']);
-    // Only one other Lambda touches the table: the delivery Lambda's track read (LT-06).
+    // Only two other Lambdas touch the table: the delivery Lambda's track read (LT-06) and the
+    // admin Lambda's trail read (LT-13).
     const deliveryReads = roleActions('DeliveryFunctionServiceRole', (r) => r.includes('TripLocationsTable'));
+    const adminReads = roleActions('AdminFunctionServiceRole', (r) => r.includes('TripLocationsTable'));
     const everyRole = roleActions('', (r) => r.includes('TripLocationsTable'));
-    expect(everyRole.length).toBe(onTable.length + deliveryReads.length);
+    expect(everyRole.length).toBe(onTable.length + deliveryReads.length + adminReads.length);
   });
 
   test('LT-06: GET /deliveries/{id}/track reaches the delivery Lambda on the mobile authorizer, which only reads', () => {
@@ -496,6 +499,39 @@ describe('ApiStack', () => {
     const role = 'DeliveryFunctionServiceRole';
     expect([...new Set(roleActions(role, (r) => r.includes('TripLocationsTable')))]).toEqual(['dynamodb:Query']);
     expect([...new Set(roleActions(role, (r) => r.includes('CropsTable')))]).toEqual(['dynamodb:Query']);
+  });
+
+  test('LT-13: GET /admin/deliveries/{id}/trail reaches the admin Lambda on the admin authorizer, which only reads the check-ins', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const adminAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
+    expect(adminAuthorizerId).toBeDefined();
+    const routes = template.findResources('AWS::ApiGatewayV2::Route', {
+      Properties: { RouteKey: 'GET /admin/deliveries/{id}/trail' },
+    });
+    expect(Object.keys(routes)).toHaveLength(1);
+    const route = Object.values(routes)[0].Properties;
+    expect(route.AuthorizationType).toBe('JWT');
+    expect(route.AuthorizerId).toEqual({ Ref: adminAuthorizerId });
+
+    // The route's integration targets the admin Lambda with the 1.0 payload.
+    const integrationId = JSON.stringify(route.Target).match(/"Ref":"([^"]+)"/)?.[1];
+    expect(integrationId).toBeDefined();
+    const integration = template.findResources('AWS::ApiGatewayV2::Integration')[integrationId!];
+    expect(JSON.stringify(integration.Properties.IntegrationUri)).toContain(lambdaId('wereda-connect-dev-admin'));
+    expect(integration.Properties.PayloadFormatVersion).toBe('1.0');
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-admin',
+      Environment: {
+        Variables: Match.objectLike({ TRIP_LOCATIONS_TABLE: Match.anyValue(), DELIVERIES_TABLE: Match.anyValue() }),
+      },
+    });
+    // Query only on the check-ins: the trail never writes them. The delivery is a key read.
+    const role = 'AdminFunctionServiceRole';
+    expect([...new Set(roleActions(role, (r) => r.includes('TripLocationsTable')))]).toEqual(['dynamodb:Query']);
+    const deliveries = roleActions(role, (r) => r.includes('DeliveriesTable'));
+    expect(deliveries).toEqual(expect.arrayContaining(['dynamodb:Query', 'dynamodb:GetItem']));
   });
 
   test('manual payout queue routes sit on the admin authorizer (ESC-02)', () => {

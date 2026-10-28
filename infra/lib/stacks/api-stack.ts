@@ -2359,6 +2359,8 @@ export class ApiStack extends cdk.Stack {
         PAYMENTS_TABLE: props.paymentsTable.tableName,
         // FUP-02: the claim row that makes a manual refund record exclusive.
         ESCROW_IDEMPOTENCY_TABLE: props.escrowIdempotencyTable.tableName,
+        // LT-13: the trip's check-ins for the dispute evidence trail.
+        TRIP_LOCATIONS_TABLE: props.tripLocationsTable.tableName,
         PAGINATION_SECRET_ARN: paginationSecret.reference,
       },
       timeout: cdk.Duration.seconds(30),
@@ -2378,6 +2380,9 @@ export class ApiStack extends cdk.Stack {
     props.ordersTable.grantReadData(adminFn.function);
     props.deliveriesTable.grantReadData(adminFn.function);
     props.paymentsTable.grantReadData(adminFn.function);
+    // LT-13: the delivery trail reads the trip's check-ins (Query by tripId) and nothing else.
+    // The delivery itself comes from the deliveries read above.
+    props.tripLocationsTable.grant(adminFn.function, "dynamodb:Query");
 
     // Write access on tables the admin mutates
     props.escrowsTable.grantWriteData(adminFn.function);
@@ -2451,6 +2456,8 @@ export class ApiStack extends cdk.Stack {
       "/admin/payouts/manual",
       // FUP-02: captured payments the webhook did not apply (bounded escrow-audit Scan).
       "/admin/payments/unapplied",
+      // LT-13: the trip trail of a delivery, dispute evidence (admin group checked in the Lambda).
+      "/admin/deliveries/{id}/trail",
     ];
 
     for (const path of adminGetPaths) {
