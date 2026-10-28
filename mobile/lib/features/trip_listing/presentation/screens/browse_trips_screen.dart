@@ -12,6 +12,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/screens/create
 import 'package:wereda_connect/features/trip_listing/presentation/screens/trip_detail_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/green_header.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
@@ -265,7 +266,10 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
                         _loadTrips();
                       },
                       child: ListView.builder(
-                        padding: const EdgeInsets.only(top: 8, bottom: 80),
+                        padding: const EdgeInsets.only(
+                          top: 8,
+                          bottom: Breakpoints.fabClearance,
+                        ),
                         itemCount: state.trips.length,
                         itemBuilder: (context, index) {
                           final trip = state.trips[index];

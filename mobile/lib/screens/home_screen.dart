@@ -211,7 +211,8 @@ class _HomeScreenState extends State<HomeScreen> {
             child: _SectionTitle(l10n.recentActivity, fontSize: 16),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+            padding:
+                const EdgeInsets.fromLTRB(20, 8, 20, Breakpoints.fabClearance),
             child: _buildRecent(role: role, userId: userId, l10n: l10n),
           ),
         ],
@@ -335,7 +336,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     userId: userId,
                   ),
 
-                const SizedBox(height: 24),
+                const SizedBox(height: Breakpoints.fabClearance),
               ],
             ),
           ),

@@ -20,6 +20,11 @@ class Breakpoints {
   /// Maximum content width for readability.
   static const double maxContentWidth = 1200;
 
+  /// Bottom padding for a scrollable tab body, so the floating create button
+  /// never hides its last item: the 56 dp labeled FAB, its 16 dp margin above
+  /// the bottom bar, and 16 dp of breathing room.
+  static const double fabClearance = 88;
+
   /// Returns the current window class based on width.
   static WindowClass of(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;

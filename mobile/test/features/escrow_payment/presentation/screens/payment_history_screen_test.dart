@@ -16,6 +16,7 @@ import 'package:wereda_connect/features/escrow_payment/presentation/screens/paym
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/pending_intent_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
 
 class MockEscrowBloc extends Mock implements EscrowBloc {}
 
@@ -150,6 +151,18 @@ void main() {
       // held total (SIM-15).
       expect(find.textContaining('14,625.00'), findsWidgets);
       expect(find.textContaining('15,000.00'), findsNothing);
+
+      // LT-01: the list ends clear of the floating create button.
+      final list = tester.widget<ListView>(
+        find.descendant(
+          of: find.byType(RefreshIndicator),
+          matching: find.byType(ListView),
+        ),
+      );
+      expect(
+        list.padding!.resolve(TextDirection.ltr).bottom,
+        Breakpoints.fabClearance,
+      );
     });
 
     testWidgets(

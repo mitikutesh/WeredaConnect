@@ -12,6 +12,7 @@ import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.d
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/adaptive_shell.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -116,6 +117,27 @@ void main() {
         Navigator.of(tester.element(find.text('pushed detail'))).pop();
         await tester.pumpAndSettle();
         expect(find.byType(FloatingActionButton), findsOneWidget);
+      });
+    }
+  }
+
+  // LT-01: on a phone the FAB floats above the bottom bar, clear of every
+  // tab, and tab bodies pad by fabClearance so it hides no last item.
+  for (final width in const [360.0, 390.0]) {
+    for (final role in UserRole.values) {
+      testWidgets('${width.toInt()} dp ${role.name}: the FAB covers no tab',
+          (tester) async {
+        tester.view.physicalSize = Size(width, 800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+
+        await tester.pumpWidget(buildApp(role));
+        await tester.pumpAndSettle();
+
+        final fab = tester.getRect(find.byType(FloatingActionButton));
+        final bar = tester.getRect(find.byType(BottomNavigationBar));
+        expect(fab.bottom, lessThanOrEqualTo(bar.top));
+        expect(bar.top - fab.top, lessThanOrEqualTo(Breakpoints.fabClearance));
       });
     }
   }

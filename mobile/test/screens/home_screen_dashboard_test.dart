@@ -20,6 +20,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -126,6 +127,20 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
   }
+
+  testWidgets('the page ends clear of the floating create button (LT-01)',
+      (tester) async {
+    useTallSurface(tester);
+    await tester.pumpWidget(buildHomeScreen(UserRole.farmer));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byWidgetPredicate(
+        (w) => w is SizedBox && w.height == Breakpoints.fabClearance,
+      ),
+      findsOneWidget,
+    );
+  });
 
   testWidgets('one At a Glance section replaces Overview + Quick Actions',
       (tester) async {
