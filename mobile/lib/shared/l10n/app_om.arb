@@ -2777,5 +2777,8 @@
   "clockNight": "{time} halkan",
   "clockMorning": "{time} ganama",
   "clockDay": "{time} waaree booda",
-  "clockEvening": "{time} galgala"
+  "clockEvening": "{time} galgala",
+  "liveTripNotificationTitle": "Bakki konkolaataa qoodamaa jira",
+  "liveTripNotificationText": "Bitoonni fi qonnaan bultoonni imala kanaa bakka konkolaataan jiru ni argu. Qooduun erga geejjibni dhumaa xumuramee booda ni dhaabata.",
+  "liveTripNotificationChannel": "Bakka imalaa"
 }

@@ -3691,4 +3691,14 @@ class AppLocalizationsOm extends AppLocalizations {
   String clockEvening(String time) {
     return '$time galgala';
   }
+
+  @override
+  String get liveTripNotificationTitle => 'Bakki konkolaataa qoodamaa jira';
+
+  @override
+  String get liveTripNotificationText =>
+      'Bitoonni fi qonnaan bultoonni imala kanaa bakka konkolaataan jiru ni argu. Qooduun erga geejjibni dhumaa xumuramee booda ni dhaabata.';
+
+  @override
+  String get liveTripNotificationChannel => 'Bakka imalaa';
 }

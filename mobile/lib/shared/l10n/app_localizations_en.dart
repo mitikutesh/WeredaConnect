@@ -3655,4 +3655,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String clockEvening(String time) {
     return '$time in the evening';
   }
+
+  @override
+  String get liveTripNotificationTitle => 'Sharing the truck\'s location';
+
+  @override
+  String get liveTripNotificationText =>
+      'Buyers and farmers on this trip see where the truck is. Sharing stops after the last delivery.';
+
+  @override
+  String get liveTripNotificationChannel => 'Trip location';
 }

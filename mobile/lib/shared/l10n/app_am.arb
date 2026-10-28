@@ -2784,5 +2784,8 @@
   "clockNight": "ከሌሊቱ {time}",
   "clockMorning": "ከጠዋቱ {time}",
   "clockDay": "ከቀኑ {time}",
-  "clockEvening": "ከምሽቱ {time}"
+  "clockEvening": "ከምሽቱ {time}",
+  "liveTripNotificationTitle": "የመኪናው ቦታ እየተጋራ ነው",
+  "liveTripNotificationText": "በዚህ ጉዞ ያሉ ገዥዎችና ገበሬዎች መኪናው የት እንዳለ ያያሉ። ከመጨረሻው ርክክብ በኋላ ማጋራቱ ይቆማል።",
+  "liveTripNotificationChannel": "የጉዞ ቦታ"
 }
