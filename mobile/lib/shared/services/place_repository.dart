@@ -21,11 +21,20 @@ class PlaceRepository {
 
   static const String assetPath = 'assets/data/ethiopia_woredas.json';
 
+  /// The credit the GeoNames licence (CC BY 4.0) asks for, shown in the About
+  /// dialog. A proper name and a licence, so it is never translated.
+  static const String attribution = '\u00A9 GeoNames (CC BY 4.0)';
+
   List<_IndexedPlace>? _index;
   Map<String, Place> _byId = const {};
   Map<String, Place> _byNormalizedName = const {};
 
   bool get isLoaded => _index != null;
+
+  /// Every place, in the dataset's order; empty until loaded. The live trip
+  /// map labels its towns from it (LT-10).
+  List<Place> get places => _places;
+  List<Place> _places = const [];
 
   /// Loads and indexes the dataset if not already loaded. Safe to call repeatedly.
   Future<void> ensureLoaded({AssetBundle? bundle}) async {
@@ -72,6 +81,7 @@ class PlaceRepository {
     }
 
     _index = index;
+    _places = List.unmodifiable(places);
     _byId = byId;
     _byNormalizedName = byName;
   }

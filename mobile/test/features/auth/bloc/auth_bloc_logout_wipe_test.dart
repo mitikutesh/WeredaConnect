@@ -221,6 +221,49 @@ void main() {
     expect(pings.map((p) => p.pingId), ['trip-2#1']);
   });
 
+  // LT-10: the live trip snapshots (where the trucks of this user's
+  // deliveries were) are kept outside Isar, on mobile and web alike.
+  test('logout forgets the user\'s live trip snapshots', () async {
+    final forgotten = <String>[];
+    final bloc = AuthBloc(
+      authService: service,
+      offlineCache: cache,
+      isar: isar,
+      sessionExpired: const Stream.empty(),
+      forgetTrackSnapshots: (userId) async => forgotten.add(userId),
+    );
+    addTearDown(bloc.close);
+
+    bloc.add(
+      const AuthLoginRequested(phoneNumber: _phone, password: 'Secret123'),
+    );
+    await waitFor(bloc, (s) => s is AuthAuthenticated);
+    bloc.add(const AuthLogoutRequested());
+    await waitFor(bloc, (s) => s is AuthUnauthenticated);
+
+    expect(forgotten, [_me]);
+  });
+
+  test('a failing snapshot clear never blocks the logout', () async {
+    final bloc = AuthBloc(
+      authService: service,
+      offlineCache: cache,
+      isar: isar,
+      sessionExpired: const Stream.empty(),
+      forgetTrackSnapshots: (_) async => throw Exception('storage'),
+    );
+    addTearDown(bloc.close);
+
+    bloc.add(
+      const AuthLoginRequested(phoneNumber: _phone, password: 'Secret123'),
+    );
+    await waitFor(bloc, (s) => s is AuthAuthenticated);
+    bloc.add(const AuthLogoutRequested());
+    await waitFor(bloc, (s) => s is AuthUnauthenticated);
+
+    expect(bloc.state, isA<AuthUnauthenticated>());
+  });
+
   // ESC-12: sync refusals kept for a listener belong to the leaving user.
   test('logout drops sync refusals kept for the next listener', () async {
     final events = SecurityEvents.forTesting();
