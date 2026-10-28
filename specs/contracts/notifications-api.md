@@ -1,7 +1,7 @@
 # Notifications API Contract
 
 ## Version
-1.2.0
+1.3.0
 
 ## Parties
 - **Mobile** (client): pulls the inbox, renders the entries and the Action-needed cards, receives the Android push, opens the order on tap
@@ -147,8 +147,9 @@ Rules:
   Chat pushes are `data.type == "message"` (`messaging.md`); match alerts have no `type`
   (`push-alerts-api.md`). The client dispatches on `data.type`.
 - Time to live: the SNS message attribute `AWS.SNS.MOBILE.FCM.TTL` is set per push. For an
-  action-required type (section 3) it is the seconds left until the deadline, at least 60. For
-  every other type it is 24 hours (86400). A phone that comes back online after the deadline
+  action-required type (section 3) it is the seconds left until the deadline, at least 60.
+  `truck_nearby` lives one hour (3600): "the truck is 3 km away" is stale within the hour (1.3.0).
+  Every other type lives 24 hours (86400). A phone that comes back online after the deadline
   never gets "accept by tonight" the next morning; the inbox entry is still there.
 - A tap opens the order (`orderId`), from the background and after a cold start; the app reads an
   order the device has not pulled yet from `GET /orders/{orderId}` first. A push without `orderId`
@@ -202,12 +203,25 @@ card; the set is `NotificationTypes.ActionRequired`.
 | reminder marker stamped (`farmerReminderAt`, `truckerReminderAt`, `buyerChoiceReminderAt`; 6h before the deadline) | `request_reminder` when the buyer's choice is due | `request_reminder` when the farmer's answer is due | `request_reminder` when the trucker's answer is due | the party whose answer is due, until its deadline |
 | pickup overdue marker stamped (`pickupOverdueNotifiedAt`) | `pickup_overdue` | `pickup_missed` | `pickup_missed` | buyer |
 
-### Deliveries table (`INSERT`)
+### Deliveries table (`INSERT`, and the `MODIFY` that stamps `nearbyNotifiedAt`)
 
 | Change | Buyer | Farmer | Trucker | Action required |
 |---|---|---|---|---|
 | trucker delivery created | `delivery_scheduled` | `delivery_scheduled` | - (the creator) | none |
 | self-pickup delivery created | - (the creator) | `buyer_collecting` | - | none |
+| truck nearby marker stamped (`nearbyNotifiedAt`, absent before the write and present after it; 1.3.0) | `truck_nearby` (`truckerName`, `distanceKm`, `minutes`) | - | - | none |
+
+`truck_nearby` (LT-07, `live-trip-api.md` section 4): an accepted check-in put the truck within
+5 km of the delivery's drop-off point while the delivery was `pickedUp` or `inTransit`. The
+server stamps the delivery's server-only `nearbyNotifiedAt` (with `nearbyDistanceKm` and
+`nearbyMinutes`) in a conditional write, once per delivery (`delivery-verification-api.md`
+1.20.0), and this row derives the event from that stamp, so a check-in sent again, a later
+check-in or a retried record never tells the buyer twice. The change is the server's, not the
+buyer's, so the buyer is told. The event's `entity` is `delivery` and its `orderId` the
+delivery's order, so the push carries `tag` `order-<orderId>`, `data.type` `order` and
+`data.event` `truck_nearby`. Any other delivery update (a status move, a GPS write) emits
+nothing here: the order's mirror tells the parties. The deliveries stream's event filter passes
+`INSERT` and exactly this `MODIFY` to the function.
 
 ### Escrows table (`MODIFY`)
 
@@ -249,6 +263,8 @@ a type carries only the keys its text needs, and a missing key renders as nothin
 | `cancelledBy` | `buyer`, `farmer`, `trucker` or `system` |
 | `resolution` | `farmer_wins` or `buyer_wins` on `dispute_resolved` |
 | `party` | `buyer`, `farmer` or `trucker`: the counterpart the text names (who disputed, who dropped out) |
+| `distanceKm` | `truck_nearby` (1.3.0): the truck's great circle distance to the drop-off point at the check-in, in km with one decimal (`3.2`), digits and a point only |
+| `minutes` | `truck_nearby` (1.3.0): minutes from the check-in to the start of the arrival window (the track's `eta.from`, `live-trip-api.md` section 2), a whole number rounded to 5; absent when it rounds to 0 or is unknown. Never a clock time |
 
 Clients render the inbox text from `type` + `params` with their own localization (ARB keys per
 type in all three languages), so a language switch re-renders the whole history. The push text
@@ -299,7 +315,10 @@ is the server's rendering of the same `type` + `params` at send time and is not 
   crop and quantity, the amount (`amountEtb`, formatted, with the currency word) and, for an
   action-required type, when it is due (`deadlineAt` in Ethiopia time). `payout_blocked` names what
   is needed from `reason` (Fayda, phone or profile), `dispute_resolved` who gets the money from
-  `resolution`. A type the client does not know reads "Order update".
+  `resolution`. A type the client does not know reads "Order update". `truck_nearby` (1.3.0)
+  names the trucker and says the truck is less than 5 km away; it leaves out `distanceKm` and
+  `minutes`, which only the push says, because the entry stays in the history and "in 25
+  minutes" goes stale.
 - Mobile keeps the newest 200 entries per user in Isar and the cursor in shared preferences; a pull
   with no entries on the device (first sign-in, or after a logout cleared them) ignores the stored
   cursor and reads the newest page. Web keeps the entries for the session and the read marker (the
@@ -340,6 +359,7 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.3.0 | 2026-10-28 | `truck_nearby` (LT-07, `live-trip-api.md` section 4): a new type for the buyer when a check-in puts the truck within 5 km of the drop-off, derived from the deliveries table `MODIFY` that stamps `nearbyNotifiedAt` (once per delivery, conditional write); params `truckerName`, `distanceKm` (one decimal) and `minutes` (to the start of the arrival window, rounded to 5, absent at 0); push text in en, am and om with no clock time; push time to live one hour; inbox text names the trucker without the minutes. The deliveries stream's filter also passes that `MODIFY`. |
 | 1.2.0 | 2026-10-28 | Push text deadlines on the Ethiopian clock in `am` and `om` (LT-04, `live-trip.md` section 9): `27 ኦክቶ ከምሽቱ 12:00`, `27 Onk 12:00 galgala`; `en` unchanged (`27 Oct 18:00`). Section 2 states the format per language. No payload, param or endpoint change. |
 | 1.1.0 | 2026-10-27 | Clients (ESC-21 PR 3, app build 3): the bell lists the inbox on mobile and web, a tap opens the order (push from the background or a cold start too), web route `/orders/{orderId}`, inbox text per type in three languages with a detail line, read state on the device, the 200-entry cap and the cursor rules (section 6). No server change. |
 | 1.0.0 | 2026-10-26 | Initial: `GET /notifications` inbox, FCM push payload with `data.type: order`, the event matrix over the orders, deliveries and escrows streams, params, at-least-once delivery with the conditional inbox put, DLQ and alarms (ESC-21). |
