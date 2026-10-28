@@ -385,6 +385,39 @@ public class SyncFunctionCheckInEffectsTests
         await _fraud.DidNotReceive().RecordFraudSignalAsync(Arg.Any<string>(), "GPS_JUMP", Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
     }
 
+    // ===== accuracy =====
+
+    [Theory]
+    [InlineData(1000, true)]
+    [InlineData(1001, false)]
+    [InlineData(5000, false)]
+    public async Task OnlyAFixWithin1KmOfAccuracy_MovesStampsOrJumps_AMockFlagCountsAnyway(double accuracyM, bool effects)
+    {
+        // 1.1 km from the drop-off, 99 km past the farm, 41 km from a check-in 12 minutes earlier (over 200 km/h).
+        StoredFix(Captured.AddMinutes(-12), RoadLat, RoadLng);
+
+        var result = await SendAsync(Fix(DestLat + 0.01, DestLng, mocked: true, accuracyM: accuracyM));
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        var times = effects ? 1 : 0;
+        await _deliveries.Received(times).TryMarkInTransitAsync(DeliveryId, TripId, 4);
+        await _deliveries.Received(times).TryStampNearbyAsync(
+            DeliveryId, TripId, Arg.Any<string>(), Arg.Any<double>(), Arg.Any<int?>());
+        await _fraud.Received(times).RecordFraudSignalAsync(TruckerId, "GPS_JUMP", TripId, "trip", Arg.Any<string?>());
+        await _fraud.Received(1).RecordFraudSignalAsync(TruckerId, "GPS_MOCKED", TripId, "trip", Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task ACoarseStoredFix_IsNoJumpNeighbour_ThePreciseOneBeforeItIs()
+    {
+        StoredFix(Captured.AddHours(-1), RoadLat - 0.3, RoadLng);                         // 33 km an hour before: fine
+        StoredFix(Captured.AddMinutes(-1), RoadLat - 0.03, RoadLng, accuracyM: 3000);     // 3.3 km a minute before, a cell tower guess
+
+        await SendAsync(Fix(RoadLat, RoadLng));
+
+        await _fraud.DidNotReceive().RecordFraudSignalAsync(Arg.Any<string>(), "GPS_JUMP", Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
+    }
+
     // ===== scope =====
 
     [Theory]
@@ -683,17 +716,19 @@ public class SyncFunctionCheckInEffectsTests
         return row;
     }
 
-    private void StoredFix(DateTime capturedAt, double lat, double lng)
+    private void StoredFix(DateTime capturedAt, double lat, double lng, double accuracyM = 20)
         => _stored.Add(new TripLocationRow(
             TripId, $"{capturedAt.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture)}#fix", TruckerId,
-            Math.Round(lat, 4), Math.Round(lng, 4), 20, "hourly", false, null, "2026-10-27T08:00:00.000Z", 0));
+            Math.Round(lat, 4), Math.Round(lng, 4), accuracyM, "hourly", false, null, "2026-10-27T08:00:00.000Z", 0));
 
-    private static SyncOperationRequest Fix(double lat, double lng, bool mocked = false, DateTime? capturedAt = null)
+    private static SyncOperationRequest Fix(
+        double lat, double lng, bool mocked = false, DateTime? capturedAt = null, double accuracyM = 20)
         => Ping("fix", capturedAt, data: d =>
         {
             d["latitude"] = lat;
             d["longitude"] = lng;
             d["mocked"] = mocked;
+            d["accuracyM"] = accuracyM;
         });
 
     private static SyncOperationRequest Ping(string kind, DateTime? capturedAt = null, Action<Dictionary<string, object>>? data = null)
