@@ -9,26 +9,39 @@ using WeredaConnect.Server.Models;
 namespace WeredaConnect.Server.Functions;
 
 /// <summary>
-/// GET /deliveries, GET /deliveries/{id}, and POST /deliveries/{id}/photos Lambda handler.
-/// Provides read-only access to delivery records and photo upload URL generation.
-/// Create/update/delete operations are handled through /sync endpoint.
+/// GET /deliveries, GET /deliveries/{id}, GET /deliveries/{id}/track and POST /deliveries/{id}/photos
+/// Lambda handler. Provides read-only access to delivery records, the live trip track and photo upload
+/// URL generation. Create/update/delete operations are handled through /sync endpoint.
 ///
 /// Endpoints:
 /// - GET /deliveries - Query deliveries with optional filters (status, tripId, listingId, etc.)
 /// - GET /deliveries/{id} - Get a single delivery by ID (participants only)
+/// - GET /deliveries/{id}/track - Where the truck is, from pickup to delivery (participants only, LT-06)
 /// - POST /deliveries/{id}/photos - Generate pre-signed S3 upload URL for photo evidence
 ///
 /// Error codes:
 /// - 400: DELIVERY_VALIDATION - Invalid query parameters or request body
 /// - 401: DELIVERY_UNAUTHORIZED - Authentication required or not a participant
-/// - 404: DELIVERY_NOT_FOUND - Delivery does not exist
-/// - 500: DELIVERY_SERVER_ERROR - Unexpected server failure
+/// - 404: DELIVERY_NOT_FOUND - Delivery does not exist (the track also answers it to non-participants)
+/// - 500: DELIVERY_SERVER_ERROR - Unexpected server failure; TRACK_UNAVAILABLE - the track read failed
 /// </summary>
 public class DeliveryFunction
 {
     private readonly IDeliveryRepository _deliveryRepo;
     private readonly IAmazonS3? _s3Client;
     private readonly string? _uploadsBucket;
+
+    // LT-06: the track reads. Null when their tables are not configured; the track then answers
+    // TRACK_UNAVAILABLE and the other routes are unaffected.
+    private readonly ITripLocationRepository? _tripLocationRepo;
+    private readonly ITripRepository? _tripRepo;
+    private readonly ICropRepository? _cropRepo;
+
+    /// <summary>Pages of the trip's deliveries the track reads for the other stops (a trip carries a handful).</summary>
+    private const int MaxTripDeliveryPages = 10;
+
+    /// <summary>The server clock of the track (its window and arrival maths); tests set it.</summary>
+    internal Func<DateTime> Clock { get; init; } = () => DateTime.UtcNow;
 
     /// Pre-signed URL expiry: 15 minutes (sufficient for 3G upload of 200KB WebP)
     internal const int PresignedUrlExpirySeconds = 900;
@@ -49,16 +62,32 @@ public class DeliveryFunction
         _deliveryRepo = new DeliveryRepository(dynamoDb, deliveriesTable);
         _s3Client = new AmazonS3Client();
         _uploadsBucket = Environment.GetEnvironmentVariable("UPLOADS_BUCKET");
+
+        var tripLocationsTable = Environment.GetEnvironmentVariable("TRIP_LOCATIONS_TABLE");
+        var tripsTable = Environment.GetEnvironmentVariable("TRIPS_TABLE");
+        var cropsTable = Environment.GetEnvironmentVariable("CROPS_TABLE");
+        _tripLocationRepo = string.IsNullOrEmpty(tripLocationsTable) ? null : new TripLocationRepository(dynamoDb, tripLocationsTable);
+        _tripRepo = string.IsNullOrEmpty(tripsTable) ? null : new TripRepository(dynamoDb, tripsTable);
+        _cropRepo = string.IsNullOrEmpty(cropsTable) ? null : new CropRepository(dynamoDb, cropsTable);
     }
 
     /// <summary>
     /// Constructor for testing with mocked dependencies.
     /// </summary>
-    public DeliveryFunction(IDeliveryRepository deliveryRepo, IAmazonS3? s3Client = null, string? uploadsBucket = null)
+    public DeliveryFunction(
+        IDeliveryRepository deliveryRepo,
+        IAmazonS3? s3Client = null,
+        string? uploadsBucket = null,
+        ITripLocationRepository? tripLocationRepo = null,
+        ITripRepository? tripRepo = null,
+        ICropRepository? cropRepo = null)
     {
         _deliveryRepo = deliveryRepo ?? throw new ArgumentNullException(nameof(deliveryRepo));
         _s3Client = s3Client;
         _uploadsBucket = uploadsBucket;
+        _tripLocationRepo = tripLocationRepo;
+        _tripRepo = tripRepo;
+        _cropRepo = cropRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -70,6 +99,9 @@ public class DeliveryFunction
         // Route based on HTTP method and path
         return request.HttpMethod switch
         {
+            "GET" when request.PathParameters?.ContainsKey("id") == true
+                   && request.Path?.EndsWith("/track", StringComparison.Ordinal) == true
+                => await HandleTrackAsync(request, context),
             "GET" when request.PathParameters?.ContainsKey("id") == true
                 => await HandleGetDeliveryByIdAsync(request, context),
             "GET" => await HandleGetDeliveriesAsync(request, context),
@@ -283,6 +315,154 @@ public class DeliveryFunction
             context.Logger.LogError($"Error getting delivery {deliveryId}: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "DELIVERY_SERVER_ERROR", "Failed to retrieve delivery.");
         }
+    }
+
+    /// <summary>
+    /// LT-06: GET /deliveries/{id}/track (live-trip-api.md section 2). The delivery's buyer, farmer and
+    /// trucker only; anyone else and an unknown delivery get the same 404, so the answer says nothing
+    /// about which deliveries exist. Reads only: the trip's check-ins, the trip (drop-off point), the
+    /// listings (pickup points) and the trip's other deliveries (unnamed stops). <see cref="TripTrack"/>
+    /// cuts the delivery's window and rounds every coordinate.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleTrackAsync(
+        APIGatewayProxyRequest request,
+        ILambdaContext context)
+    {
+        if (!IsAuthenticated(request))
+        {
+            return LambdaResponse.Error(401, "DELIVERY_UNAUTHORIZED", "Authentication required.");
+        }
+
+        if (!request.PathParameters.TryGetValue("id", out var deliveryId) || string.IsNullOrEmpty(deliveryId))
+        {
+            return LambdaResponse.Error(400, "DELIVERY_VALIDATION", "Missing delivery ID in path.");
+        }
+
+        if (_tripLocationRepo == null || _tripRepo == null || _cropRepo == null)
+        {
+            context.Logger.LogError("Track read is not configured (TRIP_LOCATIONS_TABLE, TRIPS_TABLE or CROPS_TABLE missing).");
+            return TrackUnavailable();
+        }
+
+        try
+        {
+            var delivery = await _deliveryRepo.GetByIdAsync(deliveryId);
+            if (delivery == null
+                || (delivery.TryGetValue("deletedAt", out var deletedAt) && deletedAt != null)
+                || !IsParticipant(delivery, GetAuthenticatedUserId(request)))
+            {
+                return LambdaResponse.Error(404, "DELIVERY_NOT_FOUND", "Delivery not found.");
+            }
+
+            var now = Clock();
+            var phase = TripTrack.PhaseOf(delivery);
+            var tripId = GetStringOrNull(delivery, "tripId");
+            var hasTrip = !string.IsNullOrEmpty(tripId);
+
+            // Before pickup nothing of the truck is shown, so the check-ins are not read at all.
+            var rows = phase != TrackPhase.NotStarted && hasTrip
+                ? await _tripLocationRepo.ListByTripAsync(tripId!)
+                : new List<TripLocationRow>();
+
+            TrackPoint? pickup = null;
+            TrackPoint? dropoff = null;
+            var otherStops = new List<TrackStop>();
+            if (phase != TrackPhase.Ended)
+            {
+                var listings = new Dictionary<string, TrackPoint?>(StringComparer.Ordinal);
+                pickup = await PickupPointAsync(delivery, listings);
+                var trip = hasTrip ? await _tripRepo.GetByIdAsync(tripId!) : null;
+                dropoff = TripTrack.PlannedDropoff(trip, delivery);
+
+                if (phase == TrackPhase.OnRoad && hasTrip)
+                {
+                    var windowStart = TripTrack.PickedUpAt(delivery)!.Value;
+                    foreach (var other in await ReadTripDeliveriesAsync(tripId!, context))
+                    {
+                        // A cancelled delivery has no stops left, so its listing is not read.
+                        if (GetStringOrNull(other, "deliveryId") == deliveryId
+                            || GetStringOrNull(other, "status") == "cancelled")
+                        {
+                            continue;
+                        }
+
+                        // Planned points only: another order's real gpsPickup or gpsDropoff would tell
+                        // where the truck stood, and a stop done before this pickup is left out.
+                        otherStops.AddRange(TripTrack.StopsOf(
+                            other,
+                            await ListingPointAsync(other, listings),
+                            TripTrack.PlannedDropoff(trip, other),
+                            windowStart));
+                    }
+                }
+            }
+
+            var response = TripTrack.Build(delivery, rows, pickup, dropoff, otherStops, now);
+            return LambdaResponse.Ok(response, AppJsonContext.Default.DeliveryTrackResponse);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError($"Error reading the track of delivery {MoneyAlarmLog.LogId(deliveryId)}: [{ex.GetType().Name}]");
+            return TrackUnavailable();
+        }
+    }
+
+    private static APIGatewayProxyResponse TrackUnavailable()
+        => LambdaResponse.Error(500, "TRACK_UNAVAILABLE", "The live trip is unavailable right now. Try again later.");
+
+    /// <summary>
+    /// This delivery's pickup point: its gpsPickup, else its listing's location. Null when neither has
+    /// coordinates.
+    /// </summary>
+    private async Task<TrackPoint?> PickupPointAsync(Dictionary<string, object> delivery, Dictionary<string, TrackPoint?> listings)
+        => TripTrack.MapPointOf(delivery, "gpsPickup") ?? await ListingPointAsync(delivery, listings);
+
+    /// <summary>
+    /// A delivery's planned pickup point: its listing's location (read once per listing and kept in
+    /// <paramref name="listings"/>). Null without a listing or coordinates.
+    /// </summary>
+    private async Task<TrackPoint?> ListingPointAsync(Dictionary<string, object> delivery, Dictionary<string, TrackPoint?> listings)
+    {
+        var listingId = GetStringOrNull(delivery, "listingId");
+        if (string.IsNullOrEmpty(listingId))
+        {
+            return null;
+        }
+
+        if (!listings.TryGetValue(listingId, out var point))
+        {
+            point = TripTrack.PointOf(await _cropRepo!.GetByIdAsync(listingId), "latitude", "longitude");
+            listings[listingId] = point;
+        }
+
+        return point;
+    }
+
+    /// <summary>
+    /// Every delivery on the trip (the deliveries' <c>TripIdIndex</c>, all pages up to
+    /// <see cref="MaxTripDeliveryPages"/>). Soft-deleted rows are left out by the repository.
+    /// </summary>
+    private async Task<List<Dictionary<string, object>>> ReadTripDeliveriesAsync(string tripId, ILambdaContext context)
+    {
+        var deliveries = new List<Dictionary<string, object>>();
+        Dictionary<string, AttributeValue>? startKey = null;
+        var pages = 0;
+
+        do
+        {
+            var (items, next) = await _deliveryRepo.QueryDeliveriesAsync(tripId: tripId, limit: 50, exclusiveStartKey: startKey);
+            deliveries.AddRange(items);
+            startKey = next;
+        }
+        while (startKey != null && ++pages < MaxTripDeliveryPages);
+
+        if (startKey != null)
+        {
+            context.Logger.LogWarning(
+                $"track: trip {MoneyAlarmLog.LogId(tripId)} has more than {MaxTripDeliveryPages} pages of deliveries; showing the first ones.");
+        }
+
+        return deliveries;
     }
 
     /// <summary>

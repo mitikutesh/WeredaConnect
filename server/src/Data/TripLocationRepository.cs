@@ -13,6 +13,12 @@ public sealed class TripLocationRepository : ITripLocationRepository
     /// <summary>Pages read by <see cref="ListSortKeysAsync"/> before it stops (an hour holds a few dozen rows).</summary>
     private const int MaxPages = 10;
 
+    /// <summary>
+    /// Pages read by <see cref="ListByTripAsync"/> before it stops. The fix limit (20 an hour) and the
+    /// 60 day TTL keep a trip far below one page; the bound only stops a runaway read.
+    /// </summary>
+    private const int MaxTripPages = 20;
+
     private readonly IAmazonDynamoDB _dynamoDb;
     private readonly string _tableName;
 
@@ -130,6 +136,82 @@ public sealed class TripLocationRepository : ITripLocationRepository
 
         return keys;
     }
+
+    /// <inheritdoc />
+    public async Task<List<TripLocationRow>> ListByTripAsync(string tripId)
+    {
+        var rows = new List<TripLocationRow>();
+        Dictionary<string, AttributeValue>? startKey = null;
+        var pages = 0;
+
+        do
+        {
+            var request = new QueryRequest
+            {
+                TableName = _tableName,
+                KeyConditionExpression = "#t = :t",
+                ExpressionAttributeNames = new Dictionary<string, string> { ["#t"] = "tripId" },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":t"] = S(tripId) },
+                // Capture order: the sort key starts with capturedAt.
+                ScanIndexForward = true
+            };
+
+            if (startKey != null)
+            {
+                request.ExclusiveStartKey = startKey;
+            }
+
+            var response = await _dynamoDb.QueryAsync(request);
+            foreach (var item in response.Items ?? new List<Dictionary<string, AttributeValue>>())
+            {
+                if (FromItem(item) is { } row)
+                {
+                    rows.Add(row);
+                }
+            }
+
+            startKey = response.LastEvaluatedKey is { Count: > 0 } next ? next : null;
+        }
+        while (startKey != null && ++pages < MaxTripPages);
+
+        return rows;
+    }
+
+    /// <summary>A stored row, or null when its keys are missing.</summary>
+    private static TripLocationRow? FromItem(Dictionary<string, AttributeValue> item)
+    {
+        var tripId = Text(item, "tripId");
+        var sortKey = Text(item, "sortKey");
+        if (string.IsNullOrEmpty(tripId) || string.IsNullOrEmpty(sortKey))
+        {
+            return null;
+        }
+
+        return new TripLocationRow(
+            tripId,
+            sortKey,
+            Text(item, "truckerId") ?? string.Empty,
+            Number(item, "latitude"),
+            Number(item, "longitude"),
+            Number(item, "accuracyM"),
+            Text(item, "source"),
+            item.TryGetValue("mocked", out var mocked) && mocked.IsBOOLSet ? mocked.BOOL : null,
+            Text(item, "pausedUntil"),
+            Text(item, "receivedAt") ?? string.Empty,
+            item.TryGetValue("expiresAt", out var expires)
+                && long.TryParse(expires.N, NumberStyles.Integer, CultureInfo.InvariantCulture, out var epoch)
+                ? epoch
+                : 0);
+    }
+
+    private static string? Text(Dictionary<string, AttributeValue> item, string key)
+        => item.TryGetValue(key, out var value) ? value.S : null;
+
+    private static double? Number(Dictionary<string, AttributeValue> item, string key)
+        => item.TryGetValue(key, out var value)
+           && double.TryParse(value.N, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
+            ? number
+            : null;
 
     private static AttributeValue S(string value) => new() { S = value };
 
