@@ -187,3 +187,53 @@ describe("dispute disposition strings exist in every locale", () => {
     });
   }
 });
+
+/* LT-13: the dispute page, its Trip trail tab and the trail's not-found code. */
+describe("trip trail strings exist in every locale", () => {
+  const keys = [
+    ...Object.keys(en.trail).map((k) => `trail.${k}`),
+    "disputes.detailTitle",
+    "disputes.evidence",
+    "disputes.raisedAt",
+    "disputes.delivery",
+    "errors.ADMIN_018",
+    "common.retry",
+  ];
+  for (const locale of locales) {
+    it(`${locale} has every trail key`, () => {
+      expect(keys.filter((key) => t(key, locale) === key)).toEqual([]);
+    });
+  }
+
+  it("keeps the placeholders the tab fills in", () => {
+    const placeholders: Record<string, string[]> = {
+      window: ["{from}", "{until}"],
+      windowOpen: ["{from}"],
+      mapLabel: ["{fixes}"],
+      legValue: ["{km}", "{minutes}", "{kmh}"],
+      legSameTime: ["{km}"],
+      flagCoarse: ["{meters}"],
+      flagLate: ["{time}"],
+      event_paused: ["{time}"],
+      pauseRange: ["{from}", "{until}"],
+      gapRange: ["{from}", "{until}", "{minutes}"],
+      saysSharedWholeWay: ["{fixes}"],
+      saysGaps: ["{gaps}"],
+      saysDeclined: ["{fixes}"],
+      saysNoJumps: ["{kmh}"],
+      saysJumps: ["{jumps}"],
+      saysMocked: ["{count}"],
+      saysCoarse: ["{count}"],
+      saysLate: ["{count}"],
+      saysPauses: ["{count}"],
+      saysDistance: ["{km}", "{minutes}"],
+    };
+    for (const locale of locales) {
+      for (const [key, names] of Object.entries(placeholders)) {
+        for (const name of names) {
+          expect([locale, key, t(`trail.${key}`, locale).includes(name)]).toEqual([locale, key, true]);
+        }
+      }
+    }
+  });
+});

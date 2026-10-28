@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { DeliveryTrail } from "@/lib/trail";
 
 // Dashboard
 export function useDashboardStats() {
@@ -59,6 +60,15 @@ export function useEscrowPages(status: string) {
         }`,
       ),
     getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
+  });
+}
+
+/** LT-13: the trip trail of a dispute's delivery (admin group only), for the Trip trail tab. */
+export function useDeliveryTrail(deliveryId: string) {
+  return useQuery({
+    queryKey: ["admin", "deliveries", deliveryId, "trail"],
+    queryFn: () => api.get<DeliveryTrail>(`/admin/deliveries/${encodeURIComponent(deliveryId)}/trail`),
+    enabled: !!deliveryId,
   });
 }
 
