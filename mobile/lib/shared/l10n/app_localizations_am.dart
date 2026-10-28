@@ -3546,4 +3546,14 @@ class AppLocalizationsAm extends AppLocalizations {
   String clockEvening(String time) {
     return 'ከምሽቱ $time';
   }
+
+  @override
+  String get liveTripNotificationTitle => 'የመኪናው ቦታ እየተጋራ ነው';
+
+  @override
+  String get liveTripNotificationText =>
+      'በዚህ ጉዞ ያሉ ገዥዎችና ገበሬዎች መኪናው የት እንዳለ ያያሉ። ከመጨረሻው ርክክብ በኋላ ማጋራቱ ይቆማል።';
+
+  @override
+  String get liveTripNotificationChannel => 'የጉዞ ቦታ';
 }

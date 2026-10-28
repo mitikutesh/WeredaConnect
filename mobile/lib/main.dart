@@ -25,6 +25,8 @@ import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/co
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
+import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
+import 'package:wereda_connect/features/live_trip/web_check_in_engine.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
@@ -153,6 +155,12 @@ Future<void> _runWeb({
   registerWebTestAuthSeam(authBloc);
   bindDataUsageToAuth(dataUsageTracker, authBloc);
   final api = ApiClient();
+  // LT-08: a trucker on web checks in while the page is visible.
+  final checkInEngine = buildWebCheckInEngine(
+    api: api,
+    authBloc: authBloc,
+    languageProvider: languageProvider,
+  );
 
   runApp(
     MultiProvider(
@@ -167,6 +175,8 @@ Future<void> _runWeb({
         Provider<BaseNotificationRepository>.value(
           value: WebNotificationRepository(api: api),
         ),
+        // LT-08: the trucker's check-in engine (trip screens, LT-09).
+        Provider<CheckInEngine?>.value(value: checkInEngine),
       ],
       child: MultiBlocProvider(
         providers: [
@@ -185,6 +195,7 @@ Future<void> _runWeb({
           BlocProvider<DeliveryBloc>(
             create: (_) => DeliveryBloc(
               repository: WebDeliveryRepository(api: api),
+              scanCheckIns: checkInEngine,
             ),
           ),
           BlocProvider<OrderBloc>(

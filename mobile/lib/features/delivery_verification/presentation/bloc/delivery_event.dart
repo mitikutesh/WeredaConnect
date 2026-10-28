@@ -102,17 +102,22 @@ class ConfirmPickup extends DeliveryEvent {
   final String? photoRef;
   final String? scannedQrNonce;
 
+  /// The delivery's trip: a successful scan records a check-in for it when
+  /// the trucker shares the trip's location (LT-08).
+  final String? tripId;
+
   const ConfirmPickup({
     required this.deliveryId,
     required this.truckerId,
     this.gpsPickup,
     this.photoRef,
     this.scannedQrNonce,
+    this.tripId,
   });
 
   @override
   List<Object?> get props =>
-      [deliveryId, truckerId, gpsPickup, photoRef, scannedQrNonce];
+      [deliveryId, truckerId, gpsPickup, photoRef, scannedQrNonce, tripId];
 }
 
 /// Confirm delivery received by buyer.
@@ -123,17 +128,22 @@ class ConfirmDelivery extends DeliveryEvent {
   final String? photoRef;
   final String? scannedQrNonce;
 
+  /// The delivery's trip, for the drop-off check-in (LT-08). It records only
+  /// on the phone that shares the trip's location.
+  final String? tripId;
+
   const ConfirmDelivery({
     required this.deliveryId,
     required this.buyerId,
     this.gpsDropoff,
     this.photoRef,
     this.scannedQrNonce,
+    this.tripId,
   });
 
   @override
   List<Object?> get props =>
-      [deliveryId, buyerId, gpsDropoff, photoRef, scannedQrNonce];
+      [deliveryId, buyerId, gpsDropoff, photoRef, scannedQrNonce, tripId];
 }
 
 /// Raise a dispute on a delivery.

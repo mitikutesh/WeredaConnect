@@ -22,6 +22,7 @@ class _FullSyncQueue extends SyncQueue {
     required String action,
     required String data,
     required String operationId,
+    DateTime? keyTimestamp,
   }) async =>
       throw const SyncQueueFullException('full');
 }

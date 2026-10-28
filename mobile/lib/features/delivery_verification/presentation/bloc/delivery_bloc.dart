@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
@@ -7,6 +9,7 @@ import 'package:wereda_connect/features/delivery_verification/data/delivery_vali
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/live_trip/domain/scan_check_in_sink.dart';
 
 /// BLoC for managing delivery verification state.
 ///
@@ -21,6 +24,10 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
   /// changes they did not author.
   final MarketplaceSync? _marketplaceSync;
 
+  /// The check-in engine (LT-08): told about each successful pickup or
+  /// drop-off scan so the trip records a `scan` fix. Null in tests.
+  final ScanCheckInSink? _scanCheckIns;
+
   /// Exposed for sub-screens that need to call repository methods directly
   /// (e.g., QrGenerateScreen persisting nonces).
   BaseDeliveryRepository get repository => _repository;
@@ -28,8 +35,10 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
   DeliveryBloc({
     required BaseDeliveryRepository repository,
     MarketplaceSync? marketplaceSync,
+    ScanCheckInSink? scanCheckIns,
   })  : _repository = repository,
         _marketplaceSync = marketplaceSync,
+        _scanCheckIns = scanCheckIns,
         super(const DeliveryInitial()) {
     on<LoadDeliveries>(_onLoadDeliveries);
     on<CreateDelivery>(_onCreateDelivery);
@@ -154,10 +163,19 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         photoRef: event.photoRef,
         scannedQrNonce: event.scannedQrNonce,
       );
+      _checkInAfterScan(event.tripId);
       emit(const PickupConfirmed());
     } on Object catch (e) {
       emit(_errorFromException(e));
     }
+  }
+
+  /// The scan succeeded: let the check-in engine record its place. Not
+  /// awaited (a fix can take up to a minute) and never fails the handoff.
+  void _checkInAfterScan(String? tripId) {
+    final sink = _scanCheckIns;
+    if (sink == null || tripId == null || tripId.isEmpty) return;
+    unawaited(sink.onScan(tripId));
   }
 
   Future<void> _onMarkInTransit(
@@ -191,6 +209,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         photoRef: event.photoRef,
         scannedQrNonce: event.scannedQrNonce,
       );
+      _checkInAfterScan(event.tripId);
       emit(const DeliveryConfirmed());
     } on Object catch (e) {
       emit(_errorFromException(e));

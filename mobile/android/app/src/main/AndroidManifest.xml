@@ -9,6 +9,17 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
 
+    <!-- LT-08: live trip check-ins. While the trucker shares the trip's
+         location, geolocator's own GeolocatorLocationService (merged from the
+         plugin manifest with foregroundServiceType="location") runs as a
+         foreground service with a visible notification. It is started from
+         the consent action while the app is in the foreground, so the
+         "while in use" location permission is enough: no
+         ACCESS_BACKGROUND_LOCATION. FOREGROUND_SERVICE_LOCATION is required
+         for a location-type service from Android 14 (API 34). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+
     <!-- Audio recording for voice notes -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-feature android:name="android.hardware.microphone" android:required="false"/>
