@@ -112,6 +112,33 @@ void main() {
     expect(none!.undeliveredDropoffs, isEmpty);
   });
 
+  test('each leg carries when it was picked up and left the road', () async {
+    when(() => trips.getTripById('trip-1')).thenAnswer((_) async => _trip());
+    final delivered = _delivery('d-1', DeliveryStatus.delivered)
+      ..pickedUpAt = DateTime.utc(2026, 10, 28, 5)
+      ..confirmedAt = DateTime.utc(2026, 10, 28, 9);
+    final cancelled = _delivery('d-3', DeliveryStatus.cancelled)
+      ..updatedAt = DateTime.utc(2026, 10, 28, 10);
+    when(() => deliveries.getDeliveriesByTrip('trip-1', userId: 'trucker-1'))
+        .thenAnswer(
+      (_) async =>
+          [delivered, _delivery('d-2', DeliveryStatus.inTransit), cancelled],
+    );
+
+    final progress = await reader().read('trip-1', userId: 'trucker-1');
+
+    expect(progress!.legs[0].pickedUpAt, DateTime.utc(2026, 10, 28, 5));
+    expect(progress.legs[0].leftRoadAt, DateTime.utc(2026, 10, 28, 9));
+    expect(progress.legs[1].leftRoadAt, isNull);
+    expect(progress.legs[2].leftRoadAt, DateTime.utc(2026, 10, 28, 10));
+    // d-3 was cancelled before pickup: it was never on the road.
+    expect(
+      progress.lastLeftRoadExcept('d-2'),
+      DateTime.utc(2026, 10, 28, 9),
+    );
+    expect(progress.lastLeftRoadExcept('d-1'), isNull);
+  });
+
   test('the trip of a delivery', () async {
     when(() => deliveries.getDeliveryById('d-2', userId: 'trucker-1'))
         .thenAnswer((_) async => _delivery('d-2', DeliveryStatus.pickedUp));

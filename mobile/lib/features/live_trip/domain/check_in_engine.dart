@@ -142,6 +142,12 @@ class CheckInEngine implements ScanCheckInSink {
   /// Rows older than this are pruned at sign in (the server keeps 60 days).
   static const retention = Duration(days: 60);
 
+  /// After the foreground service did not start (or its stream failed), the
+  /// next try on a tick waits this long, doubling up to
+  /// [backgroundRetryMax]. Coming back to the app tries at once.
+  static const backgroundRetryMin = Duration(minutes: 1);
+  static const backgroundRetryMax = Duration(minutes: 30);
+
   static BackgroundNotice _defaultNotice() => (
         title: 'Sharing trip location',
         text: 'Buyers and farmers on this trip see where the truck is.',
@@ -160,6 +166,9 @@ class CheckInEngine implements ScanCheckInSink {
   DateTime? _lastCapturedAt;
   List<GeoPoint> _dropoffs = const [];
   bool _visible = true;
+  bool _retryBackgroundNow = false;
+  DateTime? _backgroundRetryAt;
+  Duration _backgroundBackoff = backgroundRetryMin;
   bool _disposed = false;
   Timer? _timer;
   Future<void> _tail = Future<void>.value();
@@ -201,13 +210,8 @@ class CheckInEngine implements ScanCheckInSink {
         // The stop rule first, so a finished trip never flashes the
         // foreground notification.
         await _tick();
-        final sharing = _state.active;
-        if (sharing != null &&
-            sharing.answer == SharingAnswer.shared &&
-            !sharing.ended) {
-          await _startBackground();
-          await _publish();
-        }
+        await _ensureBackground();
+        await _publish();
       });
 
   /// Signed out, or the account is not a trucker: stop everything. The state
@@ -258,7 +262,7 @@ class CheckInEngine implements ScanCheckInSink {
           CheckInSource.start,
           askPermission: true,
         );
-        await _startBackground();
+        await _ensureBackground(force: true);
         _schedule();
         await _publish();
         return result;
@@ -351,7 +355,7 @@ class CheckInEngine implements ScanCheckInSink {
           _state = _state.withActive(tripId);
           await _saveState();
           await _activate(tripId);
-          await _startBackground();
+          await _ensureBackground(force: true);
         } else if (_state.activeTripId == tripId) {
           final progress = await _readProgress(tripId);
           if (progress != null) _dropoffs = progress.undeliveredDropoffs;
@@ -390,7 +394,9 @@ class CheckInEngine implements ScanCheckInSink {
   /// The server refused the pickup of [deliveryId] for good. Unless another
   /// delivery of its trip is on the road, the trip's waiting check-ins are
   /// dropped (they would wait as `deferred` for 7 days) and its answer is
-  /// forgotten, so the next successful pickup asks again.
+  /// forgotten, so the next successful pickup asks again. Check-ins captured
+  /// before another delivery left the road stay: the server keeps them.
+  /// When the trip's deliveries cannot be read nothing is dropped.
   Future<void> onPickupRejected(String deliveryId) => _serial(() async {
         final userId = _userId;
         if (userId == null) return;
@@ -402,9 +408,13 @@ class CheckInEngine implements ScanCheckInSink {
         }
         if (tripId == null || tripId.isEmpty) return;
         final progress = await _readProgress(tripId);
-        if (progress != null && progress.anotherOnRoad(deliveryId)) return;
+        if (progress == null || progress.anotherOnRoad(deliveryId)) return;
         try {
-          await _pings.dropUnsent(tripId, userId: userId);
+          await _pings.dropUnsent(
+            tripId,
+            userId: userId,
+            capturedAfter: progress.lastLeftRoadExcept(deliveryId),
+          );
         } on Object catch (e) {
           debugPrint('[LiveTrip] dropping check-ins failed: $e');
         }
@@ -428,6 +438,8 @@ class CheckInEngine implements ScanCheckInSink {
     if (_visible == visible || _disposed) return;
     _visible = visible;
     if (visible) {
+      // Android lets the app start the foreground service again now.
+      _retryBackgroundNow = true;
       unawaited(refresh());
     } else if (!_location.supportsBackground) {
       _timer?.cancel();
@@ -545,6 +557,9 @@ class CheckInEngine implements ScanCheckInSink {
         await _takeFix(tripId, CheckInCadence.sourceFor(_interval()));
       }
     }
+    final force = _retryBackgroundNow;
+    _retryBackgroundNow = false;
+    await _ensureBackground(force: force);
     _schedule();
     await _publish();
   }
@@ -727,6 +742,42 @@ class CheckInEngine implements ScanCheckInSink {
       debugPrint('[LiveTrip] trip progress unreadable: $e');
       return null;
     }
+  }
+
+  /// Run the foreground service while the active trip shares, and start it
+  /// again after it stopped on its own (a failed position stream, a refused
+  /// permission). Only while the app is visible: Android refuses to start a
+  /// foreground service from the background. A tick waits out the backoff;
+  /// [force] (an action of the driver, coming back to the app) tries at once.
+  Future<void> _ensureBackground({bool force = false}) async {
+    final sharing = _state.active;
+    final wanted = _userId != null &&
+        _location.supportsBackground &&
+        sharing != null &&
+        sharing.answer == SharingAnswer.shared &&
+        !sharing.ended;
+    if (!wanted || _location.isBackgroundRunning) {
+      if (_location.isBackgroundRunning) _resetBackgroundBackoff();
+      return;
+    }
+    if (!_visible) return;
+    final now = _now();
+    final retryAt = _backgroundRetryAt;
+    if (!force && retryAt != null && now.isBefore(retryAt)) return;
+    await _startBackground();
+    if (_location.isBackgroundRunning) {
+      _resetBackgroundBackoff();
+    } else {
+      _backgroundRetryAt = now.add(_backgroundBackoff);
+      final doubled = _backgroundBackoff * 2;
+      _backgroundBackoff =
+          doubled > backgroundRetryMax ? backgroundRetryMax : doubled;
+    }
+  }
+
+  void _resetBackgroundBackoff() {
+    _backgroundRetryAt = null;
+    _backgroundBackoff = backgroundRetryMin;
   }
 
   Future<void> _startBackground() async {

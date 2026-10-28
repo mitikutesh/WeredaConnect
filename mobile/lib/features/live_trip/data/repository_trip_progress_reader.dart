@@ -1,3 +1,4 @@
+import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 import 'package:wereda_connect/features/live_trip/domain/check_in_rules.dart';
@@ -40,6 +41,8 @@ class RepositoryTripProgressReader implements TripProgressReader {
           deliveryId: delivery.deliveryId,
           status: delivery.status,
           dropoff: dropoff,
+          pickedUpAt: delivery.pickedUpAt?.toUtc(),
+          leftRoadAt: _leftRoadAt(delivery),
         ),
     ]);
   }
@@ -53,6 +56,16 @@ class RepositoryTripProgressReader implements TripProgressReader {
         await _deliveries.getDeliveryById(deliveryId, userId: userId);
     return delivery?.tripId;
   }
+
+  /// `confirmedAt` for a delivered or disputed delivery. The phone keeps no
+  /// `cancelledAt`, so a cancelled one uses its last update.
+  static DateTime? _leftRoadAt(Delivery delivery) => switch (delivery.status) {
+        DeliveryStatus.delivered ||
+        DeliveryStatus.disputed =>
+          (delivery.confirmedAt ?? delivery.updatedAt).toUtc(),
+        DeliveryStatus.cancelled => delivery.updatedAt.toUtc(),
+        _ => null,
+      };
 
   Future<GeoPoint?> _dropoffOf(String tripId) async {
     if (_dropoffs.containsKey(tripId)) return _dropoffs[tripId];

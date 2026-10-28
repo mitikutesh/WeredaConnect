@@ -34,8 +34,13 @@ abstract class BaseLocationPingRepository {
   /// How many pings of [tripId] still wait to reach the server.
   Future<int> unsentCount(String tripId, {required String userId});
 
-  /// Drop the pings of [tripId] that still wait (its pickup was refused).
-  Future<int> dropUnsent(String tripId, {required String userId});
+  /// Drop the pings of [tripId] that still wait (its pickup was refused),
+  /// only those captured after [capturedAfter] when it is given.
+  Future<int> dropUnsent(
+    String tripId, {
+    required String userId,
+    DateTime? capturedAfter,
+  });
 
   /// Try again what waits (web). Returns the trips whose sharing ended. The
   /// mobile sync executor does this itself, so mobile returns nothing.

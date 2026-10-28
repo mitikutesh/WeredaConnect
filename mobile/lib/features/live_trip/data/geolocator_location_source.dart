@@ -19,6 +19,17 @@ import 'package:wereda_connect/features/live_trip/domain/location_source.dart';
 /// (cell and wifi, no GPS); each one only wakes the cadence when the phone
 /// sleeps, because Dart timers do not run in deep sleep. The check-ins
 /// themselves are [currentFix] calls with the medium accuracy setting.
+///
+/// A stream error (location switched off, permission taken back) ends the
+/// stream and with it the service; [isBackgroundRunning] then reads false
+/// and the check-in engine starts it again, with a backoff, when the app is
+/// visible.
+///
+/// The notification text cannot change while the service runs: the plugin
+/// keeps one position stream, and a new text means cancelling it and
+/// listening again, which stops and restarts the service. Android refuses
+/// that restart from the background (a pause that runs out), so the text
+/// stays the same through a pause.
 class GeolocatorLocationSource implements LocationSource {
   GeolocatorLocationSource({bool? supportsBackground})
       : supportsBackground = supportsBackground ??
@@ -73,8 +84,13 @@ class GeolocatorLocationSource implements LocationSource {
     _subscription =
         Geolocator.getPositionStream(locationSettings: settings).listen(
       (_) => onWake(),
-      onError: (Object e) => debugPrint('[LiveTrip] position stream: $e'),
+      onError: (Object e) {
+        // cancelOnError: the stream and the service are gone.
+        debugPrint('[LiveTrip] position stream failed: $e');
+        _subscription = null;
+      },
       onDone: () => _subscription = null,
+      cancelOnError: true,
     );
   }
 

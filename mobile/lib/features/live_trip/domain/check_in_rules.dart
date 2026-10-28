@@ -1,6 +1,5 @@
-import 'dart:math';
-
 import 'package:wereda_connect/core/models/location_ping.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/gps_distance_service.dart';
 
 /// The check-in rules of the trucker's phone (LT-08, `live-trip.md` section
 /// 5, `live-trip-api.md` section 1). Pure Dart, shared by mobile and web.
@@ -51,8 +50,16 @@ abstract final class CheckInCadence {
     List<GeoPoint> undeliveredDropoffs,
   ) {
     if (lastFix == null) return hourly;
-    final near = undeliveredDropoffs
-        .any((d) => distanceKm(lastFix, d) <= nearStopRadiusKm);
+    final near = undeliveredDropoffs.any(
+      (d) =>
+          GpsDistanceService.haversineDistance(
+            lastFix.latitude,
+            lastFix.longitude,
+            d.latitude,
+            d.longitude,
+          ) <=
+          nearStopRadiusKm * 1000,
+    );
     return near ? nearStop : hourly;
   }
 
@@ -94,20 +101,6 @@ abstract final class FixBounds {
       longitude <= maxLongitude &&
       accuracyM >= 0 &&
       accuracyM <= maxAccuracyM;
-}
-
-/// Great circle distance in kilometres.
-double distanceKm(GeoPoint a, GeoPoint b) {
-  const earthRadiusKm = 6371.0;
-  double rad(double degrees) => degrees * pi / 180.0;
-  final dLat = rad(b.latitude - a.latitude);
-  final dLon = rad(b.longitude - a.longitude);
-  final h = sin(dLat / 2) * sin(dLat / 2) +
-      cos(rad(a.latitude)) *
-          cos(rad(b.latitude)) *
-          sin(dLon / 2) *
-          sin(dLon / 2);
-  return 2 * earthRadiusKm * atan2(sqrt(h), sqrt(1 - h));
 }
 
 /// [time] in UTC cut to whole milliseconds: the entity id carries epoch

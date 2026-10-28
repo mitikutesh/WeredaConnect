@@ -65,6 +65,17 @@ class FakeLocation implements LocationSource {
   void Function()? onWake;
   int starts = 0;
 
+  /// Start attempts, and how many of the next ones fail (no permission, the
+  /// platform refused).
+  int startAttempts = 0;
+  int failStarts = 0;
+
+  /// The position stream failed: the plugin stopped the service.
+  void streamFails() {
+    running = false;
+    onWake = null;
+  }
+
   CheckInFix fixHere({double accuracyM = 30, bool mocked = false}) =>
       CheckInFix(
         latitude: position.latitude,
@@ -90,6 +101,11 @@ class FakeLocation implements LocationSource {
     required void Function() onWake,
   }) async {
     if (!supportsBackground || running) return;
+    startAttempts++;
+    if (failStarts > 0) {
+      failStarts--;
+      return;
+    }
     running = true;
     starts++;
     this.notice = notice;
@@ -127,13 +143,22 @@ TripLeg leg(
   String id,
   DeliveryStatus status, {
   GeoPoint? dropoff,
+  DateTime? pickedUpAt,
+  DateTime? leftRoadAt,
 }) =>
-    TripLeg(deliveryId: id, status: status, dropoff: dropoff);
+    TripLeg(
+      deliveryId: id,
+      status: status,
+      dropoff: dropoff,
+      pickedUpAt: pickedUpAt,
+      leftRoadAt: leftRoadAt,
+    );
 
 class FakePings extends BaseLocationPingRepository {
   final List<LocationPing> rows = [];
   final Set<String> unsent = {};
   final List<String> dropped = [];
+  final List<DateTime?> droppedAfter = [];
   PingSendResult nextResult = PingSendResult.queued;
   Set<String> flushEnded = {};
   int flushes = 0;
@@ -185,9 +210,20 @@ class FakePings extends BaseLocationPingRepository {
       unsent.where((id) => id.startsWith('$tripId#')).length;
 
   @override
-  Future<int> dropUnsent(String tripId, {required String userId}) async {
+  Future<int> dropUnsent(
+    String tripId, {
+    required String userId,
+    DateTime? capturedAfter,
+  }) async {
     dropped.add(tripId);
-    final ids = unsent.where((id) => id.startsWith('$tripId#')).toList();
+    droppedAfter.add(capturedAfter);
+    final after = capturedAfter?.millisecondsSinceEpoch;
+    final ids = unsent
+        .where((id) => id.startsWith('$tripId#'))
+        .where(
+          (id) => after == null || int.parse(id.split('#').last) > after,
+        )
+        .toList();
     unsent.removeAll(ids);
     return ids.length;
   }

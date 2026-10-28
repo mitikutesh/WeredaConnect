@@ -66,7 +66,10 @@ class SyncQueue {
       const [];
 
   /// No queue on web, so nothing to drop.
-  Future<List<String>> dropLocationPingsForTrip(String tripId) async =>
+  Future<List<String>> dropLocationPingsForTrip(
+    String tripId, {
+    DateTime? capturedAfter,
+  }) async =>
       const [];
 }
 

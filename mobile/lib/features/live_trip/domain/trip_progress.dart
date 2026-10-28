@@ -7,10 +7,19 @@ class TripLeg {
     required this.deliveryId,
     required this.status,
     this.dropoff,
+    this.pickedUpAt,
+    this.leftRoadAt,
   });
 
   final String deliveryId;
   final DeliveryStatus status;
+
+  /// When it was picked up, when the phone knows.
+  final DateTime? pickedUpAt;
+
+  /// When it left the road (delivered, disputed, or cancelled after pickup),
+  /// when the phone knows: the server keeps pings captured before it.
+  final DateTime? leftRoadAt;
 
   /// Where it is dropped off, when the app knows (the trip's destination
   /// place until LT-12 gives each order its own point).
@@ -47,6 +56,22 @@ class TripProgress {
   /// Whether a delivery other than [deliveryId] is on the road.
   bool anotherOnRoad(String deliveryId) =>
       legs.any((l) => l.deliveryId != deliveryId && l.isOnRoad);
+
+  /// The latest time a delivery other than [deliveryId] left the road after
+  /// a pickup, or null when none did: pings captured up to then were taken
+  /// while it was on the road, so the server keeps them.
+  DateTime? lastLeftRoadExcept(String deliveryId) {
+    DateTime? latest;
+    for (final leg in legs) {
+      final left = leg.leftRoadAt;
+      if (leg.deliveryId == deliveryId || !leg.isDone || left == null) continue;
+      if (leg.status == DeliveryStatus.cancelled && leg.pickedUpAt == null) {
+        continue;
+      }
+      if (latest == null || left.isAfter(latest)) latest = left;
+    }
+    return latest;
+  }
 }
 
 /// Reads a trip's progress for the check-in engine (the local deliveries on

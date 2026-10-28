@@ -60,7 +60,6 @@ void main() {
       expect(FixBounds.accepts(2.9, 38.98, 35), isFalse);
       expect(FixBounds.accepts(8.75, 49, 35), isFalse);
       expect(FixBounds.accepts(8.75, 38.98, 5001), isFalse);
-      expect(distanceKm(addis, addis), 0);
     });
   });
 

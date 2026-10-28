@@ -501,11 +501,16 @@ class SyncQueue {
 
   /// Remove the check-ins of [tripId] that still wait to be sent: the trip's
   /// pickup was refused for good, so they could only wait as `deferred` for
-  /// 7 days (LT-08). Operations on their way are left to their answer.
+  /// 7 days (LT-08). With [capturedAfter] only those captured after it go
+  /// (earlier ones were taken while another delivery was on the road).
+  /// Operations on their way are left to their answer.
   ///
   /// Returns the entity ids (ping ids) of the operations removed.
-  Future<List<String>> dropLocationPingsForTrip(String tripId) async {
-    final ops = await _isar.syncOperations
+  Future<List<String>> dropLocationPingsForTrip(
+    String tripId, {
+    DateTime? capturedAfter,
+  }) async {
+    final found = await _isar.syncOperations
         .filter()
         .entityTypeEqualTo(locationPingEntityType)
         .entityIdStartsWith('$tripId#')
@@ -517,12 +522,24 @@ class SyncQueue {
               ),
         )
         .findAll();
+    final afterMs = capturedAfter?.millisecondsSinceEpoch;
+    final ops = [
+      for (final op in found)
+        if (afterMs == null || _captureMsOf(op.entityId) > afterMs) op,
+    ];
     if (ops.isEmpty) return const [];
 
     await _isar.writeTxn(() async {
       await _isar.syncOperations.deleteAll([for (final op in ops) op.id]);
     });
     return [for (final op in ops) op.entityId];
+  }
+
+  /// The capture time in epoch ms of a ping id (`{tripId}#{ms}`), or the
+  /// largest value when unreadable (then it counts as captured last).
+  static int _captureMsOf(String pingId) {
+    final ms = int.tryParse(pingId.substring(pingId.lastIndexOf('#') + 1));
+    return ms ?? 9007199254740991;
   }
 
   static UnsentLocationPing<SyncOperation>? _unsentPingOf(SyncOperation op) {

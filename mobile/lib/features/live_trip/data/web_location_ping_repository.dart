@@ -77,10 +77,16 @@ class WebLocationPingRepository extends BaseLocationPingRepository {
       );
 
   @override
-  Future<int> dropUnsent(String tripId, {required String userId}) async {
+  Future<int> dropUnsent(
+    String tripId, {
+    required String userId,
+    DateTime? capturedAfter,
+  }) async {
     final ids = [
       for (final u in _unsent.values)
-        if (u.ping.tripId == tripId && u.ping.truckerId == userId)
+        if (u.ping.tripId == tripId &&
+            u.ping.truckerId == userId &&
+            (capturedAfter == null || u.ping.capturedAt.isAfter(capturedAfter)))
           u.ping.pingId,
     ];
     ids.forEach(_unsent.remove);

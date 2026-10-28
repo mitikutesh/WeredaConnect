@@ -170,6 +170,14 @@ void main() {
       userId: trucker,
     );
 
+    expect(
+      await repository.dropUnsent(
+        'trip-1',
+        userId: trucker,
+        capturedAfter: base.add(const Duration(hours: 1)),
+      ),
+      0,
+    );
     expect(await repository.dropUnsent('trip-1', userId: trucker), 1);
     expect(await repository.pingsFor('trip-1', userId: trucker), hasLength(1));
   });

@@ -92,8 +92,15 @@ class LocationPingRepository extends BaseLocationPingRepository {
       _syncQueue.pendingLocationPingCount(tripId: tripId);
 
   @override
-  Future<int> dropUnsent(String tripId, {required String userId}) async {
-    final removed = await _syncQueue.dropLocationPingsForTrip(tripId);
+  Future<int> dropUnsent(
+    String tripId, {
+    required String userId,
+    DateTime? capturedAfter,
+  }) async {
+    final removed = await _syncQueue.dropLocationPingsForTrip(
+      tripId,
+      capturedAfter: capturedAfter,
+    );
     if (removed.isNotEmpty) await _deleteRows(removed);
     return removed.length;
   }

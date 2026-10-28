@@ -441,6 +441,58 @@ void main() {
       expect(location.running, isFalse);
     });
 
+    test('keeps those captured before another delivery left the road',
+        () async {
+      // The start fix at 06:00; d-2 was delivered at 06:30.
+      clock.advance(const Duration(minutes: 45));
+      await engine.checkInNow();
+      final delivered = DateTime.utc(2026, 10, 28, 6, 30);
+      trips.set(trip, [
+        leg('d-1', DeliveryStatus.pickedUp),
+        leg(
+          'd-2',
+          DeliveryStatus.delivered,
+          pickedUpAt: DateTime.utc(2026, 10, 28, 5),
+          leftRoadAt: delivered,
+        ),
+      ]);
+
+      await engine.onPickupRejected('d-1');
+
+      expect(pings.droppedAfter, [delivered]);
+      // The 06:00 fix stays, the 06:45 one goes.
+      expect(await pings.unsentCount(trip, userId: trucker), 1);
+      expect(
+        pings.unsent.single,
+        '$trip#${DateTime.utc(2026, 10, 28, 6).millisecondsSinceEpoch}',
+      );
+    });
+
+    test('a delivery cancelled before pickup keeps nothing', () async {
+      trips.set(trip, [
+        leg('d-1', DeliveryStatus.pickedUp),
+        leg(
+          'd-2',
+          DeliveryStatus.cancelled,
+          leftRoadAt: DateTime.utc(2026, 10, 28, 7),
+        ),
+      ]);
+
+      await engine.onPickupRejected('d-1');
+
+      expect(pings.droppedAfter, [null]);
+      expect(await pings.unsentCount(trip, userId: trucker), 0);
+    });
+
+    test('nothing is dropped when the deliveries cannot be read', () async {
+      trips.legs.remove(trip);
+
+      await engine.onPickupRejected('d-1');
+
+      expect(pings.dropped, isEmpty);
+      expect(engine.status.mode, SharingMode.live);
+    });
+
     test('keeps them while another delivery is on the road', () async {
       trips.set(trip, [
         leg('d-1', DeliveryStatus.pickedUp),
@@ -470,6 +522,80 @@ void main() {
       expect(engine.status.tripId, trip);
       expect(pings.fixes.last.tripId, trip);
       expect(pings.fixes.last.source, CheckInSource.scan);
+    });
+  });
+
+  group('foreground service recovery', () {
+    setUp(() => engine.start(trip));
+
+    test('a failed stream is started again on the next tick', () async {
+      location.streamFails();
+
+      await at(const Duration(minutes: 5));
+
+      expect(location.running, isTrue);
+      expect(location.starts, 2);
+      expect(engine.status.backgroundRunning, isTrue);
+    });
+
+    test('a start that fails is tried again with a growing backoff', () async {
+      location
+        ..streamFails()
+        ..failStarts = 2;
+
+      await at(const Duration(minutes: 5));
+      expect(location.startAttempts, 2);
+      expect(location.running, isFalse);
+
+      // Within the first minute of backoff: no new try.
+      await at(const Duration(minutes: 5, seconds: 30));
+      expect(location.startAttempts, 2);
+
+      await at(const Duration(minutes: 6));
+      expect(location.startAttempts, 3);
+      expect(location.running, isFalse);
+
+      // The backoff doubled to two minutes.
+      await at(const Duration(minutes: 7));
+      expect(location.startAttempts, 3);
+      await at(const Duration(minutes: 8));
+      expect(location.startAttempts, 4);
+      expect(location.running, isTrue);
+    });
+
+    test('not from the background; coming back tries at once', () async {
+      location
+        ..streamFails()
+        ..failStarts = 1;
+      await at(const Duration(minutes: 5));
+      expect(location.startAttempts, 2);
+
+      engine.setAppVisible(false);
+      await at(const Duration(minutes: 30));
+      expect(location.startAttempts, 2);
+
+      location.failStarts = 1;
+      engine.setAppVisible(true);
+      await engine.refresh();
+      expect(location.startAttempts, 3);
+
+      // Coming back again tries again, backoff or not.
+      engine.setAppVisible(false);
+      engine.setAppVisible(true);
+      await engine.refresh();
+      expect(location.startAttempts, 4);
+      expect(location.running, isTrue);
+    });
+
+    test('no restart once sharing ended or for a declined trip', () async {
+      await engine.stop();
+      location.streamFails();
+      await at(const Duration(minutes: 5));
+      expect(location.running, isFalse);
+
+      await engine.decline('trip-2');
+      await at(const Duration(minutes: 10));
+      expect(location.running, isFalse);
     });
   });
 

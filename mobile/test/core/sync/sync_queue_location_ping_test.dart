@@ -129,6 +129,22 @@ void main() {
     expect(await queue.getOperation('op-delivery'), isNotNull);
   });
 
+  test('a cutoff keeps the pings captured up to it', () async {
+    await ping(base);
+    await ping(base.add(const Duration(minutes: 30)));
+    await ping(base.add(const Duration(hours: 1)));
+
+    final removed = await queue.dropLocationPingsForTrip(
+      'trip-1',
+      capturedAfter: base.add(const Duration(minutes: 30)),
+    );
+
+    expect(removed, [
+      'trip-1#${base.add(const Duration(hours: 1)).millisecondsSinceEpoch}',
+    ]);
+    expect(await queue.pendingLocationPingCount(tripId: 'trip-1'), 2);
+  });
+
   test('a refused check-in is not counted as a failed sync', () async {
     final op = await ping(base);
     await queue.markAsRejected(op.operationId);
