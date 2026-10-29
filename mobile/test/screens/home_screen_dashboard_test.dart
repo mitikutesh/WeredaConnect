@@ -207,8 +207,9 @@ void main() {
       await tester.pumpWidget(buildHomeScreen(UserRole.farmer));
       await tester.pumpAndSettle();
 
+      // Farmer · Home board: four tiles, My Crops first; selling is the
+      // floating button, not a tile or a banner.
       for (final label in [
-        'Sell Crops',
         'My Crops',
         'Pending Orders',
         'Escrow',
@@ -216,6 +217,7 @@ void main() {
       ]) {
         expect(find.text(label), findsOneWidget, reason: label);
       }
+      expect(find.text('Sell Crops'), findsNothing);
       expect(find.text('Find Crops'), findsNothing);
       expect(find.text('Find Trips'), findsNothing);
     });

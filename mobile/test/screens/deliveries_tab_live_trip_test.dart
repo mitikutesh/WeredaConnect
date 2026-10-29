@@ -118,6 +118,27 @@ void main() {
     expect(find.byType(TrackMap), findsNothing);
   });
 
+  testWidgets('buyer: a heading per stage, in the order a delivery lives',
+      (tester) async {
+    await pumpTab(
+      tester,
+      role: UserRole.buyer,
+      userId: buyerId,
+      deliveries: [
+        liveDelivery(id: 'delivery-103', status: DeliveryStatus.delivered),
+        waiting,
+        onTheRoad,
+      ],
+    );
+    // A delivered card's chip says "Delivered" too, below its heading.
+    final headings = ['On the road now', 'Waiting for pickup', 'Delivered']
+        .map((text) => tester.getTopLeft(find.text(text).first).dy)
+        .toList();
+    expect(headings, orderedEquals([...headings]..sort()));
+    expect(find.text('Disputed'), findsNothing);
+    expect(find.text('Cancelled'), findsNothing);
+  });
+
   testWidgets('buyer: a card opens the live trip', (tester) async {
     await pumpTab(
       tester,
@@ -162,6 +183,7 @@ void main() {
       deliveries: [onTheRoad, waiting],
     );
     expect(find.text('On the road now'), findsNothing);
+    expect(find.text('Waiting for pickup'), findsNothing);
     expect(find.byType(OnTheRoadCard), findsNothing);
     expect(find.byType(DeliveryCard), findsNWidgets(2));
     expect(find.byType(TrackMap), findsNothing);

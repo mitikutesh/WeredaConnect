@@ -13,6 +13,7 @@ import 'package:wereda_connect/features/delivery_verification/data/services/gps_
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/utils/contact_in_text.dart';
+import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 import 'package:wereda_connect/shared/widgets/voice_note_widget.dart';
@@ -253,71 +254,65 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
                       ),
                       const SizedBox(height: 24),
 
-                      // Quantity input
-                      TextFormField(
-                        controller: _quantityController,
-                        decoration: InputDecoration(
-                          labelText: l10n.quantityInQuintals,
-                          prefixIcon: const Icon(Icons.scale),
-                          suffixText: l10n.quintals,
-                          border: const OutlineInputBorder(),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 20,
+                      // Quantity and price side by side, labels above
+                      // (Farmer · Create crop listing board).
+                      LabeledFieldPair(
+                        first: LabeledField(
+                          label: l10n.quantityInQuintals,
+                          field: TextFormField(
+                            key: const Key('create_listing_quantity'),
+                            controller: _quantityController,
+                            decoration: labeledFieldDecoration(
+                              suffixText: l10n.quintals,
+                            ),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(
+                                RegExp(r'^\d+\.?\d{0,2}'),
+                              ),
+                            ],
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return l10n.quantityRequired;
+                              }
+                              final quantity = double.tryParse(value);
+                              if (quantity == null || quantity <= 0) {
+                                return l10n.quantityRequired;
+                              }
+                              return null;
+                            },
                           ),
                         ),
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(
-                            RegExp(r'^\d+\.?\d{0,2}'),
-                          ),
-                        ],
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return l10n.quantityRequired;
-                          }
-                          final quantity = double.tryParse(value);
-                          if (quantity == null || quantity <= 0) {
-                            return l10n.quantityRequired;
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Price input
-                      TextFormField(
-                        controller: _priceController,
-                        decoration: InputDecoration(
-                          labelText: l10n.priceInBirr,
-                          prefixIcon: const Icon(Icons.payments),
-                          suffixText: l10n.etbPerKg,
-                          border: const OutlineInputBorder(),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 20,
+                        second: LabeledField(
+                          label: l10n.priceInBirr,
+                          field: TextFormField(
+                            key: const Key('create_listing_price'),
+                            controller: _priceController,
+                            decoration: labeledFieldDecoration(
+                              suffixText: l10n.etbPerKg,
+                            ),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(
+                                RegExp(r'^\d+\.?\d{0,2}'),
+                              ),
+                            ],
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return l10n.priceRequired;
+                              }
+                              final price = double.tryParse(value);
+                              if (price == null || price <= 0) {
+                                return l10n.priceRequired;
+                              }
+                              return null;
+                            },
                           ),
                         ),
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(
-                            RegExp(r'^\d+\.?\d{0,2}'),
-                          ),
-                        ],
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return l10n.priceRequired;
-                          }
-                          final price = double.tryParse(value);
-                          if (price == null || price <= 0) {
-                            return l10n.priceRequired;
-                          }
-                          return null;
-                        },
                       ),
                       const SizedBox(height: 16),
 

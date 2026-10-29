@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/features/buyer/presentation/widgets/deliver_to_line.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -93,7 +94,8 @@ class _FindCropsScreenState extends State<FindCropsScreen>
         children: [
           // ── Header ──────────────────────────────────────────────────
           GreenHeader(
-            height: widget.embedded ? 100 : 130,
+            light: true,
+            height: widget.embedded ? 116 : 146,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -104,17 +106,22 @@ class _FindCropsScreenState extends State<FindCropsScreen>
                       padding: EdgeInsets.only(top: 4, bottom: 4),
                       child: Icon(
                         Icons.arrow_back,
-                        color: Colors.white,
+                        color: AppTheme.soilDark,
                         size: 24,
                       ),
                     ),
                   ),
+                // Buyer · Find crops board: where the crops go, then the
+                // title.
+                const DeliverToLine(),
+                const SizedBox(height: 8),
                 Text(
                   l10n.findCrops,
                   style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                    color: AppTheme.soilDark,
                   ),
                 ),
               ],

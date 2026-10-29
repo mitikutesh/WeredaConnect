@@ -33,6 +33,7 @@ import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/green_header.dart';
 import 'package:wereda_connect/shared/widgets/listing_card.dart';
+import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
 /// Marketplace browse screen with search bar, category filters, and listing cards.
 ///
@@ -223,6 +224,35 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
         : '${listing.locationName} · $listed';
   }
 
+  /// The share of the listing already ordered (My Crops bar); null when no
+  /// order has been read.
+  double? _orderedShare(CropListing listing) {
+    final ordered = _orderedByListing[listing.listingId] ?? 0;
+    final total = listing.quantity + ordered;
+    return total <= 0 ? null : ordered / total;
+  }
+
+  /// The listing's status as the card shows it under the price.
+  String _statusLabel(ListingStatus status, AppLocalizations l10n) =>
+      switch (status) {
+        ListingStatus.active => l10n.listingStatusActive,
+        ListingStatus.reserved => l10n.listingStatusReserved,
+        ListingStatus.sold => l10n.listingStatusSold,
+        ListingStatus.draft => l10n.listingStatusDraft,
+        ListingStatus.expired => l10n.listingStatusExpired,
+      };
+
+  /// Whether a trip this week can carry [listing] (the pill turns amber).
+  bool _hasTransportThisWeek(CropListing listing) {
+    final trips = _openTrips;
+    if (trips == null) return false;
+    final auth = context.read<AuthBloc>().state;
+    final woreda =
+        auth is AuthAuthenticated ? _buyerDeliveryWoreda(auth) : null;
+    return tripsThisWeekFor(listing, trips, woreda, DateTime.now().toUtc())
+        .isNotEmpty;
+  }
+
   /// "32 of 60 quintals ordered", or "8 quintals, no orders yet".
   String _orderedDetail(CropListing listing, AppLocalizations l10n) {
     final ordered = _orderedByListing[listing.listingId] ?? 0;
@@ -300,7 +330,11 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
             // ── Header ──────────────────────────────────────────────────
             if (widget.showHeader)
               GreenHeader(
-                height: widget.embedded ? 140 : 170,
+                light: true,
+                // My Crops has no search box under its title.
+                height: widget.ownerMode
+                    ? (widget.embedded ? 92 : 122)
+                    : (widget.embedded ? 140 : 170),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -311,29 +345,53 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                           padding: EdgeInsets.only(top: 4, bottom: 4),
                           child: Icon(
                             Icons.arrow_back,
-                            color: Colors.white,
+                            color: AppTheme.soilDark,
                             size: 24,
                           ),
                         ),
                       ),
-                    Text(
-                      widget.ownerMode ? l10n.myCrops : l10n.market,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
+                    // MyCrops board: "Almaz Bekele · Meki" above the title.
+                    if (widget.ownerMode) ...[
+                      Text(
+                        _ownerLine() ?? l10n.yourCropListings,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppTheme.mutedSteel,
+                        ),
                       ),
+                      const SizedBox(height: 2),
+                    ],
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            widget.ownerMode ? l10n.myCrops : l10n.market,
+                            style: const TextStyle(
+                              fontSize: 26,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.5,
+                              color: AppTheme.soilDark,
+                            ),
+                          ),
+                        ),
+                        if (widget.ownerMode)
+                          StatusChip(
+                            label: l10n.farmer,
+                            kind: StatusKind.success,
+                            icon: Icons.eco_outlined,
+                          ),
+                      ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.ownerMode
-                          ? (_ownerLine() ?? l10n.yourCropListings)
-                          : l10n.browseVerifiedFarmers,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white.withAlpha(180),
+                    if (!widget.ownerMode) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        l10n.browseVerifiedFarmers,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: AppTheme.mutedSteel,
+                        ),
                       ),
-                    ),
+                    ],
                     // Search bar (marketplace browse only: owner mode
                     // has no search)
                     if (!widget.ownerMode) ...[
@@ -635,19 +693,35 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           if (index == listings.length) {
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                                vertical: 6,
+                            // MyCrops board: who sees the listings, in a
+                            // blue note.
+                            return Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE6ECF5),
+                                borderRadius: BorderRadius.circular(16),
                               ),
-                              child: Text(
-                                l10n.myCropsPrivacyNote,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  height: 1.5,
-                                  color: AppTheme.mutedSteel,
-                                ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Icon(
+                                    Icons.place_outlined,
+                                    size: 18,
+                                    color: Color(0xFF2E4C7D),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      l10n.myCropsPrivacyNote,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        height: 1.4,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF2E4C7D),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             );
                           }
@@ -670,15 +744,24 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                 sellerName: listing.farmerName.isNotEmpty
                                     ? listing.farmerName
                                     : listing.farmerId,
-                                price: l10n.etbCurrency(
-                                  listing.pricePerKg.toStringAsFixed(0),
-                                ),
+                                // "42" over "ETB/kg", as on the boards.
+                                price: listing.pricePerKg.toStringAsFixed(0),
+                                priceUnit: l10n.etbPerKg,
                                 rating: rated ? summary.average : null,
                                 ratingCount: rated ? summary.count : null,
                                 icon: Icons.eco,
                                 detail: widget.ownerMode
                                     ? _orderedDetail(listing, l10n)
                                     : _transportLine(listing, l10n),
+                                detailAsPill: !widget.ownerMode,
+                                detailHighlighted: !widget.ownerMode &&
+                                    _hasTransportThisWeek(listing),
+                                progress: widget.ownerMode
+                                    ? _orderedShare(listing)
+                                    : null,
+                                status: widget.ownerMode
+                                    ? _statusLabel(listing.status, l10n)
+                                    : null,
                                 subtitle: widget.ownerMode
                                     ? _ownListingSubtitle(listing, l10n)
                                     : null,

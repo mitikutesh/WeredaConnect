@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -23,6 +21,7 @@ import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
+import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
 /// Screen for creating a new trip listing (the Trucker · Create trip board).
@@ -574,13 +573,13 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
         const SizedBox(height: 16),
         // Two per row with the labels above, as on the board; a label
         // wraps instead of being cut (Afaan Oromoo labels run long).
-        _FieldPair(
-          first: _GridField(
+        LabeledFieldPair(
+          first: LabeledField(
             label: l10n.capacity,
             field: TextFormField(
               key: const Key('create_trip_capacity'),
               controller: _capacityController,
-              decoration: _gridDecoration(suffixText: l10n.quintals),
+              decoration: labeledFieldDecoration(suffixText: l10n.quintals),
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
               inputFormatters: [
@@ -598,12 +597,12 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
               },
             ),
           ),
-          second: _GridField(
+          second: LabeledField(
             label: l10n.pricePerQuintal,
             field: TextFormField(
               key: const Key('create_trip_price'),
               controller: _priceController,
-              decoration: _gridDecoration(suffixText: 'ETB'),
+              decoration: labeledFieldDecoration(suffixText: 'ETB'),
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
               inputFormatters: [
@@ -623,13 +622,13 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        _FieldPair(
-          first: _GridField(
+        LabeledFieldPair(
+          first: LabeledField(
             label: l10n.vehiclePlate,
             field: TextFormField(
               key: const Key('create_trip_plate'),
               controller: _vehiclePlateController,
-              decoration: _gridDecoration(hintText: '3-AA-12345'),
+              decoration: labeledFieldDecoration(hintText: '3-AA-12345'),
               keyboardType: TextInputType.text,
               textCapitalization: TextCapitalization.characters,
               // FUP-49: the vehicle fields reach every buyer with the trip.
@@ -637,12 +636,12 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                   containsPhoneNumber(value) ? l10n.errorContactInText : null,
             ),
           ),
-          second: _GridField(
+          second: LabeledField(
             label: l10n.vehicleDescription,
             field: TextFormField(
               key: const Key('create_trip_vehicle'),
               controller: _vehicleDescriptionController,
-              decoration: _gridDecoration(hintText: 'Isuzu FSR 5 t'),
+              decoration: labeledFieldDecoration(hintText: 'Isuzu FSR 5 t'),
               keyboardType: TextInputType.text,
               textCapitalization: TextCapitalization.words,
               validator: (value) =>
@@ -703,109 +702,6 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
           ),
         ],
       ].reversed.toList(),
-    );
-  }
-}
-
-/// The look of a grid field: its label sits above it, not inside.
-InputDecoration _gridDecoration({String? suffixText, String? hintText}) =>
-    InputDecoration(
-      suffixText: suffixText,
-      hintText: hintText,
-      errorMaxLines: 4,
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-    );
-
-/// A label above its field. Screen readers hear the label as the field's
-/// own (one merged node), as they would a floating label.
-class _GridField extends StatelessWidget {
-  const _GridField({
-    required this.label,
-    required this.field,
-    this.labelHeight,
-  });
-
-  final String label;
-  final Widget field;
-
-  /// The height the label takes, so two fields side by side line up when
-  /// only one label wraps; null lets the label size itself.
-  final double? labelHeight;
-
-  static const labelStyle = TextStyle(
-    fontSize: 13,
-    fontWeight: FontWeight.w700,
-    color: AppTheme.unselectedNav,
-  );
-
-  _GridField withLabelHeight(double height) =>
-      _GridField(label: label, field: field, labelHeight: height);
-
-  @override
-  Widget build(BuildContext context) {
-    final text = Text(label, style: labelStyle);
-    return MergeSemantics(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (labelHeight == null)
-            text
-          else
-            SizedBox(
-              height: labelHeight,
-              child: Align(
-                alignment: AlignmentDirectional.bottomStart,
-                child: text,
-              ),
-            ),
-          const SizedBox(height: 6),
-          field,
-        ],
-      ),
-    );
-  }
-}
-
-/// Two grid fields side by side, top aligned; on a very narrow screen (or
-/// with large text) they stack.
-class _FieldPair extends StatelessWidget {
-  const _FieldPair({required this.first, required this.second});
-
-  final _GridField first;
-  final _GridField second;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final scaled = MediaQuery.textScalerOf(context).scale(1) > 1.3;
-        if (constraints.maxWidth < 300 || scaled) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [first, const SizedBox(height: 16), second],
-          );
-        }
-        const gap = 10.0;
-        final columnWidth = (constraints.maxWidth - gap) / 2;
-        double heightOf(String label) => (TextPainter(
-              text: TextSpan(text: label, style: _GridField.labelStyle),
-              textDirection: Directionality.of(context),
-              textScaler: MediaQuery.textScalerOf(context),
-            )..layout(maxWidth: columnWidth))
-                .height;
-        final labelHeight =
-            math.max(heightOf(first.label), heightOf(second.label));
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(child: first.withLabelHeight(labelHeight)),
-            const SizedBox(width: gap),
-            Expanded(child: second.withLabelHeight(labelHeight)),
-          ],
-        );
-      },
     );
   }
 }

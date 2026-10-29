@@ -1,7 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
+import 'package:intl/intl.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
@@ -177,7 +180,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(cropType.displayName(l10n)),
+        // The board has only the back button above the crop's own title.
         elevation: 0,
       ),
       body: SafeArea(
@@ -189,7 +192,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
               // Header section: crop icon + name + status chip
               _HeaderSection(
                 cropType: cropType,
-                status: widget.listing.status,
+                listing: widget.listing,
               ),
               const SizedBox(height: 24),
 
@@ -457,42 +460,87 @@ class _PriceBreakdownRow extends StatelessWidget {
 /// Header section with large crop icon, crop type name, and status chip.
 class _HeaderSection extends StatelessWidget {
   final CropType cropType;
-  final ListingStatus status;
+  final CropListing listing;
 
-  const _HeaderSection({required this.cropType, required this.status});
+  const _HeaderSection({required this.cropType, required this.listing});
 
+  /// Buyer · Crop detail board: the status, then the crop large with how
+  /// much is left and when it was listed, and the price large on the right.
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
+    final listed = l10n.myCropsListedOn(
+      DateFormat.MMMd().format(dayInEthiopia(listing.createdAt)),
+    );
 
-    return Center(
-      child: Column(
-        children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primaryContainer,
-              borderRadius: BorderRadius.circular(20),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Align(
+          alignment: AlignmentDirectional.centerEnd,
+          child: _StatusChip(status: listing.status),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: AppTheme.fieldGreenTint,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(cropType.icon, color: AppTheme.fieldGreen, size: 26),
             ),
-            child: Icon(
-              cropType.icon,
-              color: theme.colorScheme.onPrimaryContainer,
-              size: 40,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    cropType.displayName(l10n),
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5,
+                      color: AppTheme.soilDark,
+                    ),
+                  ),
+                  Text(
+                    '${formatQuintals(listing.quantity)} ${l10n.quintals}'
+                    ' · $listed',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppTheme.mutedSteel,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            cropType.displayName(l10n),
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  listing.pricePerKg.toStringAsFixed(0),
+                  style: const TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.soilDark,
+                  ),
+                ),
+                Text(
+                  l10n.etbPerKg,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.mutedSteel,
+                  ),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 8),
-          _StatusChip(status: status),
-        ],
-      ),
+          ],
+        ),
+      ],
     );
   }
 }

@@ -154,15 +154,17 @@ class AppTheme {
       surfaceContainerHighest: backgroundCream,
     );
 
+    // Every Fieldway board puts a screen's title on the page itself: chalk
+    // ground, dark text, no colored bar.
     return _build(
       colorScheme: colorScheme,
-      scaffoldBackground: backgroundCream,
+      scaffoldBackground: chalkBackground,
       surface: surfaceWhite,
       border: borderLight,
       text: textDark,
       muted: textMuted,
-      appBarBackground: primary,
-      appBarForeground: Colors.white,
+      appBarBackground: chalkBackground,
+      appBarForeground: soilDark,
       snackBarBackground: textDark,
       snackBarForeground: Colors.white,
     );
@@ -242,7 +244,16 @@ class AppTheme {
         backgroundColor: appBarBackground,
         foregroundColor: appBarForeground,
         elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
         centerTitle: false,
+        titleTextStyle: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w800,
+          color: appBarForeground,
+          fontFamily: 'NotoSans',
+          fontFamilyFallback: ethiopicFontFallback,
+        ),
       ),
 
       // ── Cards ─────────────────────────────────────────────────────

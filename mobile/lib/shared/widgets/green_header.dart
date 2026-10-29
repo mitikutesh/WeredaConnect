@@ -11,10 +11,15 @@ class GreenHeader extends StatelessWidget {
   final double height;
   final Widget child;
 
+  /// The Fieldway boards' light header: the page's chalk background with
+  /// dark text, no green band. The child picks dark colors to match.
+  final bool light;
+
   const GreenHeader({
     required this.child,
     super.key,
     this.height = 220,
+    this.light = false,
   });
 
   @override
@@ -26,12 +31,14 @@ class GreenHeader extends StatelessWidget {
           // Green background with rounded bottom
           Container(
             height: height,
-            decoration: const BoxDecoration(
-              color: AppTheme.primaryGreen,
-              borderRadius: BorderRadius.only(
-                bottomLeft: Radius.circular(24),
-                bottomRight: Radius.circular(24),
-              ),
+            decoration: BoxDecoration(
+              color: light ? AppTheme.chalkBackground : AppTheme.primaryGreen,
+              borderRadius: light
+                  ? null
+                  : const BorderRadius.only(
+                      bottomLeft: Radius.circular(24),
+                      bottomRight: Radius.circular(24),
+                    ),
             ),
           ),
           // Content
