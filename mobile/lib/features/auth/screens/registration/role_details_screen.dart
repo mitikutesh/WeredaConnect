@@ -9,7 +9,7 @@ import 'package:wereda_connect/core/utils/contact_in_text.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
-/// Step 3: Role-specific fields.
+/// Step 3: Role-specific fields (Fieldway Canvas: RegisterRoleDetails.dc.html).
 ///
 /// - Trucker: Driving license scan (required)
 /// - Buyer: Private/Company selection + company name
@@ -87,120 +87,285 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Top step indicator & verified badge
+              Row(
+                children: [
+                  const Text(
+                    'Step 3 of 4',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF5E6862),
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    height: 30,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE3EEE6),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.check, size: 14, color: AppTheme.fieldGreen),
+                        SizedBox(width: 6),
+                        Text(
+                          'Identity Verified',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.fieldGreen,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // 4-step progress bar
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppTheme.fieldGreen,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Container(
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppTheme.fieldGreen,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Container(
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppTheme.fieldGreen,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Container(
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE3E1D8),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
               Text(
                 l10n.drivingLicense,
                 style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.textDark,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.5,
+                  color: Color(0xFF15201A),
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Text(
                 l10n.drivingLicenseInstructions,
                 style: const TextStyle(
-                  fontSize: 14,
-                  color: AppTheme.textMuted,
+                  fontSize: 15,
+                  color: Color(0xFF5E6862),
                 ),
               ),
-              const SizedBox(height: 24),
-              // License scan
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: _pickLicenseImage,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    width: double.infinity,
-                    height: 160,
-                    decoration: BoxDecoration(
-                      color: hasImage
-                          ? AppTheme.statusSuccess.withAlpha(15)
-                          : AppTheme.surfaceWhite,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: hasImage
-                            ? AppTheme.statusSuccess
-                            : AppTheme.borderLight,
+              const SizedBox(height: 20),
+
+              // Camera frame in slate #22302A with amber brackets
+              GestureDetector(
+                onTap: _pickLicenseImage,
+                child: Container(
+                  width: double.infinity,
+                  height: 230,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF22302A),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (hasImage)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(20),
+                          child: kIsWeb
+                              ? Image.network(
+                                  widget.drivingLicensePath!,
+                                  fit: BoxFit.cover,
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                  errorBuilder: (_, __, ___) =>
+                                      const Icon(Icons.broken_image, color: Colors.white),
+                                )
+                              : Image.file(
+                                  File(widget.drivingLicensePath!),
+                                  fit: BoxFit.cover,
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                ),
+                        )
+                      else ...[
+                        // Dashed frame center
+                        Container(
+                          width: 260,
+                          height: 160,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: const Color(0xFF6F7D76),
+                              width: 2,
+                            ),
+                          ),
+                          child: const Center(
+                            child: Text(
+                              'Place the license here',
+                              style: TextStyle(
+                                color: Color(0xFFB9C2BD),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                        // Amber corner brackets
+                        Positioned(
+                          left: 44,
+                          top: 26,
+                          child: Container(
+                            width: 24,
+                            height: 24,
+                            decoration: const BoxDecoration(
+                              border: Border(
+                                left: BorderSide(color: Color(0xFFD9922B), width: 4),
+                                top: BorderSide(color: Color(0xFFD9922B), width: 4),
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          right: 44,
+                          top: 26,
+                          child: Container(
+                            width: 24,
+                            height: 24,
+                            decoration: const BoxDecoration(
+                              border: Border(
+                                right: BorderSide(color: Color(0xFFD9922B), width: 4),
+                                top: BorderSide(color: Color(0xFFD9922B), width: 4),
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          left: 44,
+                          bottom: 26,
+                          child: Container(
+                            width: 24,
+                            height: 24,
+                            decoration: const BoxDecoration(
+                              border: Border(
+                                left: BorderSide(color: Color(0xFFD9922B), width: 4),
+                                bottom: BorderSide(color: Color(0xFFD9922B), width: 4),
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          right: 44,
+                          bottom: 26,
+                          child: Container(
+                            width: 24,
+                            height: 24,
+                            decoration: const BoxDecoration(
+                              border: Border(
+                                right: BorderSide(color: Color(0xFFD9922B), width: 4),
+                                bottom: BorderSide(color: Color(0xFFD9922B), width: 4),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Amber banner
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFAEED8),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.info_outline,
+                      size: 18,
+                      color: Color(0xFF6B400B),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        l10n.drivingLicenseRequired,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          height: 1.4,
+                          color: Color(0xFF6B400B),
+                        ),
                       ),
                     ),
-                    child: hasImage
-                        ? Stack(
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(11),
-                                // dart:io File is unavailable on web (throws at
-                                // runtime). On web the picker yields a blob URL, so
-                                // render it via Image.network; File path only on IO.
-                                child: kIsWeb
-                                    ? Image.network(
-                                        widget.drivingLicensePath!,
-                                        fit: BoxFit.cover,
-                                        width: double.infinity,
-                                        height: double.infinity,
-                                        errorBuilder: (_, __, ___) =>
-                                            const Icon(Icons.broken_image),
-                                      )
-                                    : Image.file(
-                                        File(widget.drivingLicensePath!),
-                                        fit: BoxFit.cover,
-                                        width: double.infinity,
-                                        height: double.infinity,
-                                      ),
-                              ),
-                              Positioned(
-                                top: 8,
-                                right: 8,
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: const BoxDecoration(
-                                    color: AppTheme.statusSuccess,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.check,
-                                    size: 16,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          )
-                        : Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(
-                                Icons.camera_alt_outlined,
-                                size: 40,
-                                color: AppTheme.textMuted,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                l10n.scanLicense,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  color: AppTheme.textMuted,
-                                ),
-                              ),
-                            ],
-                          ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Scan Button
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: FilledButton.icon(
+                  onPressed: _pickLicenseImage,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF15201A),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  icon: const Icon(Icons.camera_alt_outlined, size: 20),
+                  label: Text(
+                    hasImage ? 'Retake License Photo' : l10n.scanLicense,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               ),
-              if (!hasImage) ...[
-                const SizedBox(height: 12),
-                Text(
-                  l10n.drivingLicenseRequired,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppTheme.textMuted,
-                  ),
-                ),
-              ],
             ],
           ),
         ),
@@ -215,28 +380,112 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Top step indicator & verified badge
+              Row(
+                children: [
+                  const Text(
+                    'Step 3 of 4',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF5E6862),
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    height: 30,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE3EEE6),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.check, size: 14, color: AppTheme.fieldGreen),
+                        SizedBox(width: 6),
+                        Text(
+                          'Identity Verified',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.fieldGreen,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // 4-step progress bar
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppTheme.fieldGreen,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Container(
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppTheme.fieldGreen,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Container(
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppTheme.fieldGreen,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Container(
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE3E1D8),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
               Text(
                 l10n.buyerType,
                 style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.textDark,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.5,
+                  color: Color(0xFF15201A),
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Text(
                 l10n.buyerTypeDescription,
                 style: const TextStyle(
-                  fontSize: 14,
-                  color: AppTheme.textMuted,
+                  fontSize: 15,
+                  color: Color(0xFF5E6862),
                 ),
               ),
-              const SizedBox(height: 24),
-              // Private / Company radio
+              const SizedBox(height: 20),
+              // Private / Company options
               _BuyerTypeOption(
                 title: l10n.privateBuyer,
                 icon: Icons.person_outline,
@@ -296,16 +545,14 @@ class _BuyerTypeOption extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: isSelected
-                ? AppTheme.primaryGreen.withAlpha(15)
-                : AppTheme.surfaceWhite,
-            borderRadius: BorderRadius.circular(12),
+            color: isSelected ? const Color(0xFFE3EEE6) : Colors.white,
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: isSelected ? AppTheme.primaryGreen : AppTheme.borderLight,
+              color: isSelected ? AppTheme.fieldGreen : const Color(0xFFE3E1D8),
               width: isSelected ? 2 : 1,
             ),
           ),
@@ -313,22 +560,22 @@ class _BuyerTypeOption extends StatelessWidget {
             children: [
               Icon(
                 icon,
-                color: isSelected ? AppTheme.primaryGreen : AppTheme.textMuted,
+                color: isSelected ? AppTheme.fieldGreen : const Color(0xFF5E6862),
               ),
               const SizedBox(width: 12),
               Text(
                 title,
                 style: TextStyle(
                   fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: isSelected ? AppTheme.primaryGreen : AppTheme.textDark,
+                  fontWeight: FontWeight.w700,
+                  color: isSelected ? const Color(0xFF15201A) : const Color(0xFF3F4843),
                 ),
               ),
               const Spacer(),
               if (isSelected)
                 const Icon(
                   Icons.check_circle,
-                  color: AppTheme.primaryGreen,
+                  color: AppTheme.fieldGreen,
                 ),
             ],
           ),

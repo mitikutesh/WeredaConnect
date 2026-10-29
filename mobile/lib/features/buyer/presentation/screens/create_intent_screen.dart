@@ -167,17 +167,19 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
                 // Title
                 Text(
                   l10n.whatDoYouNeed,
-                  style: Theme.of(context)
-                      .textTheme
-                      .headlineSmall
-                      ?.copyWith(fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                    color: Color(0xFF15201A),
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   l10n.whatDoYouNeedSubtitle,
                   style: const TextStyle(
-                    fontSize: 14,
-                    color: AppTheme.textMuted,
+                    fontSize: 15,
+                    color: AppTheme.mutedSteel,
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -334,15 +336,14 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
                 ),
                 const SizedBox(height: 32),
 
-                // Find Matches button
+                // Find Matches button (Fieldway 56px #15201A)
                 BlocBuilder<BuyerIntentBloc, BuyerIntentState>(
                   builder: (context, state) {
                     final isLoading = state is BuyerIntentLoading;
                     return SizedBox(
                       width: double.infinity,
+                      height: 56,
                       child: FilledButton.icon(
-                        // Kept enabled when the form is invalid so tapping
-                        // surfaces inline errors instead of doing nothing.
                         onPressed: isLoading ? null : _onFindMatches,
                         icon: isLoading
                             ? const SizedBox(
@@ -353,10 +354,20 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
                                   color: Colors.white,
                                 ),
                               )
-                            : const Icon(Icons.search),
-                        label: Text(l10n.findMatches),
+                            : const Icon(Icons.search, size: 20),
+                        label: Text(
+                          l10n.findMatches,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                         style: FilledButton.styleFrom(
-                          minimumSize: const Size.fromHeight(48),
+                          backgroundColor: const Color(0xFF15201A),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
                         ),
                       ),
                     );
@@ -408,11 +419,25 @@ class _CropTypeChips extends StatelessWidget {
           return Padding(
             padding: const EdgeInsets.only(right: 8),
             child: FilterChip(
-              avatar: Icon(type.icon, size: 18),
+              avatar: Icon(
+                type.icon,
+                size: 18,
+                color: isSelected ? Colors.white : const Color(0xFF5E6862),
+              ),
               label: Text(type.displayName(l10n)),
               selected: isSelected,
+              selectedColor: AppTheme.fieldGreen,
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(999),
+                side: BorderSide(
+                  color: isSelected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+                ),
+              ),
               labelStyle: TextStyle(
-                color: isSelected ? Colors.white : AppTheme.textDark,
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                color: isSelected ? Colors.white : const Color(0xFF15201A),
               ),
               onSelected: (_) => onCropTypeChanged(type.name),
             ),

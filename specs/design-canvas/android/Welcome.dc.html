@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Welcome and login</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+Ethiopic:wght@600&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1E5B3E}a:hover{color:#15402B}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #F5F4EE; color: #15201A; font-family: Manrope, 'Noto Sans Ethiopic', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+  <div style="padding: 24px 20px 0; display: flex; align-items: center; justify-content: space-between">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <div style="width: 40px; height: 40px; border-radius: 12px; background: #1E5B3E; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 18c5 0 5-12 12-12"/><circle cx="6" cy="18" r="2" fill="#FFFFFF"/><circle cx="18" cy="6" r="2" fill="#FFFFFF"/></svg></div>
+      <span style="font-size: 17px; font-weight: 800; letter-spacing: -0.02em">WeredaConnect</span>
+    </div>
+    <span style="display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 999px; background: #E3EEE6; color: #1E5B3E; font-size: 12px; font-weight: 700"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Offline Ready</span>
+  </div>
+
+  <div style="padding: 28px 20px 0; display: flex; flex-direction: column; gap: 10px">
+    <h1 style="margin: 0; font-size: 30px; line-height: 1.1; font-weight: 800; letter-spacing: -0.03em">Welcome to WeredaConnect</h1>
+    <p style="margin: 0; font-size: 15px; color: #5E6862">Connecting Ethiopian farmers, truckers, and buyers</p>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px">
+      <span style="display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 999px; background: #E3EEE6; color: #1E5B3E; font-size: 13px; font-weight: 700">Farmer</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 999px; background: #FAEED8; color: #8A5410; font-size: 13px; font-weight: 700">Trucker</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 999px; background: #E6ECF5; color: #2E4C7D; font-size: 13px; font-weight: 700">Buyer</span>
+    </div>
+  </div>
+
+  <form style="margin: 24px 20px 0; padding: 20px; border-radius: 24px; background: #FFFFFF; border: 1px solid #E3E1D8; display: flex; flex-direction: column; gap: 16px">
+    <fieldset style="margin: 0; padding: 0; border: none; display: flex; flex-direction: column; gap: 8px">
+      <legend style="padding: 0; margin-bottom: 8px; font-size: 13px; font-weight: 700; color: #3F4843">Language</legend>
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 4px; border-radius: 14px; background: #ECEAE2">
+        <label style="height: 40px; border-radius: 11px; background: #FFFFFF; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 6px"><input type="radio" name="lang" checked style="position: absolute; opacity: 0; width: 1px; height: 1px">English</label>
+        <label lang="am" style="height: 40px; border-radius: 11px; font-size: 14px; font-weight: 600; color: #3F4843; display: flex; align-items: center; justify-content: center"><input type="radio" name="lang" style="position: absolute; opacity: 0; width: 1px; height: 1px">አማርኛ</label>
+        <label lang="om" style="height: 40px; border-radius: 11px; font-size: 13px; font-weight: 600; color: #3F4843; display: flex; align-items: center; justify-content: center"><input type="radio" name="lang" style="position: absolute; opacity: 0; width: 1px; height: 1px">Afaan Oromoo</label>
+      </div>
+    </fieldset>
+    <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #3F4843">Phone Number
+      <input type="tel" value="0911 234 567" style="height: 48px; padding: 0 14px; border-radius: 14px; border: 1px solid #D6D3C8; background: #FFFFFF; font: 600 16px Manrope, sans-serif; color: #15201A">
+      <span style="font-size: 12px; font-weight: 500; color: #5E6862">Example: 0911234567 or +251911234567</span>
+    </label>
+    <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #3F4843">Password
+      <input type="password" value="password1" style="height: 48px; padding: 0 14px; border-radius: 14px; border: 1px solid #D6D3C8; background: #FFFFFF; font: 600 16px Manrope, sans-serif; color: #15201A">
+    </label>
+    <a href="#" style="align-self: flex-end; font-size: 13px; font-weight: 700; margin-top: -6px">Forgot Password?</a>
+    <a href="#" style="height: 52px; border-radius: 16px; background: #1E5B3E; color: #FFFFFF; text-decoration: none; font-size: 16px; font-weight: 800; display: flex; align-items: center; justify-content: center">Login</a>
+  </form>
+
+  <div style="margin-top: auto; padding: 0 20px 28px; display: flex; flex-direction: column; align-items: center; gap: 14px">
+    <a href="RegisterRole.dc.html" style="height: 48px; width: 100%; box-sizing: border-box; border-radius: 16px; border: 1px solid #D6D3C8; background: #FFFFFF; color: #15201A; text-decoration: none; font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center">Don't have an account? Register</a>
+    <span style="font-size: 12px; color: #5E6862">Payments held safely in escrow · Telebirr Payment</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

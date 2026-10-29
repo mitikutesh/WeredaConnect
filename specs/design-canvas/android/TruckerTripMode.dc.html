@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Trip mode</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#8A5410}a:hover{color:#6B400B}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #15201A; color: #FFFFFF; font-family: Manrope, system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+  <div style="padding: 20px 20px 22px; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; align-items: center; gap: 12px">
+      <a href="#" aria-label="Back to my trips" style="width: 44px; height: 44px; border-radius: 14px; background: #22302A; color: #FFFFFF; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></a>
+      <div><div style="font-size: 13px; color: #B9C2BD">Today · 2 orders · 30 of 50 quintals</div><h1 style="margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.03em">Meki → Addis Ababa</h1></div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 18px; background: #22302A">
+      <div style="display: flex; align-items: center; gap: 12px">
+        <span style="position: relative; width: 12px; height: 12px; flex-shrink: 0"><span style="position: absolute; inset: -5px; border-radius: 999px; background: #8FC5A4; opacity: 0.25"></span><span style="position: absolute; inset: 0; border-radius: 999px; background: #8FC5A4"></span></span>
+        <div style="flex-grow: 1"><div style="font-size: 15px; font-weight: 700">Sharing your location</div><div style="font-size: 12px; color: #B9C2BD">Last check-in 11:42 · next by 12:42</div></div>
+        <a href="TruckerPaused.dc.html" style="height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid #4A5A52; color: #FFFFFF; text-decoration: none; font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M9 5v14M15 5v14"/></svg>Pause</a>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #B9C2BD"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>Each buyer and farmer sees only the part for their own order.</div>
+      <button type="button" style="height: 44px; border: none; border-radius: 12px; background: #D9922B; color: #15201A; font: 700 14px Manrope, sans-serif; display: flex; align-items: center; justify-content: center; gap: 8px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Check in now</button>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; background: #F5F4EE; color: #15201A; border-radius: 28px 28px 0 0; padding: 20px 20px 0; display: flex; flex-direction: column; gap: 14px">
+    <section aria-label="Next stop" style="padding: 16px; border-radius: 20px; background: #FFFFFF; border: 1px solid #E3E1D8; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 6px 18px rgba(21,32,26,0.06)">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px">
+        <div><div style="font-size: 11px; font-weight: 800; letter-spacing: 0.08em; color: #8A5410">NEXT STOP · DROP-OFF</div><div style="font-size: 18px; font-weight: 800; margin-top: 2px">Hawi Flour Mill, Dukem</div><div style="font-size: 13px; color: #5E6862">Maize · 1,000 kg · about 16 km · 12:35</div></div>
+        <button type="button" aria-label="Call Hawi Flour Mill" style="width: 44px; height: 44px; border-radius: 14px; border: 1px solid #E3E1D8; background: #FFFFFF; color: #15201A; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg></button>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+        <button type="button" style="height: 48px; border: 1px solid #D6D3C8; border-radius: 14px; background: #FFFFFF; color: #15201A; font: 700 14px Manrope, sans-serif">I've arrived</button>
+        <button type="button" style="height: 48px; border: none; border-radius: 14px; background: #15201A; color: #FFFFFF; font: 700 14px Manrope, sans-serif; display: flex; align-items: center; justify-content: center; gap: 8px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2zM18 14h2M14 18v2"/></svg>Show QR</button>
+      </div>
+    </section>
+
+    <section aria-label="Stops" style="display: flex; flex-direction: column">
+      <h2 style="margin: 0 0 8px; font-size: 15px; font-weight: 800">Stops</h2>
+      <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column">
+        <li style="display: flex; gap: 12px; min-height: 56px">
+          <span style="position: relative; width: 22px; flex-shrink: 0"><span style="position: absolute; left: 10px; top: 12px; bottom: 0; width: 2px; background: #1E5B3E"></span><span style="position: absolute; left: 0; top: 0; width: 22px; height: 22px; border-radius: 999px; background: #1E5B3E; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></span></span>
+          <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px; padding-bottom: 10px"><span style="font-size: 14px; font-weight: 700">Pickup · Almaz Bekele, Meki</span><span style="font-size: 12px; color: #5E6862">Wheat · 2,000 kg · scanned 08:05</span></span>
+        </li>
+        <li style="display: flex; gap: 12px; min-height: 56px">
+          <span style="position: relative; width: 22px; flex-shrink: 0"><span style="position: absolute; left: 10px; top: 0; height: 12px; width: 2px; background: #1E5B3E"></span><span style="position: absolute; left: 10px; top: 12px; bottom: 0; width: 2px; background: #D9922B"></span><span style="position: absolute; left: 0; top: 0; width: 22px; height: 22px; border-radius: 999px; background: #1E5B3E; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></span></span>
+          <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px; padding-bottom: 10px"><span style="font-size: 14px; font-weight: 700">Pickup · Tolosa Gemechu, Koka</span><span style="font-size: 12px; color: #5E6862">Maize · 1,000 kg · scanned 09:40</span></span>
+        </li>
+        <li aria-current="step" style="display: flex; gap: 12px; min-height: 56px">
+          <span style="position: relative; width: 22px; flex-shrink: 0"><span style="position: absolute; left: 10px; top: 0; height: 12px; width: 2px; background: #D9922B"></span><span style="position: absolute; left: 10px; top: 12px; bottom: 0; width: 0; border-left: 2px dashed #C9C6BB"></span><span style="position: absolute; left: 0; top: 0; width: 22px; height: 22px; border-radius: 999px; background: #D9922B; display: flex; align-items: center; justify-content: center"><span style="width: 8px; height: 8px; border-radius: 999px; background: #15201A"></span></span></span>
+          <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px; padding-bottom: 10px"><span style="font-size: 14px; font-weight: 800">Drop-off · Hawi Flour Mill, Dukem</span><span style="font-size: 12px; color: #8A5410; font-weight: 700">Next · about 12:35</span></span>
+        </li>
+        <li style="display: flex; gap: 12px; min-height: 48px">
+          <span style="position: relative; width: 22px; flex-shrink: 0"><span style="position: absolute; left: 0; top: 0; width: 22px; height: 22px; border-radius: 999px; background: #FFFFFF; border: 2px solid #A7ADA9; box-sizing: border-box"></span></span>
+          <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 700">Drop-off · Selam Traders, Merkato</span><span style="font-size: 12px; color: #5E6862">13:20-14:00</span></span>
+        </li>
+      </ol>
+    </section>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-radius: 16px; background: #FAEED8; color: #6B400B">
+      <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 700; color: #15201A">Your pay for this trip</span><span style="font-size: 12px; font-weight: 600">Paid 48 h after each drop-off</span></span>
+      <span style="font-size: 18px; font-weight: 800; color: #15201A; white-space: nowrap">4,500 ETB</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

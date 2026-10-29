@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Share trip location</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#8A5410}a:hover{color:#6B400B}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #15201A; color: #FFFFFF; font-family: Manrope, system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden; position: relative">
+  <div aria-hidden="true" style="padding: 28px 20px; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; align-items: center; gap: 14px; padding: 18px; border-radius: 20px; background: #22302A">
+      <div style="width: 52px; height: 52px; border-radius: 16px; background: #8FC5A4; color: #15201A; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg></div>
+      <div><div style="font-size: 18px; font-weight: 800">Pickup confirmed · 08:05</div><div style="font-size: 13px; color: #B9C2BD">Wheat · 2,000 kg from Almaz Bekele</div></div>
+    </div>
+    <div style="font-size: 13px; color: #B9C2BD; padding: 0 4px">QR verified · GPS 0.8 km from the farm · photo saved</div>
+  </div>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgba(21,32,26,0.55)"></div>
+
+  <section role="dialog" aria-modal="true" aria-labelledby="share-title" style="margin-top: auto; position: relative; background: #FFFFFF; color: #15201A; border-radius: 28px 28px 0 0; padding: 12px 22px 24px; display: flex; flex-direction: column; gap: 16px">
+    <div style="width: 40px; height: 4px; border-radius: 999px; background: #D6D3C8; align-self: center"></div>
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div style="width: 48px; height: 48px; border-radius: 14px; background: #FAEED8; color: #8A5410; display: flex; align-items: center; justify-content: center"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg></div>
+      <h1 id="share-title" style="margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.02em">Share where the truck is?</h1>
+      <p style="margin: 0; font-size: 14px; line-height: 1.5; color: #3F4843">Buyers and farmers who can see the truck worry less and call you less while you drive.</p>
+    </div>
+
+    <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px">
+      <li style="display: flex; gap: 12px; align-items: flex-start"><span style="width: 36px; height: 36px; border-radius: 11px; background: #F5F4EE; color: #15201A; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span><span><span style="display: block; font-size: 14px; font-weight: 700">Who sees it</span><span style="display: block; font-size: 13px; color: #5E6862">The buyer and farmer of each order on this trip, only for their part.</span></span></li>
+      <li style="display: flex; gap: 12px; align-items: flex-start"><span style="width: 36px; height: 36px; border-radius: 11px; background: #F5F4EE; color: #15201A; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span><span style="display: block; font-size: 14px; font-weight: 700">How often</span><span style="display: block; font-size: 13px; color: #5E6862">About once an hour and at each scan. Every 15 min near a drop-off.</span></span></li>
+      <li style="display: flex; gap: 12px; align-items: flex-start"><span style="width: 36px; height: 36px; border-radius: 11px; background: #F5F4EE; color: #15201A; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></span><span><span style="display: block; font-size: 14px; font-weight: 700">When it stops</span><span style="display: block; font-size: 13px; color: #5E6862">By itself when your last drop-off is confirmed. Pause any time.</span></span></li>
+      <li style="display: flex; gap: 12px; align-items: flex-start"><span style="width: 36px; height: 36px; border-radius: 11px; background: #F5F4EE; color: #15201A; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M5 12.5a10 10 0 0 1 4-2.3"/><path d="M15 10.2a10 10 0 0 1 4 2.3"/></svg></span><span><span style="display: block; font-size: 14px; font-weight: 700">No network?</span><span style="display: block; font-size: 13px; color: #5E6862">Check-ins wait on the phone and send later. About 3 KB a day.</span></span></li>
+    </ul>
+
+    <p style="margin: 0; font-size: 12px; color: #5E6862">Android shows a notification while sharing is on.</p>
+
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <a href="TruckerTripMode.dc.html" style="height: 56px; border-radius: 16px; background: #15201A; color: #FFFFFF; text-decoration: none; font-size: 16px; font-weight: 800; display: flex; align-items: center; justify-content: center">Share trip location</a>
+      <a href="TruckerTripMode.dc.html" style="height: 44px; border-radius: 14px; color: #3F4843; text-decoration: none; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center">Not now, scans only</a>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

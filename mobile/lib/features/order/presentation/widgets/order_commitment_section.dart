@@ -60,27 +60,29 @@ class OrderCommitmentSection extends StatelessWidget {
                 ?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
-          Card(
-            margin: EdgeInsets.zero,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppTheme.whisperBorder),
+            ),
+            child: Column(
+              children: [
+                _PartyRow(
+                  role: l10n.farmer,
+                  name: partyDisplayName(order.farmerName, l10n),
+                  state: _farmerState(l10n, clock),
+                ),
+                if (orderHasTrip(order)) ...[
+                  const Divider(height: 16),
                   _PartyRow(
-                    role: l10n.farmer,
-                    name: partyDisplayName(order.farmerName, l10n),
-                    state: _farmerState(l10n, clock),
+                    role: l10n.trucker,
+                    name: partyDisplayName(order.truckerName, l10n),
+                    state: _truckerState(l10n, clock),
                   ),
-                  if (orderHasTrip(order)) ...[
-                    const Divider(height: 16),
-                    _PartyRow(
-                      role: l10n.trucker,
-                      name: partyDisplayName(order.truckerName, l10n),
-                      state: _truckerState(l10n, clock),
-                    ),
-                  ],
                 ],
-              ),
+              ],
             ),
           ),
           if (failure != null || note != null) ...[
@@ -328,17 +330,12 @@ class _CommitmentNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final border = warning ? AppTheme.statusWarning : AppTheme.borderLight;
-    final fill = warning
-        ? AppTheme.statusWarningContainer
-        : Theme.of(context).colorScheme.surfaceContainerHighest;
     final ink = warning ? AppTheme.onStatusWarningContainer : null;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        border: Border.all(color: border),
-        borderRadius: BorderRadius.circular(8),
-        color: fill,
+        borderRadius: BorderRadius.circular(16),
+        color: warning ? const Color(0xFFFAEED8) : const Color(0xFFE3EEE6),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,

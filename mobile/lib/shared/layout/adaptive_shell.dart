@@ -135,14 +135,20 @@ class AdaptiveShell extends StatelessWidget {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(14),
             ),
-            backgroundColor: AppTheme.soilDark,
-            foregroundColor: Colors.white,
+            backgroundColor: role == UserRole.trucker
+                ? const Color(0xFFD9922B)
+                : AppTheme.soilDark,
+            foregroundColor: role == UserRole.trucker
+                ? const Color(0xFF15201A)
+                : Colors.white,
             icon: const Icon(Icons.add, size: 18),
             label: Text(
               _fabTooltip(l10n, role),
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
-                fontWeight: FontWeight.w700,
+                fontWeight: role == UserRole.trucker
+                    ? FontWeight.w800
+                    : FontWeight.w700,
               ),
             ),
           ),

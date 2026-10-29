@@ -204,14 +204,29 @@ class _MainNavigationState extends State<MainNavigation> {
             // assumes app-convention literacy; a verb assumes nothing.
             floatingActionButton: FloatingActionButton.extended(
               onPressed: () => _onFabPressed(context, role),
-              shape: const StadiumBorder(),
-              icon: const Icon(Icons.add),
+              backgroundColor: role == UserRole.trucker
+                  ? const Color(0xFFD9922B)
+                  : const Color(0xFF15201A),
+              foregroundColor: role == UserRole.trucker
+                  ? const Color(0xFF15201A)
+                  : Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              elevation: 4,
+              icon: const Icon(Icons.add, size: 20),
               label: Text(
                 switch (role) {
                   UserRole.farmer => l10n.sellCrops,
                   UserRole.trucker => l10n.postTrip,
                   UserRole.buyer => l10n.newBuyingIntent,
                 },
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: role == UserRole.trucker
+                      ? FontWeight.w800
+                      : FontWeight.w700,
+                ),
               ),
             ),
             // Floats above the bar: docked, the label is far wider than a
@@ -221,6 +236,9 @@ class _MainNavigationState extends State<MainNavigation> {
             floatingActionButtonLocation:
                 FloatingActionButtonLocation.centerFloat,
             bottomNavigationBar: BottomAppBar(
+              elevation: 0,
+              color: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
               child: Row(
                 children: [
                   for (var i = 0; i < tabs.length; i++)
@@ -231,6 +249,7 @@ class _MainNavigationState extends State<MainNavigation> {
                         label: tabs[i].label(l10n),
                         index: i,
                         currentIndex: _currentIndex,
+                        role: role,
                         onTap: () => setState(() => _currentIndex = i),
                       ),
                     ),
@@ -250,6 +269,7 @@ class _NavItem extends StatelessWidget {
   final String label;
   final int index;
   final int currentIndex;
+  final UserRole role;
   final VoidCallback onTap;
 
   const _NavItem({
@@ -258,23 +278,53 @@ class _NavItem extends StatelessWidget {
     required this.label,
     required this.index,
     required this.currentIndex,
+    required this.role,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final isActive = index == currentIndex;
-    final color = isActive ? AppTheme.primaryGreen : AppTheme.textMuted;
+    final activePillColor = role == UserRole.trucker
+        ? const Color(0xFFFAEED8)
+        : const Color(0xFFE3EEE6);
+    final activeFgColor = role == UserRole.trucker
+        ? const Color(0xFF8A5410)
+        : AppTheme.fieldGreen;
+    const inactiveFgColor = Color(0xFF5E6862);
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(12),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(isActive ? activeIcon : icon, color: color, size: 24),
+            isActive
+                ? Container(
+                    width: 56,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      color: activePillColor,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Icon(
+                      activeIcon,
+                      color: activeFgColor,
+                      size: 20,
+                    ),
+                  )
+                : SizedBox(
+                    height: 30,
+                    child: Center(
+                      child: Icon(
+                        icon,
+                        color: inactiveFgColor,
+                        size: 20,
+                      ),
+                    ),
+                  ),
             const SizedBox(height: 2),
             // Each tab gets a quarter of the bar; a long am/om label shrinks
             // a little rather than lose its end to an ellipsis.
@@ -285,8 +335,8 @@ class _NavItem extends StatelessWidget {
                 maxLines: 1,
                 style: TextStyle(
                   fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: color,
+                  fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
+                  color: isActive ? activeFgColor : inactiveFgColor,
                 ),
               ),
             ),

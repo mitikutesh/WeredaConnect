@@ -503,12 +503,14 @@ class _HomeHeaderWithBanner extends StatelessWidget {
       height: greenHeight + bannerOverflow + MediaQuery.of(context).padding.top,
       child: Stack(
         children: [
-          // Green background
+          // Fieldway canvas background
           Container(
             height: greenHeight + MediaQuery.of(context).padding.top,
-            decoration: const BoxDecoration(
-              color: AppTheme.primaryGreen,
-              borderRadius: BorderRadius.only(
+            decoration: BoxDecoration(
+              color: role == UserRole.trucker
+                  ? AppTheme.soilDark
+                  : AppTheme.chalkBackground,
+              borderRadius: const BorderRadius.only(
                 bottomLeft: Radius.circular(24),
                 bottomRight: Radius.circular(24),
               ),
@@ -527,33 +529,35 @@ class _HomeHeaderWithBanner extends StatelessWidget {
                   // Location + notification row
                   Row(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.location_on,
                         size: 16,
-                        color: Colors.white70,
+                        color: role == UserRole.trucker
+                            ? const Color(0xFFB9C2BD)
+                            : AppTheme.mutedSteel,
                       ),
                       const SizedBox(width: 4),
                       Text(
                         woreda.isNotEmpty ? woreda : l10n.wereda,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
-                          color: Colors.white70,
+                          color: role == UserRole.trucker
+                              ? const Color(0xFFB9C2BD)
+                              : AppTheme.mutedSteel,
                         ),
                       ),
                       const Spacer(),
-                      // Cloud sync status icon (tappable). Web has no
-                      // SyncExecutor provided and no offline queue, so the icon
-                      // is meaningless there AND its initState read of
-                      // SyncExecutor throws ProviderNotFoundException — which
-                      // crashed the whole Home screen on a narrow (<600px) web
-                      // viewport, since the mobile layout is width- not
-                      // platform-selected. Omit it on web.
+                      // Cloud sync status icon (tappable).
                       if (!kIsWeb) ...[
                         _SyncStatusIcon(isOnline: isOnline),
                         const SizedBox(width: 14),
                       ],
                       // In-app chat inbox (with unread badge)
-                      const MessagesBadgeButton(color: Colors.white),
+                      MessagesBadgeButton(
+                        color: role == UserRole.trucker
+                            ? Colors.white
+                            : AppTheme.soilDark,
+                      ),
                       const SizedBox(width: 4),
                       // Notification bell (functional)
                       _NotificationIcon(
@@ -561,6 +565,12 @@ class _HomeHeaderWithBanner extends StatelessWidget {
                         l10n: l10n,
                         isOnline: isOnline,
                         onNavigateToTab: onNavigateToTab,
+                        iconColor: role == UserRole.trucker
+                            ? Colors.white
+                            : AppTheme.soilDark,
+                        ringColor: role == UserRole.trucker
+                            ? AppTheme.soilDark
+                            : AppTheme.chalkBackground,
                       ),
                       const SizedBox(width: 10),
                       // Profile icon
@@ -571,28 +581,53 @@ class _HomeHeaderWithBanner extends StatelessWidget {
                             builder: (_) => const ProfileScreen(),
                           ),
                         ),
-                        child: const CircleAvatar(
+                        child: CircleAvatar(
                           radius: 16,
-                          backgroundColor: Colors.white24,
+                          backgroundColor: role == UserRole.trucker
+                              ? const Color(0xFF22302A)
+                              : const Color(0xFFECEAE2),
                           child: Icon(
                             Icons.person,
                             size: 18,
-                            color: Colors.white,
+                            color: role == UserRole.trucker
+                                ? Colors.white
+                                : AppTheme.soilDark,
                           ),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 10),
-                  // User name
-                  Text(
-                    userName,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
+                  // User greeting matching Fieldway canvas
+                  if (role == UserRole.trucker) ...[
+                    Text(
+                      'Welcome back, $userName',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFFB9C2BD),
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 2),
+                    const Text(
+                      'Today',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                  ] else ...[
+                    Text(
+                      l10n.welcomeBackUser(userName),
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.soilDark,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

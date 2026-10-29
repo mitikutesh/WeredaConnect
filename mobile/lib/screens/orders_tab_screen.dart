@@ -17,7 +17,6 @@ import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
-import 'package:wereda_connect/shared/widgets/green_header.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 
 /// Orders tab screen — shows incoming/outgoing orders with status filter chips.
@@ -171,14 +170,13 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
           builder: (_) => const ProfileScreen(),
         ),
       ),
-      child: CircleAvatar(
+      child: const CircleAvatar(
         radius: 18,
-        backgroundColor:
-            isMobile ? Colors.white24 : AppTheme.textMuted.withAlpha(40),
+        backgroundColor: Color(0xFFECEAE2),
         child: Icon(
           Icons.person,
           size: 20,
-          color: isMobile ? Colors.white : AppTheme.textDark,
+          color: AppTheme.soilDark,
         ),
       ),
     );
@@ -386,7 +384,7 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
       ),
     );
 
-    // ── Mobile layout (unchanged) ─────────────────────────────────
+    // ── Mobile layout (Fieldway canvas) ──────────────────────────
     if (isMobile) {
       return BlocListener<OrderBloc, OrderState>(
         listener: (context, state) {
@@ -400,45 +398,56 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
         },
         child: Column(
           children: [
-            GreenHeader(
-              height: 120,
-              child: Column(
+            Container(
+              color: AppTheme.chalkBackground,
+              padding: EdgeInsets.fromLTRB(
+                listHPad,
+                MediaQuery.of(context).padding.top + 16,
+                listHPad,
+                12,
+              ),
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      if (widget.showBackButton)
-                        IconButton(
-                          icon: const Icon(
-                            Icons.arrow_back,
-                            color: Colors.white,
-                          ),
-                          tooltip: MaterialLocalizations.of(context)
-                              .backButtonTooltip,
-                          onPressed: () => Navigator.of(context).maybePop(),
+                  if (widget.showBackButton)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: IconButton(
+                        icon: const Icon(
+                          Icons.arrow_back,
+                          color: AppTheme.soilDark,
                         ),
-                      Expanded(
-                        child: Text(
+                        tooltip: MaterialLocalizations.of(context)
+                            .backButtonTooltip,
+                        onPressed: () => Navigator.of(context).maybePop(),
+                      ),
+                    ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _isBuyer() ? l10n.trackYourOrders : l10n.manageOrders,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.mutedSteel,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
                           l10n.orders,
                           style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
+                            fontSize: 26,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5,
+                            color: AppTheme.soilDark,
                           ),
                         ),
-                      ),
-                      profileAvatar,
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _isBuyer() ? l10n.trackYourOrders : l10n.manageOrders,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.white.withAlpha(180),
+                      ],
                     ),
                   ),
+                  profileAvatar,
                 ],
               ),
             ),
@@ -512,8 +521,18 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
             )
           : Text(label),
       selected: isSelected,
+      selectedColor: AppTheme.fieldGreen,
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(999),
+        side: BorderSide(
+          color: isSelected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+        ),
+      ),
       labelStyle: TextStyle(
-        color: isSelected ? Colors.white : AppTheme.textDark,
+        fontSize: 13,
+        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+        color: isSelected ? Colors.white : AppTheme.soilDark,
       ),
       onSelected: (_) => _applyFilter(status),
     );

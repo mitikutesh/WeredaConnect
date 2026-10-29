@@ -507,17 +507,43 @@ class _AmountCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    return Card(
-      margin: EdgeInsets.zero,
-      child: ListTile(
-        leading: Icon(Icons.payments, color: theme.colorScheme.primary),
-        title: Text(l10n.paymentAmount),
-        subtitle: Text(
-          l10n.etbCurrency(amount.toStringAsFixed(2)),
-          style: theme.textTheme.titleMedium
-              ?.copyWith(fontWeight: FontWeight.w600),
-        ),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+      decoration: BoxDecoration(
+        color: AppTheme.fieldGreen,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Amount',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFFCFE3D6),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            l10n.etbCurrency(amount.toStringAsFixed(2)),
+            style: const TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.5,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Held in escrow until you confirm delivery',
+            style: TextStyle(
+              fontSize: 13,
+              color: Color(0xFFCFE3D6),
+            ),
+          ),
+        ],
       ),
     );
   }

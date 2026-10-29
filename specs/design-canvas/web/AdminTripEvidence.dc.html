@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Admin dispute evidence</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1E5B3E}a:hover{color:#15402B}
+</style>
+</helmet>
+<div style="min-height: 100vh; box-sizing: border-box; background: #F5F4EE; color: #15201A; font-family: Manrope, system-ui, sans-serif; display: flex; flex-direction: column">
+  <header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 16px 32px; background: #15201A; color: #FFFFFF">
+    <div style="display: flex; align-items: center; gap: 10px"><div style="width: 34px; height: 34px; border-radius: 10px; background: #1E5B3E; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 18c5 0 5-12 12-12"/><circle cx="6" cy="18" r="2" fill="#FFFFFF"/><circle cx="18" cy="6" r="2" fill="#FFFFFF"/></svg></div><span style="font-size: 16px; font-weight: 800">WeredaConnect Admin</span></div>
+    <nav aria-label="Admin" style="display: flex; flex-wrap: wrap; gap: 4px">
+      <a href="#" style="height: 44px; padding: 0 14px; border-radius: 10px; color: #B9C2BD; text-decoration: none; font-size: 14px; font-weight: 600; display: flex; align-items: center">Transactions</a>
+      <a href="#" aria-current="page" style="height: 44px; padding: 0 14px; border-radius: 10px; background: #22302A; color: #FFFFFF; text-decoration: none; font-size: 14px; font-weight: 700; display: flex; align-items: center">Disputes · 3</a>
+      <a href="#" style="height: 44px; padding: 0 14px; border-radius: 10px; color: #B9C2BD; text-decoration: none; font-size: 14px; font-weight: 600; display: flex; align-items: center">Fraud review</a>
+      <a href="#" style="height: 44px; padding: 0 14px; border-radius: 10px; color: #B9C2BD; text-decoration: none; font-size: 14px; font-weight: 600; display: flex; align-items: center">Audit</a>
+    </nav>
+  </header>
+
+  <main style="width: 100%; max-width: 1360px; margin: 0 auto; box-sizing: border-box; padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 20px">
+    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px">
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <div style="font-size: 13px; color: #5E6862"><a href="#" style="text-decoration: none">Disputes</a> / Maize · 1,000 kg</div>
+        <h1 style="margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.03em">Buyer reports 150 kg short at drop-off</h1>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px">
+          <span style="height: 28px; padding: 0 10px; border-radius: 8px; background: #E6ECF5; color: #2E4C7D; font-size: 12px; font-weight: 700; display: flex; align-items: center">Buyer · Hawi Flour Mill · raised Tue 12:50</span>
+          <span style="height: 28px; padding: 0 10px; border-radius: 8px; background: #E3EEE6; color: #1E5B3E; font-size: 12px; font-weight: 700; display: flex; align-items: center">Farmer · Tolosa Gemechu</span>
+          <span style="height: 28px; padding: 0 10px; border-radius: 8px; background: #FAEED8; color: #8A5410; font-size: 12px; font-weight: 700; display: flex; align-items: center">Trucker · Dawit Tesfaye</span>
+        </div>
+      </div>
+      <div style="padding: 14px 18px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E3E1D8; display: flex; align-items: center; gap: 12px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2E4C7D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 11h12v9H6z"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span><span style="display: block; font-size: 20px; font-weight: 800">30,900 ETB frozen</span><span style="display: block; font-size: 12px; color: #5E6862">crop 28,000 · transport 1,500 · commission 1,400</span></span></div>
+    </div>
+
+    <div role="tablist" aria-label="Evidence" style="display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 14px; background: #ECEAE2; align-self: flex-start">
+      <button type="button" role="tab" aria-selected="false" style="height: 44px; padding: 0 16px; border: none; border-radius: 11px; background: transparent; font: 600 13px Manrope, sans-serif; color: #3F4843">Timeline</button>
+      <button type="button" role="tab" aria-selected="true" style="height: 44px; padding: 0 16px; border: none; border-radius: 11px; background: #FFFFFF; font: 700 13px Manrope, sans-serif; color: #15201A">Trip trail</button>
+      <button type="button" role="tab" aria-selected="false" style="height: 44px; padding: 0 16px; border: none; border-radius: 11px; background: transparent; font: 600 13px Manrope, sans-serif; color: #3F4843">Photos · 2</button>
+      <button type="button" role="tab" aria-selected="false" style="height: 44px; padding: 0 16px; border: none; border-radius: 11px; background: transparent; font: 600 13px Manrope, sans-serif; color: #3F4843">Messages · 7</button>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+      <div style="flex: 3 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+        <section aria-label="Trail map" style="position: relative; border-radius: 22px; overflow: hidden; border: 1px solid #E3E1D8">
+          <svg width="100%" height="320" viewBox="0 0 760 320" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Trail from Koka to Dukem with a pause at Mojo" style="display: block; overflow: visible">
+            <rect x="-800" y="-400" width="2360" height="1120" fill="#E9E7DE"/>
+            <ellipse cx="170" cy="260" rx="70" ry="28" fill="#CFDDE3" transform="rotate(-14 170 260)"/>
+            <circle cx="690" cy="40" r="80" fill="#E0DCD0"/>
+            <path d="M-800 420 C -300 360, -60 310, -10 300 C 40 290, 80 284, 120 270 C 180 244, 230 220, 290 196 C 360 168, 420 140, 480 118 C 540 96, 580 82, 620 72 C 660 62, 700 48, 780 20 C 1000 -60, 1200 -160, 1560 -320" stroke="#F7F6F1" stroke-width="16" fill="none" stroke-linecap="round"/>
+            <path d="M290 196 C 360 210, 520 240, 1560 270" stroke="#F7F6F1" stroke-width="9" fill="none"/>
+            <path d="M120 270 C 180 244, 230 220, 290 196 C 360 168, 420 140, 480 118 C 540 96, 580 82, 620 72" stroke="#1E5B3E" stroke-width="5" fill="none" stroke-linecap="round"/>
+            <circle cx="290" cy="196" r="22" fill="#D9922B" fill-opacity="0.18" stroke="#D9922B" stroke-width="2"/>
+            <circle cx="120" cy="270" r="10" fill="#FFFFFF" stroke="#1E5B3E" stroke-width="4"/>
+            <circle cx="290" cy="196" r="6" fill="#FFFFFF" stroke="#1E5B3E" stroke-width="3"/>
+            <circle cx="480" cy="118" r="6" fill="#FFFFFF" stroke="#1E5B3E" stroke-width="3"/>
+            <circle cx="620" cy="72" r="12" fill="#2E4C7D"/>
+            <circle cx="620" cy="72" r="4.5" fill="#FFFFFF"/>
+            <g font-family="Manrope, sans-serif" font-size="12" font-weight="600" fill="#3F4843" stroke="#E9E7DE" stroke-width="3" paint-order="stroke">
+              <text x="136" y="296">Koka · pickup 09:40</text>
+              <text x="250" y="236">Mojo 10:41 · paused 10:55-11:25</text>
+              <text x="494" y="140">Bishoftu 11:42</text>
+              <text x="560" y="104">Dukem · drop-off 12:15</text>
+            </g>
+          </svg>
+          <span style="position: absolute; left: 16px; top: 16px; display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; border-radius: 10px; background: #FFFFFF; font-size: 13px; font-weight: 700; box-shadow: 0 4px 14px rgba(21,32,26,0.1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1E5B3E" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Trail follows the booked route</span>
+        </section>
+
+        <section aria-label="Check-ins and legs" style="padding: 8px 20px 16px; border-radius: 22px; background: #FFFFFF; border: 1px solid #E3E1D8">
+          <div style="overflow-x: auto">
+            <table style="width: 100%; min-width: 620px; border-collapse: collapse; font-size: 13px">
+              <thead>
+                <tr style="text-align: left; color: #5E6862; font-size: 12px">
+                  <th scope="col" style="padding: 12px 8px; font-weight: 700">Time</th>
+                  <th scope="col" style="padding: 12px 8px; font-weight: 700">Place</th>
+                  <th scope="col" style="padding: 12px 8px; font-weight: 700">Leg since the last check-in</th>
+                  <th scope="col" style="padding: 12px 8px; font-weight: 700">Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="border-top: 1px solid #ECEAE2"><td style="padding: 12px 8px; font-weight: 700">09:40</td><td style="padding: 12px 8px">Koka</td><td style="padding: 12px 8px; color: #5E6862">pickup</td><td style="padding: 12px 8px">QR scanned · GPS 0.4 km from the listing</td></tr>
+                <tr style="border-top: 1px solid #ECEAE2"><td style="padding: 12px 8px; font-weight: 700">10:41</td><td style="padding: 12px 8px">Mojo</td><td style="padding: 12px 8px">25 km in 61 min · 25 km/h</td><td style="padding: 12px 8px"><span style="height: 22px; padding: 0 8px; border-radius: 6px; background: #FAEED8; color: #8A5410; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center">Sent late 11:20</span></td></tr>
+                <tr style="border-top: 1px solid #ECEAE2; background: #FBF7EE"><td style="padding: 12px 8px; font-weight: 700">10:55</td><td style="padding: 12px 8px">Mojo</td><td style="padding: 12px 8px; color: #5E6862">paused by driver</td><td style="padding: 12px 8px">30 min rest stop, back on at 11:25</td></tr>
+                <tr style="border-top: 1px solid #ECEAE2"><td style="padding: 12px 8px; font-weight: 700">11:42</td><td style="padding: 12px 8px">Bishoftu</td><td style="padding: 12px 8px">28 km in 61 min · includes the pause</td><td style="padding: 12px 8px; color: #5E6862">none</td></tr>
+                <tr style="border-top: 1px solid #ECEAE2"><td style="padding: 12px 8px; font-weight: 700">12:15</td><td style="padding: 12px 8px">Dukem</td><td style="padding: 12px 8px">15 km in 33 min · 27 km/h</td><td style="padding: 12px 8px">Drop-off QR scanned · GPS 0.2 km from the buyer</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <aside style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+        <section aria-label="Signals" style="padding: 20px; border-radius: 22px; background: #FFFFFF; border: 1px solid #E3E1D8; display: flex; flex-direction: column; gap: 12px">
+          <h2 style="margin: 0; font-size: 15px; font-weight: 800">What the trail says</h2>
+          <div style="display: flex; gap: 10px; font-size: 13px"><span style="width: 8px; height: 8px; margin-top: 6px; border-radius: 999px; background: #1E5B3E; flex-shrink: 0"></span><span>Shared the whole way: 2 check-ins and 2 scans, 1 sent late</span></div>
+          <div style="display: flex; gap: 10px; font-size: 13px"><span style="width: 8px; height: 8px; margin-top: 6px; border-radius: 999px; background: #1E5B3E; flex-shrink: 0"></span><span>No impossible jumps, legs at 25 to 27 km/h</span></div>
+          <div style="display: flex; gap: 10px; font-size: 13px"><span style="width: 8px; height: 8px; margin-top: 6px; border-radius: 999px; background: #D9922B; flex-shrink: 0"></span><span>One stop off the stop list: Mojo, paused 30 min by the driver</span></div>
+          <p style="margin: 0; padding-top: 10px; border-top: 1px solid #ECEAE2; font-size: 12px; line-height: 1.5; color: #5E6862">The trail shows where the truck was, not what it carried. Weigh it with the photos, weights and messages.</p>
+        </section>
+
+        <section aria-label="Photos" style="padding: 20px; border-radius: 22px; background: #FFFFFF; border: 1px solid #E3E1D8; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+          <div style="display: flex; flex-direction: column; gap: 6px"><div role="img" aria-label="Pickup photo placeholder" style="height: 96px; border-radius: 12px; background: repeating-linear-gradient(135deg, #ECEAE2 0 8px, #F5F4EE 8px 16px)"></div><span style="font-size: 12px; color: #3F4843">Pickup 09:40</span></div>
+          <div style="display: flex; flex-direction: column; gap: 6px"><div role="img" aria-label="Drop-off photo placeholder" style="height: 96px; border-radius: 12px; background: repeating-linear-gradient(135deg, #ECEAE2 0 8px, #F5F4EE 8px 16px)"></div><span style="font-size: 12px; color: #3F4843">Drop-off 12:15</span></div>
+        </section>
+
+        <section aria-label="Verdict" style="padding: 20px; border-radius: 22px; background: #FFFFFF; border: 1px solid #E3E1D8; display: flex; flex-direction: column; gap: 10px">
+          <h2 style="margin: 0; font-size: 15px; font-weight: 800">Decide</h2>
+          <button type="button" style="height: 48px; border: none; border-radius: 14px; background: #1E5B3E; color: #FFFFFF; font: 700 14px Manrope, sans-serif">Farmer wins · release 29,500 ETB</button>
+          <button type="button" style="height: 48px; border: 1px solid #D6D3C8; border-radius: 14px; background: #FFFFFF; color: #15201A; font: 700 14px Manrope, sans-serif">Buyer wins · refund 30,900 ETB</button>
+          <span style="font-size: 12px; color: #5E6862">Every verdict is written to the audit log with your name.</span>
+        </section>
+      </aside>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

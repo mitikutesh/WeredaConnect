@@ -260,10 +260,35 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                         onSubmitted: (_) => _submit(),
                       ),
                       const SizedBox(height: 20),
+                      // Canvas info card
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xFFE3E1D8)),
+                        ),
+                        child: const Text(
+                          'We ask for this only when the number differs from your Fayda record.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            height: 1.4,
+                            color: Color(0xFF3F4843),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
                       SizedBox(
-                        height: 50,
+                        height: 56,
                         child: FilledButton(
                           key: const Key('otp_verify_button'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppTheme.fieldGreen,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
                           onPressed:
                               (_isComplete && !isLoading) ? _submit : null,
                           child: isLoading
@@ -279,7 +304,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                                   l10n.verifyOtp,
                                   style: const TextStyle(
                                     fontSize: 16,
-                                    fontWeight: FontWeight.w600,
+                                    fontWeight: FontWeight.w800,
                                   ),
                                 ),
                         ),

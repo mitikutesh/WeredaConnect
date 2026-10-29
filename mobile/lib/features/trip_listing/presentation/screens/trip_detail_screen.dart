@@ -412,7 +412,7 @@ class TripDetailScreen extends StatelessWidget {
   }
 }
 
-/// Large route display at the top of the detail screen.
+/// Large route display at the top of the detail screen (Fieldway: TripDetail.dc.html).
 class _RouteHeader extends StatelessWidget {
   final Trip trip;
 
@@ -420,20 +420,26 @@ class _RouteHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
       decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(16),
+        color: const Color(0xFF15201A),
+        borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
         children: [
-          Icon(
-            Icons.local_shipping,
-            size: 40,
-            color: theme.colorScheme.primary,
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: const Color(0xFF22302A),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.local_shipping,
+              size: 24,
+              color: Color(0xFFD9922B),
+            ),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -441,27 +447,21 @@ class _RouteHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  trip.fromWoreda,
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
+                  '${trip.fromWoreda} → ${trip.toWoreda}',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                    color: Colors.white,
                   ),
                 ),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.arrow_downward,
-                      size: 16,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      trip.toWoreda,
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
-                  ],
+                const SizedBox(height: 4),
+                Text(
+                  '${trip.pricePerQuintal.toStringAsFixed(0)} ETB per quintal',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFFB9C2BD),
+                  ),
                 ),
               ],
             ),

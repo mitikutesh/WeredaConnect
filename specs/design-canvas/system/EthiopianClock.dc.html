@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ethiopian clock</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+Ethiopic:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1E5B3E}a:hover{color:#15402B}
+</style>
+</helmet>
+<div style="width: 1440px; height: 960px; box-sizing: border-box; padding: 56px 64px; background: #F5F4EE; color: #15201A; font-family: Manrope, 'Noto Sans Ethiopic', system-ui, sans-serif; display: flex; flex-direction: column; gap: 28px">
+  <header style="display: flex; justify-content: space-between; align-items: flex-end; gap: 24px">
+    <div>
+      <h1 style="margin: 0; font-size: 32px; font-weight: 800; letter-spacing: -0.03em">Time on the Ethiopian clock</h1>
+      <p style="margin: 6px 0 0; font-size: 15px; color: #5E6862">Amharic and Afaan Oromo show the Ethiopian clock. English keeps the 24-hour clock. Times are stored in UTC and dates stay Gregorian.</p>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px; align-items: flex-end">
+      <span style="font-size: 12px; font-weight: 700; color: #5E6862">Clock · in Settings</span>
+      <div role="radiogroup" aria-label="Clock" style="display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: #ECEAE2">
+        <label style="height: 44px; padding: 0 16px; border-radius: 11px; background: #FFFFFF; font-size: 14px; font-weight: 800; display: flex; align-items: center; gap: 8px"><input type="radio" name="clock" checked style="margin: 0; accent-color: #1E5B3E">Ethiopian</label>
+        <label style="height: 44px; padding: 0 16px; border-radius: 11px; font-size: 14px; font-weight: 600; color: #3F4843; display: flex; align-items: center; gap: 8px"><input type="radio" name="clock" style="margin: 0; accent-color: #1E5B3E">International</label>
+      </div>
+      <span style="font-size: 12px; color: #5E6862">Follows the language until the person picks one.</span>
+    </div>
+  </header>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; flex-grow: 1; min-height: 0">
+    <section style="display: flex; flex-direction: column; gap: 20px">
+      <div style="background: #FFFFFF; border: 1px solid #E3E1D8; border-radius: 24px; padding: 24px; display: flex; flex-direction: column; gap: 14px">
+        <div style="font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #5E6862">How the hours map</div>
+        <svg width="100%" height="150" viewBox="0 0 600 150" role="img" aria-label="International hours 00 to 24 above, Ethiopian hours below: 06 is 12 in the morning, 18 is 12 in the evening" style="display: block">
+          <g font-family="Manrope, sans-serif" font-size="12" font-weight="700" fill="#5E6862" text-anchor="middle">
+            <text x="0" y="14" text-anchor="start">00</text><text x="75" y="14">03</text><text x="150" y="14">06</text><text x="225" y="14">09</text><text x="300" y="14">12</text><text x="375" y="14">15</text><text x="450" y="14">18</text><text x="525" y="14">21</text><text x="600" y="14" text-anchor="end">24</text>
+          </g>
+          <defs><clipPath id="hours-band"><rect x="0" y="24" width="600" height="40" rx="10"/></clipPath></defs>
+          <g clip-path="url(#hours-band)">
+            <rect x="0" y="24" width="150" height="40" fill="#E6ECF5"/>
+            <rect x="150" y="24" width="150" height="40" fill="#FAEED8"/>
+            <rect x="300" y="24" width="150" height="40" fill="#E3EEE6"/>
+            <rect x="450" y="24" width="150" height="40" fill="#ECEAE2"/>
+          </g>
+          <g stroke="#FFFFFF" stroke-width="2"><path d="M150 24v40M300 24v40M450 24v40"/></g>
+          <g font-family="Manrope, sans-serif" font-size="15" font-weight="800" fill="#15201A" text-anchor="middle">
+            <text x="6" y="88" text-anchor="start">6</text><text x="75" y="88">9</text><text x="150" y="88">12</text><text x="225" y="88">3</text><text x="300" y="88">6</text><text x="375" y="88">9</text><text x="450" y="88">12</text><text x="525" y="88">3</text><text x="594" y="88" text-anchor="end">6</text>
+          </g>
+          <g font-family="'Noto Sans Ethiopic', Manrope, sans-serif" font-size="13" font-weight="700" text-anchor="middle">
+            <text x="75" y="114" fill="#2E4C7D">ከሌሊቱ</text><text x="225" y="114" fill="#8A5410">ከጠዋቱ</text><text x="375" y="114" fill="#1E5B3E">ከቀኑ</text><text x="525" y="114" fill="#3F4843">ከምሽቱ</text>
+          </g>
+          <g font-family="Manrope, sans-serif" font-size="12" font-weight="600" fill="#5E6862" text-anchor="middle">
+            <text x="75" y="136">halkan</text><text x="225" y="136">ganama</text><text x="375" y="136">waaree booda</text><text x="525" y="136">galgala</text>
+          </g>
+        </svg>
+        <p style="margin: 0; font-size: 13px; color: #5E6862">The Ethiopian hour is the 24-hour time minus six, counted from 1 to 12, with the part of the day always said.</p>
+      </div>
+
+      <div style="background: #FFFFFF; border: 1px solid #E3E1D8; border-radius: 24px; padding: 8px 24px 16px; flex-grow: 1">
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px">
+          <thead><tr style="text-align: left; font-size: 12px; color: #5E6862"><th scope="col" style="padding: 12px 0; font-weight: 800">International</th><th scope="col" style="padding: 12px 0; font-weight: 800">አማርኛ</th><th scope="col" style="padding: 12px 0; font-weight: 800">Afaan Oromoo</th></tr></thead>
+          <tbody>
+            <tr style="border-top: 1px solid #ECEAE2"><td style="padding: 10px 0"><b>08:05</b> <span style="color: #5E6862">pickup</span></td><td lang="am" style="padding: 10px 0">ከጠዋቱ 2:05</td><td lang="om" style="padding: 10px 0">2:05 ganama</td></tr>
+            <tr style="border-top: 1px solid #ECEAE2"><td style="padding: 10px 0"><b>11:42</b> <span style="color: #5E6862">check-in</span></td><td lang="am" style="padding: 10px 0">ከጠዋቱ 5:42</td><td lang="om" style="padding: 10px 0">5:42 ganama</td></tr>
+            <tr style="border-top: 1px solid #ECEAE2"><td style="padding: 10px 0"><b>13:20-14:00</b> <span style="color: #5E6862">arrival</span></td><td lang="am" style="padding: 10px 0">ከቀኑ 7:20-8:00</td><td lang="om" style="padding: 10px 0">7:20-8:00 waaree booda</td></tr>
+            <tr style="border-top: 1px solid #ECEAE2"><td style="padding: 10px 0"><b>18:00</b> <span style="color: #5E6862">answer by</span></td><td lang="am" style="padding: 10px 0">ከምሽቱ 12:00</td><td lang="om" style="padding: 10px 0">12:00 galgala</td></tr>
+            <tr style="border-top: 1px solid #ECEAE2"><td style="padding: 10px 0"><b>06:00</b> <span style="color: #5E6862">pause until</span></td><td lang="am" style="padding: 10px 0">ከጠዋቱ 12:00</td><td lang="om" style="padding: 10px 0">12:00 ganama</td></tr>
+            <tr style="border-top: 1px solid #ECEAE2"><td style="padding: 10px 0"><b>02:00</b> <span style="color: #5E6862">night</span></td><td lang="am" style="padding: 10px 0">ከሌሊቱ 8:00</td><td lang="om" style="padding: 10px 0">8:00 halkan</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section style="display: flex; flex-direction: column; gap: 20px">
+      <div style="background: #FFFFFF; border: 1px solid #E3E1D8; border-radius: 24px; padding: 24px; display: flex; flex-direction: column; gap: 16px">
+        <div style="font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #5E6862">One component, three languages</div>
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+          <div style="padding: 14px; border-radius: 16px; background: #F5F4EE; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #5E6862">Arriving at Merkato</span><span style="font-size: 22px; font-weight: 800; letter-spacing: -0.02em">13:20-14:00</span></div>
+          <div lang="am" style="padding: 14px; border-radius: 16px; background: #F5F4EE; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #5E6862">መርካቶ የሚደርስበት</span><span style="font-size: 20px; font-weight: 700">ከቀኑ 7:20-8:00</span><span style="font-size: 11px; color: #5E6862">13:20-14:00</span></div>
+          <div lang="om" style="padding: 14px; border-radius: 16px; background: #F5F4EE; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #5E6862">Yeroo Merkaatoo ga'u</span><span style="font-size: 20px; font-weight: 800; letter-spacing: -0.02em">7:20-8:00</span><span style="font-size: 12px; font-weight: 700">waaree booda · <span style="font-weight: 500; color: #5E6862">13:20-14:00</span></span></div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-radius: 14px; background: #FAEED8; color: #6B400B; font-size: 14px; font-weight: 700">Please answer by today 18:00.</div>
+          <div lang="am" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 14px; border-radius: 14px; background: #FAEED8; color: #6B400B; font-size: 14px; font-weight: 700"><span>እባክዎ እስከ ዛሬ ከምሽቱ 12:00 ይመልሱ።</span><span style="font-size: 12px; font-weight: 600">18:00</span></div>
+          <div lang="om" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 14px; border-radius: 14px; background: #FAEED8; color: #6B400B; font-size: 14px; font-weight: 700"><span>Maaloo hanga har'a 12:00 galgala tti deebisaa.</span><span style="font-size: 12px; font-weight: 600">18:00</span></div>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px">
+          <span style="display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px; border-radius: 8px; background: #FFFFFF; border: 1px solid #D6D3C8; font-size: 12px; font-weight: 700"><span style="width: 8px; height: 8px; border-radius: 999px; background: #5E6862"></span>Checked in 28 min ago</span>
+          <span lang="am" style="display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px; border-radius: 8px; background: #FFFFFF; border: 1px solid #D6D3C8; font-size: 12px; font-weight: 700"><span style="width: 8px; height: 8px; border-radius: 999px; background: #5E6862"></span>ከ28 ደቂቃ በፊት ሪፖርት አድርጓል</span>
+          <span lang="om" style="display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px; border-radius: 8px; background: #FFFFFF; border: 1px solid #D6D3C8; font-size: 12px; font-weight: 700"><span style="width: 8px; height: 8px; border-radius: 999px; background: #5E6862"></span>Daqiiqaa 28 dura gabaase</span>
+        </div>
+      </div>
+
+      <div style="background: #FFFFFF; border: 1px solid #E3E1D8; border-radius: 24px; padding: 24px; display: flex; flex-direction: column; gap: 12px; flex-grow: 1">
+        <div style="font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #5E6862">Rules</div>
+        <ol style="margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; line-height: 1.45; color: #3F4843">
+          <li>Never a bare hour. The part of the day is always shown, so 7:20 can't be mistaken for 07:20.</li>
+          <li>Deadlines and arrival windows also show the 24-hour time in small text. An Amharic farmer and an English buyer on the phone can't be six hours apart.</li>
+          <li>Tap any time to see it on the other clock.</li>
+          <li>Push messages follow the same rule: the server's PushText uses the same formatter, with shared test cases.</li>
+          <li>Only the display changes. The server keeps every time in UTC and computes deadlines exactly as it does now.</li>
+        </ol>
+      </div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
