@@ -2974,5 +2974,17 @@
   "savedOnPhoneFirstNote": "Duraan bilbila keessan irratti olkaa'ama, yeroo networkiin jiru ni ergama.",
   "myCropsPrivacyNote": "Tarree keessan asitti kan argitu isin qofa. Bitoonni Midhaan Barbaadi keessatti argu.",
   "homeToday": "Har'a",
-  "tripPricePerQuintalValue": "Kuntaala tokkoof Birrii {price}"
+  "tripPricePerQuintalValue": "Kuntaala tokkoof Birrii {price}",
+  "createTripRouteDistance": "Sarara qajeelaan gara km {km}, bilbila keessan irratti kan kaafame",
+  "createTripRoutePreviewLabel": "Agarsiisa karaa {from} irraa gara {to}",
+  "createTripSwapRoute": "Ka'umsaa fi bakka gahumsaa wal jijjiiri",
+  "createTripDriverHint": "Maqaa fi bilbila keessan piroofaayilii irraa guutuu hin dandeenye. Maaloo galchaa.",
+  "tripSpaceTitle": "Bakka imala kanarra jiru",
+  "tripLoadedOf": "Kuntaala {capacity} keessaa {loaded} qabameera",
+  "tripBookedTermsNote": "Imalli qabaman guyyaa, gatii fi karaa isaanii hin jijjiiran.",
+  "tripScanAtPickupNote": "Guyyaa imalaa, bakka fe'umsaatti QR qonnaan bulaa hundaa iskaanii godhaa. Imalli kallattii iskaanii jalqabaatiin jalqaba.",
+  "tripCancelBookedNote": "Haquun ajajawwan qabaman gara bitoota isaaniitti deebisa; isaanis maallaqa guutuu deebifachuuf haquu danda'u.",
+  "orderYouReceive": "Kan isinii gahu",
+  "orderYourTransportPay": "Kaffaltii geejjibaa keessan",
+  "deliveriesNoSearchMatch": "Geessituun maqaa sanaan walsimu hin jiru."
 }

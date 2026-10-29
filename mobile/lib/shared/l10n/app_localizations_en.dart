@@ -4382,4 +4382,50 @@ class AppLocalizationsEn extends AppLocalizations {
   String tripPricePerQuintalValue(String price) {
     return '$price ETB per quintal';
   }
+
+  @override
+  String createTripRouteDistance(int km) {
+    return 'About $km km in a straight line, drawn on your phone';
+  }
+
+  @override
+  String createTripRoutePreviewLabel(String from, String to) {
+    return 'Route preview from $from to $to';
+  }
+
+  @override
+  String get createTripSwapRoute => 'Swap origin and destination';
+
+  @override
+  String get createTripDriverHint =>
+      'We could not fill your name and phone from your profile. Please add them.';
+
+  @override
+  String get tripSpaceTitle => 'Space on this trip';
+
+  @override
+  String tripLoadedOf(String loaded, String capacity) {
+    return '$loaded of $capacity quintals loaded';
+  }
+
+  @override
+  String get tripBookedTermsNote =>
+      'Booked trips keep their date, price and route.';
+
+  @override
+  String get tripScanAtPickupNote =>
+      'On the trip day, scan each farmer\'s QR at pickup. Live trip starts with the first scan.';
+
+  @override
+  String get tripCancelBookedNote =>
+      'Cancelling hands booked orders back to their buyers, who can cancel for a full refund.';
+
+  @override
+  String get orderYouReceive => 'You receive';
+
+  @override
+  String get orderYourTransportPay => 'Your transport pay';
+
+  @override
+  String get deliveriesNoSearchMatch => 'No delivery matches that name.';
 }

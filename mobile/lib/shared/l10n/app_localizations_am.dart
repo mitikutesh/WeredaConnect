@@ -4258,4 +4258,49 @@ class AppLocalizationsAm extends AppLocalizations {
   String tripPricePerQuintalValue(String price) {
     return 'በኩንታል $price ብር';
   }
+
+  @override
+  String createTripRouteDistance(int km) {
+    return 'በቀጥታ መስመር በግምት $km ኪሜ፣ በስልክዎ ላይ የተሳለ';
+  }
+
+  @override
+  String createTripRoutePreviewLabel(String from, String to) {
+    return 'ከ$from ወደ $to የመንገድ ቅድመ እይታ';
+  }
+
+  @override
+  String get createTripSwapRoute => 'መነሻና መድረሻን አቀያይር';
+
+  @override
+  String get createTripDriverHint =>
+      'ስምዎንና ስልክዎን ከመገለጫዎ መሙላት አልቻልንም። እባክዎ ያስገቡ።';
+
+  @override
+  String get tripSpaceTitle => 'በዚህ ጉዞ ላይ ያለ ቦታ';
+
+  @override
+  String tripLoadedOf(String loaded, String capacity) {
+    return 'ከ$capacity ኩንታል $loaded ተይዟል';
+  }
+
+  @override
+  String get tripBookedTermsNote => 'የተያዙ ጉዞዎች ቀናቸውን፣ ዋጋቸውንና መንገዳቸውን ይይዛሉ።';
+
+  @override
+  String get tripScanAtPickupNote =>
+      'በጉዞው ቀን፣ በመጫኛ ቦታ የእያንዳንዱን ገበሬ QR ይቃኙ። የቀጥታ ጉዞ በመጀመሪያው ቅኝት ይጀምራል።';
+
+  @override
+  String get tripCancelBookedNote =>
+      'መሰረዝ የተያዙ ትዕዛዞችን ለገዢዎቻቸው ይመልሳል፤ እነሱም ሙሉ ገንዘባቸው ተመላሽ እንዲሆን መሰረዝ ይችላሉ።';
+
+  @override
+  String get orderYouReceive => 'የሚደርስዎ';
+
+  @override
+  String get orderYourTransportPay => 'የትራንስፖርት ክፍያዎ';
+
+  @override
+  String get deliveriesNoSearchMatch => 'በዚያ ስም የሚመሳሰል ርክክብ የለም።';
 }

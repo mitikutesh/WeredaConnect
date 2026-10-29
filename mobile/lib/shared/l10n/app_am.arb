@@ -2981,5 +2981,17 @@
   "savedOnPhoneFirstNote": "መጀመሪያ በስልክዎ ይቀመጣል፣ ኔትወርክ ሲኖር ይላካል።",
   "myCropsPrivacyNote": "ዝርዝሮችዎን እዚህ የሚያዩት እርስዎ ብቻ ነዎት። ገዢዎች በሰብል ፈልግ ውስጥ ያዩዋቸዋል።",
   "homeToday": "ዛሬ",
-  "tripPricePerQuintalValue": "በኩንታል {price} ብር"
+  "tripPricePerQuintalValue": "በኩንታል {price} ብር",
+  "createTripRouteDistance": "በቀጥታ መስመር በግምት {km} ኪሜ፣ በስልክዎ ላይ የተሳለ",
+  "createTripRoutePreviewLabel": "ከ{from} ወደ {to} የመንገድ ቅድመ እይታ",
+  "createTripSwapRoute": "መነሻና መድረሻን አቀያይር",
+  "createTripDriverHint": "ስምዎንና ስልክዎን ከመገለጫዎ መሙላት አልቻልንም። እባክዎ ያስገቡ።",
+  "tripSpaceTitle": "በዚህ ጉዞ ላይ ያለ ቦታ",
+  "tripLoadedOf": "ከ{capacity} ኩንታል {loaded} ተይዟል",
+  "tripBookedTermsNote": "የተያዙ ጉዞዎች ቀናቸውን፣ ዋጋቸውንና መንገዳቸውን ይይዛሉ።",
+  "tripScanAtPickupNote": "በጉዞው ቀን፣ በመጫኛ ቦታ የእያንዳንዱን ገበሬ QR ይቃኙ። የቀጥታ ጉዞ በመጀመሪያው ቅኝት ይጀምራል።",
+  "tripCancelBookedNote": "መሰረዝ የተያዙ ትዕዛዞችን ለገዢዎቻቸው ይመልሳል፤ እነሱም ሙሉ ገንዘባቸው ተመላሽ እንዲሆን መሰረዝ ይችላሉ።",
+  "orderYouReceive": "የሚደርስዎ",
+  "orderYourTransportPay": "የትራንስፖርት ክፍያዎ",
+  "deliveriesNoSearchMatch": "በዚያ ስም የሚመሳሰል ርክክብ የለም።"
 }

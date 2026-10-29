@@ -7726,6 +7726,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{price} ETB per quintal'**
   String tripPricePerQuintalValue(String price);
+
+  /// Fieldway design alignment (specs/design-canvas). Create trip: line under the route preview; no road data, so the distance is a straight line
+  ///
+  /// In en, this message translates to:
+  /// **'About {km} km in a straight line, drawn on your phone'**
+  String createTripRouteDistance(int km);
+
+  /// Fieldway design alignment (specs/design-canvas). Create trip: screen reader label of the route preview
+  ///
+  /// In en, this message translates to:
+  /// **'Route preview from {from} to {to}'**
+  String createTripRoutePreviewLabel(String from, String to);
+
+  /// Fieldway design alignment (specs/design-canvas). Create trip: icon button that swaps From and To
+  ///
+  /// In en, this message translates to:
+  /// **'Swap origin and destination'**
+  String get createTripSwapRoute;
+
+  /// Fieldway design alignment (specs/design-canvas). Create trip: shown above the driver fields only when the profile did not prefill them
+  ///
+  /// In en, this message translates to:
+  /// **'We could not fill your name and phone from your profile. Please add them.'**
+  String get createTripDriverHint;
+
+  /// Fieldway design alignment (specs/design-canvas). Trucker home trip card: heading over the load bar
+  ///
+  /// In en, this message translates to:
+  /// **'Space on this trip'**
+  String get tripSpaceTitle;
+
+  /// Fieldway design alignment (specs/design-canvas). Trucker home trip card: booked quintals out of the truck's capacity; numbers
+  ///
+  /// In en, this message translates to:
+  /// **'{loaded} of {capacity} quintals loaded'**
+  String tripLoadedOf(String loaded, String capacity);
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail: under the capacity once paid orders are booked (trip-listing-api 2.0.0 freezes them)
+  ///
+  /// In en, this message translates to:
+  /// **'Booked trips keep their date, price and route.'**
+  String get tripBookedTermsNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail, trucker with bookings: what to do at pickup (LT-09: sharing starts at the first pickup scan)
+  ///
+  /// In en, this message translates to:
+  /// **'On the trip day, scan each farmer\'s QR at pickup. Live trip starts with the first scan.'**
+  String get tripScanAtPickupNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail: under Cancel Trip when orders are booked (they move to awaiting_transport; the buyer may cancel for a full refund)
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelling hands booked orders back to their buyers, who can cancel for a full refund.'**
+  String get tripCancelBookedNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail summary, farmer: the crop money they are paid after delivery
+  ///
+  /// In en, this message translates to:
+  /// **'You receive'**
+  String get orderYouReceive;
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail summary, trucker: the transport cost of this order
+  ///
+  /// In en, this message translates to:
+  /// **'Your transport pay'**
+  String get orderYourTransportPay;
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen): the search box hides every delivery
+  ///
+  /// In en, this message translates to:
+  /// **'No delivery matches that name.'**
+  String get deliveriesNoSearchMatch;
 }
 
 class _AppLocalizationsDelegate

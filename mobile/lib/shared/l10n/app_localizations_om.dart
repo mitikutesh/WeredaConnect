@@ -4423,4 +4423,51 @@ class AppLocalizationsOm extends AppLocalizations {
   String tripPricePerQuintalValue(String price) {
     return 'Kuntaala tokkoof Birrii $price';
   }
+
+  @override
+  String createTripRouteDistance(int km) {
+    return 'Sarara qajeelaan gara km $km, bilbila keessan irratti kan kaafame';
+  }
+
+  @override
+  String createTripRoutePreviewLabel(String from, String to) {
+    return 'Agarsiisa karaa $from irraa gara $to';
+  }
+
+  @override
+  String get createTripSwapRoute => 'Ka\'umsaa fi bakka gahumsaa wal jijjiiri';
+
+  @override
+  String get createTripDriverHint =>
+      'Maqaa fi bilbila keessan piroofaayilii irraa guutuu hin dandeenye. Maaloo galchaa.';
+
+  @override
+  String get tripSpaceTitle => 'Bakka imala kanarra jiru';
+
+  @override
+  String tripLoadedOf(String loaded, String capacity) {
+    return 'Kuntaala $capacity keessaa $loaded qabameera';
+  }
+
+  @override
+  String get tripBookedTermsNote =>
+      'Imalli qabaman guyyaa, gatii fi karaa isaanii hin jijjiiran.';
+
+  @override
+  String get tripScanAtPickupNote =>
+      'Guyyaa imalaa, bakka fe\'umsaatti QR qonnaan bulaa hundaa iskaanii godhaa. Imalli kallattii iskaanii jalqabaatiin jalqaba.';
+
+  @override
+  String get tripCancelBookedNote =>
+      'Haquun ajajawwan qabaman gara bitoota isaaniitti deebisa; isaanis maallaqa guutuu deebifachuuf haquu danda\'u.';
+
+  @override
+  String get orderYouReceive => 'Kan isinii gahu';
+
+  @override
+  String get orderYourTransportPay => 'Kaffaltii geejjibaa keessan';
+
+  @override
+  String get deliveriesNoSearchMatch =>
+      'Geessituun maqaa sanaan walsimu hin jiru.';
 }
