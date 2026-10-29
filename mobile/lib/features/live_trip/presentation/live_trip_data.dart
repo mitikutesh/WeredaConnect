@@ -33,42 +33,6 @@ Future<Order?> loadDeliveryOrder(
   BuildContext context,
   Delivery delivery,
 ) async {
-  if (delivery.deliveryId == 'del-demo-wheat') {
-    return Order()
-      ..orderId = 'ord-demo-wheat'
-      ..listingId = 'crop-demo-wheat'
-      ..buyerId = delivery.buyerId
-      ..buyerName = 'Selam Traders'
-      ..farmerId = delivery.farmerId
-      ..farmerName = delivery.farmerName
-      ..truckerId = delivery.truckerId
-      ..truckerName = delivery.truckerName
-      ..cropType = 'Wheat'
-      ..quantity = 2000
-      ..pricePerUnit = 45.60
-      ..totalPrice = 91200
-      ..status = OrderStatus.accepted
-      ..createdAt = DateTime.now().subtract(const Duration(days: 1))
-      ..tripId = delivery.tripId;
-  }
-  if (delivery.deliveryId == 'del-demo-barley') {
-    return Order()
-      ..orderId = 'ord-demo-barley'
-      ..listingId = 'crop-demo-barley'
-      ..buyerId = delivery.buyerId
-      ..buyerName = 'Selam Traders'
-      ..farmerId = delivery.farmerId
-      ..farmerName = delivery.farmerName
-      ..truckerId = delivery.truckerId
-      ..truckerName = delivery.truckerName
-      ..cropType = 'Barley'
-      ..quantity = 3000
-      ..pricePerUnit = 38.00
-      ..totalPrice = 114000
-      ..status = OrderStatus.accepted
-      ..createdAt = DateTime.now().subtract(const Duration(days: 1))
-      ..tripId = delivery.tripId;
-  }
   final orderId = delivery.orderId;
   if (orderId == null || orderId.isEmpty) return null;
   final repository = _maybeRead<OrderBloc>(context)?.repository;
@@ -108,21 +72,6 @@ Future<Payment?> loadDeliveryEscrow(
   BuildContext context,
   Delivery delivery,
 ) async {
-  if (delivery.deliveryId == 'del-demo-wheat') {
-    return Payment()
-      ..paymentId = 'escrow-demo-wheat'
-      ..deliveryId = delivery.deliveryId
-      ..farmerId = delivery.farmerId
-      ..buyerId = delivery.buyerId
-      ..amount = 91200
-      ..commission = 1824
-      ..commissionRate = 0.02
-      ..farmerPayout = 89376
-      ..orderId = 'ord-demo-wheat'
-      ..status = PaymentStatus.held
-      ..createdAt = DateTime.now().subtract(const Duration(days: 1))
-      ..updatedAt = DateTime.now().subtract(const Duration(days: 1));
-  }
   final repository = _maybeRead<EscrowBloc>(context)?.repository;
   if (repository == null) return null;
   try {

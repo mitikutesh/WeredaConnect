@@ -1,4 +1,3 @@
-import 'package:wereda_connect/features/live_trip/data/demo_tracks.dart';
 import 'package:flutter/foundation.dart';
 
 import 'package:wereda_connect/core/network/api_client.dart';
@@ -54,19 +53,6 @@ abstract class ApiTrackRepository extends BaseTrackRepository {
     String deliveryId, {
     required String userId,
   }) async {
-    if (deliveryId == 'del-demo-wheat') {
-      return TrackResult(
-        snapshot: TrackSnapshot(track: demoWheatTrack(), fetchedAt: _clock()),
-        fromNetwork: true,
-      );
-    }
-    if (deliveryId == 'del-demo-barley') {
-      return TrackResult(
-        snapshot: TrackSnapshot(track: demoBarleyTrack(), fetchedAt: _clock()),
-        fromNetwork: true,
-      );
-    }
-
     if (!await isOnline()) {
       return _keep(deliveryId, userId, TrackFailure.offline);
     }
