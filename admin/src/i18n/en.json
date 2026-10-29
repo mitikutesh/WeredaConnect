@@ -199,10 +199,10 @@
     "saysPauses": "Pauses by the driver: {count}",
     "saysDistance": "{km} km between check-ins over {minutes} min",
     "reminder": "The trail shows where the truck was, not what it carried. Weigh it with the photos, weights and messages.",
-    "saysAwayStops": "Pauses more than 5 km from every QR scan of the trip: {count}",
-    "saysNoAwayStops": "Every pause was near a QR scan of the trip",
-    "awayStops": "Stops away from the QR scans",
-    "awayStopRange": "{from} to {until} at {place}, {km} km from the nearest QR scan"
+    "saysAwayStops": "Stops off the stop list (more than 5 km from every planned stop and QR scan): {count}",
+    "saysNoAwayStops": "Every pause was at a planned stop or a QR scan",
+    "awayStops": "Stops off the stop list",
+    "awayStopRange": "{from} to {until} at {place}, {km} km from the nearest planned stop or QR scan"
   },
   "payouts": {
     "title": "Manual Payouts",

@@ -199,10 +199,10 @@
     "saysPauses": "ሹፌሩ ለአፍታ ያቆመባቸው ጊዜያት፦ {count}",
     "saysDistance": "በሪፖርቶች መካከል {km} ኪ.ሜ በ{minutes} ደቂቃ ውስጥ",
     "reminder": "መስመሩ የጭነት መኪናው የት እንደነበር ያሳያል እንጂ ምን እንደጫነ አያሳይም። ከፎቶዎቹ፣ ከክብደቱ እና ከመልዕክቶቹ ጋር አመዛዝኑት።",
-    "saysAwayStops": "ከጉዞው እያንዳንዱ የQR ቅኝት ከ5 ኪ.ሜ በላይ የራቁ ቆይታዎች፦ {count}",
-    "saysNoAwayStops": "እያንዳንዱ ቆይታ ከጉዞው የQR ቅኝት አጠገብ ነበር",
-    "awayStops": "ከQR ቅኝቶች የራቁ ቆይታዎች",
-    "awayStopRange": "ከ{from} እስከ {until} በ{place}፣ ከቅርቡ የQR ቅኝት {km} ኪ.ሜ"
+    "saysAwayStops": "ከዝርዝሩ ውጭ ያሉ ቆይታዎች (ከእያንዳንዱ የታቀደ ቦታና የQR ቅኝት ከ5 ኪ.ሜ በላይ የራቁ)፦ {count}",
+    "saysNoAwayStops": "እያንዳንዱ ቆይታ በታቀደ ቦታ ወይም በQR ቅኝት አጠገብ ነበር",
+    "awayStops": "ከዝርዝሩ ውጭ ያሉ ቆይታዎች",
+    "awayStopRange": "ከ{from} እስከ {until} በ{place}፣ ከቅርቡ የታቀደ ቦታ ወይም የQR ቅኝት {km} ኪ.ሜ"
   },
   "payouts": {
     "title": "በእጅ የሚከፈሉ ክፍያዎች",

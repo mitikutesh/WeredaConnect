@@ -199,10 +199,10 @@
     "saysPauses": "Dhaabbii konkolaachisaa: {count}",
     "saysDistance": "Gabaasota gidduutti km {km} daqiiqaa {minutes} keessatti",
     "reminder": "Karaan kun bakka konkolaataan ture agarsiisa malee waan fe'e hin agarsiisu. Suuraalee, ulfaatina fi ergaalee waliin madaali.",
-    "saysAwayStops": "Dhaabbiiwwan iskaanii QR imalaa hunda irraa km 5 ol fagaatan: {count}",
-    "saysNoAwayStops": "Dhaabbiin hundi iskaanii QR imalaa bira ture",
-    "awayStops": "Dhaabbiiwwan iskaanii QR irraa fagaatan",
-    "awayStopRange": "{from} hanga {until} {place} irratti, iskaanii QR dhihoo irraa km {km}"
+    "saysAwayStops": "Dhaabbiiwwan tarree dhaabbii ala (bakka karoorfame fi iskaanii QR hunda irraa km 5 ol): {count}",
+    "saysNoAwayStops": "Dhaabbiin hundi bakka karoorfame ykn iskaanii QR bira ture",
+    "awayStops": "Dhaabbiiwwan tarree dhaabbii ala",
+    "awayStopRange": "{from} hanga {until} {place} irratti, bakka karoorfame ykn iskaanii QR dhihoo irraa km {km}"
   },
   "payouts": {
     "title": "Kaffaltii Harkaan",

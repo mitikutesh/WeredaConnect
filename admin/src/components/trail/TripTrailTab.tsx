@@ -8,6 +8,7 @@ import { formatDateTime } from "@/lib/i18n";
 import {
   fill,
   formatCoords,
+  nearestKnownKm,
   summaryLines,
   type DeliveryTrail,
   type TrailLeg,
@@ -134,7 +135,7 @@ export function TripTrailTab({ deliveryId }: { deliveryId: string }) {
                       from: formatDateTime(stop.from),
                       until: formatDateTime(stop.until),
                       place: formatCoords(stop.latitude, stop.longitude),
-                      km: stop.nearestScanKm,
+                      km: nearestKnownKm(stop) ?? "",
                     })}
                   </li>
                 ))}

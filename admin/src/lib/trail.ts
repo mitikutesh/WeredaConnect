@@ -60,11 +60,20 @@ export interface TrailSummary {
   maxKmh: number | null;
 }
 
-/** A pause more than 5 km from every QR scan of the trip, at the fix before it. */
+/** A pause more than 5 km from every QR scan and planned stop of the trip, at the fix before it. */
 export interface TrailAwayStop extends TrailSpan {
   latitude: number;
   longitude: number;
-  nearestScanKm: number;
+  /** null when the trip has no QR scan with a place */
+  nearestScanKm: number | null;
+  /** null when the stop list could not be read */
+  nearestPlannedStopKm?: number | null;
+}
+
+/** The distance from a stop off the list to the nearest point it was judged by, or null. */
+export function nearestKnownKm(stop: TrailAwayStop): number | null {
+  const kms = [stop.nearestScanKm, stop.nearestPlannedStopKm].filter((k): k is number => k != null);
+  return kms.length === 0 ? null : Math.min(...kms);
 }
 
 export interface DeliveryTrail {
