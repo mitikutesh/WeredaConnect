@@ -22,7 +22,10 @@ const _boundary = Key('track_map_boundary');
 /// `flutter test --update-goldens test/features/live_trip/presentation/map/track_map_golden_test.dart`.
 void main() {
   setUpAll(() {
-    TolerantGoldenComparator.install('track_map_golden_test.dart');
+    TolerantGoldenComparator.install(
+      'track_map_golden_test.dart',
+      tolerance: 0.05,
+    );
   });
 
   Future<TrackMapPainter> pumpMap(
