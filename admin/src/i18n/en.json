@@ -134,7 +134,10 @@
     "detailTitle": "Dispute",
     "evidence": "Evidence",
     "raisedAt": "Raised",
-    "delivery": "Delivery"
+    "delivery": "Delivery",
+    "decide": "Decide",
+    "frozen": "{amount} frozen",
+    "auditNote": "Every verdict is written to the audit log under your admin account."
   },
   "trail": {
     "tab": "Trip trail",
