@@ -143,6 +143,50 @@ void main() {
       expect(find.text('Test Trucker'), findsOneWidget);
     });
 
+    testWidgets('never saves without a driver name', (tester) async {
+      useTallPhone(tester);
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<AuthBloc>.value(value: authBloc),
+            BlocProvider<TripListingBloc>.value(value: tripListingBloc),
+          ],
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: CreateTripScreen(truckerPhone: '+251911000000'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'From (Origin)'),
+        'Meki',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'To (Destination)'),
+        'Addis Ababa',
+      );
+      await tester.tap(find.text('Select departure date'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Capacity (quintals)'),
+        '50',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Price per Quintal (ETB)'),
+        '150',
+      );
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Trucker Name'), findsOneWidget);
+      verifyNever(() => tripListingBloc.add(any(that: isA<CreateTrip>())));
+    });
+
     testWidgets('validates the route on save', (tester) async {
       useTallPhone(tester);
       await tester.pumpWidget(buildTestWidget());

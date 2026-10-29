@@ -51,6 +51,44 @@ void main() {
     });
   });
 
+  // Create trip offers the first recent route as "Repeat Last Trip", so the
+  // web list is newest first whatever order the API answers in.
+  test('getRecentRoutes lists the newest route first', () async {
+    final api = _MockApiClient();
+    Map<String, dynamic> trip(String id, String from, String created) => {
+          'tripId': id,
+          'truckerId': 'trucker-1',
+          'fromWoreda': from,
+          'toWoreda': 'Addis Ababa',
+          'departureDate': '2026-10-30T00:00:00.000Z',
+          'capacity': 50,
+          'pricePerQuintal': 150,
+          'status': 'open',
+          'createdAt': created,
+          'updatedAt': created,
+          'version': 1,
+        };
+    when(
+      () => api.get<Map<String, dynamic>>(
+        '/trips',
+        queryParameters: any(named: 'queryParameters'),
+      ),
+    ).thenAnswer(
+      (_) async => {
+        'trips': [
+          trip('t-old', 'Adama', '2026-10-01T00:00:00.000Z'),
+          trip('t-new', 'Meki', '2026-10-28T00:00:00.000Z'),
+          trip('t-mid', 'Ziway', '2026-10-15T00:00:00.000Z'),
+        ],
+      },
+    );
+
+    final routes =
+        await WebTripListingRepository(api: api).getRecentRoutes('trucker-1');
+
+    expect(routes.map((r) => r.from), ['Meki', 'Ziway', 'Adama']);
+  });
+
   // SIM-38: a delivery's tripId must be a UUID, so a web trip id has to be one.
   test('createTrip uses a UUID trip id', () async {
     final api = _MockApiClient();

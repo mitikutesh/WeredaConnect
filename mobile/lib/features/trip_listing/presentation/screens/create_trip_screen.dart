@@ -133,7 +133,9 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
     }
 
     _autoFillTruckerInfo().whenComplete(() {
-      if (mounted) setState(() => _showDriverFields = _driverInfoMissing);
+      if (mounted) {
+        setState(() => _showDriverFields |= _driverInfoMissing);
+      }
     });
     _loadRecentRoutes();
     // The route preview draws towns from the bundled place list.
@@ -247,7 +249,11 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
   void _handleSaveTapped() {
     final l10n = AppLocalizations.of(context)!;
     if (_driverInfoMissing && !_showDriverFields) {
+      // The driver fields are not on the page yet, so this validation pass
+      // cannot see them: show them and stop here, never save without them.
       setState(() => _showDriverFields = true);
+      _formKey.currentState?.validate();
+      return;
     }
     if (!(_formKey.currentState?.validate() ?? false)) return;
     if (_selectedDepartureDate == null) {
