@@ -443,18 +443,24 @@ class _OrderDetailBody extends StatelessWidget {
     // Accept stays disabled until the hold check has answered.
     if (userRole == UserRole.farmer && canFarmerRespond(order, userId)) {
       widgets.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text(
+            l10n.farmerAnswerNote,
+            style: const TextStyle(
+              fontSize: 13,
+              height: 1.4,
+              color: AppTheme.mutedSteel,
+            ),
+          ),
+        ),
+      );
+      widgets.add(
         Row(
           children: [
             Expanded(
               child: OutlinedButton(
-                onPressed: () {
-                  context.read<OrderBloc>().add(
-                        RejectOrder(
-                          orderId: order.orderId,
-                          farmerId: userId,
-                        ),
-                      );
-                },
+                onPressed: () => _rejectAsFarmer(context, order, userId),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppTheme.statusError,
                   side: const BorderSide(color: AppTheme.statusError),
@@ -650,6 +656,30 @@ class _OrderDetailBody extends StatelessWidget {
     }
 
     return widgets;
+  }
+
+  /// The farmer declines a new order, saying why (Farmer · Answer a new
+  /// order board); the buyer is refunded.
+  Future<void> _rejectAsFarmer(
+    BuildContext context,
+    Order order,
+    String userId,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final bloc = context.read<OrderBloc>();
+    final reason = await showDeclineReasonSheet(
+      context,
+      warning: l10n.farmerRejectRefundNote,
+      reasons: farmerDeclineReasons,
+    );
+    if (reason == null || bloc.isClosed) return;
+    bloc.add(
+      RejectOrder(
+        orderId: order.orderId,
+        farmerId: userId,
+        declineReason: reason,
+      ),
+    );
   }
 
   /// ESC-15: the trucker declines the transport request, with a reason.

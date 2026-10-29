@@ -37,6 +37,16 @@ const List<String> commitmentDeclineReasons = [
   'other',
 ];
 
+/// The reasons a farmer can give for declining an order (Farmer · Answer a
+/// new order board: date, price, crops not ready); a subset of
+/// [commitmentDeclineReasons], which the server accepts from either party.
+const List<String> farmerDeclineReasons = [
+  'date',
+  'price',
+  'crop_not_ready',
+  'other',
+];
+
 /// Whether the server runs the commitment rules for [order]. It stamps
 /// `fulfillment` at funding only with `COMMITMENTS_ENABLED` on, and only then
 /// writes `awaiting_transport` or a trucker answer; an order without any of

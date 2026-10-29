@@ -201,6 +201,25 @@ void main() {
       expect(order.cancelledBy, 'farmer');
     });
 
+    test('declining with a reason sends the reason code', () async {
+      await putOrder(
+        OrderStatus.funded,
+        farmerResponse: 'pending',
+        truckerResponse: 'not_asked',
+      );
+
+      await repo.rejectOrder(
+        'order-1',
+        'farmer-1',
+        declineReason: 'crop_not_ready',
+      );
+
+      final data = await onlyQueuedPayload();
+      expect(data['farmerResponse'], 'decline');
+      expect(data['declineReason'], 'crop_not_ready');
+      expect((await load()).declineReason, 'crop_not_ready');
+    });
+
     test('a failed enqueue puts the answer back', () async {
       repo = OrderRepository(isar: isar, syncQueue: _FullSyncQueue(isar));
       await putOrder(

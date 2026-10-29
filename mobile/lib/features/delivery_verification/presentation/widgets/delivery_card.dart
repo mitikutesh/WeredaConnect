@@ -4,9 +4,11 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_status_indicator.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
 
 /// Card displaying a single delivery in a list.
 ///
@@ -29,6 +31,16 @@ class DeliveryCard extends StatelessWidget {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
     final dateFormat = DateFormat.yMMMd();
+    // The buyer's 48 h to report a problem after delivery (Web · Buyer
+    // deliveries board: "report a problem until Wed 16:10").
+    final confirmedAt = delivery.confirmedAt;
+    final windowEnd = confirmedAt?.add(DeliveryConstants.disputeWindow);
+    final reportUntil = delivery.status == DeliveryStatus.delivered &&
+            delivery.buyerId == currentUserId &&
+            windowEnd != null &&
+            DateTime.now().toUtc().isBefore(windowEnd)
+        ? windowEnd
+        : null;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -66,6 +78,20 @@ class DeliveryCard extends StatelessWidget {
                             theme.colorScheme.onSurface.withValues(alpha: 0.6),
                       ),
                     ),
+                    if (reportUntil != null) ...[
+                      const SizedBox(height: 4),
+                      ClockText(
+                        clockFormatOf(context).deadline(
+                          reportUntil,
+                          date: DateFormat.MMMd(),
+                          sentence: l10n.liveTripReportProblemUntil,
+                        ),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppTheme.statusError,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

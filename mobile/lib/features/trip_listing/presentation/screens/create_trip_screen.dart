@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -548,6 +550,8 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
           child: InputDecorator(
             decoration: InputDecoration(
               labelText: l10n.departureDate,
+              helperText: l10n.createTripBookingCutoffNote,
+              helperMaxLines: 2,
               prefixIcon: const Icon(Icons.calendar_today),
               border: const OutlineInputBorder(),
               contentPadding: const EdgeInsets.symmetric(
@@ -568,99 +572,83 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        TextFormField(
-          controller: _capacityController,
-          decoration: InputDecoration(
-            labelText: l10n.capacity,
-            prefixIcon: const Icon(Icons.local_shipping),
-            suffixText: l10n.quintals,
-            border: const OutlineInputBorder(),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 20,
+        // Two per row with the labels above, as on the board; a label
+        // wraps instead of being cut (Afaan Oromoo labels run long).
+        _FieldPair(
+          first: _GridField(
+            label: l10n.capacity,
+            field: TextFormField(
+              key: const Key('create_trip_capacity'),
+              controller: _capacityController,
+              decoration: _gridDecoration(suffixText: l10n.quintals),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
+              ],
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return l10n.capacityRequired;
+                }
+                final capacity = double.tryParse(value);
+                if (capacity == null || capacity < 0.1 || capacity > 1000) {
+                  return l10n.invalidCapacity;
+                }
+                return null;
+              },
             ),
           ),
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
-          ],
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return l10n.capacityRequired;
-            }
-            final capacity = double.tryParse(value);
-            if (capacity == null || capacity < 0.1 || capacity > 1000) {
-              return l10n.invalidCapacity;
-            }
-            return null;
-          },
+          second: _GridField(
+            label: l10n.pricePerQuintal,
+            field: TextFormField(
+              key: const Key('create_trip_price'),
+              controller: _priceController,
+              decoration: _gridDecoration(suffixText: 'ETB'),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
+              ],
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return l10n.priceRequired;
+                }
+                final price = double.tryParse(value);
+                if (price == null || price < 0.01 || price > 10000) {
+                  return l10n.invalidPrice;
+                }
+                return null;
+              },
+            ),
+          ),
         ),
         const SizedBox(height: 16),
-        TextFormField(
-          controller: _priceController,
-          decoration: InputDecoration(
-            labelText: l10n.pricePerQuintal,
-            prefixIcon: const Icon(Icons.payments),
-            suffixText: 'ETB',
-            border: const OutlineInputBorder(),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 20,
+        _FieldPair(
+          first: _GridField(
+            label: l10n.vehiclePlate,
+            field: TextFormField(
+              key: const Key('create_trip_plate'),
+              controller: _vehiclePlateController,
+              decoration: _gridDecoration(hintText: '3-AA-12345'),
+              keyboardType: TextInputType.text,
+              textCapitalization: TextCapitalization.characters,
+              // FUP-49: the vehicle fields reach every buyer with the trip.
+              validator: (value) =>
+                  containsPhoneNumber(value) ? l10n.errorContactInText : null,
             ),
           ),
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
-          ],
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return l10n.priceRequired;
-            }
-            final price = double.tryParse(value);
-            if (price == null || price < 0.01 || price > 10000) {
-              return l10n.invalidPrice;
-            }
-            return null;
-          },
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
-          controller: _vehiclePlateController,
-          decoration: InputDecoration(
-            labelText: l10n.vehiclePlate,
-            prefixIcon: const Icon(Icons.confirmation_number),
-            hintText: '3-AA-12345',
-            errorMaxLines: 3,
-            border: const OutlineInputBorder(),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 20,
+          second: _GridField(
+            label: l10n.vehicleDescription,
+            field: TextFormField(
+              key: const Key('create_trip_vehicle'),
+              controller: _vehicleDescriptionController,
+              decoration: _gridDecoration(hintText: 'Isuzu FSR 5 t'),
+              keyboardType: TextInputType.text,
+              textCapitalization: TextCapitalization.words,
+              validator: (value) =>
+                  containsPhoneNumber(value) ? l10n.errorContactInText : null,
             ),
           ),
-          keyboardType: TextInputType.text,
-          textCapitalization: TextCapitalization.characters,
-          // FUP-49: the vehicle fields reach every buyer with the trip.
-          validator: (value) =>
-              containsPhoneNumber(value) ? l10n.errorContactInText : null,
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
-          controller: _vehicleDescriptionController,
-          decoration: InputDecoration(
-            labelText: l10n.vehicleDescription,
-            prefixIcon: const Icon(Icons.directions_car),
-            hintText: 'Isuzu FTR 10-ton',
-            errorMaxLines: 3,
-            border: const OutlineInputBorder(),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 20,
-            ),
-          ),
-          keyboardType: TextInputType.text,
-          textCapitalization: TextCapitalization.words,
-          validator: (value) =>
-              containsPhoneNumber(value) ? l10n.errorContactInText : null,
         ),
         if (_showDriverFields) ...[
           const SizedBox(height: 20),
@@ -715,6 +703,109 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
           ),
         ],
       ].reversed.toList(),
+    );
+  }
+}
+
+/// The look of a grid field: its label sits above it, not inside.
+InputDecoration _gridDecoration({String? suffixText, String? hintText}) =>
+    InputDecoration(
+      suffixText: suffixText,
+      hintText: hintText,
+      errorMaxLines: 4,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+    );
+
+/// A label above its field. Screen readers hear the label as the field's
+/// own (one merged node), as they would a floating label.
+class _GridField extends StatelessWidget {
+  const _GridField({
+    required this.label,
+    required this.field,
+    this.labelHeight,
+  });
+
+  final String label;
+  final Widget field;
+
+  /// The height the label takes, so two fields side by side line up when
+  /// only one label wraps; null lets the label size itself.
+  final double? labelHeight;
+
+  static const labelStyle = TextStyle(
+    fontSize: 13,
+    fontWeight: FontWeight.w700,
+    color: AppTheme.unselectedNav,
+  );
+
+  _GridField withLabelHeight(double height) =>
+      _GridField(label: label, field: field, labelHeight: height);
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Text(label, style: labelStyle);
+    return MergeSemantics(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (labelHeight == null)
+            text
+          else
+            SizedBox(
+              height: labelHeight,
+              child: Align(
+                alignment: AlignmentDirectional.bottomStart,
+                child: text,
+              ),
+            ),
+          const SizedBox(height: 6),
+          field,
+        ],
+      ),
+    );
+  }
+}
+
+/// Two grid fields side by side, top aligned; on a very narrow screen (or
+/// with large text) they stack.
+class _FieldPair extends StatelessWidget {
+  const _FieldPair({required this.first, required this.second});
+
+  final _GridField first;
+  final _GridField second;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final scaled = MediaQuery.textScalerOf(context).scale(1) > 1.3;
+        if (constraints.maxWidth < 300 || scaled) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [first, const SizedBox(height: 16), second],
+          );
+        }
+        const gap = 10.0;
+        final columnWidth = (constraints.maxWidth - gap) / 2;
+        double heightOf(String label) => (TextPainter(
+              text: TextSpan(text: label, style: _GridField.labelStyle),
+              textDirection: Directionality.of(context),
+              textScaler: MediaQuery.textScalerOf(context),
+            )..layout(maxWidth: columnWidth))
+                .height;
+        final labelHeight =
+            math.max(heightOf(first.label), heightOf(second.label));
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: first.withLabelHeight(labelHeight)),
+            const SizedBox(width: gap),
+            Expanded(child: second.withLabelHeight(labelHeight)),
+          ],
+        );
+      },
     );
   }
 }

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -16,6 +18,7 @@ import 'package:wereda_connect/features/trip_listing/domain/repositories/base_tr
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/route_preview_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -99,6 +102,10 @@ void main() {
       expect(find.text('From (Origin)'), findsOneWidget);
       expect(find.text('To (Destination)'), findsOneWidget);
       expect(find.text('Departure Date'), findsOneWidget);
+      expect(
+        find.text('Buyers can book until 24 h before you leave.'),
+        findsOneWidget,
+      );
       expect(find.text('Capacity (quintals)'), findsOneWidget);
       expect(find.text('Price per Quintal (ETB)'), findsOneWidget);
       expect(find.text('Vehicle Plate'), findsOneWidget);
@@ -109,6 +116,82 @@ void main() {
         find.text('Saved on your phone first, sent when you have network.'),
         findsOneWidget,
       );
+    });
+
+    // The board's grid: two fields per row, labels above. A screen reader
+    // hears each label as its field's, and a label that wraps (Afaan Oromoo)
+    // keeps the pair lined up.
+    testWidgets('capacity, price, plate and vehicle sit two per row',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 1800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      Rect at(String key) => tester.getRect(find.byKey(Key(key)));
+      expect(at('create_trip_capacity').top, at('create_trip_price').top);
+      expect(
+        at('create_trip_capacity').right,
+        lessThan(at('create_trip_price').left),
+      );
+      expect(at('create_trip_plate').top, at('create_trip_vehicle').top);
+      expect(
+        at('create_trip_price').bottom,
+        lessThan(at('create_trip_plate').top),
+      );
+
+      final handle = tester.ensureSemantics();
+      expect(
+        tester.getSemantics(find.byKey(const Key('create_trip_capacity'))),
+        isA<SemanticsNode>().having(
+          (n) => n.getSemanticsData().label,
+          'label',
+          contains('Capacity (quintals)'),
+        ),
+      );
+      handle.dispose();
+    });
+
+    testWidgets('a long Afaan Oromoo label wraps and the pair lines up',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 1800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<AuthBloc>.value(value: authBloc),
+            BlocProvider<TripListingBloc>.value(value: tripListingBloc),
+          ],
+          child: const MaterialApp(
+            locale: Locale('om'),
+            // As in main.dart: Afaan Oromoo has no Material localizations of
+            // its own.
+            localizationsDelegates: [
+              AppLocalizations.delegate,
+              FallbackMaterialLocalizationsDelegate(),
+              GlobalWidgetsLocalizations.delegate,
+              FallbackCupertinoLocalizationsDelegate(),
+            ],
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: CreateTripScreen(
+              truckerName: 'Test Trucker',
+              truckerPhone: '+251911000000',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final om = await AppLocalizations.delegate.load(const Locale('om'));
+      final label = tester.renderObject<RenderParagraph>(
+        find.text(om.vehiclePlate),
+      );
+      expect(label.didExceedMaxLines, isFalse);
+      Rect at(String key) => tester.getRect(find.byKey(Key(key)));
+      expect(at('create_trip_plate').top, at('create_trip_vehicle').top);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('a profile-filled driver gets no name or phone fields',
@@ -173,11 +256,11 @@ void main() {
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'Capacity (quintals)'),
+        find.byKey(const Key('create_trip_capacity')),
         '50',
       );
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'Price per Quintal (ETB)'),
+        find.byKey(const Key('create_trip_price')),
         '150',
       );
       await tester.tap(find.text('Save'));
@@ -267,11 +350,11 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'Capacity (quintals)'),
+        find.byKey(const Key('create_trip_capacity')),
         '9999',
       );
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'Price per Quintal (ETB)'),
+        find.byKey(const Key('create_trip_price')),
         '120',
       );
 

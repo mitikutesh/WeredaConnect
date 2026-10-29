@@ -183,6 +183,56 @@ void main() {
       expect(find.text(en.cancelOrder), findsNothing);
     });
 
+    // Farmer · Answer a new order board: the note, and a reject that asks
+    // why (farmer reasons only) and says the buyer is refunded.
+    testWidgets('rejecting asks why, then sends the reason', (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded),
+        UserRole.farmer,
+        'farmer-001',
+      );
+      expect(find.text(en.farmerAnswerNote), findsOneWidget);
+
+      await tester.ensureVisible(find.text(en.rejectOrder));
+      await tester.tap(find.text(en.rejectOrder));
+      await tester.pumpAndSettle();
+
+      expect(find.text(en.farmerRejectRefundNote), findsOneWidget);
+      expect(find.text(en.declineReasonDate), findsOneWidget);
+      expect(find.text(en.declineReasonPrice), findsOneWidget);
+      expect(find.text(en.declineReasonCropNotReady), findsOneWidget);
+      expect(find.text(en.declineReasonOther), findsOneWidget);
+      expect(find.text(en.declineReasonCapacity), findsNothing);
+      expect(find.text(en.declineReasonRoute), findsNothing);
+      verifyNever(() => orderBloc.add(any(that: isA<RejectOrder>())));
+
+      await tester.tap(find.text(en.declineReasonPrice));
+      await tester.pumpAndSettle();
+
+      final sent = verify(
+        () => orderBloc.add(captureAny(that: isA<RejectOrder>())),
+      ).captured.single as RejectOrder;
+      expect(sent.declineReason, 'price');
+      expect(sent.farmerId, 'farmer-001');
+    });
+
+    testWidgets('dismissing the reasons rejects nothing', (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded),
+        UserRole.farmer,
+        'farmer-001',
+      );
+      await tester.ensureVisible(find.text(en.rejectOrder));
+      await tester.tap(find.text(en.rejectOrder));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(en.cancel).last);
+      await tester.pumpAndSettle();
+
+      verifyNever(() => orderBloc.add(any(that: isA<RejectOrder>())));
+    });
+
     testWidgets('after accepting, waits for the trucker', (tester) async {
       await show(
         tester,

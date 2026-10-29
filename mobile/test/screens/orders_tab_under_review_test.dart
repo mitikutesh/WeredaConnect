@@ -197,6 +197,28 @@ void main() {
     expect(find.text(en.acceptOrder), findsOneWidget);
   });
 
+  // Farmer · Answer a new order board: a reject from the list asks why too.
+  testWidgets('farmer: Reject in the list asks why first', (tester) async {
+    tallView(tester);
+    signIn(UserRole.farmer);
+    when(() => orderBloc.isClosed).thenReturn(false);
+
+    await tester.pumpWidget(screen());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(en.rejectOrder).first);
+    await tester.pumpAndSettle();
+
+    expect(find.text(en.farmerRejectRefundNote), findsOneWidget);
+    verifyNever(() => orderBloc.add(any(that: isA<RejectOrder>())));
+
+    await tester.tap(find.text(en.declineReasonCropNotReady));
+    await tester.pumpAndSettle();
+    final sent = verify(
+      () => orderBloc.add(captureAny(that: isA<RejectOrder>())),
+    ).captured.single as RejectOrder;
+    expect(sent.declineReason, 'crop_not_ready');
+  });
+
   void heldReadAnswers(Future<List<Payment>> Function() answer) => when(
         () => escrowRepo.refreshHistory(
           userId: any(named: 'userId'),

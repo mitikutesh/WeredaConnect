@@ -7,6 +7,10 @@ import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 import 'package:provider/single_child_widget.dart';
 
+import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/core/database/schemas/app_notification.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/order.dart';
@@ -92,6 +96,11 @@ class MockNotificationRepository extends Mock
 class MockEscrowBloc extends Mock implements EscrowBloc {}
 
 class MockEscrowRepository extends Mock implements BaseEscrowRepository {}
+
+class MockTripListingBloc extends Mock implements TripListingBloc {}
+
+class MockTripListingRepository extends Mock
+    implements BaseTripListingRepository {}
 
 /// The order's escrow, held since the buyer paid.
 Payment heldEscrow() => Payment()
@@ -204,7 +213,16 @@ class LiveTripDeps {
     ).thenAnswer((_) async => false);
     when(() => notifications.recent(any(), limit: any(named: 'limit')))
         .thenAnswer((_) async => this.inbox);
+    when(() => tripBloc.repository).thenReturn(tripRepository);
+    when(() => tripBloc.state).thenReturn(const TripListingInitial());
+    when(() => tripBloc.stream).thenAnswer((_) => const Stream.empty());
+    when(() => tripRepository.getTripById(any())).thenAnswer((_) async => trip);
   }
+
+  /// The delivery's trip, for the buyer's driver card; null by default.
+  Trip? trip;
+  final tripBloc = MockTripListingBloc();
+  final tripRepository = MockTripListingRepository();
 
   Order? order;
   Payment? escrow;
@@ -226,6 +244,7 @@ class LiveTripDeps {
         BlocProvider<DeliveryBloc>.value(value: deliveryBloc),
         BlocProvider<RatingBloc>.value(value: ratingBloc),
         BlocProvider<EscrowBloc>.value(value: escrowBloc),
+        BlocProvider<TripListingBloc>.value(value: tripBloc),
       ];
 }
 

@@ -52,14 +52,18 @@ class RejectOrder extends OrderEvent {
   final String farmerId;
   final String? reason;
 
+  /// Why the farmer declines, one of `farmerDeclineReasons`.
+  final String? declineReason;
+
   const RejectOrder({
     required this.orderId,
     required this.farmerId,
     this.reason,
+    this.declineReason,
   });
 
   @override
-  List<Object?> get props => [orderId, farmerId, reason];
+  List<Object?> get props => [orderId, farmerId, reason, declineReason];
 }
 
 /// ESC-15: the trucker accepts the transport request of an order whose

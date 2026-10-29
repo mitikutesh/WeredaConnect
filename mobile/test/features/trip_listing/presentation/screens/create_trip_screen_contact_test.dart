@@ -113,11 +113,11 @@ void main() {
     await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Capacity (quintals)'),
+      find.byKey(const Key('create_trip_capacity')),
       '50',
     );
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Price per Quintal (ETB)'),
+      find.byKey(const Key('create_trip_price')),
       '150',
     );
   }
@@ -167,7 +167,10 @@ void main() {
       await tester.pumpAndSettle();
       await fillTrip(tester);
 
-      await tester.enterText(find.widgetWithText(TextFormField, label), text);
+      final field = label == 'Vehicle Plate'
+          ? find.byKey(const Key('create_trip_plate'))
+          : find.byKey(const Key('create_trip_vehicle'));
+      await tester.enterText(field, text);
       await save(tester);
 
       expect(find.text(_contactInText), findsOneWidget);
@@ -182,11 +185,11 @@ void main() {
     await fillTrip(tester);
 
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Vehicle Plate'),
+      find.byKey(const Key('create_trip_plate')),
       '3-AA-12345',
     );
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Vehicle Description'),
+      find.byKey(const Key('create_trip_vehicle')),
       'Isuzu FSR 2019 model, 70 quintal capacity',
     );
     await save(tester);

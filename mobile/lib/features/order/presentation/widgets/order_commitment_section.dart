@@ -214,12 +214,14 @@ String declineReasonLabel(AppLocalizations l10n, String code) => switch (code) {
       _ => l10n.declineReasonOther,
     };
 
-/// Asks why the trucker declines or drops out. Returns the chosen reason
+/// Asks why the trucker declines or drops out, or why the farmer declines a
+/// new order ([reasons] = `farmerDeclineReasons`). Returns the chosen reason
 /// code, or null when the sheet was dismissed. [warning] is shown above the
-/// reasons (the drop-out's penalty and sign-in note).
+/// reasons (the drop-out's penalty and sign-in note, the farmer's refund).
 Future<String?> showDeclineReasonSheet(
   BuildContext context, {
   String? warning,
+  List<String> reasons = commitmentDeclineReasons,
 }) {
   final l10n = AppLocalizations.of(context)!;
   return showModalBottomSheet<String>(
@@ -247,7 +249,7 @@ Future<String?> showDeclineReasonSheet(
               _CommitmentNote(label: ClockLabel.text(warning), warning: true),
             ],
             const SizedBox(height: 8),
-            for (final code in commitmentDeclineReasons)
+            for (final code in reasons)
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 title: Text(declineReasonLabel(l10n, code)),

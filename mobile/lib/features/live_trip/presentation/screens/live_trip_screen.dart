@@ -107,6 +107,9 @@ class _LiveTripViewState extends State<LiveTripView> {
   late Delivery _delivery;
   Order? _order;
   Payment? _escrow;
+
+  /// The truck on the driver card, for the buyer only.
+  String? _vehicle;
   bool _nearby = false;
   bool _escrowRequested = false;
   bool _reloadRequested = false;
@@ -126,6 +129,7 @@ class _LiveTripViewState extends State<LiveTripView> {
       _delivery = widget.delivery;
       _order = null;
       _escrow = null;
+      _vehicle = null;
       _nearby = false;
       _escrowRequested = false;
       _reloadRequested = false;
@@ -150,6 +154,13 @@ class _LiveTripViewState extends State<LiveTripView> {
         setState(() => _order = order);
       }
     });
+    if (delivery.buyerId == widget.currentUserId) {
+      loadDeliveryVehicle(context, delivery).then((vehicle) {
+        if (mounted && _delivery.deliveryId == delivery.deliveryId) {
+          setState(() => _vehicle = vehicle);
+        }
+      });
+    }
     loadTruckNearby(context, widget.currentUserId, delivery.deliveryId)
         .then((nearby) {
       if (mounted && _delivery.deliveryId == delivery.deliveryId) {
@@ -307,6 +318,7 @@ class _LiveTripViewState extends State<LiveTripView> {
           partyId: _delivery.truckerId,
           viewerId: widget.currentUserId,
           order: _order,
+          subtitle: _vehicle,
         ),
       ),
       if (onRoad) ...[

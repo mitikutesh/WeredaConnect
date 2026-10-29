@@ -18,6 +18,16 @@ const Set<OrderStatus> escrowHeldOrderStatuses = {
   OrderStatus.disputed,
 };
 
+/// Statuses whose quantity the server took off the crop listing when the
+/// order was funded (a reject or cancel puts it back; a resolved dispute does
+/// not, order-lifecycle.md). My Crops counts these as ordered.
+const Set<OrderStatus> listingStockTakenOrderStatuses = {
+  ...escrowHeldOrderStatuses,
+  OrderStatus.disbursing,
+  OrderStatus.settled,
+  OrderStatus.disputeResolved,
+};
+
 /// Buyer-facing "active" orders: in flight from creation through acceptance.
 const Set<OrderStatus> activeOrderStatuses = {
   OrderStatus.created,

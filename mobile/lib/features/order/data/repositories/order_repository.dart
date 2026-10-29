@@ -434,6 +434,7 @@ class OrderRepository extends BaseOrderRepository {
     String orderId,
     String farmerId, {
     String? reason,
+    String? declineReason,
   }) async {
     final order = await _findOrder(orderId);
     _checkFarmerResponse(order, farmerId);
@@ -451,6 +452,7 @@ class OrderRepository extends BaseOrderRepository {
         o.cancelledBy = 'farmer';
         o.respondedAt = now;
         o.rejectionReason = reason;
+        o.declineReason = declineReason;
         o.updatedAt = now;
         o.version = baseVersion + 1;
         _closeContact(o);
@@ -465,6 +467,7 @@ class OrderRepository extends BaseOrderRepository {
           'farmerResponse': CommitmentCommand.decline,
           'respondedAt': now.toIso8601String(),
           if (reason != null) 'rejectionReason': reason,
+          if (declineReason != null) 'declineReason': declineReason,
           'updatedAt': now.toIso8601String(),
           'version': baseVersion,
         }),

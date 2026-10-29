@@ -15,6 +15,10 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_listing_detail_screen.dart';
+import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -27,6 +31,10 @@ class MockAuthBloc extends Mock implements AuthBloc {}
 class MockCropListingBloc extends Mock implements CropListingBloc {}
 
 class MockRatingRepository extends Mock implements BaseRatingRepository {}
+
+class MockOrderBloc extends Mock implements OrderBloc {}
+
+class MockOrderRepository extends Mock implements BaseOrderRepository {}
 
 class FakeAuthEvent extends Fake implements AuthEvent {}
 
@@ -100,12 +108,14 @@ void main() {
     bool ownerMode = false,
     bool embedded = false,
     Locale? locale,
+    OrderBloc? orderBloc,
   }) {
     return MultiBlocProvider(
       providers: [
         BlocProvider<AuthBloc>.value(value: authBloc),
         BlocProvider<CropListingBloc>.value(value: cropListingBloc),
         BlocProvider<RatingBloc>.value(value: ratingBloc),
+        if (orderBloc != null) BlocProvider<OrderBloc>.value(value: orderBloc),
       ],
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -252,6 +262,82 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text(privacyNote), findsOneWidget);
+    });
+
+    // MyCrops board: "32 of 60 quintals ordered". Paid orders took their
+    // quantity off the listing, so the total is what is left plus them.
+    testWidgets('My Crops cards say how much is ordered', (tester) async {
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'farmer-001',
+          tokens: _testTokens,
+          role: UserRole.farmer,
+        ),
+      );
+      final orderBloc = MockOrderBloc();
+      final orders = MockOrderRepository();
+      when(() => orderBloc.repository).thenReturn(orders);
+      when(() => orderBloc.state).thenReturn(const OrderInitial());
+      when(() => orderBloc.stream).thenAnswer((_) => const Stream.empty());
+      Order order(String listingId, double kg, OrderStatus status) => Order()
+        ..orderId = '$listingId-$kg-${status.name}'
+        ..listingId = listingId
+        ..buyerId = 'b'
+        ..farmerId = 'farmer-001'
+        ..cropType = 'teff'
+        ..quantity = kg
+        ..pricePerUnit = 40
+        ..totalPrice = kg * 40
+        ..status = status
+        ..createdAt = DateTime(2026, 10)
+        ..version = 1;
+      when(() => orders.getOrdersByFarmer('farmer-001')).thenAnswer(
+        (_) async => [
+          order('wheat', 3000, OrderStatus.funded),
+          order('wheat', 200, OrderStatus.inTransit),
+          order('wheat', 500, OrderStatus.rejected), // stock put back
+          order('wheat', 900, OrderStatus.pendingPayment), // not paid
+        ],
+      );
+      final wheat = _listing(id: 'wheat', farmerId: 'farmer-001')
+        ..quantity = 28;
+      final chickpea = _listing(id: 'chickpea', farmerId: 'farmer-001')
+        ..quantity = 8;
+      loaded([wheat, chickpea]);
+
+      await tester.pumpWidget(
+        buildTestWidget(ownerMode: true, orderBloc: orderBloc),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('32 of 60 quintals ordered'), findsOneWidget);
+      expect(find.text('8 quintals, no orders yet'), findsOneWidget);
+    });
+
+    // MyCrops board: "Almaz Bekele · Meki" over "My Crops", and each card
+    // says where and when it was listed instead of the farmer's own name.
+    testWidgets('My Crops header and card lines', (tester) async {
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'farmer-001',
+          tokens: _testTokens,
+          role: UserRole.farmer,
+          userName: 'Almaz Bekele',
+          woreda: 'Meki',
+        ),
+      );
+      loaded([
+        _listing(id: 'a', farmerId: 'farmer-001', farmerName: 'Almaz Bekele')
+          ..createdAt = DateTime.utc(2026, 10, 26, 9),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(ownerMode: true));
+      await tester.pumpAndSettle();
+
+      expect(find.text('My Crops'), findsOneWidget);
+      expect(find.text('Almaz Bekele · Meki'), findsOneWidget);
+      expect(find.text('Bishoftu · listed Oct 26'), findsOneWidget);
+      expect(find.textContaining('Almaz Bekele, Bishoftu'), findsNothing);
     });
 
     testWidgets('buyer browse has no My Crops privacy note', (tester) async {

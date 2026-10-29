@@ -3,10 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/order_status_sets.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
@@ -15,6 +19,8 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_listing_detail_screen.dart';
+import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
@@ -81,6 +87,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
   void initState() {
     super.initState();
     _loadListings();
+    _loadOrderedQuintals();
   }
 
   @override
@@ -137,6 +144,66 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     if (auth.role != UserRole.buyer) return null;
     final woreda = auth.woreda?.trim();
     return (woreda == null || woreda.isEmpty) ? null : woreda;
+  }
+
+  /// My Crops: quintals ordered per listing id, from the farmer's own paid
+  /// orders (their quantity is what the server took off the listing).
+  Map<String, double> _orderedByListing = const {};
+
+  Future<void> _loadOrderedQuintals() async {
+    final farmerId = _getFarmerId();
+    if (!widget.ownerMode || farmerId == null) return;
+    final BaseOrderRepository repository;
+    try {
+      repository = context.read<OrderBloc>().repository;
+    } on ProviderNotFoundException {
+      return;
+    }
+    try {
+      final orders = await repository.getOrdersByFarmer(farmerId);
+      final ordered = <String, double>{};
+      for (final order in orders) {
+        if (!listingStockTakenOrderStatuses.contains(order.status)) continue;
+        ordered[order.listingId] =
+            (ordered[order.listingId] ?? 0) + order.quantity / 100;
+      }
+      if (mounted) setState(() => _orderedByListing = ordered);
+    } on Object catch (e) {
+      // Secondary detail: the cards stay without it.
+      debugPrint('[MyCrops] order read failed: $e');
+    }
+  }
+
+  /// "Meki · listed 28 Oct": the farmer's own card needs no seller name.
+  String _ownListingSubtitle(CropListing listing, AppLocalizations l10n) {
+    final listed = l10n.myCropsListedOn(
+      DateFormat.MMMd().format(dayInEthiopia(listing.createdAt)),
+    );
+    return listing.locationName.isEmpty
+        ? listed
+        : '${listing.locationName} · $listed';
+  }
+
+  /// "32 of 60 quintals ordered", or "8 quintals, no orders yet".
+  String _orderedDetail(CropListing listing, AppLocalizations l10n) {
+    final ordered = _orderedByListing[listing.listingId] ?? 0;
+    if (ordered <= 0) {
+      return l10n.myCropsNoOrdersYet(formatQuintals(listing.quantity));
+    }
+    return l10n.myCropsOrderedOf(
+      formatQuintals(ordered),
+      formatQuintals(listing.quantity + ordered),
+    );
+  }
+
+  /// My Crops header: "Almaz Bekele · Meki", from the profile; null when
+  /// it has neither.
+  String? _ownerLine() {
+    final auth = context.read<AuthBloc>().state;
+    if (auth is! AuthAuthenticated) return null;
+    final parts = [auth.userName.trim(), (auth.woreda ?? '').trim()]
+        .where((p) => p.isNotEmpty);
+    return parts.isEmpty ? null : parts.join(' · ');
   }
 
   String? _getFarmerId() {
@@ -211,7 +278,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                         ),
                       ),
                     Text(
-                      widget.ownerMode ? l10n.myListings : l10n.market,
+                      widget.ownerMode ? l10n.myCrops : l10n.market,
                       style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w700,
@@ -221,7 +288,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                     const SizedBox(height: 4),
                     Text(
                       widget.ownerMode
-                          ? l10n.yourCropListings
+                          ? (_ownerLine() ?? l10n.yourCropListings)
                           : l10n.browseVerifiedFarmers,
                       style: TextStyle(
                         fontSize: 14,
@@ -512,7 +579,10 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
 
                     return RefreshIndicator(
                       // Refresh keeps the visible search and filters.
-                      onRefresh: () async => _applyFilters(),
+                      onRefresh: () async {
+                        _applyFilters();
+                        await _loadOrderedQuintals();
+                      },
                       child: ListView.separated(
                         physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.fromLTRB(
@@ -567,6 +637,12 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                 rating: rated ? summary.average : null,
                                 ratingCount: rated ? summary.count : null,
                                 icon: Icons.eco,
+                                detail: widget.ownerMode
+                                    ? _orderedDetail(listing, l10n)
+                                    : null,
+                                subtitle: widget.ownerMode
+                                    ? _ownListingSubtitle(listing, l10n)
+                                    : null,
                                 onTap: () {
                                   final authState =
                                       context.read<AuthBloc>().state;
