@@ -262,7 +262,10 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                       const SizedBox(height: 20),
                       // Canvas info card
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(16),

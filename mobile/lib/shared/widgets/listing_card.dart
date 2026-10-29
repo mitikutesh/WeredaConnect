@@ -37,7 +37,8 @@ class ListingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isWheat = title.toLowerCase().contains('wheat') || title.toLowerCase().contains('ስንዴ');
+    final isWheat = title.toLowerCase().contains('wheat') ||
+        title.toLowerCase().contains('ስንዴ');
     final iconBg = isWheat ? const Color(0xFFF4EBCF) : const Color(0xFFE3EEE6);
     final iconFg = isWheat ? const Color(0xFF8A5410) : AppTheme.fieldGreen;
 
@@ -85,7 +86,9 @@ class ListingCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      location.isNotEmpty ? '$sellerName, $location' : sellerName,
+                      location.isNotEmpty
+                          ? '$sellerName, $location'
+                          : sellerName,
                       style: const TextStyle(
                         fontSize: 12,
                         color: AppTheme.mutedSteel,

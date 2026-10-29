@@ -61,7 +61,9 @@ class _MarketScreenState extends State<MarketScreen> {
                           child: Container(
                             height: 38,
                             decoration: BoxDecoration(
-                              color: _segment == 0 ? Colors.white : Colors.transparent,
+                              color: _segment == 0
+                                  ? Colors.white
+                                  : Colors.transparent,
                               borderRadius: BorderRadius.circular(11),
                               boxShadow: _segment == 0
                                   ? [
@@ -107,7 +109,9 @@ class _MarketScreenState extends State<MarketScreen> {
                           child: Container(
                             height: 38,
                             decoration: BoxDecoration(
-                              color: _segment == 1 ? Colors.white : Colors.transparent,
+                              color: _segment == 1
+                                  ? Colors.white
+                                  : Colors.transparent,
                               borderRadius: BorderRadius.circular(11),
                               boxShadow: _segment == 1
                                   ? [

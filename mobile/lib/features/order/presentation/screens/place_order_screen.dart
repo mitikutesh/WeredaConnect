@@ -339,7 +339,11 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                   ),
                   child: const Row(
                     children: [
-                      Icon(Icons.lock_outline, size: 18, color: AppTheme.fieldGreen),
+                      Icon(
+                        Icons.lock_outline,
+                        size: 18,
+                        color: AppTheme.fieldGreen,
+                      ),
                       SizedBox(width: 10),
                       Expanded(
                         child: Text(

@@ -215,8 +215,10 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
                                   fit: BoxFit.cover,
                                   width: double.infinity,
                                   height: double.infinity,
-                                  errorBuilder: (_, __, ___) =>
-                                      const Icon(Icons.broken_image, color: Colors.white),
+                                  errorBuilder: (_, __, ___) => const Icon(
+                                    Icons.broken_image,
+                                    color: Colors.white,
+                                  ),
                                 )
                               : Image.file(
                                   File(widget.drivingLicensePath!),
@@ -257,8 +259,14 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
                             height: 24,
                             decoration: const BoxDecoration(
                               border: Border(
-                                left: BorderSide(color: Color(0xFFD9922B), width: 4),
-                                top: BorderSide(color: Color(0xFFD9922B), width: 4),
+                                left: BorderSide(
+                                  color: Color(0xFFD9922B),
+                                  width: 4,
+                                ),
+                                top: BorderSide(
+                                  color: Color(0xFFD9922B),
+                                  width: 4,
+                                ),
                               ),
                             ),
                           ),
@@ -271,8 +279,14 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
                             height: 24,
                             decoration: const BoxDecoration(
                               border: Border(
-                                right: BorderSide(color: Color(0xFFD9922B), width: 4),
-                                top: BorderSide(color: Color(0xFFD9922B), width: 4),
+                                right: BorderSide(
+                                  color: Color(0xFFD9922B),
+                                  width: 4,
+                                ),
+                                top: BorderSide(
+                                  color: Color(0xFFD9922B),
+                                  width: 4,
+                                ),
                               ),
                             ),
                           ),
@@ -285,8 +299,14 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
                             height: 24,
                             decoration: const BoxDecoration(
                               border: Border(
-                                left: BorderSide(color: Color(0xFFD9922B), width: 4),
-                                bottom: BorderSide(color: Color(0xFFD9922B), width: 4),
+                                left: BorderSide(
+                                  color: Color(0xFFD9922B),
+                                  width: 4,
+                                ),
+                                bottom: BorderSide(
+                                  color: Color(0xFFD9922B),
+                                  width: 4,
+                                ),
                               ),
                             ),
                           ),
@@ -299,8 +319,14 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
                             height: 24,
                             decoration: const BoxDecoration(
                               border: Border(
-                                right: BorderSide(color: Color(0xFFD9922B), width: 4),
-                                bottom: BorderSide(color: Color(0xFFD9922B), width: 4),
+                                right: BorderSide(
+                                  color: Color(0xFFD9922B),
+                                  width: 4,
+                                ),
+                                bottom: BorderSide(
+                                  color: Color(0xFFD9922B),
+                                  width: 4,
+                                ),
                               ),
                             ),
                           ),
@@ -560,7 +586,8 @@ class _BuyerTypeOption extends StatelessWidget {
             children: [
               Icon(
                 icon,
-                color: isSelected ? AppTheme.fieldGreen : const Color(0xFF5E6862),
+                color:
+                    isSelected ? AppTheme.fieldGreen : const Color(0xFF5E6862),
               ),
               const SizedBox(width: 12),
               Text(
@@ -568,7 +595,9 @@ class _BuyerTypeOption extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w700,
-                  color: isSelected ? const Color(0xFF15201A) : const Color(0xFF3F4843),
+                  color: isSelected
+                      ? const Color(0xFF15201A)
+                      : const Color(0xFF3F4843),
                 ),
               ),
               const Spacer(),

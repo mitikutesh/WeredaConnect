@@ -980,7 +980,8 @@ class _DashboardTile extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            border: emphasized ? null : Border.all(color: AppTheme.whisperBorder),
+            border:
+                emphasized ? null : Border.all(color: AppTheme.whisperBorder),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

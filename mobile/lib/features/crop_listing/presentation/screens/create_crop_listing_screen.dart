@@ -392,7 +392,8 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
                       // Total calculation preview card
                       Builder(
                         builder: (context) {
-                          final q = double.tryParse(_quantityController.text) ?? 0;
+                          final q =
+                              double.tryParse(_quantityController.text) ?? 0;
                           final p = double.tryParse(_priceController.text) ?? 0;
                           final total = q * 100 * p;
                           if (total <= 0) return const SizedBox.shrink();

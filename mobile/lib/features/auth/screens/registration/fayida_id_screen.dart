@@ -66,7 +66,8 @@ class FayidaIdScreen extends StatelessWidget {
               if (errorMessage != null) ...[
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFDF2F2),
                     border: Border.all(color: const Color(0xFFF8B4B4)),
@@ -99,9 +100,11 @@ class FayidaIdScreen extends StatelessWidget {
               // Digital ID Simulated Card from Canvas
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: isVerified ? const Color(0xFF193B2B) : AppTheme.soilDark,
+                  color:
+                      isVerified ? const Color(0xFF193B2B) : AppTheme.soilDark,
                   borderRadius: BorderRadius.circular(24),
                 ),
                 child: Column(
@@ -175,7 +178,8 @@ class FayidaIdScreen extends StatelessWidget {
                                       width: 140,
                                       decoration: BoxDecoration(
                                         color: const Color(0xFF33433B),
-                                        borderRadius: BorderRadius.circular(999),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
                                       ),
                                     ),
                                     const SizedBox(height: 8),
@@ -184,7 +188,8 @@ class FayidaIdScreen extends StatelessWidget {
                                       width: 100,
                                       decoration: BoxDecoration(
                                         color: const Color(0xFF33433B),
-                                        borderRadius: BorderRadius.circular(999),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
                                       ),
                                     ),
                                     const SizedBox(height: 8),
@@ -193,7 +198,8 @@ class FayidaIdScreen extends StatelessWidget {
                                       width: 120,
                                       decoration: BoxDecoration(
                                         color: const Color(0xFF33433B),
-                                        borderRadius: BorderRadius.circular(999),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
                                       ),
                                     ),
                                   ],
@@ -218,7 +224,8 @@ class FayidaIdScreen extends StatelessWidget {
 
               // Security notice pill box
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: const Color(0xFFE6ECF5),
                   borderRadius: BorderRadius.circular(16),
@@ -255,7 +262,8 @@ class FayidaIdScreen extends StatelessWidget {
                   child: Column(
                     children: [
                       const CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(AppTheme.fieldGreen),
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(AppTheme.fieldGreen),
                       ),
                       const SizedBox(height: 8),
                       Text(
@@ -285,18 +293,24 @@ class FayidaIdScreen extends StatelessWidget {
                   child: ElevatedButton.icon(
                     onPressed: onFaydaVerifyRequested,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: isVerified ? AppTheme.fieldGreen : AppTheme.soilDark,
+                      backgroundColor:
+                          isVerified ? AppTheme.fieldGreen : AppTheme.soilDark,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
                       elevation: 0,
                     ),
-                    icon: Icon(isVerified ? Icons.check : Icons.security, size: 20),
+                    icon: Icon(
+                      isVerified ? Icons.check : Icons.security,
+                      size: 20,
+                    ),
                     label: Text(
                       isVerified
                           ? l10n.faydaVerifiedSuccess
-                          : (errorMessage != null ? l10n.retry : l10n.verifyWithFayda),
+                          : (errorMessage != null
+                              ? l10n.retry
+                              : l10n.verifyWithFayda),
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,

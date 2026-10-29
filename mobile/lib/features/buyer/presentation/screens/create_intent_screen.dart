@@ -431,7 +431,8 @@ class _CropTypeChips extends StatelessWidget {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(999),
                 side: BorderSide(
-                  color: isSelected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+                  color:
+                      isSelected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
                 ),
               ),
               labelStyle: TextStyle(

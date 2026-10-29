@@ -35,7 +35,6 @@ class DeliveriesTabScreen extends StatefulWidget {
   State<DeliveriesTabScreen> createState() => _DeliveriesTabScreenState();
 }
 
-
 List<Delivery> _demoCanvasDeliveries(String userId) {
   final now = DateTime.now().toUtc();
   return [
@@ -594,8 +593,11 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
                           ),
                           child: const Row(
                             children: [
-                              Icon(Icons.search,
-                                  size: 18, color: AppTheme.mutedSteel,),
+                              Icon(
+                                Icons.search,
+                                size: 18,
+                                color: AppTheme.mutedSteel,
+                              ),
                               SizedBox(width: 8),
                               Expanded(
                                 child: TextField(

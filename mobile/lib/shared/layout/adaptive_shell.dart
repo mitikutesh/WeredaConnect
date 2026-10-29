@@ -563,7 +563,8 @@ class _SidebarFooter extends StatelessWidget {
   Widget build(BuildContext context) {
     final authState = context.watch<AuthBloc>().state;
     final name = authState is AuthAuthenticated ? authState.userName : '';
-    final woreda = authState is AuthAuthenticated ? (authState.woreda ?? '') : '';
+    final woreda =
+        authState is AuthAuthenticated ? (authState.woreda ?? '') : '';
     final initials = name.isNotEmpty
         ? (name.length > 1
             ? name.substring(0, 2).toUpperCase()
