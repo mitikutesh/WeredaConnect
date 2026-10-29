@@ -4354,4 +4354,73 @@ class AppLocalizationsOm extends AppLocalizations {
   String liveTripOnTheRoadSince(String time) {
     return '$time irraa kaasee karaa irra';
   }
+
+  @override
+  String get loginEscrowFooter =>
+      'Kaffaltiin Eeskiroo keessatti nageenyaan qabama';
+
+  @override
+  String get loginNoAccountRegister => 'Akkaawuntii hin qabduu? Galmaa\'i';
+
+  @override
+  String get otpFaydaNumberNote =>
+      'Kana kan gaafannu yoo lakkoofsi galmee Fayda keessanii irraa adda ta\'e qofa.';
+
+  @override
+  String get faydaDigitalIdLabel => 'Eenyummeessaa Dijitaalaa';
+
+  @override
+  String get faydaVerifiedWith => 'Fayda\'n mirkanaa\'e';
+
+  @override
+  String get faydaLegalNameNote =>
+      'Maqaan seeraa keessan Fayda irraa dhufa. Namni kamiyyuu maqaa keessaniin galmaa\'uu hin danda\'u.';
+
+  @override
+  String registrationStepOf(int current, int total) {
+    return 'Tarkaanfii $current kan $total';
+  }
+
+  @override
+  String get registrationRoleNextNote =>
+      'Itti aansuun Fayda\'n mirkaneessitu, achiis odeeffannoo keessan galchitu. Qonnaan bultoonni tarkaanfii odeeffannoo gahee ni darbu.';
+
+  @override
+  String get fromFayda => 'Fayda irraa';
+
+  @override
+  String get placeLicenseHere => 'Hayyama konkolaachisaa asitti kaa\'aa';
+
+  @override
+  String get retakeLicensePhoto => 'Suuraa hayyamaa irra deebi\'ii kaasi';
+
+  @override
+  String get totalListingValue => 'Gatii Waliigalaa Tarree';
+
+  @override
+  String get checkoutHeldInEscrowNote =>
+      'Hanga geessuu mirkaneessitanitti Eeskiroo keessatti qabama';
+
+  @override
+  String get placeOrderEscrowNote =>
+      'Maallaqni keessan nageenyaan qabama. Duraan qonnaan bulaan, itti aansee konkolaachisaan ni gaafatama.';
+
+  @override
+  String get deliveriesSearchHint => 'Qonnaan bulaa, bitaa ykn konkolaachisaa';
+
+  @override
+  String get savedOnPhoneFirstNote =>
+      'Duraan bilbila keessan irratti olkaa\'ama, yeroo networkiin jiru ni ergama.';
+
+  @override
+  String get myCropsPrivacyNote =>
+      'Tarree keessan asitti kan argitu isin qofa. Bitoonni Midhaan Barbaadi keessatti argu.';
+
+  @override
+  String get homeToday => 'Har\'a';
+
+  @override
+  String tripPricePerQuintalValue(String price) {
+    return 'Kuntaala tokkoof Birrii $price';
+  }
 }

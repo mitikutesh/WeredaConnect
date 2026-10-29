@@ -4314,4 +4314,72 @@ class AppLocalizationsEn extends AppLocalizations {
   String liveTripOnTheRoadSince(String time) {
     return 'On the road since $time';
   }
+
+  @override
+  String get loginEscrowFooter => 'Payments held safely in escrow';
+
+  @override
+  String get loginNoAccountRegister => 'Don\'t have an account? Register';
+
+  @override
+  String get otpFaydaNumberNote =>
+      'We ask for this only when the number differs from your Fayda record.';
+
+  @override
+  String get faydaDigitalIdLabel => 'Digital ID';
+
+  @override
+  String get faydaVerifiedWith => 'Verified with Fayda';
+
+  @override
+  String get faydaLegalNameNote =>
+      'Your legal name comes from Fayda. Nobody can register in your name.';
+
+  @override
+  String registrationStepOf(int current, int total) {
+    return 'Step $current of $total';
+  }
+
+  @override
+  String get registrationRoleNextNote =>
+      'Next you verify with Fayda, then add your details. Farmers skip the role details step.';
+
+  @override
+  String get fromFayda => 'From Fayda';
+
+  @override
+  String get placeLicenseHere => 'Place the license here';
+
+  @override
+  String get retakeLicensePhoto => 'Retake License Photo';
+
+  @override
+  String get totalListingValue => 'Total Listing Value';
+
+  @override
+  String get checkoutHeldInEscrowNote =>
+      'Held in escrow until you confirm delivery';
+
+  @override
+  String get placeOrderEscrowNote =>
+      'Your money is held safely. The farmer is asked first, then the trucker.';
+
+  @override
+  String get deliveriesSearchHint => 'Farmer, buyer or driver';
+
+  @override
+  String get savedOnPhoneFirstNote =>
+      'Saved on your phone first, sent when you have network.';
+
+  @override
+  String get myCropsPrivacyNote =>
+      'Only you see your listings here. Buyers see them in Find Crops.';
+
+  @override
+  String get homeToday => 'Today';
+
+  @override
+  String tripPricePerQuintalValue(String price) {
+    return '$price ETB per quintal';
+  }
 }

@@ -7612,6 +7612,120 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'On the road since {time}'**
   String liveTripOnTheRoadSince(String time);
+
+  /// Fieldway design alignment (specs/design-canvas). Login: footer line under the register button, shown before the Telebirr label
+  ///
+  /// In en, this message translates to:
+  /// **'Payments held safely in escrow'**
+  String get loginEscrowFooter;
+
+  /// Fieldway design alignment (specs/design-canvas). Login: outlined button that opens registration
+  ///
+  /// In en, this message translates to:
+  /// **'Don\'t have an account? Register'**
+  String get loginNoAccountRegister;
+
+  /// Fieldway design alignment (specs/design-canvas). OTP screen: why the phone code is asked
+  ///
+  /// In en, this message translates to:
+  /// **'We ask for this only when the number differs from your Fayda record.'**
+  String get otpFaydaNumberNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration Fayda step: label on the dark ID card, shown in capitals
+  ///
+  /// In en, this message translates to:
+  /// **'Digital ID'**
+  String get faydaDigitalIdLabel;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration Fayda step: line under the verified legal name
+  ///
+  /// In en, this message translates to:
+  /// **'Verified with Fayda'**
+  String get faydaVerifiedWith;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration Fayda step: note at the bottom of the ID card
+  ///
+  /// In en, this message translates to:
+  /// **'Your legal name comes from Fayda. Nobody can register in your name.'**
+  String get faydaLegalNameNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration: step counter above the progress bar
+  ///
+  /// In en, this message translates to:
+  /// **'Step {current} of {total}'**
+  String registrationStepOf(int current, int total);
+
+  /// Fieldway design alignment (specs/design-canvas). Registration role step: what comes next
+  ///
+  /// In en, this message translates to:
+  /// **'Next you verify with Fayda, then add your details. Farmers skip the role details step.'**
+  String get registrationRoleNextNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration personal info: tag on the locked legal name
+  ///
+  /// In en, this message translates to:
+  /// **'From Fayda'**
+  String get fromFayda;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration trucker step: text inside the camera frame
+  ///
+  /// In en, this message translates to:
+  /// **'Place the license here'**
+  String get placeLicenseHere;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration trucker step: button once a license photo exists
+  ///
+  /// In en, this message translates to:
+  /// **'Retake License Photo'**
+  String get retakeLicensePhoto;
+
+  /// Fieldway design alignment (specs/design-canvas). Create crop listing: quantity times price preview
+  ///
+  /// In en, this message translates to:
+  /// **'Total Listing Value'**
+  String get totalListingValue;
+
+  /// Fieldway design alignment (specs/design-canvas). Checkout: line under the amount
+  ///
+  /// In en, this message translates to:
+  /// **'Held in escrow until you confirm delivery'**
+  String get checkoutHeldInEscrowNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Place order: escrow assurance above the button
+  ///
+  /// In en, this message translates to:
+  /// **'Your money is held safely. The farmer is asked first, then the trucker.'**
+  String get placeOrderEscrowNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen): search box hint; matches the names on a delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Farmer, buyer or driver'**
+  String get deliveriesSearchHint;
+
+  /// Fieldway design alignment (specs/design-canvas). Create crop listing and create trip: offline save note under Save
+  ///
+  /// In en, this message translates to:
+  /// **'Saved on your phone first, sent when you have network.'**
+  String get savedOnPhoneFirstNote;
+
+  /// Fieldway design alignment (specs/design-canvas). My Crops: note under the farmer's own listings
+  ///
+  /// In en, this message translates to:
+  /// **'Only you see your listings here. Buyers see them in Find Crops.'**
+  String get myCropsPrivacyNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Trucker home header: big title under the greeting
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get homeToday;
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail header: the trip's price; {price} is a number
+  ///
+  /// In en, this message translates to:
+  /// **'{price} ETB per quintal'**
+  String tripPricePerQuintalValue(String price);
 }
 
 class _AppLocalizationsDelegate

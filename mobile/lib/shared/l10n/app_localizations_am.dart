@@ -4194,4 +4194,68 @@ class AppLocalizationsAm extends AppLocalizations {
   String liveTripOnTheRoadSince(String time) {
     return 'ከ$time ጀምሮ በመንገድ ላይ';
   }
+
+  @override
+  String get loginEscrowFooter => 'ክፍያዎች በኢስክሮ በደህና ይያዛሉ';
+
+  @override
+  String get loginNoAccountRegister => 'አካውንት የለዎትም? ይመዝገቡ';
+
+  @override
+  String get otpFaydaNumberNote => 'ይህንን የምንጠይቀው ቁጥሩ ከፋይዳ መዝገብዎ ሲለይ ብቻ ነው።';
+
+  @override
+  String get faydaDigitalIdLabel => 'ዲጂታል መታወቂያ';
+
+  @override
+  String get faydaVerifiedWith => 'በፋይዳ የተረጋገጠ';
+
+  @override
+  String get faydaLegalNameNote => 'ሕጋዊ ስምዎ ከፋይዳ ይመጣል። ማንም በስምዎ መመዝገብ አይችልም።';
+
+  @override
+  String registrationStepOf(int current, int total) {
+    return 'ደረጃ $current ከ$total';
+  }
+
+  @override
+  String get registrationRoleNextNote =>
+      'ቀጥሎ በፋይዳ ያረጋግጣሉ፣ ከዚያ ዝርዝሮችዎን ያክላሉ። ገበሬዎች የሚና ዝርዝሮችን ደረጃ ይዘላሉ።';
+
+  @override
+  String get fromFayda => 'ከፋይዳ';
+
+  @override
+  String get placeLicenseHere => 'መንጃ ፈቃዱን እዚህ ያስቀምጡ';
+
+  @override
+  String get retakeLicensePhoto => 'የፈቃድ ፎቶውን እንደገና አንሳ';
+
+  @override
+  String get totalListingValue => 'ጠቅላላ የዝርዝር ዋጋ';
+
+  @override
+  String get checkoutHeldInEscrowNote => 'ርክክቡን እስኪያረጋግጡ ድረስ በኢስክሮ ይያዛል';
+
+  @override
+  String get placeOrderEscrowNote =>
+      'ገንዘብዎ በደህና ይያዛል። መጀመሪያ ገበሬው፣ ከዚያ ሹፌሩ ይጠየቃሉ።';
+
+  @override
+  String get deliveriesSearchHint => 'ገበሬ፣ ገዢ ወይም ሹፌር';
+
+  @override
+  String get savedOnPhoneFirstNote => 'መጀመሪያ በስልክዎ ይቀመጣል፣ ኔትወርክ ሲኖር ይላካል።';
+
+  @override
+  String get myCropsPrivacyNote =>
+      'ዝርዝሮችዎን እዚህ የሚያዩት እርስዎ ብቻ ነዎት። ገዢዎች በሰብል ፈልግ ውስጥ ያዩዋቸዋል።';
+
+  @override
+  String get homeToday => 'ዛሬ';
+
+  @override
+  String tripPricePerQuintalValue(String price) {
+    return 'በኩንታል $price ብር';
+  }
 }
