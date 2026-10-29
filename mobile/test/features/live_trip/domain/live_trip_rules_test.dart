@@ -175,4 +175,51 @@ void main() {
       );
     });
   });
+
+  // Buyer · Trip log board: "About 20 min, then on to you" for a stop before
+  // the buyer's drop-off, at the pace of the server's own estimate.
+  group('minutesToStopAhead', () {
+    const ahead = TrackStop(
+      kind: 'dropoff',
+      point: GeoPoint(8.6, 39.18),
+      done: false,
+    );
+
+    test('a stop before the drop-off, at the arrival window pace', () {
+      // About 18.1 km (x 1.3) of the 47.2 km left, 90 minutes to the middle
+      // of the 10:20 to 11:00 window: 34.5, rounded up to 35.
+      expect(minutesToStopAhead(withEta(corridorTrack()), ahead, asOf), 35);
+    });
+
+    test('a stop past the drop-off is not ahead', () {
+      const beyond = TrackStop(
+        kind: 'dropoff',
+        point: GeoPoint(8.2, 39.9),
+        done: false,
+      );
+      expect(
+        minutesToStopAhead(withEta(corridorTrack()), beyond, asOf),
+        isNull,
+      );
+    });
+
+    test('no estimate without the window or a done stop', () {
+      expect(minutesToStopAhead(corridorTrack(), ahead, asOf), isNull);
+      const done = TrackStop(
+        kind: 'dropoff',
+        point: GeoPoint(8.6, 39.18),
+        done: true,
+      );
+      expect(minutesToStopAhead(withEta(corridorTrack()), done, asOf), isNull);
+    });
+
+    test('never under 5 minutes', () {
+      const near = TrackStop(
+        kind: 'pickup',
+        point: GeoPoint(8.641, 39.061),
+        done: false,
+      );
+      expect(minutesToStopAhead(withEta(corridorTrack()), near, asOf), 5);
+    });
+  });
 }

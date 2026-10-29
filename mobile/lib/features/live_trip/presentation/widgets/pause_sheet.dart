@@ -103,7 +103,7 @@ class _PauseSheetState extends State<PauseSheet> {
           children: [
             Text(
               l10n.pauseSheetTitle,
-              style: theme.textTheme.titleLarge?.copyWith(
+              style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.w800,
                 color: AppTheme.textDark,
               ),
@@ -129,19 +129,41 @@ class _PauseSheetState extends State<PauseSheet> {
               },
               child: Column(
                 children: [
+                  // Trucker · Offline and pause board: each choice a card,
+                  // the chosen one with a dark edge.
                   for (final c in offered)
-                    RadioListTile<PauseChoice>(
-                      key: Key('pause_${c.name}'),
-                      value: c,
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(_label(c, l10n, clock)),
-                      subtitle: c == PauseChoice.overnight
-                          ? null
-                          : Text(
-                              l10n.pauseSheetBackAt(
-                                clock.time(c.untilFrom(widget.now)!),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: RadioListTile<PauseChoice>(
+                        key: Key('pause_${c.name}'),
+                        value: c,
+                        contentPadding: const EdgeInsets.only(right: 12),
+                        tileColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          side: BorderSide(
+                            color: c == _choice
+                                ? AppTheme.soilDark
+                                : AppTheme.whisperBorder,
+                            width: c == _choice ? 2 : 1,
+                          ),
+                        ),
+                        title: Text(
+                          _label(c, l10n, clock),
+                          style: TextStyle(
+                            fontWeight: c == _choice
+                                ? FontWeight.w700
+                                : FontWeight.w600,
+                          ),
+                        ),
+                        subtitle: c == PauseChoice.overnight
+                            ? null
+                            : Text(
+                                l10n.pauseSheetBackAt(
+                                  clock.time(c.untilFrom(widget.now)!),
+                                ),
                               ),
-                            ),
+                      ),
                     ),
                 ],
               ),
@@ -160,14 +182,20 @@ class _PauseSheetState extends State<PauseSheet> {
               icon: const Icon(Icons.pause),
               label: Text(l10n.pauseSheetConfirm),
               style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
+                backgroundColor: AppTheme.soilDark,
+                foregroundColor: Colors.white,
+                minimumSize: const Size.fromHeight(56),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
               ),
             ),
-            const SizedBox(height: 8),
-            OutlinedButton(
+            const SizedBox(height: 4),
+            TextButton(
               key: const Key('pause_keep'),
               onPressed: () => Navigator.of(context).pop(),
-              style: OutlinedButton.styleFrom(
+              style: TextButton.styleFrom(
+                foregroundColor: AppTheme.soilDark,
                 minimumSize: const Size.fromHeight(48),
               ),
               child: Text(l10n.pauseSheetKeep),

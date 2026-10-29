@@ -8,12 +8,14 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
+import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
+import 'package:wereda_connect/features/crop_listing/domain/transport_this_week.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
@@ -22,6 +24,8 @@ import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_l
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
+import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -88,6 +92,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     super.initState();
     _loadListings();
     _loadOrderedQuintals();
+    _loadOpenTrips();
   }
 
   @override
@@ -153,13 +158,9 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
   Future<void> _loadOrderedQuintals() async {
     final farmerId = _getFarmerId();
     if (!widget.ownerMode || farmerId == null) return;
-    final BaseOrderRepository repository;
     try {
-      repository = context.read<OrderBloc>().repository;
-    } on ProviderNotFoundException {
-      return;
-    }
-    try {
+      final BaseOrderRepository repository =
+          context.read<OrderBloc>().repository;
       final orders = await repository.getOrdersByFarmer(farmerId);
       final ordered = <String, double>{};
       for (final order in orders) {
@@ -172,6 +173,44 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
       // Secondary detail: the cards stay without it.
       debugPrint('[MyCrops] order read failed: $e');
     }
+  }
+
+  /// Buyer browse: the open trips, read once, for each card's transport
+  /// line. Null until read (or with no trip repository), so no line shows.
+  List<Trip>? _openTrips;
+
+  Future<void> _loadOpenTrips() async {
+    if (widget.ownerMode) return;
+    final auth = context.read<AuthBloc>().state;
+    // Buyers see every trip; nobody else gets this read.
+    if (auth is! AuthAuthenticated || auth.role != UserRole.buyer) return;
+    try {
+      // Secondary detail: no trip bloc, or a failed read, leaves no line.
+      final BaseTripListingRepository repository =
+          context.read<TripListingBloc>().repository;
+      final trips = await repository.getOpenTrips();
+      if (mounted) setState(() => _openTrips = trips);
+    } on Object catch (e) {
+      debugPrint('[FindCrops] trip read failed: $e');
+    }
+  }
+
+  /// "Transport Thu · 18 quintals free", "2 trips this week" or "No trip
+  /// yet" (Buyer · Find crops board); null before the trips are read.
+  String? _transportLine(CropListing listing, AppLocalizations l10n) {
+    final trips = _openTrips;
+    if (trips == null) return null;
+    final auth = context.read<AuthBloc>().state;
+    final woreda =
+        auth is AuthAuthenticated ? _buyerDeliveryWoreda(auth) : null;
+    final fitting =
+        tripsThisWeekFor(listing, trips, woreda, DateTime.now().toUtc());
+    if (fitting.isEmpty) return l10n.marketNoTripYet;
+    if (fitting.length > 1) return l10n.marketTripsThisWeek(fitting.length);
+    final trip = fitting.single;
+    final day = DateFormat.E().format(dayInEthiopia(trip.departureDate));
+    return '${l10n.marketTransportOn(day)} · '
+        '${l10n.tripRemainingCapacity(formatQuintals(tripRoomLeft(trip)))}';
   }
 
   /// "Meki · listed 28 Oct": the farmer's own card needs no seller name.
@@ -639,7 +678,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                 icon: Icons.eco,
                                 detail: widget.ownerMode
                                     ? _orderedDetail(listing, l10n)
-                                    : null,
+                                    : _transportLine(listing, l10n),
                                 subtitle: widget.ownerMode
                                     ? _ownListingSubtitle(listing, l10n)
                                     : null,

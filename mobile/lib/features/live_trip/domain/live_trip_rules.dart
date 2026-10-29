@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:wereda_connect/core/models/app_notification.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
@@ -84,6 +86,30 @@ double? distanceToDropoffKm(DeliveryTrack track) {
   final dropoff = track.dropoff;
   if (last == null || dropoff == null) return null;
   return distanceKm(last.point, dropoff);
+}
+
+/// Minutes until the truck reaches [stop], another order's stop that comes
+/// before the viewer's drop-off (Buyer · Trip log board: "About 20 min, then
+/// on to you"). Uses the pace of the server's own estimate for the viewer:
+/// [DeliveryTrack.remainingKm] (great circle x 1.3) over the time to the
+/// middle of [DeliveryTrack.eta], with the same 1.3 road factor for the
+/// stop. Null when the stop is not nearer than the drop-off, or the track
+/// has no last check-in, window or distance. Rounded up to 5 minutes.
+int? minutesToStopAhead(DeliveryTrack track, TrackStop stop, DateTime now) {
+  final last = track.lastFix;
+  final eta = track.eta;
+  final remaining = track.remainingKm;
+  if (stop.done || last == null || eta == null || remaining == null) {
+    return null;
+  }
+  if (remaining <= 0) return null;
+  final middle = eta.from.add(eta.to.difference(eta.from) ~/ 2);
+  final minutesToYou = middle.difference(now).inSeconds / 60;
+  if (minutesToYou <= 0) return null;
+  final stopKm = distanceKm(last.point, stop.point) * 1.3;
+  if (stopKm >= remaining) return null;
+  final minutes = stopKm / remaining * minutesToYou;
+  return math.max(5, (minutes / 5).ceil() * 5);
 }
 
 /// The kilometres driven along the check-ins (straight legs between them,

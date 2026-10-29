@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
+import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
@@ -291,65 +292,93 @@ class _TripModeScreenState extends State<TripModeScreen> {
     final plan = _plan;
     final hasTrip = _status.tripId != null;
 
+    // The Trucker · Trip mode board: the trip and its sharing on a dark
+    // header the full width, the stops below on the light page.
     return Scaffold(
-      backgroundColor: AppTheme.backgroundCream,
-      appBar: AppBar(title: Text(l10n.tripModeTitle)),
+      backgroundColor: AppTheme.chalkBackground,
+      appBar: AppBar(
+        title: Text(l10n.tripModeTitle),
+        backgroundColor: AppTheme.soilDark,
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: _refresh,
-          child: ResponsiveCenter(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              children: [
-                if (_offline) ...[
-                  _OfflineCheckIns(unsent: _status.unsent),
-                  const SizedBox(height: 12),
-                ],
-                if (plan?.trip != null) ...[
-                  _TripHeader(plan: plan!),
-                  const SizedBox(height: 12),
-                ],
-                _SharingCard(
-                  status: _status,
-                  clock: clock,
-                  busy: _busy,
-                  onPause: _pause,
-                  onResume: _resume,
-                  onCheckIn: () => _checkIn(arrived: false),
-                  onShare: _share,
+          child: ListView(
+            padding: const EdgeInsets.only(bottom: 24),
+            children: [
+              Container(
+                color: AppTheme.soilDark,
+                child: ResponsiveCenter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (plan?.trip != null) ...[
+                          _TripHeader(plan: plan!),
+                          const SizedBox(height: 14),
+                        ],
+                        _SharingCard(
+                          status: _status,
+                          clock: clock,
+                          busy: _busy,
+                          onPause: _pause,
+                          onResume: _resume,
+                          onCheckIn: () => _checkIn(arrived: false),
+                          onShare: _share,
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-                if (hasTrip) ...[
-                  const SizedBox(height: 16),
-                  if (_loading && plan == null)
-                    const Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  else if (_loadFailed && plan == null)
-                    _LoadFailed(onRetry: _reload)
-                  else if (plan != null) ...[
-                    if (plan.next != null) ...[
-                      _NextStopCard(
-                        stop: plan.next!,
-                        place: plan.trip?.toWoreda,
-                        canCheckIn: _status.mode == SharingMode.live ||
-                            _status.mode == SharingMode.paused,
-                        busy: _busy,
-                        onArrived: () => _checkIn(arrived: true),
-                        onScanPickup: _scanPickup,
-                        onOpenDelivery: _openDelivery,
-                      ),
-                      const SizedBox(height: 16),
+              ),
+              ResponsiveCenter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (_offline) ...[
+                        _OfflineCheckIns(unsent: _status.unsent),
+                        const SizedBox(height: 12),
+                      ],
+                      if (hasTrip) ...[
+                        const SizedBox(height: 16),
+                        if (_loading && plan == null)
+                          const Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Center(child: CircularProgressIndicator()),
+                          )
+                        else if (_loadFailed && plan == null)
+                          _LoadFailed(onRetry: _reload)
+                        else if (plan != null) ...[
+                          if (plan.next != null) ...[
+                            _NextStopCard(
+                              stop: plan.next!,
+                              place: plan.trip?.toWoreda,
+                              canCheckIn: _status.mode == SharingMode.live ||
+                                  _status.mode == SharingMode.paused,
+                              busy: _busy,
+                              onArrived: () => _checkIn(arrived: true),
+                              onScanPickup: _scanPickup,
+                              onOpenDelivery: _openDelivery,
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                          _StopList(plan: plan, clock: clock),
+                          if (plan.pay != null) ...[
+                            const SizedBox(height: 16),
+                            _PayRow(pay: plan.pay!),
+                          ],
+                        ],
+                      ],
                     ],
-                    _StopList(plan: plan, clock: clock),
-                    if (plan.pay != null) ...[
-                      const SizedBox(height: 16),
-                      _PayRow(pay: plan.pay!),
-                    ],
-                  ],
-                ],
-              ],
-            ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -368,20 +397,36 @@ class _TripHeader extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final trip = plan.trip!;
-    final day = DateFormat.MMMd().format(dayInEthiopia(trip.departureDate));
+    final departure = dayInEthiopia(trip.departureDate);
+    final today = dayInEthiopia(DateTime.now().toUtc());
+    final day = DateUtils.isSameDay(departure, today)
+        ? l10n.homeToday
+        : DateFormat.MMMd().format(departure);
+    final capacity = trip.capacity;
+    final loaded = (capacity - tripRoomLeft(trip)).clamp(0, capacity);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '$day · ${l10n.tripModeOrders(plan.orderCount)}',
-          style: theme.textTheme.bodySmall?.copyWith(color: AppTheme.textMuted),
+          [
+            day,
+            l10n.tripModeOrders(plan.orderCount),
+            if (capacity > 0)
+              l10n.tripLoadedOf(
+                formatQuintals(loaded.toDouble()),
+                formatQuintals(capacity),
+              ),
+          ].join(' · '),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: const Color(0xFFB9C2BD),
+          ),
         ),
         const SizedBox(height: 2),
         Text(
           '${trip.fromWoreda} → ${trip.toWoreda}',
           style: theme.textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.w800,
-            color: AppTheme.textDark,
+            color: Colors.white,
           ),
         ),
       ],
@@ -561,8 +606,8 @@ class _SharingCard extends StatelessWidget {
       key: Key('trip_mode_sharing_${status.mode.name}'),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppTheme.primaryDeep,
-        borderRadius: BorderRadius.circular(16),
+        color: const Color(0xFF22302A),
+        borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -689,6 +734,8 @@ class _NextStopCard extends StatelessWidget {
                     pickup ? l10n.deliveryScanQr : l10n.orderOpenDelivery,
                   ),
                   style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.soilDark,
+                    foregroundColor: Colors.white,
                     minimumSize: const Size.fromHeight(48),
                   ),
                 ),
@@ -725,11 +772,12 @@ class _StopList extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        for (final stop in plan.stops)
+        for (final (i, stop) in plan.stops.indexed)
           _StopRow(
             stop: stop,
             place: plan.trip?.toWoreda,
             isNext: identical(stop, next),
+            isLast: i == plan.stops.length - 1,
             clock: clock,
           ),
       ],
@@ -742,12 +790,16 @@ class _StopRow extends StatelessWidget {
     required this.stop,
     required this.place,
     required this.isNext,
+    required this.isLast,
     required this.clock,
   });
 
   final TripStop stop;
   final String? place;
   final bool isNext;
+
+  /// The last stop has no line down to a next one.
+  final bool isLast;
   final ClockFormat clock;
 
   @override
@@ -783,33 +835,51 @@ class _StopRow extends StatelessWidget {
             ? (Icons.radio_button_checked, AppTheme.accentSoft)
             : (Icons.radio_button_unchecked, AppTheme.textMuted);
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+    // A line joins the stops, solid along the done ones (the board's
+    // timeline).
+    return IntrinsicHeight(
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Icon(icon, size: 22, color: color),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    fontWeight: isNext ? FontWeight.w800 : FontWeight.w600,
-                    color: AppTheme.textDark,
+          Column(
+            children: [
+              Icon(icon, size: 22, color: color),
+              if (!isLast)
+                Expanded(
+                  child: Container(
+                    width: 2,
+                    margin: const EdgeInsets.symmetric(vertical: 2),
+                    color: stop.isDone
+                        ? AppTheme.fieldGreen
+                        : const Color(0xFFC9CCC4),
                   ),
                 ),
-                if (detail != null && detail.isNotEmpty)
+            ],
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    detail,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: isNext ? AppTheme.money : AppTheme.textMuted,
-                      fontWeight: isNext ? FontWeight.w700 : null,
+                    title,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontWeight: isNext ? FontWeight.w800 : FontWeight.w600,
+                      color: AppTheme.textDark,
                     ),
                   ),
-              ],
+                  if (detail != null && detail.isNotEmpty)
+                    Text(
+                      detail,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: isNext ? AppTheme.money : AppTheme.textMuted,
+                        fontWeight: isNext ? FontWeight.w700 : null,
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ],

@@ -18,6 +18,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
@@ -86,6 +87,9 @@ void main() {
       (_) => const Stream.empty(),
     );
     when(() => syncExecutor.isSyncing).thenReturn(false);
+    // Find Crops reads the open trips for its cards' transport line.
+    when(() => tripListingBloc.state).thenReturn(const TripListingInitial());
+    when(() => tripListingBloc.stream).thenAnswer((_) => const Stream.empty());
   });
 
   /// Tab indexes the dashboard asked the shell to switch to.

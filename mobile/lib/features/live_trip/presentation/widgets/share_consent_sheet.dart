@@ -50,14 +50,20 @@ class ShareConsentSheet extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: CircleAvatar(
-                  radius: 24,
-                  backgroundColor: AppTheme.statusSuccessContainer,
-                  child: Icon(
-                    Icons.share_location,
-                    color: AppTheme.primary,
+              // Trucker · Share location board: an amber tile, square icon
+              // chips, a dark primary button and a plain "Not now".
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFAEED8),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(
+                    Icons.place_outlined,
+                    color: Color(0xFF8A5410),
                     size: 26,
                   ),
                 ),
@@ -65,9 +71,9 @@ class ShareConsentSheet extends StatelessWidget {
               const SizedBox(height: 16),
               Text(
                 l10n.liveTripConsentTitle,
-                style: theme.textTheme.titleLarge?.copyWith(
+                style: theme.textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.w800,
-                  color: AppTheme.textDark,
+                  color: AppTheme.soilDark,
                 ),
               ),
               const SizedBox(height: 6),
@@ -79,7 +85,7 @@ class ShareConsentSheet extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               _ConsentRow(
-                icon: Icons.group_outlined,
+                icon: Icons.visibility_outlined,
                 title: l10n.liveTripConsentWhoTitle,
                 text: l10n.liveTripConsentWhoText,
               ),
@@ -89,7 +95,7 @@ class ShareConsentSheet extends StatelessWidget {
                 text: l10n.liveTripConsentOftenText,
               ),
               _ConsentRow(
-                icon: Icons.flag_outlined,
+                icon: Icons.check,
                 title: l10n.liveTripConsentStopsTitle,
                 text: l10n.liveTripConsentStopsText,
               ),
@@ -115,15 +121,21 @@ class ShareConsentSheet extends StatelessWidget {
                 icon: const Icon(Icons.share_location),
                 label: Text(l10n.liveTripConsentShare),
                 style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
+                  backgroundColor: AppTheme.soilDark,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(56),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                 ),
               ),
-              const SizedBox(height: 8),
-              OutlinedButton(
+              const SizedBox(height: 4),
+              TextButton(
                 key: const Key('consent_scans_only'),
                 onPressed: () =>
                     Navigator.of(context).pop(ShareConsentChoice.scansOnly),
-                style: OutlinedButton.styleFrom(
+                style: TextButton.styleFrom(
+                  foregroundColor: AppTheme.soilDark,
                   minimumSize: const Size.fromHeight(48),
                 ),
                 child: Text(l10n.liveTripConsentDecline),
@@ -155,7 +167,15 @@ class _ConsentRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 22, color: AppTheme.primary),
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF0EEE7),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 20, color: AppTheme.soilDark),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
