@@ -124,6 +124,23 @@ export function TripTrailTab({ deliveryId }: { deliveryId: string }) {
               ))}
             </ul>
           )}
+          {(trail.awayStops?.length ?? 0) > 0 && (
+            <>
+              <h3 className="mb-2 mt-4 font-semibold">{t("trail.awayStops")}</h3>
+              <ul className="space-y-1 text-sm">
+                {trail.awayStops!.map((stop) => (
+                  <li key={stop.from}>
+                    {fill(t("trail.awayStopRange"), {
+                      from: formatDateTime(stop.from),
+                      until: formatDateTime(stop.until),
+                      place: formatCoords(stop.latitude, stop.longitude),
+                      km: stop.nearestScanKm,
+                    })}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
           <h3 className="mb-2 mt-4 font-semibold">{t("trail.gaps")}</h3>
           {trail.gaps.length === 0 ? (
             <p className="text-sm text-text-muted">{t("trail.noGaps")}</p>

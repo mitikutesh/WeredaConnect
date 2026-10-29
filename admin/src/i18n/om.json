@@ -198,7 +198,11 @@
     "saysLate": "Gabaasota booda ergaman (erga fudhatamanii daqiiqaa 15 booda): {count}",
     "saysPauses": "Dhaabbii konkolaachisaa: {count}",
     "saysDistance": "Gabaasota gidduutti km {km} daqiiqaa {minutes} keessatti",
-    "reminder": "Karaan kun bakka konkolaataan ture agarsiisa malee waan fe'e hin agarsiisu. Suuraalee, ulfaatina fi ergaalee waliin madaali."
+    "reminder": "Karaan kun bakka konkolaataan ture agarsiisa malee waan fe'e hin agarsiisu. Suuraalee, ulfaatina fi ergaalee waliin madaali.",
+    "saysAwayStops": "Dhaabbiiwwan iskaanii QR imalaa hunda irraa km 5 ol fagaatan: {count}",
+    "saysNoAwayStops": "Dhaabbiin hundi iskaanii QR imalaa bira ture",
+    "awayStops": "Dhaabbiiwwan iskaanii QR irraa fagaatan",
+    "awayStopRange": "{from} hanga {until} {place} irratti, iskaanii QR dhihoo irraa km {km}"
   },
   "payouts": {
     "title": "Kaffaltii Harkaan",

@@ -198,7 +198,11 @@
     "saysLate": "Check-ins sent late (more than 15 minutes after they were taken): {count}",
     "saysPauses": "Pauses by the driver: {count}",
     "saysDistance": "{km} km between check-ins over {minutes} min",
-    "reminder": "The trail shows where the truck was, not what it carried. Weigh it with the photos, weights and messages."
+    "reminder": "The trail shows where the truck was, not what it carried. Weigh it with the photos, weights and messages.",
+    "saysAwayStops": "Pauses more than 5 km from every QR scan of the trip: {count}",
+    "saysNoAwayStops": "Every pause was near a QR scan of the trip",
+    "awayStops": "Stops away from the QR scans",
+    "awayStopRange": "{from} to {until} at {place}, {km} km from the nearest QR scan"
   },
   "payouts": {
     "title": "Manual Payouts",
