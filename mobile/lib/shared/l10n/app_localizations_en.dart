@@ -4482,4 +4482,23 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get marketNoTripYet => 'No trip yet';
+
+  @override
+  String liveTripEscrowAmount(String amount) {
+    return '$amount in escrow';
+  }
+
+  @override
+  String get liveTripReleasePending => 'Release pending';
+
+  @override
+  String get liveTripYouConfirmedDelivery => 'You confirmed delivery';
+
+  @override
+  String get liveTripCheckWindowEnds => 'Check window ends';
+
+  @override
+  String liveTripPartyGets(String name, String amount) {
+    return '$name gets $amount';
+  }
 }

@@ -7864,6 +7864,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No trip yet'**
   String get marketNoTripYet;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: the order's money still held; {amount} is the sum with ETB
+  ///
+  /// In en, this message translates to:
+  /// **'{amount} in escrow'**
+  String liveTripEscrowAmount(String amount);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: chip, the money is not paid out yet
+  ///
+  /// In en, this message translates to:
+  /// **'Release pending'**
+  String get liveTripReleasePending;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: step done when the buyer scanned the driver's QR
+  ///
+  /// In en, this message translates to:
+  /// **'You confirmed delivery'**
+  String get liveTripYouConfirmedDelivery;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: step, the end of the 48 h window to report a problem
+  ///
+  /// In en, this message translates to:
+  /// **'Check window ends'**
+  String get liveTripCheckWindowEnds;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: who is paid what after the window; {amount} is the sum with ETB
+  ///
+  /// In en, this message translates to:
+  /// **'{name} gets {amount}'**
+  String liveTripPartyGets(String name, String amount);
 }
 
 class _AppLocalizationsDelegate

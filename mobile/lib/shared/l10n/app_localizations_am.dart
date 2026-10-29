@@ -4357,4 +4357,23 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get marketNoTripYet => 'እስካሁን ጉዞ የለም';
+
+  @override
+  String liveTripEscrowAmount(String amount) {
+    return '$amount በኢስክሮ';
+  }
+
+  @override
+  String get liveTripReleasePending => 'ክፍያው ገና አልተለቀቀም';
+
+  @override
+  String get liveTripYouConfirmedDelivery => 'ማድረሻውን አረጋግጠዋል';
+
+  @override
+  String get liveTripCheckWindowEnds => 'የማጣሪያ ጊዜው ያበቃል';
+
+  @override
+  String liveTripPartyGets(String name, String amount) {
+    return '$name $amount ያገኛል';
+  }
 }

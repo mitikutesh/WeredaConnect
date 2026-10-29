@@ -2997,5 +2997,10 @@
   "liveTripLogStopAhead": "Gara daqiiqaa {minutes}, achiis gara keessanitti",
   "marketTransportOn": "Geejjiba {day}",
   "marketTripsThisWeek": "{count, plural, =1{Torban kana imala 1} other{Torban kana imala {count}}}",
-  "marketNoTripYet": "Hanga ammaatti imalli hin jiru"
+  "marketNoTripYet": "Hanga ammaatti imalli hin jiru",
+  "liveTripEscrowAmount": "{amount} Eeskiroo keessa",
+  "liveTripReleasePending": "Kaffaltiin ammallee hin gadhiifamne",
+  "liveTripYouConfirmedDelivery": "Geejjiba mirkaneessitaniittu",
+  "liveTripCheckWindowEnds": "Yeroon mirkaneessaa xumurama",
+  "liveTripPartyGets": "{name} {amount} argata"
 }

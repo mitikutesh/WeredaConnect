@@ -4679,5 +4679,15 @@
   "marketTripsThisWeek": "{count, plural, =1{1 trip this week} other{{count} trips this week}}",
   "@marketTripsThisWeek": {"description": "Fieldway design alignment (specs/design-canvas). Find Crops card: how many trips this week can carry the crop", "placeholders": {"count": {"type": "int"}}},
   "marketNoTripYet": "No trip yet",
-  "@marketNoTripYet": {"description": "Fieldway design alignment (specs/design-canvas). Find Crops card: no trip this week can carry the crop"}
+  "@marketNoTripYet": {"description": "Fieldway design alignment (specs/design-canvas). Find Crops card: no trip this week can carry the crop"},
+  "liveTripEscrowAmount": "{amount} in escrow",
+  "@liveTripEscrowAmount": {"description": "LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: the order's money still held; {amount} is the sum with ETB", "placeholders": {"amount": {"type": "String"}}},
+  "liveTripReleasePending": "Release pending",
+  "@liveTripReleasePending": {"description": "LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: chip, the money is not paid out yet"},
+  "liveTripYouConfirmedDelivery": "You confirmed delivery",
+  "@liveTripYouConfirmedDelivery": {"description": "LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: step done when the buyer scanned the driver's QR"},
+  "liveTripCheckWindowEnds": "Check window ends",
+  "@liveTripCheckWindowEnds": {"description": "LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: step, the end of the 48 h window to report a problem"},
+  "liveTripPartyGets": "{name} gets {amount}",
+  "@liveTripPartyGets": {"description": "LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: who is paid what after the window; {amount} is the sum with ETB", "placeholders": {"name": {"type": "String"}, "amount": {"type": "String"}}}
 }

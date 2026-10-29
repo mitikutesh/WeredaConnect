@@ -4524,4 +4524,23 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get marketNoTripYet => 'Hanga ammaatti imalli hin jiru';
+
+  @override
+  String liveTripEscrowAmount(String amount) {
+    return '$amount Eeskiroo keessa';
+  }
+
+  @override
+  String get liveTripReleasePending => 'Kaffaltiin ammallee hin gadhiifamne';
+
+  @override
+  String get liveTripYouConfirmedDelivery => 'Geejjiba mirkaneessitaniittu';
+
+  @override
+  String get liveTripCheckWindowEnds => 'Yeroon mirkaneessaa xumurama';
+
+  @override
+  String liveTripPartyGets(String name, String amount) {
+    return '$name $amount argata';
+  }
 }
