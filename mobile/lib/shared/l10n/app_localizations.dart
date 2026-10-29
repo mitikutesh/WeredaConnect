@@ -7840,6 +7840,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'listed {date}'**
   String myCropsListedOn(String date);
+
+  /// Fieldway design alignment (specs/design-canvas). Trip log, buyer: an unnamed stop before the buyer's drop-off; {minutes} is the estimate at the pace of the arrival window
+  ///
+  /// In en, this message translates to:
+  /// **'About {minutes} min, then on to you'**
+  String liveTripLogStopAhead(int minutes);
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops card: the one trip this week that can carry the crop; {day} is a short weekday, followed by the room left
+  ///
+  /// In en, this message translates to:
+  /// **'Transport {day}'**
+  String marketTransportOn(String day);
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops card: how many trips this week can carry the crop
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 trip this week} other{{count} trips this week}}'**
+  String marketTripsThisWeek(int count);
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops card: no trip this week can carry the crop
+  ///
+  /// In en, this message translates to:
+  /// **'No trip yet'**
+  String get marketNoTripYet;
 }
 
 class _AppLocalizationsDelegate

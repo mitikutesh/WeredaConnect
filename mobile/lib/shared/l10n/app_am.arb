@@ -3000,5 +3000,9 @@
   "myCropsOrderedOf": "ከ{total} ኩንታል {ordered} ታዝዟል",
   "myCropsNoOrdersYet": "{quantity} ኩንታል፣ እስካሁን ትዕዛዝ የለም",
   "createTripBookingCutoffNote": "ገዢዎች ከመነሳትዎ 24 ሰዓት በፊት ድረስ መያዝ ይችላሉ።",
-  "myCropsListedOn": "{date} የተዘረዘረ"
+  "myCropsListedOn": "{date} የተዘረዘረ",
+  "liveTripLogStopAhead": "በግምት {minutes} ደቂቃ፣ ከዚያ ወደ እርስዎ",
+  "marketTransportOn": "ትራንስፖርት {day}",
+  "marketTripsThisWeek": "{count, plural, =1{በዚህ ሳምንት 1 ጉዞ} other{በዚህ ሳምንት {count} ጉዞዎች}}",
+  "marketNoTripYet": "እስካሁን ጉዞ የለም"
 }
