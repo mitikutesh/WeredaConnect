@@ -7,6 +7,7 @@ Audit of the 35 boards in this folder (identical to the live canvas K6DUM33R6apP
 1. **Phrases.** Every visible phrase of every board was extracted and searched in what the app ships: the en arb values, Dart string literals, admin TSX and admin i18n. A phrase matched when its words appear in one string (placeholders ignored).
 2. **Unmatched phrases.** Each one is resolved in the table below: sample data the app fills into a template, an existing template with other words, or a real difference (built in PR #255, or kept on purpose).
 3. **Layout.** The live trip boards (Trucker trip mode, Share consent, Offline and pause, Buyer live trip, Farmer order on the road) were rendered next to the app's screens (board HTML in a headless browser, the screens in widget tests with the app theme and fonts). Trip mode, the consent and pause sheets and the farmer screen were then restyled to the boards. The other boards were aligned in #254 and PR #255 from their markup.
+4. **Every screen, in the real app (PR #256).** The web build against the dev API was signed in as the farmer, trucker and buyer test users, and each role's screens (home, My Crops, crop detail, create listing, Find Crops, Market, browse trips, create trip, trip detail, orders, order detail, deliveries, messages, profile) were shot at phone width next to the board for the same screen. The layout gaps found that way were then fixed (see "Built in PR #256").
 
 Final phrase run: 85 unmatched phrases (78 unique), all resolved below. Welcome, the five Join boards, Create trip, Payment, Buyer order detail and Share consent have none.
 
@@ -82,12 +83,22 @@ The app fills these from the order, trip, delivery, listing or track; the templa
 | 10:55 · near Mojo (Offline and pause header) | Trip mode's header shows the trip (day, orders, load, route), not the phone's current town. |
 | 28 min ago · next one due by about 12:45 | The buyer's trip log shows the age of the latest check-in; the next one's time is shown to the trucker in trip mode ("next by"). |
 | Recent: pickup scanned at Koka 09:40 (Trucker home) | The home's Recent Activity list shows the latest events in its own format. |
+| Active · 2 / Delivered · 1 / All (Buyer · Deliveries) | The tab keeps its status chips (they filter on the server); the All list is grouped under the board's stage headings instead. |
 
 ## Built in PR #255 after this audit
 
 Login language switch; registration step counter; Create trip as one page (Repeat Last Trip, swap, route preview, 24 h booking cutoff, two fields per row); My Crops status chips, header, listed date and ordered quantity; Find Crops transport line and Market "Deliver to"; suggested transport from Find Crops; trucker load bar; trip detail notes; farmer reject reason; checkout Fayda and password note; order summary card; driver card truck and plate; delivered report window; trip log stop-ahead estimate; trip mode, consent, pause and farmer screens restyled to the boards; admin Decide and the away-stop check (`awayStops`, live-trip-api 1.0.6).
 
+## Built in PR #256
+
+- Light headers as on the boards: the app bar and page share the chalk background with dark text; Home, My Crops, Find Crops and browse trips lose the green band, and Market and Find Crops show "Deliver to" with the board's place tile. Home shows the sync chip under the greeting and count tiles as label plus big number (the trucker keeps the dark header).
+- My Crops cards: price per kg, status under the price, ordered share bar; buyer cards show the transport line as a pill, highlighted when a trip runs this week. The privacy note sits in a blue box.
+- Crop detail header: icon tile, big title, quantity and listed date, big price, status chip.
+- Create listing: quantity and price side by side with labels above (the create trip form's `LabeledFieldPair`, now shared).
+- Order detail: crop and quantity as the page title with the status chip, the other party under it, and the viewer's amount in a white card with the escrow lock line.
+- Deliveries: buyer and farmer see the list under stage headings (On the road now, Waiting for pickup, Delivered, Disputed, Cancelled); the trucker's list is unchanged.
+- Admin trail: "stops off the stop list" now also judges each pause against the trip's planned stops (every non-cancelled order's listing location and the trip's destination), read from the trips, deliveries and crops tables the admin function already reads; scans alone judge when those reads fail (`nearestPlannedStopKm`, live-trip-api 1.0.6).
+
 ## Not built
 
-- The admin board's "stops off the stop list" against each order's planned points: the trail route does not read listings or other orders (FRD-14). PR #255 flags pauses far from every QR scan of the trip instead.
 - The am and om strings need a native speaker's review before release.
