@@ -6,10 +6,12 @@ import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/delivery_verification/data/verification_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_scan_screen.dart';
+import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_timeline.dart';
 import 'package:wereda_connect/features/live_trip/domain/models/delivery_track.dart';
 import 'package:wereda_connect/features/live_trip/domain/models/track_result.dart';
 import 'package:wereda_connect/features/live_trip/presentation/screens/live_trip_screen.dart';
+import 'package:wereda_connect/features/live_trip/presentation/widgets/live_trip_parts.dart';
 import 'package:wereda_connect/features/live_trip/presentation/screens/trip_log_screen.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/track_map.dart';
 
@@ -240,6 +242,20 @@ void main() {
     });
   });
 
+  // Spec section 4: map hero plus bottom sheet.
+  testWidgets('on the road the map runs edge to edge above the sheet',
+      (tester) async {
+    await pumpView(tester);
+
+    final map = find.byType(LiveTripMap);
+    expect(tester.widget<LiveTripMap>(map).borderRadius, 0);
+    expect(tester.getSize(map).width, 420);
+    expect(
+      tester.getTopLeft(find.text('Wheat · 2,000 kg')).dy,
+      greaterThan(tester.getBottomLeft(map).dy - 24),
+    );
+  });
+
   group('arriving', () {
     testWidgets('within 5 km: the checklist and Scan driver\'s QR',
         (tester) async {
@@ -296,13 +312,46 @@ void main() {
       expect(find.text('5 h 35 min'), findsOneWidget);
       expect(find.text('7'), findsOneWidget);
       expect(find.byType(TrackMap), findsNothing);
-      expect(find.byType(EscrowTimeline), findsOneWidget);
+      // Buyer · Delivered board: one escrow card while the money waits.
+      final check = find.byKey(const Key('live_trip_delivered_check'));
+      expect(check, findsOneWidget);
+      final card = find.byKey(const Key('live_trip_escrow_card'));
+      expect(card, findsOneWidget);
+      expect(find.byType(EscrowTimeline), findsNothing);
+      Finder inCard(String text) =>
+          find.descendant(of: card, matching: find.text(text));
+      expect(inCard('91,200 ETB in escrow'), findsOneWidget);
+      expect(inCard('Release pending'), findsOneWidget);
+      expect(inCard('You confirmed delivery'), findsOneWidget);
+      expect(inCard('Check window ends'), findsOneWidget);
       expect(
-        find.text('Report a problem until Oct 29 14:02'),
+        inCard('Almaz Bekele gets 84,000 ETB · Dawit Tesfaye gets 3,000 ETB'),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: card,
+          matching: find.text('Report a problem until Oct 29 14:02'),
+        ),
         findsOneWidget,
       );
       expect(find.text('Rate Farmer'), findsOneWidget);
       expect(find.text('Rate Trucker'), findsOneWidget);
+    });
+
+    testWidgets('a released escrow keeps the full timeline', (tester) async {
+      deps.escrow = heldEscrow()..status = PaymentStatus.released;
+      tracks.track = DeliveryTrack.fromJson(endedTrackJson());
+      await pumpView(
+        tester,
+        delivery: liveDelivery(
+          status: DeliveryStatus.delivered,
+          confirmedAt: at(11, 2),
+        ),
+        clock: () => DateTime.utc(2026, 10, 30),
+      );
+      expect(find.byType(EscrowTimeline), findsOneWidget);
+      expect(find.byKey(const Key('live_trip_escrow_card')), findsNothing);
     });
 
     testWidgets('after the 48 h window there is no report button',

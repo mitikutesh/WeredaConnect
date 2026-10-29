@@ -131,6 +131,15 @@ void main() {
     await tester.pump();
   }
 
+  // Telebirr payment board: "68,400 ETB", cents only when there are.
+  testWidgets('the amount is grouped by thousands', (tester) async {
+    opens();
+    await open(tester);
+
+    expect(find.text('2,448.75 ETB'), findsOneWidget);
+    await leave(tester);
+  });
+
   testWidgets('Android opens Telebirr on its own, once per page',
       (tester) async {
     opens();

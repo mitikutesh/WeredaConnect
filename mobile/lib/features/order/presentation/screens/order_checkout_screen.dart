@@ -4,6 +4,7 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:intl/intl.dart';
 import 'package:url_launcher/link.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
@@ -510,6 +511,9 @@ class _AmountCard extends StatelessWidget {
 
   const _AmountCard({required this.amount});
 
+  /// "68,400" as on the Telebirr payment board; cents only when there are.
+  static final _amountFormat = NumberFormat('#,##0.##', 'en_US');
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -533,7 +537,7 @@ class _AmountCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            l10n.etbCurrency(amount.toStringAsFixed(2)),
+            l10n.etbCurrency(_amountFormat.format(amount)),
             style: const TextStyle(
               fontSize: 32,
               fontWeight: FontWeight.w800,

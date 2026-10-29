@@ -59,13 +59,21 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     _authBloc = context.read<AuthBloc>();
     _expiresAt = widget.expiresAt;
     _startCountdown(widget.resendCooldown.inSeconds);
+    // The code boxes outline the next box only while the field has focus.
+    _focusNode.addListener(_onFocusChanged);
+  }
+
+  void _onFocusChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
     _countdown?.cancel();
     _codeController.dispose();
-    _focusNode.dispose();
+    _focusNode
+      ..removeListener(_onFocusChanged)
+      ..dispose();
     // Back, or popped after success: the held password is no longer needed.
     if (!_authBloc.isClosed) _authBloc.add(const AuthOtpAbandoned());
     super.dispose();
@@ -166,18 +174,20 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
           foregroundColor: AppTheme.textDark,
           title: Text(l10n.otpVerificationTitle),
         ),
-        body: Center(
+        body: Align(
+          alignment: Alignment.topCenter,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 480),
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
               child: BlocBuilder<AuthBloc, AuthState>(
                 builder: (context, state) {
                   final isLoading = state is AuthLoading;
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Center(
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
                         child: Container(
                           width: 56,
                           height: 56,
@@ -195,7 +205,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                       const SizedBox(height: 16),
                       Text(
                         l10n.otpVerificationTitle,
-                        textAlign: TextAlign.center,
                         style: const TextStyle(
                           fontSize: 26,
                           fontWeight: FontWeight.w800,
@@ -206,58 +215,114 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                       const SizedBox(height: 6),
                       Text(
                         l10n.otpSentTo(widget.phoneNumber),
-                        textAlign: TextAlign.center,
                         style: const TextStyle(
                           fontSize: 15,
                           color: AppTheme.mutedSteel,
                         ),
                       ),
-                      if (_expiresAt != null) ...[
-                        const SizedBox(height: 4),
-                        ClockText(
-                          clockFormatOf(context).deadline(
-                            _expiresAt!,
-                            sentence: l10n.otpExpiresAt,
-                          ),
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: AppTheme.textMuted,
+                      const SizedBox(height: 20),
+                      Text(
+                        l10n.enterOtp,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.unselectedNav,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      // One box per digit over the real field, which keeps
+                      // the keyboard, paste and SMS autofill.
+                      SizedBox(
+                        height: 56,
+                        child: Stack(
+                          children: [
+                            Positioned.fill(
+                              child: Opacity(
+                                opacity: 0,
+                                alwaysIncludeSemantics: true,
+                                child: TextField(
+                                  key: const Key('otp_code_field'),
+                                  controller: _codeController,
+                                  focusNode: _focusNode,
+                                  autofocus: true,
+                                  enabled: !isLoading,
+                                  keyboardType: TextInputType.number,
+                                  autofillHints: const [
+                                    AutofillHints.oneTimeCode,
+                                  ],
+                                  maxLength: OtpVerificationScreen.codeLength,
+                                  showCursor: false,
+                                  enableInteractiveSelection: false,
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.digitsOnly,
+                                    LengthLimitingTextInputFormatter(
+                                      OtpVerificationScreen.codeLength,
+                                    ),
+                                  ],
+                                  decoration: InputDecoration(
+                                    labelText: l10n.enterOtp,
+                                    counterText: '',
+                                    border: InputBorder.none,
+                                  ),
+                                  onChanged: _onCodeChanged,
+                                  onSubmitted: (_) => _submit(),
+                                ),
+                              ),
+                            ),
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: _CodeBoxes(
+                                  code: _codeController.text,
+                                  focused: _focusNode.hasFocus,
+                                  error: _errorMessage != null,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (_errorMessage != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          _errorMessage!,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context).colorScheme.error,
                           ),
                         ),
                       ],
-                      const SizedBox(height: 24),
-                      TextField(
-                        key: const Key('otp_code_field'),
-                        controller: _codeController,
-                        focusNode: _focusNode,
-                        autofocus: true,
-                        enabled: !isLoading,
-                        keyboardType: TextInputType.number,
-                        textAlign: TextAlign.center,
-                        autofillHints: const [AutofillHints.oneTimeCode],
-                        maxLength: OtpVerificationScreen.codeLength,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                          LengthLimitingTextInputFormatter(
-                            OtpVerificationScreen.codeLength,
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _expiresAt == null
+                                ? const SizedBox.shrink()
+                                : ClockText(
+                                    clockFormatOf(context).deadline(
+                                      _expiresAt!,
+                                      sentence: l10n.otpExpiresAt,
+                                    ),
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: AppTheme.textMuted,
+                                    ),
+                                  ),
+                          ),
+                          TextButton(
+                            key: const Key('otp_resend_button'),
+                            onPressed: (_secondsLeft <= 0 && !isLoading)
+                                ? _resend
+                                : null,
+                            child: Text(
+                              _secondsLeft > 0
+                                  ? l10n.resendOtpIn(_secondsLeft)
+                                  : l10n.resendOtp,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
                         ],
-                        style: const TextStyle(
-                          fontSize: 28,
-                          letterSpacing: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        decoration: InputDecoration(
-                          labelText: l10n.enterOtp,
-                          hintText: l10n.otpCodeHint,
-                          counterText: '',
-                          errorText: _errorMessage,
-                          errorMaxLines: 3,
-                          border: const OutlineInputBorder(),
-                        ),
-                        onChanged: _onCodeChanged,
-                        onSubmitted: (_) => _submit(),
                       ),
                       const SizedBox(height: 20),
                       // Canvas info card
@@ -312,17 +377,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                                 ),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      TextButton(
-                        key: const Key('otp_resend_button'),
-                        onPressed:
-                            (_secondsLeft <= 0 && !isLoading) ? _resend : null,
-                        child: Text(
-                          _secondsLeft > 0
-                              ? l10n.resendOtpIn(_secondsLeft)
-                              : l10n.resendOtp,
-                        ),
-                      ),
                     ],
                   );
                 },
@@ -331,6 +385,58 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The code as six boxes (Register OTP board): typed digits, and the next
+/// box to fill outlined while the field has focus.
+class _CodeBoxes extends StatelessWidget {
+  const _CodeBoxes({
+    required this.code,
+    required this.focused,
+    required this.error,
+  });
+
+  final String code;
+  final bool focused;
+  final bool error;
+
+  @override
+  Widget build(BuildContext context) {
+    const length = OtpVerificationScreen.codeLength;
+    return Row(
+      children: [
+        for (var i = 0; i < length; i++) ...[
+          if (i > 0) const SizedBox(width: 8),
+          Expanded(
+            child: Container(
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceWhite,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  width: 1.5,
+                  color: error
+                      ? Theme.of(context).colorScheme.error
+                      : i < code.length ||
+                              (focused && i == code.length.clamp(0, length - 1))
+                          ? AppTheme.fieldGreen
+                          : AppTheme.whisperBorder,
+                ),
+              ),
+              child: Text(
+                i < code.length ? code[i] : '',
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.soilDark,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
