@@ -106,11 +106,11 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(CropType.teff.icon));
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Quantity (quintals)'),
+      find.byKey(const Key('create_listing_quantity')),
       '10',
     );
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Price (ETB/kg)'),
+      find.byKey(const Key('create_listing_price')),
       '50',
     );
     await tester.enterText(

@@ -19,6 +19,10 @@ import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
+import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -35,6 +39,11 @@ class MockRatingRepository extends Mock implements BaseRatingRepository {}
 class MockOrderBloc extends Mock implements OrderBloc {}
 
 class MockOrderRepository extends Mock implements BaseOrderRepository {}
+
+class MockTripListingBloc extends Mock implements TripListingBloc {}
+
+class MockTripListingRepository extends Mock
+    implements BaseTripListingRepository {}
 
 class FakeAuthEvent extends Fake implements AuthEvent {}
 
@@ -109,6 +118,7 @@ void main() {
     bool embedded = false,
     Locale? locale,
     OrderBloc? orderBloc,
+    TripListingBloc? tripBloc,
   }) {
     return MultiBlocProvider(
       providers: [
@@ -116,6 +126,8 @@ void main() {
         BlocProvider<CropListingBloc>.value(value: cropListingBloc),
         BlocProvider<RatingBloc>.value(value: ratingBloc),
         if (orderBloc != null) BlocProvider<OrderBloc>.value(value: orderBloc),
+        if (tripBloc != null)
+          BlocProvider<TripListingBloc>.value(value: tripBloc),
       ],
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -338,6 +350,81 @@ void main() {
       expect(find.text('Almaz Bekele · Meki'), findsOneWidget);
       expect(find.text('Bishoftu · listed Oct 26'), findsOneWidget);
       expect(find.textContaining('Almaz Bekele, Bishoftu'), findsNothing);
+    });
+
+    // Buyer · Find crops board: each card says what transport there is
+    // this week from the farm to the buyer's wereda.
+    testWidgets('buyer cards show the transport this week', (tester) async {
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'buyer-001',
+          tokens: _testTokens,
+          role: UserRole.buyer,
+          woreda: 'Addis Ababa',
+        ),
+      );
+      final tripBloc = MockTripListingBloc();
+      final trips = MockTripListingRepository();
+      when(() => tripBloc.repository).thenReturn(trips);
+      when(() => tripBloc.state).thenReturn(const TripListingInitial());
+      when(() => tripBloc.stream).thenAnswer((_) => const Stream.empty());
+      final today = DateTime.now().toUtc();
+      Trip trip(String id, String from) => Trip()
+        ..tripId = id
+        ..truckerId = 't1'
+        ..fromWoreda = from
+        ..toWoreda = 'Addis Ababa'
+        ..departureDate = today.add(const Duration(days: 1))
+        ..capacity = 50
+        ..remainingQuintals = 18
+        ..pricePerQuintal = 150
+        ..status = TripStatus.open
+        ..matchedListings = <String>[]
+        ..createdAt = today
+        ..updatedAt = today
+        ..version = 1;
+      when(
+        () => trips.getOpenTrips(
+          fromWoreda: any(named: 'fromWoreda'),
+          toWoreda: any(named: 'toWoreda'),
+        ),
+      ).thenAnswer(
+        (_) async =>
+            [trip('m1', 'Meki'), trip('k1', 'Koka'), trip('k2', 'Koka')],
+      );
+      loaded([
+        _listing(id: 'meki')..locationName = 'Meki',
+        _listing(id: 'koka')..locationName = 'Koka',
+        _listing(id: 'bichena')..locationName = 'Bichena',
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(tripBloc: tripBloc));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Transport '), findsOneWidget);
+      expect(find.textContaining('18 quintals free'), findsOneWidget);
+      expect(find.text('2 trips this week'), findsOneWidget);
+      expect(find.text('No trip yet'), findsOneWidget);
+    });
+
+    testWidgets('a farmer reads no trips for the cards', (tester) async {
+      final tripBloc = MockTripListingBloc();
+      final trips = MockTripListingRepository();
+      when(() => tripBloc.repository).thenReturn(trips);
+      when(() => tripBloc.state).thenReturn(const TripListingInitial());
+      when(() => tripBloc.stream).thenAnswer((_) => const Stream.empty());
+      loaded([_listing()]);
+
+      await tester.pumpWidget(buildTestWidget(tripBloc: tripBloc));
+      await tester.pumpAndSettle();
+
+      verifyNever(
+        () => trips.getOpenTrips(
+          fromWoreda: any(named: 'fromWoreda'),
+          toWoreda: any(named: 'toWoreda'),
+        ),
+      );
+      expect(find.text('No trip yet'), findsNothing);
     });
 
     testWidgets('buyer browse has no My Crops privacy note', (tester) async {

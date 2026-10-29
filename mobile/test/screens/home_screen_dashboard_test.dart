@@ -18,6 +18,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
@@ -86,6 +87,9 @@ void main() {
       (_) => const Stream.empty(),
     );
     when(() => syncExecutor.isSyncing).thenReturn(false);
+    // Find Crops reads the open trips for its cards' transport line.
+    when(() => tripListingBloc.state).thenReturn(const TripListingInitial());
+    when(() => tripListingBloc.stream).thenAnswer((_) => const Stream.empty());
   });
 
   /// Tab indexes the dashboard asked the shell to switch to.
@@ -203,8 +207,9 @@ void main() {
       await tester.pumpWidget(buildHomeScreen(UserRole.farmer));
       await tester.pumpAndSettle();
 
+      // Farmer · Home board: four tiles, My Crops first; selling is the
+      // floating button, not a tile or a banner.
       for (final label in [
-        'Sell Crops',
         'My Crops',
         'Pending Orders',
         'Escrow',
@@ -212,6 +217,7 @@ void main() {
       ]) {
         expect(find.text(label), findsOneWidget, reason: label);
       }
+      expect(find.text('Sell Crops'), findsNothing);
       expect(find.text('Find Crops'), findsNothing);
       expect(find.text('Find Trips'), findsNothing);
     });

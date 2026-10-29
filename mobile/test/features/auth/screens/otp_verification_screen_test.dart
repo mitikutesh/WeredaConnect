@@ -112,6 +112,32 @@ void main() {
     ).called(1);
   });
 
+  // Register OTP board: one box per digit, expiry and resend on one line.
+  testWidgets('the code shows one digit per box', (tester) async {
+    await tester.pumpWidget(app());
+    await tester.pump();
+
+    await tester.enterText(find.byKey(const Key('otp_code_field')), '481');
+    await tester.pump();
+
+    expect(find.text('4'), findsOneWidget);
+    expect(find.text('8'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+    final first = tester.getTopLeft(find.text('4'));
+    final third = tester.getTopLeft(find.text('1'));
+    expect(third.dy, first.dy);
+    expect(third.dx, greaterThan(first.dx));
+  });
+
+  testWidgets('resend sits on the line under the boxes', (tester) async {
+    await tester.pumpWidget(app());
+    await tester.pump();
+
+    final resend = tester.getCenter(find.byKey(const Key('otp_resend_button')));
+    final verify = tester.getCenter(find.byKey(const Key('otp_verify_button')));
+    expect(resend.dy, lessThan(verify.dy));
+  });
+
   testWidgets('ignores non-digits', (tester) async {
     await tester.pumpWidget(app());
     await tester.pump();

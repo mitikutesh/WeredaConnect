@@ -4500,4 +4500,47 @@ class AppLocalizationsOm extends AppLocalizations {
   String myCropsListedOn(String date) {
     return '$date tarreeffame';
   }
+
+  @override
+  String liveTripLogStopAhead(int minutes) {
+    return 'Gara daqiiqaa $minutes, achiis gara keessanitti';
+  }
+
+  @override
+  String marketTransportOn(String day) {
+    return 'Geejjiba $day';
+  }
+
+  @override
+  String marketTripsThisWeek(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Torban kana imala $count',
+      one: 'Torban kana imala 1',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get marketNoTripYet => 'Hanga ammaatti imalli hin jiru';
+
+  @override
+  String liveTripEscrowAmount(String amount) {
+    return '$amount Eeskiroo keessa';
+  }
+
+  @override
+  String get liveTripReleasePending => 'Kaffaltiin ammallee hin gadhiifamne';
+
+  @override
+  String get liveTripYouConfirmedDelivery => 'Geejjiba mirkaneessitaniittu';
+
+  @override
+  String get liveTripCheckWindowEnds => 'Yeroon mirkaneessaa xumurama';
+
+  @override
+  String liveTripPartyGets(String name, String amount) {
+    return '$name $amount argata';
+  }
 }

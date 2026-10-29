@@ -126,7 +126,9 @@ public partial class AdminFunction
         string escrowAuditTable,
         string transactionAuditTable = "",
         string escrowIdempotencyTable = "",
-        string tripLocationsTable = "")
+        string tripLocationsTable = "",
+        string tripsTable = "",
+        string cropsTable = "")
     {
         _dynamoDb = dynamoDb;
         _usersTable = usersTable;
@@ -136,8 +138,8 @@ public partial class AdminFunction
         _escrowAuditTable = escrowAuditTable;
         _transactionAuditTable = transactionAuditTable;
         _fraudSignalsTable = "";
-        _cropsTable = "";
-        _tripsTable = "";
+        _cropsTable = cropsTable;
+        _tripsTable = tripsTable;
         _paymentsTable = "";
         _escrowIdempotencyTable = escrowIdempotencyTable;
         _tripLocationsTable = tripLocationsTable;

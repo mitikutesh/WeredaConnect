@@ -7840,6 +7840,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'listed {date}'**
   String myCropsListedOn(String date);
+
+  /// Fieldway design alignment (specs/design-canvas). Trip log, buyer: an unnamed stop before the buyer's drop-off; {minutes} is the estimate at the pace of the arrival window
+  ///
+  /// In en, this message translates to:
+  /// **'About {minutes} min, then on to you'**
+  String liveTripLogStopAhead(int minutes);
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops card: the one trip this week that can carry the crop; {day} is a short weekday, followed by the room left
+  ///
+  /// In en, this message translates to:
+  /// **'Transport {day}'**
+  String marketTransportOn(String day);
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops card: how many trips this week can carry the crop
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 trip this week} other{{count} trips this week}}'**
+  String marketTripsThisWeek(int count);
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops card: no trip this week can carry the crop
+  ///
+  /// In en, this message translates to:
+  /// **'No trip yet'**
+  String get marketNoTripYet;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: the order's money still held; {amount} is the sum with ETB
+  ///
+  /// In en, this message translates to:
+  /// **'{amount} in escrow'**
+  String liveTripEscrowAmount(String amount);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: chip, the money is not paid out yet
+  ///
+  /// In en, this message translates to:
+  /// **'Release pending'**
+  String get liveTripReleasePending;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: step done when the buyer scanned the driver's QR
+  ///
+  /// In en, this message translates to:
+  /// **'You confirmed delivery'**
+  String get liveTripYouConfirmedDelivery;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: step, the end of the 48 h window to report a problem
+  ///
+  /// In en, this message translates to:
+  /// **'Check window ends'**
+  String get liveTripCheckWindowEnds;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: who is paid what after the window; {amount} is the sum with ETB
+  ///
+  /// In en, this message translates to:
+  /// **'{name} gets {amount}'**
+  String liveTripPartyGets(String name, String amount);
 }
 
 class _AppLocalizationsDelegate

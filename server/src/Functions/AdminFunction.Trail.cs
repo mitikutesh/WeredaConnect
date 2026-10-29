@@ -1,3 +1,4 @@
+using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
@@ -44,7 +45,73 @@ public partial class AdminFunction
             ? await new TripLocationRepository(_dynamoDb, _tripLocationsTable).ListByTripAsync(tripId)
             : new List<TripLocationRow>();
 
-        var response = AdminTrail.Build(delivery, rows, Clock());
+        var planned = rows.Count > 0 && tripId != null
+            ? await PlannedStopsAsync(tripId, context)
+            : null;
+        var response = AdminTrail.Build(delivery, rows, Clock(), planned);
         return LambdaResponse.Ok(response, AppJsonContext.Default.AdminDeliveryTrailResponse);
+    }
+
+    /// <summary>The most pages of a trip's deliveries read for its planned stops, as the track.</summary>
+    private const int MaxTripDeliveryPages = 10;
+
+    /// <summary>
+    /// The trip's stop list: every non-cancelled order's planned pickup (its listing's location) and
+    /// the trip's destination point, the points the track's other stops use. Null when the trips or
+    /// crops table is not configured or a read fails: the trail then judges pauses by the QR scans
+    /// alone. Never fails the trail.
+    /// </summary>
+    private async Task<List<TrackPoint>?> PlannedStopsAsync(string tripId, ILambdaContext context)
+    {
+        if (string.IsNullOrEmpty(_tripsTable) || string.IsNullOrEmpty(_cropsTable))
+        {
+            return null;
+        }
+
+        try
+        {
+            var trip = await new TripRepository(_dynamoDb, _tripsTable).GetByIdAsync(tripId);
+            var crops = new CropRepository(_dynamoDb, _cropsTable);
+            var deliveries = new DeliveryRepository(_dynamoDb, _deliveriesTable);
+            var points = new List<TrackPoint>();
+            var listings = new HashSet<string>(StringComparer.Ordinal);
+            Dictionary<string, AttributeValue>? startKey = null;
+            var pages = 0;
+            do
+            {
+                var (items, next) = await deliveries.QueryDeliveriesAsync(
+                    tripId: tripId, limit: 50, exclusiveStartKey: startKey);
+                foreach (var other in items)
+                {
+                    if (other.TryGetValue("status", out var status) && status?.ToString() == "cancelled")
+                    {
+                        continue;
+                    }
+
+                    if (other.TryGetValue("listingId", out var listing) && listing?.ToString() is { Length: > 0 } listingId
+                        && listings.Add(listingId)
+                        && TripTrack.PointOf(await crops.GetByIdAsync(listingId), "latitude", "longitude") is { } pickup)
+                    {
+                        points.Add(pickup);
+                    }
+
+                    if (TripTrack.PlannedDropoff(trip, other) is { } dropoff && !points.Contains(dropoff))
+                    {
+                        points.Add(dropoff);
+                    }
+                }
+
+                startKey = next;
+            }
+            while (startKey != null && ++pages < MaxTripDeliveryPages);
+
+            return points;
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"trail: planned stops of trip {MoneyAlarmLog.LogId(tripId)} unavailable: [{ex.GetType().Name}]");
+            return null;
+        }
     }
 }

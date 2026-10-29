@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
-import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/buyer/presentation/widgets/deliver_to_line.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -29,8 +27,6 @@ class _MarketScreenState extends State<MarketScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final auth = context.watch<AuthBloc>().state;
-    final woreda = auth is AuthAuthenticated ? auth.woreda?.trim() : null;
 
     return SafeArea(
       child: Column(
@@ -43,37 +39,8 @@ class _MarketScreenState extends State<MarketScreen> {
               children: [
                 // Where the buyer's crops go: the default drop-off for the
                 // transport each crop detail suggests (Market board).
-                if (woreda != null && woreda.isNotEmpty) ...[
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.place_outlined,
-                        size: 18,
-                        color: AppTheme.fieldGreen,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        '${l10n.deliverTo} ',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.mutedSteel,
-                        ),
-                      ),
-                      Flexible(
-                        child: Text(
-                          woreda,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.soilDark,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                ],
+                const DeliverToLine(),
+                const SizedBox(height: 8),
                 Text(
                   l10n.market,
                   style: const TextStyle(

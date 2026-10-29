@@ -495,32 +495,26 @@ class _HomeHeaderWithBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const greenHeight = 155.0;
-    // Space below green for the banner overflow (bottom half of banner)
-    const bannerOverflow = 28.0;
-
-    return SizedBox(
-      height: greenHeight + bannerOverflow + MediaQuery.of(context).padding.top,
+    // The Farmer · Home and Trucker · Home boards: the place, the greeting
+    // and the Synced chip, on chalk (dark for the trucker); no banner.
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: role == UserRole.trucker
+            ? AppTheme.soilDark
+            : AppTheme.chalkBackground,
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(24),
+          bottomRight: Radius.circular(24),
+        ),
+      ),
       child: Stack(
         children: [
-          // Fieldway canvas background
-          Container(
-            height: greenHeight + MediaQuery.of(context).padding.top,
-            decoration: BoxDecoration(
-              color: role == UserRole.trucker
-                  ? AppTheme.soilDark
-                  : AppTheme.chalkBackground,
-              borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(24),
-                bottomRight: Radius.circular(24),
-              ),
-            ),
-          ),
           // Header content (location, name)
           SafeArea(
             bottom: false,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -621,124 +615,21 @@ class _HomeHeaderWithBanner extends StatelessWidget {
                     Text(
                       l10n.welcomeBackUser(userName),
                       style: const TextStyle(
-                        fontSize: 22,
+                        fontSize: 26,
                         fontWeight: FontWeight.w800,
                         color: AppTheme.soilDark,
                         letterSpacing: -0.5,
                       ),
                     ),
                   ],
+                  const SizedBox(height: 10),
+                  _SyncChip(isOnline: isOnline),
                 ],
               ),
             ),
           ),
-          // Banner — overlaps bottom edge of green header
-          Positioned(
-            left: 20,
-            right: 20,
-            bottom: 0,
-            child: _BannerCard(
-              role: role,
-              l10n: l10n,
-              onRefresh: onRefresh,
-            ),
-          ),
         ],
       ),
-    );
-  }
-}
-
-/// Banner card — tappable CTA for farmers, static slogan for other roles.
-class _BannerCard extends StatelessWidget {
-  final UserRole role;
-  final AppLocalizations l10n;
-  final VoidCallback? onRefresh;
-
-  const _BannerCard({
-    required this.role,
-    required this.l10n,
-    this.onRefresh,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isFarmer = role == UserRole.farmer;
-    final headline = isFarmer ? l10n.sellYourHarvest : l10n.bannerHeadline;
-    final subtitle = isFarmer ? l10n.tapToListCrops : l10n.bannerSubtitle;
-
-    final card = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: isFarmer
-              ? [AppTheme.primary, AppTheme.primaryDeep]
-              : [AppTheme.accentGold, AppTheme.accentGoldLight],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(25),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  headline,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.white.withAlpha(220),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (isFarmer)
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: Colors.white.withAlpha(50),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.add, color: Colors.white, size: 22),
-            ),
-        ],
-      ),
-    );
-
-    if (!isFarmer) return card;
-
-    return GestureDetector(
-      onTap: () async {
-        await Navigator.push(
-          context,
-          MaterialPageRoute<void>(
-            builder: (_) => const CreateCropListingScreen(),
-          ),
-        );
-        onRefresh?.call();
-      },
-      child: card,
     );
   }
 }
@@ -805,7 +696,7 @@ class _DesktopPageHeader extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 16),
-              _DesktopSyncChip(isOnline: isOnline),
+              _SyncChip(isOnline: isOnline),
               const SizedBox(width: 12),
               // ESC-21: the inbox bell, on web too.
               _NotificationIcon(
@@ -825,10 +716,10 @@ class _DesktopPageHeader extends StatelessWidget {
 }
 
 /// Compact sync status chip for the desktop/tablet flat header.
-class _DesktopSyncChip extends StatelessWidget {
+class _SyncChip extends StatelessWidget {
   final bool isOnline;
 
-  const _DesktopSyncChip({required this.isOnline});
+  const _SyncChip({required this.isOnline});
 
   @override
   Widget build(BuildContext context) {
@@ -969,6 +860,51 @@ class _DashboardTile extends StatelessWidget {
     final foreground = emphasized ? Colors.white : AppTheme.textDark;
     final muted = emphasized ? Colors.white70 : AppTheme.textMuted;
     final count = this.count;
+
+    // The At a Glance boards: a count tile is its label over a big number.
+    if (count != null) {
+      return Material(
+        color: background,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              border:
+                  emphasized ? null : Border.all(color: AppTheme.whisperBorder),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: emphasized ? Colors.white : AppTheme.mutedSteel,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '$count',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                    color: foreground,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return Material(
       color: background,
@@ -1514,20 +1450,16 @@ class _OverviewStatsState extends State<_OverviewStats> {
 
     switch (role) {
       case UserRole.farmer:
+        // Farmer · Home board: My Crops leads (Sell Crops is the button
+        // under the list).
         return [
-          tile(
-            _HomeDest.sellCrops,
-            icon: Icons.agriculture,
-            label: l10n.sellCrops,
-            color: AppTheme.primaryGreen,
-            emphasized: true,
-          ),
           tile(
             _HomeDest.myCrops,
             icon: Icons.eco,
             label: l10n.myCrops,
-            color: AppTheme.statusTransit,
+            color: AppTheme.fieldGreen,
             stat: 'listings',
+            emphasized: true,
           ),
           tile(
             _HomeDest.orders,

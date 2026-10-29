@@ -14,6 +14,7 @@ import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
 /// Screen for buyers to create a buying intent.
@@ -132,7 +133,9 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
     final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.findCrops), elevation: 0),
+      // "What do you need?" below names the screen (Buyer · Create intent
+      // board); the bar keeps only Back.
+      appBar: AppBar(elevation: 0),
       body: BlocListener<BuyerIntentBloc, BuyerIntentState>(
         listener: (context, state) {
           if (state is BuyerIntentCreated) {
@@ -214,54 +217,48 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
                   ),
                 const SizedBox(height: 24),
 
-                // Quantity input
-                Text(
-                  l10n.quantityNeeded,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _quantityController,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: InputDecoration(
-                    suffixText: l10n.quintals,
-                    border: const OutlineInputBorder(),
-                    hintText: '5',
-                    errorText: _showErrors && !_isQuantityValid
-                        ? l10n.enterQuantityError
-                        : null,
+                // Quantity and max price side by side, as on the board.
+                LabeledFieldPair(
+                  first: LabeledField(
+                    label: l10n.quantityNeeded,
+                    field: TextField(
+                      key: const Key('create_intent_quantity'),
+                      controller: _quantityController,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration:
+                          labeledFieldDecoration(hintText: '5').copyWith(
+                        errorText: _showErrors && !_isQuantityValid
+                            ? l10n.enterQuantityError
+                            : null,
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
                   ),
-                  onChanged: (_) => setState(() {}),
-                ),
-                const SizedBox(height: 24),
-
-                // Max price input
-                Text(
-                  l10n.maxPrice,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _maxPriceController,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: InputDecoration(
-                    suffixText: l10n.etbPerKg,
-                    border: const OutlineInputBorder(),
-                    hintText: '45',
-                    helperText: l10n.maxPriceOptionalHint,
-                    errorText: _showErrors && !_isMaxPriceValid
-                        ? l10n.enterValidPriceError
-                        : null,
+                  second: LabeledField(
+                    label: l10n.maxPrice,
+                    field: TextField(
+                      key: const Key('create_intent_max_price'),
+                      controller: _maxPriceController,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration:
+                          labeledFieldDecoration(hintText: '45').copyWith(
+                        errorText: _showErrors && !_isMaxPriceValid
+                            ? l10n.enterValidPriceError
+                            : null,
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
                   ),
-                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  l10n.maxPriceOptionalHint,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.mutedSteel,
+                  ),
                 ),
                 const SizedBox(height: 24),
 
@@ -396,7 +393,7 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
   }
 }
 
-/// Horizontal scrolling crop type filter chips.
+/// Crop type chips, wrapping onto more lines as on the board.
 class _CropTypeChips extends StatelessWidget {
   final String? selectedCropType;
   final ValueChanged<String?> onCropTypeChanged;
@@ -410,41 +407,35 @@ class _CropTypeChips extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return SizedBox(
-      height: 50,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        children: CropType.values.map((type) {
-          final isSelected = selectedCropType == type.name;
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: FilterChip(
-              avatar: Icon(
-                type.icon,
-                size: 18,
-                color: isSelected ? Colors.white : const Color(0xFF5E6862),
-              ),
-              label: Text(type.displayName(l10n)),
-              selected: isSelected,
-              selectedColor: AppTheme.fieldGreen,
-              backgroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(999),
-                side: BorderSide(
-                  color:
-                      isSelected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
-                ),
-              ),
-              labelStyle: TextStyle(
-                fontSize: 13,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-                color: isSelected ? Colors.white : const Color(0xFF15201A),
-              ),
-              onSelected: (_) => onCropTypeChanged(type.name),
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: CropType.values.map((type) {
+        final isSelected = selectedCropType == type.name;
+        return FilterChip(
+          avatar: Icon(
+            type.icon,
+            size: 18,
+            color: isSelected ? Colors.white : const Color(0xFF5E6862),
+          ),
+          label: Text(type.displayName(l10n)),
+          selected: isSelected,
+          selectedColor: AppTheme.fieldGreen,
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(999),
+            side: BorderSide(
+              color: isSelected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
             ),
-          );
-        }).toList(),
-      ),
+          ),
+          labelStyle: TextStyle(
+            fontSize: 13,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+            color: isSelected ? Colors.white : const Color(0xFF15201A),
+          ),
+          onSelected: (_) => onCropTypeChanged(type.name),
+        );
+      }).toList(),
     );
   }
 }

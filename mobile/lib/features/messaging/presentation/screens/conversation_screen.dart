@@ -219,7 +219,7 @@ class _ConversationViewState extends State<_ConversationView> {
               contextType: widget.contextType,
               contextId: widget.contextId,
               resolver: context.read<InboxBloc>().contextResolver,
-              color: Colors.white70,
+              color: AppTheme.mutedSteel,
               onTap: _contextOpensDetail ? _openLinkedContext : null,
             ),
           ],

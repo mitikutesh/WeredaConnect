@@ -117,6 +117,7 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
           children: [
             // ── Header ──────────────────────────────────────────────────
             GreenHeader(
+              light: true,
               height: widget.embedded ? 100 : 130,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -128,7 +129,7 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
                         padding: EdgeInsets.only(top: 4, bottom: 4),
                         child: Icon(
                           Icons.arrow_back,
-                          color: Colors.white,
+                          color: AppTheme.soilDark,
                           size: 24,
                         ),
                       ),
@@ -138,7 +139,7 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
                     style: const TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w700,
-                      color: Colors.white,
+                      color: AppTheme.soilDark,
                     ),
                   ),
                 ],

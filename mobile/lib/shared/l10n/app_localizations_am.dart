@@ -4333,4 +4333,47 @@ class AppLocalizationsAm extends AppLocalizations {
   String myCropsListedOn(String date) {
     return '$date የተዘረዘረ';
   }
+
+  @override
+  String liveTripLogStopAhead(int minutes) {
+    return 'በግምት $minutes ደቂቃ፣ ከዚያ ወደ እርስዎ';
+  }
+
+  @override
+  String marketTransportOn(String day) {
+    return 'ትራንስፖርት $day';
+  }
+
+  @override
+  String marketTripsThisWeek(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'በዚህ ሳምንት $count ጉዞዎች',
+      one: 'በዚህ ሳምንት 1 ጉዞ',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get marketNoTripYet => 'እስካሁን ጉዞ የለም';
+
+  @override
+  String liveTripEscrowAmount(String amount) {
+    return '$amount በኢስክሮ';
+  }
+
+  @override
+  String get liveTripReleasePending => 'ክፍያው ገና አልተለቀቀም';
+
+  @override
+  String get liveTripYouConfirmedDelivery => 'ማድረሻውን አረጋግጠዋል';
+
+  @override
+  String get liveTripCheckWindowEnds => 'የማጣሪያ ጊዜው ያበቃል';
+
+  @override
+  String liveTripPartyGets(String name, String amount) {
+    return '$name $amount ያገኛል';
+  }
 }

@@ -196,5 +196,31 @@ void main() {
       expect(find.text(scan), findsNothing);
       expect(find.text(cancel), findsNothing);
     });
+
+    testWidgets('the header shows how much of the truck is booked',
+        (tester) async {
+      tallView(tester);
+      signIn('trucker-001', UserRole.trucker);
+
+      await tester.pumpWidget(buildScreen(booked()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Space on this trip'), findsOneWidget);
+      final bar = tester.widget<LinearProgressIndicator>(
+        find.byType(LinearProgressIndicator),
+      );
+      expect(bar.value, closeTo(30 / 50, 0.001));
+    });
+
+    testWidgets('no booked box before the first booking', (tester) async {
+      tallView(tester);
+      signIn('trucker-001', UserRole.trucker);
+
+      await tester.pumpWidget(buildScreen(_trip()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Space on this trip'), findsNothing);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+    });
   });
 }

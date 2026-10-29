@@ -83,7 +83,8 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
   Widget _buildTruckerFields(AppLocalizations l10n) {
     final hasImage = widget.drivingLicensePath != null;
 
-    return Center(
+    return Align(
+      alignment: Alignment.topCenter,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
         child: SingleChildScrollView(
@@ -352,7 +353,8 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
   Widget _buildBuyerFields(AppLocalizations l10n) {
     final buyerType = widget.buyerType ?? 'private';
 
-    return Center(
+    return Align(
+      alignment: Alignment.topCenter,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
         child: SingleChildScrollView(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
@@ -338,19 +339,44 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
                     (d) => d.deliveryId == _selectedLiveId,
                     orElse: () => live.first,
                   );
+            // Buyer and farmer (Buyer · Deliveries board): the rest under a
+            // heading per stage, in the order a delivery lives. The
+            // trucker's list stays one list.
+            List<Delivery> inStage(Set<DeliveryStatus> statuses) => [
+                  for (final d in others)
+                    if (statuses.contains(d.status)) d,
+                ];
+            final stages = _userRole != UserRole.trucker.name
+                ? [
+                    // Under the live cards' heading when there are some.
+                    (
+                      live.isEmpty ? l10n.liveTripOnTheRoadNow : null,
+                      inStage({
+                        DeliveryStatus.pickedUp,
+                        DeliveryStatus.inTransit,
+                      }),
+                    ),
+                    (
+                      l10n.liveTripWaitingForPickup,
+                      inStage({DeliveryStatus.pending}),
+                    ),
+                    (
+                      l10n.deliveryFilterDelivered,
+                      inStage({DeliveryStatus.delivered}),
+                    ),
+                    (
+                      l10n.deliveryStatusDisputed,
+                      inStage({DeliveryStatus.disputed}),
+                    ),
+                    (
+                      l10n.deliveryStatusCancelled,
+                      inStage({DeliveryStatus.cancelled}),
+                    ),
+                  ]
+                : [(null, others)];
             final items = <Widget>[
               if (live.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(
-                    l10n.liveTripOnTheRoadNow,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.textDark,
-                    ),
-                  ),
-                ),
+                _StageHeading(label: l10n.liveTripOnTheRoadNow),
               for (final delivery in live)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -366,21 +392,25 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
                         : () => _openLiveTrip(delivery, userId),
                   ),
                 ),
-              for (final delivery in others)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    DeliveryCard(
-                      delivery: delivery,
-                      currentUserId: userId,
-                      onTap: () => _openDeliveryDetail(delivery, userId),
-                    ),
-                    if (isWaitingForPickup(delivery) &&
-                        liveTripViewerOf(delivery, userId) ==
-                            LiveTripViewer.buyer)
-                      const WaitingForPickupNote(),
-                  ],
-                ),
+              for (final (heading, inStage) in stages) ...[
+                if (heading != null && inStage.isNotEmpty)
+                  _StageHeading(label: heading),
+                for (final delivery in inStage)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      DeliveryCard(
+                        delivery: delivery,
+                        currentUserId: userId,
+                        onTap: () => _openDeliveryDetail(delivery, userId),
+                      ),
+                      if (isWaitingForPickup(delivery) &&
+                          liveTripViewerOf(delivery, userId) ==
+                              LiveTripViewer.buyer)
+                        const WaitingForPickupNote(),
+                    ],
+                  ),
+              ],
             ];
 
             final list = RefreshIndicator(
@@ -640,6 +670,33 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: chip,
+    );
+  }
+}
+
+/// A stage heading over the deliveries list ("On the road now", "Waiting
+/// for pickup", ...), as the Buyer · Deliveries board sets them.
+class _StageHeading extends StatelessWidget {
+  final String label;
+
+  const _StageHeading({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+      child: Semantics(
+        header: true,
+        child: Text(
+          label,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.4,
+            color: AppTheme.mutedSteel,
+          ),
+        ),
+      ),
     );
   }
 }

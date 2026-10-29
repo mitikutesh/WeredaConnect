@@ -1,7 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
+import 'package:intl/intl.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
@@ -177,7 +180,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(cropType.displayName(l10n)),
+        // The board has only the back button above the crop's own title.
         elevation: 0,
       ),
       body: SafeArea(
@@ -189,9 +192,15 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
               // Header section: crop icon + name + status chip
               _HeaderSection(
                 cropType: cropType,
-                status: widget.listing.status,
+                listing: widget.listing,
               ),
               const SizedBox(height: 24),
+
+              // Who sells it (Crop detail board): name and rating.
+              if (widget.listing.farmerName.isNotEmpty) ...[
+                _FarmerCard(listing: widget.listing),
+                const SizedBox(height: 12),
+              ],
 
               // Details card
               _DetailsCard(
@@ -457,42 +466,87 @@ class _PriceBreakdownRow extends StatelessWidget {
 /// Header section with large crop icon, crop type name, and status chip.
 class _HeaderSection extends StatelessWidget {
   final CropType cropType;
-  final ListingStatus status;
+  final CropListing listing;
 
-  const _HeaderSection({required this.cropType, required this.status});
+  const _HeaderSection({required this.cropType, required this.listing});
 
+  /// Buyer · Crop detail board: the status, then the crop large with how
+  /// much is left and when it was listed, and the price large on the right.
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
+    final listed = l10n.myCropsListedOn(
+      DateFormat.MMMd().format(dayInEthiopia(listing.createdAt)),
+    );
 
-    return Center(
-      child: Column(
-        children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primaryContainer,
-              borderRadius: BorderRadius.circular(20),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Align(
+          alignment: AlignmentDirectional.centerEnd,
+          child: _StatusChip(status: listing.status),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: AppTheme.fieldGreenTint,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(cropType.icon, color: AppTheme.fieldGreen, size: 26),
             ),
-            child: Icon(
-              cropType.icon,
-              color: theme.colorScheme.onPrimaryContainer,
-              size: 40,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    cropType.displayName(l10n),
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5,
+                      color: AppTheme.soilDark,
+                    ),
+                  ),
+                  Text(
+                    '${formatQuintals(listing.quantity)} ${l10n.quintals}'
+                    ' · $listed',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppTheme.mutedSteel,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            cropType.displayName(l10n),
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  listing.pricePerKg.toStringAsFixed(0),
+                  style: const TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.soilDark,
+                  ),
+                ),
+                Text(
+                  l10n.etbPerKg,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.mutedSteel,
+                  ),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 8),
-          _StatusChip(status: status),
-        ],
-      ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -585,16 +639,6 @@ class _DetailsCard extends StatelessWidget {
               label: l10n.location,
               value: listing.locationName,
             ),
-            if (listing.farmerName.isNotEmpty) ...[
-              const Divider(height: 24),
-              _DetailRow(
-                icon: Icons.person,
-                label: l10n.farmer,
-                value: listing.farmerName,
-              ),
-            ],
-            const Divider(height: 24),
-            _FarmerRatingRow(farmerId: listing.farmerId),
             if (listing.description.isNotEmpty) ...[
               const Divider(height: 24),
               _DetailRow(
@@ -616,71 +660,93 @@ class _DetailsCard extends StatelessWidget {
   }
 }
 
-/// Shows the farmer's aggregate rating (average + count) fetched best-effort
-/// from the server. Falls back to "no ratings yet" while loading or offline.
-class _FarmerRatingRow extends StatefulWidget {
-  final String farmerId;
+/// The farmer who sells the crop with their aggregate rating (average and
+/// count), fetched best effort from the server; "no ratings yet" while
+/// loading or offline.
+class _FarmerCard extends StatefulWidget {
+  final CropListing listing;
 
-  const _FarmerRatingRow({required this.farmerId});
+  const _FarmerCard({required this.listing});
 
   @override
-  State<_FarmerRatingRow> createState() => _FarmerRatingRowState();
+  State<_FarmerCard> createState() => _FarmerCardState();
 }
 
-class _FarmerRatingRowState extends State<_FarmerRatingRow> {
+class _FarmerCardState extends State<_FarmerCard> {
   // Fetched once, not on every rebuild (minimise 3G data usage).
-  late final Future<RatingSummary> _summaryFuture =
-      context.read<RatingBloc>().repository.getRatingSummary(widget.farmerId);
+  late final Future<RatingSummary> _summaryFuture = context
+      .read<RatingBloc>()
+      .repository
+      .getRatingSummary(widget.listing.farmerId);
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
+    final name = widget.listing.farmerName.trim();
+    final initials = name
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .take(2)
+        .map((part) => part.characters.first.toUpperCase())
+        .join();
     return FutureBuilder<RatingSummary>(
       future: _summaryFuture,
       builder: (context, snapshot) {
         final summary = snapshot.data;
-        Widget valueWidget;
-        if (summary == null || summary.count == 0) {
-          valueWidget = Text(
-            l10n.noRatingsYet,
-            style: theme.textTheme.bodyLarge?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
-          );
-        } else {
-          valueWidget = Row(
-            children: [
-              StarRating(rating: summary.average, size: 16),
-              const SizedBox(width: 8),
-              Text(
-                '${summary.average.toStringAsFixed(1)} · '
-                '${l10n.ratingsCount(summary.count)}',
-                style: theme.textTheme.bodyMedium,
-              ),
-            ],
-          );
-        }
-        return Row(
-          children: [
-            Icon(Icons.star, size: 20, color: theme.colorScheme.primary),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.farmerRating,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+        final rated = summary != null && summary.count > 0;
+        return Card(
+          margin: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: const Color(0xFFE3EEE6),
+                  child: Text(
+                    initials,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.fieldGreen,
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  valueWidget,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.soilDark,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        rated
+                            ? '${l10n.farmerRating} '
+                                '${summary.average.toStringAsFixed(1)} · '
+                                '${l10n.ratingsCount(summary.count)}'
+                            : '${l10n.farmerRating}: ${l10n.noRatingsYet}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.mutedSteel,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (rated) ...[
+                  const SizedBox(width: 8),
+                  StarRating(rating: summary.average, size: 14),
                 ],
-              ),
+              ],
             ),
-          ],
+          ),
         );
       },
     );

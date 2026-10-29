@@ -63,9 +63,12 @@ class TripDetailScreen extends StatelessWidget {
         }
       },
       child: Scaffold(
+        // The dark header below names the trip (Trucker · Trip detail
+        // board); the bar keeps only Back, on the header's color.
         appBar: AppBar(
-          title: Text(l10n.tripDetails),
           elevation: 0,
+          backgroundColor: _RouteHeader.background,
+          foregroundColor: Colors.white,
         ),
         body: SafeArea(
           child: Column(
@@ -73,270 +76,299 @@ class TripDetailScreen extends StatelessWidget {
               const OfflineBanner(),
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24.0),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // Route header
                       _RouteHeader(trip: trip),
-                      const SizedBox(height: 24),
+                      Padding(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Status badge
+                            _TripDetailStatusBadge(status: trip.status),
+                            const SizedBox(height: 24),
 
-                      // Status badge
-                      _TripDetailStatusBadge(status: trip.status),
-                      const SizedBox(height: 24),
-
-                      // Trip info cards
-                      _InfoRow(
-                        icon: Icons.calendar_today,
-                        label: l10n.departureDate,
-                        value: dateFormat
-                            .format(dayInEthiopia(trip.departureDate)),
-                      ),
-                      const SizedBox(height: 12),
-                      _InfoRow(
-                        icon: Icons.local_shipping,
-                        label: l10n.capacity,
-                        value: trip.remainingQuintals == null
-                            ? '${trip.capacity} ${l10n.quintals}'
-                            : '${trip.capacity} ${l10n.quintals} · '
-                                '${l10n.tripRemainingCapacity(formatQuintals(tripRoomLeft(trip)))}',
-                      ),
-                      if (tripHasBookings(trip)) ...[
-                        const SizedBox(height: 6),
-                        _TripNote(text: l10n.tripBookedTermsNote),
-                      ],
-                      const SizedBox(height: 12),
-                      _InfoRow(
-                        icon: Icons.payments,
-                        label: l10n.pricePerQuintal,
-                        value: l10n.etbCurrency(
-                          trip.pricePerQuintal.toStringAsFixed(2),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Trucker contact section
-                      Text(
-                        l10n.truckerContact,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _InfoRow(
-                        icon: Icons.person,
-                        label: l10n.truckerName,
-                        value: trip.truckerName,
-                      ),
-                      // ESC-48: only the trip's own trucker sees the phone
-                      // here. A buyer reaches the trucker from the order once
-                      // the farmer accepted it, never before any order.
-                      Builder(
-                        builder: (context) {
-                          final authState = context.read<AuthBloc>().state;
-                          final me = authState is AuthAuthenticated
-                              ? authState.userId
-                              : '';
-                          if (me.isNotEmpty && me == trip.truckerId) {
-                            return Padding(
-                              padding: const EdgeInsets.only(top: 12),
-                              child: _InfoRow(
-                                icon: Icons.phone,
-                                label: l10n.truckerPhone,
-                                value: trip.truckerPhone,
+                            // Trip info cards
+                            _InfoRow(
+                              icon: Icons.calendar_today,
+                              label: l10n.departureDate,
+                              value: dateFormat
+                                  .format(dayInEthiopia(trip.departureDate)),
+                            ),
+                            const SizedBox(height: 12),
+                            _InfoRow(
+                              icon: Icons.local_shipping,
+                              label: l10n.capacity,
+                              value: trip.remainingQuintals == null
+                                  ? '${trip.capacity} ${l10n.quintals}'
+                                  : '${trip.capacity} ${l10n.quintals} · '
+                                      '${l10n.tripRemainingCapacity(formatQuintals(tripRoomLeft(trip)))}',
+                            ),
+                            const SizedBox(height: 12),
+                            _InfoRow(
+                              icon: Icons.payments,
+                              label: l10n.pricePerQuintal,
+                              value: l10n.etbCurrency(
+                                trip.pricePerQuintal.toStringAsFixed(2),
                               ),
-                            );
-                          }
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 16),
-                            child: ContactLockedNote(
-                              text: l10n.contactAfterEscrowNote,
                             ),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 32),
+                            const SizedBox(height: 24),
 
-                      // ESC-15: the orders booked on the trucker's own trip.
-                      Builder(
-                        builder: (context) {
-                          final authState = context.read<AuthBloc>().state;
-                          final isOwner = authState is AuthAuthenticated &&
-                              authState.userId == trip.truckerId;
-                          if (!isOwner) return const SizedBox.shrink();
-                          final beforePickup = trip.status == TripStatus.open ||
-                              trip.status == TripStatus.matched;
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 32),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                TripBookingsSection(trip: trip),
-                                if (beforePickup && tripHasBookings(trip)) ...[
-                                  const SizedBox(height: 12),
-                                  _TripNote(text: l10n.tripScanAtPickupNote),
-                                ],
-                              ],
+                            // Trucker contact section
+                            Text(
+                              l10n.truckerContact,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
-                          );
-                        },
-                      ),
-
-                      // Contextual action buttons based on trip status
-                      BlocBuilder<TripListingBloc, TripListingState>(
-                        builder: (context, state) {
-                          // Owner-only actions: hide Start/Mark Delivered/Cancel
-                          // for non-owners (e.g. Buyers browsing all open trips).
-                          final authState = context.read<AuthBloc>().state;
-                          final isOwner = authState is AuthAuthenticated &&
-                              authState.userId == trip.truckerId;
-                          if (!isOwner) {
-                            return const SizedBox.shrink();
-                          }
-                          final isLoading = state is TripListingLoading;
-                          // ESC-15: a trip stays open while it has room, so
-                          // one with bookings may start too (matched = full).
-                          final canStart = trip.status == TripStatus.matched ||
-                              (trip.status == TripStatus.open &&
-                                  tripHasBookings(trip));
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              // Start Trip (matched trips, or open with bookings)
-                              if (canStart)
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: ElevatedButton.icon(
-                                    onPressed: isLoading
-                                        ? null
-                                        : () => _showStartTripConfirmation(
-                                              context,
-                                              l10n,
-                                            ),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppTheme.statusSuccess,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 16,
-                                      ),
-                                      minimumSize: const Size.fromHeight(56),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
+                            const SizedBox(height: 12),
+                            _InfoRow(
+                              icon: Icons.person,
+                              label: l10n.truckerName,
+                              value: trip.truckerName,
+                            ),
+                            // ESC-48: only the trip's own trucker sees the phone
+                            // here. A buyer reaches the trucker from the order once
+                            // the farmer accepted it, never before any order.
+                            Builder(
+                              builder: (context) {
+                                final authState =
+                                    context.read<AuthBloc>().state;
+                                final me = authState is AuthAuthenticated
+                                    ? authState.userId
+                                    : '';
+                                if (me.isNotEmpty && me == trip.truckerId) {
+                                  return Padding(
+                                    padding: const EdgeInsets.only(top: 12),
+                                    child: _InfoRow(
+                                      icon: Icons.phone,
+                                      label: l10n.truckerPhone,
+                                      value: trip.truckerPhone,
                                     ),
-                                    icon: isLoading
-                                        ? const SizedBox(
-                                            height: 20,
-                                            width: 20,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              valueColor:
-                                                  AlwaysStoppedAnimation<Color>(
-                                                Colors.white,
-                                              ),
-                                            ),
-                                          )
-                                        : const Icon(Icons.play_arrow),
-                                    label: Text(
-                                      l10n.startTrip,
-                                      style: const TextStyle(fontSize: 16),
-                                    ),
+                                  );
+                                }
+                                return Padding(
+                                  padding: const EdgeInsets.only(top: 16),
+                                  child: ContactLockedNote(
+                                    text: l10n.contactAfterEscrowNote,
                                   ),
-                                ),
-                              // Mark Delivered (inTransit trips)
-                              if (trip.status == TripStatus.inTransit)
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: ElevatedButton.icon(
-                                    onPressed: isLoading
-                                        ? null
-                                        : () => _showMarkDeliveredConfirmation(
-                                              context,
-                                              l10n,
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 32),
+
+                            // ESC-15: the orders booked on the trucker's own trip.
+                            Builder(
+                              builder: (context) {
+                                final authState =
+                                    context.read<AuthBloc>().state;
+                                final isOwner =
+                                    authState is AuthAuthenticated &&
+                                        authState.userId == trip.truckerId;
+                                if (!isOwner) return const SizedBox.shrink();
+                                final beforePickup =
+                                    trip.status == TripStatus.open ||
+                                        trip.status == TripStatus.matched;
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 32),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      TripBookingsSection(trip: trip),
+                                      if (beforePickup &&
+                                          tripHasBookings(trip)) ...[
+                                        const SizedBox(height: 12),
+                                        _TripNote(
+                                          text: l10n.tripScanAtPickupNote,
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+
+                            // Contextual action buttons based on trip status
+                            BlocBuilder<TripListingBloc, TripListingState>(
+                              builder: (context, state) {
+                                // Owner-only actions: hide Start/Mark Delivered/Cancel
+                                // for non-owners (e.g. Buyers browsing all open trips).
+                                final authState =
+                                    context.read<AuthBloc>().state;
+                                final isOwner =
+                                    authState is AuthAuthenticated &&
+                                        authState.userId == trip.truckerId;
+                                if (!isOwner) {
+                                  return const SizedBox.shrink();
+                                }
+                                final isLoading = state is TripListingLoading;
+                                // ESC-15: a trip stays open while it has room, so
+                                // one with bookings may start too (matched = full).
+                                final canStart =
+                                    trip.status == TripStatus.matched ||
+                                        (trip.status == TripStatus.open &&
+                                            tripHasBookings(trip));
+                                return Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    // Start Trip (matched trips, or open with bookings)
+                                    if (canStart)
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: ElevatedButton.icon(
+                                          onPressed: isLoading
+                                              ? null
+                                              : () =>
+                                                  _showStartTripConfirmation(
+                                                    context,
+                                                    l10n,
+                                                  ),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor:
+                                                AppTheme.statusSuccess,
+                                            foregroundColor: Colors.white,
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 16,
                                             ),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppTheme.statusSuccess,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 16,
-                                      ),
-                                      minimumSize: const Size.fromHeight(56),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    ),
-                                    icon: isLoading
-                                        ? const SizedBox(
-                                            height: 20,
-                                            width: 20,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              valueColor:
-                                                  AlwaysStoppedAnimation<Color>(
-                                                Colors.white,
-                                              ),
+                                            minimumSize:
+                                                const Size.fromHeight(56),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
                                             ),
-                                          )
-                                        : const Icon(
-                                            Icons.check_circle_outline,
                                           ),
-                                    label: Text(
-                                      l10n.markDelivered,
-                                      style: const TextStyle(fontSize: 16),
-                                    ),
-                                  ),
-                                ),
-                              // Cancel button (open/matched trips)
-                              if (trip.status == TripStatus.open ||
-                                  trip.status == TripStatus.matched) ...[
-                                if (canStart) const SizedBox(height: 12),
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: ElevatedButton.icon(
-                                    onPressed: isLoading
-                                        ? null
-                                        : () => _showCancelConfirmation(
-                                              context,
-                                              l10n,
-                                            ),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppTheme.statusError,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 16,
+                                          icon: isLoading
+                                              ? const SizedBox(
+                                                  height: 20,
+                                                  width: 20,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                    strokeWidth: 2,
+                                                    valueColor:
+                                                        AlwaysStoppedAnimation<
+                                                            Color>(
+                                                      Colors.white,
+                                                    ),
+                                                  ),
+                                                )
+                                              : const Icon(Icons.play_arrow),
+                                          label: Text(
+                                            l10n.startTrip,
+                                            style:
+                                                const TextStyle(fontSize: 16),
+                                          ),
+                                        ),
                                       ),
-                                      minimumSize: const Size.fromHeight(56),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    ),
-                                    icon: isLoading
-                                        ? const SizedBox(
-                                            height: 20,
-                                            width: 20,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              valueColor:
-                                                  AlwaysStoppedAnimation<Color>(
-                                                Colors.white,
-                                              ),
+                                    // Mark Delivered (inTransit trips)
+                                    if (trip.status == TripStatus.inTransit)
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: ElevatedButton.icon(
+                                          onPressed: isLoading
+                                              ? null
+                                              : () =>
+                                                  _showMarkDeliveredConfirmation(
+                                                    context,
+                                                    l10n,
+                                                  ),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor:
+                                                AppTheme.statusSuccess,
+                                            foregroundColor: Colors.white,
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 16,
                                             ),
-                                          )
-                                        : const Icon(Icons.cancel_outlined),
-                                    label: Text(
-                                      l10n.cancelTrip,
-                                      style: const TextStyle(fontSize: 16),
-                                    ),
-                                  ),
-                                ),
-                                if (tripHasBookings(trip)) ...[
-                                  const SizedBox(height: 8),
-                                  _TripNote(text: l10n.tripCancelBookedNote),
-                                ],
-                              ],
-                            ],
-                          );
-                        },
+                                            minimumSize:
+                                                const Size.fromHeight(56),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                            ),
+                                          ),
+                                          icon: isLoading
+                                              ? const SizedBox(
+                                                  height: 20,
+                                                  width: 20,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                    strokeWidth: 2,
+                                                    valueColor:
+                                                        AlwaysStoppedAnimation<
+                                                            Color>(
+                                                      Colors.white,
+                                                    ),
+                                                  ),
+                                                )
+                                              : const Icon(
+                                                  Icons.check_circle_outline,
+                                                ),
+                                          label: Text(
+                                            l10n.markDelivered,
+                                            style:
+                                                const TextStyle(fontSize: 16),
+                                          ),
+                                        ),
+                                      ),
+                                    // Cancel button (open/matched trips)
+                                    if (trip.status == TripStatus.open ||
+                                        trip.status == TripStatus.matched) ...[
+                                      if (canStart) const SizedBox(height: 12),
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: OutlinedButton(
+                                          onPressed: isLoading
+                                              ? null
+                                              : () => _showCancelConfirmation(
+                                                    context,
+                                                    l10n,
+                                                  ),
+                                          style: OutlinedButton.styleFrom(
+                                            backgroundColor: Colors.white,
+                                            foregroundColor: AppTheme.soilDark,
+                                            side: const BorderSide(
+                                              color: AppTheme.whisperBorder,
+                                            ),
+                                            minimumSize:
+                                                const Size.fromHeight(52),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                            ),
+                                          ),
+                                          child: isLoading
+                                              ? const SizedBox(
+                                                  height: 20,
+                                                  width: 20,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                    strokeWidth: 2,
+                                                  ),
+                                                )
+                                              : Text(
+                                                  l10n.cancelTrip,
+                                                  style: const TextStyle(
+                                                    fontSize: 15,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                        ),
+                                      ),
+                                      if (tripHasBookings(trip)) ...[
+                                        const SizedBox(height: 8),
+                                        _TripNote(
+                                          text: l10n.tripCancelBookedNote,
+                                        ),
+                                      ],
+                                    ],
+                                  ],
+                                );
+                              },
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -451,8 +483,11 @@ class _TripNote extends StatelessWidget {
   }
 }
 
-/// Large route display at the top of the detail screen (Fieldway: TripDetail.dc.html).
+/// The trip's dark header (Fieldway: TripDetail.dc.html): day and price,
+/// the route, and how much of the truck is booked with what a booking keeps.
 class _RouteHeader extends StatelessWidget {
+  static const background = Color(0xFF15201A);
+
   final Trip trip;
 
   const _RouteHeader({required this.trip});
@@ -460,53 +495,98 @@ class _RouteHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final day = DateFormat.MMMEd().format(dayInEthiopia(trip.departureDate));
+    final price = l10n.tripPricePerQuintalValue(
+      trip.pricePerQuintal.toStringAsFixed(0),
+    );
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-      decoration: BoxDecoration(
-        color: const Color(0xFF15201A),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 22),
+      color: background,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: const Color(0xFF22302A),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Icon(
-              Icons.local_shipping,
-              size: 24,
-              color: Color(0xFFD9922B),
+          Text(
+            '$day · $price',
+            style: const TextStyle(fontSize: 13, color: Color(0xFFB9C2BD)),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${trip.fromWoreda} → ${trip.toWoreda}',
+            style: const TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.5,
+              color: Colors.white,
             ),
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${trip.fromWoreda} → ${trip.toWoreda}',
+          if (tripHasBookings(trip) && trip.capacity > 0) ...[
+            const SizedBox(height: 16),
+            _BookedBox(trip: trip),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _BookedBox extends StatelessWidget {
+  final Trip trip;
+
+  const _BookedBox({required this.trip});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final capacity = trip.capacity;
+    final booked = (capacity - tripRoomLeft(trip)).clamp(0, capacity);
+    final space = '${formatQuintals(capacity)} ${l10n.quintals} · '
+        '${l10n.tripRemainingCapacity(formatQuintals(tripRoomLeft(trip)))}';
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF22302A),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  l10n.tripSpaceTitle,
                   style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.5,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  l10n.tripPricePerQuintalValue(
-                    trip.pricePerQuintal.toStringAsFixed(0),
-                  ),
-                  style: const TextStyle(
-                    fontSize: 13,
+                    fontSize: 12,
                     color: Color(0xFFB9C2BD),
                   ),
                 ),
-              ],
+              ),
+              Text(
+                space,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: booked / capacity,
+              minHeight: 6,
+              backgroundColor: const Color(0xFF3A4A42),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                Color(0xFFD9922B),
+              ),
             ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            l10n.tripBookedTermsNote,
+            style: const TextStyle(fontSize: 12, color: Color(0xFFB9C2BD)),
           ),
         ],
       ),

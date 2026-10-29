@@ -8,6 +8,7 @@ import { formatDateTime } from "@/lib/i18n";
 import {
   fill,
   formatCoords,
+  nearestKnownKm,
   summaryLines,
   type DeliveryTrail,
   type TrailLeg,
@@ -123,6 +124,23 @@ export function TripTrailTab({ deliveryId }: { deliveryId: string }) {
                 </li>
               ))}
             </ul>
+          )}
+          {(trail.awayStops?.length ?? 0) > 0 && (
+            <>
+              <h3 className="mb-2 mt-4 font-semibold">{t("trail.awayStops")}</h3>
+              <ul className="space-y-1 text-sm">
+                {trail.awayStops!.map((stop) => (
+                  <li key={stop.from}>
+                    {fill(t("trail.awayStopRange"), {
+                      from: formatDateTime(stop.from),
+                      until: formatDateTime(stop.until),
+                      place: formatCoords(stop.latitude, stop.longitude),
+                      km: nearestKnownKm(stop) ?? "",
+                    })}
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
           <h3 className="mb-2 mt-4 font-semibold">{t("trail.gaps")}</h3>
           {trail.gaps.length === 0 ? (

@@ -98,7 +98,7 @@ class TripLogScreen extends StatelessWidget {
             const SizedBox(height: 20),
             _SectionTitle(l10n.liveTripLogAhead),
             const SizedBox(height: 8),
-            _AheadList(track: track),
+            _AheadList(track: track, now: now),
             const SizedBox(height: 20),
             _PickupProof(delivery: delivery, track: track),
             if (o != null) ...[
@@ -222,9 +222,10 @@ class _CheckInList extends StatelessWidget {
 /// What is still to come: the other stops not done yet (unnamed), then the
 /// buyer's own drop-off with the arrival window.
 class _AheadList extends StatelessWidget {
-  const _AheadList({required this.track});
+  const _AheadList({required this.track, required this.now});
 
   final DeliveryTrack track;
+  final DateTime now;
 
   @override
   Widget build(BuildContext context) {
@@ -234,14 +235,25 @@ class _AheadList extends StatelessWidget {
     final note = track.dropoffNote?.trim() ?? '';
     return Column(
       children: [
-        for (final _ in track.otherStops.where((s) => !s.done))
-          _LogRow(
-            time: '',
-            place: null,
-            description: l10n.liveTripLogOtherStop,
-            tags: const [],
-            muted: true,
-          ),
+        for (final stop in track.otherStops.where((s) => !s.done))
+          // A stop before the buyer's says roughly when, as on the board;
+          // still unnamed (spec section 7).
+          if (minutesToStopAhead(track, stop, now) case final minutes?)
+            _LogRow(
+              time: '',
+              place: l10n.liveTripLogOtherStop,
+              description: l10n.liveTripLogStopAhead(minutes),
+              tags: const [],
+              muted: true,
+            )
+          else
+            _LogRow(
+              time: '',
+              place: null,
+              description: l10n.liveTripLogOtherStop,
+              tags: const [],
+              muted: true,
+            ),
         _LogRow(
           time: eta == null ? '' : clock.range(eta.from, eta.to),
           place: note.isEmpty ? l10n.liveTripYou : note,

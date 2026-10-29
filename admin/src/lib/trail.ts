@@ -53,9 +53,27 @@ export interface TrailSummary {
   lateFixes: number;
   jumps: number;
   gaps: number;
+  /** live-trip-api 1.0.6; absent from an older server. */
+  awayStops?: number;
   distanceKm: number;
   durationMin: number;
   maxKmh: number | null;
+}
+
+/** A pause more than 5 km from every QR scan and planned stop of the trip, at the fix before it. */
+export interface TrailAwayStop extends TrailSpan {
+  latitude: number;
+  longitude: number;
+  /** null when the trip has no QR scan with a place */
+  nearestScanKm: number | null;
+  /** null when the stop list could not be read */
+  nearestPlannedStopKm?: number | null;
+}
+
+/** The distance from a stop off the list to the nearest point it was judged by, or null. */
+export function nearestKnownKm(stop: TrailAwayStop): number | null {
+  const kms = [stop.nearestScanKm, stop.nearestPlannedStopKm].filter((k): k is number => k != null);
+  return kms.length === 0 ? null : Math.min(...kms);
 }
 
 export interface DeliveryTrail {
@@ -75,6 +93,8 @@ export interface DeliveryTrail {
   legs: TrailLeg[];
   pauses: TrailSpan[];
   gaps: TrailGap[];
+  /** live-trip-api 1.0.6; absent from an older server. */
+  awayStops?: TrailAwayStop[];
   summary: TrailSummary;
 }
 
@@ -198,6 +218,14 @@ export function summaryLines(trail: DeliveryTrail): SummaryLine[] {
   }
   if (trail.pauses.length > 0) {
     lines.push({ tone: "info", key: "trail.saysPauses", values: { count: trail.pauses.length } });
+    // The board's "stops off the stop list", judged from the QR scans of the trip.
+    if (s.awayStops != null) {
+      lines.push(
+        s.awayStops > 0
+          ? { tone: "warn", key: "trail.saysAwayStops", values: { count: s.awayStops } }
+          : { tone: "good", key: "trail.saysNoAwayStops", values: {} },
+      );
+    }
   }
   if (s.fixes > 0) {
     lines.push({

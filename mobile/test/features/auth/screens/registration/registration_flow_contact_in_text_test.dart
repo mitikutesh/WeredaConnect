@@ -143,23 +143,23 @@ void main() {
   }) async {
     await passFayda(tester, 'Farmer');
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Phone Number'),
+      find.byKey(const Key('register_phone')),
       '0912345678',
     );
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Display Name'),
+      find.byKey(const Key('register_display_name')),
       name,
     );
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Wereda'),
+      find.byKey(const Key('register_wereda')),
       woreda,
     );
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Password'),
+      find.byKey(const Key('register_password')),
       'secure123',
     );
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Confirm Password'),
+      find.byKey(const Key('register_confirm_password')),
       'secure123',
     );
     await _settle(tester);
@@ -276,7 +276,7 @@ void main() {
     await tester.pump(const Duration(seconds: 6));
     await _settle(tester);
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Display Name'),
+      find.byKey(const Key('register_display_name')),
       'Abebe K.',
     );
     await _settle(tester);
@@ -333,6 +333,29 @@ void main() {
 
     expect(find.text('Step 3 of 3'), findsOneWidget);
     expect(find.text('Step 4 of 4'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  // Register personal board: labels above the fields, the display name
+  // first, the two passwords side by side.
+  testWidgets('personal info: labels above, passwords side by side',
+      (tester) async {
+    await passFayda(tester, 'Farmer');
+
+    final name = find.byKey(const Key('register_display_name'));
+    final phone = find.byKey(const Key('register_phone'));
+    expect(
+      tester.getBottomLeft(find.text('Display Name')).dy,
+      lessThanOrEqualTo(tester.getTopLeft(name).dy),
+    );
+    expect(tester.getTopLeft(name).dy, lessThan(tester.getTopLeft(phone).dy));
+    final password = find.byKey(const Key('register_password'));
+    final confirm = find.byKey(const Key('register_confirm_password'));
+    expect(tester.getTopLeft(confirm).dy, tester.getTopLeft(password).dy);
+    expect(
+      tester.getTopLeft(confirm).dx,
+      greaterThan(tester.getTopLeft(password).dx),
+    );
     await tester.pumpWidget(const SizedBox.shrink());
   });
 

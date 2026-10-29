@@ -151,7 +151,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.orderDetails)),
+      // The order's own header names it (the boards' light header); the
+      // bar keeps only Back.
+      appBar: AppBar(),
       body: BlocConsumer<OrderBloc, OrderState>(
         listener: (context, state) {
           if (state is PaymentSubmitted) {
@@ -952,71 +954,99 @@ class _OrderSummaryHero extends StatelessWidget {
               );
     final held = escrowHeldOrderStatuses.contains(order.status);
 
-    return Container(
+    return Column(
       key: const Key('order_summary_hero'),
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppTheme.fieldGreen,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text(
-                  '${CropType.labelFor(order.cropType, l10n)} · '
-                  '${l10n.quantityKg(order.quantity.toStringAsFixed(0))}',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                  ),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Text(
+                '${CropType.labelFor(order.cropType, l10n)} · '
+                '${l10n.quantityKg(order.quantity.toStringAsFixed(0))}',
+                style: const TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.4,
+                  color: AppTheme.soilDark,
                 ),
               ),
-              const SizedBox(width: 8),
-              StatusChip(
-                label: orderStatusLabel(order.status, l10n),
-                kind: orderStatusKind(order.status),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: const TextStyle(fontSize: 13, color: Color(0xFFCFE3D6)),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            amountLabel,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFFCFE3D6),
             ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            l10n.etbCurrency(amount.toStringAsFixed(0)),
-            style: const TextStyle(
-              fontSize: 30,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.6,
-              color: Colors.white,
-            ),
-          ),
-          if (held) ...[
-            const SizedBox(height: 4),
-            Text(
-              l10n.escrowStatusEscrowed,
-              style: const TextStyle(fontSize: 13, color: Color(0xFFCFE3D6)),
+            const SizedBox(width: 8),
+            StatusChip(
+              label: orderStatusLabel(order.status, l10n),
+              kind: orderStatusKind(order.status),
             ),
           ],
-        ],
-      ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          subtitle,
+          style: const TextStyle(fontSize: 13, color: AppTheme.mutedSteel),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE6E2D6)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Expanded(
+                    child: Text(
+                      amountLabel,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppTheme.mutedSteel,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    l10n.etbCurrency(amount.toStringAsFixed(0)),
+                    style: const TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5,
+                      color: AppTheme.soilDark,
+                    ),
+                  ),
+                ],
+              ),
+              if (held) ...[
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    const Icon(
+                      Icons.lock_outline,
+                      size: 14,
+                      color: AppTheme.fieldGreen,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      l10n.escrowStatusEscrowed,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.fieldGreen,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

@@ -272,6 +272,31 @@ describe("DisputeDetailPage Trip trail tab (LT-13)", () => {
     expect(screen.getByText(/shows where the truck was, not what it carried/)).toBeTruthy();
   });
 
+  // Admin dispute evidence board: a stop off the stop list (live-trip-api 1.0.6).
+  it("lists a stop off the stop list and says so", () => {
+    const withAway = trailWithAJump();
+    withAway.summary = { ...withAway.summary, awayStops: 1 };
+    withAway.awayStops = [
+      {
+        from: "2026-10-27T06:40:00.000Z",
+        until: "2026-10-27T07:10:00.000Z",
+        latitude: 8.2,
+        longitude: 38.74,
+        nearestScanKm: 11.1,
+        nearestPlannedStopKm: 7.4,
+      },
+    ];
+    mocks.trail.data = withAway;
+    renderPage();
+
+    expect(
+      screen.getByText("Stops off the stop list (more than 5 km from every planned stop and QR scan): 1"),
+    ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Stops off the stop list" })).toBeTruthy();
+    // The nearest of the planned stop (7.4 km) and the QR scan (11.1 km).
+    expect(screen.getByText(/at 8\.2000, 38\.7400, 7\.4 km from the nearest planned stop or QR scan/)).toBeTruthy();
+  });
+
   it("without a linked delivery there is no trail to ask for", () => {
     mocks.escrow.data = escrow(null);
     renderPage();

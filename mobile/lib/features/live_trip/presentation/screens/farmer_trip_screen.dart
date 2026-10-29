@@ -47,7 +47,14 @@ class FarmerTripScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.liveTripTitle)),
+      appBar: AppBar(
+        title: Text(l10n.liveTripTitle),
+        // The live trip boards: a light page, no colored bar.
+        backgroundColor: AppTheme.chalkBackground,
+        foregroundColor: AppTheme.soilDark,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+      ),
       body: SafeArea(
         child: Column(
           children: [
@@ -187,8 +194,8 @@ class _FarmerTripViewState extends State<FarmerTripView> {
           ),
           StatusChip(
             label: l10n.farmer,
-            kind: StatusKind.neutral,
-            icon: Icons.agriculture,
+            kind: StatusKind.success,
+            icon: Icons.eco_outlined,
           ),
         ],
       ),
@@ -358,60 +365,81 @@ class _PaymentSteps extends StatelessWidget {
         done: settled,
       ),
     ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                l10n.liveTripYourPayment,
-                style: theme.textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w700),
-              ),
-            ),
-            if (payout != null)
-              Text(
-                l10n.etbCurrency(birrText(payout)),
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.money,
+    // Farmer · Order on the road board: the payment in its own card, the
+    // amount large; the step still to come is marked.
+    final current = steps.indexWhere((s) => !s.done);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.whisperBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  l10n.liveTripYourPayment,
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w800),
                 ),
               ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        for (final step in steps)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  step.done ? Icons.check_circle : Icons.radio_button_unchecked,
-                  size: 20,
-                  color:
-                      step.done ? AppTheme.statusSuccess : AppTheme.textMuted,
+              if (payout != null)
+                Text(
+                  l10n.etbCurrency(birrText(payout)),
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.soilDark,
+                  ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    step.label,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: step.done ? AppTheme.textDark : AppTheme.textMuted,
+            ],
+          ),
+          const SizedBox(height: 8),
+          for (final (i, step) in steps.indexed)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    step.done
+                        ? Icons.check_circle
+                        : i == current
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_unchecked,
+                    size: 20,
+                    color: step.done
+                        ? AppTheme.statusSuccess
+                        : i == current
+                            ? const Color(0xFFD9922B)
+                            : AppTheme.textMuted,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      step.label,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: step.done || i == current
+                            ? AppTheme.textDark
+                            : AppTheme.textMuted,
+                        fontWeight: i == current ? FontWeight.w700 : null,
+                      ),
                     ),
                   ),
-                ),
-                if (step.when != null)
-                  ClockText(
-                    step.when!,
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: AppTheme.textMuted),
-                  ),
-              ],
+                  if (step.when != null)
+                    ClockText(
+                      step.when!,
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: AppTheme.textMuted),
+                    ),
+                ],
+              ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }

@@ -8,12 +8,14 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
+import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
+import 'package:wereda_connect/features/crop_listing/domain/transport_this_week.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
@@ -22,6 +24,8 @@ import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_l
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
+import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -29,6 +33,7 @@ import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/green_header.dart';
 import 'package:wereda_connect/shared/widgets/listing_card.dart';
+import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
 /// Marketplace browse screen with search bar, category filters, and listing cards.
 ///
@@ -88,6 +93,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     super.initState();
     _loadListings();
     _loadOrderedQuintals();
+    _loadOpenTrips();
   }
 
   @override
@@ -153,13 +159,9 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
   Future<void> _loadOrderedQuintals() async {
     final farmerId = _getFarmerId();
     if (!widget.ownerMode || farmerId == null) return;
-    final BaseOrderRepository repository;
     try {
-      repository = context.read<OrderBloc>().repository;
-    } on ProviderNotFoundException {
-      return;
-    }
-    try {
+      final BaseOrderRepository repository =
+          context.read<OrderBloc>().repository;
       final orders = await repository.getOrdersByFarmer(farmerId);
       final ordered = <String, double>{};
       for (final order in orders) {
@@ -174,6 +176,44 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     }
   }
 
+  /// Buyer browse: the open trips, read once, for each card's transport
+  /// line. Null until read (or with no trip repository), so no line shows.
+  List<Trip>? _openTrips;
+
+  Future<void> _loadOpenTrips() async {
+    if (widget.ownerMode) return;
+    final auth = context.read<AuthBloc>().state;
+    // Buyers see every trip; nobody else gets this read.
+    if (auth is! AuthAuthenticated || auth.role != UserRole.buyer) return;
+    try {
+      // Secondary detail: no trip bloc, or a failed read, leaves no line.
+      final BaseTripListingRepository repository =
+          context.read<TripListingBloc>().repository;
+      final trips = await repository.getOpenTrips();
+      if (mounted) setState(() => _openTrips = trips);
+    } on Object catch (e) {
+      debugPrint('[FindCrops] trip read failed: $e');
+    }
+  }
+
+  /// "Transport Thu · 18 quintals free", "2 trips this week" or "No trip
+  /// yet" (Buyer · Find crops board); null before the trips are read.
+  String? _transportLine(CropListing listing, AppLocalizations l10n) {
+    final trips = _openTrips;
+    if (trips == null) return null;
+    final auth = context.read<AuthBloc>().state;
+    final woreda =
+        auth is AuthAuthenticated ? _buyerDeliveryWoreda(auth) : null;
+    final fitting =
+        tripsThisWeekFor(listing, trips, woreda, DateTime.now().toUtc());
+    if (fitting.isEmpty) return l10n.marketNoTripYet;
+    if (fitting.length > 1) return l10n.marketTripsThisWeek(fitting.length);
+    final trip = fitting.single;
+    final day = DateFormat.E().format(dayInEthiopia(trip.departureDate));
+    return '${l10n.marketTransportOn(day)} · '
+        '${l10n.tripRemainingCapacity(formatQuintals(tripRoomLeft(trip)))}';
+  }
+
   /// "Meki · listed 28 Oct": the farmer's own card needs no seller name.
   String _ownListingSubtitle(CropListing listing, AppLocalizations l10n) {
     final listed = l10n.myCropsListedOn(
@@ -182,6 +222,35 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     return listing.locationName.isEmpty
         ? listed
         : '${listing.locationName} · $listed';
+  }
+
+  /// The share of the listing already ordered (My Crops bar); null when no
+  /// order has been read.
+  double? _orderedShare(CropListing listing) {
+    final ordered = _orderedByListing[listing.listingId] ?? 0;
+    final total = listing.quantity + ordered;
+    return total <= 0 ? null : ordered / total;
+  }
+
+  /// The listing's status as the card shows it under the price.
+  String _statusLabel(ListingStatus status, AppLocalizations l10n) =>
+      switch (status) {
+        ListingStatus.active => l10n.listingStatusActive,
+        ListingStatus.reserved => l10n.listingStatusReserved,
+        ListingStatus.sold => l10n.listingStatusSold,
+        ListingStatus.draft => l10n.listingStatusDraft,
+        ListingStatus.expired => l10n.listingStatusExpired,
+      };
+
+  /// Whether a trip this week can carry [listing] (the pill turns amber).
+  bool _hasTransportThisWeek(CropListing listing) {
+    final trips = _openTrips;
+    if (trips == null) return false;
+    final auth = context.read<AuthBloc>().state;
+    final woreda =
+        auth is AuthAuthenticated ? _buyerDeliveryWoreda(auth) : null;
+    return tripsThisWeekFor(listing, trips, woreda, DateTime.now().toUtc())
+        .isNotEmpty;
   }
 
   /// "32 of 60 quintals ordered", or "8 quintals, no orders yet".
@@ -261,7 +330,11 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
             // ── Header ──────────────────────────────────────────────────
             if (widget.showHeader)
               GreenHeader(
-                height: widget.embedded ? 140 : 170,
+                light: true,
+                // My Crops has no search box under its title.
+                height: widget.ownerMode
+                    ? (widget.embedded ? 92 : 122)
+                    : (widget.embedded ? 140 : 170),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -272,29 +345,53 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                           padding: EdgeInsets.only(top: 4, bottom: 4),
                           child: Icon(
                             Icons.arrow_back,
-                            color: Colors.white,
+                            color: AppTheme.soilDark,
                             size: 24,
                           ),
                         ),
                       ),
-                    Text(
-                      widget.ownerMode ? l10n.myCrops : l10n.market,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
+                    // MyCrops board: "Almaz Bekele · Meki" above the title.
+                    if (widget.ownerMode) ...[
+                      Text(
+                        _ownerLine() ?? l10n.yourCropListings,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppTheme.mutedSteel,
+                        ),
                       ),
+                      const SizedBox(height: 2),
+                    ],
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            widget.ownerMode ? l10n.myCrops : l10n.market,
+                            style: const TextStyle(
+                              fontSize: 26,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.5,
+                              color: AppTheme.soilDark,
+                            ),
+                          ),
+                        ),
+                        if (widget.ownerMode)
+                          StatusChip(
+                            label: l10n.farmer,
+                            kind: StatusKind.success,
+                            icon: Icons.eco_outlined,
+                          ),
+                      ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.ownerMode
-                          ? (_ownerLine() ?? l10n.yourCropListings)
-                          : l10n.browseVerifiedFarmers,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white.withAlpha(180),
+                    if (!widget.ownerMode) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        l10n.browseVerifiedFarmers,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: AppTheme.mutedSteel,
+                        ),
                       ),
-                    ),
+                    ],
                     // Search bar (marketplace browse only: owner mode
                     // has no search)
                     if (!widget.ownerMode) ...[
@@ -596,19 +693,35 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           if (index == listings.length) {
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                                vertical: 6,
+                            // MyCrops board: who sees the listings, in a
+                            // blue note.
+                            return Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE6ECF5),
+                                borderRadius: BorderRadius.circular(16),
                               ),
-                              child: Text(
-                                l10n.myCropsPrivacyNote,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  height: 1.5,
-                                  color: AppTheme.mutedSteel,
-                                ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Icon(
+                                    Icons.place_outlined,
+                                    size: 18,
+                                    color: Color(0xFF2E4C7D),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      l10n.myCropsPrivacyNote,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        height: 1.4,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF2E4C7D),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             );
                           }
@@ -631,14 +744,23 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                 sellerName: listing.farmerName.isNotEmpty
                                     ? listing.farmerName
                                     : listing.farmerId,
-                                price: l10n.etbCurrency(
-                                  listing.pricePerKg.toStringAsFixed(0),
-                                ),
+                                // "42" over "ETB/kg", as on the boards.
+                                price: listing.pricePerKg.toStringAsFixed(0),
+                                priceUnit: l10n.etbPerKg,
                                 rating: rated ? summary.average : null,
                                 ratingCount: rated ? summary.count : null,
                                 icon: Icons.eco,
                                 detail: widget.ownerMode
                                     ? _orderedDetail(listing, l10n)
+                                    : _transportLine(listing, l10n),
+                                detailAsPill: !widget.ownerMode,
+                                detailHighlighted: !widget.ownerMode &&
+                                    _hasTransportThisWeek(listing),
+                                progress: widget.ownerMode
+                                    ? _orderedShare(listing)
+                                    : null,
+                                status: widget.ownerMode
+                                    ? _statusLabel(listing.status, l10n)
                                     : null,
                                 subtitle: widget.ownerMode
                                     ? _ownListingSubtitle(listing, l10n)
