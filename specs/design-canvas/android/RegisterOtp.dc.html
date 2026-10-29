@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Confirm your phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1E5B3E}a:hover{color:#15402B}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #F5F4EE; color: #15201A; font-family: Manrope, system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+  <div style="padding: 20px 20px 0; display: flex; flex-direction: column; gap: 14px">
+    <a href="RegisterPersonal.dc.html" aria-label="Back" style="width: 44px; height: 44px; border-radius: 14px; background: #FFFFFF; border: 1px solid #E3E1D8; color: #15201A; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></a>
+    <div style="width: 56px; height: 56px; border-radius: 18px; background: #E3EEE6; color: #1E5B3E; display: flex; align-items: center; justify-content: center; margin-top: 10px"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></div>
+    <h1 style="margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.03em">Confirm your phone</h1>
+    <p style="margin: 0; font-size: 15px; line-height: 1.5; color: #5E6862">We sent a 6-digit code by SMS to <b style="color: #15201A">+251 911 234 567</b>.</p>
+  </div>
+
+  <form style="padding: 26px 20px 0; display: flex; flex-direction: column; gap: 14px">
+    <fieldset style="margin: 0; padding: 0; border: none">
+      <legend style="padding: 0; margin-bottom: 10px; font-size: 13px; font-weight: 700; color: #3F4843">Enter Verification Code</legend>
+      <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px">
+        <input aria-label="Digit 1" inputmode="numeric" value="4" style="height: 56px; width: 100%; box-sizing: border-box; text-align: center; border-radius: 14px; border: 2px solid #1E5B3E; background: #FFFFFF; font: 800 22px Manrope, sans-serif; color: #15201A">
+        <input aria-label="Digit 2" inputmode="numeric" value="8" style="height: 56px; width: 100%; box-sizing: border-box; text-align: center; border-radius: 14px; border: 2px solid #1E5B3E; background: #FFFFFF; font: 800 22px Manrope, sans-serif; color: #15201A">
+        <input aria-label="Digit 3" inputmode="numeric" value="1" style="height: 56px; width: 100%; box-sizing: border-box; text-align: center; border-radius: 14px; border: 2px solid #1E5B3E; background: #FFFFFF; font: 800 22px Manrope, sans-serif; color: #15201A">
+        <input aria-label="Digit 4" inputmode="numeric" value="" style="height: 56px; width: 100%; box-sizing: border-box; text-align: center; border-radius: 14px; border: 1px solid #D6D3C8; background: #FFFFFF; font: 800 22px Manrope, sans-serif">
+        <input aria-label="Digit 5" inputmode="numeric" value="" style="height: 56px; width: 100%; box-sizing: border-box; text-align: center; border-radius: 14px; border: 1px solid #D6D3C8; background: #FFFFFF; font: 800 22px Manrope, sans-serif">
+        <input aria-label="Digit 6" inputmode="numeric" value="" style="height: 56px; width: 100%; box-sizing: border-box; text-align: center; border-radius: 14px; border: 1px solid #D6D3C8; background: #FFFFFF; font: 800 22px Manrope, sans-serif">
+      </div>
+    </fieldset>
+    <div style="display: flex; justify-content: space-between; font-size: 13px; color: #5E6862"><span>The code expires at 10:42.</span><span style="font-weight: 700">Resend in 45s</span></div>
+  </form>
+
+  <div style="margin: 22px 20px 0; padding: 14px 16px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E3E1D8; font-size: 13px; line-height: 1.5; color: #3F4843">We ask for this only when the number differs from your Fayda record.</div>
+
+  <div style="margin-top: auto; padding: 0 20px 28px">
+    <a href="TruckerHome.dc.html" style="height: 56px; border-radius: 16px; background: #1E5B3E; color: #FFFFFF; text-decoration: none; font-size: 16px; font-weight: 800; display: flex; align-items: center; justify-content: center">Verify</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

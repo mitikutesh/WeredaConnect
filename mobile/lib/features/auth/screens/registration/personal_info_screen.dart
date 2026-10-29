@@ -89,20 +89,49 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Top step indicator
+                const Text(
+                  'Step 4 of 4',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF5E6862),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // 4-step progress bar
+                Row(
+                  children: [
+                    for (int i = 0; i < 4; i++) ...[
+                      if (i > 0) const SizedBox(width: 6),
+                      Expanded(
+                        child: Container(
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: AppTheme.fieldGreen,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 16),
                 Text(
                   l10n.personalInfo,
                   style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.textDark,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                    color: Color(0xFF15201A),
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Text(
                   l10n.personalInfoDescription,
                   style: const TextStyle(
-                    fontSize: 14,
-                    color: AppTheme.textMuted,
+                    fontSize: 15,
+                    color: Color(0xFF5E6862),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -159,7 +188,10 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                           ),
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: const Color(0xFFE3EEE6),
                             borderRadius: BorderRadius.circular(8),
@@ -167,7 +199,11 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.lock, size: 13, color: AppTheme.fieldGreen),
+                              Icon(
+                                Icons.lock,
+                                size: 13,
+                                color: AppTheme.fieldGreen,
+                              ),
                               SizedBox(width: 4),
                               Text(
                                 'From Fayda',

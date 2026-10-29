@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
-/// Reusable marketplace listing card matching mockup design.
+/// Reusable marketplace listing card matching Fieldway canvas design (Market.dc.html).
 ///
 /// Used by both crop listing and trip listing screens.
 /// Shows crop name, location, seller, price, an optional escrow badge and the
@@ -37,31 +37,36 @@ class ListingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isWheat = title.toLowerCase().contains('wheat') ||
+        title.toLowerCase().contains('ስንዴ');
+    final iconBg = isWheat ? const Color(0xFFF4EBCF) : const Color(0xFFE3EEE6);
+    final iconFg = isWheat ? const Color(0xFF8A5410) : AppTheme.fieldGreen;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         child: Container(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: AppTheme.surfaceWhite,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.borderLight),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppTheme.whisperBorder),
           ),
           child: Row(
             children: [
-              // Icon
+              // Crop icon badge
               Container(
                 width: 48,
                 height: 48,
                 decoration: BoxDecoration(
-                  color: AppTheme.primaryGreen.withAlpha(25),
-                  borderRadius: BorderRadius.circular(10),
+                  color: iconBg,
+                  borderRadius: BorderRadius.circular(14),
                 ),
                 child: Icon(
                   icon ?? Icons.eco,
-                  color: AppTheme.primaryGreen,
+                  color: iconFg,
                   size: 24,
                 ),
               ),
@@ -75,33 +80,23 @@ class ListingCard extends StatelessWidget {
                       title,
                       style: const TextStyle(
                         fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.textDark,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.soilDark,
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.location_on,
-                          size: 14,
-                          color: AppTheme.textMuted,
-                        ),
-                        const SizedBox(width: 2),
-                        Flexible(
-                          child: Text(
-                            '$location  $sellerName',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: AppTheme.textMuted,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
+                    const SizedBox(height: 3),
+                    Text(
+                      location.isNotEmpty
+                          ? '$sellerName, $location'
+                          : sellerName,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.mutedSteel,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
                     Row(
                       children: [
                         if (hasEscrow) ...[
@@ -111,24 +106,24 @@ class ListingCard extends StatelessWidget {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: AppTheme.statusSuccess.withAlpha(25),
-                              borderRadius: BorderRadius.circular(4),
+                              color: const Color(0xFFE3EEE6),
+                              borderRadius: BorderRadius.circular(6),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 const Icon(
-                                  Icons.verified,
-                                  size: 12,
-                                  color: AppTheme.statusSuccess,
+                                  Icons.verified_user_outlined,
+                                  size: 11,
+                                  color: AppTheme.fieldGreen,
                                 ),
-                                const SizedBox(width: 2),
+                                const SizedBox(width: 3),
                                 Text(
                                   AppLocalizations.of(context)!.escrow,
                                   style: const TextStyle(
                                     fontSize: 11,
-                                    fontWeight: FontWeight.w500,
-                                    color: AppTheme.statusSuccess,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppTheme.fieldGreen,
                                   ),
                                 ),
                               ],
@@ -139,18 +134,18 @@ class ListingCard extends StatelessWidget {
                         if (rating != null) ...[
                           const Icon(
                             Icons.star,
-                            size: 14,
-                            color: AppTheme.accentGold,
+                            size: 13,
+                            color: Color(0xFFD9922B),
                           ),
-                          const SizedBox(width: 2),
+                          const SizedBox(width: 3),
                           Text(
                             ratingCount == null
                                 ? rating!.toStringAsFixed(1)
                                 : '${rating!.toStringAsFixed(1)} ($ratingCount)',
                             style: const TextStyle(
                               fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: AppTheme.textMuted,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.mutedSteel,
                             ),
                           ),
                         ],
@@ -159,13 +154,14 @@ class ListingCard extends StatelessWidget {
                   ],
                 ),
               ),
+              const SizedBox(width: 8),
               // Price
               Text(
                 price,
                 style: const TextStyle(
                   fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.primaryGreen,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.soilDark,
                 ),
               ),
             ],

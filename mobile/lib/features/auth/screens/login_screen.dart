@@ -401,9 +401,21 @@ class _LoginScreenState extends State<LoginScreen> {
               Wrap(
                 spacing: 8,
                 children: [
-                  _roleBadge(l10n.farmer, const Color(0xFFE3EEE6), AppTheme.fieldGreen),
-                  _roleBadge(l10n.trucker, const Color(0xFFFAEED8), const Color(0xFF8A5410)),
-                  _roleBadge(l10n.buyer, const Color(0xFFE6ECF5), const Color(0xFF2E4C7D)),
+                  _roleBadge(
+                    l10n.farmer,
+                    const Color(0xFFE3EEE6),
+                    AppTheme.fieldGreen,
+                  ),
+                  _roleBadge(
+                    l10n.trucker,
+                    const Color(0xFFFAEED8),
+                    const Color(0xFF8A5410),
+                  ),
+                  _roleBadge(
+                    l10n.buyer,
+                    const Color(0xFFE6ECF5),
+                    const Color(0xFF2E4C7D),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
@@ -429,15 +441,20 @@ class _LoginScreenState extends State<LoginScreen> {
                         hintText: l10n.ethiopianPhoneExample,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: Color(0xFFD6D3C8)),
+                          borderSide:
+                              const BorderSide(color: Color(0xFFD6D3C8)),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: Color(0xFFD6D3C8)),
+                          borderSide:
+                              const BorderSide(color: Color(0xFFD6D3C8)),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: AppTheme.fieldGreen, width: 2),
+                          borderSide: const BorderSide(
+                            color: AppTheme.fieldGreen,
+                            width: 2,
+                          ),
                         ),
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
@@ -483,15 +500,20 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: Color(0xFFD6D3C8)),
+                          borderSide:
+                              const BorderSide(color: Color(0xFFD6D3C8)),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: Color(0xFFD6D3C8)),
+                          borderSide:
+                              const BorderSide(color: Color(0xFFD6D3C8)),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: AppTheme.fieldGreen, width: 2),
+                          borderSide: const BorderSide(
+                            color: AppTheme.fieldGreen,
+                            width: 2,
+                          ),
                         ),
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,

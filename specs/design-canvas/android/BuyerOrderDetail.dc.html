@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Buyer order detail</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1E5B3E}a:hover{color:#15402B}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #F5F4EE; color: #15201A; font-family: Manrope, system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+  <div style="padding: 20px 20px 8px; display: flex; align-items: center; gap: 14px">
+    <a href="Market.dc.html" aria-label="Back" style="width: 44px; height: 44px; border-radius: 14px; background: #FFFFFF; border: 1px solid #E3E1D8; color: #15201A; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></a>
+    <div style="flex-grow: 1"><h1 style="margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em">Wheat · 1,500 kg</h1><div style="font-size: 13px; color: #5E6862">From Almaz Bekele · Thu 30 Oct trip</div></div>
+    <span style="height: 28px; padding: 0 10px; border-radius: 8px; background: #E6ECF5; color: #2E4C7D; font-size: 12px; font-weight: 700; display: flex; align-items: center">Funded</span>
+  </div>
+
+  <div style="padding: 8px 20px 0; display: flex; flex-direction: column; gap: 12px">
+    <section aria-label="Who has agreed" style="padding: 16px; border-radius: 20px; background: #FFFFFF; border: 1px solid #E3E1D8; display: flex; flex-direction: column; gap: 12px">
+      <h2 style="margin: 0; font-size: 15px; font-weight: 800">Who has agreed</h2>
+      <div style="display: flex; align-items: center; gap: 12px"><span style="width: 32px; height: 32px; border-radius: 999px; background: #E6ECF5; color: #2E4C7D; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></span><span style="flex-grow: 1; font-size: 14px"><b>You</b> paid</span><span style="font-size: 12px; color: #5E6862; white-space: nowrap">Tue 10:05</span></div>
+      <div style="display: flex; align-items: center; gap: 12px"><span style="width: 32px; height: 32px; border-radius: 999px; background: #E3EEE6; color: #1E5B3E; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></span><span style="flex-grow: 1; font-size: 14px"><b>Almaz Bekele</b>, farmer</span><span style="font-size: 12px; color: #1E5B3E; font-weight: 700; white-space: nowrap">Accepted</span></div>
+      <div style="display: flex; align-items: center; gap: 12px"><span style="width: 32px; height: 32px; border-radius: 999px; background: #FAEED8; color: #8A5410; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 1.5"/></svg></span><span style="flex-grow: 1; font-size: 14px"><b>Dawit Tesfaye</b>, trucker</span><span style="font-size: 12px; color: #8A5410; font-weight: 700; white-space: nowrap">Answer due 16:00</span></div>
+      <p style="margin: 0; padding-top: 10px; border-top: 1px solid #ECEAE2; font-size: 13px; line-height: 1.5; color: #5E6862">Your money is held safely. The farmer is asked first, then the trucker. A paid order can't be cancelled while they decide.</p>
+    </section>
+
+    <section aria-label="Order Timeline" style="padding: 16px; border-radius: 20px; background: #FFFFFF; border: 1px solid #E3E1D8; display: flex; flex-direction: column; gap: 10px">
+      <h2 style="margin: 0; font-size: 15px; font-weight: 800">Order Timeline</h2>
+      <ol style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px">
+        <li style="display: flex; flex-direction: column; gap: 6px"><span style="height: 4px; border-radius: 999px; background: #1E5B3E"></span><span style="font-size: 11px; font-weight: 700">Created</span></li>
+        <li style="display: flex; flex-direction: column; gap: 6px"><span style="height: 4px; border-radius: 999px; background: #1E5B3E"></span><span style="font-size: 11px; font-weight: 700">Funded</span></li>
+        <li aria-current="step" style="display: flex; flex-direction: column; gap: 6px"><span style="height: 4px; border-radius: 999px; background: #D9922B"></span><span style="font-size: 11px; font-weight: 700; color: #8A5410">Accepted</span></li>
+        <li style="display: flex; flex-direction: column; gap: 6px"><span style="height: 4px; border-radius: 999px; background: #E3E1D8"></span><span style="font-size: 11px; font-weight: 600; color: #5E6862">Live trip</span></li>
+      </ol>
+      <span style="font-size: 12px; color: #5E6862">Then Pickup Confirmed, In Transit, Delivered and Settled. Tap a step to read what it means.</span>
+    </section>
+
+    <section aria-label="Contact" style="padding: 6px 16px; border-radius: 20px; background: #FFFFFF; border: 1px solid #E3E1D8; display: flex; flex-direction: column">
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 60px; border-bottom: 1px solid #ECEAE2">
+        <span style="width: 38px; height: 38px; border-radius: 999px; background: #E3EEE6; color: #1E5B3E; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; flex-shrink: 0">AB</span>
+        <span style="flex-grow: 1"><span style="display: block; font-size: 14px; font-weight: 700">Almaz Bekele</span><span style="display: block; font-size: 12px; color: #5E6862">Farmer</span></span>
+        <button type="button" aria-label="Message Almaz" style="width: 44px; height: 44px; border-radius: 14px; border: 1px solid #E3E1D8; background: #FFFFFF; color: #15201A; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/></svg></button>
+        <button type="button" aria-label="Call Almaz" style="width: 44px; height: 44px; border-radius: 14px; border: none; background: #1E5B3E; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg></button>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 60px">
+        <span style="width: 38px; height: 38px; border-radius: 999px; background: #ECEAE2; color: #5E6862; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 11h12v9H6z"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>
+        <span style="flex-grow: 1"><span style="display: block; font-size: 14px; font-weight: 700">Trucker</span><span style="display: block; font-size: 12px; color: #5E6862">Contact opens when the trucker accepts</span></span>
+      </div>
+    </section>
+
+    <a href="BuyerDeliveries.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 16px; background: #FAEED8; color: #6B400B; text-decoration: none; font-size: 13px; font-weight: 700"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg><span style="flex-grow: 1">On Thursday, after pickup, you will see the truck on a map in Deliveries.</span></a>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E3E1D8; font-size: 14px"><span style="display: inline-flex; align-items: center; gap: 8px; color: #3F4843"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1E5B3E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 11h12v9H6z"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Held in escrow</span><span style="font-weight: 800">68,400 ETB</span></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

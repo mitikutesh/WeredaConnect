@@ -16,7 +16,6 @@ import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
-import 'package:wereda_connect/shared/widgets/green_header.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 
 /// Deliveries tab screen — shows user's deliveries with status filter chips.
@@ -35,7 +34,6 @@ class DeliveriesTabScreen extends StatefulWidget {
   @override
   State<DeliveriesTabScreen> createState() => _DeliveriesTabScreenState();
 }
-
 
 List<Delivery> _demoCanvasDeliveries(String userId) {
   final now = DateTime.now().toUtc();
@@ -204,14 +202,13 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
           builder: (_) => const ProfileScreen(),
         ),
       ),
-      child: CircleAvatar(
+      child: const CircleAvatar(
         radius: 18,
-        backgroundColor:
-            isMobile ? Colors.white24 : AppTheme.textMuted.withAlpha(40),
+        backgroundColor: Color(0xFFECEAE2),
         child: Icon(
           Icons.person,
           size: 20,
-          color: isMobile ? Colors.white : AppTheme.textDark,
+          color: AppTheme.soilDark,
         ),
       ),
     );
@@ -484,39 +481,47 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
       ),
     );
 
-    // ── Mobile layout (unchanged) ─────────────────────────────────
+    // ── Mobile layout (Fieldway canvas: BuyerDeliveries.dc.html) ──
     if (isMobile) {
       return Column(
         children: [
-          GreenHeader(
-            height: 120,
-            child: Column(
+          Container(
+            color: AppTheme.chalkBackground,
+            padding: EdgeInsets.fromLTRB(
+              listHPad,
+              MediaQuery.of(context).padding.top + 16,
+              listHPad,
+              12,
+            ),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        l10n.myDeliveries,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.trackDeliveries,
                         style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.mutedSteel,
                         ),
                       ),
-                    ),
-                    profileAvatar,
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  l10n.trackDeliveries,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.white.withAlpha(180),
+                      const SizedBox(height: 4),
+                      Text(
+                        l10n.myDeliveries,
+                        style: const TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.5,
+                          color: AppTheme.soilDark,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+                profileAvatar,
               ],
             ),
           ),
@@ -588,8 +593,11 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
                           ),
                           child: const Row(
                             children: [
-                              Icon(Icons.search,
-                                  size: 18, color: AppTheme.mutedSteel,),
+                              Icon(
+                                Icons.search,
+                                size: 18,
+                                color: AppTheme.mutedSteel,
+                              ),
                               SizedBox(width: 8),
                               Expanded(
                                 child: TextField(
@@ -654,8 +662,18 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
             )
           : Text(label),
       selected: isSelected,
+      selectedColor: AppTheme.fieldGreen,
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(999),
+        side: BorderSide(
+          color: isSelected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+        ),
+      ),
       labelStyle: TextStyle(
-        color: isSelected ? Colors.white : AppTheme.textDark,
+        fontSize: 13,
+        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+        color: isSelected ? Colors.white : AppTheme.soilDark,
       ),
       onSelected: (_) => _applyFilter(status),
     );

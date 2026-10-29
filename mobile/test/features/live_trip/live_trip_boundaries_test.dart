@@ -32,7 +32,9 @@ void main() {
     expect(offenders, isEmpty);
   });
 
-  test('the live trip feature imports no Isar and no dart:io (outside the mobile repository)', () {
+  test(
+      'the live trip feature imports no Isar and no dart:io (outside the mobile repository)',
+      () {
     final offenders = [
       for (final file in dartFiles('lib/features/live_trip'))
         // LT-08: location_ping_repository is mobile-only (Isar); web uses

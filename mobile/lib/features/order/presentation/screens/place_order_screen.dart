@@ -1,3 +1,4 @@
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
@@ -201,41 +202,43 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                       ?.copyWith(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 12),
-                Card(
-                  margin: EdgeInsets.zero,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        _SummaryRow(
-                          icon: Icons.grass,
-                          label: CropType.labelFor(
-                            widget.listing.cropType,
-                            l10n,
-                          ),
-                          value: '',
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: AppTheme.whisperBorder),
+                  ),
+                  child: Column(
+                    children: [
+                      _SummaryRow(
+                        icon: Icons.grass,
+                        label: CropType.labelFor(
+                          widget.listing.cropType,
+                          l10n,
                         ),
-                        const Divider(height: 16),
-                        _SummaryRow(
-                          icon: Icons.person,
-                          label: l10n.farmer,
-                          value: widget.farmerName,
-                        ),
-                        const Divider(height: 16),
-                        _SummaryRow(
-                          icon: Icons.payments,
-                          label: l10n.etbCurrency(''),
-                          value:
-                              '${widget.listing.pricePerKg.toStringAsFixed(2)} ETB/kg',
-                        ),
-                        const Divider(height: 16),
-                        _SummaryRow(
-                          icon: Icons.location_on,
-                          label: l10n.location,
-                          value: widget.listing.locationName,
-                        ),
-                      ],
-                    ),
+                        value: '',
+                      ),
+                      const Divider(height: 16),
+                      _SummaryRow(
+                        icon: Icons.person,
+                        label: l10n.farmer,
+                        value: widget.farmerName,
+                      ),
+                      const Divider(height: 16),
+                      _SummaryRow(
+                        icon: Icons.payments,
+                        label: l10n.etbCurrency(''),
+                        value:
+                            '${widget.listing.pricePerKg.toStringAsFixed(2)} ETB/kg',
+                      ),
+                      const Divider(height: 16),
+                      _SummaryRow(
+                        icon: Icons.location_on,
+                        label: l10n.location,
+                        value: widget.listing.locationName,
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -326,18 +329,53 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                 ),
                 const SizedBox(height: 32),
 
+                // ── Escrow trust assurance box (PlaceOrder.dc.html) ──
+                Container(
+                  margin: const EdgeInsets.only(top: 16, bottom: 20),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE3EEE6),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.lock_outline,
+                        size: 18,
+                        color: AppTheme.fieldGreen,
+                      ),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Your money is held safely. The farmer is asked first, then the trucker.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.fieldGreen,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
                 // ── Place Order button ───────────────────────────────
                 BlocBuilder<OrderBloc, OrderState>(
                   builder: (context, state) {
                     final isLoading = state is OrderLoading;
                     return SizedBox(
                       width: double.infinity,
+                      height: 56,
                       child: FilledButton(
                         onPressed: isLoading || _quantity <= 0 || _exceedsStock
                             ? null
                             : _placeOrder,
                         style: FilledButton.styleFrom(
-                          minimumSize: const Size.fromHeight(48),
+                          backgroundColor: AppTheme.fieldGreen,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
                         ),
                         child: isLoading
                             ? const SizedBox(
@@ -348,7 +386,13 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                                   color: Colors.white,
                                 ),
                               )
-                            : Text(l10n.placeOrder),
+                            : Text(
+                                l10n.placeOrder,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
                       ),
                     );
                   },

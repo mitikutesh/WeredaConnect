@@ -185,6 +185,36 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
         appBar: AppBar(
           title: Text(l10n.createListing),
           elevation: 0,
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Center(
+                child: Container(
+                  height: 30,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE3EEE6),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.eco, size: 14, color: AppTheme.fieldGreen),
+                      SizedBox(width: 4),
+                      Text(
+                        'Farmer',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.fieldGreen,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
         body: SafeArea(
           child: SingleChildScrollView(
@@ -359,31 +389,77 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
                       ),
                       const SizedBox(height: 24),
 
-                      // Save button
-                      ElevatedButton(
-                        onPressed: isLoading ? null : _handleSave,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          minimumSize: const Size.fromHeight(48),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.white,
+                      // Total calculation preview card
+                      Builder(
+                        builder: (context) {
+                          final q =
+                              double.tryParse(_quantityController.text) ?? 0;
+                          final p = double.tryParse(_priceController.text) ?? 0;
+                          final total = q * 100 * p;
+                          if (total <= 0) return const SizedBox.shrink();
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 20),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(color: AppTheme.whisperBorder),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Total Listing Value',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppTheme.mutedSteel,
                                   ),
                                 ),
-                              )
-                            : Text(
-                                l10n.save,
-                                style: const TextStyle(fontSize: 16),
-                              ),
+                                Text(
+                                  l10n.etbCurrency(total.toStringAsFixed(0)),
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppTheme.fieldGreen,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                      // Save button (Fieldway 56px primary)
+                      SizedBox(
+                        height: 56,
+                        child: ElevatedButton(
+                          onPressed: isLoading ? null : _handleSave,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.fieldGreen,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                          child: isLoading
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
+                                  ),
+                                )
+                              : Text(
+                                  l10n.save,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                        ),
                       ),
                     ],
                   );
