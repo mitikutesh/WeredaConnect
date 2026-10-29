@@ -168,6 +168,7 @@ public class AdminTrailTests
         trail.Legs.Should().BeEmpty();
         trail.Pauses.Should().BeEmpty();
         trail.Gaps.Should().BeEmpty();
+        trail.AwayStops.Should().BeEmpty();
         trail.Summary.Should().BeEquivalentTo(new AdminTrailSummaryDto
         {
             SharedWholeWay = false,
@@ -178,6 +179,7 @@ public class AdminTrailTests
             LateFixes = 0,
             Jumps = 0,
             Gaps = 0,
+            AwayStops = 0,
             DistanceKm = 0,
             DurationMin = 0,
             MaxKmh = null
@@ -380,6 +382,55 @@ public class AdminTrailTests
         trail.Gaps.Should().BeEmpty();
         trail.Summary.Fixes.Should().Be(0);
         trail.Summary.SharedWholeWay.Should().BeFalse();
+    }
+
+    // ===== Stops away from every QR scan =====
+
+    [Fact]
+    public void APauseFarFromEveryScan_IsAStopAwayFromThem_PlacedAtTheFixBeforeIt()
+    {
+        // Pickup scan at 8.10; the truck rests at 8.40 (33.4 km on), resumes, then is delivered.
+        var trail = Build(
+            Delivered(At(9, 0)),
+            Fix(At(5, 5), 8.10, source: "scan"),
+            Fix(At(6, 0), 8.40),
+            Event(LocationPingRules.KindPaused, At(6, 10), pausedUntil: At(6, 40)),
+            Fix(At(7, 0), 8.60));
+
+        var stop = trail.AwayStops.Should().ContainSingle().Subject;
+        stop.From.Should().Be("2026-10-27T06:10:00.000Z");
+        stop.Latitude.Should().Be(8.40);
+        stop.Longitude.Should().Be(Meridian);
+        stop.NearestScanKm.Should().Be(33.4);
+        trail.Summary.AwayStops.Should().Be(1);
+    }
+
+    [Fact]
+    public void APauseNearAnyScanOfTheTrip_IsNoStopAway()
+    {
+        // Another order's pickup scan at 8.41 (1.1 km from the rest) explains the stop.
+        var trail = Build(
+            Delivered(At(9, 0)),
+            Fix(At(5, 5), 8.10, source: "scan"),
+            Fix(At(6, 0), 8.40),
+            Fix(At(6, 5), 8.41, source: "scan"),
+            Event(LocationPingRules.KindPaused, At(6, 10), pausedUntil: At(6, 40)),
+            Fix(At(7, 0), 8.60));
+
+        trail.AwayStops.Should().BeEmpty();
+        trail.Summary.AwayStops.Should().Be(0);
+    }
+
+    [Fact]
+    public void WithoutAnyScan_NoStopIsJudged()
+    {
+        var trail = Build(
+            Delivered(At(9, 0)),
+            Fix(At(6, 0), 8.40),
+            Event(LocationPingRules.KindPaused, At(6, 10), pausedUntil: At(6, 40)),
+            Fix(At(7, 0), 8.60));
+
+        trail.AwayStops.Should().BeEmpty();
     }
 
     // ===== Helpers =====

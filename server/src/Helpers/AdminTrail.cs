@@ -69,6 +69,7 @@ public static class AdminTrail
         var legs = new List<AdminTrailLegDto>();
         var pauses = new List<TrackPauseDto>();
         var gaps = new List<AdminTrailGapDto>();
+        var awayStops = new List<AdminTrailAwayStopDto>();
         var fixes = new List<TrackFix>();
         var declined = false;
 
@@ -91,6 +92,7 @@ public static class AdminTrail
             if (tripId != null)
             {
                 gaps = GapsOf(fixes, spans, from, last);
+                awayStops = AwayStopsOf(pauses, fixes, ScanPointsOf(delivery, rows));
             }
         }
 
@@ -114,6 +116,7 @@ public static class AdminTrail
             Legs = legs,
             Pauses = pauses,
             Gaps = gaps,
+            AwayStops = awayStops,
             Summary = new AdminTrailSummaryDto
             {
                 SharedWholeWay = tripId != null && fixes.Count > 0 && gaps.Count == 0 && !declined,
@@ -124,6 +127,7 @@ public static class AdminTrail
                 LateFixes = fixPoints.Count(f => f.Late),
                 Jumps = legs.Count(leg => leg.Jump),
                 Gaps = gaps.Count,
+                AwayStops = awayStops.Count,
                 DistanceKm = TripTrack.Round(legs.Sum(leg => leg.DistanceKm), 1),
                 DurationMin = pickedUpAt is { } start && lastMoment is { } stop
                     ? (int)Math.Max(0, Math.Round((stop - start).TotalMinutes, MidpointRounding.AwayFromZero))
@@ -131,6 +135,77 @@ public static class AdminTrail
                 MaxKmh = speeds.Count > 0 ? speeds.Max() : null
             }
         };
+    }
+
+    /// <summary>How far a pause may be from the nearest QR scan before it counts as a stop away from them.</summary>
+    internal const double AwayFromScansKm = 5;
+
+    /// <summary>
+    /// Where goods changed hands on the trip: every QR scan fix of the trip (any order, any time) and
+    /// this delivery's own pickup and drop-off scan points.
+    /// </summary>
+    internal static List<TrackPoint> ScanPointsOf(Dictionary<string, object> delivery, IReadOnlyList<TripLocationRow> rows)
+    {
+        var points = TripTrack.FixesIn(rows, DateTime.MinValue, DateTime.MaxValue)
+            .Where(f => f.Source == "scan")
+            .Select(f => new TrackPoint(f.Latitude, f.Longitude))
+            .ToList();
+        foreach (var key in new[] { "gpsPickup", "gpsDropoff" })
+        {
+            if (TripTrack.MapPointOf(delivery, key) is { } point)
+            {
+                points.Add(point);
+            }
+        }
+
+        return points;
+    }
+
+    /// <summary>
+    /// The pauses more than <see cref="AwayFromScansKm"/> from every scan point, placed at the last
+    /// precise fix at or before each. Without a scan point nothing can be judged, so none is listed; a
+    /// pause with no precise fix before it has no place and is left out.
+    /// </summary>
+    internal static List<AdminTrailAwayStopDto> AwayStopsOf(
+        IReadOnlyList<TrackPauseDto> pauses, IReadOnlyList<TrackFix> fixes, IReadOnlyList<TrackPoint> scans)
+    {
+        var away = new List<AdminTrailAwayStopDto>();
+        if (scans.Count == 0)
+        {
+            return away;
+        }
+
+        foreach (var pause in pauses)
+        {
+            if (!LocationPingRules.TryParseUtc(pause.From, out var from))
+            {
+                continue;
+            }
+
+            var at = fixes.LastOrDefault(f => f.CapturedAtUtc <= from && CheckInEffects.PreciseEnough(f.AccuracyM));
+            if (at is null)
+            {
+                continue;
+            }
+
+            var here = new TrackPoint(at.Latitude, at.Longitude);
+            var nearest = scans.Min(scan => CheckInEffects.DistanceKm(here, scan));
+            if (nearest <= AwayFromScansKm)
+            {
+                continue;
+            }
+
+            away.Add(new AdminTrailAwayStopDto
+            {
+                From = pause.From,
+                Until = pause.Until,
+                Latitude = TripTrack.Round(at.Latitude, AdminDecimals),
+                Longitude = TripTrack.Round(at.Longitude, AdminDecimals),
+                NearestScanKm = TripTrack.Round(nearest, 1)
+            });
+        }
+
+        return away;
     }
 
     /// <summary>
