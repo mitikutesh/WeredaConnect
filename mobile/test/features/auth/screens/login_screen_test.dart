@@ -179,11 +179,20 @@ void main() {
       final am = await AppLocalizations.delegate.load(const Locale('am'));
       expect(find.text(am.offlineReady), findsOneWidget);
       expect(find.text(am.loginNoAccountRegister), findsOneWidget);
-      // The selected segment reports itself to screen readers.
-      expect(
-        tester.getSemantics(find.byKey(const ValueKey('language-am'))),
-        isSemantics(isSelected: true, isButton: true),
-      );
+      // The selected segment reports itself to screen readers. Read the
+      // Semantics widget, not a matcher: CI's Flutter 3.38 lacks
+      // isSemantics and 3.40 deprecates containsSemantics.
+      Semantics segment(String code) => tester.widget<Semantics>(
+            find
+                .descendant(
+                  of: find.byKey(ValueKey('language-$code')),
+                  matching: find.byType(Semantics),
+                )
+                .first,
+          );
+      expect(segment('am').properties.selected, isTrue);
+      expect(segment('am').properties.button, isTrue);
+      expect(segment('en').properties.selected, isFalse);
     });
 
     testWidgets('tapping Afaan Oromoo switches the language', (tester) async {
