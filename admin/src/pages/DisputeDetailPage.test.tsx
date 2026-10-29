@@ -272,6 +272,27 @@ describe("DisputeDetailPage Trip trail tab (LT-13)", () => {
     expect(screen.getByText(/shows where the truck was, not what it carried/)).toBeTruthy();
   });
 
+  // Admin dispute evidence board: a pause no QR scan of the trip explains (live-trip-api 1.0.6).
+  it("lists a pause away from every QR scan and says so", () => {
+    const withAway = trailWithAJump();
+    withAway.summary = { ...withAway.summary, awayStops: 1 };
+    withAway.awayStops = [
+      {
+        from: "2026-10-27T06:40:00.000Z",
+        until: "2026-10-27T07:10:00.000Z",
+        latitude: 8.2,
+        longitude: 38.74,
+        nearestScanKm: 11.1,
+      },
+    ];
+    mocks.trail.data = withAway;
+    renderPage();
+
+    expect(screen.getByText("Pauses more than 5 km from every QR scan of the trip: 1")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Stops away from the QR scans" })).toBeTruthy();
+    expect(screen.getByText(/at 8\.2000, 38\.7400, 11\.1 km from the nearest QR scan/)).toBeTruthy();
+  });
+
   it("without a linked delivery there is no trail to ask for", () => {
     mocks.escrow.data = escrow(null);
     renderPage();

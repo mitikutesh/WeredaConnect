@@ -124,4 +124,18 @@ describe("summaryLines", () => {
   it("no check-ins at all says only that", () => {
     expect(keys(trail({ fixes: 0, sharedWholeWay: false, maxKmh: null }, 0))).toEqual(["warn:trail.saysNoCheckIns"]);
   });
+
+  // Admin dispute evidence board: "stops off the stop list", judged from the QR scans (1.0.6).
+  it("pauses away from every QR scan are a warning; all near a scan is good", () => {
+    expect(keys(trail({ awayStops: 1 }, 1, 1))).toContain("warn:trail.saysAwayStops");
+    expect(summaryLines(trail({ awayStops: 1 }, 1, 1)).find((l) => l.key === "trail.saysAwayStops")?.values).toEqual(
+      { count: 1 },
+    );
+    expect(keys(trail({ awayStops: 0 }, 1, 1))).toContain("good:trail.saysNoAwayStops");
+  });
+
+  it("an older server without the count, or no pause, says nothing about it", () => {
+    expect(keys(trail({}, 1, 1)).some((k) => k.includes("AwayStops"))).toBe(false);
+    expect(keys(trail({ awayStops: 0 }, 1, 0)).some((k) => k.includes("AwayStops"))).toBe(false);
+  });
 });
