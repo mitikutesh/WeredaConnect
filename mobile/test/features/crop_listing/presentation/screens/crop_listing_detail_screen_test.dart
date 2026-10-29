@@ -12,9 +12,13 @@ import 'package:wereda_connect/features/rating/domain/repositories/base_rating_r
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
-/// No-op rating repository so the detail screen's farmer-rating row can build
-/// in tests without hitting a backend (returns "no ratings yet").
+/// No-op rating repository so the detail screen's farmer card can build in
+/// tests without hitting a backend ("no ratings yet" unless [summary] says).
 class _FakeRatingRepository implements BaseRatingRepository {
+  _FakeRatingRepository([this.summary = RatingSummary.empty]);
+
+  final RatingSummary summary;
+
   @override
   Future<Rating> createRating({
     required String orderId,
@@ -37,8 +41,7 @@ class _FakeRatingRepository implements BaseRatingRepository {
   Future<List<Rating>> getRatingsForRatee(String rateeId) async => const [];
 
   @override
-  Future<RatingSummary> getRatingSummary(String rateeId) async =>
-      RatingSummary.empty;
+  Future<RatingSummary> getRatingSummary(String rateeId) async => summary;
 }
 
 CropListing _makeListing({
@@ -48,8 +51,10 @@ CropListing _makeListing({
   String locationName = 'Bishoftu',
   String description = 'Test description',
   ListingStatus status = ListingStatus.active,
+  String farmerName = '',
 }) {
   return CropListing()
+    ..farmerName = farmerName
     ..listingId = 'test-listing'
     ..farmerId = 'farmer-001'
     ..cropType = cropType
@@ -71,13 +76,14 @@ Widget _buildScreen({
   required CropListing listing,
   String currentUserId = 'user-001',
   UserRole currentUserRole = UserRole.farmer,
+  RatingSummary rating = RatingSummary.empty,
 }) {
   return MaterialApp(
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     locale: const Locale('en'),
     home: BlocProvider<RatingBloc>(
-      create: (_) => RatingBloc(repository: _FakeRatingRepository()),
+      create: (_) => RatingBloc(repository: _FakeRatingRepository(rating)),
       child: CropListingDetailScreen(
         listing: listing,
         currentUserId: currentUserId,
@@ -238,6 +244,43 @@ void main() {
         find.text('Contact opens after payment is held in escrow.'),
         findsNothing,
       );
+    });
+
+    // Crop detail board: who sells it, with their rating.
+    testWidgets('the farmer card shows initials, name and no ratings yet',
+        (tester) async {
+      await tester.pumpWidget(
+        _buildScreen(
+          listing: _makeListing(farmerName: 'Abebe Kebede'),
+          currentUserRole: UserRole.buyer,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('AK'), findsOneWidget);
+      expect(find.text('Abebe Kebede'), findsOneWidget);
+      expect(find.text('Farmer Rating: No ratings yet'), findsOneWidget);
+    });
+
+    testWidgets('the farmer card shows the rating when there is one',
+        (tester) async {
+      await tester.pumpWidget(
+        _buildScreen(
+          listing: _makeListing(farmerName: 'Abebe Kebede'),
+          currentUserRole: UserRole.buyer,
+          rating: const RatingSummary(average: 4.8, count: 12),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Farmer Rating 4.8 · 12 ratings'), findsOneWidget);
+    });
+
+    testWidgets('no farmer card without a farmer name', (tester) async {
+      await tester.pumpWidget(_buildScreen(listing: _makeListing()));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Farmer Rating'), findsNothing);
     });
   });
 }

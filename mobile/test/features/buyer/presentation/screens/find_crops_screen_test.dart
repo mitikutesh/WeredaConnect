@@ -115,6 +115,17 @@ void main() {
       expect(find.text('My Requests'), findsOneWidget);
     });
 
+    testWidgets('the tabs are a segmented switch (Market board)',
+        (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      final tabBar = tester.widget<TabBar>(find.byType(TabBar));
+      expect(tabBar.indicator, isA<BoxDecoration>());
+      expect(tabBar.indicatorSize, TabBarIndicatorSize.tab);
+      expect(tabBar.dividerColor, Colors.transparent);
+    });
+
     testWidgets(
         'only one GreenHeader in the tree — embedded BrowseListingsScreen '
         'does not render its own header', (tester) async {

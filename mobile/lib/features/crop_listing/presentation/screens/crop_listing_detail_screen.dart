@@ -196,6 +196,12 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
               ),
               const SizedBox(height: 24),
 
+              // Who sells it (Crop detail board): name and rating.
+              if (widget.listing.farmerName.isNotEmpty) ...[
+                _FarmerCard(listing: widget.listing),
+                const SizedBox(height: 12),
+              ],
+
               // Details card
               _DetailsCard(
                 listing: widget.listing,
@@ -633,16 +639,6 @@ class _DetailsCard extends StatelessWidget {
               label: l10n.location,
               value: listing.locationName,
             ),
-            if (listing.farmerName.isNotEmpty) ...[
-              const Divider(height: 24),
-              _DetailRow(
-                icon: Icons.person,
-                label: l10n.farmer,
-                value: listing.farmerName,
-              ),
-            ],
-            const Divider(height: 24),
-            _FarmerRatingRow(farmerId: listing.farmerId),
             if (listing.description.isNotEmpty) ...[
               const Divider(height: 24),
               _DetailRow(
@@ -664,71 +660,93 @@ class _DetailsCard extends StatelessWidget {
   }
 }
 
-/// Shows the farmer's aggregate rating (average + count) fetched best-effort
-/// from the server. Falls back to "no ratings yet" while loading or offline.
-class _FarmerRatingRow extends StatefulWidget {
-  final String farmerId;
+/// The farmer who sells the crop with their aggregate rating (average and
+/// count), fetched best effort from the server; "no ratings yet" while
+/// loading or offline.
+class _FarmerCard extends StatefulWidget {
+  final CropListing listing;
 
-  const _FarmerRatingRow({required this.farmerId});
+  const _FarmerCard({required this.listing});
 
   @override
-  State<_FarmerRatingRow> createState() => _FarmerRatingRowState();
+  State<_FarmerCard> createState() => _FarmerCardState();
 }
 
-class _FarmerRatingRowState extends State<_FarmerRatingRow> {
+class _FarmerCardState extends State<_FarmerCard> {
   // Fetched once, not on every rebuild (minimise 3G data usage).
-  late final Future<RatingSummary> _summaryFuture =
-      context.read<RatingBloc>().repository.getRatingSummary(widget.farmerId);
+  late final Future<RatingSummary> _summaryFuture = context
+      .read<RatingBloc>()
+      .repository
+      .getRatingSummary(widget.listing.farmerId);
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
+    final name = widget.listing.farmerName.trim();
+    final initials = name
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .take(2)
+        .map((part) => part.characters.first.toUpperCase())
+        .join();
     return FutureBuilder<RatingSummary>(
       future: _summaryFuture,
       builder: (context, snapshot) {
         final summary = snapshot.data;
-        Widget valueWidget;
-        if (summary == null || summary.count == 0) {
-          valueWidget = Text(
-            l10n.noRatingsYet,
-            style: theme.textTheme.bodyLarge?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
-          );
-        } else {
-          valueWidget = Row(
-            children: [
-              StarRating(rating: summary.average, size: 16),
-              const SizedBox(width: 8),
-              Text(
-                '${summary.average.toStringAsFixed(1)} · '
-                '${l10n.ratingsCount(summary.count)}',
-                style: theme.textTheme.bodyMedium,
-              ),
-            ],
-          );
-        }
-        return Row(
-          children: [
-            Icon(Icons.star, size: 20, color: theme.colorScheme.primary),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.farmerRating,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+        final rated = summary != null && summary.count > 0;
+        return Card(
+          margin: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: const Color(0xFFE3EEE6),
+                  child: Text(
+                    initials,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.fieldGreen,
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  valueWidget,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.soilDark,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        rated
+                            ? '${l10n.farmerRating} '
+                                '${summary.average.toStringAsFixed(1)} · '
+                                '${l10n.ratingsCount(summary.count)}'
+                            : '${l10n.farmerRating}: ${l10n.noRatingsYet}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.mutedSteel,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (rated) ...[
+                  const SizedBox(width: 8),
+                  StarRating(rating: summary.average, size: 14),
                 ],
-              ),
+              ],
             ),
-          ],
+          ),
         );
       },
     );

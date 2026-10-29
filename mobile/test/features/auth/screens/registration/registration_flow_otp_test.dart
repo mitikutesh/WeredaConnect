@@ -272,6 +272,18 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
+    // Register Fayda board: the step starts under the progress bar, not in
+    // the middle of the screen.
+    testWidgets('the Fayda step sits at the top of the screen', (tester) async {
+      await openFaydaStep(tester);
+
+      expect(
+        tester.getTopLeft(find.text('Fayda Identity Verification')).dy,
+        lessThan(200),
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
     testWidgets('shows retry progress, then a clear message and Retry',
         (tester) async {
       final gate = Completer<FaydaStartResult>();

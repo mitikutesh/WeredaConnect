@@ -128,18 +128,38 @@ class _FindCropsScreenState extends State<FindCropsScreen>
             ),
           ),
 
-          // ── Tab bar ─────────────────────────────────────────────────
-          Material(
-            color: AppTheme.surfaceWhite,
-            child: TabBar(
-              controller: _tabController,
-              indicatorColor: AppTheme.primaryGreen,
-              labelColor: AppTheme.primaryGreen,
-              unselectedLabelColor: AppTheme.textMuted,
-              tabs: [
-                Tab(text: l10n.browseAll),
-                Tab(text: l10n.myRequests),
-              ],
+          // ── Tab bar: the board's segmented switch ──────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAE6DB),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: TabBar(
+                controller: _tabController,
+                indicatorSize: TabBarIndicatorSize.tab,
+                indicator: BoxDecoration(
+                  color: AppTheme.surfaceWhite,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                dividerColor: Colors.transparent,
+                labelColor: AppTheme.soilDark,
+                unselectedLabelColor: AppTheme.mutedSteel,
+                labelStyle: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+                unselectedLabelStyle: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+                tabs: [
+                  Tab(height: 40, text: l10n.browseAll),
+                  Tab(height: 40, text: l10n.myRequests),
+                ],
+              ),
             ),
           ),
 
