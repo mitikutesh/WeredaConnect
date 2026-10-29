@@ -491,9 +491,8 @@ public sealed record AdminDeliveryTrailResponse
 
 /// <summary>
 /// A pause of the driver more than 5 km from every QR scan of the trip (any order's pickup or drop-off
-/// scan, and this delivery's own): a stop no handoff on the truck explains. This is the admin board's
-/// "stops off the stop list", judged from the scans the trail already holds rather than each order's
-/// planned points.
+/// scan, and this delivery's own) and from every planned stop of the trip (each order's listing
+/// location, the trip's destination point): the admin board's "stops off the stop list".
 /// </summary>
 public sealed record AdminTrailAwayStopDto
 {
@@ -505,8 +504,13 @@ public sealed record AdminTrailAwayStopDto
 
     public required double Longitude { get; init; }
 
-    /// <summary>The nearest QR scan, 1 decimal.</summary>
-    public required double NearestScanKm { get; init; }
+    /// <summary>The nearest QR scan, 1 decimal; null when the trip has no scan with a place.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? NearestScanKm { get; init; }
+
+    /// <summary>The nearest planned stop, 1 decimal; null when the stop list could not be read.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? NearestPlannedStopKm { get; init; }
 }
 
 /// <summary>A QR handoff point of the delivery at 4 decimals, with its time.</summary>

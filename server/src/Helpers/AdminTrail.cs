@@ -49,7 +49,10 @@ public static class AdminTrail
     /// Before pickup, and for a self-pickup, the lists are empty and the summary is all zeros.
     /// </summary>
     public static AdminDeliveryTrailResponse Build(
-        Dictionary<string, object> delivery, IReadOnlyList<TripLocationRow> rows, DateTime nowUtc)
+        Dictionary<string, object> delivery,
+        IReadOnlyList<TripLocationRow> rows,
+        DateTime nowUtc,
+        IReadOnlyList<TrackPoint>? plannedStops = null)
     {
         var status = Text(delivery, "status") ?? string.Empty;
         var tripId = TripIdOf(delivery);
@@ -92,7 +95,7 @@ public static class AdminTrail
             if (tripId != null)
             {
                 gaps = GapsOf(fixes, spans, from, last);
-                awayStops = AwayStopsOf(pauses, fixes, ScanPointsOf(delivery, rows));
+                awayStops = AwayStopsOf(pauses, fixes, ScanPointsOf(delivery, rows), plannedStops);
             }
         }
 
@@ -162,15 +165,20 @@ public static class AdminTrail
     }
 
     /// <summary>
-    /// The pauses more than <see cref="AwayFromScansKm"/> from every scan point, placed at the last
-    /// precise fix at or before each. Without a scan point nothing can be judged, so none is listed; a
-    /// pause with no precise fix before it has no place and is left out.
+    /// The pauses more than <see cref="AwayFromScansKm"/> from every scan point and from every planned
+    /// stop of the trip (<paramref name="planned"/>, when read), placed at the last precise fix at or
+    /// before each: stops off the stop list. Without any point to judge by none is listed; a pause with
+    /// no precise fix before it has no place and is left out.
     /// </summary>
     internal static List<AdminTrailAwayStopDto> AwayStopsOf(
-        IReadOnlyList<TrackPauseDto> pauses, IReadOnlyList<TrackFix> fixes, IReadOnlyList<TrackPoint> scans)
+        IReadOnlyList<TrackPauseDto> pauses,
+        IReadOnlyList<TrackFix> fixes,
+        IReadOnlyList<TrackPoint> scans,
+        IReadOnlyList<TrackPoint>? planned = null)
     {
         var away = new List<AdminTrailAwayStopDto>();
-        if (scans.Count == 0)
+        var plannedPoints = planned ?? Array.Empty<TrackPoint>();
+        if (scans.Count == 0 && plannedPoints.Count == 0)
         {
             return away;
         }
@@ -189,8 +197,11 @@ public static class AdminTrail
             }
 
             var here = new TrackPoint(at.Latitude, at.Longitude);
-            var nearest = scans.Min(scan => CheckInEffects.DistanceKm(here, scan));
-            if (nearest <= AwayFromScansKm)
+            double? nearestScan = scans.Count == 0 ? null : scans.Min(scan => CheckInEffects.DistanceKm(here, scan));
+            double? nearestPlanned = plannedPoints.Count == 0
+                ? null
+                : plannedPoints.Min(stop => CheckInEffects.DistanceKm(here, stop));
+            if (nearestScan <= AwayFromScansKm || nearestPlanned <= AwayFromScansKm)
             {
                 continue;
             }
@@ -201,7 +212,8 @@ public static class AdminTrail
                 Until = pause.Until,
                 Latitude = TripTrack.Round(at.Latitude, AdminDecimals),
                 Longitude = TripTrack.Round(at.Longitude, AdminDecimals),
-                NearestScanKm = TripTrack.Round(nearest, 1)
+                NearestScanKm = nearestScan is { } scanKm ? TripTrack.Round(scanKm, 1) : null,
+                NearestPlannedStopKm = nearestPlanned is { } plannedKm ? TripTrack.Round(plannedKm, 1) : null
             });
         }
 

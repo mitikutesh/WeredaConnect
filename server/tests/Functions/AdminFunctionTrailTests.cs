@@ -261,6 +261,59 @@ public class AdminFunctionTrailTests
         RequestContext = new APIGatewayProxyRequest.ProxyRequestContext { Authorizer = authorizer }
     };
 
+    // ===== Planned stops (the board's stop list) =====
+
+    [Fact]
+    public async Task WithTheTripAndCropsTables_ThePlannedStopsJudgeThePauses()
+    {
+        // The pause at 06:40 is placed at the 06:00 fix (8.1; the 06:30 one is coarse), where the
+        // order's listing is: it is on the stop list.
+        var delivery = Delivery("disputed");
+        delivery["listingId"] = S("listing-1");
+        DeliveryReturns(delivery);
+        _db.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "trips-test"), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    new() { ["tripId"] = S(TripId), ["status"] = S("inTransit") }
+                }
+            });
+        _db.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "crops-test"), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    new() { ["cropId"] = S("listing-1"), ["latitude"] = N("8.1"), ["longitude"] = N("38.74") }
+                }
+            });
+        var function = new AdminFunction(
+            _db, UsersTable, "", "", DeliveriesTable, "", tripLocationsTable: TripLocationsTable,
+            tripsTable: "trips-test", cropsTable: "crops-test") { Clock = () => Now };
+
+        var response = await function.FunctionHandler(Request(AdminGroup()), _context);
+
+        response.StatusCode.Should().Be(200);
+        var trail = JsonDocument.Parse(response.Body).RootElement;
+        trail.GetProperty("awayStops").GetArrayLength().Should().Be(0);
+        trail.GetProperty("summary").GetProperty("awayStops").GetInt32().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task WithoutTheTripsTable_NoPlannedStopIsRead_AndTheScansAloneJudge()
+    {
+        var response = await Function().FunctionHandler(Request(AdminGroup()), _context);
+
+        // The delivery's own scan points are far from the pause, so it is listed, with no
+        // planned-stop distance.
+        var trail = JsonDocument.Parse(response.Body).RootElement;
+        var stop = trail.GetProperty("awayStops").EnumerateArray().Should().ContainSingle().Subject;
+        stop.GetProperty("nearestScanKm").GetDouble().Should().BeGreaterThan(5);
+        stop.GetProperty("nearestPlannedStopKm").ValueKind.Should().Be(JsonValueKind.Null);
+        await _db.DidNotReceive().QueryAsync(
+            Arg.Is<QueryRequest>(r => r.TableName == "trips-test"), Arg.Any<CancellationToken>());
+    }
+
     private void DeliveryReturns(Dictionary<string, AttributeValue>? item)
         => _db.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable), Arg.Any<CancellationToken>())
             .Returns(new QueryResponse

@@ -433,6 +433,42 @@ public class AdminTrailTests
         trail.AwayStops.Should().BeEmpty();
     }
 
+    [Fact]
+    public void APauseFarFromTheScansButAtAPlannedStop_IsOnTheStopList()
+    {
+        // The rest at 8.40 is 33.4 km from the pickup scan, but another order's listing is there.
+        var rows = new[]
+        {
+            Fix(At(5, 5), 8.10, source: "scan"),
+            Fix(At(6, 0), 8.40),
+            Event(LocationPingRules.KindPaused, At(6, 10), pausedUntil: At(6, 40)),
+            Fix(At(7, 0), 8.60)
+        };
+
+        var trail = AdminTrail.Build(
+            Delivered(At(9, 0)), rows, Now, new[] { new TrackPoint(8.401, Meridian) });
+
+        trail.AwayStops.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void WithoutScans_ThePlannedStopsStillJudge_AndTheScanDistanceIsNull()
+    {
+        var rows = new[]
+        {
+            Fix(At(6, 0), 8.40),
+            Event(LocationPingRules.KindPaused, At(6, 10), pausedUntil: At(6, 40)),
+            Fix(At(7, 0), 8.60)
+        };
+
+        var trail = AdminTrail.Build(
+            Delivered(At(9, 0)), rows, Now, new[] { new TrackPoint(8.10, Meridian) });
+
+        var stop = trail.AwayStops.Should().ContainSingle().Subject;
+        stop.NearestScanKm.Should().BeNull();
+        stop.NearestPlannedStopKm.Should().Be(33.4);
+    }
+
     // ===== Helpers =====
 
     private static AdminDeliveryTrailResponse Build(Dictionary<string, object> delivery, params TripLocationRow[] rows)
