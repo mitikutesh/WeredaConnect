@@ -86,7 +86,16 @@ void main() {
         ),
       );
 
-  Future<void> fillRoute(
+  /// A tall phone, so every field of the single page is on screen.
+  void useTallPhone(WidgetTester tester) {
+    tester.view.physicalSize = const Size(500, 1800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+  }
+
+  /// Fills every required field, so a refusal can only come from the one
+  /// field a test puts a phone number in.
+  Future<void> fillTrip(
     WidgetTester tester, {
     String from = 'Bishoftu',
     String to = 'Addis Ababa',
@@ -103,30 +112,47 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Continue'));
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Capacity (quintals)'),
+      '50',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Price per Quintal (ETB)'),
+      '150',
+    );
+  }
+
+  Future<void> save(WidgetTester tester) async {
+    await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
   }
 
-  testWidgets('a number in From keeps the wizard on the route step',
-      (tester) async {
+  void expectNotSaved() => verifyNever(
+        () => tripBloc.add(any(that: isA<CreateTrip>())),
+      );
+
+  testWidgets('a number in From blocks saving', (tester) async {
+    useTallPhone(tester);
     await tester.pumpWidget(app());
     await tester.pumpAndSettle();
 
-    await fillRoute(tester, from: 'Bishoftu 0911 234 567');
+    await fillTrip(tester, from: 'Bishoftu 0911 234 567');
+    await save(tester);
 
     expect(find.text(_contactInText), findsOneWidget);
-    expect(find.text('Trucker Name'), findsNothing);
+    expectNotSaved();
   });
 
-  testWidgets('a number in To keeps the wizard on the route step',
-      (tester) async {
+  testWidgets('a number in To blocks saving', (tester) async {
+    useTallPhone(tester);
     await tester.pumpWidget(app());
     await tester.pumpAndSettle();
 
-    await fillRoute(tester, to: 'Addis Ababa +251 712 345 678');
+    await fillTrip(tester, to: 'Addis Ababa +251 712 345 678');
+    await save(tester);
 
     expect(find.text(_contactInText), findsOneWidget);
-    expect(find.text('Trucker Name'), findsNothing);
+    expectNotSaved();
   });
 
   for (final (label, text) in [
@@ -135,25 +161,25 @@ void main() {
     ('Vehicle Description', 'Konkolaataa Isuzu, bilbilaa 0712 34 56 78'),
     ('Vehicle Plate', '0911234567'),
   ]) {
-    testWidgets('a number in $label keeps the wizard on step 2: $text',
-        (tester) async {
+    testWidgets('a number in $label blocks saving: $text', (tester) async {
+      useTallPhone(tester);
       await tester.pumpWidget(app());
       await tester.pumpAndSettle();
-      await fillRoute(tester);
+      await fillTrip(tester);
 
       await tester.enterText(find.widgetWithText(TextFormField, label), text);
-      await tester.tap(find.text('Continue'));
-      await tester.pumpAndSettle();
+      await save(tester);
 
       expect(find.text(_contactInText), findsOneWidget);
-      expect(find.text('Capacity (quintals)'), findsNothing);
+      expectNotSaved();
     });
   }
 
-  testWidgets('a plate and a vehicle without a number pass', (tester) async {
+  testWidgets('a plate and a vehicle without a number save', (tester) async {
+    useTallPhone(tester);
     await tester.pumpWidget(app());
     await tester.pumpAndSettle();
-    await fillRoute(tester);
+    await fillTrip(tester);
 
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Vehicle Plate'),
@@ -163,11 +189,15 @@ void main() {
       find.widgetWithText(TextFormField, 'Vehicle Description'),
       'Isuzu FSR 2019 model, 70 quintal capacity',
     );
-    await tester.tap(find.text('Continue'));
-    await tester.pumpAndSettle();
+    await save(tester);
 
     expect(find.text(_contactInText), findsNothing);
-    expect(find.text('Capacity (quintals)'), findsOneWidget);
+    final created = verify(
+      () => tripBloc.add(captureAny(that: isA<CreateTrip>())),
+    ).captured.single as CreateTrip;
+    expect(created.vehiclePlate, '3-AA-12345');
+    expect(created.truckerName, 'Test Trucker');
+    expect(created.truckerPhone, '+251911000000');
   });
 
   testWidgets('the server refusal is explained', (tester) async {

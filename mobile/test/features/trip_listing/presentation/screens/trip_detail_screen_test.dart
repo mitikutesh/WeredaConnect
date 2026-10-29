@@ -148,4 +148,53 @@ void main() {
       expect(find.text('Oct 24, 2026'), findsNothing);
     });
   }
+
+  // Trucker · Trip and bookings board: what a booking means for the trip.
+  group('booking notes', () {
+    const terms = 'Booked trips keep their date, price and route.';
+    const scan = "On the trip day, scan each farmer's QR at pickup. "
+        'Live trip starts with the first scan.';
+    const cancel = 'Cancelling hands booked orders back to their buyers, '
+        'who can cancel for a full refund.';
+
+    Trip booked() => _trip()
+      ..bookedQuintals = 30
+      ..remainingQuintals = 20;
+
+    testWidgets('the owner of a booked trip sees all three', (tester) async {
+      tallView(tester);
+      signIn('trucker-001', UserRole.trucker);
+
+      await tester.pumpWidget(buildScreen(booked()));
+      await tester.pumpAndSettle();
+
+      expect(find.text(terms), findsOneWidget);
+      expect(find.text(scan), findsOneWidget);
+      expect(find.text(cancel), findsOneWidget);
+    });
+
+    testWidgets('a buyer sees only that the terms are fixed', (tester) async {
+      tallView(tester);
+      signIn('buyer-001', UserRole.buyer);
+
+      await tester.pumpWidget(buildScreen(booked()));
+      await tester.pumpAndSettle();
+
+      expect(find.text(terms), findsOneWidget);
+      expect(find.text(scan), findsNothing);
+      expect(find.text(cancel), findsNothing);
+    });
+
+    testWidgets('a trip without bookings has none', (tester) async {
+      tallView(tester);
+      signIn('trucker-001', UserRole.trucker);
+
+      await tester.pumpWidget(buildScreen(_trip()));
+      await tester.pumpAndSettle();
+
+      expect(find.text(terms), findsNothing);
+      expect(find.text(scan), findsNothing);
+      expect(find.text(cancel), findsNothing);
+    });
+  });
 }

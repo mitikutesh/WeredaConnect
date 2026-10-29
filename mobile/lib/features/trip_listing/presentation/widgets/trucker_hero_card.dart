@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
@@ -111,6 +112,65 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
   }
 }
 
+/// How full the truck is (the Trucker · Home board's "Space on today's
+/// trip"): booked quintals out of the capacity, as a bar.
+class _TripLoadBar extends StatelessWidget {
+  final Trip trip;
+
+  const _TripLoadBar({required this.trip});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final capacity = trip.capacity;
+    if (capacity <= 0) return const SizedBox.shrink();
+    final loaded = (capacity - tripRoomLeft(trip)).clamp(0, capacity);
+    final text = l10n.tripLoadedOf(
+      formatQuintals(loaded.toDouble()),
+      formatQuintals(capacity),
+    );
+
+    return Semantics(
+      label: '${l10n.tripSpaceTitle}: $text',
+      excludeSemantics: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            l10n.tripSpaceTitle,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.mutedSteel,
+            ),
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: loaded / capacity,
+              minHeight: 8,
+              backgroundColor: AppTheme.whisperBorder,
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                Color(0xFFD9922B),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            text,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.soilDark,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// IDLE state — no active trips, prompt to create one.
 class _IdleCard extends StatelessWidget {
   final List<({String from, String to})> recentRoutes;
@@ -217,6 +277,8 @@ class _PostedCard extends StatelessWidget {
               color: AppTheme.primaryGreen,
             ),
           ),
+          const SizedBox(height: 12),
+          _TripLoadBar(trip: trip),
         ],
       ),
     );
@@ -277,6 +339,8 @@ class _MatchedCard extends StatelessWidget {
               color: AppTheme.primaryGreen,
             ),
           ),
+          const SizedBox(height: 12),
+          _TripLoadBar(trip: trip),
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
@@ -352,6 +416,8 @@ class _InTransitCard extends StatelessWidget {
               color: AppTheme.primaryGreen,
             ),
           ),
+          const SizedBox(height: 12),
+          _TripLoadBar(trip: trip),
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,

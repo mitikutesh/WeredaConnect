@@ -13,6 +13,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/route_preview_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 
@@ -238,5 +239,35 @@ void main() {
 
     expect(textOf(tester, toField), 'Adama');
     expect(find.byType(DatePickerDialog), findsNothing);
+  });
+
+  // Trucker · Create trip board: once both ends are picked places with
+  // coordinates, the page draws the route and says how far it is.
+  testWidgets('picking both places shows the route preview', (tester) async {
+    tester.view.physicalSize = const Size(500, 1800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(buildTestWidget());
+    await tester.pumpAndSettle();
+    expect(find.byType(RoutePreviewCard), findsNothing);
+
+    await typeQuery(tester, fromField, 'Mek');
+    await tester.tap(suggestion('መቂ'));
+    await tester.pumpAndSettle();
+    expect(find.byType(RoutePreviewCard), findsNothing);
+
+    await typeQuery(tester, toField, 'Ad');
+    await tester.tap(suggestion('አዲስ አበባ'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(RoutePreviewCard), findsOneWidget);
+    expect(
+      find.textContaining('km in a straight line, drawn on your phone'),
+      findsOneWidget,
+    );
+    expect(
+      find.bySemanticsLabel(RegExp('Route preview from .* to Addis Ababa')),
+      findsOneWidget,
+    );
   });
 }

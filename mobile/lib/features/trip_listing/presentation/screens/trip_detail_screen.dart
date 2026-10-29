@@ -101,6 +101,10 @@ class TripDetailScreen extends StatelessWidget {
                             : '${trip.capacity} ${l10n.quintals} · '
                                 '${l10n.tripRemainingCapacity(formatQuintals(tripRoomLeft(trip)))}',
                       ),
+                      if (tripHasBookings(trip)) ...[
+                        const SizedBox(height: 6),
+                        _TripNote(text: l10n.tripBookedTermsNote),
+                      ],
                       const SizedBox(height: 12),
                       _InfoRow(
                         icon: Icons.payments,
@@ -160,9 +164,20 @@ class TripDetailScreen extends StatelessWidget {
                           final isOwner = authState is AuthAuthenticated &&
                               authState.userId == trip.truckerId;
                           if (!isOwner) return const SizedBox.shrink();
+                          final beforePickup = trip.status == TripStatus.open ||
+                              trip.status == TripStatus.matched;
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 32),
-                            child: TripBookingsSection(trip: trip),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                TripBookingsSection(trip: trip),
+                                if (beforePickup && tripHasBookings(trip)) ...[
+                                  const SizedBox(height: 12),
+                                  _TripNote(text: l10n.tripScanAtPickupNote),
+                                ],
+                              ],
+                            ),
                           );
                         },
                       ),
@@ -314,6 +329,10 @@ class TripDetailScreen extends StatelessWidget {
                                     ),
                                   ),
                                 ),
+                                if (tripHasBookings(trip)) ...[
+                                  const SizedBox(height: 8),
+                                  _TripNote(text: l10n.tripCancelBookedNote),
+                                ],
                               ],
                             ],
                           );
@@ -408,6 +427,26 @@ class TripDetailScreen extends StatelessWidget {
       confirmColor: AppTheme.statusError,
       eventFactory: (truckerId) =>
           CancelTrip(tripId: trip.tripId, truckerId: truckerId),
+    );
+  }
+}
+
+/// A short muted line explaining what a booking means for the trip
+/// (Trucker · Trip and bookings board).
+class _TripNote extends StatelessWidget {
+  final String text;
+
+  const _TripNote({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: const TextStyle(
+        fontSize: 13,
+        height: 1.4,
+        color: AppTheme.mutedSteel,
+      ),
     );
   }
 }

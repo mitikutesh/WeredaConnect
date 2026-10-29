@@ -271,6 +271,24 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
                 ? state.deliveries.where(_matchesSearch).toList()
                 : state.deliveries;
 
+            if (allDeliveries.isEmpty && state.deliveries.isNotEmpty) {
+              // Only the search hid them: say so, not "no deliveries".
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32),
+                  child: Text(
+                    l10n.deliveriesNoSearchMatch,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: AppTheme.textMuted,
+                    ),
+                  ),
+                ),
+              );
+            }
+
             if (allDeliveries.isEmpty) {
               return Center(
                 child: Column(

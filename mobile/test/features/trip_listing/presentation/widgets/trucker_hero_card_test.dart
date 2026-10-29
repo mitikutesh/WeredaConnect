@@ -64,4 +64,34 @@ void main() {
     expect(find.textContaining('3455'), findsOneWidget);
     expect(find.text('Open'), findsNothing);
   });
+
+  // Trucker · Home board: "Space on today's trip", booked out of capacity.
+  testWidgets('a trip card shows how full the truck is', (tester) async {
+    final trip = Trip()
+      ..tripId = 'trip-002'
+      ..truckerId = 'trucker-001'
+      ..fromWoreda = 'Meki'
+      ..toWoreda = 'Addis Ababa'
+      ..departureDate = DateTime(2026, 10, 30)
+      ..capacity = 50.0
+      ..remainingQuintals = 20.0
+      ..pricePerQuintal = 150.0
+      ..status = TripStatus.open
+      ..matchedListings = []
+      ..createdAt = DateTime(2026, 10, 28)
+      ..updatedAt = DateTime(2026, 10, 28)
+      ..version = 1;
+    when(() => repository.getMostRelevantTrip('trucker-001'))
+        .thenAnswer((_) async => trip);
+
+    await tester.pumpWidget(buildCard());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Space on this trip'), findsOneWidget);
+    expect(find.text('30 of 50 quintals loaded'), findsOneWidget);
+    final bar = tester.widget<LinearProgressIndicator>(
+      find.byType(LinearProgressIndicator),
+    );
+    expect(bar.value, closeTo(0.6, 1e-9));
+  });
 }

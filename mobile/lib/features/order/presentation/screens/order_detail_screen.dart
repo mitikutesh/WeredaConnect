@@ -35,10 +35,12 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/order_checkout_screen.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_commitment_section.dart';
 import 'package:wereda_connect/features/rating/presentation/widgets/rate_counterparties_section.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/status_chip.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/contact_actions_sheet.dart';
 import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
@@ -256,6 +258,11 @@ class _OrderDetailBody extends StatelessWidget {
               const EscrowStatusBadge(status: PaymentStatus.held, large: true),
               const SizedBox(height: 24),
             ],
+
+            // What, with whom, and the viewer's money (Buyer · Order detail
+            // and Farmer · Answer a new order boards).
+            _OrderSummaryHero(order: order, userId: userId),
+            const SizedBox(height: 16),
 
             // ── Order info card ─────────────────────────────────
             Card(
@@ -879,6 +886,111 @@ String? _cancelDialogBody(Order order, String userId, AppLocalizations l10n) {
 /// finds; any other failure shows the error. The shared [DeliveryBloc] is
 /// only listened to while this widget's own create is in flight, so other
 /// screens' delivery states never show here.
+/// The order at a glance: crop and quantity, the other party, the status
+/// and the viewer's own amount (the farmer's crop money, the buyer's total,
+/// the trucker's transport pay), with whether it is held in escrow.
+class _OrderSummaryHero extends StatelessWidget {
+  final Order order;
+  final String userId;
+
+  const _OrderSummaryHero({required this.order, required this.userId});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final isFarmer = userId == order.farmerId;
+    final isTrucker = !isFarmer && userId == order.truckerId;
+    final farmer = partyDisplayName(order.farmerName, l10n);
+    final buyer = partyDisplayName(order.buyerName, l10n);
+
+    final (String subtitle, String amountLabel, double amount) = isFarmer
+        ? (
+            '${l10n.buyer}: $buyer',
+            l10n.orderYouReceive,
+            order.cropCost ?? order.totalPrice,
+          )
+        : isTrucker
+            ? (
+                '$farmer → $buyer',
+                l10n.orderYourTransportPay,
+                order.transportCost ?? 0,
+              )
+            : (
+                l10n.liveTripFrom(farmer),
+                l10n.orderTotal,
+                order.orderTotal ?? order.totalPrice,
+              );
+    final held = escrowHeldOrderStatuses.contains(order.status);
+
+    return Container(
+      key: const Key('order_summary_hero'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppTheme.fieldGreen,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  '${CropType.labelFor(order.cropType, l10n)} · '
+                  '${l10n.quantityKg(order.quantity.toStringAsFixed(0))}',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              StatusChip(
+                label: orderStatusLabel(order.status, l10n),
+                kind: orderStatusKind(order.status),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: const TextStyle(fontSize: 13, color: Color(0xFFCFE3D6)),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            amountLabel,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFFCFE3D6),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            l10n.etbCurrency(amount.toStringAsFixed(0)),
+            style: const TextStyle(
+              fontSize: 30,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.6,
+              color: Colors.white,
+            ),
+          ),
+          if (held) ...[
+            const SizedBox(height: 4),
+            Text(
+              l10n.escrowStatusEscrowed,
+              style: const TextStyle(fontSize: 13, color: Color(0xFFCFE3D6)),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _OrderDeliveryActions extends StatefulWidget {
   final Order order;
   final String userId;

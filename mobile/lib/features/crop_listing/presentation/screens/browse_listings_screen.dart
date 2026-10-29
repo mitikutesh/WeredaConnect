@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
@@ -51,6 +53,9 @@ class BrowseListingsScreen extends StatefulWidget {
 }
 
 class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
+  /// My Crops: the status chip picked (null = all). Filters the loaded
+  /// list on the phone, so the counts on the chips stay whole.
+  ListingStatus? _selectedStatus;
   String? _selectedCropType;
   String? _searchQuery;
   double? _priceMin;
@@ -105,6 +110,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
   /// nothing matches, not that nothing has synced yet (SIM-51).
   bool get _hasActiveFilters =>
       _selectedCropType != null ||
+      (widget.ownerMode && _selectedStatus != null) ||
       (!widget.ownerMode &&
           (_searchQuery != null || _priceMin != null || _priceMax != null));
 
@@ -117,11 +123,20 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     _priceMaxController.clear();
     setState(() {
       _selectedCropType = null;
+      _selectedStatus = null;
       _searchQuery = null;
       _priceMin = null;
       _priceMax = null;
     });
     _loadListings();
+  }
+
+  /// The buyer's registered wereda, the default drop-off for transport
+  /// suggestions; null for other roles or when the profile has none.
+  static String? _buyerDeliveryWoreda(AuthAuthenticated auth) {
+    if (auth.role != UserRole.buyer) return null;
+    final woreda = auth.woreda?.trim();
+    return (woreda == null || woreda.isEmpty) ? null : woreda;
   }
 
   String? _getFarmerId() {
@@ -278,14 +293,27 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                 ),
               ),
             const OfflineBanner(),
-            // Crop type filter chips
-            _CropTypeFilterChipsRow(
-              selectedCropType: _selectedCropType,
-              onCropTypeChanged: (cropType) {
-                setState(() => _selectedCropType = cropType);
-                _applyFilters();
-              },
-            ),
+            // My Crops filters by status (MyCrops board); buyer browse by
+            // crop type.
+            if (widget.ownerMode)
+              BlocBuilder<CropListingBloc, CropListingState>(
+                builder: (context, state) => _StatusFilterChipsRow(
+                  listings: state is CropListingsLoaded
+                      ? state.listings
+                      : const <CropListing>[],
+                  selected: _selectedStatus,
+                  onChanged: (status) =>
+                      setState(() => _selectedStatus = status),
+                ),
+              )
+            else
+              _CropTypeFilterChipsRow(
+                selectedCropType: _selectedCropType,
+                onCropTypeChanged: (cropType) {
+                  setState(() => _selectedCropType = cropType);
+                  _applyFilters();
+                },
+              ),
             // Price range filters (marketplace browse only — not relevant
             // for farmers viewing their own listings)
             if (!widget.ownerMode)
@@ -398,7 +426,14 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                   }
 
                   if (state is CropListingsLoaded) {
-                    if (state.listings.isEmpty && _hasActiveFilters) {
+                    final status = _selectedStatus;
+                    final listings = widget.ownerMode && status != null
+                        ? [
+                            for (final l in state.listings)
+                              if (l.status == status) l,
+                          ]
+                        : state.listings;
+                    if (listings.isEmpty && _hasActiveFilters) {
                       // A search or filter with no hits says so and offers a
                       // way back, instead of the offline copy below (SIM-51).
                       return Center(
@@ -442,7 +477,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                       );
                     }
 
-                    if (state.listings.isEmpty) {
+                    if (listings.isEmpty) {
                       return Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -487,11 +522,10 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                           Breakpoints.fabClearance,
                         ),
                         // The farmer's own list ends with who sees it.
-                        itemCount:
-                            state.listings.length + (widget.ownerMode ? 1 : 0),
+                        itemCount: listings.length + (widget.ownerMode ? 1 : 0),
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
-                          if (index == state.listings.length) {
+                          if (index == listings.length) {
                             return Padding(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 4,
@@ -508,7 +542,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                               ),
                             );
                           }
-                          final listing = state.listings[index];
+                          final listing = listings[index];
                           // The seller's real rating; hidden until it loads
                           // or when the farmer has none. No escrow badge:
                           // there is no per-listing escrow fact to show.
@@ -544,6 +578,12 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                           listing: listing,
                                           currentUserId: authState.userId,
                                           currentUserRole: authState.role,
+                                          // A buyer's own wereda is where
+                                          // the crop goes unless a buying
+                                          // request says otherwise, so the
+                                          // detail can suggest transport.
+                                          deliveryWoreda:
+                                              _buyerDeliveryWoreda(authState),
                                         ),
                                       ),
                                     );
@@ -610,6 +650,65 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
       listenWhen: (previous, current) => current is CropListingCreated,
       listener: (context, state) => _loadListings(),
       child: widget.embedded ? content : Scaffold(body: content),
+    );
+  }
+}
+
+/// My Crops status chips with counts: All, Active, Reserved, Sold, Draft.
+class _StatusFilterChipsRow extends StatelessWidget {
+  final List<CropListing> listings;
+  final ListingStatus? selected;
+  final ValueChanged<ListingStatus?> onChanged;
+
+  const _StatusFilterChipsRow({
+    required this.listings,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final chips = <(ListingStatus?, String)>[
+      (null, l10n.all),
+      (ListingStatus.active, l10n.listingStatusActive),
+      (ListingStatus.reserved, l10n.listingStatusReserved),
+      (ListingStatus.sold, l10n.listingStatusSold),
+      (ListingStatus.draft, l10n.listingStatusDraft),
+    ];
+
+    return SizedBox(
+      height: 50,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        children: [
+          for (final (status, label) in chips)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Builder(
+                builder: (context) {
+                  final count = status == null
+                      ? listings.length
+                      : listings.where((l) => l.status == status).length;
+                  final isSelected = selected == status;
+                  return FilterChip(
+                    key: ValueKey('status-chip-${status?.name ?? 'all'}'),
+                    label: Text(count > 0 ? '$label · $count' : label),
+                    selected: isSelected,
+                    showCheckmark: false,
+                    labelStyle: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: isSelected ? Colors.white : AppTheme.textDark,
+                    ),
+                    selectedColor: AppTheme.soilDark,
+                    onSelected: (_) => onChanged(status),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

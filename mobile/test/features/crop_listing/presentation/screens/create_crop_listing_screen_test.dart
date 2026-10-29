@@ -108,7 +108,10 @@ void main() {
 
       // Verify save button and the offline save note under it
       expect(find.text('Save'), findsOneWidget);
-      expect(find.text('Saved on your phone first, sent when you have network.'), findsOneWidget);
+      expect(
+        find.text('Saved on your phone first, sent when you have network.'),
+        findsOneWidget,
+      );
 
       // Verify audio note placeholder
       expect(find.text('Record Audio Note'), findsOneWidget);

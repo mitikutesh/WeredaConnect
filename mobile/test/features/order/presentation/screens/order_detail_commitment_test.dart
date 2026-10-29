@@ -369,7 +369,14 @@ void main() {
       'buyer-001',
     );
 
-    expect(find.text(en.orderStatusUpdating), findsOneWidget);
+    // The summary card's status chip says so (the timeline may too).
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('order_summary_hero')),
+        matching: find.text(en.orderStatusUpdating),
+      ),
+      findsOneWidget,
+    );
     expect(find.text(en.cancelOrder), findsNothing);
     expect(find.text(en.payNow), findsNothing);
   });
@@ -463,6 +470,71 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+  });
+
+  // Buyer · Order detail and Farmer · Answer a new order boards: the summary
+  // card shows each party their own money.
+  group('summary card', () {
+    Order priced(OrderStatus status) => _order(status)
+      ..cropCost = 8000
+      ..transportCost = 300
+      ..commissionAmount = 425
+      ..orderTotal = 8725;
+
+    Finder inHero(String text) => find.descendant(
+          of: find.byKey(const Key('order_summary_hero')),
+          matching: find.text(text),
+        );
+
+    testWidgets('the farmer sees what they receive', (tester) async {
+      await show(
+        tester,
+        priced(OrderStatus.funded),
+        UserRole.farmer,
+        'farmer-001',
+      );
+
+      expect(inHero(en.orderYouReceive), findsOneWidget);
+      expect(inHero(en.etbCurrency('8000')), findsOneWidget);
+      expect(inHero('${en.buyer}: Buyer Bee'), findsOneWidget);
+      expect(inHero(en.escrowStatusEscrowed), findsOneWidget);
+    });
+
+    testWidgets('the buyer sees the total and the farmer', (tester) async {
+      await show(
+        tester,
+        priced(OrderStatus.funded),
+        UserRole.buyer,
+        'buyer-001',
+      );
+
+      expect(inHero(en.orderTotal), findsOneWidget);
+      expect(inHero(en.etbCurrency('8725')), findsOneWidget);
+      expect(inHero(en.liveTripFrom('Farmer Fikru')), findsOneWidget);
+    });
+
+    testWidgets('the trucker sees the transport pay', (tester) async {
+      await show(
+        tester,
+        priced(OrderStatus.accepted),
+        UserRole.trucker,
+        'trucker-001',
+      );
+
+      expect(inHero(en.orderYourTransportPay), findsOneWidget);
+      expect(inHero(en.etbCurrency('300')), findsOneWidget);
+    });
+
+    testWidgets('no escrow line before the money is in', (tester) async {
+      await show(
+        tester,
+        priced(OrderStatus.created),
+        UserRole.buyer,
+        'buyer-001',
+      );
+
+      expect(inHero(en.escrowStatusEscrowed), findsNothing);
     });
   });
 }

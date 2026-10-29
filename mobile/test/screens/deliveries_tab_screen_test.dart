@@ -130,6 +130,11 @@ void main() {
     expect(find.textContaining('Almaz'), findsNothing);
     expect(find.textContaining('Hiwot'), findsWidgets);
 
+    await tester.enterText(find.byKey(const Key('deliveries_search')), 'zzz');
+    await tester.pumpAndSettle();
+    expect(find.text('No delivery matches that name.'), findsOneWidget);
+    expect(find.text('No deliveries yet'), findsNothing);
+
     await tester.enterText(find.byKey(const Key('deliveries_search')), '');
     await tester.pumpAndSettle();
     expect(find.textContaining('Almaz'), findsWidgets);
