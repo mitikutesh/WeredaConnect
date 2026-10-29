@@ -638,20 +638,36 @@ class _StepProgress extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: List.generate(total, (index) {
-        final isActive = index <= current;
-        return Expanded(
-          child: Container(
-            height: 4,
-            margin: EdgeInsets.only(right: index < total - 1 ? 4 : 0),
-            decoration: BoxDecoration(
-              color: isActive ? AppTheme.primaryGreen : AppTheme.borderLight,
-              borderRadius: BorderRadius.circular(2),
-            ),
+    final l10n = AppLocalizations.of(context)!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l10n.registrationStepOf(current + 1, total),
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.mutedSteel,
           ),
-        );
-      }),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: List.generate(total, (index) {
+            final isActive = index <= current;
+            return Expanded(
+              child: Container(
+                height: 4,
+                margin: EdgeInsets.only(right: index < total - 1 ? 6 : 0),
+                decoration: BoxDecoration(
+                  color:
+                      isActive ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            );
+          }),
+        ),
+      ],
     );
   }
 }

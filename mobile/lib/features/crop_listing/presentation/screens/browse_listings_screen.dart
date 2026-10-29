@@ -486,9 +486,28 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                           20,
                           Breakpoints.fabClearance,
                         ),
-                        itemCount: state.listings.length,
+                        // The farmer's own list ends with who sees it.
+                        itemCount:
+                            state.listings.length + (widget.ownerMode ? 1 : 0),
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
+                          if (index == state.listings.length) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                                vertical: 6,
+                              ),
+                              child: Text(
+                                l10n.myCropsPrivacyNote,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  height: 1.5,
+                                  color: AppTheme.mutedSteel,
+                                ),
+                              ),
+                            );
+                          }
                           final listing = state.listings[index];
                           // The seller's real rating; hidden until it loads
                           // or when the farmer has none. No escrow badge:

@@ -89,34 +89,6 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Top step indicator
-                const Text(
-                  'Step 4 of 4',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF5E6862),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                // 4-step progress bar
-                Row(
-                  children: [
-                    for (int i = 0; i < 4; i++) ...[
-                      if (i > 0) const SizedBox(width: 6),
-                      Expanded(
-                        child: Container(
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: AppTheme.fieldGreen,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 16),
                 Text(
                   l10n.personalInfo,
                   style: const TextStyle(
@@ -135,6 +107,76 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
+
+                // Verified legal name card (shown when Fayda verified)
+                if (widget.faydaVerified &&
+                    widget.faydaVerifiedName != null) ...[
+                  Text(
+                    l10n.verifiedLegalName,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.unselectedNav,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    width: double.infinity,
+                    height: 52,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFECEAE2),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            widget.faydaVerifiedName!,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.soilDark,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE3EEE6),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.lock,
+                                size: 13,
+                                color: AppTheme.fieldGreen,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                l10n.fromFayda,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.fieldGreen,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
 
                 // Phone
                 TextFormField(
@@ -164,63 +206,6 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                   },
                 ),
                 const SizedBox(height: 16),
-
-                // Verified legal name card (shown when Fayda verified)
-                if (widget.faydaVerified &&
-                    widget.faydaVerifiedName != null) ...[
-                  Container(
-                    width: double.infinity,
-                    height: 52,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFECEAE2),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          widget.faydaVerifiedName!,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.soilDark,
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE3EEE6),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.lock,
-                                size: 13,
-                                color: AppTheme.fieldGreen,
-                              ),
-                              SizedBox(width: 4),
-                              Text(
-                                'From Fayda',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppTheme.fieldGreen,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
 
                 // Display name
                 TextFormField(

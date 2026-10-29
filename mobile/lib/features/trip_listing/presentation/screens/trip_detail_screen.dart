@@ -420,6 +420,7 @@ class _RouteHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
       decoration: BoxDecoration(
@@ -457,7 +458,9 @@ class _RouteHeader extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${trip.pricePerQuintal.toStringAsFixed(0)} ETB per quintal',
+                  l10n.tripPricePerQuintalValue(
+                    trip.pricePerQuintal.toStringAsFixed(0),
+                  ),
                   style: const TextStyle(
                     fontSize: 13,
                     color: Color(0xFFB9C2BD),

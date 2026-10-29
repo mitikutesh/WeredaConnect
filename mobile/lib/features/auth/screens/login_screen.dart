@@ -17,11 +17,13 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/core/utils/phone_utils.dart';
-import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
+import 'package:wereda_connect/shared/widgets/language_segmented_picker.dart';
 
 /// Login screen with Ethiopian phone input and offline mode support.
 ///
 /// Features:
+/// - Language switch (English, Amharic, Afaan Oromoo) inside the form card,
+///   on every layout, so the user picks a language before logging in
 /// - Ethiopian phone number input (accepts +251, 00251, or 0 prefix)
 /// - Password input with visibility toggle
 /// - Offline mode indicator
@@ -119,13 +121,6 @@ class _LoginScreenState extends State<LoginScreen> {
         );
   }
 
-  void _showLanguageSelectionDialog(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (context) => const LanguageSelectionDialog(),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -175,13 +170,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 title: Text(l10n.login),
                 elevation: 0,
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.language),
-                    onPressed: () => _showLanguageSelectionDialog(context),
-                    tooltip: l10n.language,
-                  ),
-                ],
               )
             : null,
         body: SafeArea(
@@ -234,37 +222,24 @@ class _LoginScreenState extends State<LoginScreen> {
     AppLocalizations l10n,
     ThemeData theme,
   ) {
-    return Stack(
-      children: [
-        Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(32.0),
-              child: Card(
-                elevation: 4,
-                shadowColor: Colors.black26,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(36.0),
-                  child: _buildLoginForm(context, l10n, theme),
-                ),
-              ),
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(32.0),
+          child: Card(
+            elevation: 4,
+            shadowColor: Colors.black26,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(36.0),
+              child: _buildLoginForm(context, l10n, theme),
             ),
           ),
         ),
-        // Language selector floating top-right
-        Positioned(
-          top: 16,
-          right: 24,
-          child: _LanguageButton(
-            onPressed: () => _showLanguageSelectionDialog(context),
-            tooltip: l10n.language,
-          ),
-        ),
-      ],
+      ),
     );
   }
 
@@ -334,7 +309,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: const Icon(
-                          Icons.agriculture,
+                          Icons.route,
                           color: Colors.white,
                           size: 22,
                         ),
@@ -358,14 +333,18 @@ class _LoginScreenState extends State<LoginScreen> {
                       color: AppTheme.fieldGreenTint,
                       borderRadius: BorderRadius.circular(999),
                     ),
-                    child: const Row(
+                    child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.check, size: 14, color: AppTheme.fieldGreen),
-                        SizedBox(width: 4),
+                        const Icon(
+                          Icons.check,
+                          size: 14,
+                          color: AppTheme.fieldGreen,
+                        ),
+                        const SizedBox(width: 4),
                         Text(
-                          'Offline Ready',
-                          style: TextStyle(
+                          l10n.offlineReady,
+                          style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
                             color: AppTheme.fieldGreen,
@@ -382,17 +361,17 @@ class _LoginScreenState extends State<LoginScreen> {
               Text(
                 l10n.welcomeMessage,
                 style: const TextStyle(
-                  fontSize: 28,
+                  fontSize: 30,
                   fontWeight: FontWeight.w800,
                   color: AppTheme.soilDark,
-                  letterSpacing: -0.5,
-                  height: 1.15,
+                  letterSpacing: -0.9,
+                  height: 1.1,
                 ),
               ),
-              const SizedBox(height: 6),
-              const Text(
-                'Connecting Ethiopian farmers, truckers, and buyers',
-                style: TextStyle(
+              const SizedBox(height: 10),
+              Text(
+                l10n.aboutTagline,
+                style: const TextStyle(
                   fontSize: 15,
                   color: AppTheme.mutedSteel,
                 ),
@@ -431,6 +410,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // Language first: the user may not read English yet.
+                    const LanguageSegmentedPicker(),
+                    const SizedBox(height: 16),
+
                     // Phone number input
                     TextFormField(
                       controller: _phoneController,
@@ -663,7 +646,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   child: Text(
-                    l10n.register,
+                    l10n.loginNoAccountRegister,
+                    textAlign: TextAlign.center,
                     style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
@@ -673,64 +657,18 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
 
-              const SizedBox(height: 16),
-              const Center(
-                child: Text(
-                  'Payments held safely in escrow · Telebirr Payment',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: AppTheme.mutedSteel,
-                  ),
+              const SizedBox(height: 14),
+              Text(
+                '${l10n.loginEscrowFooter} · ${l10n.telebirrPayment}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppTheme.mutedSteel,
                 ),
               ),
             ],
           );
         },
-      ),
-    );
-  }
-}
-
-// ── Desktop hero/branding panel ─────────────────────────────────────────
-
-/// Left-side branding panel shown on desktop login layout.
-class _LanguageButton extends StatelessWidget {
-  final VoidCallback onPressed;
-  final String tooltip;
-
-  const _LanguageButton({required this.onPressed, required this.tooltip});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      elevation: 2,
-      borderRadius: BorderRadius.circular(24),
-      color: AppTheme.surfaceWhite,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(24),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.language,
-                size: 20,
-                color: AppTheme.primaryGreen,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                tooltip,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: AppTheme.primaryGreen,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

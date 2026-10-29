@@ -113,9 +113,9 @@ class FayidaIdScreen extends StatelessWidget {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'DIGITAL ID',
-                          style: TextStyle(
+                        Text(
+                          l10n.faydaDigitalIdLabel.toUpperCase(),
+                          style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w800,
                             letterSpacing: 1.2,
@@ -160,9 +160,9 @@ class FayidaIdScreen extends StatelessWidget {
                                       ),
                                     ),
                                     const SizedBox(height: 4),
-                                    const Text(
-                                      'Verified via Fayda OIDC',
-                                      style: TextStyle(
+                                    Text(
+                                      l10n.faydaVerifiedWith,
+                                      style: const TextStyle(
                                         fontSize: 12,
                                         color: Color(0xFF8FC5A4),
                                         fontWeight: FontWeight.w600,
@@ -208,9 +208,9 @@ class FayidaIdScreen extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      'Your legal name comes from Fayda. Nobody can register in your name.',
-                      style: TextStyle(
+                    Text(
+                      l10n.faydaLegalNameNote,
+                      style: const TextStyle(
                         fontSize: 13,
                         color: Color(0xFFB9C2BD),
                         height: 1.4,
@@ -230,19 +230,19 @@ class FayidaIdScreen extends StatelessWidget {
                   color: const Color(0xFFE6ECF5),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: const Row(
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
+                    const Icon(
                       Icons.info_outline,
                       size: 18,
                       color: Color(0xFF2E4C7D),
                     ),
-                    SizedBox(width: 10),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'A verified Fayda ID is required to create an account. It only takes a minute.',
-                        style: TextStyle(
+                        l10n.faydaRequired,
+                        style: const TextStyle(
                           fontSize: 13,
                           height: 1.4,
                           color: Color(0xFF2E4C7D),

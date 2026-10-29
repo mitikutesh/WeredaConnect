@@ -208,6 +208,27 @@ void main() {
       );
     });
 
+    const privacyNote =
+        'Only you see your listings here. Buyers see them in Find Crops.';
+
+    testWidgets('My Crops ends with who can see the listings', (tester) async {
+      loaded([_listing()]);
+
+      await tester.pumpWidget(buildTestWidget(ownerMode: true));
+      await tester.pumpAndSettle();
+
+      expect(find.text(privacyNote), findsOneWidget);
+    });
+
+    testWidgets('buyer browse has no My Crops privacy note', (tester) async {
+      loaded([_listing()]);
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(find.text(privacyNote), findsNothing);
+    });
+
     testWidgets('hides the rating when the seller has none', (tester) async {
       loaded([_listing()]);
 

@@ -517,9 +517,9 @@ class _AmountCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Amount',
-            style: TextStyle(
+          Text(
+            l10n.paymentAmount,
+            style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
               color: Color(0xFFCFE3D6),
@@ -536,9 +536,9 @@ class _AmountCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 4),
-          const Text(
-            'Held in escrow until you confirm delivery',
-            style: TextStyle(
+          Text(
+            l10n.checkoutHeldInEscrowNote,
+            style: const TextStyle(
               fontSize: 13,
               color: Color(0xFFCFE3D6),
             ),

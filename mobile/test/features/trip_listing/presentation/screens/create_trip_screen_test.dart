@@ -114,6 +114,8 @@ void main() {
       // Pinned action bar shows Continue (not Save yet)
       expect(find.text('Continue'), findsOneWidget);
       expect(find.text('Save'), findsNothing);
+      // The offline save note belongs to the Save step only.
+      expect(find.text('Saved on your phone first, sent when you have network.'), findsNothing);
     });
 
     testWidgets('validates route step on continue', (tester) async {
@@ -173,6 +175,7 @@ void main() {
 
       // Step 3: capacity + price with the final Save action.
       expect(find.text('Capacity (quintals)'), findsOneWidget);
+      expect(find.text('Saved on your phone first, sent when you have network.'), findsOneWidget);
       await tester.enterText(
         find.widgetWithText(TextFormField, 'Capacity (quintals)'),
         '9999',

@@ -196,14 +196,18 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
                     color: const Color(0xFFE3EEE6),
                     borderRadius: BorderRadius.circular(999),
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.eco, size: 14, color: AppTheme.fieldGreen),
-                      SizedBox(width: 4),
+                      const Icon(
+                        Icons.eco,
+                        size: 14,
+                        color: AppTheme.fieldGreen,
+                      ),
+                      const SizedBox(width: 4),
                       Text(
-                        'Farmer',
-                        style: TextStyle(
+                        l10n.farmer,
+                        style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                           color: AppTheme.fieldGreen,
@@ -408,9 +412,9 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text(
-                                  'Total Listing Value',
-                                  style: TextStyle(
+                                Text(
+                                  l10n.totalListingValue,
+                                  style: const TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.w600,
                                     color: AppTheme.mutedSteel,
@@ -459,6 +463,15 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
                                     fontWeight: FontWeight.w800,
                                   ),
                                 ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        l10n.savedOnPhoneFirstNote,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.mutedSteel,
                         ),
                       ),
                     ],

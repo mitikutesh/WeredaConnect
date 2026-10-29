@@ -6,6 +6,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
@@ -15,6 +17,7 @@ import 'package:wereda_connect/features/auth/screens/login_screen.dart';
 import 'package:wereda_connect/features/auth/screens/otp_verification_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
+import 'package:wereda_connect/shared/providers/language_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -27,6 +30,7 @@ class FakeAuthState extends Fake implements AuthState {}
 
 void main() {
   late MockAuthBloc authBloc;
+  late LanguageProvider languageProvider;
 
   setUpAll(() {
     registerFallbackValue(FakeAuthEvent());
@@ -34,6 +38,8 @@ void main() {
   });
 
   setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    languageProvider = LanguageProvider();
     authBloc = MockAuthBloc();
 
     // Default: unauthenticated, no loading
@@ -49,20 +55,27 @@ void main() {
       when(() => authBloc.stream).thenAnswer((_) => stream);
     }
 
-    return BlocProvider<AuthBloc>.value(
-      value: authBloc,
-      child: MaterialApp(
-        locale: locale,
-        // Same delegates as main.dart / main_web.dart, so Afan Oromo (no
-        // Material localizations of its own) renders too.
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          FallbackMaterialLocalizationsDelegate(),
-          GlobalWidgetsLocalizations.delegate,
-          FallbackCupertinoLocalizationsDelegate(),
-        ],
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: const LoginScreen(),
+    // As in main.dart: the app locale follows LanguageProvider, so the
+    // login screen's language switch changes the whole screen.
+    return ChangeNotifierProvider<LanguageProvider>.value(
+      value: languageProvider,
+      child: BlocProvider<AuthBloc>.value(
+        value: authBloc,
+        child: Consumer<LanguageProvider>(
+          builder: (context, language, _) => MaterialApp(
+            locale: locale ?? language.locale,
+            // Same delegates as main.dart / main_web.dart, so Afan Oromo (no
+            // Material localizations of its own) renders too.
+            localizationsDelegates: const [
+              AppLocalizations.delegate,
+              FallbackMaterialLocalizationsDelegate(),
+              GlobalWidgetsLocalizations.delegate,
+              FallbackCupertinoLocalizationsDelegate(),
+            ],
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: const LoginScreen(),
+          ),
+        ),
       ),
     );
   }
@@ -111,13 +124,82 @@ void main() {
       expect(find.text('Login'), findsWidgets);
 
       // Register link
-      expect(find.text('Register'), findsOneWidget);
+      expect(find.text("Don't have an account? Register"), findsOneWidget);
 
       // Forgot password
       expect(find.text('Forgot Password?'), findsOneWidget);
 
-      // Language selector icon
-      expect(find.byIcon(Icons.language), findsOneWidget);
+      // Inline language switch, each language in its own script
+      expect(find.text('Language'), findsOneWidget);
+      expect(find.text('English'), findsOneWidget);
+      expect(find.text('አማርኛ'), findsOneWidget);
+      expect(find.text('Afaan Oromoo'), findsOneWidget);
+
+      // Branding copy comes from l10n, not hardcoded English
+      expect(find.text('Offline Ready'), findsOneWidget);
+      expect(
+        find.text('Connecting Ethiopian farmers, truckers, and buyers'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Payments held safely in escrow · Telebirr Payment'),
+        findsOneWidget,
+      );
+    });
+
+    for (final size in const [
+      Size(500, 900),
+      Size(800, 1000),
+      Size(1280, 900),
+    ]) {
+      testWidgets('language switch shows on a ${size.width.toInt()} px layout',
+          (tester) async {
+        setMobileSize(tester, size: size);
+        await tester.pumpWidget(buildTestWidget());
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const ValueKey('language-am')), findsOneWidget);
+        expect(find.byKey(const ValueKey('language-om')), findsOneWidget);
+      });
+    }
+
+    testWidgets('tapping Amharic switches and persists the language',
+        (tester) async {
+      setMobileSize(tester);
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('language-am')));
+      await tester.pumpAndSettle();
+
+      expect(languageProvider.locale, const Locale('am'));
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('selected_language'), 'am');
+      // The screen re-renders in Amharic.
+      final am = await AppLocalizations.delegate.load(const Locale('am'));
+      expect(find.text(am.offlineReady), findsOneWidget);
+      expect(find.text(am.loginNoAccountRegister), findsOneWidget);
+      // The selected segment reports itself to screen readers.
+      expect(
+        tester.getSemantics(find.byKey(const ValueKey('language-am'))),
+        isSemantics(isSelected: true, isButton: true),
+      );
+    });
+
+    testWidgets('tapping Afaan Oromoo switches the language', (tester) async {
+      setMobileSize(tester);
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('language-om')));
+      await tester.pumpAndSettle();
+
+      expect(languageProvider.locale, const Locale('om'));
+      final om = await AppLocalizations.delegate.load(const Locale('om'));
+      expect(
+        find.text('${om.loginEscrowFooter} · ${om.telebirrPayment}'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('phone field starts empty (no pre-fill)', (tester) async {
@@ -415,7 +497,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Scroll to make register link visible
-      final registerLink = find.text('Register');
+      final registerLink = find.text("Don't have an account? Register");
       await tester.ensureVisible(registerLink);
       await tester.pumpAndSettle();
 

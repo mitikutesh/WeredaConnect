@@ -230,7 +230,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                         icon: Icons.payments,
                         label: l10n.etbCurrency(''),
                         value:
-                            '${widget.listing.pricePerKg.toStringAsFixed(2)} ETB/kg',
+                            '${widget.listing.pricePerKg.toStringAsFixed(2)} ${l10n.etbPerKg}',
                       ),
                       const Divider(height: 16),
                       _SummaryRow(
@@ -337,18 +337,18 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                     color: const Color(0xFFE3EEE6),
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: const Row(
+                  child: Row(
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.lock_outline,
                         size: 18,
                         color: AppTheme.fieldGreen,
                       ),
-                      SizedBox(width: 10),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Your money is held safely. The farmer is asked first, then the trucker.',
-                          style: TextStyle(
+                          l10n.placeOrderEscrowNote,
+                          style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
                             color: AppTheme.fieldGreen,

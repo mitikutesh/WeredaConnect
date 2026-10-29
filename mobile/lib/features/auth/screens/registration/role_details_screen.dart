@@ -91,89 +91,39 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Top step indicator & verified badge
-              Row(
-                children: [
-                  const Text(
-                    'Step 3 of 4',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF5E6862),
-                    ),
+              // Fayda already verified the user on the previous step; the
+              // flow above shows the step counter.
+              Align(
+                alignment: Alignment.centerRight,
+                child: Container(
+                  height: 30,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE3EEE6),
+                    borderRadius: BorderRadius.circular(999),
                   ),
-                  const Spacer(),
-                  Container(
-                    height: 30,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE3EEE6),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.check, size: 14, color: AppTheme.fieldGreen),
-                        SizedBox(width: 6),
-                        Text(
-                          'Identity Verified',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.fieldGreen,
-                          ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.check,
+                        size: 14,
+                        color: AppTheme.fieldGreen,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        l10n.faydaVerifiedSuccess,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.fieldGreen,
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
               const SizedBox(height: 12),
-              // 4-step progress bar
-              Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: AppTheme.fieldGreen,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Container(
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: AppTheme.fieldGreen,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Container(
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: AppTheme.fieldGreen,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Container(
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE3E1D8),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
               Text(
                 l10n.drivingLicense,
                 style: const TextStyle(
@@ -239,10 +189,10 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
                               width: 2,
                             ),
                           ),
-                          child: const Center(
+                          child: Center(
                             child: Text(
-                              'Place the license here',
-                              style: TextStyle(
+                              l10n.placeLicenseHere,
+                              style: const TextStyle(
                                 color: Color(0xFFB9C2BD),
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
@@ -384,7 +334,7 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
                   ),
                   icon: const Icon(Icons.camera_alt_outlined, size: 20),
                   label: Text(
-                    hasImage ? 'Retake License Photo' : l10n.scanLicense,
+                    hasImage ? l10n.retakeLicensePhoto : l10n.scanLicense,
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
@@ -410,89 +360,39 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Top step indicator & verified badge
-              Row(
-                children: [
-                  const Text(
-                    'Step 3 of 4',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF5E6862),
-                    ),
+              // Fayda already verified the user on the previous step; the
+              // flow above shows the step counter.
+              Align(
+                alignment: Alignment.centerRight,
+                child: Container(
+                  height: 30,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE3EEE6),
+                    borderRadius: BorderRadius.circular(999),
                   ),
-                  const Spacer(),
-                  Container(
-                    height: 30,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE3EEE6),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.check, size: 14, color: AppTheme.fieldGreen),
-                        SizedBox(width: 6),
-                        Text(
-                          'Identity Verified',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.fieldGreen,
-                          ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.check,
+                        size: 14,
+                        color: AppTheme.fieldGreen,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        l10n.faydaVerifiedSuccess,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.fieldGreen,
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
               const SizedBox(height: 12),
-              // 4-step progress bar
-              Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: AppTheme.fieldGreen,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Container(
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: AppTheme.fieldGreen,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Container(
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: AppTheme.fieldGreen,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Container(
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE3E1D8),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
               Text(
                 l10n.buyerType,
                 style: const TextStyle(

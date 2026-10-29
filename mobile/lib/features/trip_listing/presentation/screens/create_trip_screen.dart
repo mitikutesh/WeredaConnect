@@ -374,7 +374,9 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
             child: BlocBuilder<TripListingBloc, TripListingState>(
               builder: (context, state) {
                 final isLoading = state is TripListingLoading;
-                return Row(
+                final isLastStep = _step == _stepCount - 1;
+                final buttons = Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     if (_step > 0) ...[
                       Expanded(
@@ -403,12 +405,27 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                                 ),
                               )
                             : Text(
-                                _step < _stepCount - 1
-                                    ? l10n.continueButton
-                                    : l10n.save,
+                                isLastStep ? l10n.save : l10n.continueButton,
                               ),
                       ),
                     ),
+                  ],
+                );
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(height: 56, child: buttons),
+                    if (isLastStep) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        l10n.savedOnPhoneFirstNote,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.mutedSteel,
+                        ),
+                      ),
+                    ],
                   ],
                 );
               },

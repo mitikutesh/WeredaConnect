@@ -313,4 +313,44 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
   }
+
+  // Fieldway Join boards: one localized step counter for the whole flow. A
+  // farmer skips the role details step, so their last step is 3 of 3.
+  testWidgets('the step counter follows the role', (tester) async {
+    useTallPhone(tester);
+    await tester.pumpWidget(flow());
+    await _settle(tester);
+    expect(find.text('Step 1 of 4'), findsOneWidget);
+
+    await tester.tap(find.text('Farmer'));
+    await _settle(tester);
+    expect(find.text('Step 1 of 3'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('a farmer ends on step 3 of 3', (tester) async {
+    await passFayda(tester, 'Farmer');
+
+    expect(find.text('Step 3 of 3'), findsOneWidget);
+    expect(find.text('Step 4 of 4'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('a trucker sees step 3 of 4 with Fayda already verified',
+      (tester) async {
+    await passFayda(tester, 'Trucker');
+
+    expect(find.text('Step 3 of 4'), findsOneWidget);
+    expect(find.text('Identity Verified'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('the step counter is localized', (tester) async {
+    useTallPhone(tester);
+    await tester.pumpWidget(flow(locale: const Locale('am')));
+    await _settle(tester);
+    final am = await AppLocalizations.delegate.load(const Locale('am'));
+    expect(find.text(am.registrationStepOf(1, 4)), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 }
