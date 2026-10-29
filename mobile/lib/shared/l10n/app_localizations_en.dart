@@ -4458,4 +4458,28 @@ class AppLocalizationsEn extends AppLocalizations {
   String myCropsListedOn(String date) {
     return 'listed $date';
   }
+
+  @override
+  String liveTripLogStopAhead(int minutes) {
+    return 'About $minutes min, then on to you';
+  }
+
+  @override
+  String marketTransportOn(String day) {
+    return 'Transport $day';
+  }
+
+  @override
+  String marketTripsThisWeek(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count trips this week',
+      one: '1 trip this week',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get marketNoTripYet => 'No trip yet';
 }
