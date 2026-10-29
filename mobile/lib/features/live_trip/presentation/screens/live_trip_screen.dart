@@ -61,7 +61,14 @@ class LiveTripScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.liveTripTitle)),
+      appBar: AppBar(
+        title: Text(l10n.liveTripTitle),
+        // The live trip boards: a light page, no colored bar.
+        backgroundColor: AppTheme.chalkBackground,
+        foregroundColor: AppTheme.soilDark,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+      ),
       body: SafeArea(
         child: Column(
           children: [

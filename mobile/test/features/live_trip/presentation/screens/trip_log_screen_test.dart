@@ -97,6 +97,14 @@ void main() {
     expect(find.textContaining('farmer-002'), findsNothing);
   });
 
+  // Buyer · Trip log board: the stop ahead says roughly when, then the
+  // buyer's drop-off; still without a name or a town.
+  testWidgets('the stop ahead says roughly when, then on to you',
+      (tester) async {
+    await pumpLog(tester);
+    expect(find.text('About 35 min, then on to you'), findsOneWidget);
+  });
+
   testWidgets('ahead, proof, prices, help and privacy', (tester) async {
     await pumpLog(tester);
     expect(find.text('13:20-14:00'), findsOneWidget);
