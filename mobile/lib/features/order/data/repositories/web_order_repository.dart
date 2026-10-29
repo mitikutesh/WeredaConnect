@@ -357,12 +357,14 @@ class WebOrderRepository extends BaseOrderRepository {
     String orderId,
     String farmerId, {
     String? reason,
+    String? declineReason,
   }) async {
     final version = await _currentOrderVersion(orderId);
     // Surface server-side rejections instead of reporting a reject that never happened.
     await _sendOrderUpdate(orderId, 'reject', {
       'farmerResponse': CommitmentCommand.decline,
       if (reason != null) 'rejectionReason': reason,
+      if (declineReason != null) 'declineReason': declineReason,
       'version': version,
     });
   }

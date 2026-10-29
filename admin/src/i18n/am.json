@@ -134,7 +134,10 @@
     "detailTitle": "ክርክር",
     "evidence": "ማስረጃ",
     "raisedAt": "የቀረበበት",
-    "delivery": "ማድረሻ"
+    "delivery": "ማድረሻ",
+    "decide": "ይወስኑ",
+    "frozen": "{amount} ታግዷል",
+    "auditNote": "እያንዳንዱ ውሳኔ በአስተዳዳሪ መለያዎ ስር በኦዲት መዝገብ ውስጥ ይጻፋል።"
   },
   "trail": {
     "tab": "የጉዞ መስመር",

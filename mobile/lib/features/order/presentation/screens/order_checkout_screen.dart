@@ -307,7 +307,13 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
                         ? state.amount
                         : (widget.order.orderTotal ?? widget.order.totalPrice),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 14),
+                  // Telebirr payment board: how the payment asks the buyer
+                  // to confirm it is them, before it asks.
+                  if (state is! CheckoutPaid) ...[
+                    _ConfirmItsYouCard(l10n: l10n),
+                    const SizedBox(height: 24),
+                  ],
                   ..._body(context, state, l10n),
                   if (_capReached && state.polls) ...[
                     const SizedBox(height: 16),
@@ -517,9 +523,9 @@ class _AmountCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Amount',
-            style: TextStyle(
+          Text(
+            l10n.paymentAmount,
+            style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
               color: Color(0xFFCFE3D6),
@@ -536,9 +542,9 @@ class _AmountCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 4),
-          const Text(
-            'Held in escrow until you confirm delivery',
-            style: TextStyle(
+          Text(
+            l10n.checkoutHeldInEscrowNote,
+            style: const TextStyle(
               fontSize: 13,
               color: Color(0xFFCFE3D6),
             ),
@@ -598,6 +604,70 @@ class _Status extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// "Confirm it's you": payments over 10,000 ETB need Fayda, smaller ones the
+/// password (AUTH_041 / AUTH_040).
+class _ConfirmItsYouCard extends StatelessWidget {
+  final AppLocalizations l10n;
+
+  const _ConfirmItsYouCard({required this.l10n});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('checkout_confirm_its_you'),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.whisperBorder),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppTheme.fieldGreenTint,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.verified_user_outlined,
+              size: 20,
+              color: AppTheme.fieldGreen,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l10n.stepUpTitle,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.soilDark,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  l10n.checkoutConfirmItsYouNote,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.4,
+                    color: AppTheme.mutedSteel,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

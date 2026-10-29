@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -13,6 +14,7 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/order_detail_screen.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/order_commitment_section.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -344,13 +346,22 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
                           }
                         : null,
                     onReject: isFarmer
-                        ? () {
-                            context.read<OrderBloc>().add(
-                                  RejectOrder(
-                                    orderId: order.orderId,
-                                    farmerId: userId,
-                                  ),
-                                );
+                        ? () async {
+                            // The farmer says why; the buyer is refunded.
+                            final bloc = context.read<OrderBloc>();
+                            final reason = await showDeclineReasonSheet(
+                              context,
+                              warning: l10n.farmerRejectRefundNote,
+                              reasons: farmerDeclineReasons,
+                            );
+                            if (reason == null || bloc.isClosed) return;
+                            bloc.add(
+                              RejectOrder(
+                                orderId: order.orderId,
+                                farmerId: userId,
+                                declineReason: reason,
+                              ),
+                            );
                           }
                         : null,
                   );

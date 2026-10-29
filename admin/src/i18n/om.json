@@ -134,7 +134,10 @@
     "detailTitle": "Waldhabdee",
     "evidence": "Ragaa",
     "raisedAt": "Kan dhiyaate",
-    "delivery": "Geejjiba"
+    "delivery": "Geejjiba",
+    "decide": "Murteessi",
+    "frozen": "{amount} dhaabbateera",
+    "auditNote": "Murtiin hundi akkaawuntii bulchiinsaa keessan jalatti galmee odiitii keessatti barreeffama."
   },
   "trail": {
     "tab": "Karaa imalaa",

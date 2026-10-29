@@ -119,6 +119,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
         event.orderId,
         event.farmerId,
         reason: event.reason,
+        declineReason: event.declineReason,
       );
       emit(const OrderRejected());
     } on Object catch (e) {

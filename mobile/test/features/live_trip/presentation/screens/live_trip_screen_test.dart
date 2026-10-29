@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/delivery_verification/data/verification_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_scan_screen.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_timeline.dart';
@@ -54,6 +56,48 @@ void main() {
     );
     await settleReads(tester);
   }
+
+  // Buyer · Live trip board: the driver card names the truck. The buyer may
+  // browse every trip anyway; nobody else gets the read.
+  group('driver card', () {
+    Trip vehicleTrip() => Trip()
+      ..tripId = 'trip-001'
+      ..truckerId = truckerId
+      ..truckerName = 'Dawit Tesfaye'
+      ..fromWoreda = 'Meki'
+      ..toWoreda = 'Addis Ababa'
+      ..departureDate = DateTime.utc(2026, 10, 27)
+      ..capacity = 50
+      ..pricePerQuintal = 150
+      ..vehicleDescription = 'Isuzu FSR 5 t'
+      ..vehiclePlate = '3-AA-12345'
+      ..status = TripStatus.inTransit
+      ..matchedListings = <String>[]
+      ..createdAt = DateTime.utc(2026, 10, 25)
+      ..updatedAt = DateTime.utc(2026, 10, 27)
+      ..version = 1;
+
+    testWidgets('the buyer sees the truck and its plate', (tester) async {
+      deps.trip = vehicleTrip();
+      await pumpView(tester);
+
+      expect(find.text('Isuzu FSR 5 t · 3-AA-12345'), findsOneWidget);
+    });
+
+    testWidgets('without a vehicle the card says Trucker', (tester) async {
+      await pumpView(tester);
+
+      expect(find.text('Isuzu FSR 5 t · 3-AA-12345'), findsNothing);
+      expect(find.text('Trucker'), findsWidgets);
+    });
+
+    testWidgets('a viewer who is not the buyer reads no trip', (tester) async {
+      deps.trip = vehicleTrip();
+      await pumpView(tester, userId: farmerId);
+
+      verifyNever(() => deps.tripRepository.getTripById(any()));
+    });
+  });
 
   group('buyer on the road', () {
     testWidgets('the map, the last check-in, the window and the escrow line',

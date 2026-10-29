@@ -35,85 +35,23 @@ class DeliveriesTabScreen extends StatefulWidget {
   State<DeliveriesTabScreen> createState() => _DeliveriesTabScreenState();
 }
 
-List<Delivery> _demoCanvasDeliveries(String userId) {
-  final now = DateTime.now().toUtc();
-  return [
-    Delivery()
-      ..deliveryId = 'del-demo-wheat'
-      ..orderId = 'ord-demo-wheat'
-      ..listingId = 'crop-demo-wheat'
-      ..tripId = 'trip-demo-1'
-      ..farmerId = 'farmer-almaz'
-      ..farmerName = 'Almaz Bekele'
-      ..truckerId = 'trucker-dawit'
-      ..truckerName = 'Dawit Tesfaye'
-      ..buyerId = userId
-      ..buyerName = 'Selam Traders'
-      ..qrToken = 'qr-demo-wheat'
-      ..status = DeliveryStatus.inTransit
-      ..pickedUpAt = now.subtract(const Duration(hours: 3, minutes: 37))
-      ..createdAt = now.subtract(const Duration(hours: 5))
-      ..updatedAt = now.subtract(const Duration(minutes: 28))
-      ..version = 1,
-    Delivery()
-      ..deliveryId = 'del-demo-barley'
-      ..orderId = 'ord-demo-barley'
-      ..listingId = 'crop-demo-barley'
-      ..tripId = 'trip-demo-2'
-      ..farmerId = 'farmer-gemechu'
-      ..farmerName = 'Gemechu Farm'
-      ..truckerId = 'trucker-abdi'
-      ..truckerName = 'Abdi Kedir'
-      ..buyerId = userId
-      ..buyerName = 'Selam Traders'
-      ..qrToken = 'qr-demo-barley'
-      ..status = DeliveryStatus.inTransit
-      ..pickedUpAt = now.subtract(const Duration(hours: 2, minutes: 30))
-      ..createdAt = now.subtract(const Duration(hours: 4))
-      ..updatedAt = now.subtract(const Duration(hours: 2))
-      ..version = 1,
-    Delivery()
-      ..deliveryId = 'del-demo-teff'
-      ..orderId = 'ord-demo-teff'
-      ..listingId = 'crop-demo-teff'
-      ..tripId = 'trip-demo-3'
-      ..farmerId = 'farmer-bekele'
-      ..farmerName = 'Bekele Farm'
-      ..truckerId = 'trucker-tadesse'
-      ..truckerName = 'Tadesse Worku'
-      ..buyerId = userId
-      ..buyerName = 'Selam Traders'
-      ..qrToken = 'qr-demo-teff'
-      ..status = DeliveryStatus.pending
-      ..createdAt = now.subtract(const Duration(days: 1))
-      ..updatedAt = now.subtract(const Duration(hours: 8))
-      ..version = 1,
-    Delivery()
-      ..deliveryId = 'del-demo-chickpea'
-      ..orderId = 'ord-demo-chickpea'
-      ..listingId = 'crop-demo-chickpea'
-      ..tripId = 'trip-demo-4'
-      ..farmerId = 'farmer-alemu'
-      ..farmerName = 'Alemu Farm'
-      ..truckerId = 'trucker-chala'
-      ..truckerName = 'Chala Dejene'
-      ..buyerId = userId
-      ..buyerName = 'Selam Traders'
-      ..qrToken = 'qr-demo-chickpea'
-      ..status = DeliveryStatus.delivered
-      ..confirmedAt = now.subtract(const Duration(days: 2))
-      ..createdAt = now.subtract(const Duration(days: 3))
-      ..updatedAt = now.subtract(const Duration(days: 2))
-      ..version = 1,
-  ];
-}
-
 class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
   String? _selectedStatus;
   String? _userRole;
 
   /// The live trip shown beside the list on a desktop width.
   String? _selectedLiveId;
+
+  /// Wide-screen search: narrows the loaded list by farmer, buyer or
+  /// driver name. Empty shows everything.
+  String _searchQuery = '';
+
+  bool _matchesSearch(Delivery delivery) {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return true;
+    return [delivery.farmerName, delivery.buyerName, delivery.truckerName]
+        .any((name) => name.toLowerCase().contains(query));
+  }
 
   @override
   void initState() {
@@ -329,9 +267,27 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
 
           if (state is DeliveriesLoaded) {
             final userId = _getUserId() ?? '';
-            final allDeliveries = (state.deliveries.isEmpty && isDesktop)
-                ? _demoCanvasDeliveries(userId)
+            final allDeliveries = isDesktop
+                ? state.deliveries.where(_matchesSearch).toList()
                 : state.deliveries;
+
+            if (allDeliveries.isEmpty && state.deliveries.isNotEmpty) {
+              // Only the search hid them: say so, not "no deliveries".
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32),
+                  child: Text(
+                    l10n.deliveriesNoSearchMatch,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: AppTheme.textMuted,
+                    ),
+                  ),
+                ),
+              );
+            }
 
             if (allDeliveries.isEmpty) {
               return Center(
@@ -570,9 +526,9 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
                                 ),
                               ),
                               const SizedBox(height: 4),
-                              const Text(
-                                '2 on the road · 1 waiting for pickup · 1 in the check window',
-                                style: TextStyle(
+                              Text(
+                                l10n.trackDeliveries,
+                                style: const TextStyle(
                                   fontSize: 14,
                                   color: AppTheme.mutedSteel,
                                 ),
@@ -591,26 +547,29 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(color: AppTheme.whisperBorder),
                           ),
-                          child: const Row(
+                          child: Row(
                             children: [
-                              Icon(
+                              const Icon(
                                 Icons.search,
                                 size: 18,
                                 color: AppTheme.mutedSteel,
                               ),
-                              SizedBox(width: 8),
+                              const SizedBox(width: 8),
                               Expanded(
                                 child: TextField(
+                                  key: const Key('deliveries_search'),
+                                  onChanged: (value) =>
+                                      setState(() => _searchQuery = value),
                                   decoration: InputDecoration(
-                                    hintText: 'Crop, farmer or driver',
-                                    hintStyle: TextStyle(
+                                    hintText: l10n.deliveriesSearchHint,
+                                    hintStyle: const TextStyle(
                                       fontSize: 13,
                                       color: AppTheme.mutedSteel,
                                     ),
                                     border: InputBorder.none,
                                     isDense: true,
                                   ),
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                     fontSize: 13,
                                     color: AppTheme.soilDark,
                                   ),

@@ -319,6 +319,7 @@ void main() {
     await tester.pump(const Duration(minutes: 2));
     expect(reads, stopped);
 
+    await tester.ensureVisible(find.text('Check payment status'));
     await tester.tap(find.text('Check payment status'));
     await tester.pump();
     await tester.pump();
@@ -407,7 +408,11 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(find.text("Confirm it's you"), findsOneWidget);
+    // The button, besides the card that explains the check.
+    expect(
+      find.widgetWithText(FilledButton, "Confirm it's you"),
+      findsOneWidget,
+    );
     verifyNever(() => escrow.openOrderCheckout(any()));
     await leave(tester);
   });
@@ -423,4 +428,23 @@ void main() {
       await leave(tester);
     });
   }
+
+  // Telebirr payment board: the buyer learns how the payment will ask them
+  // to confirm it is them before it asks.
+  testWidgets('explains the Fayda and password check up front', (tester) async {
+    fails('ESCROW_032', 409);
+    await open(tester);
+
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('checkout_confirm_its_you')),
+        matching: find.text(
+          'Payments over 10,000 ETB need Fayda. '
+          'Smaller ones ask for your password.',
+        ),
+      ),
+      findsOneWidget,
+    );
+    await leave(tester);
+  });
 }

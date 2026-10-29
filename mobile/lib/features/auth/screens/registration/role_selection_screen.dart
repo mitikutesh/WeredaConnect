@@ -75,9 +75,9 @@ class RoleSelectionScreen extends StatelessWidget {
                 onTap: () => onRoleSelected(UserRole.buyer),
               ),
               const SizedBox(height: 20),
-              const Text(
-                'Next you verify with Fayda, then add your details. Farmers skip the role details step.',
-                style: TextStyle(
+              Text(
+                l10n.registrationRoleNextNote,
+                style: const TextStyle(
                   fontSize: 13,
                   height: 1.5,
                   color: AppTheme.mutedSteel,

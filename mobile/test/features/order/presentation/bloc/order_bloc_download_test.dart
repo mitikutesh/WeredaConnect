@@ -173,7 +173,12 @@ class _FakeOrderRepository extends BaseOrderRepository {
       throw UnimplementedError();
 
   @override
-  Future<void> rejectOrder(String orderId, String farmerId, {String? reason}) =>
+  Future<void> rejectOrder(
+    String orderId,
+    String farmerId, {
+    String? reason,
+    String? declineReason,
+  }) =>
       throw UnimplementedError();
 
   @override

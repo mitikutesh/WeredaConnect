@@ -3,10 +3,13 @@ import { useNavigate, useParams } from "react-router";
 import { ArrowLeft } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { DispositionChoiceCard, VerdictMessages } from "@/components/disputes/DisputeVerdict";
+import { useDisputeVerdict } from "@/components/disputes/verdictFlow";
 import { TripTrailTab } from "@/components/trail/TripTrailTab";
 import { useLocale } from "@/hooks/useLocale";
 import { useEscrowDetail } from "@/hooks/useQuery";
 import { formatDateTime, formatETB } from "@/lib/i18n";
+import { fill } from "@/lib/trail";
 import { partyName } from "@/lib/user";
 
 type Row = Record<string, unknown>;
@@ -28,6 +31,7 @@ export function DisputeDetailPage() {
   const navigate = useNavigate();
   const { data, isLoading, isError, error } = useEscrowDetail(id || "");
   const [tab, setTab] = useState<Tab>("trail");
+  const verdictFlow = useDisputeVerdict(t);
 
   if (isLoading) {
     return <div className="text-text-muted">{t("common.loading")}</div>;
@@ -73,6 +77,11 @@ export function DisputeDetailPage() {
             {statusText !== `escrows.${status}` ? statusText : status}
           </Badge>
         )}
+        {status === "disputed" && (
+          <span className="text-sm font-semibold">
+            {fill(t("disputes.frozen"), { amount: formatETB(Number(escrow.amount) || 0, locale) })}
+          </span>
+        )}
       </div>
 
       <Card className="mb-6">
@@ -105,6 +114,34 @@ export function DisputeDetailPage() {
           </div>
         </dl>
       </Card>
+
+      {/* Admin dispute evidence board: decide beside the evidence. */}
+      <VerdictMessages flow={verdictFlow} />
+      {status === "disputed" && (
+        <Card className="mb-6">
+          <h3 className="font-semibold">{t("disputes.decide")}</h3>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => verdictFlow.submit(String(escrow.escrowId || id || ""), "farmer_wins")}
+              disabled={verdictFlow.resolvingId !== null}
+              className="rounded bg-success px-3 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
+            >
+              {t("disputes.farmerWins")}
+            </button>
+            <button
+              type="button"
+              onClick={() => verdictFlow.submit(String(escrow.escrowId || id || ""), "buyer_wins")}
+              disabled={verdictFlow.resolvingId !== null}
+              className="rounded bg-accent px-3 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
+            >
+              {t("disputes.buyerWins")}
+            </button>
+          </div>
+          <p className="mt-3 text-xs text-text-muted">{t("disputes.auditNote")}</p>
+        </Card>
+      )}
+      <DispositionChoiceCard flow={verdictFlow} t={t} />
 
       <div
         role="tablist"

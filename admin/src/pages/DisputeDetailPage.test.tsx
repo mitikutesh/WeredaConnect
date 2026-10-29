@@ -1,8 +1,9 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { formatETB } from "@/lib/i18n";
 import type { DeliveryTrail } from "@/lib/trail";
 import { DisputeDetailPage } from "./DisputeDetailPage";
 
@@ -21,9 +22,13 @@ const mocks = vi.hoisted(() => ({
   escrow: { data: undefined as unknown, isLoading: false, isError: false, error: null as unknown },
   trail: undefined as unknown as TrailQuery,
   trailIds: [] as string[],
+  mutate: vi.fn<(vars: unknown, opts?: MutateOptions) => void>(),
 }));
 
+type MutateOptions = { onSuccess?: () => void; onError?: (err: unknown) => void; onSettled?: () => void };
+
 vi.mock("@/hooks/useQuery", () => ({
+  useResolveDispute: () => ({ mutate: mocks.mutate, isPending: false }),
   useEscrowDetail: () => mocks.escrow,
   useDeliveryTrail: (deliveryId: string) => {
     mocks.trailIds.push(deliveryId);
@@ -284,5 +289,68 @@ describe("DisputeDetailPage Trip trail tab (LT-13)", () => {
     mocks.trail.data = { ...emptyTrail(), from: null, until: null };
     renderPage();
     expect(screen.getByText("The goods were not picked up yet. The trail starts at pickup.")).toBeTruthy();
+  });
+});
+
+/* Web · Admin dispute evidence board: the admin decides beside the evidence, with the same
+ * verdict flow as the Disputes list (ADMIN_015 asks what happens to the order). */
+describe("DisputeDetailPage Decide", () => {
+  beforeEach(() => {
+    mocks.escrow.data = escrow();
+    mocks.escrow.isLoading = false;
+    mocks.escrow.isError = false;
+    mocks.trail = trailQuery();
+    // The trail loads meanwhile, so the only alert could come from the verdict.
+    mocks.trail.isLoading = true;
+    mocks.mutate.mockReset();
+  });
+
+  function lastMutate() {
+    const [vars, opts] = mocks.mutate.mock.calls[mocks.mutate.mock.calls.length - 1];
+    return { vars: vars as { id: string; body: Record<string, unknown> }, opts: opts ?? {} };
+  }
+
+  it("shows the frozen amount, both verdicts and the audit note", () => {
+    renderPage();
+    expect(screen.getByText(`${formatETB(30900, "en")} frozen`)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Decide" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Farmer Wins" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Buyer Wins" })).toBeTruthy();
+    expect(screen.getByText("Every verdict is written to the audit log under your admin account.")).toBeTruthy();
+  });
+
+  it("sends the verdict, then says it was saved", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("button", { name: "Farmer Wins" }));
+
+    const { vars, opts } = lastMutate();
+    expect(vars).toEqual({ id: "escrow-1", body: { resolution: "farmer_wins", action: "release" } });
+    act(() => {
+      opts.onSuccess?.();
+      opts.onSettled?.();
+    });
+    expect(screen.getByText("Verdict saved.").getAttribute("role")).toBe("status");
+  });
+
+  it("on ADMIN_015 asks what happens to the order instead of failing", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("button", { name: "Buyer Wins" }));
+    act(() => {
+      lastMutate().opts.onError?.({ code: "ADMIN_015" });
+      lastMutate().opts.onSettled?.();
+    });
+
+    expect(screen.getByText("The order cannot follow this verdict as it is")).toBeTruthy();
+    expect(screen.getByLabelText(/Return the goods to the farmer/)).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("a resolved dispute has nothing left to decide", () => {
+    mocks.escrow.data = { escrow: { ...escrow().escrow, status: "dispute_resolved" } };
+    renderPage();
+    expect(screen.queryByRole("heading", { name: "Decide" })).toBeNull();
+    expect(screen.queryByText(/frozen/)).toBeNull();
   });
 });

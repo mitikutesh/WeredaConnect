@@ -246,7 +246,10 @@ class WebTripListingRepository extends BaseTripListingRepository {
       '/trips',
       queryParameters: {'truckerId': truckerId, 'limit': '50'},
     );
-    final trips = _parseTrips(data);
+    // Newest first, as on mobile: Create trip offers the first route as
+    // "Repeat Last Trip".
+    final trips = _parseTrips(data)
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     final seen = <String>{};
     final routes = <({String from, String to})>[];
     for (final trip in trips) {

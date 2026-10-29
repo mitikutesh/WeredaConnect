@@ -376,6 +376,14 @@ void main() {
         'rejectionReason': 'No stock',
         'version': 1,
       });
+
+      // Farmer · Answer a new order board: the reject says why.
+      await repo.rejectOrder('ord-1', 'farmer-1', declineReason: 'price');
+      expect(sentData(), {
+        'farmerResponse': 'decline',
+        'declineReason': 'price',
+        'version': 1,
+      });
     });
 
     test('the trucker accepts or declines with a reason', () async {

@@ -328,9 +328,9 @@ class _ActionNeededCard extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      'ACTION NEEDED',
-                      style: TextStyle(
+                    Text(
+                      l10n.actionNeededTitle.toUpperCase(),
+                      style: const TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0.8,

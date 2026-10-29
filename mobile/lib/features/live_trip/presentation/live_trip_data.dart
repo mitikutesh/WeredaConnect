@@ -5,12 +5,14 @@ import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/place.dart';
+import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/escrow_hold.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/live_trip/domain/live_trip_rules.dart';
 import 'package:wereda_connect/features/notifications/domain/base_notification_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 
 // The live trip screens read what they show from the app's own repositories
@@ -33,42 +35,6 @@ Future<Order?> loadDeliveryOrder(
   BuildContext context,
   Delivery delivery,
 ) async {
-  if (delivery.deliveryId == 'del-demo-wheat') {
-    return Order()
-      ..orderId = 'ord-demo-wheat'
-      ..listingId = 'crop-demo-wheat'
-      ..buyerId = delivery.buyerId
-      ..buyerName = 'Selam Traders'
-      ..farmerId = delivery.farmerId
-      ..farmerName = delivery.farmerName
-      ..truckerId = delivery.truckerId
-      ..truckerName = delivery.truckerName
-      ..cropType = 'Wheat'
-      ..quantity = 2000
-      ..pricePerUnit = 45.60
-      ..totalPrice = 91200
-      ..status = OrderStatus.accepted
-      ..createdAt = DateTime.now().subtract(const Duration(days: 1))
-      ..tripId = delivery.tripId;
-  }
-  if (delivery.deliveryId == 'del-demo-barley') {
-    return Order()
-      ..orderId = 'ord-demo-barley'
-      ..listingId = 'crop-demo-barley'
-      ..buyerId = delivery.buyerId
-      ..buyerName = 'Selam Traders'
-      ..farmerId = delivery.farmerId
-      ..farmerName = delivery.farmerName
-      ..truckerId = delivery.truckerId
-      ..truckerName = delivery.truckerName
-      ..cropType = 'Barley'
-      ..quantity = 3000
-      ..pricePerUnit = 38.00
-      ..totalPrice = 114000
-      ..status = OrderStatus.accepted
-      ..createdAt = DateTime.now().subtract(const Duration(days: 1))
-      ..tripId = delivery.tripId;
-  }
   final orderId = delivery.orderId;
   if (orderId == null || orderId.isEmpty) return null;
   final repository = _maybeRead<OrderBloc>(context)?.repository;
@@ -77,6 +43,31 @@ Future<Order?> loadDeliveryOrder(
     return await repository.getOrderById(orderId);
   } on Object catch (e) {
     debugPrint('[LiveTrip] order read failed: $e');
+    return null;
+  }
+}
+
+/// The truck of [delivery] as its buyer sees it on the driver card
+/// ("Isuzu FSR 5 t · 3-AA-12345", Buyer · Live trip board), from the trip the
+/// buyer can browse anyway; null without a trip, a vehicle or a read.
+Future<String?> loadDeliveryVehicle(
+  BuildContext context,
+  Delivery delivery,
+) async {
+  final tripId = delivery.tripId;
+  if (tripId.isEmpty) return null;
+  final repository = _maybeRead<TripListingBloc>(context)?.repository;
+  if (repository == null) return null;
+  try {
+    final Trip? trip = await repository.getTripById(tripId);
+    if (trip == null) return null;
+    final parts = [trip.vehicleDescription, trip.vehiclePlate]
+        .whereType<String>()
+        .map((p) => p.trim())
+        .where((p) => p.isNotEmpty);
+    return parts.isEmpty ? null : parts.join(' · ');
+  } on Object catch (e) {
+    debugPrint('[LiveTrip] trip read failed: $e');
     return null;
   }
 }
@@ -108,21 +99,6 @@ Future<Payment?> loadDeliveryEscrow(
   BuildContext context,
   Delivery delivery,
 ) async {
-  if (delivery.deliveryId == 'del-demo-wheat') {
-    return Payment()
-      ..paymentId = 'escrow-demo-wheat'
-      ..deliveryId = delivery.deliveryId
-      ..farmerId = delivery.farmerId
-      ..buyerId = delivery.buyerId
-      ..amount = 91200
-      ..commission = 1824
-      ..commissionRate = 0.02
-      ..farmerPayout = 89376
-      ..orderId = 'ord-demo-wheat'
-      ..status = PaymentStatus.held
-      ..createdAt = DateTime.now().subtract(const Duration(days: 1))
-      ..updatedAt = DateTime.now().subtract(const Duration(days: 1));
-  }
   final repository = _maybeRead<EscrowBloc>(context)?.repository;
   if (repository == null) return null;
   try {

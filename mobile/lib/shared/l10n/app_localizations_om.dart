@@ -4354,4 +4354,150 @@ class AppLocalizationsOm extends AppLocalizations {
   String liveTripOnTheRoadSince(String time) {
     return '$time irraa kaasee karaa irra';
   }
+
+  @override
+  String get loginEscrowFooter =>
+      'Kaffaltiin Eeskiroo keessatti nageenyaan qabama';
+
+  @override
+  String get loginNoAccountRegister => 'Akkaawuntii hin qabduu? Galmaa\'i';
+
+  @override
+  String get otpFaydaNumberNote =>
+      'Kana kan gaafannu yoo lakkoofsi galmee Fayda keessanii irraa adda ta\'e qofa.';
+
+  @override
+  String get faydaDigitalIdLabel => 'Eenyummeessaa Dijitaalaa';
+
+  @override
+  String get faydaVerifiedWith => 'Fayda\'n mirkanaa\'e';
+
+  @override
+  String get faydaLegalNameNote =>
+      'Maqaan seeraa keessan Fayda irraa dhufa. Namni kamiyyuu maqaa keessaniin galmaa\'uu hin danda\'u.';
+
+  @override
+  String registrationStepOf(int current, int total) {
+    return 'Tarkaanfii $current kan $total';
+  }
+
+  @override
+  String get registrationRoleNextNote =>
+      'Itti aansuun Fayda\'n mirkaneessitu, achiis odeeffannoo keessan galchitu. Qonnaan bultoonni tarkaanfii odeeffannoo gahee ni darbu.';
+
+  @override
+  String get fromFayda => 'Fayda irraa';
+
+  @override
+  String get placeLicenseHere => 'Hayyama konkolaachisaa asitti kaa\'aa';
+
+  @override
+  String get retakeLicensePhoto => 'Suuraa hayyamaa irra deebi\'ii kaasi';
+
+  @override
+  String get totalListingValue => 'Gatii Waliigalaa Tarree';
+
+  @override
+  String get checkoutHeldInEscrowNote =>
+      'Hanga geessuu mirkaneessitanitti Eeskiroo keessatti qabama';
+
+  @override
+  String get placeOrderEscrowNote =>
+      'Maallaqni keessan nageenyaan qabama. Duraan qonnaan bulaan, itti aansee konkolaachisaan ni gaafatama.';
+
+  @override
+  String get deliveriesSearchHint => 'Qonnaan bulaa, bitaa ykn konkolaachisaa';
+
+  @override
+  String get savedOnPhoneFirstNote =>
+      'Duraan bilbila keessan irratti olkaa\'ama, yeroo neetworkiin jiru ni ergama.';
+
+  @override
+  String get myCropsPrivacyNote =>
+      'Tarree keessan asitti kan argitu isin qofa. Bitoonni Midhaan Barbaadi keessatti argu.';
+
+  @override
+  String get homeToday => 'Har\'a';
+
+  @override
+  String tripPricePerQuintalValue(String price) {
+    return 'Kuntaala tokkoof Birrii $price';
+  }
+
+  @override
+  String createTripRouteDistance(int km) {
+    return 'Sarara qajeelaan gara km $km, bilbila keessan irratti kan kaafame';
+  }
+
+  @override
+  String createTripRoutePreviewLabel(String from, String to) {
+    return 'Agarsiisa karaa $from irraa gara $to';
+  }
+
+  @override
+  String get createTripSwapRoute => 'Ka\'umsaa fi bakka gahumsaa wal jijjiiri';
+
+  @override
+  String get createTripDriverHint =>
+      'Maqaa fi bilbila keessan piroofaayilii irraa guutuu hin dandeenye. Maaloo galchaa.';
+
+  @override
+  String get tripSpaceTitle => 'Bakka imala kanarra jiru';
+
+  @override
+  String tripLoadedOf(String loaded, String capacity) {
+    return 'Kuntaala $capacity keessaa $loaded qabameera';
+  }
+
+  @override
+  String get tripBookedTermsNote =>
+      'Imalli qabaman guyyaa, gatii fi karaa isaanii hin jijjiiran.';
+
+  @override
+  String get tripScanAtPickupNote =>
+      'Guyyaa imalaa, bakka fe\'umsaatti QR qonnaan bulaa hundaa iskaanii godhaa. Imalli kallattii iskaanii jalqabaatiin jalqaba.';
+
+  @override
+  String get tripCancelBookedNote =>
+      'Haquun ajajawwan qabaman gara bitoota isaaniitti deebisa; isaanis maallaqa guutuu deebifachuuf haquu danda\'u.';
+
+  @override
+  String get orderYouReceive => 'Kan isinii gahu';
+
+  @override
+  String get orderYourTransportPay => 'Kaffaltii geejjibaa keessan';
+
+  @override
+  String get deliveriesNoSearchMatch =>
+      'Geessituun maqaa sanaan walsimu hin jiru.';
+
+  @override
+  String get farmerRejectRefundNote => 'Bitaan maallaqa guutuu deebifata.';
+
+  @override
+  String get farmerAnswerNote =>
+      'Quunnamtiin bitaa wajjin yeroo fudhattan bana. Diduun sababa gaafata, bitaanis maallaqa deebifata.';
+
+  @override
+  String get checkoutConfirmItsYouNote =>
+      'Kaffaltiin Birrii 10,000 ol Fayda barbaada. Kanneen xixiqqoon jecha icciitii keessan gaafatu.';
+
+  @override
+  String myCropsOrderedOf(String ordered, String total) {
+    return 'Kuntaala $total keessaa $ordered ajajameera';
+  }
+
+  @override
+  String myCropsNoOrdersYet(String quantity) {
+    return 'Kuntaala $quantity, hanga ammaatti ajajni hin jiru';
+  }
+
+  @override
+  String get createTripBookingCutoffNote =>
+      'Bitoonni hanga sa\'aatii 24 osoo hin ka\'iin dura qabachuu danda\'u.';
+
+  @override
+  String myCropsListedOn(String date) {
+    return '$date tarreeffame';
+  }
 }

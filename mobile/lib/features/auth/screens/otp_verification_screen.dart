@@ -271,9 +271,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: const Color(0xFFE3E1D8)),
                         ),
-                        child: const Text(
-                          'We ask for this only when the number differs from your Fayda record.',
-                          style: TextStyle(
+                        child: Text(
+                          l10n.otpFaydaNumberNote,
+                          style: const TextStyle(
                             fontSize: 13,
                             height: 1.4,
                             color: Color(0xFF3F4843),

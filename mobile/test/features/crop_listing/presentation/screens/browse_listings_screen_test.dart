@@ -14,6 +14,11 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_listing_detail_screen.dart';
+import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -26,6 +31,10 @@ class MockAuthBloc extends Mock implements AuthBloc {}
 class MockCropListingBloc extends Mock implements CropListingBloc {}
 
 class MockRatingRepository extends Mock implements BaseRatingRepository {}
+
+class MockOrderBloc extends Mock implements OrderBloc {}
+
+class MockOrderRepository extends Mock implements BaseOrderRepository {}
 
 class FakeAuthEvent extends Fake implements AuthEvent {}
 
@@ -99,12 +108,14 @@ void main() {
     bool ownerMode = false,
     bool embedded = false,
     Locale? locale,
+    OrderBloc? orderBloc,
   }) {
     return MultiBlocProvider(
       providers: [
         BlocProvider<AuthBloc>.value(value: authBloc),
         BlocProvider<CropListingBloc>.value(value: cropListingBloc),
         BlocProvider<RatingBloc>.value(value: ratingBloc),
+        if (orderBloc != null) BlocProvider<OrderBloc>.value(value: orderBloc),
       ],
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -206,6 +217,136 @@ void main() {
         list.padding!.resolve(TextDirection.ltr).bottom,
         Breakpoints.fabClearance,
       );
+    });
+
+    const privacyNote =
+        'Only you see your listings here. Buyers see them in Find Crops.';
+
+    // Buyer · Crop detail and transport board: a buyer browsing Find Crops
+    // gets transport suggested to their own wereda.
+    for (final (role, woreda, expected) in [
+      (UserRole.buyer, 'Merkato', 'Merkato'),
+      (UserRole.buyer, '  ', null),
+      (UserRole.farmer, 'Meki', null),
+    ]) {
+      testWidgets(
+          '${role.name} with wereda "$woreda" opens the detail with '
+          'delivery wereda $expected', (tester) async {
+        when(() => authBloc.state).thenReturn(
+          AuthAuthenticated(
+            userId: '${role.name}-001',
+            tokens: _testTokens,
+            role: role,
+            woreda: woreda,
+          ),
+        );
+        loaded([_listing()]);
+
+        await tester.pumpWidget(buildTestWidget());
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Teff').last);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        final detail = tester.widget<CropListingDetailScreen>(
+          find.byType(CropListingDetailScreen),
+        );
+        expect(detail.deliveryWoreda, expected);
+      });
+    }
+
+    testWidgets('My Crops ends with who can see the listings', (tester) async {
+      loaded([_listing()]);
+
+      await tester.pumpWidget(buildTestWidget(ownerMode: true));
+      await tester.pumpAndSettle();
+
+      expect(find.text(privacyNote), findsOneWidget);
+    });
+
+    // MyCrops board: "32 of 60 quintals ordered". Paid orders took their
+    // quantity off the listing, so the total is what is left plus them.
+    testWidgets('My Crops cards say how much is ordered', (tester) async {
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'farmer-001',
+          tokens: _testTokens,
+          role: UserRole.farmer,
+        ),
+      );
+      final orderBloc = MockOrderBloc();
+      final orders = MockOrderRepository();
+      when(() => orderBloc.repository).thenReturn(orders);
+      when(() => orderBloc.state).thenReturn(const OrderInitial());
+      when(() => orderBloc.stream).thenAnswer((_) => const Stream.empty());
+      Order order(String listingId, double kg, OrderStatus status) => Order()
+        ..orderId = '$listingId-$kg-${status.name}'
+        ..listingId = listingId
+        ..buyerId = 'b'
+        ..farmerId = 'farmer-001'
+        ..cropType = 'teff'
+        ..quantity = kg
+        ..pricePerUnit = 40
+        ..totalPrice = kg * 40
+        ..status = status
+        ..createdAt = DateTime(2026, 10)
+        ..version = 1;
+      when(() => orders.getOrdersByFarmer('farmer-001')).thenAnswer(
+        (_) async => [
+          order('wheat', 3000, OrderStatus.funded),
+          order('wheat', 200, OrderStatus.inTransit),
+          order('wheat', 500, OrderStatus.rejected), // stock put back
+          order('wheat', 900, OrderStatus.pendingPayment), // not paid
+        ],
+      );
+      final wheat = _listing(id: 'wheat', farmerId: 'farmer-001')
+        ..quantity = 28;
+      final chickpea = _listing(id: 'chickpea', farmerId: 'farmer-001')
+        ..quantity = 8;
+      loaded([wheat, chickpea]);
+
+      await tester.pumpWidget(
+        buildTestWidget(ownerMode: true, orderBloc: orderBloc),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('32 of 60 quintals ordered'), findsOneWidget);
+      expect(find.text('8 quintals, no orders yet'), findsOneWidget);
+    });
+
+    // MyCrops board: "Almaz Bekele · Meki" over "My Crops", and each card
+    // says where and when it was listed instead of the farmer's own name.
+    testWidgets('My Crops header and card lines', (tester) async {
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'farmer-001',
+          tokens: _testTokens,
+          role: UserRole.farmer,
+          userName: 'Almaz Bekele',
+          woreda: 'Meki',
+        ),
+      );
+      loaded([
+        _listing(id: 'a', farmerId: 'farmer-001', farmerName: 'Almaz Bekele')
+          ..createdAt = DateTime.utc(2026, 10, 26, 9),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(ownerMode: true));
+      await tester.pumpAndSettle();
+
+      expect(find.text('My Crops'), findsOneWidget);
+      expect(find.text('Almaz Bekele · Meki'), findsOneWidget);
+      expect(find.text('Bishoftu · listed Oct 26'), findsOneWidget);
+      expect(find.textContaining('Almaz Bekele, Bishoftu'), findsNothing);
+    });
+
+    testWidgets('buyer browse has no My Crops privacy note', (tester) async {
+      loaded([_listing()]);
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(find.text(privacyNote), findsNothing);
     });
 
     testWidgets('hides the rating when the seller has none', (tester) async {
@@ -462,7 +603,9 @@ void main() {
       expect(find.text(l10n.clearFilters), findsNothing);
     });
 
-    testWidgets('owner mode: a crop chip with no hits shows the no-match state',
+    // MyCrops board: the farmer filters their own listings by status, with
+    // counts, on the phone (no reload).
+    testWidgets('owner mode: status chips count and filter the listings',
         (tester) async {
       when(() => authBloc.state).thenReturn(
         const AuthAuthenticated(
@@ -471,20 +614,41 @@ void main() {
           role: UserRole.farmer,
         ),
       );
-      emptyLoaded();
+      final active = _listing(id: 'a', farmerId: 'farmer-001');
+      final reserved = _listing(id: 'r', farmerId: 'farmer-001')
+        ..cropType = 'wheat'
+        ..status = ListingStatus.reserved;
+      final state = CropListingsLoaded(listings: [active, reserved]);
+      when(() => cropListingBloc.state).thenReturn(state);
+      when(() => cropListingBloc.stream).thenAnswer((_) => Stream.value(state));
+
       await tester.pumpWidget(buildTestWidget(ownerMode: true));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Teff'));
-      await tester.pumpAndSettle();
+      expect(find.text('All · 2'), findsOneWidget);
+      expect(find.text('Active · 1'), findsOneWidget);
+      expect(find.text('Reserved · 1'), findsOneWidget);
+      expect(find.text('Sold'), findsOneWidget);
+      // No crop chips in My Crops.
+      expect(find.text('Teff'), findsWidgets); // the card title only
+      expect(find.byKey(const ValueKey('status-chip-all')), findsOneWidget);
 
-      verify(
-        () => cropListingBloc.add(
-          const FilterCropListings(farmerId: 'farmer-001', cropType: 'teff'),
-        ),
-      ).called(1);
+      await tester.tap(find.text('Reserved · 1'));
+      await tester.pumpAndSettle();
+      expect(find.text('Wheat'), findsOneWidget);
+      expect(find.text('Teff'), findsNothing);
+      verifyNever(
+        () => cropListingBloc.add(any(that: isA<FilterCropListings>())),
+      );
+
+      await tester.tap(find.text('Sold'));
+      await tester.pumpAndSettle();
       expect(find.text(l10n.noListingsMatchFilters), findsOneWidget);
-      expect(find.text(l10n.clearFilters), findsOneWidget);
+
+      await tester.tap(find.text(l10n.clearFilters));
+      await tester.pumpAndSettle();
+      expect(find.text('Wheat'), findsOneWidget);
+      expect(find.text('Teff'), findsOneWidget);
     });
 
     testWidgets('Retry keeps the visible search', (tester) async {

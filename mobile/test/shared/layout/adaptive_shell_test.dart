@@ -38,9 +38,20 @@ void main() {
     when(() => inboxBloc.stream).thenAnswer((_) => const Stream.empty());
   });
 
-  Widget buildApp(UserRole role) {
+  Widget buildApp(
+    UserRole role, {
+    String userName = '',
+    String? woreda,
+    Locale? locale,
+  }) {
     when(() => authBloc.state).thenReturn(
-      AuthAuthenticated(userId: 'u-1', tokens: _tokens, role: role),
+      AuthAuthenticated(
+        userId: 'u-1',
+        tokens: _tokens,
+        role: role,
+        userName: userName,
+        woreda: woreda,
+      ),
     );
     final pushedRoutes = ShellPushedRoutesObserver();
     final router = GoRouter(
@@ -82,6 +93,7 @@ void main() {
         BlocProvider<InboxBloc>.value(value: inboxBloc),
       ],
       child: MaterialApp.router(
+        locale: locale,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         routerConfig: router,
@@ -155,5 +167,40 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('profile'), findsOneWidget);
     expect(find.byType(FloatingActionButton), findsNothing);
+  });
+
+  // Desktop sidebar footer: "Meki · Farmer" under the name, in the user's
+  // language (it showed a lone " · " when the user had a wereda).
+  group('sidebar footer', () {
+    void desktop(WidgetTester tester) {
+      tester.view.physicalSize = const Size(1300, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+    }
+
+    testWidgets('shows the wereda and the role', (tester) async {
+      desktop(tester);
+      await tester.pumpWidget(
+        buildApp(UserRole.farmer, userName: 'Almaz', woreda: 'Meki'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Almaz'), findsOneWidget);
+      expect(find.text('Meki · Farmer'), findsOneWidget);
+      expect(find.text(' · '), findsNothing);
+    });
+
+    testWidgets('a nameless user is shown by role, in Amharic too',
+        (tester) async {
+      desktop(tester);
+      await tester.pumpWidget(
+        buildApp(UserRole.trucker, locale: const Locale('am')),
+      );
+      await tester.pumpAndSettle();
+
+      final am = await AppLocalizations.delegate.load(const Locale('am'));
+      expect(find.text(am.trucker), findsWidgets);
+      expect(find.text('User'), findsNothing);
+    });
   });
 }

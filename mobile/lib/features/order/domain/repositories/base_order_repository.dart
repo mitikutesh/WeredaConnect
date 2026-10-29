@@ -61,10 +61,12 @@ abstract class BaseOrderRepository {
   Future<void> acceptOrder(String orderId, String farmerId);
 
   /// The farmer's no (`farmerResponse: decline`): the buyer is refunded.
+  /// [declineReason] is one of `farmerDeclineReasons`.
   Future<void> rejectOrder(
     String orderId,
     String farmerId, {
     String? reason,
+    String? declineReason,
   });
 
   /// ESC-15: the trucker's answer to a transport request

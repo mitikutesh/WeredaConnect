@@ -601,16 +601,16 @@ class _HomeHeaderWithBanner extends StatelessWidget {
                   // User greeting matching Fieldway canvas
                   if (role == UserRole.trucker) ...[
                     Text(
-                      'Welcome back, $userName',
+                      l10n.welcomeBackUser(userName),
                       style: const TextStyle(
                         fontSize: 13,
                         color: Color(0xFFB9C2BD),
                       ),
                     ),
                     const SizedBox(height: 2),
-                    const Text(
-                      'Today',
-                      style: TextStyle(
+                    Text(
+                      l10n.homeToday,
+                      style: const TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.w800,
                         color: Colors.white,

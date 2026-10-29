@@ -570,12 +570,14 @@ class _SidebarFooter extends StatelessWidget {
             ? name.substring(0, 2).toUpperCase()
             : name[0].toUpperCase())
         : 'WC';
+    final l10n = AppLocalizations.of(context)!;
     final roleName = switch (role) {
-      UserRole.farmer => 'Farmer',
-      UserRole.trucker => 'Trucker',
-      UserRole.buyer => 'Buyer',
+      UserRole.farmer => l10n.farmer,
+      UserRole.trucker => l10n.trucker,
+      UserRole.buyer => l10n.buyer,
     };
-    final subtitle = woreda.isNotEmpty ? ' · ' : roleName;
+    // Where the user is and what they do: "Meki · Farmer".
+    final subtitle = woreda.isNotEmpty ? '$woreda · $roleName' : roleName;
 
     return Padding(
       padding: EdgeInsets.symmetric(
@@ -636,7 +638,7 @@ class _SidebarFooter extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    name.isNotEmpty ? name : 'User',
+                                    name.isNotEmpty ? name : roleName,
                                     style: const TextStyle(
                                       color: AppTheme.soilDark,
                                       fontSize: 13,

@@ -4194,4 +4194,143 @@ class AppLocalizationsAm extends AppLocalizations {
   String liveTripOnTheRoadSince(String time) {
     return 'ከ$time ጀምሮ በመንገድ ላይ';
   }
+
+  @override
+  String get loginEscrowFooter => 'ክፍያዎች በኢስክሮ በደህና ይያዛሉ';
+
+  @override
+  String get loginNoAccountRegister => 'አካውንት የለዎትም? ይመዝገቡ';
+
+  @override
+  String get otpFaydaNumberNote => 'ይህንን የምንጠይቀው ቁጥሩ ከፋይዳ መዝገብዎ ሲለይ ብቻ ነው።';
+
+  @override
+  String get faydaDigitalIdLabel => 'ዲጂታል መታወቂያ';
+
+  @override
+  String get faydaVerifiedWith => 'በፋይዳ የተረጋገጠ';
+
+  @override
+  String get faydaLegalNameNote => 'ሕጋዊ ስምዎ ከፋይዳ ይመጣል። ማንም በስምዎ መመዝገብ አይችልም።';
+
+  @override
+  String registrationStepOf(int current, int total) {
+    return 'ደረጃ $current ከ$total';
+  }
+
+  @override
+  String get registrationRoleNextNote =>
+      'ቀጥሎ በፋይዳ ያረጋግጣሉ፣ ከዚያ ዝርዝሮችዎን ያክላሉ። ገበሬዎች የሚና ዝርዝሮችን ደረጃ ይዘላሉ።';
+
+  @override
+  String get fromFayda => 'ከፋይዳ';
+
+  @override
+  String get placeLicenseHere => 'መንጃ ፈቃዱን እዚህ ያስቀምጡ';
+
+  @override
+  String get retakeLicensePhoto => 'የፈቃድ ፎቶውን እንደገና አንሳ';
+
+  @override
+  String get totalListingValue => 'ጠቅላላ የዝርዝር ዋጋ';
+
+  @override
+  String get checkoutHeldInEscrowNote => 'ርክክቡን እስኪያረጋግጡ ድረስ በኢስክሮ ይያዛል';
+
+  @override
+  String get placeOrderEscrowNote =>
+      'ገንዘብዎ በደህና ይያዛል። መጀመሪያ ገበሬው፣ ከዚያ ሹፌሩ ይጠየቃሉ።';
+
+  @override
+  String get deliveriesSearchHint => 'ገበሬ፣ ገዢ ወይም ሹፌር';
+
+  @override
+  String get savedOnPhoneFirstNote => 'መጀመሪያ በስልክዎ ይቀመጣል፣ ኔትወርክ ሲኖር ይላካል።';
+
+  @override
+  String get myCropsPrivacyNote =>
+      'ዝርዝሮችዎን እዚህ የሚያዩት እርስዎ ብቻ ነዎት። ገዢዎች በሰብል ፈልግ ውስጥ ያዩዋቸዋል።';
+
+  @override
+  String get homeToday => 'ዛሬ';
+
+  @override
+  String tripPricePerQuintalValue(String price) {
+    return 'በኩንታል $price ብር';
+  }
+
+  @override
+  String createTripRouteDistance(int km) {
+    return 'በቀጥታ መስመር በግምት $km ኪ.ሜ፣ በስልክዎ ላይ የተሳለ';
+  }
+
+  @override
+  String createTripRoutePreviewLabel(String from, String to) {
+    return 'ከ$from ወደ $to የመንገድ ቅድመ እይታ';
+  }
+
+  @override
+  String get createTripSwapRoute => 'መነሻና መድረሻን አቀያይር';
+
+  @override
+  String get createTripDriverHint =>
+      'ስምዎንና ስልክዎን ከመገለጫዎ መሙላት አልቻልንም። እባክዎ ያስገቡ።';
+
+  @override
+  String get tripSpaceTitle => 'በዚህ ጉዞ ላይ ያለ ቦታ';
+
+  @override
+  String tripLoadedOf(String loaded, String capacity) {
+    return 'ከ$capacity ኩንታል $loaded ተይዟል';
+  }
+
+  @override
+  String get tripBookedTermsNote => 'የተያዙ ጉዞዎች ቀናቸውን፣ ዋጋቸውንና መንገዳቸውን ይይዛሉ።';
+
+  @override
+  String get tripScanAtPickupNote =>
+      'በጉዞው ቀን፣ በመጫኛ ቦታ የእያንዳንዱን ገበሬ QR ይቃኙ። የቀጥታ ጉዞ በመጀመሪያው ቅኝት ይጀምራል።';
+
+  @override
+  String get tripCancelBookedNote =>
+      'መሰረዝ የተያዙ ትዕዛዞችን ለገዢዎቻቸው ይመልሳል፤ እነሱም ሙሉ ገንዘባቸው ተመላሽ እንዲሆን መሰረዝ ይችላሉ።';
+
+  @override
+  String get orderYouReceive => 'የሚደርስዎ';
+
+  @override
+  String get orderYourTransportPay => 'የትራንስፖርት ክፍያዎ';
+
+  @override
+  String get deliveriesNoSearchMatch => 'በዚያ ስም የሚመሳሰል ርክክብ የለም።';
+
+  @override
+  String get farmerRejectRefundNote => 'ገዢው ሙሉ ገንዘቡ ይመለስለታል።';
+
+  @override
+  String get farmerAnswerNote =>
+      'ከገዢው ጋር ያለው ግንኙነት ሲቀበሉ ይከፈታል። ውድቅ ማድረግ ምክንያቱን ይጠይቃል፣ ገዢውም ገንዘቡ ይመለስለታል።';
+
+  @override
+  String get checkoutConfirmItsYouNote =>
+      'ከ10,000 ብር በላይ የሆኑ ክፍያዎች ፋይዳ ያስፈልጋቸዋል። ያነሱት የይለፍ ቃልዎን ይጠይቃሉ።';
+
+  @override
+  String myCropsOrderedOf(String ordered, String total) {
+    return 'ከ$total ኩንታል $ordered ታዝዟል';
+  }
+
+  @override
+  String myCropsNoOrdersYet(String quantity) {
+    return '$quantity ኩንታል፣ እስካሁን ትዕዛዝ የለም';
+  }
+
+  @override
+  String get createTripBookingCutoffNote =>
+      'ገዢዎች ከመነሳትዎ 24 ሰዓት በፊት ድረስ መያዝ ይችላሉ።';
+
+  @override
+  String myCropsListedOn(String date) {
+    return '$date የተዘረዘረ';
+  }
 }

@@ -22,6 +22,13 @@ class ListingCard extends StatelessWidget {
   final IconData? icon;
   final VoidCallback? onTap;
 
+  /// An extra muted line under the seller (My Crops: how much is ordered).
+  final String? detail;
+
+  /// Replaces the "seller, location" line (My Crops: "Meki · listed 28 Oct",
+  /// the seller being the farmer looking).
+  final String? subtitle;
+
   const ListingCard({
     required this.title,
     required this.location,
@@ -33,6 +40,8 @@ class ListingCard extends StatelessWidget {
     this.ratingCount,
     this.icon,
     this.onTap,
+    this.detail,
+    this.subtitle,
   });
 
   @override
@@ -86,9 +95,10 @@ class ListingCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      location.isNotEmpty
-                          ? '$sellerName, $location'
-                          : sellerName,
+                      subtitle ??
+                          (location.isNotEmpty
+                              ? '$sellerName, $location'
+                              : sellerName),
                       style: const TextStyle(
                         fontSize: 12,
                         color: AppTheme.mutedSteel,
@@ -96,6 +106,17 @@ class ListingCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
+                    if (detail != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        detail!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.unselectedNav,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 4),
                     Row(
                       children: [
