@@ -483,7 +483,30 @@ public sealed record AdminDeliveryTrailResponse
     /// <summary>Stretches of the window without a check-in for longer than the cadence allows, pauses left out.</summary>
     public required List<AdminTrailGapDto> Gaps { get; init; }
 
+    /// <summary>Pauses at a place far from every QR scan of the trip (see <see cref="AdminTrailAwayStopDto"/>).</summary>
+    public required List<AdminTrailAwayStopDto> AwayStops { get; init; }
+
     public required AdminTrailSummaryDto Summary { get; init; }
+}
+
+/// <summary>
+/// A pause of the driver more than 5 km from every QR scan of the trip (any order's pickup or drop-off
+/// scan, and this delivery's own): a stop no handoff on the truck explains. This is the admin board's
+/// "stops off the stop list", judged from the scans the trail already holds rather than each order's
+/// planned points.
+/// </summary>
+public sealed record AdminTrailAwayStopDto
+{
+    public required string From { get; init; }
+    public required string Until { get; init; }
+
+    /// <summary>Where the truck stood: the last precise fix at or before the pause, 4 decimals.</summary>
+    public required double Latitude { get; init; }
+
+    public required double Longitude { get; init; }
+
+    /// <summary>The nearest QR scan, 1 decimal.</summary>
+    public required double NearestScanKm { get; init; }
 }
 
 /// <summary>A QR handoff point of the delivery at 4 decimals, with its time.</summary>
@@ -580,6 +603,9 @@ public sealed record AdminTrailSummaryDto
     public required int LateFixes { get; init; }
     public required int Jumps { get; init; }
     public required int Gaps { get; init; }
+
+    /// <summary>The count of <see cref="AdminDeliveryTrailResponse.AwayStops"/>.</summary>
+    public required int AwayStops { get; init; }
 
     /// <summary>The sum of the legs, 1 decimal.</summary>
     public required double DistanceKm { get; init; }

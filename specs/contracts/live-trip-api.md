@@ -1,7 +1,7 @@
 # Live Trip API Contract
 
 ## Version
-1.0.5
+1.0.6
 
 ## Parties
 - **Mobile / Web** (client): the trucker's phone writes check-ins through `POST /sync`; the buyer's, farmer's and trucker's apps read the track; the admin app reads the trail.
@@ -141,7 +141,8 @@ Clients poll at most every 5 minutes while a track screen is visible and keep th
   ],
   "pauses": [ { "from": "2026-10-27T06:40:00.000Z", "until": "2026-10-27T07:10:00.000Z" } ],
   "gaps": [ { "from": "2026-10-27T07:20:00.000Z", "until": "2026-10-27T09:00:00.000Z", "minutes": 100 } ],
-  "summary": { "sharedWholeWay": false, "declined": false, "fixes": 4, "coarseFixes": 1, "mockedFixes": 0, "lateFixes": 1, "jumps": 1, "gaps": 1, "distanceKm": 139.0, "durationMin": 235, "maxKmh": 333.6 }
+  "awayStops": [],
+  "summary": { "sharedWholeWay": false, "declined": false, "fixes": 4, "coarseFixes": 1, "mockedFixes": 0, "lateFixes": 1, "jumps": 1, "gaps": 1, "awayStops": 0, "distanceKm": 139.0, "durationMin": 235, "maxKmh": 333.6 }
 }
 ```
 
@@ -155,7 +156,8 @@ Clients poll at most every 5 minutes while a track screen is visible and keep th
 | `legs` | one per pair of consecutive fixes with `accuracyM` at most 1,000 (a coarse fix is skipped, so the leg runs from the precise fix before it to the one after, as `GPS_JUMP` pairs them): great circle `distanceKm` at 2 decimals, `minutes` at 1, `kmh` at 1 (`null` when both fixes carry the same time); `jump` is the `GPS_JUMP` rule itself (more than 1 km apart at more than 130 km/h) |
 | `pauses` | the track's pauses (section 2): each `paused` event runs to its `pausedUntil` or the next event; those reaching past pickup, cut to start at it |
 | `gaps` | stretches longer than 90 minutes (the hourly cadence plus half an hour) without a fix, the paused time inside them left out: from pickup to the first fix, between fixes (coarse ones count: the phone was sharing), and from the last fix to the end (now while open); `minutes` whole. None for a self-pickup |
-| `summary` | `sharedWholeWay`: at least one fix, no gap and no decline; `declined`: the trip's latest event before pickup is `declined`, or a `declined` event falls in the window; the counts of fixes, coarse, mocked and late fixes, jump legs and gaps; `distanceKm` the sum of the legs at 1 decimal; `durationMin` the window in whole minutes (to now while open); `maxKmh` the fastest leg with a speed, `null` without one |
+| `awayStops` | each pause placed more than 5 km from every QR scan point of the trip (every `scan` fix of the trip, any order, any time, and this delivery's `gpsPickup` and `gpsDropoff`): `from`, `until` (the pause), `latitude`, `longitude` (the last precise fix at or before the pause, 4 decimals) and `nearestScanKm` (great circle, 1 decimal). A stop no handoff on the truck explains: the design's "stops off the stop list", judged from the scans rather than each order's planned points, which this route does not read. Empty without a scan point to judge by, for a pause with no precise fix before it, and for a self-pickup |
+| `summary` | `sharedWholeWay`: at least one fix, no gap and no decline; `declined`: the trip's latest event before pickup is `declined`, or a `declined` event falls in the window; the counts of fixes, coarse, mocked and late fixes, jump legs, gaps and away stops; `distanceKm` the sum of the legs at 1 decimal; `durationMin` the window in whole minutes (to now while open); `maxKmh` the fastest leg with a speed, `null` without one |
 
 **Errors**: `403 ADMIN_001` as above (API Gateway answers `401` without a valid admin token); `404 ADMIN_018`; `503 ADMIN_004` when the deliveries or trip-locations table is not configured; `500 ADMIN_500` on a read failure.
 
@@ -192,6 +194,7 @@ Push and inbox text in en, am and om; no clock times in the text. `data.type` `o
 
 | Version | Date | Change |
 |---|---|---|
+| 1.0.6 | 2026-10-29 | Section 3: `awayStops` and `summary.awayStops`, the pauses more than 5 km from every QR scan point of the trip (additive; the admin board's stops off the stop list, judged from the scans). |
 | 1.0.5 | 2026-10-28 | Section 3 as built (LT-13): the refusal is the admin `403 ADMIN_001` (an admin role claim without the admin group included), unknown or soft-deleted is `404 ADMIN_018`, `503 ADMIN_004` without the tables; the response in full: the window (to the time the delivery left the road, `cancelledAt` for a cancelled one; to now plus the clock skew while open), `tripId` (`null` for a self-pickup), the QR scan points, every point with `receivedAt`, `kind`, `source`, `accuracyM`, `mocked`, `pausedUntil`, `coarse` and `late`, legs between precise fixes only with the `jump` flag of the `GPS_JUMP` rule, the track's pauses, the gaps (over 90 minutes without a fix, pauses left out) and the summary. |
 | 1.0.4 | 2026-10-28 | Section 4 as built (LT-07): the trucker param is `truckerName` (the wire name, `notifications-api.md` section 4), not `trucker`; `minutes` is left out when it rounds to 0 or is unknown. Section 5, invariant 6: only a fix with `accuracyM` at most 1,000 has effects by its position (a cell tower guess could cross the 2 km, 5 km and 1 km lines on its error alone); `GPS_MOCKED` does not depend on it. |
 | 1.0.3 | 2026-10-28 | Section 2, `otherStops` (privacy, design §7 and D7): planned points only, the listing location for a pickup and the planned drop-off point for a drop-off, never another order's `gpsPickup` or `gpsDropoff`; a stop done before this delivery's `pickedUpAt`, or at an unknown time, is left out. |
