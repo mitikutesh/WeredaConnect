@@ -7798,6 +7798,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No delivery matches that name.'**
   String get deliveriesNoSearchMatch;
+
+  /// Fieldway design alignment (specs/design-canvas). Farmer reject reason sheet: what declining does to the buyer's money
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer gets a full refund.'**
+  String get farmerRejectRefundNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail, farmer answering a new order: note above Reject and Accept
+  ///
+  /// In en, this message translates to:
+  /// **'Contact with the buyer opens when you accept. Rejecting asks why and refunds the buyer.'**
+  String get farmerAnswerNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Checkout: how the payment asks the buyer to confirm it is them (AUTH_040 password up to 10,000 ETB, AUTH_041 Fayda above)
+  ///
+  /// In en, this message translates to:
+  /// **'Payments over 10,000 ETB need Fayda. Smaller ones ask for your password.'**
+  String get checkoutConfirmItsYouNote;
+
+  /// Fieldway design alignment (specs/design-canvas). My Crops card: paid orders out of the listing's quintals; numbers
+  ///
+  /// In en, this message translates to:
+  /// **'{ordered} of {total} quintals ordered'**
+  String myCropsOrderedOf(String ordered, String total);
+
+  /// Fieldway design alignment (specs/design-canvas). My Crops card: a listing nobody has paid an order on; a number
+  ///
+  /// In en, this message translates to:
+  /// **'{quantity} quintals, no orders yet'**
+  String myCropsNoOrdersYet(String quantity);
+
+  /// Fieldway design alignment (specs/design-canvas). Create trip: under the departure date; the server refuses new orders on a trip leaving within 24 hours (ESC-15/17)
+  ///
+  /// In en, this message translates to:
+  /// **'Buyers can book until 24 h before you leave.'**
+  String get createTripBookingCutoffNote;
+
+  /// Fieldway design alignment (specs/design-canvas). My Crops card: when the listing was posted; {date} is a short date
+  ///
+  /// In en, this message translates to:
+  /// **'listed {date}'**
+  String myCropsListedOn(String date);
 }
 
 class _AppLocalizationsDelegate

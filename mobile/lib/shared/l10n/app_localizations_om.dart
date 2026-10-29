@@ -4410,7 +4410,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get savedOnPhoneFirstNote =>
-      'Duraan bilbila keessan irratti olkaa\'ama, yeroo networkiin jiru ni ergama.';
+      'Duraan bilbila keessan irratti olkaa\'ama, yeroo neetworkiin jiru ni ergama.';
 
   @override
   String get myCropsPrivacyNote =>
@@ -4470,4 +4470,34 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get deliveriesNoSearchMatch =>
       'Geessituun maqaa sanaan walsimu hin jiru.';
+
+  @override
+  String get farmerRejectRefundNote => 'Bitaan maallaqa guutuu deebifata.';
+
+  @override
+  String get farmerAnswerNote =>
+      'Quunnamtiin bitaa wajjin yeroo fudhattan bana. Diduun sababa gaafata, bitaanis maallaqa deebifata.';
+
+  @override
+  String get checkoutConfirmItsYouNote =>
+      'Kaffaltiin Birrii 10,000 ol Fayda barbaada. Kanneen xixiqqoon jecha icciitii keessan gaafatu.';
+
+  @override
+  String myCropsOrderedOf(String ordered, String total) {
+    return 'Kuntaala $total keessaa $ordered ajajameera';
+  }
+
+  @override
+  String myCropsNoOrdersYet(String quantity) {
+    return 'Kuntaala $quantity, hanga ammaatti ajajni hin jiru';
+  }
+
+  @override
+  String get createTripBookingCutoffNote =>
+      'Bitoonni hanga sa\'aatii 24 osoo hin ka\'iin dura qabachuu danda\'u.';
+
+  @override
+  String myCropsListedOn(String date) {
+    return '$date tarreeffame';
+  }
 }

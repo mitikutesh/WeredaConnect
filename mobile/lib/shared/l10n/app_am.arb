@@ -2982,7 +2982,7 @@
   "myCropsPrivacyNote": "ዝርዝሮችዎን እዚህ የሚያዩት እርስዎ ብቻ ነዎት። ገዢዎች በሰብል ፈልግ ውስጥ ያዩዋቸዋል።",
   "homeToday": "ዛሬ",
   "tripPricePerQuintalValue": "በኩንታል {price} ብር",
-  "createTripRouteDistance": "በቀጥታ መስመር በግምት {km} ኪሜ፣ በስልክዎ ላይ የተሳለ",
+  "createTripRouteDistance": "በቀጥታ መስመር በግምት {km} ኪ.ሜ፣ በስልክዎ ላይ የተሳለ",
   "createTripRoutePreviewLabel": "ከ{from} ወደ {to} የመንገድ ቅድመ እይታ",
   "createTripSwapRoute": "መነሻና መድረሻን አቀያይር",
   "createTripDriverHint": "ስምዎንና ስልክዎን ከመገለጫዎ መሙላት አልቻልንም። እባክዎ ያስገቡ።",
@@ -2993,5 +2993,12 @@
   "tripCancelBookedNote": "መሰረዝ የተያዙ ትዕዛዞችን ለገዢዎቻቸው ይመልሳል፤ እነሱም ሙሉ ገንዘባቸው ተመላሽ እንዲሆን መሰረዝ ይችላሉ።",
   "orderYouReceive": "የሚደርስዎ",
   "orderYourTransportPay": "የትራንስፖርት ክፍያዎ",
-  "deliveriesNoSearchMatch": "በዚያ ስም የሚመሳሰል ርክክብ የለም።"
+  "deliveriesNoSearchMatch": "በዚያ ስም የሚመሳሰል ርክክብ የለም።",
+  "farmerRejectRefundNote": "ገዢው ሙሉ ገንዘቡ ይመለስለታል።",
+  "farmerAnswerNote": "ከገዢው ጋር ያለው ግንኙነት ሲቀበሉ ይከፈታል። ውድቅ ማድረግ ምክንያቱን ይጠይቃል፣ ገዢውም ገንዘቡ ይመለስለታል።",
+  "checkoutConfirmItsYouNote": "ከ10,000 ብር በላይ የሆኑ ክፍያዎች ፋይዳ ያስፈልጋቸዋል። ያነሱት የይለፍ ቃልዎን ይጠይቃሉ።",
+  "myCropsOrderedOf": "ከ{total} ኩንታል {ordered} ታዝዟል",
+  "myCropsNoOrdersYet": "{quantity} ኩንታል፣ እስካሁን ትዕዛዝ የለም",
+  "createTripBookingCutoffNote": "ገዢዎች ከመነሳትዎ 24 ሰዓት በፊት ድረስ መያዝ ይችላሉ።",
+  "myCropsListedOn": "{date} የተዘረዘረ"
 }

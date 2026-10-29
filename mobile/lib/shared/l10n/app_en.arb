@@ -4657,5 +4657,19 @@
   "orderYourTransportPay": "Your transport pay",
   "@orderYourTransportPay": {"description": "Fieldway design alignment (specs/design-canvas). Order detail summary, trucker: the transport cost of this order"},
   "deliveriesNoSearchMatch": "No delivery matches that name.",
-  "@deliveriesNoSearchMatch": {"description": "Fieldway design alignment (specs/design-canvas). Deliveries (wide screen): the search box hides every delivery"}
+  "@deliveriesNoSearchMatch": {"description": "Fieldway design alignment (specs/design-canvas). Deliveries (wide screen): the search box hides every delivery"},
+  "farmerRejectRefundNote": "The buyer gets a full refund.",
+  "@farmerRejectRefundNote": {"description": "Fieldway design alignment (specs/design-canvas). Farmer reject reason sheet: what declining does to the buyer's money"},
+  "farmerAnswerNote": "Contact with the buyer opens when you accept. Rejecting asks why and refunds the buyer.",
+  "@farmerAnswerNote": {"description": "Fieldway design alignment (specs/design-canvas). Order detail, farmer answering a new order: note above Reject and Accept"},
+  "checkoutConfirmItsYouNote": "Payments over 10,000 ETB need Fayda. Smaller ones ask for your password.",
+  "@checkoutConfirmItsYouNote": {"description": "Fieldway design alignment (specs/design-canvas). Checkout: how the payment asks the buyer to confirm it is them (AUTH_040 password up to 10,000 ETB, AUTH_041 Fayda above)"},
+  "myCropsOrderedOf": "{ordered} of {total} quintals ordered",
+  "@myCropsOrderedOf": {"description": "Fieldway design alignment (specs/design-canvas). My Crops card: paid orders out of the listing's quintals; numbers", "placeholders": {"ordered": {"type": "String"}, "total": {"type": "String"}}},
+  "myCropsNoOrdersYet": "{quantity} quintals, no orders yet",
+  "@myCropsNoOrdersYet": {"description": "Fieldway design alignment (specs/design-canvas). My Crops card: a listing nobody has paid an order on; a number", "placeholders": {"quantity": {"type": "String"}}},
+  "createTripBookingCutoffNote": "Buyers can book until 24 h before you leave.",
+  "@createTripBookingCutoffNote": {"description": "Fieldway design alignment (specs/design-canvas). Create trip: under the departure date; the server refuses new orders on a trip leaving within 24 hours (ESC-15/17)"},
+  "myCropsListedOn": "listed {date}",
+  "@myCropsListedOn": {"description": "Fieldway design alignment (specs/design-canvas). My Crops card: when the listing was posted; {date} is a short date", "placeholders": {"date": {"type": "String"}}}
 }

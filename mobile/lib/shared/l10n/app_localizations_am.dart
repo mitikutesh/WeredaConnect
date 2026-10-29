@@ -4261,7 +4261,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String createTripRouteDistance(int km) {
-    return 'በቀጥታ መስመር በግምት $km ኪሜ፣ በስልክዎ ላይ የተሳለ';
+    return 'በቀጥታ መስመር በግምት $km ኪ.ሜ፣ በስልክዎ ላይ የተሳለ';
   }
 
   @override
@@ -4303,4 +4303,34 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deliveriesNoSearchMatch => 'በዚያ ስም የሚመሳሰል ርክክብ የለም።';
+
+  @override
+  String get farmerRejectRefundNote => 'ገዢው ሙሉ ገንዘቡ ይመለስለታል።';
+
+  @override
+  String get farmerAnswerNote =>
+      'ከገዢው ጋር ያለው ግንኙነት ሲቀበሉ ይከፈታል። ውድቅ ማድረግ ምክንያቱን ይጠይቃል፣ ገዢውም ገንዘቡ ይመለስለታል።';
+
+  @override
+  String get checkoutConfirmItsYouNote =>
+      'ከ10,000 ብር በላይ የሆኑ ክፍያዎች ፋይዳ ያስፈልጋቸዋል። ያነሱት የይለፍ ቃልዎን ይጠይቃሉ።';
+
+  @override
+  String myCropsOrderedOf(String ordered, String total) {
+    return 'ከ$total ኩንታል $ordered ታዝዟል';
+  }
+
+  @override
+  String myCropsNoOrdersYet(String quantity) {
+    return '$quantity ኩንታል፣ እስካሁን ትዕዛዝ የለም';
+  }
+
+  @override
+  String get createTripBookingCutoffNote =>
+      'ገዢዎች ከመነሳትዎ 24 ሰዓት በፊት ድረስ መያዝ ይችላሉ።';
+
+  @override
+  String myCropsListedOn(String date) {
+    return '$date የተዘረዘረ';
+  }
 }

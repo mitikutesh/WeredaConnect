@@ -4428,4 +4428,34 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deliveriesNoSearchMatch => 'No delivery matches that name.';
+
+  @override
+  String get farmerRejectRefundNote => 'The buyer gets a full refund.';
+
+  @override
+  String get farmerAnswerNote =>
+      'Contact with the buyer opens when you accept. Rejecting asks why and refunds the buyer.';
+
+  @override
+  String get checkoutConfirmItsYouNote =>
+      'Payments over 10,000 ETB need Fayda. Smaller ones ask for your password.';
+
+  @override
+  String myCropsOrderedOf(String ordered, String total) {
+    return '$ordered of $total quintals ordered';
+  }
+
+  @override
+  String myCropsNoOrdersYet(String quantity) {
+    return '$quantity quintals, no orders yet';
+  }
+
+  @override
+  String get createTripBookingCutoffNote =>
+      'Buyers can book until 24 h before you leave.';
+
+  @override
+  String myCropsListedOn(String date) {
+    return 'listed $date';
+  }
 }
