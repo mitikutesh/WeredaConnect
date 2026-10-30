@@ -112,6 +112,21 @@ void main() {
     ).called(1);
   });
 
+  testWidgets('the title shows once, on the page, not in the bar',
+      (tester) async {
+    await tester.pumpWidget(app());
+    await tester.pump();
+
+    expect(find.text('Confirm your phone'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.text('Confirm your phone'),
+      ),
+      findsNothing,
+    );
+  });
+
   // Register OTP board: one box per digit, expiry and resend on one line.
   testWidgets('the code shows one digit per box', (tester) async {
     await tester.pumpWidget(app());
