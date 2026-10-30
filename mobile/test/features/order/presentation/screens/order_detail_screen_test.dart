@@ -810,7 +810,11 @@ void main() {
       return order;
     }
 
+    // The contact card's rows (the board's name, role, Message and Call).
     const allButtons = ['Contact Buyer', 'Contact Farmer', 'Contact Trucker'];
+    Finder contactRow(String label) => find.byKey(
+          Key('order_contact_${label.split(' ').last.toLowerCase()}'),
+        );
     const escrowNote = 'Contact opens after payment is held in escrow.';
     const acceptNote = 'Contact opens once the farmer accepts the order.';
 
@@ -828,7 +832,7 @@ void main() {
 
         for (final label in allButtons) {
           expect(
-            find.text(label),
+            contactRow(label),
             expected.contains(label) ? findsOneWidget : findsNothing,
             reason: label,
           );
@@ -846,7 +850,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Contact Farmer'));
+      await tester.tap(contactRow('Contact Farmer'));
       await tester.pumpAndSettle();
 
       expect(find.text('+251911000002'), findsOneWidget);
@@ -863,7 +867,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Contact Buyer'));
+      await tester.tap(contactRow('Contact Buyer'));
       await tester.pumpAndSettle();
 
       expect(find.text('Phone number not available'), findsOneWidget);
@@ -878,8 +882,8 @@ void main() {
       await tester.pumpWidget(buildScreen(openOrder(withTrucker: false)));
       await tester.pumpAndSettle();
 
-      expect(find.text('Contact Farmer'), findsOneWidget);
-      expect(find.text('Contact Trucker'), findsNothing);
+      expect(contactRow('Contact Farmer'), findsOneWidget);
+      expect(contactRow('Contact Trucker'), findsNothing);
     });
 
     for (final (status, note) in [
@@ -901,7 +905,7 @@ void main() {
 
         expect(find.text(note), findsOneWidget);
         for (final label in allButtons) {
-          expect(find.text(label), findsNothing, reason: label);
+          expect(contactRow(label), findsNothing, reason: label);
         }
       });
     }
@@ -921,7 +925,7 @@ void main() {
         await tester.pumpAndSettle();
 
         for (final label in allButtons) {
-          expect(find.text(label), findsNothing, reason: label);
+          expect(contactRow(label), findsNothing, reason: label);
         }
         expect(find.text(escrowNote), findsNothing);
         expect(find.text(acceptNote), findsNothing);

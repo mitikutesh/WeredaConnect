@@ -4641,6 +4641,152 @@ class AppLocalizationsEn extends AppLocalizations {
   String get cropsDrafts => 'Drafts';
 
   @override
+  String get detailYourPay => 'your pay';
+
+  @override
+  String get detailBookingWaitingFarmer => 'Waiting for the farmer';
+
+  @override
+  String get detailBookingAskedNext => 'you are asked next';
+
+  @override
+  String get detailBookingAcceptedContactOpen => 'contact open';
+
+  @override
+  String detailBookedOf(String booked, String capacity) {
+    return '$booked of $capacity quintals';
+  }
+
+  @override
+  String detailLeft(String left) {
+    return '$left left';
+  }
+
+  @override
+  String get detailCropHere => 'crop here';
+
+  @override
+  String detailFarmerAcceptedAnswerBy(String time) {
+    return 'The farmer accepted. Please answer by $time.';
+  }
+
+  @override
+  String get detailBooked => 'Booked';
+
+  @override
+  String detailQuintalsLeft(String quintals) {
+    return '$quintals quintals left';
+  }
+
+  @override
+  String detailKmToYou(int km) {
+    return 'About $km km to you';
+  }
+
+  @override
+  String detailForQuantity(String quantity) {
+    return 'For $quantity';
+  }
+
+  @override
+  String get detailEtbPerQuintalShort => 'ETB/q';
+
+  @override
+  String detailFitsTrip(String quintals) {
+    return 'fits this trip ($quintals quintals left)';
+  }
+
+  @override
+  String detailExceedsTrip(String quintals) {
+    return 'more than this trip has room for ($quintals quintals left)';
+  }
+
+  @override
+  String get detailChange => 'Change';
+
+  @override
+  String get detailLess => 'Less';
+
+  @override
+  String get detailMore => 'More';
+
+  @override
+  String get detailGpsPickFromList =>
+      'No GPS? Pick your wereda from the list instead.';
+
+  @override
+  String get detailNoPhoneNumbersNote =>
+      'No phone numbers: contact opens after payment is held in escrow.';
+
+  @override
+  String get detailYourFarm => 'Your farm';
+
+  @override
+  String get detailNewOrderTitle => 'New order';
+
+  @override
+  String detailFromYourListing(String what) {
+    return '$what from your listing';
+  }
+
+  @override
+  String get detailPaidIntoEscrow => 'Paid into escrow';
+
+  @override
+  String get detailPickupLabel => 'Pickup';
+
+  @override
+  String detailTruckOf(String name) {
+    return '$name\'s truck';
+  }
+
+  @override
+  String get detailBuyerCollects => 'The buyer collects it';
+
+  @override
+  String get detailHeldInEscrow => 'Held in escrow';
+
+  @override
+  String detailPartyPaid(String party) {
+    return '$party paid';
+  }
+
+  @override
+  String detailPartyRole(String name, String role) {
+    return '$name, $role';
+  }
+
+  @override
+  String get detailYou => 'You';
+
+  @override
+  String detailTimelineThen(String steps) {
+    return 'Then $steps. Tap a step to read what it means.';
+  }
+
+  @override
+  String get detailTimelineTapStep => 'Tap a step to read what it means.';
+
+  @override
+  String detailListAnd(String head, String last) {
+    return '$head and $last';
+  }
+
+  @override
+  String get detailContactOpensWhenTruckerAccepts =>
+      'Contact opens when the trucker accepts';
+
+  @override
+  String detailMessageParty(String name) {
+    return 'Message $name';
+  }
+
+  @override
+  String detailCallParty(String name) {
+    return 'Call $name';
+  }
+
+  @override
   String liveTripLogStopAhead(int minutes) {
     return 'About $minutes min, then on to you';
   }

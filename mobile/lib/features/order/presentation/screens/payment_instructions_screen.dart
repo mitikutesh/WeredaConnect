@@ -12,9 +12,15 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart'
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/order_checkout_screen.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/payment_cards.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
-/// Screen for paying for an order after it is created.
+/// Screen for paying for an order after it is created (the Buyer · Telebirr
+/// payment board: the amount in the green card, how the payment confirms
+/// it is the buyer, and Pay pinned at the foot).
 ///
 /// Demo builds: buyers choose a payment method, Commercial Bank of Ethiopia
 /// (CBE) or Telebirr, both **mocked**: the buyer may enter a real reference,
@@ -164,7 +170,6 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
     final amount = _amount;
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.paymentInstructions)),
       body: BlocListener<OrderBloc, OrderState>(
         listener: (context, state) {
           if (state is PaymentSubmitted && _live) {
@@ -202,251 +207,211 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
           }
         },
         child: SafeArea(
+          bottom: false,
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (_live) ...[
-                  Text(
-                    l10n.telebirrLivePayInstructions(
-                      l10n.etbCurrency(amount.toStringAsFixed(2)),
-                    ),
-                    style: theme.textTheme.bodyLarge,
+            child: FwContentWidth(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // The board closes the payment with an X, not Back.
+                  FwDetailHeader(
+                    title: _live
+                        ? l10n.orderCheckoutTitle
+                        : l10n.paymentInstructions,
+                    onBack: () => Navigator.of(context).pop(),
                   ),
-                  const SizedBox(height: 24),
-                  Card(
-                    margin: EdgeInsets.zero,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: _DetailRow(
-                        icon: Icons.payments,
-                        label: l10n.paymentAmount,
-                        value: l10n.etbCurrency(amount.toStringAsFixed(2)),
-                        showCopy: false,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  if (!_withinTelebirrLimits) ...[
-                    Text(
-                      l10n.paymentTotalOutOfRange,
-                      style: theme.textTheme.bodyMedium
-                          ?.copyWith(color: theme.colorScheme.error),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
-                ] else ...[
-                  // ── Payment method selector ─────────────────────────
-                  Text(
-                    l10n.selectPaymentMethod,
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 8),
-                  Card(
-                    margin: EdgeInsets.zero,
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
                     child: Column(
-                      children: [
-                        _PaymentMethodTile(
-                          icon: Icons.account_balance,
-                          label: l10n.paymentMethodCbe,
-                          selected: _method == _PaymentMethod.cbe,
-                          onTap: () =>
-                              setState(() => _method = _PaymentMethod.cbe),
-                        ),
-                        const Divider(height: 1),
-                        _PaymentMethodTile(
-                          icon: Icons.phone_android,
-                          label: l10n.paymentMethodTelebirr,
-                          selected: _method == _PaymentMethod.telebirr,
-                          onTap: () =>
-                              setState(() => _method = _PaymentMethod.telebirr),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // ── Demo/mock notice ────────────────────────────────
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.tertiaryContainer
-                          .withValues(alpha: 0.4),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.info_outline,
-                          size: 18,
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.7),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            l10n.mockPaymentNotice,
-                            style: theme.textTheme.bodySmall,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // ── Method-specific content ─────────────────────────
-                  if (_method == _PaymentMethod.cbe) ...[
-                    Text(
-                      l10n.cbePaymentInstructions,
-                      style: theme.textTheme.bodyLarge,
-                    ),
-                    const SizedBox(height: 24),
-                    Card(
-                      margin: EdgeInsets.zero,
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: [
-                            _DetailRow(
-                              icon: Icons.account_balance,
-                              label: l10n.bankName,
-                              value: l10n.bankName,
-                              showCopy: false,
-                            ),
-                            const Divider(height: 24),
-                            _DetailRow(
-                              icon: Icons.credit_card,
-                              label: l10n.cbeAccountNumber,
-                              value: l10n.cbeAccountValue,
-                              showCopy: true,
-                            ),
-                            const Divider(height: 24),
-                            _DetailRow(
-                              icon: Icons.tag,
-                              label: l10n.transferReference,
-                              value: _reference,
-                              showCopy: true,
-                            ),
-                            const Divider(height: 24),
-                            _DetailRow(
-                              icon: Icons.payments,
-                              label: l10n.paymentAmount,
-                              value: l10n.etbCurrency(
-                                amount.toStringAsFixed(2),
-                              ),
-                              showCopy: false,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Optional transaction id (mock generates one when blank).
-                    TextField(
-                      controller: _transactionIdController,
-                      decoration: InputDecoration(
-                        labelText: l10n.transactionIdOptional,
-                        border: const OutlineInputBorder(),
-                        prefixIcon: const Icon(Icons.receipt_long),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ] else ...[
-                    Text(
-                      l10n.telebirrPayInstructions,
-                      style: theme.textTheme.bodyLarge,
-                    ),
-                    const SizedBox(height: 24),
-                    Card(
-                      margin: EdgeInsets.zero,
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: [
-                            _DetailRow(
-                              icon: Icons.phone_android,
-                              label: l10n.paymentMethodTelebirr,
-                              value: l10n.telebirrPayment,
-                              showCopy: false,
-                            ),
-                            const Divider(height: 24),
-                            _DetailRow(
-                              icon: Icons.tag,
-                              label: l10n.transferReference,
-                              value: _reference,
-                              showCopy: true,
-                            ),
-                            const Divider(height: 24),
-                            _DetailRow(
-                              icon: Icons.payments,
-                              label: l10n.paymentAmount,
-                              value: l10n.etbCurrency(
-                                amount.toStringAsFixed(2),
-                              ),
-                              showCopy: false,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
-                ],
-
-                // ── Action buttons ──────────────────────────────────
-                BlocBuilder<OrderBloc, OrderState>(
-                  builder: (context, state) {
-                    final isLoading = state is OrderLoading;
-                    final blocked = _live && !_withinTelebirrLimits;
-                    return Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        FilledButton(
-                          onPressed:
-                              isLoading || blocked ? null : _submitPayment,
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size.fromHeight(48),
-                          ),
-                          child: isLoading
-                              ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
+                        PaymentAmountCard(
+                          amount: amount,
+                          detail: paymentAmountDetail(widget.order, l10n),
+                        ),
+                        const SizedBox(height: 14),
+                        if (_live) ...[
+                          // Telebirr payment board: how the payment asks the
+                          // buyer to confirm it is them.
+                          const ConfirmItsYouCard(),
+                          if (!_withinTelebirrLimits) ...[
+                            const SizedBox(height: 14),
+                            Text(
+                              l10n.paymentTotalOutOfRange,
+                              style: theme.textTheme.bodyMedium
+                                  ?.copyWith(color: theme.colorScheme.error),
+                            ),
+                          ],
+                        ] else ...[
+                          // ── Payment method selector ───────────────────
+                          Text(l10n.selectPaymentMethod, style: _cardTitle),
+                          const SizedBox(height: 8),
+                          FwCard(
+                            padding: EdgeInsets.zero,
+                            child: Column(
+                              children: [
+                                _PaymentMethodTile(
+                                  icon: Icons.account_balance,
+                                  label: l10n.paymentMethodCbe,
+                                  selected: _method == _PaymentMethod.cbe,
+                                  onTap: () => setState(
+                                    () => _method = _PaymentMethod.cbe,
                                   ),
-                                )
-                              : Text(
-                                  _live
-                                      ? l10n.payWithTelebirr
-                                      : l10n.submitPayment,
                                 ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextButton(
-                          onPressed: isLoading
-                              ? null
-                              : () => Navigator.of(context).pop(),
-                          style: TextButton.styleFrom(
-                            minimumSize: const Size.fromHeight(48),
+                                const Divider(height: 1),
+                                _PaymentMethodTile(
+                                  icon: Icons.phone_android,
+                                  label: l10n.paymentMethodTelebirr,
+                                  selected: _method == _PaymentMethod.telebirr,
+                                  onTap: () => setState(
+                                    () => _method = _PaymentMethod.telebirr,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                          child: Text(l10n.payLater),
-                        ),
+                          const SizedBox(height: 14),
+
+                          // ── Demo/mock notice ──────────────────────────
+                          FwNoteBox.cream(
+                            icon: Icons.info_outline,
+                            child: Text(l10n.mockPaymentNotice),
+                          ),
+                          const SizedBox(height: 14),
+
+                          // ── Method-specific content ───────────────────
+                          if (_method == _PaymentMethod.cbe) ...[
+                            Text(
+                              l10n.cbePaymentInstructions,
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                            const SizedBox(height: 14),
+                            FwCard(
+                              child: Column(
+                                children: [
+                                  _DetailRow(
+                                    icon: Icons.account_balance,
+                                    label: l10n.bankName,
+                                    value: l10n.bankName,
+                                    showCopy: false,
+                                  ),
+                                  const Divider(height: 24),
+                                  _DetailRow(
+                                    icon: Icons.credit_card,
+                                    label: l10n.cbeAccountNumber,
+                                    value: l10n.cbeAccountValue,
+                                    showCopy: true,
+                                  ),
+                                  const Divider(height: 24),
+                                  _DetailRow(
+                                    icon: Icons.tag,
+                                    label: l10n.transferReference,
+                                    value: _reference,
+                                    showCopy: true,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+
+                            // Optional transaction id (mock generates one
+                            // when blank).
+                            TextField(
+                              controller: _transactionIdController,
+                              decoration: InputDecoration(
+                                labelText: l10n.transactionIdOptional,
+                                prefixIcon: const Icon(Icons.receipt_long),
+                              ),
+                            ),
+                          ] else ...[
+                            Text(
+                              l10n.telebirrPayInstructions,
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                            const SizedBox(height: 14),
+                            FwCard(
+                              child: Column(
+                                children: [
+                                  _DetailRow(
+                                    icon: Icons.phone_android,
+                                    label: l10n.paymentMethodTelebirr,
+                                    value: l10n.telebirrPayment,
+                                    showCopy: false,
+                                  ),
+                                  const Divider(height: 24),
+                                  _DetailRow(
+                                    icon: Icons.tag,
+                                    label: l10n.transferReference,
+                                    value: _reference,
+                                    showCopy: true,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
                       ],
-                    );
-                  },
-                ),
-              ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
       ),
+      // ── Pay, pinned at the foot ────────────────────────────────────
+      bottomNavigationBar: BlocBuilder<OrderBloc, OrderState>(
+        builder: (context, state) {
+          final isLoading = state is OrderLoading;
+          final blocked = _live && !_withinTelebirrLimits;
+          return FwBottomActions(
+            children: [
+              FilledButton(
+                onPressed: isLoading || blocked ? null : _submitPayment,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.soilDark,
+                  minimumSize: const Size.fromHeight(56),
+                  textStyle: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                child: isLoading
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(
+                        _live ? l10n.payWithTelebirr : l10n.submitPayment,
+                      ),
+              ),
+              const SizedBox(height: 6),
+              TextButton(
+                onPressed: isLoading ? null : () => Navigator.of(context).pop(),
+                style: TextButton.styleFrom(
+                  minimumSize: const Size.fromHeight(44),
+                  foregroundColor: AppTheme.unselectedNav,
+                ),
+                child: Text(l10n.payLater),
+              ),
+              FwActionNote(l10n.escrowErrorOffline),
+            ],
+          );
+        },
+      ),
     );
   }
 }
+
+const TextStyle _cardTitle = TextStyle(
+  fontSize: 15,
+  fontWeight: FontWeight.w800,
+  color: AppTheme.soilDark,
+);
 
 /// A selectable payment-method row (radio-style, without the deprecated
 /// RadioListTile group API).

@@ -96,12 +96,15 @@ void main() {
     );
   }
 
-  final fromField = find.widgetWithText(TextFormField, 'From (Origin)');
-  final toField = find.widgetWithText(TextFormField, 'To (Destination)');
-  final dateField = find.ancestor(
-    of: find.text('Select departure date'),
-    matching: find.byType(InputDecorator),
+  final fromField = find.descendant(
+    of: find.byKey(const Key('create_trip_from')),
+    matching: find.byType(TextFormField),
   );
+  final toField = find.descendant(
+    of: find.byKey(const Key('create_trip_to')),
+    matching: find.byType(TextFormField),
+  );
+  final dateField = find.byKey(const Key('create_trip_departure_date'));
 
   String textOf(WidgetTester tester, Finder field) =>
       tester.widget<TextFormField>(field).controller!.text;

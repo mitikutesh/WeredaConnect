@@ -112,14 +112,17 @@ void main() {
     );
   });
 
-  testWidgets('the trip owner sees their own number', (tester) async {
+  testWidgets('the trip owner sees the bookings, not their own number',
+      (tester) async {
     tallView(tester);
     signIn('trucker-001', UserRole.trucker);
 
     await tester.pumpWidget(buildScreen(_trip()));
     await tester.pumpAndSettle();
 
-    expect(find.text('+251911000003'), findsOneWidget);
+    // Trip and bookings board: the owner's page is the booked orders.
+    expect(find.text('Booked orders'), findsOneWidget);
+    expect(find.textContaining('911000003'), findsNothing);
     expect(
       find.text('Contact opens after payment is held in escrow.'),
       findsNothing,
@@ -144,8 +147,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Oct 25, 2026'), findsOneWidget);
-      expect(find.text('Oct 24, 2026'), findsNothing);
+      // The header reads "Sun, Oct 25 · 100 ETB per quintal".
+      expect(find.textContaining('Sun, Oct 25'), findsOneWidget);
+      expect(find.textContaining('Oct 24'), findsNothing);
     });
   }
 
@@ -205,22 +209,28 @@ void main() {
       await tester.pumpWidget(buildScreen(booked()));
       await tester.pumpAndSettle();
 
-      expect(find.text('Space on this trip'), findsOneWidget);
+      expect(find.text('Booked'), findsOneWidget);
+      expect(find.text('30 of 50 quintals · 20 left'), findsOneWidget);
       final bar = tester.widget<LinearProgressIndicator>(
         find.byType(LinearProgressIndicator),
       );
       expect(bar.value, closeTo(30 / 50, 0.001));
     });
 
-    testWidgets('no booked box before the first booking', (tester) async {
+    testWidgets('an empty truck shows the box with nothing booked',
+        (tester) async {
       tallView(tester);
       signIn('trucker-001', UserRole.trucker);
 
       await tester.pumpWidget(buildScreen(_trip()));
       await tester.pumpAndSettle();
 
-      expect(find.text('Space on this trip'), findsNothing);
-      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(find.text('0 of 50 quintals · 50 left'), findsOneWidget);
+      final bar = tester.widget<LinearProgressIndicator>(
+        find.byType(LinearProgressIndicator),
+      );
+      expect(bar.value, 0);
+      expect(find.text(terms), findsNothing);
     });
   });
 }

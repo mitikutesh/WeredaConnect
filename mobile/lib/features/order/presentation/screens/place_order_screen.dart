@@ -1,5 +1,5 @@
-import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
@@ -8,6 +8,9 @@ import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/utils/money_format.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
@@ -17,13 +20,17 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart'
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
-import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_summary_tile.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
+import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 
-/// Screen for buyers to place an order on a crop listing.
-///
-/// Shows listing summary, quantity input, price breakdown, and
-/// a Place Order button. Works fully offline (saved to Isar, synced later).
+/// Screen for buyers to place an order on a crop listing (the Buyer · Place
+/// order board): the listing in one line, the quantity in kg with minus and
+/// plus, the chosen transport, the price breakdown, the escrow note and
+/// Place Order pinned at the foot. Works fully offline (saved to Isar,
+/// synced later).
 class PlaceOrderScreen extends StatefulWidget {
   final CropListing listing;
   final String farmerName;
@@ -51,6 +58,9 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
   late final TextEditingController _quantityController;
   static const _commissionRate = defaultOrderCommissionRate;
   static final _kgFormat = NumberFormat('#,##0.##', 'en_US');
+
+  /// One quintal: what the minus and plus buttons move the quantity by.
+  static const double _stepKg = 100;
 
   @override
   void initState() {
@@ -101,6 +111,12 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
   double get _commission => _pricing.commissionAmount;
 
   double get _total => _pricing.orderTotal;
+
+  void _step(double delta) {
+    final next = (_quantity + delta).clamp(0, _stockKg).toDouble();
+    _quantityController.text = next.toStringAsFixed(0);
+    setState(() {});
+  }
 
   /// Close the loop from order back to the buying request: when the order
   /// covers the full quantity the request asked for, mark it fulfilled so it
@@ -160,13 +176,26 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
         );
   }
 
+  /// Under the quantity: the quintals, and whether the chosen trip has room
+  /// for them (the room left either way).
+  String _quantityNote(AppLocalizations l10n) {
+    final quintals =
+        l10n.quintalEquivalent((_quantity / 100).toStringAsFixed(1));
+    final trip = widget.selectedTrip;
+    if (trip == null) return quintals;
+    final room = tripRoomLeft(trip);
+    final fits = _quantity / 100 <= room + 0.001;
+    final roomText = formatQuintals(room);
+    return '$quintals · '
+        '${fits ? l10n.detailFitsTrip(roomText) : l10n.detailExceedsTrip(roomText)}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
+    final trip = widget.selectedTrip;
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.placeOrder)),
       body: BlocListener<OrderBloc, OrderState>(
         listener: (context, state) {
           if (state is OrderCreated) {
@@ -190,283 +219,407 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
           }
         },
         child: SafeArea(
+          bottom: false,
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ── Listing summary ──────────────────────────────────
-                Text(
-                  l10n.listingSummary,
-                  style: theme.textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: AppTheme.whisperBorder),
-                  ),
-                  child: Column(
-                    children: [
-                      _SummaryRow(
-                        icon: Icons.grass,
-                        label: CropType.labelFor(
-                          widget.listing.cropType,
-                          l10n,
-                        ),
-                        value: '',
-                      ),
-                      const Divider(height: 16),
-                      _SummaryRow(
-                        icon: Icons.person,
-                        label: l10n.farmer,
-                        value: widget.farmerName,
-                      ),
-                      const Divider(height: 16),
-                      _SummaryRow(
-                        icon: Icons.payments,
-                        label: l10n.etbCurrency(''),
-                        value:
-                            '${widget.listing.pricePerKg.toStringAsFixed(2)} ${l10n.etbPerKg}',
-                      ),
-                      const Divider(height: 16),
-                      _SummaryRow(
-                        icon: Icons.location_on,
-                        label: l10n.location,
-                        value: widget.listing.locationName,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // ── Quantity input ────────────────────────────────────
-                Text(
-                  l10n.quantity,
-                  style: theme.textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _quantityController,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: InputDecoration(
-                    suffixText: 'kg',
-                    border: const OutlineInputBorder(),
-                    hintText: l10n.quantity,
-                    // Listings and requests are quoted in quintals; show the
-                    // conversion so the kg entry isn't a unit trap.
-                    helperText: l10n.quintalEquivalent(
-                      (_quantity / 100).toStringAsFixed(1),
-                    ),
-                    errorText: _exceedsStock
-                        ? l10n.orderQuantityExceedsStock(
-                            _kgFormat.format(_stockKg),
-                          )
-                        : null,
-                  ),
-                  onChanged: (_) => setState(() {}),
-                ),
-                const SizedBox(height: 24),
-
-                // ESC-15: the trucker this order will ask, and the room left.
-                if (widget.selectedTrip != null) ...[
-                  Card(
-                    margin: EdgeInsets.zero,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: TripSummaryTile(trip: widget.selectedTrip!),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                ],
-                // ── Price breakdown ──────────────────────────────────
-                Text(
-                  l10n.priceBreakdown,
-                  style: theme.textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                Card(
-                  margin: EdgeInsets.zero,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
+            child: FwContentWidth(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  FwDetailHeader(title: l10n.placeOrder),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _PriceRow(
-                          label: l10n.cropCost,
-                          amount: _cropCost,
-                          l10n: l10n,
-                        ),
-                        if (widget.selectedTrip != null) ...[
-                          const Divider(height: 16),
-                          _PriceRow(
-                            label: l10n.transportCost,
-                            amount: _transportCost,
-                            l10n: l10n,
+                        // ── Listing summary ────────────────────────────
+                        Semantics(
+                          label: l10n.listingSummary,
+                          child: _PartyCard(
+                            icon: Icons.grass,
+                            iconBackground: const Color(0xFFF4EBCF),
+                            title: '${CropType.labelFor(
+                              widget.listing.cropType,
+                              l10n,
+                            )} · ${etbAmount(widget.listing.pricePerKg)} '
+                                '${l10n.etbPerKg}',
+                            subtitle: '${widget.farmerName} · '
+                                '${widget.listing.locationName}',
                           ),
-                        ],
-                        const Divider(height: 16),
-                        _PriceRow(
-                          label: l10n.platformCommission,
-                          amount: _commission,
-                          l10n: l10n,
                         ),
-                        const Divider(height: 16),
-                        _PriceRow(
-                          label: l10n.orderTotal,
-                          amount: _total,
-                          l10n: l10n,
-                          isBold: true,
+                        const SizedBox(height: 14),
+
+                        // ── Quantity input ─────────────────────────────
+                        LabeledField(
+                          label: l10n.quantity,
+                          field: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _QuantityField(
+                                controller: _quantityController,
+                                onChanged: (_) => setState(() {}),
+                                onLess: _quantity > 0
+                                    ? () => _step(-_stepKg)
+                                    : null,
+                                onMore: _quantity + _stepKg <= _stockKg + 0.001
+                                    ? () => _step(_stepKg)
+                                    : null,
+                                error: _exceedsStock
+                                    ? l10n.orderQuantityExceedsStock(
+                                        _kgFormat.format(_stockKg),
+                                      )
+                                    : null,
+                              ),
+                              const SizedBox(height: 6),
+                              // Listings and requests are quoted in quintals;
+                              // show the conversion so the kg entry isn't a
+                              // unit trap.
+                              Text(
+                                _quantityNote(l10n),
+                                style: LabeledField.helperStyle,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+
+                        // ESC-15: the trucker this order will ask.
+                        if (trip != null) ...[
+                          _PartyCard(
+                            icon: Icons.local_shipping_outlined,
+                            iconBackground: AppTheme.actionCream,
+                            title: '${trip.truckerName} · '
+                                '${DateFormat.MMMEd().format(dayInEthiopia(trip.departureDate))}',
+                            subtitle: '${trip.fromWoreda} → ${trip.toWoreda} · '
+                                '${l10n.tripPricePerQuintalValue(trip.pricePerQuintal.toStringAsFixed(0))}',
+                            trailing: TextButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              style: TextButton.styleFrom(
+                                foregroundColor: AppTheme.money,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
+                                textStyle: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              child: Text(l10n.detailChange),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                        ],
+
+                        // ── Price breakdown ────────────────────────────
+                        FwCard(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text(
+                                l10n.priceBreakdown,
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppTheme.soilDark,
+                                ),
+                              ),
+                              const SizedBox(height: 11),
+                              FwMoneyRow(
+                                label: l10n.cropCost,
+                                amount: l10n.etbCurrency(etbAmount(_cropCost)),
+                              ),
+                              if (trip != null) ...[
+                                const SizedBox(height: 9),
+                                FwMoneyRow(
+                                  label: l10n.transportCost,
+                                  amount: l10n.etbCurrency(
+                                    etbAmount(_transportCost),
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 9),
+                              FwMoneyRow(
+                                label: l10n.platformCommission,
+                                amount:
+                                    l10n.etbCurrency(etbAmount(_commission)),
+                              ),
+                              const SizedBox(height: 9),
+                              FwMoneyRow(
+                                label: l10n.orderTotal,
+                                amount: l10n.etbCurrency(etbAmount(_total)),
+                                total: true,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+
+                        // ── Escrow trust line (PlaceOrder.dc.html) ─────
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Padding(
+                              padding: EdgeInsets.only(top: 2),
+                              child: Icon(
+                                Icons.lock_outline,
+                                size: 16,
+                                color: AppTheme.unselectedNav,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                l10n.placeOrderEscrowNote,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  height: 1.5,
+                                  color: AppTheme.unselectedNav,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
                   ),
-                ),
-                const SizedBox(height: 32),
-
-                // ── Escrow trust assurance box (PlaceOrder.dc.html) ──
-                Container(
-                  margin: const EdgeInsets.only(top: 16, bottom: 20),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE3EEE6),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.lock_outline,
-                        size: 18,
-                        color: AppTheme.fieldGreen,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          l10n.placeOrderEscrowNote,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: AppTheme.fieldGreen,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // ── Place Order button ───────────────────────────────
-                BlocBuilder<OrderBloc, OrderState>(
-                  builder: (context, state) {
-                    final isLoading = state is OrderLoading;
-                    return SizedBox(
-                      width: double.infinity,
-                      height: 56,
-                      child: FilledButton(
-                        onPressed: isLoading || _quantity <= 0 || _exceedsStock
-                            ? null
-                            : _placeOrder,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppTheme.fieldGreen,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                        ),
-                        child: isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Text(
-                                l10n.placeOrder,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                      ),
-                    );
-                  },
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
+      ),
+      // ── Place Order, pinned at the foot ────────────────────────────
+      bottomNavigationBar: BlocBuilder<OrderBloc, OrderState>(
+        builder: (context, state) {
+          final isLoading = state is OrderLoading;
+          return FwBottomActions(
+            children: [
+              FilledButton(
+                onPressed: isLoading || _quantity <= 0 || _exceedsStock
+                    ? null
+                    : _placeOrder,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(56),
+                  textStyle: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                child: isLoading
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(l10n.placeOrder),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 }
 
-class _SummaryRow extends StatelessWidget {
+/// The board's one-line card: a tinted icon tile, a title, a line under it
+/// and an optional action at the end (the listing, the transport).
+class _PartyCard extends StatelessWidget {
   final IconData icon;
-  final String label;
-  final String value;
+  final Color iconBackground;
+  final String title;
+  final String subtitle;
+  final Widget? trailing;
 
-  const _SummaryRow({
+  const _PartyCard({
     required this.icon,
-    required this.label,
-    required this.value,
+    required this.iconBackground,
+    required this.title,
+    required this.subtitle,
+    this.trailing,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
+    return FwCard(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: iconBackground,
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Icon(icon, size: 22, color: AppTheme.money),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.soilDark,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.mutedSteel,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (trailing != null) ...[
+            const SizedBox(width: 8),
+            trailing!,
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// The board's quantity box: a 56 tall field with a green outline, the
+/// number large, and minus and plus squares inside it.
+class _QuantityField extends StatelessWidget {
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+  final VoidCallback? onLess;
+  final VoidCallback? onMore;
+  final String? error;
+
+  const _QuantityField({
+    required this.controller,
+    required this.onChanged,
+    required this.onLess,
+    required this.onMore,
+    required this.error,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 20, color: theme.colorScheme.primary),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(label, style: theme.textTheme.bodyMedium),
+        Container(
+          height: 56,
+          padding: const EdgeInsetsDirectional.only(start: 16, end: 6),
+          decoration: BoxDecoration(
+            color: AppTheme.surfaceWhite,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: error == null
+                  ? AppTheme.fieldGreen
+                  : Theme.of(context).colorScheme.error,
+              width: 2,
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  key: const Key('place_order_quantity'),
+                  controller: controller,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(
+                      RegExp(r'^\d*\.?\d{0,2}'),
+                    ),
+                  ],
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.soilDark,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: l10n.quantity,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    filled: false,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  onChanged: onChanged,
+                ),
+              ),
+              _StepButton(
+                icon: Icons.remove,
+                semanticLabel: l10n.detailLess,
+                onPressed: onLess,
+              ),
+              const SizedBox(width: 6),
+              _StepButton(
+                icon: Icons.add,
+                semanticLabel: l10n.detailMore,
+                onPressed: onMore,
+              ),
+            ],
+          ),
         ),
-        if (value.isNotEmpty)
-          Text(
-            value,
-            style: theme.textTheme.bodyMedium
-                ?.copyWith(fontWeight: FontWeight.w500),
+        if (error != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              error!,
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.error,
+              ),
+            ),
           ),
       ],
     );
   }
 }
 
-class _PriceRow extends StatelessWidget {
-  final String label;
-  final double amount;
-  final AppLocalizations l10n;
-  final bool isBold;
+class _StepButton extends StatelessWidget {
+  final IconData icon;
+  final String semanticLabel;
+  final VoidCallback? onPressed;
 
-  const _PriceRow({
-    required this.label,
-    required this.amount,
-    required this.l10n,
-    this.isBold = false,
+  const _StepButton({
+    required this.icon,
+    required this.semanticLabel,
+    required this.onPressed,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final style = isBold
-        ? theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)
-        : theme.textTheme.bodyMedium;
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: style),
-        Text(
-          l10n.etbCurrency(amount.toStringAsFixed(2)),
-          style: style,
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      enabled: onPressed != null,
+      child: Material(
+        color: AppTheme.chalkBackground,
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onPressed,
+          child: SizedBox(
+            width: 42,
+            height: 42,
+            child: Icon(
+              icon,
+              size: 20,
+              color:
+                  onPressed == null ? AppTheme.mutedSteel : AppTheme.soilDark,
+            ),
+          ),
         ),
-      ],
+      ),
     );
   }
 }

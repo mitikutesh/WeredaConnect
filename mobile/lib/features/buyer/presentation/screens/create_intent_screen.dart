@@ -14,13 +14,16 @@ import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
-/// Screen for buyers to create a buying intent.
-///
-/// Form with crop type chips, quantity, max price, and delivery woreda.
-/// "Find Matches" saves the intent and navigates to results.
+/// Screen for buyers to create a buying intent (the Buyer · New buying
+/// intent board): the question as the title, the crop as pill chips, the
+/// quantity and the maximum price side by side, the delivery place, the
+/// optional needed-by date, and Find Matches pinned at the foot. "Find
+/// Matches" saves the intent and navigates to results.
 class CreateIntentScreen extends StatefulWidget {
   const CreateIntentScreen({super.key});
 
@@ -131,11 +134,12 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final errorStyle = TextStyle(
+      fontSize: 12,
+      color: Theme.of(context).colorScheme.error,
+    );
 
     return Scaffold(
-      // "What do you need?" below names the screen (Buyer · Create intent
-      // board); the bar keeps only Back.
-      appBar: AppBar(elevation: 0),
       body: BlocListener<BuyerIntentBloc, BuyerIntentState>(
         listener: (context, state) {
           if (state is BuyerIntentCreated) {
@@ -162,238 +166,205 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
           }
         },
         child: SafeArea(
+          bottom: false,
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Title
-                Text(
-                  l10n.whatDoYouNeed,
-                  style: const TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.5,
-                    color: Color(0xFF15201A),
+            child: FwContentWidth(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // "What do you need?" below names the screen (Buyer ·
+                  // Create intent board); the header keeps only Back.
+                  const FwDetailHeader(
+                    padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  l10n.whatDoYouNeedSubtitle,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    color: AppTheme.mutedSteel,
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // Crop type label
-                Text(
-                  l10n.selectCropType,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-
-                // Crop type chips
-                _CropTypeChips(
-                  selectedCropType: _selectedCropType,
-                  onCropTypeChanged: (type) {
-                    setState(() => _selectedCropType = type);
-                  },
-                ),
-                if (_showErrors && _selectedCropType == null)
                   Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(
-                      l10n.selectCropTypeError,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 24),
-
-                // Quantity and max price side by side, as on the board.
-                LabeledFieldPair(
-                  first: LabeledField(
-                    label: l10n.quantityNeeded,
-                    field: TextField(
-                      key: const Key('create_intent_quantity'),
-                      controller: _quantityController,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      decoration:
-                          labeledFieldDecoration(hintText: '5').copyWith(
-                        errorText: _showErrors && !_isQuantityValid
-                            ? l10n.enterQuantityError
-                            : null,
-                      ),
-                      onChanged: (_) => setState(() {}),
-                    ),
-                  ),
-                  second: LabeledField(
-                    label: l10n.maxPrice,
-                    field: TextField(
-                      key: const Key('create_intent_max_price'),
-                      controller: _maxPriceController,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      decoration:
-                          labeledFieldDecoration(hintText: '45').copyWith(
-                        errorText: _showErrors && !_isMaxPriceValid
-                            ? l10n.enterValidPriceError
-                            : null,
-                      ),
-                      onChanged: (_) => setState(() {}),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  l10n.maxPriceOptionalHint,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppTheme.mutedSteel,
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // Delivery woreda input
-                Text(
-                  l10n.deliverTo,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                PlaceSelector(
-                  controller: _woredaController,
-                  hintText: l10n.wereda,
-                  onPlaceSelected: (place) =>
-                      setState(() => _selectedDeliveryPlace = place),
-                  onChanged: (_) => setState(() {}),
-                ),
-                if (_showErrors && !_isWoredaValid)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(
-                      l10n.enterDeliveryWoredaError,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 24),
-
-                // Needed-by date (optional)
-                Text(
-                  l10n.neededByDate,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: _pickNeededByDate,
-                  icon: const Icon(Icons.calendar_today, size: 18),
-                  label: Text(
-                    _neededByDate == null
-                        ? l10n.selectDate
-                        : DateFormat.yMMMd().format(_neededByDate!),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
-                    alignment: Alignment.centerLeft,
-                  ),
-                ),
-                if (_neededByDate != null)
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () => setState(() => _neededByDate = null),
-                      child: Text(l10n.clearDate),
-                    ),
-                  ),
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    l10n.neededByDateHint,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.textMuted,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                // Find Matches button (Fieldway 56px #15201A)
-                BlocBuilder<BuyerIntentBloc, BuyerIntentState>(
-                  builder: (context, state) {
-                    final isLoading = state is BuyerIntentLoading;
-                    return SizedBox(
-                      width: double.infinity,
-                      height: 56,
-                      child: FilledButton.icon(
-                        onPressed: isLoading ? null : _onFindMatches,
-                        icon: isLoading
-                            ? const SizedBox(
-                                height: 18,
-                                width: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.search, size: 20),
-                        label: Text(
-                          l10n.findMatches,
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Semantics(
+                          header: true,
+                          child: Text(
+                            l10n.whatDoYouNeed,
+                            style: FwText.pageTitle,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          l10n.whatDoYouNeedSubtitle,
                           style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
+                            fontSize: 15,
+                            height: 1.4,
+                            color: AppTheme.mutedSteel,
                           ),
                         ),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF15201A),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                        const SizedBox(height: 20),
 
-                const SizedBox(height: 12),
-                Center(
-                  child: Text(
-                    // Future-tense hint — the "Saved!" confirmation only fires
-                    // as a snackbar after the intent is actually saved.
-                    l10n.intentSaveHint,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.textMuted,
+                        // Crop type chips
+                        Text(
+                          l10n.selectCropType,
+                          style: LabeledField.labelStyle,
+                        ),
+                        const SizedBox(height: 10),
+                        _CropTypeChips(
+                          selectedCropType: _selectedCropType,
+                          onCropTypeChanged: (type) {
+                            setState(() => _selectedCropType = type);
+                          },
+                        ),
+                        if (_showErrors && _selectedCropType == null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Text(
+                              l10n.selectCropTypeError,
+                              style: errorStyle,
+                            ),
+                          ),
+                        const SizedBox(height: 16),
+
+                        // Quantity and max price side by side, as on the board.
+                        LabeledFieldPair(
+                          first: LabeledField(
+                            label: l10n.quantityNeeded,
+                            field: TextField(
+                              key: const Key('create_intent_quantity'),
+                              controller: _quantityController,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                decimal: true,
+                              ),
+                              decoration: labeledFieldDecoration(hintText: '5')
+                                  .copyWith(
+                                errorText: _showErrors && !_isQuantityValid
+                                    ? l10n.enterQuantityError
+                                    : null,
+                              ),
+                              onChanged: (_) => setState(() {}),
+                            ),
+                          ),
+                          second: LabeledField(
+                            label: l10n.maxPrice,
+                            field: TextField(
+                              key: const Key('create_intent_max_price'),
+                              controller: _maxPriceController,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                decimal: true,
+                              ),
+                              decoration: labeledFieldDecoration(hintText: '45')
+                                  .copyWith(
+                                errorText: _showErrors && !_isMaxPriceValid
+                                    ? l10n.enterValidPriceError
+                                    : null,
+                              ),
+                              onChanged: (_) => setState(() {}),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          l10n.maxPriceOptionalHint,
+                          style: LabeledField.helperStyle,
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Delivery woreda input
+                        LabeledField(
+                          label: l10n.deliverTo,
+                          field: PlaceSelector(
+                            controller: _woredaController,
+                            labelAbove: true,
+                            showSearchIcon: false,
+                            hintText: l10n.wereda,
+                            onPlaceSelected: (place) =>
+                                setState(() => _selectedDeliveryPlace = place),
+                            onChanged: (_) => setState(() {}),
+                          ),
+                        ),
+                        if (_showErrors && !_isWoredaValid)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Text(
+                              l10n.enterDeliveryWoredaError,
+                              style: errorStyle,
+                            ),
+                          ),
+                        const SizedBox(height: 16),
+
+                        // Needed-by date (optional)
+                        LabeledField(
+                          label: l10n.neededByDate,
+                          field: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              DateFieldButton(
+                                key: const Key('create_intent_needed_by'),
+                                text: _neededByDate == null
+                                    ? l10n.selectDate
+                                    : DateFormat.MMMEd().format(_neededByDate!),
+                                placeholder: _neededByDate == null,
+                                onTap: _pickNeededByDate,
+                                onClear: _neededByDate == null
+                                    ? null
+                                    : () =>
+                                        setState(() => _neededByDate = null),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                l10n.neededByDateHint,
+                                style: LabeledField.helperStyle,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
+      ),
+      // Find Matches, pinned at the foot (Fieldway 56 px primary).
+      bottomNavigationBar: BlocBuilder<BuyerIntentBloc, BuyerIntentState>(
+        builder: (context, state) {
+          final isLoading = state is BuyerIntentLoading;
+          return FwBottomActions(
+            children: [
+              FilledButton(
+                onPressed: isLoading ? null : _onFindMatches,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(56),
+                  textStyle: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                child: isLoading
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(l10n.findMatches),
+              ),
+              // Future-tense hint: the "Saved!" confirmation only fires as a
+              // snackbar after the intent is actually saved.
+              FwActionNote(l10n.intentSaveHint),
+            ],
+          );
+        },
       ),
     );
   }
 }
 
-/// Crop type chips, wrapping onto more lines as on the board.
+/// Crop type chips, wrapping onto more lines as on the board: white pills,
+/// the chosen one filled in the buyer's blue with a check.
 class _CropTypeChips extends StatelessWidget {
   final String? selectedCropType;
   final ValueChanged<String?> onCropTypeChanged;
@@ -412,28 +383,45 @@ class _CropTypeChips extends StatelessWidget {
       runSpacing: 8,
       children: CropType.values.map((type) {
         final isSelected = selectedCropType == type.name;
-        return FilterChip(
-          avatar: Icon(
-            type.icon,
-            size: 18,
-            color: isSelected ? Colors.white : const Color(0xFF5E6862),
-          ),
-          label: Text(type.displayName(l10n)),
+        return Semantics(
+          key: Key('create_intent_crop_${type.name}'),
+          button: true,
           selected: isSelected,
-          selectedColor: AppTheme.fieldGreen,
-          backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(999),
-            side: BorderSide(
-              color: isSelected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+          child: Material(
+            color: isSelected ? AppTheme.dropoffBlue : AppTheme.surfaceWhite,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(999),
+              side: isSelected
+                  ? BorderSide.none
+                  : const BorderSide(color: AppTheme.whisperBorder),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () => onCropTypeChanged(type.name),
+              child: Container(
+                height: 40,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (isSelected) ...[
+                      const Icon(Icons.check, size: 14, color: Colors.white),
+                      const SizedBox(width: 6),
+                    ],
+                    Text(
+                      type.displayName(l10n),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight:
+                            isSelected ? FontWeight.w800 : FontWeight.w600,
+                        color: isSelected ? Colors.white : AppTheme.soilDark,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
-          labelStyle: TextStyle(
-            fontSize: 13,
-            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-            color: isSelected ? Colors.white : const Color(0xFF15201A),
-          ),
-          onSelected: (_) => onCropTypeChanged(type.name),
         );
       }).toList(),
     );

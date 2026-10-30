@@ -73,6 +73,10 @@ class RoutePreviewCard extends StatelessWidget {
     required this.from,
     required this.to,
     required this.places,
+    this.fromLabel,
+    this.toLabel,
+    this.footer,
+    this.height = 120,
     super.key,
   });
 
@@ -81,6 +85,16 @@ class RoutePreviewCard extends StatelessWidget {
 
   /// The place list to pick towns on the way from.
   final List<Place> places;
+
+  /// Labels drawn at the two ends instead of the place names (the Crop
+  /// detail board's "Meki · crop here" and "Merkato · you").
+  final String? fromLabel;
+  final String? toLabel;
+
+  /// The line under the drawing; the distance with the towns note when null.
+  final String? footer;
+
+  final double height;
 
   @override
   Widget build(BuildContext context) {
@@ -107,7 +121,7 @@ class RoutePreviewCard extends StatelessWidget {
             label: l10n.createTripRoutePreviewLabel(fromName, toName),
             child: ExcludeSemantics(
               child: SizedBox(
-                height: 120,
+                height: height,
                 child: CustomPaint(
                   painter: _RoutePreviewPainter(
                     from: from,
@@ -115,6 +129,8 @@ class RoutePreviewCard extends StatelessWidget {
                     towns: towns,
                     languageCode: languageCode,
                     textDirection: Directionality.of(context),
+                    fromLabel: fromLabel ?? fromName,
+                    toLabel: toLabel ?? toName,
                   ),
                 ),
               ),
@@ -123,7 +139,7 @@ class RoutePreviewCard extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             child: Text(
-              l10n.createTripRouteDistance(km),
+              footer ?? l10n.createTripRouteDistance(km),
               style: const TextStyle(fontSize: 12, color: AppTheme.mutedSteel),
             ),
           ),
@@ -140,6 +156,8 @@ class _RoutePreviewPainter extends CustomPainter {
     required this.towns,
     required this.languageCode,
     required this.textDirection,
+    required this.fromLabel,
+    required this.toLabel,
   });
 
   final Place from;
@@ -147,8 +165,9 @@ class _RoutePreviewPainter extends CustomPainter {
   final List<Place> towns;
   final String languageCode;
   final TextDirection textDirection;
+  final String fromLabel;
+  final String toLabel;
 
-  static const _ground = Color(0xFFE9E7DE);
   static const _townDot = Color(0xFFA7ADA9);
   static const _destination = Color(0xFF2E4C7D);
 
@@ -191,14 +210,7 @@ class _RoutePreviewPainter extends CustomPainter {
     }
 
     for (final town in towns) {
-      final p = project(town);
-      canvas.drawCircle(p, 3.5, Paint()..color = _townDot);
-      _label(
-        canvas,
-        size,
-        town.displayName(languageCode),
-        p + const Offset(6, 2),
-      );
+      canvas.drawCircle(project(town), 3.5, Paint()..color = _townDot);
     }
 
     canvas
@@ -212,63 +224,286 @@ class _RoutePreviewPainter extends CustomPainter {
           ..strokeWidth = 3.5,
       )
       ..drawCircle(b, 8, Paint()..color = _destination);
-    _label(
+    // The ends' labels first; a town's name is skipped when it would sit
+    // on a label already drawn (towns bunch up near a city).
+    final placed = <Rect>[];
+    final fromRect = _paintLabel(
       canvas,
       size,
-      from.displayName(languageCode),
+      fromLabel,
       a + const Offset(12, 4),
+      textDirection: textDirection,
     );
-    _label(
+    if (fromRect != null) placed.add(fromRect);
+    final toRect = _paintLabel(
       canvas,
       size,
-      to.displayName(languageCode),
+      toLabel,
       b + const Offset(-12, -22),
+      textDirection: textDirection,
       alignEnd: true,
+      color: _destination,
     );
-  }
-
-  void _label(
-    Canvas canvas,
-    Size size,
-    String text,
-    Offset at, {
-    bool alignEnd = false,
-  }) {
-    TextPainter build(Paint? outline) => TextPainter(
-          text: TextSpan(
-            text: text,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: outline == null ? AppTheme.unselectedNav : null,
-              foreground: outline,
-              fontFamilyFallback: AppTheme.ethiopicFontFallback,
-            ),
-          ),
-          textDirection: textDirection,
-          maxLines: 1,
-        )..layout();
-    final halo = build(
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3
-        ..color = _ground,
-    );
-    final fill = build(null);
-    final wanted = alignEnd ? at - Offset(fill.width, 0) : at;
-    // Keep the label on the canvas when its place sits near an edge.
-    final origin = Offset(
-      wanted.dx.clamp(4, math.max(4, size.width - fill.width - 4)),
-      wanted.dy.clamp(2, math.max(2, size.height - fill.height - 2)),
-    );
-    halo.paint(canvas, origin);
-    fill.paint(canvas, origin);
+    if (toRect != null) placed.add(toRect);
+    for (final town in towns) {
+      final at = project(town) + const Offset(6, 2);
+      final rect = _paintLabel(
+        canvas,
+        size,
+        town.displayName(languageCode),
+        at,
+        textDirection: textDirection,
+        avoid: placed,
+      );
+      if (rect != null) placed.add(rect);
+    }
   }
 
   @override
   bool shouldRepaint(_RoutePreviewPainter old) =>
       old.from.id != from.id ||
       old.to.id != to.id ||
+      old.languageCode != languageCode ||
+      old.towns.length != towns.length ||
+      old.fromLabel != fromLabel ||
+      old.toLabel != toLabel;
+}
+
+const Color _ground = Color(0xFFE9E7DE);
+
+/// A small haloed label on the drawing, kept on the canvas when its place
+/// sits near an edge. Returns where it was drawn, or null when it would
+/// overlap one of [avoid] and was left out.
+Rect? _paintLabel(
+  Canvas canvas,
+  Size size,
+  String text,
+  Offset at, {
+  required TextDirection textDirection,
+  bool alignEnd = false,
+  Color color = AppTheme.unselectedNav,
+  List<Rect> avoid = const [],
+}) {
+  TextPainter build(Paint? outline) => TextPainter(
+        text: TextSpan(
+          text: text,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: outline == null ? color : null,
+            foreground: outline,
+            fontFamilyFallback: AppTheme.ethiopicFontFallback,
+          ),
+        ),
+        textDirection: textDirection,
+        maxLines: 1,
+      )..layout();
+  final halo = build(
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3
+      ..color = _ground,
+  );
+  final fill = build(null);
+  final wanted = alignEnd ? at - Offset(fill.width, 0) : at;
+  final origin = Offset(
+    wanted.dx.clamp(4, math.max(4, size.width - fill.width - 4)),
+    wanted.dy.clamp(2, math.max(2, size.height - fill.height - 2)),
+  );
+  final rect = origin & Size(fill.width, fill.height);
+  if (avoid.any((r) => r.inflate(2).overlaps(rect))) return null;
+  halo.paint(canvas, origin);
+  fill.paint(canvas, origin);
+  return rect;
+}
+
+/// Up to [limit] places within [radiusKm] of a point, largest first, the
+/// point's own place left out.
+List<Place> townsAround(
+  double lat,
+  double lng,
+  Iterable<Place> places, {
+  double radiusKm = 30,
+  int limit = 4,
+  String? excludeId,
+}) {
+  final cos = math.cos(lat * math.pi / 180);
+  final found = <({Place place, double km})>[];
+  for (final place in places) {
+    if (place.lat == null || place.lng == null) continue;
+    if (place.id == excludeId) continue;
+    final dx = (place.lng! - lng) * cos * _kmPerDegree;
+    final dy = (place.lat! - lat) * _kmPerDegree;
+    final km = math.sqrt(dx * dx + dy * dy);
+    if (km < 0.5 || km > radiusKm) continue;
+    found.add((place: place, km: km));
+  }
+  found.sort((l, r) => r.place.population.compareTo(l.place.population));
+  return [for (final f in found.take(limit)) f.place];
+}
+
+/// The Create listing board's location card: the farm (the GPS fix, else
+/// the picked place's centre) with the towns around it, drawn on the phone
+/// from the bundled place list; [footer] holds the GPS chip.
+class PlacePreviewCard extends StatelessWidget {
+  const PlacePreviewCard({
+    required this.lat,
+    required this.lng,
+    required this.label,
+    required this.places,
+    this.excludeId,
+    this.footer,
+    this.height = 128,
+    super.key,
+  });
+
+  final double lat;
+  final double lng;
+
+  /// The label beside the point ("Your farm").
+  final String label;
+  final List<Place> places;
+
+  /// The picked place's id, not drawn again as a town around the point.
+  final String? excludeId;
+  final Widget? footer;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final languageCode = Localizations.localeOf(context).languageCode;
+    final towns = townsAround(lat, lng, places, excludeId: excludeId);
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.whisperBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Semantics(
+            image: true,
+            label: label,
+            child: ExcludeSemantics(
+              child: SizedBox(
+                height: height,
+                child: CustomPaint(
+                  painter: _PlacePreviewPainter(
+                    lat: lat,
+                    lng: lng,
+                    label: label,
+                    towns: towns,
+                    languageCode: languageCode,
+                    textDirection: Directionality.of(context),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (footer != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              child: footer,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlacePreviewPainter extends CustomPainter {
+  _PlacePreviewPainter({
+    required this.lat,
+    required this.lng,
+    required this.label,
+    required this.towns,
+    required this.languageCode,
+    required this.textDirection,
+  });
+
+  final double lat;
+  final double lng;
+  final String label;
+  final List<Place> towns;
+  final String languageCode;
+  final TextDirection textDirection;
+
+  /// Kilometres shown across the card's width.
+  static const double _spanKm = 60;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(Offset.zero & size, Paint()..color = _ground);
+    final cos = math.cos(lat * math.pi / 180);
+    final scale = size.width / _spanKm;
+    Offset project(double pLat, double pLng) => Offset(
+          size.width / 2 + (pLng - lng) * cos * _kmPerDegree * scale,
+          size.height / 2 - (pLat - lat) * _kmPerDegree * scale,
+        );
+
+    // Soft field and water shapes, as on the board: a hint of land, no map.
+    canvas
+      ..drawOval(
+        Rect.fromCenter(
+          center: Offset(size.width * 0.26, size.height * 0.76),
+          width: size.width * 0.46,
+          height: size.height * 0.54,
+        ),
+        Paint()..color = const Color(0xFFDCE5D2),
+      )
+      ..drawOval(
+        Rect.fromCenter(
+          center: Offset(size.width * 0.72, size.height * 0.3),
+          width: size.width * 0.24,
+          height: size.height * 0.26,
+        ),
+        Paint()..color = const Color(0xFFCFDDE3),
+      );
+
+    for (final town in towns) {
+      final p = project(town.lat!, town.lng!);
+      canvas.drawCircle(p, 4, Paint()..color = const Color(0xFF7A827D));
+      _paintLabel(
+        canvas,
+        size,
+        town.displayName(languageCode),
+        p + const Offset(8, -6),
+        textDirection: textDirection,
+      );
+    }
+
+    final here = project(lat, lng);
+    canvas
+      ..drawCircle(
+        here,
+        18,
+        Paint()..color = AppTheme.fieldGreen.withValues(alpha: 0.14),
+      )
+      ..drawCircle(here, 8, Paint()..color = Colors.white)
+      ..drawCircle(
+        here,
+        8,
+        Paint()
+          ..color = AppTheme.fieldGreen
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 4,
+      );
+    _paintLabel(
+      canvas,
+      size,
+      label,
+      here + const Offset(16, -10),
+      textDirection: textDirection,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_PlacePreviewPainter old) =>
+      old.lat != lat ||
+      old.lng != lng ||
+      old.label != label ||
       old.languageCode != languageCode ||
       old.towns.length != towns.length;
 }

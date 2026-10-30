@@ -13,7 +13,6 @@ import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
-import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
@@ -138,8 +137,8 @@ void main() {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      expect(find.text('GPS Captured'), findsOneWidget);
-      expect(find.byIcon(Icons.check_circle), findsOneWidget);
+      expect(find.textContaining('GPS Captured'), findsOneWidget);
+      expect(find.byIcon(Icons.check), findsOneWidget);
     });
 
     testWidgets('shows GPS unavailable indicator when GPS fails',
@@ -153,7 +152,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('GPS unavailable'), findsOneWidget);
-      expect(find.byIcon(Icons.warning_amber), findsOneWidget);
+      expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
       expect(find.byIcon(Icons.refresh), findsOneWidget);
     });
   });
@@ -292,9 +291,9 @@ void main() {
       controller.add(const CropListingLoading());
       await tester.pump();
 
-      final save = find.widgetWithText(ElevatedButton, 'Save');
+      final save = find.widgetWithText(FilledButton, 'Save');
       expect(save, findsOneWidget);
-      expect(tester.widget<ElevatedButton>(save).onPressed, isNotNull);
+      expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
     });
   });
 
@@ -307,7 +306,7 @@ void main() {
     });
 
     Future<void> fillForm(WidgetTester tester) async {
-      await tester.tap(find.byIcon(CropType.teff.icon));
+      await tester.tap(find.byKey(const Key('create_listing_crop_teff')));
       await tester.enterText(
         find.byKey(const Key('create_listing_quantity')),
         '10',
@@ -317,13 +316,20 @@ void main() {
         '50',
       );
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'Location'),
+        find.descendant(
+          of: find.byKey(const Key('create_listing_location')),
+          matching: find.byType(TextFormField),
+        ),
         'Bishoftu',
       );
       await tester.pumpAndSettle();
     }
 
     Future<void> tapSave(WidgetTester tester) async {
+      // The place suggestions hang below the location field, over the
+      // pinned Save; a picker closes them, so close them here too.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Save'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Save'));

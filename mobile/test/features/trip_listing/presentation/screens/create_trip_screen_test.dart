@@ -244,11 +244,17 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'From (Origin)'),
+        find.descendant(
+          of: find.byKey(const Key('create_trip_from')),
+          matching: find.byType(TextFormField),
+        ),
         'Meki',
       );
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'To (Destination)'),
+        find.descendant(
+          of: find.byKey(const Key('create_trip_to')),
+          matching: find.byType(TextFormField),
+        ),
         'Addis Ababa',
       );
       await tester.tap(find.text('Select departure date'));
@@ -288,11 +294,17 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'From (Origin)'),
+        find.descendant(
+          of: find.byKey(const Key('create_trip_from')),
+          matching: find.byType(TextFormField),
+        ),
         'Bishoftu',
       );
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'To (Destination)'),
+        find.descendant(
+          of: find.byKey(const Key('create_trip_to')),
+          matching: find.byType(TextFormField),
+        ),
         'Bishoftu',
       );
 
@@ -310,8 +322,14 @@ void main() {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      final from = find.widgetWithText(TextFormField, 'From (Origin)');
-      final to = find.widgetWithText(TextFormField, 'To (Destination)');
+      final from = find.descendant(
+        of: find.byKey(const Key('create_trip_from')),
+        matching: find.byType(TextFormField),
+      );
+      final to = find.descendant(
+        of: find.byKey(const Key('create_trip_to')),
+        matching: find.byType(TextFormField),
+      );
       await tester.enterText(from, 'Meki');
       await tester.enterText(to, 'Addis Ababa');
       await tester.tap(find.byKey(const Key('create_trip_swap')));
@@ -338,8 +356,14 @@ void main() {
       await tester.tap(find.text('Repeat Last Trip · Meki → Addis Ababa'));
       await tester.pumpAndSettle();
 
-      final from = find.widgetWithText(TextFormField, 'From (Origin)');
-      final to = find.widgetWithText(TextFormField, 'To (Destination)');
+      final from = find.descendant(
+        of: find.byKey(const Key('create_trip_from')),
+        matching: find.byType(TextFormField),
+      );
+      final to = find.descendant(
+        of: find.byKey(const Key('create_trip_to')),
+        matching: find.byType(TextFormField),
+      );
       expect(tester.widget<TextFormField>(from).controller!.text, 'Meki');
       expect(tester.widget<TextFormField>(to).controller!.text, 'Addis Ababa');
     });
