@@ -45,3 +45,14 @@ String? normalizeEthiopianPhone(String? input) {
 bool isValidEthiopianPhone(String? input) {
   return normalizeEthiopianPhone(input) != null;
 }
+
+/// An Ethiopian number the way the boards print it: "+251 911 234 567",
+/// with no-break spaces so a wrap never splits it. Anything that is not an
+/// Ethiopian number is returned unchanged.
+String groupPhoneForDisplay(String input) {
+  final e164 = normalizeEthiopianPhone(input);
+  if (e164 == null) return input;
+  const space = ' ';
+  return '+251$space${e164.substring(4, 7)}$space'
+      '${e164.substring(7, 10)}$space${e164.substring(10)}';
+}

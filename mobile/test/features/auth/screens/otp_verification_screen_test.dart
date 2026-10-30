@@ -58,7 +58,10 @@ void main() {
     await tester.pump();
 
     expect(
-      find.text('We sent a 6-digit code by SMS to +251911234567.'),
+      find.text(
+        'We sent a 6-digit code by SMS to '
+        '+251\u00A0911\u00A0234\u00A0567.',
+      ),
       findsOneWidget,
     );
   });

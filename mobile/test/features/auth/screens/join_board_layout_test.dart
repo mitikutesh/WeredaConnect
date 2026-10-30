@@ -221,7 +221,10 @@ void main() {
       expect(find.byType(JoinBackButton), findsOneWidget);
       // The number is part of the sentence (in bold on the board).
       expect(
-        find.text('We sent a 6-digit code by SMS to +251911234567.'),
+        find.text(
+          'We sent a 6-digit code by SMS to '
+          '+251\u00A0911\u00A0234\u00A0567.',
+        ),
         findsOneWidget,
       );
       final verify = tester.getRect(find.byKey(const Key('otp_verify_button')));

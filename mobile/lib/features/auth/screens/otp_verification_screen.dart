@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/presentation/auth_error_l10n.dart';
+import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -168,8 +169,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   /// "We sent a 6-digit code by SMS to +251..." with the number in bold, as
   /// on the board. Plain when the template does not repeat the number.
   Widget _sentTo(AppLocalizations l10n) {
-    final sentence = l10n.otpSentTo(widget.phoneNumber);
-    final at = sentence.indexOf(widget.phoneNumber);
+    final phone = groupPhoneForDisplay(widget.phoneNumber);
+    final sentence = l10n.otpSentTo(phone);
+    final at = sentence.indexOf(phone);
     const bold =
         TextStyle(fontWeight: FontWeight.w700, color: AppTheme.soilDark);
     if (at < 0) return Text(sentence, style: joinSubtitleStyle);
@@ -177,8 +179,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       TextSpan(
         children: [
           TextSpan(text: sentence.substring(0, at)),
-          TextSpan(text: widget.phoneNumber, style: bold),
-          TextSpan(text: sentence.substring(at + widget.phoneNumber.length)),
+          TextSpan(text: phone, style: bold),
+          TextSpan(text: sentence.substring(at + phone.length)),
         ],
       ),
       style: joinSubtitleStyle,
