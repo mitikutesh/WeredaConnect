@@ -4451,6 +4451,71 @@ class AppLocalizationsOm extends AppLocalizations {
   String get homeToday => 'Har\'a';
 
   @override
+  String homeDueToday(String time) {
+    return 'Hanga har\'a $time';
+  }
+
+  @override
+  String homeActionMore(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count dabalataa',
+      one: '1 dabalataa',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String homeNextPickup(String name) {
+    return 'Itti aanee: fe\'umsa $name biratti';
+  }
+
+  @override
+  String homeNextDropoff(String name) {
+    return 'Itti aanee: buusuu $name biratti';
+  }
+
+  @override
+  String get homeTripNoneHint =>
+      'Imala maxxansaa, bitoonni bakka irratti qabachuu danda\'u.';
+
+  @override
+  String get homeTripMatchedLine =>
+      'Bakka fe\'umsaatti QR qonnaan bulaa hundaa iskaanii godhaa';
+
+  @override
+  String homeTileActiveReserved(int active, int reserved) {
+    return '$active hojiirra, $reserved qabame';
+  }
+
+  @override
+  String get homeTileWaitingForYou => 'isin eegaa jira';
+
+  @override
+  String get homeTileHeldForYou => 'isiniif qabamee jira';
+
+  @override
+  String get homeTileHeldInEscrow => 'eeskiroo keessa qabamee jira';
+
+  @override
+  String get homeTileInTransit => 'geejjibamaa jira';
+
+  @override
+  String get homeTileInProgress => 'adeemsa irra';
+
+  @override
+  String get homeTileAvailableNow => 'amma ni argama';
+
+  @override
+  String get homeTileBrowseAllTrips => 'konkolaattota ka\'an hunda';
+
+  @override
+  String homeRecentLine(String event) {
+    return 'Dhiyoo: $event';
+  }
+
+  @override
   String tripPricePerQuintalValue(String price) {
     return 'Kuntaala tokkoof Birrii $price';
   }

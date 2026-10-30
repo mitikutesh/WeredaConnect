@@ -4286,6 +4286,69 @@ class AppLocalizationsAm extends AppLocalizations {
   String get homeToday => 'ዛሬ';
 
   @override
+  String homeDueToday(String time) {
+    return 'እስከ ዛሬ $time';
+  }
+
+  @override
+  String homeActionMore(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ተጨማሪ',
+      one: '1 ተጨማሪ',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String homeNextPickup(String name) {
+    return 'ቀጣይ፦ መጫኛ በ$name';
+  }
+
+  @override
+  String homeNextDropoff(String name) {
+    return 'ቀጣይ፦ ማውረጃ በ$name';
+  }
+
+  @override
+  String get homeTripNoneHint => 'ጉዞ ይለጥፉ፣ ገዢዎች በላዩ ቦታ መያዝ ይችላሉ።';
+
+  @override
+  String get homeTripMatchedLine => 'በመጫኛ ቦታ የእያንዳንዱን ገበሬ QR ይቃኙ';
+
+  @override
+  String homeTileActiveReserved(int active, int reserved) {
+    return '$active ንቁ፣ $reserved የተያዘ';
+  }
+
+  @override
+  String get homeTileWaitingForYou => 'እርስዎን ይጠብቃል';
+
+  @override
+  String get homeTileHeldForYou => 'ለእርስዎ ተይዟል';
+
+  @override
+  String get homeTileHeldInEscrow => 'በኢስክሮ ተይዟል';
+
+  @override
+  String get homeTileInTransit => 'በመጓጓዝ ላይ';
+
+  @override
+  String get homeTileInProgress => 'በሂደት ላይ';
+
+  @override
+  String get homeTileAvailableNow => 'አሁን ይገኛል';
+
+  @override
+  String get homeTileBrowseAllTrips => 'ሁሉም የሚነሱ መኪናዎች';
+
+  @override
+  String homeRecentLine(String event) {
+    return 'የቅርብ፦ $event';
+  }
+
+  @override
   String tripPricePerQuintalValue(String price) {
     return 'በኩንታል $price ብር';
   }

@@ -54,7 +54,7 @@ void main() {
     ]);
     expect(find.byType(OnTheRoadCard), findsOneWidget);
     expect(find.text('Your Wheat is on the road'), findsOneWidget);
-    expect(find.text('Selam Traders'), findsOneWidget);
+    expect(find.textContaining('Selam Traders'), findsOneWidget);
     expect(find.textContaining('Checked in '), findsOneWidget);
     expect(find.textContaining('Arrives '), findsOneWidget);
     verify(

@@ -6,14 +6,15 @@ import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
 import 'package:wereda_connect/features/live_trip/domain/sharing_state.dart';
 import 'package:wereda_connect/features/live_trip/presentation/screens/trip_mode_screen.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/sharing_default_tile.dart';
-import 'package:wereda_connect/features/live_trip/presentation/widgets/trip_mode_card.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trucker_hero_card.dart';
 import 'package:wereda_connect/screens/settings_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
@@ -28,94 +29,116 @@ class MockDeliveryBloc extends Mock implements DeliveryBloc {}
 
 class MockOrderBloc extends Mock implements OrderBloc {}
 
-/// LT-09: the ways into trip mode and the sharing default: the trucker home
-/// card and Settings > Trip location. A farmer or a buyer has no trucker
+/// LT-09: the ways into trip mode and the sharing default: the trucker
+/// home's trip card and Settings > Trip location. A farmer or a buyer has no trucker
 /// session on the engine, so neither shows for them.
 ///
 /// Each test builds its engine in its own body: the engine's queue must live
 /// in the widget test's fake async zone. It runs on fake timers and is not
 /// disposed.
 void main() {
-  group('trip mode card', () {
-    Future<void> pumpCard(WidgetTester tester, CheckInEngine engine) =>
-        pumpApp(tester, Scaffold(body: TripModeCard(engine: engine)));
+  group('trucker home trip card: the way into trip mode', () {
+    late MockTripRepository tripRepo;
+    late MockTripListingBloc trips;
 
-    testWidgets('hidden before the first pickup scan', (tester) async {
+    setUp(() {
+      tripRepo = MockTripRepository();
+      trips = MockTripListingBloc();
+      when(() => trips.repository).thenReturn(tripRepo);
+      when(() => trips.stream).thenAnswer((_) => const Stream.empty());
+      when(() => tripRepo.getTripById(tripId)).thenAnswer(
+        (_) async => tripFixture()..status = TripStatus.inTransit,
+      );
+      when(() => tripRepo.getMostRelevantTrip(trucker)).thenAnswer(
+        (_) async => tripFixture()..status = TripStatus.inTransit,
+      );
+      when(() => tripRepo.getRecentRoutes(trucker))
+          .thenAnswer((_) async => const []);
+    });
+
+    Future<AppLocalizations> pumpCard(
+      WidgetTester tester,
+      CheckInEngine? engine, {
+      Widget Function(Widget app)? above,
+    }) async {
+      final l10n = await pumpApp(
+        tester,
+        Scaffold(body: TruckerHeroCard(userId: trucker, engine: engine)),
+        above: (app) => BlocProvider<TripListingBloc>.value(
+          value: trips,
+          child: above == null ? app : above(app),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return l10n;
+    }
+
+    testWidgets('before the first pickup scan: the trip, no sharing line',
+        (tester) async {
       final rig = await EngineRig.signedIn();
-      await pumpCard(tester, rig.engine);
+      final l10n = await pumpCard(tester, rig.engine);
 
-      expect(find.byKey(const Key('trip_mode_card')), findsNothing);
+      expect(find.text('Meki → Addis Ababa'), findsOneWidget);
+      expect(find.text(l10n.tripModeSharingLive), findsNothing);
     });
 
     testWidgets('shows the sharing state and follows it', (tester) async {
       final rig = await EngineRig.signedIn();
-      await pumpCard(tester, rig.engine);
-      final l10n = lookup('en');
+      final l10n = await pumpCard(tester, rig.engine);
 
       await rig.engine.start(tripId);
-      await tester.pump();
-      expect(find.text(l10n.tripModeCardTitle), findsOneWidget);
+      await tester.pumpAndSettle();
       expect(find.text(l10n.tripModeSharingLive), findsOneWidget);
 
       await rig.engine.pause(startTime.add(const Duration(minutes: 30)));
-      await tester.pump();
-      expect(find.text(l10n.tripModePausedUntil('09:30')), findsOneWidget);
+      await tester.pumpAndSettle();
+      expect(find.text('${l10n.liveTripPaused} · 09:30'), findsOneWidget);
 
       await rig.engine.onSharingEnded(tripId);
-      await tester.pump();
-      expect(find.byKey(const Key('trip_mode_card')), findsNothing);
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.tripModeSharingLive), findsNothing);
+      expect(find.text('Meki → Addis Ababa'), findsOneWidget);
     });
 
     testWidgets('scans only is shown too', (tester) async {
       final rig = await EngineRig.signedIn();
       await rig.engine.decline(tripId);
-      await pumpCard(tester, rig.engine);
+      final l10n = await pumpCard(tester, rig.engine);
 
-      expect(find.text(lookup('en').tripModeScansOnlyTitle), findsOneWidget);
+      expect(find.text(l10n.tripModeScansOnlyTitle), findsOneWidget);
     });
 
-    testWidgets('a farmer or a buyer never sees it (no trucker session)',
+    testWidgets('no engine (a bare harness): the trip, no sharing line',
         (tester) async {
-      final rig = await EngineRig.signedIn(userId: null);
-      await pumpCard(tester, rig.engine);
+      final l10n = await pumpCard(tester, null);
 
-      expect(find.byKey(const Key('trip_mode_card')), findsNothing);
-    });
-
-    testWidgets('no engine (a bare harness): nothing', (tester) async {
-      await pumpApp(tester, const Scaffold(body: TripModeCard()));
-
-      expect(find.byKey(const Key('trip_mode_card')), findsNothing);
+      expect(find.text('Meki → Addis Ababa'), findsOneWidget);
+      expect(find.text(l10n.tripModeSharingLive), findsNothing);
     });
 
     testWidgets('a tap opens trip mode on the app engine', (tester) async {
       final rig = await EngineRig.signedIn();
       await rig.engine.start(tripId);
-      final tripRepo = MockTripRepository();
-      when(() => tripRepo.getTripById(tripId))
-          .thenAnswer((_) async => tripFixture());
       final deliveryRepo = MockDeliveryRepository();
       when(() => deliveryRepo.getDeliveriesByTrip(tripId, userId: trucker))
           .thenAnswer((_) async => const []);
-      final trips = MockTripListingBloc();
+      when(() => deliveryRepo.getDeliveriesByUser(trucker, role: 'trucker'))
+          .thenAnswer((_) async => const []);
       final deliveries = MockDeliveryBloc();
       final orders = MockOrderBloc();
-      when(() => trips.repository).thenReturn(tripRepo);
       when(() => deliveries.repository).thenReturn(deliveryRepo);
       when(() => orders.repository).thenReturn(MockOrderRepository());
       // BlocProvider listens to the blocs once they are read.
-      when(() => trips.stream).thenAnswer((_) => const Stream.empty());
       when(() => deliveries.stream).thenAnswer((_) => const Stream.empty());
       when(() => orders.stream).thenAnswer((_) => const Stream.empty());
 
-      await pumpApp(
+      await pumpCard(
         tester,
-        const Scaffold(body: TripModeCard()),
+        null,
         above: (app) => Provider<CheckInEngine?>.value(
           value: rig.engine,
           child: MultiBlocProvider(
             providers: [
-              BlocProvider<TripListingBloc>.value(value: trips),
               BlocProvider<DeliveryBloc>.value(value: deliveries),
               BlocProvider<OrderBloc>.value(value: orders),
             ],
@@ -123,7 +146,7 @@ void main() {
           ),
         ),
       );
-      await tester.tap(find.byKey(const Key('trip_mode_card')));
+      await tester.tap(find.byKey(const Key('trucker_hero_card')));
       await tester.pumpAndSettle();
 
       expect(find.byType(TripModeScreen), findsOneWidget);

@@ -15,6 +15,8 @@ import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
+import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
+import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.dart';
 import 'package:wereda_connect/features/notifications/domain/base_notification_repository.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -22,6 +24,8 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 class MockAuthBloc extends Mock implements AuthBloc {}
 
 class MockCropListingBloc extends Mock implements CropListingBloc {}
+
+class MockInboxBloc extends Mock implements InboxBloc {}
 
 class MockSyncExecutor extends Mock implements SyncExecutor {}
 
@@ -70,12 +74,16 @@ const _tokens = AuthTokens(
 void main() {
   late MockAuthBloc authBloc;
   late MockCropListingBloc cropListingBloc;
+  late MockInboxBloc inboxBloc;
   late MockSyncExecutor syncExecutor;
 
   setUp(() {
     authBloc = MockAuthBloc();
     cropListingBloc = MockCropListingBloc();
+    inboxBloc = MockInboxBloc();
     syncExecutor = MockSyncExecutor();
+    when(() => inboxBloc.state).thenReturn(const InboxInitial());
+    when(() => inboxBloc.stream).thenAnswer((_) => const Stream.empty());
     when(() => authBloc.stream).thenAnswer((_) => const Stream.empty());
     when(() => authBloc.state).thenReturn(
       const AuthAuthenticated(
@@ -121,6 +129,7 @@ void main() {
           providers: [
             BlocProvider<AuthBloc>.value(value: authBloc),
             BlocProvider<CropListingBloc>.value(value: cropListingBloc),
+            BlocProvider<InboxBloc>.value(value: inboxBloc),
           ],
           child: const MaterialApp(
             localizationsDelegates: AppLocalizations.localizationsDelegates,
