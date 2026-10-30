@@ -106,7 +106,6 @@ class DeliveryCard extends StatelessWidget {
     final waitingNote =
         isBuyer && !selfPickup && status == DeliveryStatus.pending;
 
-    final (icon, tileBackground, tileForeground) = _tile(cropKey, status);
     final statusPill = switch (status) {
       DeliveryStatus.pickedUp || DeliveryStatus.inTransit => FwPill(
           label: deliveryStatusLabel(status, l10n),
@@ -134,15 +133,7 @@ class DeliveryCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: tileBackground,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(icon, size: 22, color: tileForeground),
-              ),
+              DeliveryCropTile(cropKey: cropKey, status: status),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -219,6 +210,35 @@ class DeliveryCard extends StatelessWidget {
   static String _shortDay(DateTime at) {
     final day = dayInEthiopia(at);
     return '${DateFormat.E().format(day)} ${DateFormat.MMMd().format(day)}';
+  }
+}
+
+/// The 44 px tile that leads a delivery card (the deliveries board): the
+/// crop while the delivery lives, a check once delivered, muted when
+/// cancelled, a warning when disputed. Shared with the live trip's on the
+/// road card.
+class DeliveryCropTile extends StatelessWidget {
+  const DeliveryCropTile({
+    required this.cropKey,
+    required this.status,
+    super.key,
+  });
+
+  final String? cropKey;
+  final DeliveryStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, background, foreground) = _tile(cropKey, status);
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Icon(icon, size: 22, color: foreground),
+    );
   }
 
   /// The tile's icon and colours: the crop while the delivery lives (wheat on

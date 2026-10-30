@@ -8,6 +8,7 @@ import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
 import 'package:wereda_connect/features/live_trip/domain/live_trip_rules.dart';
 import 'package:wereda_connect/features/live_trip/domain/track_freshness.dart';
 import 'package:wereda_connect/features/live_trip/presentation/live_trip_data.dart';
@@ -18,6 +19,7 @@ import 'package:wereda_connect/features/live_trip/presentation/widgets/track_bui
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
 /// A delivery on the road as a card (LT-11): for the buyer the "On the road
@@ -92,22 +94,36 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
     final delivery = widget.delivery;
     final order = _order;
     final track = view.track;
-    final crop = order == null ? null : CropType.labelFor(order.cropType, l10n);
+    // The row carries its crop and kg (delivery-verification-api 1.21.0);
+    // older rows take them from the order read.
+    final cropKey = delivery.cropType ?? order?.cropType;
+    final crop = cropKey == null || cropKey.isEmpty
+        ? null
+        : CropType.labelFor(cropKey, l10n);
+    final quantity = delivery.quantity ?? order?.quantity;
     final eta = track?.eta;
     final band = track == null ? null : trackFreshness(track, view.now);
     final farmer = viewer == LiveTripViewer.farmer;
+    final farmerName = partyDisplayName(delivery.farmerName, l10n);
+    final pickupPlace = delivery.pickupPlace;
 
     final title = farmer
         ? (crop == null
             ? l10n.liveTripFarmerTitleNoCrop
             : l10n.liveTripFarmerTitle(crop))
-        : order == null
-            ? l10n.liveTripFrom(partyDisplayName(delivery.farmerName, l10n))
-            : '$crop · ${l10n.quantityKg(birrText(order.quantity))}';
+        : crop == null
+            ? l10n.liveTripFrom(farmerName)
+            : quantity == null
+                ? crop
+                : '$crop · ${l10n.quantityKg(birrText(quantity))}';
+    // "From Almaz Bekele, Meki · Dawit Tesfaye" (the deliveries board).
     final subtitle = farmer
         ? partyDisplayName(delivery.buyerName, l10n)
-        : '${l10n.liveTripFrom(partyDisplayName(delivery.farmerName, l10n))}'
+        : '${l10n.liveTripFrom(pickupPlace == null || pickupPlace.isEmpty ? farmerName : '$farmerName, $pickupPlace')}'
             ' · ${partyDisplayName(delivery.truckerName, l10n)}';
+    // The buyer's card carries no status pill (the board); a late truck
+    // still says so.
+    final showStatus = farmer || band == TrackFreshness.late;
 
     return Material(
       color: AppTheme.surfaceWhite,
@@ -131,8 +147,8 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
               Row(
                 children: [
                   if (!farmer) ...[
-                    const Icon(Icons.local_shipping, color: AppTheme.primary),
-                    const SizedBox(width: 10),
+                    DeliveryCropTile(cropKey: cropKey, status: delivery.status),
+                    const SizedBox(width: 12),
                   ],
                   Expanded(
                     child: Column(
@@ -149,27 +165,29 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
                                   letterSpacing: -0.2,
                                   color: AppTheme.soilDark,
                                 )
-                              : theme.textTheme.titleSmall
-                                  ?.copyWith(fontWeight: FontWeight.w700),
+                              : FwText.cardTitle,
                         ),
-                        if (!farmer)
+                        if (!farmer) ...[
+                          const SizedBox(height: 3),
                           Text(
                             subtitle,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall
-                                ?.copyWith(color: AppTheme.textMuted),
+                            style: FwText.body,
                           ),
+                        ],
                       ],
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  StatusChip(
-                    label: l10n.liveTripStatusOnTheRoad,
-                    kind: band == TrackFreshness.late
-                        ? StatusKind.warning
-                        : StatusKind.transit,
-                  ),
+                  if (showStatus) ...[
+                    const SizedBox(width: 8),
+                    StatusChip(
+                      label: l10n.liveTripStatusOnTheRoad,
+                      kind: band == TrackFreshness.late
+                          ? StatusKind.warning
+                          : StatusKind.transit,
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 14),
@@ -247,6 +265,12 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
                         ),
                       ),
                     ],
+                    const SizedBox(width: 4),
+                    const Icon(
+                      Icons.chevron_right,
+                      size: 20,
+                      color: AppTheme.mutedSteel,
+                    ),
                   ],
                 ),
             ],
@@ -266,31 +290,6 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
       time: window.time,
       time24: window.time24,
       after: whole.substring(at + slot.length),
-    );
-  }
-}
-
-/// Under a buyer's delivery that waits for pickup: the map starts there.
-class WaitingForPickupNote extends StatelessWidget {
-  const WaitingForPickupNote({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-      child: Row(
-        children: [
-          const Icon(Icons.map_outlined, size: 16, color: AppTheme.textMuted),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              l10n.liveTripMapStartsAtPickup,
-              style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
