@@ -4242,7 +4242,53 @@ class AppLocalizationsAm extends AppLocalizations {
       'ገንዘብዎ በደህና ይያዛል። መጀመሪያ ገበሬው፣ ከዚያ ሹፌሩ ይጠየቃሉ።';
 
   @override
-  String get deliveriesSearchHint => 'ገበሬ፣ ገዢ ወይም ሹፌር';
+  String get deliveriesSearchHint => 'ሰብል፣ ገበሬ ወይም ሹፌር';
+
+  @override
+  String get delivSegmentActive => 'ንቁ';
+
+  @override
+  String delivPickupOn(String date) {
+    return 'መነሻ $date';
+  }
+
+  @override
+  String delivDeliveredOn(String date) {
+    return '$date ደርሷል';
+  }
+
+  @override
+  String delivSummaryOnTheRoad(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count በመንገድ ላይ',
+      one: '1 በመንገድ ላይ',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String delivSummaryWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count መነሻን በመጠበቅ ላይ',
+      one: '1 መነሻን በመጠበቅ ላይ',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String delivSummaryCheckWindow(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count በማረጋገጫ ጊዜ ውስጥ',
+      one: '1 በማረጋገጫ ጊዜ ውስጥ',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get savedOnPhoneFirstNote => 'መጀመሪያ በስልክዎ ይቀመጣል፣ ኔትወርክ ሲኖር ይላካል።';
@@ -4335,6 +4381,12 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String get cropsListedToday => 'ዛሬ ተዘርዝሯል';
+
+  @override
+  String get cropsDrafts => 'ረቂቆች';
+
+  @override
   String liveTripLogStopAhead(int minutes) {
     return 'በግምት $minutes ደቂቃ፣ ከዚያ ወደ እርስዎ';
   }
@@ -4357,6 +4409,22 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get marketNoTripYet => 'እስካሁን ጉዞ የለም';
+
+  @override
+  String marketFootnote(String place) {
+    return 'የሁሉም ገበሬዎች ዝርዝር። ትራንስፖርት ለ$place ተመጣጥኗል።';
+  }
+
+  @override
+  String get marketFootnoteNoPlace => 'የሁሉም ገበሬዎች ዝርዝር።';
+
+  @override
+  String marketQuintalsLeft(String quantity) {
+    return '$quantity ኩንታል ቀርቷል';
+  }
+
+  @override
+  String get marketSearchToggle => 'ፍለጋ እና የዋጋ ማጣሪያዎች';
 
   @override
   String liveTripEscrowAmount(String amount) {

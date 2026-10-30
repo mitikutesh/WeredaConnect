@@ -4406,7 +4406,54 @@ class AppLocalizationsOm extends AppLocalizations {
       'Maallaqni keessan nageenyaan qabama. Duraan qonnaan bulaan, itti aansee konkolaachisaan ni gaafatama.';
 
   @override
-  String get deliveriesSearchHint => 'Qonnaan bulaa, bitaa ykn konkolaachisaa';
+  String get deliveriesSearchHint =>
+      'Midhaan, qonnaan bulaa ykn konkolaachisaa';
+
+  @override
+  String get delivSegmentActive => 'Ka\'aa Jiru';
+
+  @override
+  String delivPickupOn(String date) {
+    return 'fe\'umsa $date';
+  }
+
+  @override
+  String delivDeliveredOn(String date) {
+    return '$date geejjibame';
+  }
+
+  @override
+  String delivSummaryOnTheRoad(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count karaa irra',
+      one: '1 karaa irra',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String delivSummaryWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count fe\'umsa eeggachaa',
+      one: '1 fe\'umsa eeggachaa',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String delivSummaryCheckWindow(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count yeroo mirkaneessaa keessa',
+      one: '1 yeroo mirkaneessaa keessa',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get savedOnPhoneFirstNote =>
@@ -4502,6 +4549,12 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String get cropsListedToday => 'har\'a galmaa\'e';
+
+  @override
+  String get cropsDrafts => 'Qophiiwwan';
+
+  @override
   String liveTripLogStopAhead(int minutes) {
     return 'Gara daqiiqaa $minutes, achiis gara keessanitti';
   }
@@ -4524,6 +4577,22 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get marketNoTripYet => 'Hanga ammaatti imalli hin jiru';
+
+  @override
+  String marketFootnote(String place) {
+    return 'Tarree qonnaan bultoota hundaa. Geejjibni ${place}f walsimsiifame.';
+  }
+
+  @override
+  String get marketFootnoteNoPlace => 'Tarree qonnaan bultoota hundaa.';
+
+  @override
+  String marketQuintalsLeft(String quantity) {
+    return '$quantity kuntaalli hafe';
+  }
+
+  @override
+  String get marketSearchToggle => 'Barbaacha fi gingilchaa gatii';
 
   @override
   String liveTripEscrowAmount(String amount) {

@@ -182,6 +182,31 @@ public sealed record DeliveryDto
     public string? DeliveryType { get; init; }
 
     /// <summary>
+    /// The order's crop type key ("wheat"), stamped on create from the order (1.21.0) so the
+    /// deliveries list can title each card without one order read per row. Null on deliveries
+    /// created before 1.21.0.
+    /// </summary>
+    public string? CropType { get; init; }
+
+    /// <summary>
+    /// The order's quantity in kilograms, stamped on create from the order (1.21.0). Null on
+    /// deliveries created before 1.21.0.
+    /// </summary>
+    public double? Quantity { get; init; }
+
+    /// <summary>
+    /// Where the crop is picked up: the listing's place name, stamped on create (1.21.0).
+    /// Null when the listing has none or the delivery predates 1.21.0.
+    /// </summary>
+    public string? PickupPlace { get; init; }
+
+    /// <summary>
+    /// ISO 8601 UTC departure date of the trip at create time (1.21.0). Null on a self-pickup
+    /// and on deliveries created before 1.21.0.
+    /// </summary>
+    public string? PickupPlannedAt { get; init; }
+
+    /// <summary>
     /// GPS coordinates at pickup location.
     /// </summary>
     public LatLngDto? GpsPickup { get; init; }
