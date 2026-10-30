@@ -4013,6 +4013,26 @@ class AppLocalizationsAm extends AppLocalizations {
   String get liveTripLogLatest => 'የመጨረሻ';
 
   @override
+  String get liveTripCheckInsTitle => 'ሪፖርቶች';
+
+  @override
+  String get liveTripAboutEveryHour => 'በየሰዓቱ ገደማ';
+
+  @override
+  String get liveTripLogNext => 'ቀጣይ';
+
+  @override
+  String get liveTripLogThen => 'ከዚያ';
+
+  @override
+  String liveTripLogSentLateUntil(String time) {
+    return 'ዘግይቶ ደርሷል · እስከ $time ኔትወርክ አልነበረም';
+  }
+
+  @override
+  String get liveTripExpectedToday => 'ዛሬ ይጠበቃል';
+
+  @override
   String get liveTripLogSentLate => 'ዘግይቶ ደርሷል፤ ኔትወርክ አልነበረም';
 
   @override

@@ -127,3 +127,15 @@ Login language switch; registration step counter; Create trip as one page (Repea
 - Buyer · Live deliveries (web): from 560 px wide, the live trip's check-ins sit in their own card beside the details under the map, with who sees the truck.
 - Admin trip evidence: the parties as chips under the title, the frozen amount in its own card with the split (crop, trucker, commission), Decide in the trail's right column, each map point labelled with its time and a stop off the stop list ringed.
 - Confirm your phone: the title on the page only.
+
+## Live trip boards after the Fieldway theme (structure pass)
+
+The live trip screens were shot again in the web build (phone width and 1280 px, am and om included) after the theme moved to Manrope and field green, and brought to the boards' structure, not only their colours:
+
+- Buyer · Live trip and Truck arriving: no app bar; the back button and the crop pill float over the map, the sheet (radius 28) opens with the arrival window beside the status pill, the steps colour the current one gold, the escrow line is plain with a lock, the driver card is a chalk tile with the tinted avatar and the white Message and green Call squares, "Trip log and order" is a row with a top border. Arriving: the green Arriving pill, the checklist in a chalk box, Scan driver's QR beside a Call square.
+- Buyer · Delivered: the back button and the blue "Sharing ended at delivery" pill head the page, the drop-off proof sits inside the summary card, the escrow steps carry "then" beside the payout, the ratings sit in a "How did it go?" card.
+- Buyer · Trip log: the back button beside the title, three stat cards (the first filled green), one Check-ins card with a connected timeline ("Bishoftu · latest", "next" and "then" in the time column, "Sent late · no network until 12:22"), one price card with the unit price on the crop row, the help card with Message Dawit and Message Almaz side by side, the privacy line plain.
+- Farmer · Order on the road: the Farmer pill in the header row, the map in a card with the check-in chip and "Arrives" under it, the payment steps as dots with "expected today", the contact card with blue and gold avatars, the order link as a bordered row.
+- Trucker · Trip mode, Offline and pause, Share location: the back button beside the trip title on the dark header, the offline card in the header, the stops as a coloured timeline with the next stop gold and a dashed line beyond, a Call square on the next stop, the pay in birr ("4,500 ETB"); the pause choices with "back at" on the same line.
+
+Entries of the "kept" table that changed with it: the trip log now has the board's three stat cards; the Message buttons sit side by side with first names. Still kept: the Delivered rating buttons one under the other (the shared ratings section), "Who has agreed" as the shared commitment section, no photo on the pickup proof, "Show QR" said as "Open delivery", "Pause for 30 minutes" said as "Pause sharing", the transport row without "20 quintals × 150 ETB" (the order carries the cost, not the trip's unit price).

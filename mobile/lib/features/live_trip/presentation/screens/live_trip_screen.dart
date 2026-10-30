@@ -5,6 +5,7 @@ import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/place.dart';
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
@@ -41,6 +42,9 @@ import 'package:wereda_connect/shared/widgets/wc_card.dart';
 /// drop-off it shows the checklist and Scan driver's QR; after delivery the
 /// trip summary, the escrow timeline, Report a problem while the 48 h window
 /// lasts, and Rate Farmer and Rate Trucker.
+///
+/// As on the boards there is no app bar: on the road the back button and
+/// the crop pill float over the map, otherwise they head the page.
 class LiveTripScreen extends StatelessWidget {
   const LiveTripScreen({
     required this.delivery,
@@ -59,16 +63,8 @@ class LiveTripScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.liveTripTitle),
-        // The live trip boards: a light page, no colored bar.
-        backgroundColor: AppTheme.chalkBackground,
-        foregroundColor: AppTheme.soilDark,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-      ),
+      backgroundColor: AppTheme.chalkBackground,
       body: SafeArea(
         child: Column(
           children: [
@@ -79,6 +75,7 @@ class LiveTripScreen extends StatelessWidget {
                 currentUserId: currentUserId,
                 places: places,
                 clock: clock,
+                leading: const LiveTripBackButton(),
               ),
             ),
           ],
@@ -98,6 +95,7 @@ class LiveTripView extends StatefulWidget {
     required this.currentUserId,
     this.places,
     this.clock,
+    this.leading,
     super.key,
   });
 
@@ -105,6 +103,10 @@ class LiveTripView extends StatefulWidget {
   final String currentUserId;
   final List<Place>? places;
   final DateTime Function()? clock;
+
+  /// The back button of a pushed screen, drawn over the map or at the start
+  /// of the header row; null when embedded beside a list.
+  final Widget? leading;
 
   @override
   State<LiveTripView> createState() => _LiveTripViewState();
@@ -256,32 +258,42 @@ class _LiveTripViewState extends State<LiveTripView> {
             track.sharing != TrackSharing.ended &&
             trackFollowsTruck(track);
         return LayoutBuilder(
-          builder: (context, constraints) => RefreshIndicator(
-            onRefresh: view.refresh,
-            child: ListView(
-              padding: hero
-                  ? const EdgeInsets.only(bottom: 32)
-                  : const EdgeInsets.fromLTRB(16, 16, 16, 32),
-              children: _content(
-                context,
-                view,
-                wide: constraints.maxWidth >= _wideWidth,
+          builder: (context, constraints) {
+            final wide = constraints.maxWidth >= _wideWidth;
+            return RefreshIndicator(
+              onRefresh: view.refresh,
+              child: ListView(
+                padding: hero && !wide
+                    ? const EdgeInsets.only(bottom: 32)
+                    : const EdgeInsets.fromLTRB(20, 0, 20, 32),
+                children: _content(
+                  context,
+                  view,
+                  wide: wide,
+                  twoColumns: constraints.maxWidth >= _twoColumnWidth,
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
   }
 
-  /// From this width (the web pane beside the deliveries list) the check-ins
-  /// sit beside the details, as on the Buyer · Live deliveries board.
+  /// From this width (the web pane beside the deliveries list) the map sits
+  /// in a bordered card with the details and the check-ins in cards under
+  /// it, as on the Buyer · Live deliveries board.
   static const _wideWidth = 560.0;
+
+  /// From this width the two cards sit side by side; narrower panes stack
+  /// them so the arrival window stays on one line.
+  static const _twoColumnWidth = 760.0;
 
   List<Widget> _content(
     BuildContext context,
     TrackView view, {
     bool wide = false,
+    bool twoColumns = false,
   }) {
     final l10n = AppLocalizations.of(context)!;
     final track = view.track;
@@ -297,50 +309,60 @@ class _LiveTripViewState extends State<LiveTripView> {
           places: _places,
           userId: widget.currentUserId,
           now: view.now,
+          leading: widget.leading,
         ),
       ];
     }
     final onRoad = track != null && trackFollowsTruck(track);
     final arriving = onRoad && isArriving(track, nearbyNotified: _nearby);
-    final details = [
-      _Header(
-        delivery: _delivery,
-        order: _order,
-        status: arriving
-            ? (label: l10n.liveTripStatusArriving, kind: StatusKind.info)
-            : _statusOf(l10n, track, view.now),
+    final status = _statusOf(l10n, track, view.now);
+    final driver = Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.chalkBackground,
+        borderRadius: BorderRadius.circular(18),
       ),
-      const SizedBox(height: 12),
+      child: PartyContactTile(
+        name: _delivery.truckerName,
+        roleLabel: l10n.trucker,
+        partyId: _delivery.truckerId,
+        viewerId: widget.currentUserId,
+        order: _order,
+        subtitle: _vehicle,
+        role: UserRole.trucker,
+      ),
+    );
+    final details = <Widget>[
       if (arriving)
         _ArrivingPanel(
           delivery: _delivery,
           order: _order,
           track: track,
           now: view.now,
+          viewerId: widget.currentUserId,
           onScanned: () => _afterScan(view),
         )
       else ...[
-        if (onRoad) ...[
-          ArrivalWindowBlock(track: track, now: view.now),
-          const SizedBox(height: 16),
-        ],
+        if (onRoad)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: ArrivalWindowBlock(track: track, now: view.now)),
+              const SizedBox(width: 12),
+              StatusChip(label: status.label, kind: status.kind),
+            ],
+          )
+        else
+          _Header(delivery: _delivery, order: _order),
+        const SizedBox(height: 16),
         TripProgress(delivery: _delivery),
         const SizedBox(height: 16),
         _infoNote(context, track, view.now),
       ],
       const SizedBox(height: 16),
-      WcCard(
-        child: PartyContactTile(
-          name: _delivery.truckerName,
-          roleLabel: AppLocalizations.of(context)!.trucker,
-          partyId: _delivery.truckerId,
-          viewerId: widget.currentUserId,
-          order: _order,
-          subtitle: _vehicle,
-        ),
-      ),
+      driver,
       if (onRoad) ...[
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         _TripLogLink(
           count: trackCheckIns(track).length,
           onTap: () => Navigator.of(context).push(
@@ -360,36 +382,54 @@ class _LiveTripViewState extends State<LiveTripView> {
     ];
     if (!onRoad) {
       return [
+        LiveTripTopRow(
+          leading: widget.leading,
+          trailing: StatusChip(label: status.label, kind: status.kind),
+        ),
         ...trackReadNotice(context, view),
         _WaitingCard(loading: view.loading),
         const SizedBox(height: 16),
         ...details,
       ];
     }
-    final map = LiveTripMap(
-      track: track,
-      now: view.now,
-      places: _places,
-      height: arriving ? 280 : 340,
-      borderRadius: 0,
-    );
     if (wide) {
+      // The Buyer · Live deliveries board: the map in a bordered card, the
+      // details and the check-ins in two cards under it.
       return [
-        map,
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-          child: Row(
+        // A pushed screen on a wide window still needs its back button.
+        if (widget.leading != null)
+          LiveTripTopRow(leading: widget.leading)
+        else
+          const SizedBox(height: 4),
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: AppTheme.whisperBorder),
+          ),
+          child: LiveTripMap(
+            track: track,
+            now: view.now,
+            places: _places,
+            height: 340,
+            borderRadius: 22,
+            chipTop: 16,
+          ),
+        ),
+        const SizedBox(height: 20),
+        if (twoColumns)
+          Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: WcCard(
+                  padding: const EdgeInsets.all(20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [...trackReadNotice(context, view), ...details],
                   ),
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 20),
               Expanded(
                 child: _CheckInsCard(
                   delivery: _delivery,
@@ -398,12 +438,68 @@ class _LiveTripViewState extends State<LiveTripView> {
                 ),
               ),
             ],
+          )
+        else ...[
+          WcCard(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [...trackReadNotice(context, view), ...details],
+            ),
           ),
-        ),
+          const SizedBox(height: 20),
+          _CheckInsCard(delivery: _delivery, track: track, places: _places),
+        ],
       ];
     }
+    final crop = _order == null
+        ? l10n.liveTripFrom(partyDisplayName(_delivery.farmerName, l10n))
+        : '${CropType.labelFor(_order!.cropType, l10n)} · '
+            '${l10n.quantityKg(birrText(_order!.quantity))}';
     return [
-      map,
+      LiveTripMap(
+        track: track,
+        now: view.now,
+        places: _places,
+        height: arriving ? 330 : 440,
+        borderRadius: 0,
+        chipTop: 76,
+        overlay: [
+          Positioned(
+            left: 20,
+            right: 20,
+            top: 20,
+            child: Row(
+              children: [
+                widget.leading ?? const SizedBox(width: 44),
+                Expanded(
+                  child: Center(
+                    child: Container(
+                      height: 36,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      decoration: BoxDecoration(
+                        color: AppTheme.surfaceWhite,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        crop,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.soilDark,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 44),
+              ],
+            ),
+          ),
+        ],
+      ),
       _Sheet(children: [...trackReadNotice(context, view), ...details]),
     ];
   }
@@ -434,7 +530,8 @@ class _LiveTripViewState extends State<LiveTripView> {
   }
 
   /// The one note under the steps: why the map looks as it does (late,
-  /// paused, scans only), else where the money is.
+  /// paused, scans only, in a tinted box), else where the money is (a plain
+  /// line with the lock, as on the board).
   Widget _infoNote(BuildContext context, DeliveryTrack? track, DateTime now) {
     final l10n = AppLocalizations.of(context)!;
     final clock = clockFormatOf(context);
@@ -468,15 +565,45 @@ class _LiveTripViewState extends State<LiveTripView> {
       default:
         final total = _order?.orderTotal ?? _order?.totalPrice;
         return LiveTripNote(
-          icon: Icons.shield_outlined,
+          icon: Icons.lock_outline,
           text: ClockLabel.text(
             total == null
                 ? l10n.liveTripEscrowNoteNoAmount
                 : l10n.liveTripEscrowNote(l10n.etbCurrency(birrText(total))),
           ),
           kind: StatusKind.success,
+          plain: true,
         );
     }
+  }
+}
+
+/// The header row of a page without a map hero (the Delivered and Farmer
+/// boards): the back button at the start, a pill at the end.
+class LiveTripTopRow extends StatelessWidget {
+  const LiveTripTopRow({required this.leading, this.trailing, super.key});
+
+  final Widget? leading;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    if (leading == null && trailing == null) return const SizedBox(height: 8);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 20, 0, 14),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          leading ?? const SizedBox.shrink(),
+          if (trailing != null) ...[
+            const SizedBox(width: 12),
+            // A long pill label (Afaan Oromoo) shrinks instead of
+            // overflowing; it may take all the room the button leaves.
+            Flexible(child: trailing!),
+          ],
+        ],
+      ),
+    );
   }
 }
 
@@ -496,26 +623,31 @@ class _CheckInsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
     return WcCard(
       key: const Key('live_trip_check_ins_card'),
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            l10n.liveTripCheckInCadence,
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 8),
-          TripCheckInList(track: track, places: places),
-          const Divider(height: 24),
-          Text(
-            l10n.liveTripPrivacyNote(
-              partyDisplayName(delivery.farmerName, l10n),
+          const CheckInsTitle(),
+          const SizedBox(height: 10),
+          TripCheckInList(track: track, places: places, compact: true),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.only(top: 10),
+            decoration: const BoxDecoration(
+              border: Border(top: BorderSide(color: AppTheme.whisperBorder)),
             ),
-            style:
-                theme.textTheme.bodySmall?.copyWith(color: AppTheme.textMuted),
+            child: Text(
+              l10n.liveTripPrivacyNote(
+                partyDisplayName(delivery.farmerName, l10n),
+              ),
+              style: const TextStyle(
+                fontSize: 12,
+                height: 1.5,
+                color: AppTheme.mutedSteel,
+              ),
+            ),
           ),
         ],
       ),
@@ -535,22 +667,29 @@ class _Sheet extends StatelessWidget {
     return Transform.translate(
       offset: const Offset(0, -24),
       child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
         decoration: const BoxDecoration(
           color: AppTheme.surfaceWhite,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          boxShadow: [
+            BoxShadow(
+              color: Color(0x1415201A),
+              blurRadius: 30,
+              offset: Offset(0, -8),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Center(
               child: Container(
-                width: 36,
+                width: 40,
                 height: 4,
-                margin: const EdgeInsets.only(bottom: 14),
+                margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
-                  color: AppTheme.whisperBorder,
-                  borderRadius: BorderRadius.circular(2),
+                  color: const Color(0xFFD6D3C8),
+                  borderRadius: BorderRadius.circular(999),
                 ),
               ),
             ),
@@ -571,7 +710,6 @@ class _WaitingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
     return WcCard(
       color: AppTheme.statusNeutralContainer,
       child: Row(
@@ -591,14 +729,19 @@ class _WaitingCard extends StatelessWidget {
               children: [
                 Text(
                   l10n.liveTripWaitingForPickup,
-                  style: theme.textTheme.titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w700),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.soilDark,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   l10n.liveTripMapStartsAtPickup,
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: AppTheme.textMuted),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppTheme.mutedSteel,
+                  ),
                 ),
               ],
             ),
@@ -610,55 +753,45 @@ class _WaitingCard extends StatelessWidget {
 }
 
 /// "Wheat · 2,000 kg" (from the order once read; the farmer's name until
-/// then) and the status chip.
+/// then) and the farmer, before pickup.
 class _Header extends StatelessWidget {
-  const _Header({
-    required this.delivery,
-    required this.order,
-    required this.status,
-  });
+  const _Header({required this.delivery, required this.order});
 
   final Delivery delivery;
   final Order? order;
-  final ({String label, StatusKind kind}) status;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
     final o = order;
+    final from = l10n.liveTripFrom(partyDisplayName(delivery.farmerName, l10n));
     final title = o == null
-        ? l10n.liveTripFrom(partyDisplayName(delivery.farmerName, l10n))
+        ? from
         : '${CropType.labelFor(o.cropType, l10n)} · '
             '${l10n.quantityKg(birrText(o.quantity))}';
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: theme.textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              if (o != null)
-                Text(
-                  l10n.liveTripFrom(
-                    partyDisplayName(delivery.farmerName, l10n),
-                  ),
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: AppTheme.textMuted),
-                ),
-            ],
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: AppTheme.soilDark,
           ),
         ),
-        StatusChip(label: status.label, kind: status.kind),
+        if (o != null)
+          Text(
+            from,
+            style: const TextStyle(fontSize: 13, color: AppTheme.mutedSteel),
+          ),
       ],
     );
   }
 }
 
+/// "Trip log and order" with the check-in count: a plain row with a top
+/// border (the board), not a card.
 class _TripLogLink extends StatelessWidget {
   const _TripLogLink({required this.count, required this.onTap});
 
@@ -668,39 +801,68 @@ class _TripLogLink extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return WcCard(
-      key: const Key('live_trip_log_link'),
-      onTap: onTap,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        children: [
-          const Icon(Icons.receipt_long_outlined, color: AppTheme.primary),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              l10n.liveTripTripLogLink,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
+    return Semantics(
+      button: true,
+      child: InkWell(
+        key: const Key('live_trip_log_link'),
+        onTap: onTap,
+        child: Container(
+          height: 48,
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          decoration: const BoxDecoration(
+            border: Border(top: BorderSide(color: AppTheme.whisperBorder)),
           ),
-          Text(
-            l10n.liveTripCheckIns(count),
-            style: const TextStyle(color: AppTheme.textMuted, fontSize: 13),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.receipt_long_outlined,
+                size: 18,
+                color: AppTheme.soilDark,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  l10n.liveTripTripLogLink,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.soilDark,
+                  ),
+                ),
+              ),
+              Text(
+                l10n.liveTripCheckIns(count),
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppTheme.mutedSteel,
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(
+                Icons.chevron_right,
+                size: 18,
+                color: AppTheme.mutedSteel,
+              ),
+            ],
           ),
-          const Icon(Icons.chevron_right, color: AppTheme.textMuted),
-        ],
+        ),
       ),
     );
   }
 }
 
-/// The truck is within 5 km: how far, the checklist, and Scan driver's QR
-/// (the existing buyer delivery scan).
+/// The truck is within 5 km (the Truck arriving board): the Arriving pill,
+/// how far, the checklist in a chalk box, the scan note, and Scan driver's
+/// QR (the existing buyer delivery scan) beside Call.
 class _ArrivingPanel extends StatefulWidget {
   const _ArrivingPanel({
     required this.delivery,
     required this.order,
     required this.track,
     required this.now,
+    required this.viewerId,
     required this.onScanned,
   });
 
@@ -708,6 +870,7 @@ class _ArrivingPanel extends StatefulWidget {
   final Order? order;
   final DeliveryTrack track;
   final DateTime now;
+  final String viewerId;
   final Future<void> Function() onScanned;
 
   @override
@@ -737,7 +900,6 @@ class _ArrivingPanelState extends State<_ArrivingPanel> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
     final track = widget.track;
     final trucker = partyDisplayName(widget.delivery.truckerName, l10n);
     final farmer = partyDisplayName(widget.delivery.farmerName, l10n);
@@ -756,62 +918,163 @@ class _ArrivingPanelState extends State<_ArrivingPanel> {
       l10n.liveTripCheckQuality,
       l10n.liveTripCheckWeigh,
     ];
+    final order = widget.order;
+    final canCall = order != null &&
+        canContactParty(order, widget.viewerId, widget.delivery.truckerId);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          heading,
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.w700,
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: DotPill(
+            label: l10n.liveTripStatusArriving,
+            background: AppTheme.fieldGreenTint,
+            foreground: AppTheme.fieldGreen,
+            dotColor: AppTheme.fieldGreen,
           ),
         ),
+        const SizedBox(height: 6),
+        Text(
+          heading,
+          style: const TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.5,
+            height: 1.2,
+            color: AppTheme.soilDark,
+          ),
+        ),
+        const SizedBox(height: 4),
         Text(
           km == null
               ? checkedIn
               : '$checkedIn · ${l10n.liveTripKmFromDropoff(kmText(km))}',
-          style:
-              theme.textTheme.bodyMedium?.copyWith(color: AppTheme.textMuted),
+          style: const TextStyle(fontSize: 13, color: AppTheme.mutedSteel),
         ),
         const SizedBox(height: 16),
-        Text(
-          l10n.liveTripBeforeYouScan,
-          style: theme.textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.w700,
+        Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+          decoration: BoxDecoration(
+            color: AppTheme.chalkBackground,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                l10n.liveTripBeforeYouScan,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.soilDark,
+                ),
+              ),
+              for (var i = 0; i < items.length; i++)
+                InkWell(
+                  onTap: () => setState(
+                    () => _checked.contains(i)
+                        ? _checked.remove(i)
+                        : _checked.add(i),
+                  ),
+                  child: SizedBox(
+                    height: 44,
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: Checkbox(
+                            value: _checked.contains(i),
+                            onChanged: (value) => setState(
+                              () => value == true
+                                  ? _checked.add(i)
+                                  : _checked.remove(i),
+                            ),
+                            activeColor: AppTheme.fieldGreen,
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            items[i],
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: AppTheme.soilDark,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
-        for (var i = 0; i < items.length; i++)
-          CheckboxListTile(
-            value: _checked.contains(i),
-            onChanged: (value) => setState(
-              () => value == true ? _checked.add(i) : _checked.remove(i),
-            ),
-            title: Text(items[i]),
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            controlAffinity: ListTileControlAffinity.leading,
-          ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 16),
         LiveTripNote(
-          icon: Icons.shield_outlined,
+          icon: Icons.lock_outline,
           text: ClockLabel.text(l10n.liveTripScanConfirmsNote(farmer, trucker)),
           kind: StatusKind.success,
+          plain: true,
         ),
         const SizedBox(height: 16),
-        FilledButton.icon(
-          key: const Key('live_trip_scan_qr'),
-          onPressed: _scan,
-          icon: const Icon(Icons.qr_code_scanner),
-          label: Text(l10n.liveTripScanDriversQr),
-          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.icon(
+                key: const Key('live_trip_scan_qr'),
+                onPressed: _scan,
+                icon: const Icon(Icons.qr_code_scanner, size: 20),
+                label: Text(l10n.liveTripScanDriversQr),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.fieldGreen,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(56),
+                  textStyle: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+            ),
+            if (canCall) ...[
+              const SizedBox(width: 10),
+              LiveTripSquareAction(
+                key: const Key('live_trip_arriving_call'),
+                icon: Icons.phone_outlined,
+                semanticLabel: l10n.call,
+                size: 56,
+                background: AppTheme.surfaceWhite,
+                foreground: AppTheme.soilDark,
+                border: const Color(0xFFD6D3C8),
+                onTap: () => showPartyContact(
+                  context,
+                  order: order,
+                  partyId: widget.delivery.truckerId,
+                  name: widget.delivery.truckerName,
+                  roleLabel: l10n.trucker,
+                ),
+              ),
+            ],
+          ],
         ),
       ],
     );
   }
 }
 
-/// After delivery (sharing ended): the trip in numbers, the drop-off proof,
-/// the escrow timeline, Report a problem while the window lasts, and the
-/// ratings.
+/// After delivery (sharing ended; the Buyer · Delivered board): the header
+/// row with the back button and the "Sharing ended" pill, the green check
+/// and "Delivered at", the trip in numbers with the drop-off proof, the
+/// escrow card (or timeline), Report a problem while the window lasts, and
+/// the ratings in their own card.
 class _DeliveredSummary extends StatelessWidget {
   const _DeliveredSummary({
     required this.delivery,
@@ -821,6 +1084,7 @@ class _DeliveredSummary extends StatelessWidget {
     required this.places,
     required this.userId,
     required this.now,
+    this.leading,
   });
 
   final Delivery delivery;
@@ -830,12 +1094,12 @@ class _DeliveredSummary extends StatelessWidget {
   final List<Place> places;
   final String userId;
   final DateTime now;
+  final Widget? leading;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final clock = clockFormatOf(context);
-    final theme = Theme.of(context);
     final confirmedAt = delivery.confirmedAt;
     final delivered = delivery.status == DeliveryStatus.delivered;
     final summary = track?.summary;
@@ -850,7 +1114,7 @@ class _DeliveredSummary extends StatelessWidget {
             : null;
     final report = !canReport
         ? null
-        : OutlinedButton.icon(
+        : OutlinedButton(
             key: const Key('live_trip_report_problem'),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
@@ -858,51 +1122,71 @@ class _DeliveredSummary extends StatelessWidget {
                     DisputeScreen(delivery: delivery, userId: userId),
               ),
             ),
-            icon: const Icon(Icons.report_problem_outlined, size: 18),
-            label: ClockText(
-              clock.deadline(
-                windowEnd,
-                date: DateFormat.MMMd(),
-                sentence: l10n.liveTripReportProblemUntil,
-              ),
-            ),
             style: OutlinedButton.styleFrom(
               foregroundColor: AppTheme.soilDark,
               backgroundColor: AppTheme.surfaceWhite,
-              side: const BorderSide(color: AppTheme.whisperBorder),
-              minimumSize: const Size.fromHeight(48),
+              side: const BorderSide(color: Color(0xFFD6D3C8)),
+              minimumSize: const Size.fromHeight(44),
+              textStyle:
+                  const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
+            // A Row of its own, so a long deadline (am, om) wraps instead of
+            // overflowing the button.
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.report_problem_outlined, size: 18),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: ClockText(
+                    clock.deadline(
+                      windowEnd,
+                      date: DateFormat.MMMd(),
+                      sentence: l10n.liveTripReportProblemUntil,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
           );
+    final subtitle = o == null
+        ? l10n.liveTripFrom(partyDisplayName(delivery.farmerName, l10n))
+        : '${CropType.labelFor(o.cropType, l10n)} · '
+            '${l10n.quantityKg(birrText(o.quantity))} · '
+            '${l10n.liveTripFrom(partyDisplayName(delivery.farmerName, l10n))}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Align(
-          alignment: Alignment.centerLeft,
-          child: StatusChip(
+        LiveTripTopRow(
+          leading: leading,
+          trailing: DotPill(
             label: l10n.liveTripSharingEnded,
-            kind: StatusKind.success,
-            icon: Icons.location_off_outlined,
+            background: AppTheme.dropoffBlueTint,
+            foreground: AppTheme.dropoffBlue,
+            icon: Icons.check,
+            height: 32,
+            radius: 999,
           ),
         ),
-        const SizedBox(height: 12),
         Row(
           children: [
             // Buyer · Delivered board: a green check beside the title.
             if (delivered) ...[
               Container(
                 key: const Key('live_trip_delivered_check'),
-                width: 52,
-                height: 52,
+                width: 56,
+                height: 56,
                 decoration: BoxDecoration(
                   color: AppTheme.fieldGreen,
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(18),
                 ),
-                child: const Icon(Icons.check, color: Colors.white, size: 28),
+                child: const Icon(Icons.check, color: Colors.white, size: 30),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 14),
             ],
             Expanded(
               child: Column(
@@ -921,26 +1205,27 @@ class _DeliveredSummary extends StatelessWidget {
                                     ? l10n.deliveryStatusCancelled
                                     : l10n.liveTripEnded,
                           ),
-                    style: theme.textTheme.headlineSmall
-                        ?.copyWith(fontWeight: FontWeight.w800),
+                    style: const TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.8,
+                      height: 1.15,
+                      color: AppTheme.soilDark,
+                    ),
                   ),
                   Text(
-                    o == null
-                        ? l10n.liveTripFrom(
-                            partyDisplayName(delivery.farmerName, l10n),
-                          )
-                        : '${CropType.labelFor(o.cropType, l10n)} · '
-                            '${l10n.quantityKg(birrText(o.quantity))} · '
-                            '${l10n.liveTripFrom(partyDisplayName(delivery.farmerName, l10n))}',
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(color: AppTheme.textMuted),
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppTheme.mutedSteel,
+                    ),
                   ),
                 ],
               ),
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 14),
         WcCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -957,40 +1242,50 @@ class _DeliveredSummary extends StatelessWidget {
                 ended: true,
               ),
               if (summary != null || duration != null) ...[
-                const SizedBox(height: 16),
-                LiveTripStats(
-                  stats: [
-                    if (summary != null)
-                      (
-                        value: l10n.liveTripKm(kmText(summary.distanceKm)),
-                        label: l10n.liveTripStatDriven,
-                      ),
-                    if (duration != null)
-                      (
-                        value: liveTripDuration(l10n, duration),
-                        label: l10n.liveTripStatOnTheRoad,
-                      ),
-                    if (summary != null)
-                      (
-                        value: '${summary.fixes}',
-                        label: l10n.liveTripStatCheckIns,
-                      ),
-                  ],
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.only(top: 12),
+                  decoration: const BoxDecoration(
+                    border: Border(
+                      top: BorderSide(color: AppTheme.whisperBorder),
+                    ),
+                  ),
+                  child: LiveTripStats(
+                    stats: [
+                      if (summary != null)
+                        (
+                          value: l10n.liveTripKm(kmText(summary.distanceKm)),
+                          label: l10n.liveTripStatDriven,
+                        ),
+                      if (duration != null)
+                        (
+                          value: liveTripDuration(l10n, duration),
+                          label: l10n.liveTripStatOnTheRoad,
+                        ),
+                      if (summary != null)
+                        (
+                          value: '${summary.fixes}',
+                          label: l10n.liveTripStatCheckIns,
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+              if (confirmedAt != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  '${l10n.liveTripDropoffProof}: '
+                  '${l10n.liveTripQrScannedAt(clock.time(confirmedAt))} · '
+                  '${delivery.gpsDropoff != null ? l10n.liveTripGpsRecorded : '${l10n.deliveryGpsLabel}: ${l10n.deliveryGpsNotCaptured}'}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.unselectedNav,
+                  ),
                 ),
               ],
             ],
           ),
         ),
-        if (confirmedAt != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            '${l10n.liveTripDropoffProof}: '
-            '${l10n.liveTripQrScannedAt(clock.time(confirmedAt))} · '
-            '${delivery.gpsDropoff != null ? l10n.liveTripGpsRecorded : '${l10n.deliveryGpsLabel}: ${l10n.deliveryGpsNotCaptured}'}',
-            style:
-                theme.textTheme.bodySmall?.copyWith(color: AppTheme.textMuted),
-          ),
-        ],
         // Buyer · Delivered board: while the money waits out the 48 h
         // window, one card says who confirmed, when the window ends and who
         // is paid what. Any other escrow state keeps the full timeline.
@@ -998,7 +1293,7 @@ class _DeliveredSummary extends StatelessWidget {
             escrow!.status == PaymentStatus.escrowed &&
             delivered &&
             confirmedAt != null) ...[
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           _EscrowCard(
             escrow: escrow!,
             order: o,
@@ -1017,20 +1312,30 @@ class _DeliveredSummary extends StatelessWidget {
           ],
         ],
         if (delivered && (delivery.orderId?.isNotEmpty ?? false)) ...[
-          const SizedBox(height: 20),
-          Text(
-            l10n.liveTripHowDidItGo,
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 12),
-          RateCounterpartiesSection(
-            orderId: delivery.orderId!,
-            buyerId: userId,
-            farmerId: delivery.farmerId,
-            farmerName: delivery.farmerName,
-            truckerId: delivery.truckerId,
-            truckerName: delivery.truckerName,
+          const SizedBox(height: 14),
+          WcCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  l10n.liveTripHowDidItGo,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.soilDark,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                RateCounterpartiesSection(
+                  orderId: delivery.orderId!,
+                  buyerId: userId,
+                  farmerId: delivery.farmerId,
+                  farmerName: delivery.farmerName,
+                  truckerId: delivery.truckerId,
+                  truckerName: delivery.truckerName,
+                ),
+              ],
+            ),
           ),
         ],
       ],
@@ -1060,7 +1365,6 @@ class _EscrowCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final clock = clockFormatOf(context);
-    final theme = Theme.of(context);
     final date = DateFormat.MMMd();
     final windowEnd = confirmedAt.add(DeliveryConstants.disputeWindow);
     // The escrow's own split; an older escrow without it, the order's.
@@ -1077,39 +1381,46 @@ class _EscrowCard extends StatelessWidget {
         ),
     ].join(' · ');
     Widget step(
-      Color dot,
+      Widget dot,
       String label,
       ClockLabel? when, {
       bool bold = false,
+      Color labelColor = AppTheme.soilDark,
     }) =>
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(vertical: 5),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Icon(Icons.circle, size: 8, color: dot),
+                padding: const EdgeInsets.only(top: 4),
+                child: dot,
               ),
               const SizedBox(width: 10),
+              // The label gets the larger share; long clock words (am, om)
+              // wrap in theirs instead of pushing out.
               Expanded(
+                flex: 5,
                 child: Text(
                   label,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: bold ? FontWeight.w700 : null,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+                    color: labelColor,
                   ),
                 ),
               ),
               if (when != null) ...[
                 const SizedBox(width: 8),
-                // Long clock words (am, om) wrap instead of pushing out.
                 Flexible(
+                  flex: 3,
                   child: ClockText(
                     when,
                     textAlign: TextAlign.end,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: bold ? AppTheme.soilDark : AppTheme.textMuted,
-                      fontWeight: bold ? FontWeight.w700 : null,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: bold ? AppTheme.soilDark : AppTheme.mutedSteel,
+                      fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
                     ),
                   ),
                 ),
@@ -1117,6 +1428,19 @@ class _EscrowCard extends StatelessWidget {
             ],
           ),
         );
+    Widget filled(Color color) => Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+        );
+    final hollow = Container(
+      width: 10,
+      height: 10,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: const Color(0xFFA7ADA9), width: 2),
+      ),
+    );
     return WcCard(
       key: const Key('live_trip_escrow_card'),
       child: Column(
@@ -1134,30 +1458,42 @@ class _EscrowCard extends StatelessWidget {
                 l10n.liveTripEscrowAmount(
                   l10n.etbCurrency(birrText(escrow.amount)),
                 ),
-                style: theme.textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w800),
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.soilDark,
+                ),
               ),
-              StatusChip(
+              DotPill(
                 label: l10n.liveTripReleasePending,
-                kind: StatusKind.warning,
+                background: AppTheme.actionCream,
+                foreground: AppTheme.money,
+                height: 24,
+                radius: 6,
+                fontSize: 11,
               ),
             ],
           ),
           const SizedBox(height: 8),
           step(
-            AppTheme.fieldGreen,
+            filled(AppTheme.fieldGreen),
             l10n.liveTripYouConfirmedDelivery,
             ClockLabel.text(clock.dateTime(confirmedAt, date: date)),
           ),
           step(
-            const Color(0xFFD9922B),
+            filled(AppTheme.accentSoft),
             l10n.liveTripCheckWindowEnds,
             clock.deadline(windowEnd, date: date),
             bold: true,
           ),
-          step(AppTheme.whisperBorder, payouts, null),
+          step(
+            hollow,
+            payouts,
+            ClockLabel.text(l10n.liveTripLogThen),
+            labelColor: AppTheme.unselectedNav,
+          ),
           if (report != null) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             report!,
           ],
         ],

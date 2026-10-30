@@ -250,8 +250,14 @@ void main() {
     final map = find.byType(LiveTripMap);
     expect(tester.widget<LiveTripMap>(map).borderRadius, 0);
     expect(tester.getSize(map).width, 420);
+    // The crop pill floats over the map; the arrival window opens the
+    // sheet under it.
     expect(
       tester.getTopLeft(find.text('Wheat · 2,000 kg')).dy,
+      lessThan(tester.getBottomLeft(map).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('13:20-14:00')).dy,
       greaterThan(tester.getBottomLeft(map).dy - 24),
     );
     // A phone has no room for the check-ins beside the details.
@@ -270,11 +276,11 @@ void main() {
     expect(
       find.descendant(
         of: card,
-        matching: find.text('Check-ins about every hour'),
+        matching: find.text('Check-ins'),
       ),
       findsOneWidget,
     );
-    final details = find.text('Wheat · 2,000 kg');
+    final details = find.text('13:20-14:00');
     final left = tester.getTopLeft(details).dx;
     expect(tester.getTopLeft(card).dx, greaterThan(left));
     expect(
@@ -429,7 +435,9 @@ void main() {
       ),
     );
     await settleReads(tester);
-    expect(find.text('Live trip'), findsOneWidget);
+    // No app bar: the back button floats over the map (the board).
+    expect(find.byKey(const Key('live_trip_back')), findsOneWidget);
+    expect(find.text('Live trip'), findsNothing);
     expect(find.byType(TrackMap), findsOneWidget);
   });
 }
