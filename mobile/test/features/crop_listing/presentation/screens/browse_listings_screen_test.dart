@@ -276,6 +276,16 @@ void main() {
       expect(find.text(privacyNote), findsOneWidget);
     });
 
+    testWidgets('a price per kg of 1000 or more groups its thousands',
+        (tester) async {
+      loaded([_listing()..pricePerKg = 1250]);
+
+      await tester.pumpWidget(buildTestWidget(ownerMode: true));
+      await tester.pumpAndSettle();
+
+      expect(find.text('1,250'), findsOneWidget);
+    });
+
     // MyCrops board: "32 of 60 quintals ordered". Paid orders took their
     // quantity off the listing, so the total is what is left plus them.
     testWidgets('My Crops cards say how much is ordered', (tester) async {

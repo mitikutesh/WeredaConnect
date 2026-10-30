@@ -70,6 +70,8 @@ class BrowseListingsScreen extends StatefulWidget {
 }
 
 class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
+  static final NumberFormat _pricePerKgFormat = NumberFormat('#,##0', 'en_US');
+
   /// My Crops: the segment picked. Filters the loaded list on the phone, so
   /// the counts on the segments stay whole.
   ListingStatus _selectedStatus = ListingStatus.active;
@@ -642,8 +644,9 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                   sellerName: listing.farmerName.isNotEmpty
                                       ? listing.farmerName
                                       : listing.farmerId,
-                                  // "42" with "ETB/kg" beside it.
-                                  price: listing.pricePerKg.toStringAsFixed(0),
+                                  // "42" (or "1,000") with "ETB/kg" beside it.
+                                  price: _pricePerKgFormat
+                                      .format(listing.pricePerKg.round()),
                                   priceUnit: l10n.etbPerKg,
                                   rating: rated ? summary.average : null,
                                   ratingCount: rated ? summary.count : null,
@@ -829,7 +832,8 @@ class _FilterField extends StatelessWidget {
     return TextField(
       controller: controller,
       keyboardType: numeric ? TextInputType.number : null,
-      inputFormatters: numeric ? [FilteringTextInputFormatter.digitsOnly] : null,
+      inputFormatters:
+          numeric ? [FilteringTextInputFormatter.digitsOnly] : null,
       style: const TextStyle(fontSize: 14, color: AppTheme.soilDark),
       decoration: InputDecoration(
         isDense: true,
