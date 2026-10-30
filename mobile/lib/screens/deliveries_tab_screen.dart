@@ -281,14 +281,14 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
     final Widget body;
     if (split) {
       // The web board's proportions: a narrow list, the pane gets the rest
-      // (at 1280 px about 670 px, as on the board, for its two columns).
+      // (at 1280 px about 660 px, close to the board's, for its two columns).
       body = Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             SizedBox(
-              width: 320,
+              width: 336,
               child: _list(
                 context,
                 l10n,

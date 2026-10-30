@@ -240,7 +240,10 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
               else
                 Row(
                   children: [
+                    // Two thirds for the freshness chip, so "Checked in 28
+                    // min ago" stays whole in the web list's 320 px card.
                     Expanded(
+                      flex: 2,
                       child: track == null
                           ? const SizedBox.shrink()
                           : CheckInChip(

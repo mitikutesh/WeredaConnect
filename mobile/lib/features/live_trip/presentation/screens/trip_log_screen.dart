@@ -661,8 +661,10 @@ class _CompactLogRow extends StatelessWidget {
           ),
           if (row.sentLate != null) ...[
             const SizedBox(width: 8),
-            // Shares the line with the town, never pushes past the card.
+            // Up to two thirds of the line beside the town, never past
+            // the card.
             Flexible(
+              flex: 2,
               child: DotPill(
                 label: row.sentLateShort ?? row.sentLate!,
                 background: AppTheme.actionCream,
