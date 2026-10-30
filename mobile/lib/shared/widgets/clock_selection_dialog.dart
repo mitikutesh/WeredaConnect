@@ -39,7 +39,10 @@ class ClockSelectionDialog extends StatelessWidget {
           ClockPreference.international => clockExample(l10n, ethiopian: false),
         };
 
+    // The boards' card: white, radius 18.
     return AlertDialog(
+      backgroundColor: AppTheme.surfaceWhite,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       title: Text(l10n.clockSetting),
       content: RadioGroup<ClockPreference>(
         groupValue: current,

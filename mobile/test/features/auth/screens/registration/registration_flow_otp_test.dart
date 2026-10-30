@@ -466,13 +466,10 @@ void main() {
         ),
         findsOneWidget,
       );
-      final button = tester.widget<FilledButton>(
-        find.ancestor(
-          of: find.text('Continue'),
-          matching: find.byType(FilledButton),
-        ),
-      );
-      expect(button.onPressed, isNull);
+      // The RegisterRoleDetails board puts Scan License at the foot; the
+      // flow's Continue appears only once a photo exists.
+      expect(find.text('Scan License'), findsOneWidget);
+      expect(find.text('Continue'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
     });
 

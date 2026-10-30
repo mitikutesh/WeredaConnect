@@ -1182,6 +1182,21 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String get profileSectionAccount => 'አካውንት';
+
+  @override
+  String get profileSectionMoney => 'ገንዘብ';
+
+  @override
+  String get profileSectionApp => 'መተግበሪያ';
+
+  @override
+  String get profileSettingsLanguageTime => 'ቋንቋ እና ሰዓት';
+
+  @override
+  String get profileSettingsData => 'ዳታ';
+
+  @override
   String get profileRestartApp => 'እባክዎ ፕሮግራሙን እንደገና ያስነሱ';
 
   @override
@@ -4221,6 +4236,12 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get registrationRoleNextNote =>
       'ቀጥሎ በፋይዳ ያረጋግጣሉ፣ ከዚያ ዝርዝሮችዎን ያክላሉ። ገበሬዎች የሚና ዝርዝሮችን ደረጃ ይዘላሉ።';
+
+  @override
+  String get joinFaydaNeedsInternet => 'ለዚህ ደረጃ ኢንተርኔት ያስፈልጋል።';
+
+  @override
+  String get joinWeredaHelper => 'ቦታዎችንና ከተሞችን ይፈልጉ፣ ያለ ኢንተርኔት ይሰራል';
 
   @override
   String get fromFayda => 'ከፋይዳ';

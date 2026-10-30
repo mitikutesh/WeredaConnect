@@ -22,7 +22,10 @@ class LanguageSelectionDialog extends StatelessWidget {
     final languageProvider = Provider.of<LanguageProvider>(context);
     final currentLocale = languageProvider.locale;
 
+    // The boards' card: white, radius 18.
     return AlertDialog(
+      backgroundColor: AppTheme.surfaceWhite,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       title: Text(l10n.language),
       content: Column(
         mainAxisSize: MainAxisSize.min,

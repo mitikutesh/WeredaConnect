@@ -10,8 +10,15 @@ import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/join_chrome.dart';
+import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 
 /// Reset password screen — collects verification code and new password.
+///
+/// Drawn in the Join boards' language (no board of its own): square back
+/// button, icon tile, title and explanation, labelled fields, the button at
+/// the foot.
 ///
 /// Features:
 /// - 6-digit verification code input
@@ -19,10 +26,6 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 /// - Password visibility toggle
 /// - On success: shows SnackBar and navigates back to login
 /// - All strings from l10n
-///
-/// Ethiopian context:
-/// - Large touch targets (48dp minimum per Material Design)
-/// - Simple error messages for low-literacy users
 class ResetPasswordScreen extends StatefulWidget {
   /// Phone number that the verification code was sent to.
   final String phoneNumber;
@@ -69,10 +72,26 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         );
   }
 
+  /// Pushed on mobile: pop. On the web this screen replaced /login.
+  void _back() {
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    } else if (kIsWeb) {
+      context.go('/login');
+    }
+  }
+
+  Widget _eye({required bool obscured, required VoidCallback onPressed}) {
+    return IconButton(
+      icon: Icon(obscured ? Icons.visibility_off : Icons.visibility),
+      onPressed: onPressed,
+      iconSize: 22,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
 
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
@@ -107,230 +126,150 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: Text(l10n.resetPassword),
-          elevation: 0,
-        ),
+        backgroundColor: AppTheme.chalkBackground,
         body: SafeArea(
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 480),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24.0),
-                child: _buildForm(context, l10n, theme),
+          child: FwContentWidth(
+            maxWidth: 480,
+            child: Form(
+              key: _formKey,
+              child: Builder(
+                builder: (context) {
+                  final isLoading =
+                      context.watch<AuthBloc>().state is AuthLoading;
+                  return JoinPage(
+                    body: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: JoinBackButton(onTap: _back),
+                        ),
+                        const SizedBox(height: 24),
+                        const Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: JoinIconTile(icon: Icons.lock_reset),
+                        ),
+                        const SizedBox(height: 14),
+                        JoinTitle(
+                          title: l10n.resetPassword,
+                          subtitle: l10n.enterResetCode,
+                        ),
+                        const SizedBox(height: 26),
+
+                        // Verification code input
+                        LabeledField(
+                          label: l10n.verificationCode,
+                          field: TextFormField(
+                            controller: _codeController,
+                            decoration: labeledFieldDecoration(),
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                              LengthLimitingTextInputFormatter(6),
+                            ],
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return l10n.codeRequired;
+                              }
+                              return null;
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+
+                        // New password input
+                        LabeledField(
+                          label: l10n.newPassword,
+                          field: TextFormField(
+                            controller: _passwordController,
+                            decoration: labeledFieldDecoration().copyWith(
+                              counterText: '',
+                              suffixIcon: _eye(
+                                obscured: _obscurePassword,
+                                onPressed: () => setState(
+                                  () => _obscurePassword = !_obscurePassword,
+                                ),
+                              ),
+                            ),
+                            obscureText: _obscurePassword,
+                            maxLength: 128,
+                            validator: (value) {
+                              if (value == null ||
+                                  value.isEmpty ||
+                                  value.length < 8) {
+                                return l10n.passwordTooShort;
+                              }
+                              return null;
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+
+                        // Confirm new password input
+                        LabeledField(
+                          label: l10n.confirmNewPassword,
+                          field: TextFormField(
+                            controller: _confirmPasswordController,
+                            decoration: labeledFieldDecoration().copyWith(
+                              counterText: '',
+                              suffixIcon: _eye(
+                                obscured: _obscureConfirmPassword,
+                                onPressed: () => setState(
+                                  () => _obscureConfirmPassword =
+                                      !_obscureConfirmPassword,
+                                ),
+                              ),
+                            ),
+                            obscureText: _obscureConfirmPassword,
+                            maxLength: 128,
+                            validator: (value) {
+                              if (value == null ||
+                                  value.isEmpty ||
+                                  value != _passwordController.text) {
+                                return l10n.passwordsDoNotMatch;
+                              }
+                              return null;
+                            },
+                          ),
+                        ),
+                        if (_errorMessage != null) ...[
+                          const SizedBox(height: 16),
+                          JoinErrorBanner(message: _errorMessage!),
+                        ],
+                      ],
+                    ),
+                    footer: SizedBox(
+                      height: 52,
+                      child: ElevatedButton(
+                        onPressed: isLoading ? null : _handleResetPassword,
+                        child: isLoading
+                            ? Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Text(l10n.pleaseWait),
+                                ],
+                              )
+                            : Text(l10n.resetPassword),
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildForm(
-    BuildContext context,
-    AppLocalizations l10n,
-    ThemeData theme,
-  ) {
-    return Form(
-      key: _formKey,
-      child: Builder(
-        builder: (context) {
-          final isLoading = context.watch<AuthBloc>().state is AuthLoading;
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 16),
-
-              // Lock icon
-              Icon(
-                Icons.lock_reset,
-                size: 80,
-                color: theme.colorScheme.primary,
-              ),
-              const SizedBox(height: 24),
-
-              // Instructions
-              Text(
-                l10n.enterResetCode,
-                style: theme.textTheme.bodyLarge,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 32),
-
-              // Verification code input
-              TextFormField(
-                controller: _codeController,
-                decoration: InputDecoration(
-                  labelText: l10n.verificationCode,
-                  prefixIcon: const Icon(Icons.pin),
-                  border: const OutlineInputBorder(),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 20,
-                  ),
-                ),
-                keyboardType: TextInputType.number,
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(6),
-                ],
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return l10n.codeRequired;
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-
-              // New password input
-              TextFormField(
-                controller: _passwordController,
-                decoration: InputDecoration(
-                  labelText: l10n.newPassword,
-                  prefixIcon: const Icon(Icons.lock),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _obscurePassword
-                          ? Icons.visibility_off
-                          : Icons.visibility,
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _obscurePassword = !_obscurePassword;
-                      });
-                    },
-                    iconSize: 24,
-                    padding: const EdgeInsets.all(12),
-                  ),
-                  border: const OutlineInputBorder(),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 20,
-                  ),
-                ),
-                obscureText: _obscurePassword,
-                maxLength: 128,
-                validator: (value) {
-                  if (value == null || value.isEmpty || value.length < 8) {
-                    return l10n.passwordTooShort;
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-
-              // Confirm new password input
-              TextFormField(
-                controller: _confirmPasswordController,
-                decoration: InputDecoration(
-                  labelText: l10n.confirmNewPassword,
-                  prefixIcon: const Icon(Icons.lock_outline),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _obscureConfirmPassword
-                          ? Icons.visibility_off
-                          : Icons.visibility,
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _obscureConfirmPassword = !_obscureConfirmPassword;
-                      });
-                    },
-                    iconSize: 24,
-                    padding: const EdgeInsets.all(12),
-                  ),
-                  border: const OutlineInputBorder(),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 20,
-                  ),
-                ),
-                obscureText: _obscureConfirmPassword,
-                maxLength: 128,
-                validator: (value) {
-                  if (value == null ||
-                      value.isEmpty ||
-                      value != _passwordController.text) {
-                    return l10n.passwordsDoNotMatch;
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 24),
-
-              // Error message
-              if (_errorMessage != null)
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.errorContainer,
-                    border: Border.all(
-                      color: theme.colorScheme.error.withAlpha(80),
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.error_outline,
-                        color: theme.colorScheme.error,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          _errorMessage!,
-                          style: TextStyle(
-                            color: theme.colorScheme.error,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-              // Reset password button
-              ElevatedButton(
-                onPressed: isLoading ? null : _handleResetPassword,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  minimumSize: const Size.fromHeight(48),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: isLoading
-                    ? Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Colors.white,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Text(
-                            l10n.pleaseWait,
-                            style: const TextStyle(fontSize: 16),
-                          ),
-                        ],
-                      )
-                    : Text(
-                        l10n.resetPassword,
-                        style: const TextStyle(fontSize: 16),
-                      ),
-              ),
-            ],
-          );
-        },
       ),
     );
   }

@@ -1618,6 +1618,11 @@
       }
     }
   },
+  "profileSectionAccount": "Akkaawuntii",
+  "profileSectionMoney": "Maallaqa",
+  "profileSectionApp": "Appii",
+  "profileSettingsLanguageTime": "Afaan fi yeroo",
+  "profileSettingsData": "Daataa",
   "profileRestartApp": "Maaloo app irra deebi'i bani",
   "@profileRestartApp": {
     "description": "Message shown when user is not authenticated — prompt to restart"
@@ -2963,6 +2968,8 @@
   "faydaVerifiedWith": "Fayda'n mirkanaa'e",
   "faydaLegalNameNote": "Maqaan seeraa keessan Fayda irraa dhufa. Namni kamiyyuu maqaa keessaniin galmaa'uu hin danda'u.",
   "registrationStepOf": "Tarkaanfii {current} kan {total}",
+  "joinFaydaNeedsInternet": "Tarkaanfii kanaaf interneetiin barbaachisa.",
+  "joinWeredaHelper": "Bakkeewwanii fi magaalota barbaadi, interneetii malee hojjeta",
   "registrationRoleNextNote": "Itti aansuun Fayda'n mirkaneessitu, achiis odeeffannoo keessan galchitu. Qonnaan bultoonni tarkaanfii odeeffannoo gahee ni darbu.",
   "fromFayda": "Fayda irraa",
   "placeLicenseHere": "Hayyama konkolaachisaa asitti kaa'aa",

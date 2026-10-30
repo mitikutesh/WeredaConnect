@@ -1229,6 +1229,21 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String get profileSectionAccount => 'Akkaawuntii';
+
+  @override
+  String get profileSectionMoney => 'Maallaqa';
+
+  @override
+  String get profileSectionApp => 'Appii';
+
+  @override
+  String get profileSettingsLanguageTime => 'Afaan fi yeroo';
+
+  @override
+  String get profileSettingsData => 'Daataa';
+
+  @override
   String get profileRestartApp => 'Maaloo app irra deebi\'i bani';
 
   @override
@@ -4384,6 +4399,14 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get registrationRoleNextNote =>
       'Itti aansuun Fayda\'n mirkaneessitu, achiis odeeffannoo keessan galchitu. Qonnaan bultoonni tarkaanfii odeeffannoo gahee ni darbu.';
+
+  @override
+  String get joinFaydaNeedsInternet =>
+      'Tarkaanfii kanaaf interneetiin barbaachisa.';
+
+  @override
+  String get joinWeredaHelper =>
+      'Bakkeewwanii fi magaalota barbaadi, interneetii malee hojjeta';
 
   @override
   String get fromFayda => 'Fayda irraa';

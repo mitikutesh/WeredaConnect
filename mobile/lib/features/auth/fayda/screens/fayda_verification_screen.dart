@@ -17,6 +17,8 @@ import 'package:wereda_connect/features/auth/fayda/bloc/fayda_verification_bloc.
 import 'package:wereda_connect/features/auth/screens/registration/fayida_id_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/join_chrome.dart';
 
 /// Opens [url] in the system browser; true when it launched.
 typedef FaydaUrlLauncher = Future<bool> Function(Uri url);
@@ -271,41 +273,62 @@ class _FaydaVerificationViewState extends State<_FaydaVerificationView>
           onPopInvokedWithResult: (didPop, _) {
             if (!didPop) Navigator.of(context).pop(verified);
           },
+          // The step body carries the title; the board's square back button
+          // sits above it instead of an app bar.
           child: Scaffold(
-            backgroundColor: AppTheme.backgroundCream,
-            appBar: AppBar(title: Text(l10n.faydaVerifyTitle)),
-            body: FayidaIdScreen(
-              promptMessage: widget.forPayment
-                  ? l10n.faydaPaymentPrompt
-                  : l10n.faydaLinkPrompt,
-              onFaydaVerifyRequested: () => context
-                  .read<FaydaVerificationBloc>()
-                  .add(const FaydaVerificationStarted()),
-              onCancelVerification: state is FaydaAwaitingCallback
-                  ? () {
-                      _browserReturnTimer?.cancel();
-                      _expiryTimer?.cancel();
-                      _awaitingBrowserReturn = false;
-                      _setExternalFlow(active: false);
-                      context
+            backgroundColor: AppTheme.chalkBackground,
+            body: SafeArea(
+              child: Column(
+                children: [
+                  FwContentWidth(
+                    maxWidth: 480,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                      child: Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: JoinBackButton(
+                          onTap: () => Navigator.of(context).pop(verified),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: FayidaIdScreen(
+                      promptMessage: widget.forPayment
+                          ? l10n.faydaPaymentPrompt
+                          : l10n.faydaLinkPrompt,
+                      onFaydaVerifyRequested: () => context
                           .read<FaydaVerificationBloc>()
-                          .add(const FaydaVerificationCancelled());
-                    }
-                  : null,
-              isVerifying: verifying,
-              verifyingMessage:
-                  state is FaydaAwaitingCallback && state.browserReturned
-                      ? l10n.faydaStillWaiting
-                      : null,
-              isVerified: verified,
-              verifiedName: state is FaydaVerificationSucceeded
-                  ? state.verifiedName
-                  : null,
-              errorMessage: state is FaydaVerificationFailure
-                  ? _errorText(l10n, state)
-                  : phoneStillUnproven
-                      ? l10n.kycPhoneNotProven
-                      : null,
+                          .add(const FaydaVerificationStarted()),
+                      onCancelVerification: state is FaydaAwaitingCallback
+                          ? () {
+                              _browserReturnTimer?.cancel();
+                              _expiryTimer?.cancel();
+                              _awaitingBrowserReturn = false;
+                              _setExternalFlow(active: false);
+                              context
+                                  .read<FaydaVerificationBloc>()
+                                  .add(const FaydaVerificationCancelled());
+                            }
+                          : null,
+                      isVerifying: verifying,
+                      verifyingMessage: state is FaydaAwaitingCallback &&
+                              state.browserReturned
+                          ? l10n.faydaStillWaiting
+                          : null,
+                      isVerified: verified,
+                      verifiedName: state is FaydaVerificationSucceeded
+                          ? state.verifiedName
+                          : null,
+                      errorMessage: state is FaydaVerificationFailure
+                          ? _errorText(l10n, state)
+                          : phoneStillUnproven
+                              ? l10n.kycPhoneNotProven
+                              : null,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );

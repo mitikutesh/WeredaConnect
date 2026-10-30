@@ -163,7 +163,7 @@ void main() {
       'secure123',
     );
     await _settle(tester);
-    await tester.tap(find.text('Sign Up'));
+    await tester.tap(find.text('Register'));
     await _settle(tester);
   }
 
@@ -270,7 +270,7 @@ void main() {
     // The Fayda proof is kept: no way back to the Fayda step.
     expect(find.text('Personal Info'), findsOneWidget);
     expect(find.text('Retry'), findsNothing);
-    expect(find.text('Sign Up'), findsOneWidget);
+    expect(find.text('Register'), findsOneWidget);
 
     // The snackbar times out, the user edits the name and signs up again.
     await tester.pump(const Duration(seconds: 6));
@@ -280,7 +280,7 @@ void main() {
       'Abebe K.',
     );
     await _settle(tester);
-    await tester.tap(find.text('Sign Up'));
+    await tester.tap(find.text('Register'));
     await _settle(tester);
 
     final sent = registrations();
