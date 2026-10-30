@@ -15,11 +15,11 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart
 import 'package:wereda_connect/features/order/presentation/screens/order_detail_screen.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_commitment_section.dart';
-import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/notification_bell.dart';
 import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 
@@ -159,13 +159,6 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
     _loadHeldOrders();
   }
 
-  void _openProfile() {
-    Navigator.push(
-      context,
-      MaterialPageRoute<void>(builder: (_) => const ProfileScreen()),
-    );
-  }
-
   Widget _buildHeader(AppLocalizations l10n) {
     final authState = context.read<AuthBloc>().state;
     final header = FwPageHeader(
@@ -175,15 +168,7 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
         _isBuyer() ? l10n.trackYourOrders : l10n.manageOrders,
       ),
       title: l10n.orders,
-      trailing: FwSquareButton(
-        onTap: _openProfile,
-        semanticLabel: l10n.profile,
-        child: const Icon(
-          Icons.person_outline,
-          size: 22,
-          color: AppTheme.soilDark,
-        ),
-      ),
+      trailing: const HeaderBell(),
     );
     // A tab child draws under the status bar; a pushed screen has SafeArea.
     final top = widget.showBackButton ? 0.0 : MediaQuery.paddingOf(context).top;

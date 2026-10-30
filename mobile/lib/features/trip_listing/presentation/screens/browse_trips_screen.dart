@@ -12,12 +12,12 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/trip_detail_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_card.dart';
-import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/navigation/role_nav_bar.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/notification_bell.dart';
 import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
@@ -151,13 +151,6 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
     );
   }
 
-  void _openProfile() {
-    Navigator.push(
-      context,
-      MaterialPageRoute<void>(builder: (_) => const ProfileScreen()),
-    );
-  }
-
   Widget _buildHeader(AppLocalizations l10n) {
     final authState = context.read<AuthBloc>().state;
     final isOwner = _isOwnerMode;
@@ -168,15 +161,7 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
         isOwner ? l10n.trucker : l10n.marketTransport,
       ),
       title: isOwner ? l10n.myTrips : l10n.trips,
-      trailing: FwSquareButton(
-        onTap: _openProfile,
-        semanticLabel: l10n.profile,
-        child: const Icon(
-          Icons.person_outline,
-          size: 22,
-          color: AppTheme.soilDark,
-        ),
-      ),
+      trailing: const HeaderBell(),
     );
     // A tab child draws under the status bar; a pushed screen has SafeArea.
     final top = widget.embedded ? MediaQuery.paddingOf(context).top : 0.0;

@@ -13,11 +13,11 @@ import 'package:wereda_connect/features/delivery_verification/presentation/widge
 import 'package:wereda_connect/features/live_trip/domain/live_trip_rules.dart';
 import 'package:wereda_connect/features/live_trip/presentation/open_live_trip.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/on_the_road_card.dart';
-import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/notification_bell.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 
 /// Which deliveries the segmented switch shows (Buyer · Deliveries board):
@@ -377,18 +377,7 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
   // ── Shared pieces ───────────────────────────────────────────────────
 
   Widget _profileButton(BuildContext context, AppLocalizations l10n) {
-    return FwSquareButton(
-      semanticLabel: l10n.profile,
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute<void>(builder: (_) => const ProfileScreen()),
-      ),
-      child: const Icon(
-        Icons.person_outline,
-        size: 20,
-        color: AppTheme.soilDark,
-      ),
-    );
+    return const HeaderBell();
   }
 
   Widget _segmented(List<Delivery> all, AppLocalizations l10n) {

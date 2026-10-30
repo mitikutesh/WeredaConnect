@@ -13,11 +13,11 @@ import 'package:wereda_connect/features/buyer/presentation/screens/match_results
 import 'package:wereda_connect/features/buyer/presentation/widgets/deliver_to_line.dart';
 import 'package:wereda_connect/features/buyer/presentation/widgets/intent_card.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
-import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/notification_bell.dart';
 
 /// The buyer's Find Crops screen (Fieldway Canvas: Market.dc.html): "Deliver
 /// to" with the place tile, the title, then the Browse / My Requests
@@ -141,20 +141,7 @@ class _FindCropsScreenState extends State<FindCropsScreen> {
                           ),
                           const SizedBox(width: 8),
                         ],
-                        FwSquareButton(
-                          semanticLabel: l10n.profile,
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (_) => const ProfileScreen(),
-                            ),
-                          ),
-                          child: const Icon(
-                            Icons.person_outline,
-                            size: 20,
-                            color: AppTheme.soilDark,
-                          ),
-                        ),
+                        const HeaderBell(),
                       ],
                     ),
                   ),

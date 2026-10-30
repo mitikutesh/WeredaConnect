@@ -213,6 +213,11 @@ class LiveTripDeps {
     ).thenAnswer((_) async => false);
     when(() => notifications.recent(any(), limit: any(named: 'limit')))
         .thenAnswer((_) async => this.inbox);
+    // The tab headers' bell reads the same inbox.
+    when(() => notifications.changes).thenAnswer((_) => const Stream.empty());
+    when(() => notifications.pull(any(), force: any(named: 'force')))
+        .thenAnswer((_) async {});
+    when(() => notifications.unreadCount(any())).thenAnswer((_) async => 0);
     when(() => tripBloc.repository).thenReturn(tripRepository);
     when(() => tripBloc.state).thenReturn(const TripListingInitial());
     when(() => tripBloc.stream).thenAnswer((_) => const Stream.empty());
