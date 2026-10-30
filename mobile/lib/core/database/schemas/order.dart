@@ -138,6 +138,10 @@ class Order {
   /// `expired`, `cancelled` or `failed_capacity`. Server-written.
   String? truckerResponse;
 
+  /// ESC-15: the trip's departure on a trip order, stamped at funding (UTC).
+  /// Null before funding and on a self-pickup order.
+  DateTime? pickupDate;
+
   /// ESC-15: when the farmer's and the trucker's answers are due (UTC).
   DateTime? farmerDeadlineAt;
   DateTime? truckerDeadlineAt;

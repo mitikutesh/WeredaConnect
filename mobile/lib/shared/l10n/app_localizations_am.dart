@@ -4240,6 +4240,11 @@ class AppLocalizationsAm extends AppLocalizations {
       'ከተነሳ በኋላ መኪናውን በማድረሻዎች ውስጥ በካርታ ላይ ያያሉ።';
 
   @override
+  String orderTripOn(String day) {
+    return 'የ$day ጉዞ';
+  }
+
+  @override
   String liveTripFrom(String name) {
     return 'ከ$name';
   }

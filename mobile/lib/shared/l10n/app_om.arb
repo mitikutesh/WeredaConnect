@@ -2977,6 +2977,7 @@
   "liveTripPayStepPaidOut": "Yeroo mirkaneessaa sa'aatii 48, sana booda ni kaffalama",
   "liveTripOrderDetailsLink": "Ibsa ajajaa, gatii fi sarara yeroo",
   "liveTripAfterPickupHint": "Erga fe'amee booda konkolaataa kaartaa irratti Geejjibaalee keessatti ni argitu.",
+  "orderTripOn": "Imala {day}",
   "liveTripFrom": "{name} irraa",
   "liveTripMapSemantics": "Kaartaa imalaa. Konkolaataan dhuma irratti {place} bira ture.",
   "liveTripMapSemanticsNoPlace": "Kaartaa imalaa",

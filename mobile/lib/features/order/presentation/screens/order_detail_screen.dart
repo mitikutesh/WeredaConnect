@@ -11,6 +11,7 @@ import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -388,7 +389,11 @@ class _OrderDetailBody extends StatelessWidget {
                       ],
 
                       // ── Status timeline ──────────────────────────────
-                      _StatusTimeline(status: order.status, l10n: l10n),
+                      _StatusTimeline(
+                        status: order.status,
+                        tripOrder: orderHasTrip(order),
+                        l10n: l10n,
+                      ),
                       const SizedBox(height: 12),
 
                       // ── Contact (ESC-48) ─────────────────────────────
@@ -969,6 +974,10 @@ class _AnswerRow extends StatelessWidget {
 /// The page header: Back, what the order is (crop and weight) with whom it
 /// is with, and the status pill. A farmer answering a new order reads "New
 /// order" with the crop under it and no pill, as on the board.
+/// "Thu, Oct 30": the trip's day on the Ethiopian calendar day, as the trip
+/// cards write it.
+String _tripDay(DateTime at) => DateFormat.MMMEd().format(dayInEthiopia(at));
+
 class _OrderHeader extends StatelessWidget {
   final Order order;
   final String userId;
@@ -1003,7 +1012,11 @@ class _OrderHeader extends StatelessWidget {
       subtitle = '$farmer → $buyer';
     } else {
       title = what;
-      subtitle = l10n.liveTripFrom(farmer);
+      final pickup = order.pickupDate;
+      subtitle = pickup == null
+          ? l10n.liveTripFrom(farmer)
+          : '${l10n.liveTripFrom(farmer)} · '
+              '${l10n.orderTripOn(_tripDay(pickup))}';
     }
 
     return FwDetailHeader(
@@ -1032,10 +1045,12 @@ class _FarmerReceiveCard extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final held = escrowHeldOrderStatuses.contains(order.status);
     final trucker = order.truckerName?.trim() ?? '';
+    final truck = trucker.isNotEmpty
+        ? l10n.detailTruckOf(partyDisplayName(trucker, l10n))
+        : l10n.trucker;
+    final day = order.pickupDate;
     final pickup = orderHasTrip(order)
-        ? (trucker.isNotEmpty
-            ? l10n.detailTruckOf(partyDisplayName(trucker, l10n))
-            : l10n.trucker)
+        ? (day == null ? truck : '${_tripDay(day)} · $truck')
         : l10n.detailBuyerCollects;
     return FwCard(
       child: Column(
@@ -1245,7 +1260,9 @@ class _BuyerTotalRow extends StatelessWidget {
             ),
           ),
           Text(
-            l10n.etbCurrency(formatEtbAmount(order.orderTotal ?? order.totalPrice)),
+            l10n.etbCurrency(
+              formatEtbAmount(order.orderTotal ?? order.totalPrice),
+            ),
             style: const TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w800,
@@ -1478,7 +1495,15 @@ class _StatusTimeline extends StatelessWidget {
   final OrderStatus status;
   final AppLocalizations l10n;
 
-  const _StatusTimeline({required this.status, required this.l10n});
+  /// A trucker carries the crop: the board's Live trip step follows
+  /// Accepted (a self-pickup order has no truck to follow).
+  final bool tripOrder;
+
+  const _StatusTimeline({
+    required this.status,
+    required this.l10n,
+    this.tripOrder = false,
+  });
 
   /// How many steps the card shows at once.
   static const int _window = 4;
@@ -1695,6 +1720,13 @@ class _StatusTimeline extends StatelessWidget {
         l10n.orderAccepted,
         l10n.orderAcceptedInfo,
       ),
+      // No status of its own: done once the pickup is confirmed.
+      if (tripOrder)
+        _TimelineStep(
+          null,
+          l10n.liveTripTitle,
+          l10n.liveTripAfterPickupHint,
+        ),
       _TimelineStep(
         OrderStatus.pickupConfirmed,
         l10n.statusPickupConfirmed,
@@ -2088,7 +2120,9 @@ class _LockedContactRow extends StatelessWidget {
 }
 
 class _TimelineStep {
-  final OrderStatus status;
+  /// Null for a step with no order status of its own (Live trip): never the
+  /// current step.
+  final OrderStatus? status;
   final String label;
 
   /// Plain-language explanation of what the step means, shown in a tooltip.

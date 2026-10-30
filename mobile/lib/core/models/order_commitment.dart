@@ -188,6 +188,7 @@ void applyOrderCommitmentFields(Order order, Map<String, dynamic> m) {
     ..fulfillment = _string(m['fulfillment'])
     ..farmerResponse = _string(m['farmerResponse'])
     ..truckerResponse = _string(m['truckerResponse'])
+    ..pickupDate = _utc(m['pickupDate'])
     ..farmerDeadlineAt = _utc(m['farmerDeadlineAt'])
     ..truckerDeadlineAt = _utc(m['truckerDeadlineAt'])
     ..buyerChoiceDeadlineAt = _utc(m['buyerChoiceDeadlineAt'])

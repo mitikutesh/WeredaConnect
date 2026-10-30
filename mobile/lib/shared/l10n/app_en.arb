@@ -4646,6 +4646,8 @@
   "@liveTripOrderDetailsLink": {"description": "LT-11 live trip (specs/features/live-trip.md section 4). Farmer: link to the order detail screen"},
   "liveTripAfterPickupHint": "After pickup you will see the truck on a map in Deliveries.",
   "@liveTripAfterPickupHint": {"description": "LT-11 live trip (specs/features/live-trip.md section 4). Order detail, buyer and farmer, before pickup: where the live map will be"},
+  "orderTripOn": "{day} trip",
+  "@orderTripOn": {"description": "Fieldway structure pass (specs/design-canvas). The trip's day on an order: buyer order detail header, trucker home Action needed card (\"Thu 30 Oct trip\")", "placeholders": {"day": {"type": "String"}}},
   "liveTripFrom": "From {name}",
   "@liveTripFrom": {"description": "LT-11 live trip (specs/features/live-trip.md section 4). Deliveries card: the farmer the crop comes from", "placeholders": {"name": {"type": "String"}}},
   "liveTripMapSemantics": "Map of the trip. The truck was last near {place}.",

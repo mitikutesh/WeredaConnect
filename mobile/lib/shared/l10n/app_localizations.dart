@@ -7697,6 +7697,12 @@ abstract class AppLocalizations {
   /// **'After pickup you will see the truck on a map in Deliveries.'**
   String get liveTripAfterPickupHint;
 
+  /// Fieldway structure pass (specs/design-canvas). The trip's day on an order: buyer order detail header, trucker home Action needed card ("Thu 30 Oct trip")
+  ///
+  /// In en, this message translates to:
+  /// **'{day} trip'**
+  String orderTripOn(String day);
+
   /// LT-11 live trip (specs/features/live-trip.md section 4). Deliveries card: the farmer the crop comes from
   ///
   /// In en, this message translates to:

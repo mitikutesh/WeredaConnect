@@ -47,6 +47,7 @@ class Order {
   String? fulfillment;
   String? farmerResponse;
   String? truckerResponse;
+  DateTime? pickupDate;
   DateTime? farmerDeadlineAt;
   DateTime? truckerDeadlineAt;
   DateTime? buyerChoiceDeadlineAt;

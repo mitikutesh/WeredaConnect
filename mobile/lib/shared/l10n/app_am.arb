@@ -2984,6 +2984,7 @@
   "liveTripPayStepPaidOut": "የ48 ሰዓት የማጣሪያ ጊዜ፣ ከዚያም ይከፈላል",
   "liveTripOrderDetailsLink": "የትዕዛዝ ዝርዝር፣ ዋጋ እና ሂደት",
   "liveTripAfterPickupHint": "ከተነሳ በኋላ መኪናውን በማድረሻዎች ውስጥ በካርታ ላይ ያያሉ።",
+  "orderTripOn": "የ{day} ጉዞ",
   "liveTripFrom": "ከ{name}",
   "liveTripMapSemantics": "የጉዞው ካርታ። መኪናው መጨረሻ የታየው በ{place} አቅራቢያ ነው።",
   "liveTripMapSemanticsNoPlace": "የጉዞው ካርታ",

@@ -4400,6 +4400,11 @@ class AppLocalizationsOm extends AppLocalizations {
       'Erga fe\'amee booda konkolaataa kaartaa irratti Geejjibaalee keessatti ni argitu.';
 
   @override
+  String orderTripOn(String day) {
+    return 'Imala $day';
+  }
+
+  @override
   String liveTripFrom(String name) {
     return '$name irraa';
   }

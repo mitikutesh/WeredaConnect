@@ -4360,6 +4360,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'After pickup you will see the truck on a map in Deliveries.';
 
   @override
+  String orderTripOn(String day) {
+    return '$day trip';
+  }
+
+  @override
   String liveTripFrom(String name) {
     return 'From $name';
   }

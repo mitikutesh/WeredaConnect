@@ -9,6 +9,7 @@ import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
@@ -304,6 +305,30 @@ class _ActionNeededListState extends State<ActionNeededList> {
   }
 }
 
+/// The Action needed card's fact line. A farmer or a buyer reads the other
+/// party, the crop and the quantity ("Abebe Trading · Wheat · 1,200 kg"); a
+/// trucker reads the crop, the quantity and the trip's day once the order
+/// carries it ("Wheat · 1,500 kg · Thu, Oct 30 trip"), as on the boards.
+@visibleForTesting
+String actionNeededFacts(Order order, UserRole role, AppLocalizations l10n) {
+  final crop = CropType.labelFor(order.cropType, l10n);
+  final quantity = l10n.quantityKg(wholeNumber(order.quantity));
+  if (role == UserRole.trucker) {
+    final pickup = order.pickupDate;
+    return [
+      crop,
+      quantity,
+      if (pickup != null)
+        l10n.orderTripOn(DateFormat.MMMEd().format(dayInEthiopia(pickup))),
+    ].join(' · ');
+  }
+  final party = partyDisplayName(
+    role == UserRole.buyer ? order.farmerName : order.buyerName,
+    l10n,
+  );
+  return [if (party.isNotEmpty) party, crop, quantity].join(' · ');
+}
+
 class _ActionNeededCard extends StatelessWidget {
   final ActionNeededItem item;
   final UserRole role;
@@ -317,21 +342,7 @@ class _ActionNeededCard extends StatelessWidget {
     required this.onTap,
   });
 
-  /// "Abebe Trading · Wheat · 1,200 kg": the other party the user answers
-  /// (the buyer for a farmer or a trucker, the farmer for a buyer), the crop
-  /// and the quantity.
-  String _facts() {
-    final order = item.order;
-    final party = partyDisplayName(
-      role == UserRole.buyer ? order.farmerName : order.buyerName,
-      l10n,
-    );
-    return [
-      if (party.isNotEmpty) party,
-      CropType.labelFor(order.cropType, l10n),
-      l10n.quantityKg(order.quantity.toStringAsFixed(0)),
-    ].join(' · ');
-  }
+  String _facts() => actionNeededFacts(item.order, role, l10n);
 
   /// "Due today 16:00", or with the day when the deadline is another day.
   ClockLabel _due(BuildContext context, DateTime due) {
