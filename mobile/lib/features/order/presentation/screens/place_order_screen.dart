@@ -10,7 +10,7 @@ import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
-import 'package:wereda_connect/core/utils/money_format.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
@@ -240,7 +240,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                             title: '${CropType.labelFor(
                               widget.listing.cropType,
                               l10n,
-                            )} · ${etbAmount(widget.listing.pricePerKg)} '
+                            )} · ${formatEtbAmount(widget.listing.pricePerKg)} '
                                 '${l10n.etbPerKg}',
                             subtitle: '${widget.farmerName} · '
                                 '${widget.listing.locationName}',
@@ -325,14 +325,14 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                               const SizedBox(height: 11),
                               FwMoneyRow(
                                 label: l10n.cropCost,
-                                amount: l10n.etbCurrency(etbAmount(_cropCost)),
+                                amount: l10n.etbCurrency(formatEtbAmount(_cropCost)),
                               ),
                               if (trip != null) ...[
                                 const SizedBox(height: 9),
                                 FwMoneyRow(
                                   label: l10n.transportCost,
                                   amount: l10n.etbCurrency(
-                                    etbAmount(_transportCost),
+                                    formatEtbAmount(_transportCost),
                                   ),
                                 ),
                               ],
@@ -340,12 +340,12 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                               FwMoneyRow(
                                 label: l10n.platformCommission,
                                 amount:
-                                    l10n.etbCurrency(etbAmount(_commission)),
+                                    l10n.etbCurrency(formatEtbAmount(_commission)),
                               ),
                               const SizedBox(height: 9),
                               FwMoneyRow(
                                 label: l10n.orderTotal,
-                                amount: l10n.etbCurrency(etbAmount(_total)),
+                                amount: l10n.etbCurrency(formatEtbAmount(_total)),
                                 total: true,
                               ),
                             ],

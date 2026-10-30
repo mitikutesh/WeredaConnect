@@ -7,7 +7,7 @@ import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
-import 'package:wereda_connect/core/utils/money_format.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
@@ -286,7 +286,7 @@ class _BookingCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(
-                        l10n.etbCurrency(etbAmount(pay)),
+                        l10n.etbCurrency(formatEtbAmount(pay)),
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w800,

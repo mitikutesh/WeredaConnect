@@ -16,7 +16,7 @@ import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_blo
 import 'package:wereda_connect/features/buyer/domain/services/matching_service.dart'
     if (dart.library.html) 'package:wereda_connect/features/buyer/domain/services/matching_service_web.dart';
 import 'package:wereda_connect/core/models/place.dart';
-import 'package:wereda_connect/core/utils/money_format.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/buyer/presentation/widgets/suggested_trip_card.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/create_delivery_screen.dart';
@@ -345,24 +345,24 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
             const SizedBox(height: 11),
             FwMoneyRow(
               label: l10n.cropCostLabel,
-              amount: l10n.etbCurrency(etbAmount(_cropCost)),
+              amount: l10n.etbCurrency(formatEtbAmount(_cropCost)),
             ),
             if (_selectedTrip != null) ...[
               const SizedBox(height: 9),
               FwMoneyRow(
                 label: l10n.transportCostLabel,
-                amount: l10n.etbCurrency(etbAmount(_transportCost)),
+                amount: l10n.etbCurrency(formatEtbAmount(_transportCost)),
               ),
             ],
             const SizedBox(height: 9),
             FwMoneyRow(
               label: l10n.commissionLabel,
-              amount: l10n.etbCurrency(etbAmount(_commission)),
+              amount: l10n.etbCurrency(formatEtbAmount(_commission)),
             ),
             const SizedBox(height: 9),
             FwMoneyRow(
               label: l10n.totalLabel,
-              amount: l10n.etbCurrency(etbAmount(_total)),
+              amount: l10n.etbCurrency(formatEtbAmount(_total)),
               total: true,
             ),
           ],
@@ -513,7 +513,7 @@ class _HeaderSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Text(
-              etbAmount(listing.pricePerKg),
+              formatEtbAmount(listing.pricePerKg),
               style: const TextStyle(
                 fontSize: 30,
                 fontWeight: FontWeight.w800,

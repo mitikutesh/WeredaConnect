@@ -8,7 +8,7 @@ import 'package:url_launcher/link.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
-import 'package:wereda_connect/core/utils/money_format.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';

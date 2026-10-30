@@ -10,7 +10,7 @@ import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
-import 'package:wereda_connect/core/utils/money_format.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -1056,7 +1056,7 @@ class _FarmerReceiveCard extends StatelessWidget {
               ),
               Text(
                 l10n.etbCurrency(
-                  etbAmount(order.cropCost ?? order.totalPrice),
+                  formatEtbAmount(order.cropCost ?? order.totalPrice),
                 ),
                 style: const TextStyle(
                   fontSize: 24,
@@ -1073,7 +1073,7 @@ class _FarmerReceiveCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   '${l10n.quantityKg(wholeNumber(order.quantity))} × '
-                  '${l10n.etbCurrency(etbAmount(order.pricePerUnit))}',
+                  '${l10n.etbCurrency(formatEtbAmount(order.pricePerUnit))}',
                   style: const TextStyle(
                     fontSize: 14,
                     color: AppTheme.unselectedNav,
@@ -1199,7 +1199,7 @@ class _TruckerPayCard extends StatelessWidget {
             ),
           ),
           Text(
-            l10n.etbCurrency(etbAmount(order.transportCost ?? 0)),
+            l10n.etbCurrency(formatEtbAmount(order.transportCost ?? 0)),
             style: const TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.w800,
@@ -1245,7 +1245,7 @@ class _BuyerTotalRow extends StatelessWidget {
             ),
           ),
           Text(
-            l10n.etbCurrency(etbAmount(order.orderTotal ?? order.totalPrice)),
+            l10n.etbCurrency(formatEtbAmount(order.orderTotal ?? order.totalPrice)),
             style: const TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w800,

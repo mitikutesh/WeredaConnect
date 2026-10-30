@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'package:wereda_connect/core/utils/money_format.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
@@ -37,7 +37,7 @@ class PaymentAmountCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            l10n.etbCurrency(etbAmount(amount)),
+            l10n.etbCurrency(formatEtbAmount(amount)),
             style: const TextStyle(
               fontSize: 36,
               fontWeight: FontWeight.w800,
