@@ -305,6 +305,8 @@ class AppTheme {
             borderRadius: BorderRadius.circular(16),
           ),
           textStyle: const TextStyle(
+            fontFamily: fontFamily,
+            fontFamilyFallback: ethiopicFontFallback,
             fontSize: 16,
             fontWeight: FontWeight.w700,
           ),
@@ -320,6 +322,8 @@ class AppTheme {
             borderRadius: BorderRadius.circular(16),
           ),
           textStyle: const TextStyle(
+            fontFamily: fontFamily,
+            fontFamilyFallback: ethiopicFontFallback,
             fontSize: 16,
             fontWeight: FontWeight.w700,
           ),
@@ -336,6 +340,8 @@ class AppTheme {
           ),
           side: BorderSide(color: border),
           textStyle: const TextStyle(
+            fontFamily: fontFamily,
+            fontFamilyFallback: ethiopicFontFallback,
             fontSize: 15,
             fontWeight: FontWeight.w700,
           ),
@@ -345,6 +351,8 @@ class AppTheme {
         style: TextButton.styleFrom(
           foregroundColor: colorScheme.primary,
           textStyle: const TextStyle(
+            fontFamily: fontFamily,
+            fontFamilyFallback: ethiopicFontFallback,
             fontSize: 14,
             fontWeight: FontWeight.w700,
           ),
@@ -390,7 +398,12 @@ class AppTheme {
           horizontal: 14,
           vertical: 14,
         ),
-        hintStyle: TextStyle(color: muted, fontWeight: FontWeight.w500),
+        hintStyle: TextStyle(
+          color: muted,
+          fontWeight: FontWeight.w500,
+          fontFamily: fontFamily,
+          fontFamilyFallback: ethiopicFontFallback,
+        ),
       ),
 
       // ── Chips ─────────────────────────────────────────────────────
@@ -440,7 +453,11 @@ class AppTheme {
       // ── SnackBar ──────────────────────────────────────────────────
       snackBarTheme: SnackBarThemeData(
         backgroundColor: snackBarBackground,
-        contentTextStyle: TextStyle(color: snackBarForeground),
+        contentTextStyle: TextStyle(
+          color: snackBarForeground,
+          fontFamily: fontFamily,
+          fontFamilyFallback: ethiopicFontFallback,
+        ),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
         ),
