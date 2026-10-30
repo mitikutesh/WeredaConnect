@@ -376,7 +376,7 @@ class _RouteHeader extends StatelessWidget {
       width: double.infinity,
       padding: EdgeInsets.fromLTRB(20, topInset + 12, 20, 22),
       color: AppTheme.soilDark,
-      child: FwShrinkWidth(
+      child: FwContentWidth(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

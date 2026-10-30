@@ -85,6 +85,15 @@ class AdaptiveShell extends StatelessWidget {
     return -1;
   }
 
+  /// Whether the location is a tab's own page, not a page under it: the
+  /// bar highlights Orders on `/orders/{id}`, but that is a detail screen
+  /// (no create button, no bar, as on the boards).
+  bool _onTabRoot(BuildContext context, List<_NavDestination> dests) {
+    final location = GoRouterState.of(context).matchedLocation;
+    final path = location.isEmpty ? '/' : location;
+    return dests.any((d) => d.route == path);
+  }
+
   void _onDestinationSelected(
     BuildContext context,
     int index,
@@ -152,19 +161,34 @@ class AdaptiveShell extends StatelessWidget {
     if (windowClass == WindowClass.mobile) {
       final dests = _destinations(l10n, role, includeSidebarExtras: false);
       final selectedIndex = _currentIndex(context, dests);
+      final onTabRoot = _onTabRoot(context, dests);
+      // A detail page under a tab (`/orders/{id}`) and a pushed screen are
+      // full pages on the boards: no bar under them, no create button over
+      // their own pinned actions.
+      final detailRoute = selectedIndex >= 0 && !onTabRoot;
 
-      return Scaffold(
-        body: child,
-        floatingActionButton:
-            _fab(context, role, onTabRoot: selectedIndex >= 0),
-        floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-        bottomNavigationBar: RoleNavBar(
-          role: role,
-          tabs: [for (final d in dests) d.tab],
-          // Profile and settings sit outside the bar: nothing selected.
-          currentIndex: selectedIndex < 0 ? null : selectedIndex,
-          onSelected: (i) => _onDestinationSelected(context, i, dests),
-        ),
+      return ValueListenableBuilder<int>(
+        valueListenable: pushedRoutes?.count ?? _noPushedRoutes,
+        builder: (context, pushed, _) {
+          final fullPage = detailRoute || pushed > 0;
+          return Scaffold(
+            body: child,
+            floatingActionButton: _fab(context, role, onTabRoot: onTabRoot),
+            floatingActionButtonLocation:
+                FloatingActionButtonLocation.centerFloat,
+            bottomNavigationBar: fullPage
+                ? null
+                : RoleNavBar(
+                    role: role,
+                    tabs: [for (final d in dests) d.tab],
+                    // Profile and settings sit outside the bar: nothing
+                    // selected.
+                    currentIndex: selectedIndex < 0 ? null : selectedIndex,
+                    onSelected: (i) =>
+                        _onDestinationSelected(context, i, dests),
+                  ),
+          );
+        },
       );
     }
 
@@ -172,7 +196,7 @@ class AdaptiveShell extends StatelessWidget {
     final isDesktop = windowClass == WindowClass.desktop;
     final dests = _destinations(l10n, role, includeSidebarExtras: true);
     final selectedIndex = _currentIndex(context, dests);
-    final onTabRoot = selectedIndex >= 0;
+    final onTabRoot = _onTabRoot(context, dests);
 
     return Scaffold(
       backgroundColor: AppTheme.chalkBackground,

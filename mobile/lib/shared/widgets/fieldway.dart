@@ -386,7 +386,8 @@ class FwCard extends StatelessWidget {
 /// Keeps a phone board's column readable on a wide window: full width
 /// below [Breakpoints.mobile], else centred at [maxWidth]. Every tab body
 /// keeps its board layout at every width instead of a separate desktop
-/// layout.
+/// layout. It is never taller than its child, so it also fits a pinned
+/// bottom bar or a header in a Column.
 class FwContentWidth extends StatelessWidget {
   final Widget child;
   final double maxWidth;
@@ -404,6 +405,7 @@ class FwContentWidth extends StatelessWidget {
     if (Breakpoints.isMobile(context)) return child;
     return Align(
       alignment: Alignment.topCenter,
+      heightFactor: 1,
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxWidth),
         child: child,

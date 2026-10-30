@@ -84,6 +84,16 @@ void main() {
               path: '/profile',
               builder: (context, state) => const Text('profile'),
             ),
+            GoRoute(
+              path: '/orders',
+              builder: (context, state) => const Text('orders'),
+              routes: [
+                GoRoute(
+                  path: ':orderId',
+                  builder: (context, state) => const Text('order detail'),
+                ),
+              ],
+            ),
           ],
         ),
       ],
@@ -170,6 +180,50 @@ void main() {
     expect(find.text('profile'), findsOneWidget);
     expect(find.byType(FloatingActionButton), findsNothing);
   });
+
+  // The boards' detail and create screens are full pages: on a phone the
+  // bar leaves with the create button, and comes back with the tab.
+  testWidgets('phone: no bar under a pushed screen', (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(buildApp(UserRole.trucker));
+    await tester.pumpAndSettle();
+    expect(find.byType(RoleNavBar), findsOneWidget);
+
+    await tester.tap(find.text('open detail'));
+    await tester.pumpAndSettle();
+    expect(find.byType(RoleNavBar), findsNothing);
+
+    Navigator.of(tester.element(find.text('pushed detail'))).pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(RoleNavBar), findsOneWidget);
+  });
+
+  for (final size in const [Size(400, 800), Size(1300, 900)]) {
+    final layout = size.width < 600 ? 'phone' : 'desktop';
+    testWidgets('$layout: an order detail under the Orders tab is a full page',
+        (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(buildApp(UserRole.buyer));
+      await tester.pumpAndSettle();
+      final router = GoRouter.of(tester.element(find.text('open detail')));
+
+      router.go('/orders');
+      await tester.pumpAndSettle();
+      expect(find.byType(RoleCreateButton), findsOneWidget);
+
+      router.go('/orders/o-1');
+      await tester.pumpAndSettle();
+      expect(find.text('order detail'), findsOneWidget);
+      expect(find.byType(RoleCreateButton), findsNothing);
+      if (layout == 'phone') expect(find.byType(RoleNavBar), findsNothing);
+    });
+  }
 
   // Desktop sidebar footer: "Meki · Farmer" under the name, in the user's
   // language (it showed a lone " · " when the user had a wereda).

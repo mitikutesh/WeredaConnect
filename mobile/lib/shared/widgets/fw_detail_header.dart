@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
@@ -138,7 +137,7 @@ class FwBottomActions extends StatelessWidget {
   Widget build(BuildContext context) {
     return SafeArea(
       top: false,
-      child: FwShrinkWidth(
+      child: FwContentWidth(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
           child: Column(
@@ -147,34 +146,6 @@ class FwBottomActions extends StatelessWidget {
             children: children,
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// [FwContentWidth] for a widget outside a scroll view (a pinned bottom
-/// bar, a header in a Column): the phone column centred on a wide window,
-/// but no taller than its child. A plain Align there would take all the
-/// height it is offered and leave the page body nothing.
-class FwShrinkWidth extends StatelessWidget {
-  final Widget child;
-  final double maxWidth;
-
-  const FwShrinkWidth({
-    required this.child,
-    this.maxWidth = FwContentWidth.defaultMaxWidth,
-    super.key,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (Breakpoints.isMobile(context)) return child;
-    return Align(
-      alignment: Alignment.topCenter,
-      heightFactor: 1,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: maxWidth),
-        child: child,
       ),
     );
   }
