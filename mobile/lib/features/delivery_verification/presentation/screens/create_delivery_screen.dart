@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -13,11 +14,16 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
-/// Screen for creating a new Delivery record.
+/// Screen for creating a new Delivery record (a sibling of the Place order
+/// board: the listing summary card, the trip and the buyer under section
+/// labels, Save pinned at the foot).
 ///
 /// A trucker uses this screen to link a crop listing to one of their
 /// open trips, entering buyer information to complete the match.
@@ -26,7 +32,7 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 ///
 /// Form patterns follow create_crop_listing_screen.dart:
 /// - `GlobalKey<FormState>` for validation
-/// - TextFormField with OutlineInputBorder and content padding
+/// - Inputs styled by the theme (radius 14)
 /// - Large touch targets (48dp)
 /// - BlocListener for state changes (success -> pop, error -> SnackBar)
 /// - Loading spinner on submit button while processing
@@ -136,7 +142,6 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
 
     return BlocListener<DeliveryBloc, DeliveryState>(
       listener: (context, state) {
@@ -163,127 +168,120 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: Text(l10n.createDelivery),
-          elevation: 0,
-        ),
         body: SafeArea(
+          bottom: false,
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
-            child: Form(
-              key: _formKey,
-              child: BlocBuilder<DeliveryBloc, DeliveryState>(
-                builder: (context, state) {
-                  final isLoading = state is DeliveryLoading;
+            child: FwContentWidth(
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    FwDetailHeader(title: l10n.createDelivery),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // -- Listing summary card --
+                          _ListingSummaryCard(listing: widget.listing),
+                          const SizedBox(height: 20),
 
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // -- Listing summary card --
-                      _ListingSummaryCard(listing: widget.listing),
-                      const SizedBox(height: 24),
-
-                      // -- Trip selection --
-                      Text(
-                        l10n.selectTrip,
-                        style: theme.textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 12),
-                      _buildTripSelector(theme),
-                      const SizedBox(height: 24),
-
-                      // -- Buyer info section --
-                      Text(
-                        l10n.buyerInformation,
-                        style: theme.textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 12),
-
-                      // Buyer name
-                      TextFormField(
-                        controller: _buyerNameController,
-                        decoration: InputDecoration(
-                          labelText: l10n.buyerNameLabel,
-                          prefixIcon: const Icon(Icons.person),
-                          border: const OutlineInputBorder(),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 20,
+                          // -- Trip selection --
+                          FwSectionLabel(
+                            l10n.selectTrip,
+                            padding: const EdgeInsets.only(bottom: 8),
                           ),
-                        ),
-                        keyboardType: TextInputType.text,
-                        textCapitalization: TextCapitalization.words,
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return l10n.buyerNameRequired;
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
+                          _buildTripSelector(),
+                          const SizedBox(height: 20),
 
-                      // Buyer ID / phone
-                      TextFormField(
-                        controller: _buyerIdController,
-                        decoration: InputDecoration(
-                          labelText: l10n.buyerPhoneIdLabel,
-                          prefixIcon: const Icon(Icons.badge),
-                          hintText: '09XXXXXXXX',
-                          border: const OutlineInputBorder(),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 20,
+                          // -- Buyer info section --
+                          FwSectionLabel(
+                            l10n.buyerInformation,
+                            padding: const EdgeInsets.only(bottom: 8),
                           ),
-                        ),
-                        keyboardType: TextInputType.phone,
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return l10n.buyerIdRequired;
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 32),
 
-                      // -- Submit button --
-                      ElevatedButton(
-                        onPressed: isLoading ? null : _handleSubmit,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          minimumSize: const Size.fromHeight(48),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                          // Buyer name
+                          TextFormField(
+                            controller: _buyerNameController,
+                            decoration: InputDecoration(
+                              labelText: l10n.buyerNameLabel,
+                              prefixIcon: const Icon(Icons.person),
+                            ),
+                            keyboardType: TextInputType.text,
+                            textCapitalization: TextCapitalization.words,
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return l10n.buyerNameRequired;
+                              }
+                              return null;
+                            },
                           ),
-                        ),
-                        child: isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.white,
-                                  ),
-                                ),
-                              )
-                            : Text(
-                                l10n.save,
-                                style: const TextStyle(fontSize: 16),
-                              ),
+                          const SizedBox(height: 12),
+
+                          // Buyer ID / phone
+                          TextFormField(
+                            controller: _buyerIdController,
+                            decoration: InputDecoration(
+                              labelText: l10n.buyerPhoneIdLabel,
+                              prefixIcon: const Icon(Icons.badge),
+                              hintText: '09XXXXXXXX',
+                            ),
+                            keyboardType: TextInputType.phone,
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return l10n.buyerIdRequired;
+                              }
+                              return null;
+                            },
+                          ),
+                        ],
                       ),
-                    ],
-                  );
-                },
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
+        ),
+        // -- Save, pinned at the foot --
+        bottomNavigationBar: BlocBuilder<DeliveryBloc, DeliveryState>(
+          builder: (context, state) {
+            final isLoading = state is DeliveryLoading;
+            return FwBottomActions(
+              children: [
+                FilledButton(
+                  onPressed: isLoading ? null : _handleSubmit,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(56),
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  child: isLoading
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        )
+                      : Text(l10n.save),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
   }
 
   /// Build the trip selection dropdown or loading/empty state.
-  Widget _buildTripSelector(ThemeData theme) {
+  Widget _buildTripSelector() {
     if (_loadingTrips) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 16),
@@ -298,29 +296,9 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
     }
 
     if (_openTrips.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          border: Border.all(color: AppTheme.statusWarning),
-          borderRadius: BorderRadius.circular(8),
-          color: AppTheme.statusWarningContainer,
-        ),
-        child: Row(
-          children: [
-            const Icon(
-              Icons.warning_amber,
-              color: AppTheme.onStatusWarningContainer,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                AppLocalizations.of(context)!.noOpenTrips,
-                style:
-                    const TextStyle(color: AppTheme.onStatusWarningContainer),
-              ),
-            ),
-          ],
-        ),
+      return FwNoteBox.cream(
+        icon: Icons.warning_amber,
+        child: Text(AppLocalizations.of(context)!.noOpenTrips),
       );
     }
 
@@ -330,11 +308,6 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
       initialValue: _selectedTrip,
       decoration: const InputDecoration(
         prefixIcon: Icon(Icons.local_shipping),
-        border: OutlineInputBorder(),
-        contentPadding: EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 20,
-        ),
       ),
       hint: Text(AppLocalizations.of(context)!.chooseTripHint),
       isExpanded: true,
@@ -363,11 +336,12 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
   }
 }
 
-/// Summary card showing listing details at the top of the screen.
+/// Summary card showing listing details at the top of the screen (the
+/// Place order board's listing summary): the crop tile and name with the
+/// place, then quantity, price and farmer as fact rows.
 ///
-/// Displays crop type icon, quantity, price, location, and farmer ID
-/// so the trucker can confirm they are creating a delivery for the
-/// correct listing.
+/// Lets the trucker confirm they are creating a delivery for the correct
+/// listing.
 class _ListingSummaryCard extends StatelessWidget {
   final CropListing listing;
 
@@ -376,115 +350,98 @@ class _ListingSummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
     final cropType = CropType.fromKey(listing.cropType);
 
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header with crop icon and type
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    cropType.icon,
-                    size: 28,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    cropType.displayName(l10n),
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
+    return FwCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              DeliveryCropTile(
+                cropKey: listing.cropType,
+                status: DeliveryStatus.pending,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      cropType.displayName(l10n),
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.soilDark,
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 2),
+                    Text(
+                      listing.locationName,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.mutedSteel,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            const Divider(),
-            const SizedBox(height: 8),
-
-            // Quantity
-            _SummaryRow(
-              icon: Icons.scale,
-              label: l10n.quantityInQuintals,
-              value: '${listing.quantity} ${l10n.quintals}',
-            ),
-            const SizedBox(height: 8),
-
-            // Price
-            _SummaryRow(
-              icon: Icons.payments,
-              label: l10n.priceInBirr,
-              value: '${listing.pricePerKg} ${l10n.etbPerKg}',
-            ),
-            const SizedBox(height: 8),
-
-            // Location
-            _SummaryRow(
-              icon: Icons.location_on,
-              label: l10n.location,
-              value: listing.locationName,
-            ),
-            const SizedBox(height: 8),
-
-            // Farmer ID
-            _SummaryRow(
-              icon: Icons.person,
-              label: l10n.deliveryFarmer,
-              value: listing.farmerId,
-            ),
-          ],
-        ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Divider(height: 1, color: AppTheme.segmentTrack),
+          const SizedBox(height: 12),
+          _SummaryRow(
+            label: l10n.quantityInQuintals,
+            value: '${listing.quantity} ${l10n.quintals}',
+          ),
+          const SizedBox(height: 8),
+          _SummaryRow(
+            label: l10n.priceInBirr,
+            value: '${listing.pricePerKg} ${l10n.etbPerKg}',
+          ),
+          const SizedBox(height: 8),
+          _SummaryRow(
+            label: l10n.deliveryFarmer,
+            value: listing.farmerId,
+          ),
+        ],
       ),
     );
   }
 }
 
-/// A single info row within the listing summary card.
+/// A fact of the listing: the label left, the value bold right.
 class _SummaryRow extends StatelessWidget {
-  final IconData icon;
   final String label;
   final String value;
 
   const _SummaryRow({
-    required this.icon,
     required this.label,
     required this.value,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 18, color: AppTheme.textMuted),
-        const SizedBox(width: 8),
         Text(
-          '$label: ',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: AppTheme.textMuted,
-          ),
+          label,
+          style: const TextStyle(fontSize: 13, color: AppTheme.mutedSteel),
         ),
+        const SizedBox(width: 12),
         Expanded(
           child: Text(
             value,
-            style: theme.textTheme.bodyMedium,
+            textAlign: TextAlign.end,
             overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.soilDark,
+            ),
           ),
         ),
       ],

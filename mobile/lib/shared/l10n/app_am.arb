@@ -873,6 +873,10 @@
   "@deliveryDetails": {
     "description": "Title for the delivery detail screen"
   },
+  "restDeliveryTimeline": "የማድረሻ የጊዜ መስመር",
+  "@restDeliveryTimeline": {
+    "description": "Fieldway design alignment (specs/design-canvas). Delivery detail: title of the card with the delivery's four steps as bars"
+  },
   "deliveryScanQrCode": "ኪዩአር ኮድ ቃኝ",
   "@deliveryScanQrCode": {
     "description": "Title for the QR scan screen"
@@ -1111,6 +1115,10 @@
   "deliveryAddPhoto": "ፎቶ ጨምር",
   "@deliveryAddPhoto": {
     "description": "Button to add photo evidence"
+  },
+  "restNoPhoto": "ፎቶ የለም",
+  "@restNoPhoto": {
+    "description": "Fieldway design alignment (specs/design-canvas). Delivery detail: the read-only photo tile of a leg that has no photo"
   },
   "deliveryMarkInTransit": "በመጓጓዝ ላይ ምልክት",
   "@deliveryMarkInTransit": {
@@ -2386,6 +2394,8 @@
   "quantityNeeded": "የሚፈለግ መጠን (ኩንታል)",
   "maxPrice": "ከፍተኛ ዋጋ (ብር/ኪግ)",
   "deliverTo": "ማድረሻ",
+  "restMatchesFor": "ለ{crop} ተመሳሳዮች",
+  "@restMatchesFor": { "description": "Fieldway design alignment (specs/design-canvas). Match results page title; {crop} is the crop name of the buyer's request", "placeholders": { "crop": { "type": "String" } } },
   "matchesFound": "{count, plural, =0{ተመሳሳይ አልተገኘም} =1{1 ተመሳሳይ ተገኝቷል} other{{count} ተመሳሳይ ተገኝቷል}}",
   "@matchesFound": {
     "placeholders": {

@@ -710,6 +710,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get deliveryDetails => 'Bal\'insa Geejjibaa';
 
   @override
+  String get restDeliveryTimeline => 'Sarara Yeroo Geejjibaa';
+
+  @override
   String get deliveryScanQrCode => 'Koodii QR Iskaan';
 
   @override
@@ -903,6 +906,9 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliveryAddPhoto => 'Suuraa Ida\'i';
+
+  @override
+  String get restNoPhoto => 'Suuraan hin jiru';
 
   @override
   String get deliveryMarkInTransit => 'Daandii Irra Mallatteessi';
@@ -2392,6 +2398,11 @@ class AppLocalizationsOm extends AppLocalizations {
       zero: 'Walsimatu hin argamne',
     );
     return '$_temp0';
+  }
+
+  @override
+  String restMatchesFor(String crop) {
+    return 'Walsimatoota $crop';
   }
 
   @override
