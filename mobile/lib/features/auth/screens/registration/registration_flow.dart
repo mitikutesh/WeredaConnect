@@ -23,9 +23,20 @@ import 'package:wereda_connect/features/auth/screens/registration/role_details_s
 import 'package:wereda_connect/features/auth/screens/registration/role_selection_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/join_chrome.dart';
 import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
 
-/// Multi-step registration flow.
+/// Multi-step registration flow (the Register boards in
+/// specs/design-canvas/android: RegisterRole, RegisterFayda,
+/// RegisterRoleDetails, RegisterPersonal).
+///
+/// Every step shares the boards' header: the square back button, "Step n of
+/// m", the progress bars and, once Fayda has verified the person, the
+/// Identity Verified pill. The step's own title sits under it. The dark
+/// Continue button (Register on the last step) is pinned at the foot, except
+/// where the board puts the step's own action there instead: Verify with
+/// Fayda until Fayda answers, Scan License until the trucker has a photo.
 ///
 /// Steps:
 /// 1. Role selection
@@ -175,6 +186,16 @@ class _RegistrationFlowState extends State<RegistrationFlow>
     }
   }
 
+  /// Whether the current step puts its own action at the foot of the screen
+  /// (the board's Verify with Fayda, Scan License) in place of Continue.
+  bool get _stepOwnsAction {
+    if (_currentStep == 1) return !_faydaVerified;
+    if (_currentStep == 2 && _selectedRole == UserRole.trucker) {
+      return _drivingLicensePath == null;
+    }
+    return false;
+  }
+
   void _nextStep() {
     // Dismiss keyboard to prevent scroll jumps from viewport resizing
     FocusScope.of(context).unfocus();
@@ -207,6 +228,16 @@ class _RegistrationFlowState extends State<RegistrationFlow>
         curve: Curves.easeInOut,
       );
     }
+  }
+
+  /// Back on the first step leaves the flow.
+  void _back() {
+    if (_currentStep > 0) {
+      _previousStep();
+      return;
+    }
+    _cancelIfLoading();
+    Navigator.of(context).pop();
   }
 
   String _localizeAuthError(String errorCode, {int? retryAfterSeconds}) {
@@ -476,49 +507,18 @@ class _RegistrationFlowState extends State<RegistrationFlow>
         }
       },
       child: Scaffold(
-        backgroundColor: AppTheme.backgroundCream,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          foregroundColor: AppTheme.textDark,
-          leading: _currentStep > 0
-              ? IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: _previousStep,
-                )
-              : IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () {
-                    _cancelIfLoading();
-                    Navigator.of(context).pop();
-                  },
-                ),
-          title: Text(l10n.register),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.language),
-              onPressed: () => showDialog<void>(
-                context: context,
-                builder: (_) => const LanguageSelectionDialog(),
-              ),
-              tooltip: l10n.language,
-            ),
-          ],
-        ),
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
+        backgroundColor: AppTheme.chalkBackground,
+        body: SafeArea(
+          child: FwContentWidth(
+            maxWidth: 480,
             child: Column(
               children: [
-                // Progress indicator
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: _StepProgress(
-                    current: _currentStep,
-                    total: _totalSteps,
-                  ),
+                _StepHeader(
+                  current: _currentStep,
+                  total: _totalSteps,
+                  verified: _faydaVerified && _currentStep >= 2,
+                  onBack: _back,
                 ),
-                const SizedBox(height: 8),
 
                 // Step content
                 Expanded(
@@ -581,11 +581,13 @@ class _RegistrationFlowState extends State<RegistrationFlow>
                   ),
                 ),
 
-                // Bottom action bar. Hidden on the Fayda step until Fayda has
-                // verified the user: the card's own button is the only way on.
-                if (_currentStep != 1 || _faydaVerified)
+                // The board's dark button at the foot. Hidden while the step
+                // shows its own action there (Verify with Fayda until Fayda
+                // has verified the user, Scan License until the trucker has
+                // a photo).
+                if (!_stepOwnsAction)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
                     child: Builder(
                       builder: (context) {
                         final isLoading =
@@ -594,8 +596,12 @@ class _RegistrationFlowState extends State<RegistrationFlow>
 
                         return SizedBox(
                           width: double.infinity,
-                          height: 50,
+                          height: 56,
                           child: FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppTheme.soilDark,
+                              foregroundColor: Colors.white,
+                            ),
                             onPressed:
                                 (_canContinue && !isLoading) ? _nextStep : null,
                             child: isLoading
@@ -609,12 +615,8 @@ class _RegistrationFlowState extends State<RegistrationFlow>
                                   )
                                 : Text(
                                     isLastStep
-                                        ? l10n.signUp
+                                        ? l10n.register
                                         : l10n.continueButton,
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                    ),
                                   ),
                           ),
                         );
@@ -630,44 +632,83 @@ class _RegistrationFlowState extends State<RegistrationFlow>
   }
 }
 
-class _StepProgress extends StatelessWidget {
+/// The boards' step header: back, "Step n of m", the language switch (and
+/// the Identity Verified pill once Fayda has answered), then the bars.
+class _StepHeader extends StatelessWidget {
   final int current;
   final int total;
+  final bool verified;
+  final VoidCallback onBack;
 
-  const _StepProgress({required this.current, required this.total});
+  const _StepHeader({
+    required this.current,
+    required this.total,
+    required this.verified,
+    required this.onBack,
+  });
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          l10n.registrationStepOf(current + 1, total),
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: AppTheme.mutedSteel,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: List.generate(total, (index) {
-            final isActive = index <= current;
-            return Expanded(
-              child: Container(
-                height: 4,
-                margin: EdgeInsets.only(right: index < total - 1 ? 6 : 0),
-                decoration: BoxDecoration(
-                  color:
-                      isActive ? AppTheme.fieldGreen : AppTheme.whisperBorder,
-                  borderRadius: BorderRadius.circular(999),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              JoinBackButton(onTap: onBack),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  l10n.registrationStepOf(current + 1, total),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.mutedSteel,
+                  ),
                 ),
               ),
-            );
-          }),
-        ),
-      ],
+              if (verified) ...[
+                JoinStatusPill(label: l10n.faydaVerifiedSuccess),
+                const SizedBox(width: 8),
+              ],
+              // The language switch stays reachable on every step.
+              FwSquareButton(
+                semanticLabel: l10n.language,
+                onTap: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => const LanguageSelectionDialog(),
+                ),
+                child: const Icon(
+                  Icons.language,
+                  size: 20,
+                  color: AppTheme.soilDark,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: List.generate(total, (index) {
+              final isActive = index <= current;
+              return Expanded(
+                child: Container(
+                  height: 4,
+                  margin: EdgeInsets.only(right: index < total - 1 ? 6 : 0),
+                  decoration: BoxDecoration(
+                    color:
+                        isActive ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              );
+            }),
+          ),
+        ],
+      ),
     );
   }
 }

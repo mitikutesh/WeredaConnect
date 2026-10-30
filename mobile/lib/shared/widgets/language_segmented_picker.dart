@@ -34,7 +34,7 @@ class LanguageSegmentedPicker extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(4),
           decoration: BoxDecoration(
-            color: const Color(0xFFECEAE2),
+            color: AppTheme.segmentTrack,
             borderRadius: BorderRadius.circular(14),
           ),
           child: Row(
@@ -85,8 +85,9 @@ class _Segment extends StatelessWidget {
         child: InkWell(
           onTap: selected ? null : onTap,
           borderRadius: BorderRadius.circular(11),
+          // The board's segment: 40 tall in a 4 px padded track.
           child: SizedBox(
-            height: 48,
+            height: 40,
             child: Center(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),

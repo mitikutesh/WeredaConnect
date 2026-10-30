@@ -1613,6 +1613,16 @@
     }
   },
 
+  "profileSectionAccount": "Account",
+  "@profileSectionAccount": {"description": "Fieldway design alignment (specs/design-canvas). Profile: section label over Fayda, app lock and documents, shown in capitals"},
+  "profileSectionMoney": "Money",
+  "@profileSectionMoney": {"description": "Fieldway design alignment (specs/design-canvas). Profile: section label over the wallet and escrow history rows, shown in capitals"},
+  "profileSectionApp": "App",
+  "@profileSectionApp": {"description": "Fieldway design alignment (specs/design-canvas). Profile: section label over settings and help, shown in capitals"},
+  "profileSettingsLanguageTime": "Language and time",
+  "@profileSettingsLanguageTime": {"description": "Fieldway design alignment (specs/design-canvas). Settings: section label over the language and clock rows, shown in capitals"},
+  "profileSettingsData": "Data",
+  "@profileSettingsData": {"description": "Fieldway design alignment (specs/design-canvas). Settings: section label over location sharing, data usage and data saver, shown in capitals"},
   "profileRestartApp": "Please restart the app",
   "@profileRestartApp": {
     "description": "Message shown when user is not authenticated — prompt to restart"
@@ -4652,6 +4662,10 @@
   "@registrationStepOf": {"description": "Fieldway design alignment (specs/design-canvas). Registration: step counter above the progress bar", "placeholders": {"current": {"type": "int"}, "total": {"type": "int"}}},
   "registrationRoleNextNote": "Next you verify with Fayda, then add your details. Farmers skip the role details step.",
   "@registrationRoleNextNote": {"description": "Fieldway design alignment (specs/design-canvas). Registration role step: what comes next"},
+  "joinFaydaNeedsInternet": "Needs internet for this step.",
+  "@joinFaydaNeedsInternet": {"description": "Fieldway design alignment (specs/design-canvas). Registration Fayda step: line under the Verify with Fayda button"},
+  "joinWeredaHelper": "Search places and towns, works offline",
+  "@joinWeredaHelper": {"description": "Fieldway design alignment (specs/design-canvas). Registration personal info: helper under the Wereda field"},
   "fromFayda": "From Fayda",
   "@fromFayda": {"description": "Fieldway design alignment (specs/design-canvas). Registration personal info: tag on the locked legal name"},
   "placeLicenseHere": "Place the license here",

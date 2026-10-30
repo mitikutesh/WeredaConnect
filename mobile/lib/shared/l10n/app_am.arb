@@ -1622,6 +1622,11 @@
       }
     }
   },
+  "profileSectionAccount": "አካውንት",
+  "profileSectionMoney": "ገንዘብ",
+  "profileSectionApp": "መተግበሪያ",
+  "profileSettingsLanguageTime": "ቋንቋ እና ሰዓት",
+  "profileSettingsData": "ዳታ",
   "profileRestartApp": "እባክዎ ፕሮግራሙን እንደገና ያስነሱ",
   "@profileRestartApp": {
     "description": "Message shown when user is not authenticated — prompt to restart"
@@ -2979,6 +2984,8 @@
   "faydaVerifiedWith": "በፋይዳ የተረጋገጠ",
   "faydaLegalNameNote": "ሕጋዊ ስምዎ ከፋይዳ ይመጣል። ማንም በስምዎ መመዝገብ አይችልም።",
   "registrationStepOf": "ደረጃ {current} ከ{total}",
+  "joinFaydaNeedsInternet": "ለዚህ ደረጃ ኢንተርኔት ያስፈልጋል።",
+  "joinWeredaHelper": "ቦታዎችንና ከተሞችን ይፈልጉ፣ ያለ ኢንተርኔት ይሰራል",
   "registrationRoleNextNote": "ቀጥሎ በፋይዳ ያረጋግጣሉ፣ ከዚያ ዝርዝሮችዎን ያክላሉ። ገበሬዎች የሚና ዝርዝሮችን ደረጃ ይዘላሉ።",
   "fromFayda": "ከፋይዳ",
   "placeLicenseHere": "መንጃ ፈቃዱን እዚህ ያስቀምጡ",

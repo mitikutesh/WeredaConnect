@@ -1245,6 +1245,21 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get profileSectionAccount => 'Account';
+
+  @override
+  String get profileSectionMoney => 'Money';
+
+  @override
+  String get profileSectionApp => 'App';
+
+  @override
+  String get profileSettingsLanguageTime => 'Language and time';
+
+  @override
+  String get profileSettingsData => 'Data';
+
+  @override
   String get profileRestartApp => 'Please restart the app';
 
   @override
@@ -4374,6 +4389,12 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get registrationRoleNextNote =>
       'Next you verify with Fayda, then add your details. Farmers skip the role details step.';
+
+  @override
+  String get joinFaydaNeedsInternet => 'Needs internet for this step.';
+
+  @override
+  String get joinWeredaHelper => 'Search places and towns, works offline';
 
   @override
   String get fromFayda => 'From Fayda';

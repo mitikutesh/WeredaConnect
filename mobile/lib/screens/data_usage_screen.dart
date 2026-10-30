@@ -5,9 +5,13 @@ import 'package:provider/provider.dart';
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/join_chrome.dart';
 
 /// Screen that shows how much data the app has sent and received,
-/// with an option to reset the counters.
+/// with an option to reset the counters. Drawn in the Fieldway boards'
+/// language: page header, one white card with the three counters, the
+/// notes, and the reset button.
 class DataUsageScreen extends StatelessWidget {
   const DataUsageScreen({super.key});
 
@@ -17,62 +21,82 @@ class DataUsageScreen extends StatelessWidget {
     final tracker = Provider.of<DataUsageTracker>(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.dataUsage),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _StatCard(
-            icon: Icons.download_rounded,
-            label: l10n.dataUsageDownloaded,
-            value: DataUsageTracker.formatBytes(tracker.bytesDownloaded),
-            color: AppTheme.statusInfo,
-          ),
-          const SizedBox(height: 12),
-          _StatCard(
-            icon: Icons.upload_rounded,
-            label: l10n.dataUsageUploaded,
-            value: DataUsageTracker.formatBytes(tracker.bytesUploaded),
-            color: AppTheme.accentGold,
-          ),
-          const SizedBox(height: 12),
-          _StatCard(
-            icon: Icons.data_usage,
-            label: l10n.dataUsageTotal,
-            value: DataUsageTracker.formatBytes(tracker.totalBytes),
-            color: AppTheme.statusSuccess,
-          ),
-          if (tracker.trackingSince != null) ...[
-            const SizedBox(height: 16),
-            Text(
-              '${l10n.dataUsageTrackingSince} '
-              '${DateFormat.yMMMd().format(tracker.trackingSince!)}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppTheme.textMuted,
-                  ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-          const SizedBox(height: 8),
-          Text(
-            l10n.dataUsageScopeNote,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AppTheme.textMuted,
+      body: SafeArea(
+        child: FwContentWidth(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+            children: [
+              const Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: JoinBackButton(),
+              ),
+              const SizedBox(height: 12),
+              FwPageHeader(
+                padding: EdgeInsets.zero,
+                eyebrow: l10n.settings,
+                title: l10n.dataUsage,
+              ),
+              const SizedBox(height: 16),
+              FwCard(
+                padding: EdgeInsets.zero,
+                child: Column(
+                  children: [
+                    _StatRow(
+                      icon: Icons.download_rounded,
+                      label: l10n.dataUsageDownloaded,
+                      value: DataUsageTracker.formatBytes(
+                        tracker.bytesDownloaded,
+                      ),
+                      color: AppTheme.statusInfo,
+                      background: AppTheme.statusInfoContainer,
+                    ),
+                    const Divider(indent: 16, endIndent: 16),
+                    _StatRow(
+                      icon: Icons.upload_rounded,
+                      label: l10n.dataUsageUploaded,
+                      value:
+                          DataUsageTracker.formatBytes(tracker.bytesUploaded),
+                      color: AppTheme.money,
+                      background: AppTheme.actionCream,
+                    ),
+                    const Divider(indent: 16, endIndent: 16),
+                    _StatRow(
+                      icon: Icons.data_usage,
+                      label: l10n.dataUsageTotal,
+                      value: DataUsageTracker.formatBytes(tracker.totalBytes),
+                      color: AppTheme.fieldGreen,
+                      background: AppTheme.fieldGreenTint,
+                    ),
+                  ],
                 ),
-            textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              if (tracker.trackingSince != null) ...[
+                Text(
+                  '${l10n.dataUsageTrackingSince} '
+                  '${DateFormat.yMMMd().format(tracker.trackingSince!)}',
+                  style: FwText.body,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+              ],
+              Text(
+                l10n.dataUsageScopeNote,
+                style: FwText.body,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.restart_alt),
+                label: Text(l10n.dataUsageReset),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.statusError,
+                ),
+                onPressed: () => _confirmReset(context, l10n, tracker),
+              ),
+            ],
           ),
-          const SizedBox(height: 32),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.restart_alt),
-            label: Text(l10n.dataUsageReset),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppTheme.statusError,
-              side: const BorderSide(color: AppTheme.statusError),
-            ),
-            onPressed: () => _confirmReset(context, l10n, tracker),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -108,35 +132,58 @@ class DataUsageScreen extends StatelessWidget {
   }
 }
 
-class _StatCard extends StatelessWidget {
+class _StatRow extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
   final Color color;
+  final Color background;
 
-  const _StatCard({
+  const _StatRow({
     required this.icon,
     required this.label,
     required this.value,
     required this.color,
+    required this.background,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: color.withAlpha(38),
-          child: Icon(icon, color: color),
-        ),
-        title: Text(label),
-        trailing: Text(
-          value,
-          style: Theme.of(context)
-              .textTheme
-              .titleMedium
-              ?.copyWith(fontWeight: FontWeight.bold),
-        ),
+    return Container(
+      constraints: const BoxConstraints(minHeight: 56),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: background,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 20, color: color),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.soilDark,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.soilDark,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -13,8 +13,13 @@ import 'package:wereda_connect/features/messaging/presentation/widgets/conversat
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 /// The conversations inbox — the current user's chats across all roles.
+///
+/// Drawn in the Fieldway boards' language (no board of its own): the page
+/// header on the chalk ground, the threads in one white card. One
+/// composition at every width, centred by [FwContentWidth] on wide windows.
 class MessagesInboxScreen extends StatefulWidget {
   const MessagesInboxScreen({super.key});
 
@@ -38,60 +43,100 @@ class _MessagesInboxScreenState extends State<MessagesInboxScreen> {
     final authState = context.read<AuthBloc>().state;
     final me = authState is AuthAuthenticated ? authState.userId : '';
 
+    final header = FwPageHeader(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+      title: l10n.messages,
+    );
+
     return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.chat_bubble_outline),
-            const SizedBox(width: 8),
-            Text(l10n.messages),
-          ],
-        ),
-      ),
-      body: BlocBuilder<InboxBloc, InboxState>(
-        builder: (context, state) {
-          if (state is InboxLoaded) {
-            if (state.conversations.isEmpty) {
-              return _EmptyInbox(
-                title: l10n.noConversationsYet,
-                hint: l10n.noConversationsHint,
-              );
-            }
-            return RefreshIndicator(
-              onRefresh: () async =>
-                  context.read<InboxBloc>().add(LoadInbox(me)),
-              child: ListView.separated(
-                itemCount: state.conversations.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
-                itemBuilder: (context, i) {
-                  final c = state.conversations[i];
-                  return _ConversationTile(
-                    summary: c,
-                    prefixYou: l10n.messageContact,
-                    lastFromMePrefix: l10n.send,
-                    resolver: context.read<InboxBloc>().contextResolver,
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute<void>(
-                        builder: (_) => ConversationScreen(
-                          contextType: c.contextType,
-                          contextId: c.contextId,
-                          counterpartId: c.counterpartId,
-                          counterpartName: c.counterpartName,
+      body: SafeArea(
+        child: FwContentWidth(
+          child: BlocBuilder<InboxBloc, InboxState>(
+            builder: (context, state) {
+              if (state is InboxLoaded) {
+                if (state.conversations.isEmpty) {
+                  return Column(
+                    children: [
+                      header,
+                      Expanded(
+                        child: _EmptyInbox(
+                          title: l10n.noConversationsYet,
+                          hint: l10n.noConversationsHint,
                         ),
                       ),
-                    ),
+                    ],
                   );
-                },
-              ),
-            );
-          }
-          if (state is InboxError) {
-            return _EmptyInbox(title: l10n.messages, hint: state.message);
-          }
-          return const Center(child: CircularProgressIndicator());
-        },
+                }
+                return RefreshIndicator(
+                  onRefresh: () async =>
+                      context.read<InboxBloc>().add(LoadInbox(me)),
+                  child: ListView(
+                    padding: const EdgeInsets.only(bottom: 32),
+                    children: [
+                      header,
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: FwCard(
+                          padding: EdgeInsets.zero,
+                          child: Column(
+                            children: [
+                              for (var i = 0;
+                                  i < state.conversations.length;
+                                  i++) ...[
+                                if (i > 0)
+                                  const Divider(indent: 16, endIndent: 16),
+                                _ConversationTile(
+                                  summary: state.conversations[i],
+                                  resolver:
+                                      context.read<InboxBloc>().contextResolver,
+                                  onTap: () {
+                                    final c = state.conversations[i];
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => ConversationScreen(
+                                          contextType: c.contextType,
+                                          contextId: c.contextId,
+                                          counterpartId: c.counterpartId,
+                                          counterpartName: c.counterpartName,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+              if (state is InboxError) {
+                return Column(
+                  children: [
+                    header,
+                    Expanded(
+                      child: _EmptyInbox(
+                        title: l10n.messages,
+                        hint: state.message,
+                      ),
+                    ),
+                  ],
+                );
+              }
+              return Column(
+                children: [
+                  header,
+                  const Expanded(
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
       ),
     );
   }
@@ -99,15 +144,11 @@ class _MessagesInboxScreenState extends State<MessagesInboxScreen> {
 
 class _ConversationTile extends StatelessWidget {
   final ConversationSummary summary;
-  final String prefixYou;
-  final String lastFromMePrefix;
   final ConversationContextResolver? resolver;
   final VoidCallback onTap;
 
   const _ConversationTile({
     required this.summary,
-    required this.prefixYou,
-    required this.lastFromMePrefix,
     required this.onTap,
     this.resolver,
   });
@@ -127,63 +168,105 @@ class _ConversationTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final time = clockFormatOf(context).time(summary.lastMessageAt);
     final hasUnread = summary.unreadCount > 0;
 
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: AppTheme.primary,
-        child: Text(_initials, style: const TextStyle(color: Colors.white)),
-      ),
-      title: Text(
-        _title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w500,
-        ),
-      ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // What the thread is about — the linked crop or trip.
-          ConversationContextTag(
-            contextType: summary.contextType,
-            contextId: summary.contextId,
-            resolver: resolver,
-            color: AppTheme.primary,
-          ),
-          const SizedBox(height: 2),
-          Text(
-            summary.lastMessageBody,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
-      isThreeLine: true,
-      trailing: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Text(time, style: theme.textTheme.labelSmall),
-          const SizedBox(height: 4),
-          if (hasUnread)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: const BoxDecoration(
-                color: AppTheme.primary,
-                shape: BoxShape.circle,
-              ),
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              radius: 22,
+              backgroundColor: AppTheme.fieldGreenTint,
               child: Text(
-                '${summary.unreadCount}',
-                style: const TextStyle(color: Colors.white, fontSize: 11),
+                _initials,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.fieldGreen,
+                ),
               ),
             ),
-        ],
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: hasUnread ? FontWeight.w800 : FontWeight.w700,
+                      color: AppTheme.soilDark,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  // What the thread is about — the linked crop or trip.
+                  ConversationContextTag(
+                    contextType: summary.contextType,
+                    contextId: summary.contextId,
+                    resolver: resolver,
+                    color: AppTheme.fieldGreen,
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    summary.lastMessageBody,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: hasUnread ? FontWeight.w600 : FontWeight.w500,
+                      color: hasUnread
+                          ? AppTheme.inkSecondary
+                          : AppTheme.mutedSteel,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  time,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: AppTheme.mutedSteel,
+                  ),
+                ),
+                if (hasUnread) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppTheme.fieldGreen,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '${summary.unreadCount}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
       ),
-      onTap: onTap,
     );
   }
 }
@@ -196,28 +279,29 @@ class _EmptyInbox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.forum_outlined,
-              size: 80,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-            ),
-            const SizedBox(height: 16),
-            Text(title, style: theme.textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(
-              hint,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: AppTheme.fieldGreenTint,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Icon(
+                Icons.forum_outlined,
+                size: 30,
+                color: AppTheme.fieldGreen,
               ),
             ),
+            const SizedBox(height: 16),
+            Text(title, style: FwText.cardTitle, textAlign: TextAlign.center),
+            const SizedBox(height: 8),
+            Text(hint, textAlign: TextAlign.center, style: FwText.body),
           ],
         ),
       ),

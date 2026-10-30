@@ -2374,6 +2374,36 @@ abstract class AppLocalizations {
   /// **'ETB {amount}'**
   String escrowEtbAmount(String amount);
 
+  /// Fieldway design alignment (specs/design-canvas). Profile: section label over Fayda, app lock and documents, shown in capitals
+  ///
+  /// In en, this message translates to:
+  /// **'Account'**
+  String get profileSectionAccount;
+
+  /// Fieldway design alignment (specs/design-canvas). Profile: section label over the wallet and escrow history rows, shown in capitals
+  ///
+  /// In en, this message translates to:
+  /// **'Money'**
+  String get profileSectionMoney;
+
+  /// Fieldway design alignment (specs/design-canvas). Profile: section label over settings and help, shown in capitals
+  ///
+  /// In en, this message translates to:
+  /// **'App'**
+  String get profileSectionApp;
+
+  /// Fieldway design alignment (specs/design-canvas). Settings: section label over the language and clock rows, shown in capitals
+  ///
+  /// In en, this message translates to:
+  /// **'Language and time'**
+  String get profileSettingsLanguageTime;
+
+  /// Fieldway design alignment (specs/design-canvas). Settings: section label over location sharing, data usage and data saver, shown in capitals
+  ///
+  /// In en, this message translates to:
+  /// **'Data'**
+  String get profileSettingsData;
+
   /// Message shown when user is not authenticated — prompt to restart
   ///
   /// In en, this message translates to:
@@ -7714,6 +7744,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Next you verify with Fayda, then add your details. Farmers skip the role details step.'**
   String get registrationRoleNextNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration Fayda step: line under the Verify with Fayda button
+  ///
+  /// In en, this message translates to:
+  /// **'Needs internet for this step.'**
+  String get joinFaydaNeedsInternet;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration personal info: helper under the Wereda field
+  ///
+  /// In en, this message translates to:
+  /// **'Search places and towns, works offline'**
+  String get joinWeredaHelper;
 
   /// Fieldway design alignment (specs/design-canvas). Registration personal info: tag on the locked legal name
   ///
