@@ -2281,8 +2281,6 @@
   "trackDeliveries": "የሰብል ማጓጓዣዎን ይከታተሉ",
   "trackPayments": "ገቢዎን እና ኤስክሮ ይከታተሉ",
   "trackBuyerPayments": "ክፍያዎን እና ኤስክሮ ይከታተሉ",
-  "listsHeldInEscrow": "በኢስክሮ የተያዘ",
-  "listsReleased": "የተለቀቀ",
   "listsPaymentsNote": "እያንዳንዱ ረድፍ አንድ ኢስክሮ ነው። የጊዜ መስመሩን ለማየት ይንኩት።",
   "noDeliveries": "ገና ማድረሻ የለም",
   "noPayments": "ገና ክፍያ የለም",

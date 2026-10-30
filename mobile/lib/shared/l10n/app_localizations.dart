@@ -3850,18 +3850,6 @@ abstract class AppLocalizations {
   /// **'Track your payments & escrow'**
   String get trackBuyerPayments;
 
-  /// Payments summary: money currently held for this person
-  ///
-  /// In en, this message translates to:
-  /// **'Held in escrow'**
-  String get listsHeldInEscrow;
-
-  /// Payments summary: money released or paid out
-  ///
-  /// In en, this message translates to:
-  /// **'Released'**
-  String get listsReleased;
-
   /// Footer under the payments list
   ///
   /// In en, this message translates to:

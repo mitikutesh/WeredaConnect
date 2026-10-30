@@ -2738,14 +2738,6 @@
   "@trackBuyerPayments": {
     "description": "Subtitle for the payments tab header (buyer)"
   },
-  "listsHeldInEscrow": "Held in escrow",
-  "@listsHeldInEscrow": {
-    "description": "Payments summary: money currently held for this person"
-  },
-  "listsReleased": "Released",
-  "@listsReleased": {
-    "description": "Payments summary: money released or paid out"
-  },
   "listsPaymentsNote": "Each row is one escrow. Tap it for the timeline.",
   "@listsPaymentsNote": {
     "description": "Footer under the payments list"

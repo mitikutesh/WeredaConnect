@@ -2060,12 +2060,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get trackBuyerPayments => 'Track your payments & escrow';
 
   @override
-  String get listsHeldInEscrow => 'Held in escrow';
-
-  @override
-  String get listsReleased => 'Released';
-
-  @override
   String get listsPaymentsNote =>
       'Each row is one escrow. Tap it for the timeline.';
 

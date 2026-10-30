@@ -1998,12 +1998,6 @@ class AppLocalizationsAm extends AppLocalizations {
   String get trackBuyerPayments => 'ክፍያዎን እና ኤስክሮ ይከታተሉ';
 
   @override
-  String get listsHeldInEscrow => 'በኢስክሮ የተያዘ';
-
-  @override
-  String get listsReleased => 'የተለቀቀ';
-
-  @override
   String get listsPaymentsNote =>
       'እያንዳንዱ ረድፍ አንድ ኢስክሮ ነው። የጊዜ መስመሩን ለማየት ይንኩት።';
 

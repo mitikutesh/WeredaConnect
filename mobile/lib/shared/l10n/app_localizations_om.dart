@@ -2070,12 +2070,6 @@ class AppLocalizationsOm extends AppLocalizations {
   String get trackBuyerPayments => 'Kaffaltii fi eesciroo kee hordofi';
 
   @override
-  String get listsHeldInEscrow => 'Eeskiroo keessatti qabame';
-
-  @override
-  String get listsReleased => 'Gadhiifame';
-
-  @override
   String get listsPaymentsNote =>
       'Sararri tokkoon tokkoon eeskiroo tokko. Seenaa isaa ilaaluuf tuqi.';
 

@@ -246,7 +246,7 @@ void main() {
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
 
-      // The row and the summary card both carry the buyer's held total.
+      // The row carries the buyer's held total.
       expect(find.textContaining('15,000 ETB'), findsWidgets);
       expect(find.textContaining('14,625 ETB'), findsNothing);
     });
@@ -343,50 +343,6 @@ void main() {
           const LoadPaymentHistory(userId: 'farmer-001', roleFilter: 'farmer'),
         ),
       ).called(1);
-    });
-
-    testWidgets('the summary card sums this party\'s held and released legs',
-        (WidgetTester tester) async {
-      // Farmer (setUp role): one escrowed and one completed payout, each on
-      // its own row and once more in the summary card.
-      final held = _makePayment();
-      final released = _makePayment(
-        paymentId: 'esc-002',
-        status: PaymentStatus.completed,
-        amount: 8000.0,
-      )..farmerPayout = 7800.0;
-      when(() => escrowBloc.state).thenReturn(
-        PaymentHistoryLoaded(payments: [held, released], pendingIntents: []),
-      );
-      when(() => escrowBloc.stream)
-          .thenAnswer((_) => const Stream<EscrowState>.empty());
-
-      await tester.pumpWidget(buildScreen());
-      await tester.pumpAndSettle();
-
-      expect(find.text('Held in escrow'), findsOneWidget);
-      expect(find.text('Released'), findsOneWidget);
-      expect(find.text('14,625 ETB'), findsNWidgets(2));
-      expect(find.text('7,800 ETB'), findsNWidgets(2));
-      expect(find.textContaining('15,000'), findsNothing);
-    });
-
-    testWidgets('no summary card without any payment',
-        (WidgetTester tester) async {
-      when(() => escrowBloc.state).thenReturn(
-        PaymentHistoryLoaded(
-          payments: const [],
-          pendingIntents: [_makeIntent()],
-        ),
-      );
-      when(() => escrowBloc.stream)
-          .thenAnswer((_) => const Stream<EscrowState>.empty());
-
-      await tester.pumpWidget(buildScreen());
-      await tester.pumpAndSettle();
-
-      expect(find.text('Held in escrow'), findsNothing);
-      expect(find.byType(PendingIntentCard), findsOneWidget);
     });
 
     testWidgets('tapping status filter chip dispatches FilterPaymentHistory',

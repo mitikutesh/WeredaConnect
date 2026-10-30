@@ -5,7 +5,6 @@ import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
-import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/payout_expectation.dart';
@@ -53,7 +52,6 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
 
   /// The last unfiltered page of payments: the summary card sums these, so
   /// a status filter narrows the rows but not the totals.
-  List<Payment> _allPayments = const [];
 
   @override
   void initState() {
@@ -118,22 +116,8 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       },
       child: BlocBuilder<EscrowBloc, EscrowState>(
         builder: (context, state) {
-          if (state is PaymentHistoryLoaded && state.statusFilter == null) {
-            _allPayments = state.payments;
-          }
-          final summary = _allPayments.isEmpty
-              ? null
-              : _EscrowSummaryCard(
-                  payments: _allPayments,
-                  viewerRole: _roleFilter ?? 'buyer',
-                );
           return Column(
             children: [
-              if (summary != null)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                  child: summary,
-                ),
               _buildFilterChips(l10n),
               const SizedBox(height: 4),
               Expanded(child: _buildBody(context, l10n, state)),
@@ -286,110 +270,6 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
           ],
         );
       },
-    );
-  }
-}
-
-/// The money this person has in escrow and the money that left it, in the
-/// boards' money brown and field green. Each party sums only its own leg
-/// (buyer: total, farmer: crop leg, trucker: transport leg).
-class _EscrowSummaryCard extends StatelessWidget {
-  final List<Payment> payments;
-  final String viewerRole;
-
-  const _EscrowSummaryCard({required this.payments, required this.viewerRole});
-
-  static const _heldStatuses = {PaymentStatus.escrowed, PaymentStatus.held};
-  static const _releasedStatuses = {
-    PaymentStatus.released,
-    PaymentStatus.completed,
-  };
-
-  double _sum(Set<PaymentStatus> statuses) => payments
-      .where((p) => statuses.contains(p.status))
-      .fold(0.0, (total, p) => total + p.payoutFor(viewerRole));
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return FwCard(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      child: Row(
-        children: [
-          Expanded(
-            child: _SummaryStat(
-              label: l10n.listsHeldInEscrow,
-              amount: _sum(_heldStatuses),
-              color: AppTheme.money,
-              icon: Icons.lock_outline,
-            ),
-          ),
-          Container(
-            width: 1,
-            height: 40,
-            color: AppTheme.segmentTrack,
-            margin: const EdgeInsets.symmetric(horizontal: 14),
-          ),
-          Expanded(
-            child: _SummaryStat(
-              label: l10n.listsReleased,
-              amount: _sum(_releasedStatuses),
-              color: AppTheme.fieldGreen,
-              icon: Icons.check_circle_outline,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SummaryStat extends StatelessWidget {
-  final String label;
-  final double amount;
-  final Color color;
-  final IconData icon;
-
-  const _SummaryStat({
-    required this.label,
-    required this.amount,
-    required this.color,
-    required this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(icon, size: 14, color: color),
-            const SizedBox(width: 5),
-            Flexible(
-              child: Text(
-                label,
-                style: FwText.body,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Text(
-          l10n.etbCurrency(formatEtbAmount(amount)),
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.3,
-            color: color,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ],
     );
   }
 }
