@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/core/models/buyer_intent.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
 import 'package:wereda_connect/features/buyer/domain/services/match_scorer.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
@@ -206,7 +207,7 @@ class MatchResultCard extends StatelessWidget {
                   const Spacer(),
                   // Estimated total
                   Text(
-                    '${l10n.estimatedTotal}: ${l10n.etbCurrency(result.estimatedTotalMin.toStringAsFixed(0))}',
+                    '${l10n.estimatedTotal}: ${l10n.etbCurrency(wholeNumber(result.estimatedTotalMin.round()))}',
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
