@@ -23,9 +23,10 @@ import 'package:wereda_connect/shared/widgets/status_chip.dart';
 /// A delivery on the road as a card (LT-11): for the buyer the "On the road
 /// now" card of the deliveries tab (crop, farmer and driver, the route
 /// ribbon, how current the check-in is, the arrival window); for the farmer
-/// "Your wheat is on the road" (buyer, arrival window, age). Never for the
-/// trucker, and never on trip rows, browse screens or crop listings: live
-/// location stays behind the delivery's track.
+/// "Your wheat is on the road" (the Farmer home board: the ribbon, then the
+/// buyer with the arrival window and the age of the last check-in). Never
+/// for the trucker, and never on trip rows, browse screens or crop listings:
+/// live location stays behind the delivery's track.
 class OnTheRoadCard extends StatefulWidget {
   const OnTheRoadCard({
     required this.delivery,
@@ -129,8 +130,10 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.local_shipping, color: AppTheme.primary),
-                  const SizedBox(width: 10),
+                  if (!farmer) ...[
+                    const Icon(Icons.local_shipping, color: AppTheme.primary),
+                    const SizedBox(width: 10),
+                  ],
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -139,19 +142,28 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
                           title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleSmall
-                              ?.copyWith(fontWeight: FontWeight.w700),
+                          style: farmer
+                              ? const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.2,
+                                  color: AppTheme.soilDark,
+                                )
+                              : theme.textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w700),
                         ),
-                        Text(
-                          subtitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: AppTheme.textMuted),
-                        ),
+                        if (!farmer)
+                          Text(
+                            subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall
+                                ?.copyWith(color: AppTheme.textMuted),
+                          ),
                       ],
                     ),
                   ),
+                  const SizedBox(width: 8),
                   StatusChip(
                     label: l10n.liveTripStatusOnTheRoad,
                     kind: band == TrackFreshness.late
@@ -160,54 +172,83 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
                   ),
                 ],
               ),
-              if (!farmer) ...[
-                const SizedBox(height: 14),
-                RouteRibbon(
-                  stops: ribbonStopsOf(
-                    context,
-                    delivery: delivery,
-                    track: track,
-                    places: _places,
-                    dropoffLabel: l10n.liveTripYou,
-                  ),
-                  reached: 1,
+              const SizedBox(height: 14),
+              RouteRibbon(
+                stops: ribbonStopsOf(
+                  context,
+                  delivery: delivery,
+                  track: track,
+                  places: _places,
+                  // The farmer's goods go to the buyer; the buyer reads "You".
+                  dropoffLabel:
+                      farmer ? l10n.liveTripDropoff : l10n.liveTripYou,
                 ),
-              ],
+                reached: 1,
+              ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: track == null
-                        ? const SizedBox.shrink()
-                        : CheckInChip(
-                            track: track,
-                            now: view.now,
-                            places: _places,
-                            compact: true,
-                          ),
-                  ),
-                  if (eta != null) ...[
-                    const SizedBox(width: 8),
-                    // Amharic and Oromo windows run long (with the small
-                    // 24-hour range): they wrap instead of overflowing.
-                    Flexible(
+              if (farmer)
+                // "Selam Traders · Arrives 13:20-14:00", the check-in age right.
+                Row(
+                  children: [
+                    Expanded(
                       child: ClockText(
-                        farmer
-                            ? _sentence(
+                        eta == null
+                            ? ClockLabel.text(subtitle)
+                            : _sentence(
                                 clock.window(eta.from, eta.to),
                                 l10n.liveTripArrives,
-                              )
-                            : clock.window(eta.from, eta.to),
-                        textAlign: TextAlign.end,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.primaryDeep,
+                              ).prefixed('$subtitle · '),
+                        maxLines: 2,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: AppTheme.mutedSteel,
                         ),
                       ),
                     ),
+                    if (track != null) ...[
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: CheckInChip(
+                          track: track,
+                          now: view.now,
+                          places: _places,
+                          compact: true,
+                        ),
+                      ),
+                    ],
                   ],
-                ],
-              ),
+                )
+              else
+                Row(
+                  children: [
+                    Expanded(
+                      child: track == null
+                          ? const SizedBox.shrink()
+                          : CheckInChip(
+                              track: track,
+                              now: view.now,
+                              places: _places,
+                              compact: true,
+                            ),
+                    ),
+                    if (eta != null) ...[
+                      const SizedBox(width: 8),
+                      // Amharic and Oromo windows run long (with the small
+                      // 24-hour range): they wrap instead of overflowing.
+                      Flexible(
+                        child: ClockText(
+                          clock.window(eta.from, eta.to),
+                          textAlign: TextAlign.end,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.primaryDeep,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
             ],
           ),
         ),

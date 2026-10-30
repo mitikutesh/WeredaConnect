@@ -7721,6 +7721,96 @@ abstract class AppLocalizations {
   /// **'Today'**
   String get homeToday;
 
+  /// Fieldway design alignment (specs/design-canvas). Home action card: a deadline that falls today, with the time of day
+  ///
+  /// In en, this message translates to:
+  /// **'Due today {time}'**
+  String homeDueToday(String time);
+
+  /// Fieldway design alignment (specs/design-canvas). Home: link under the one Action needed card to the other orders waiting; opens the Orders list
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 more} other{{count} more}}'**
+  String homeActionMore(int count);
+
+  /// Fieldway design alignment (specs/design-canvas). Trucker home trip card: the next stop is a pickup at the farmer {name}
+  ///
+  /// In en, this message translates to:
+  /// **'Next: pickup at {name}'**
+  String homeNextPickup(String name);
+
+  /// Fieldway design alignment (specs/design-canvas). Trucker home trip card: the next stop is a drop-off at the buyer {name}
+  ///
+  /// In en, this message translates to:
+  /// **'Next: drop-off at {name}'**
+  String homeNextDropoff(String name);
+
+  /// Fieldway design alignment (specs/design-canvas). Trucker home trip card when no trip is posted: line under No active trip
+  ///
+  /// In en, this message translates to:
+  /// **'Post a trip and buyers can book space on it.'**
+  String get homeTripNoneHint;
+
+  /// Fieldway design alignment (specs/design-canvas). Trucker home trip card, a booked trip not started: what to do on the trip day
+  ///
+  /// In en, this message translates to:
+  /// **'Scan each farmer\'s QR at pickup'**
+  String get homeTripMatchedLine;
+
+  /// Fieldway design alignment (specs/design-canvas). Farmer home My Crops tile: line under the count
+  ///
+  /// In en, this message translates to:
+  /// **'{active} active, {reserved} reserved'**
+  String homeTileActiveReserved(int active, int reserved);
+
+  /// Fieldway design alignment (specs/design-canvas). Farmer home Pending Orders tile: line under the count
+  ///
+  /// In en, this message translates to:
+  /// **'waiting for you'**
+  String get homeTileWaitingForYou;
+
+  /// Fieldway design alignment (specs/design-canvas). Farmer home Escrow tile: line under the amount (the farmer's crop money in escrow)
+  ///
+  /// In en, this message translates to:
+  /// **'held for you'**
+  String get homeTileHeldForYou;
+
+  /// Fieldway design alignment (specs/design-canvas). Buyer home Escrow tile: line under the amount (the buyer's money in escrow)
+  ///
+  /// In en, this message translates to:
+  /// **'held in escrow'**
+  String get homeTileHeldInEscrow;
+
+  /// Fieldway design alignment (specs/design-canvas). Home Deliveries tile: line under the count of deliveries on the road
+  ///
+  /// In en, this message translates to:
+  /// **'in transit'**
+  String get homeTileInTransit;
+
+  /// Fieldway design alignment (specs/design-canvas). Buyer home Active Orders tile: line under the count
+  ///
+  /// In en, this message translates to:
+  /// **'in progress'**
+  String get homeTileInProgress;
+
+  /// Fieldway design alignment (specs/design-canvas). Buyer home Find Crops tile: line under the count of listings on the market
+  ///
+  /// In en, this message translates to:
+  /// **'available now'**
+  String get homeTileAvailableNow;
+
+  /// Fieldway design alignment (specs/design-canvas). Buyer home Find Trips tile: line under the label (buyers browse every trucker's trips)
+  ///
+  /// In en, this message translates to:
+  /// **'all trucks heading out'**
+  String get homeTileBrowseAllTrips;
+
+  /// Fieldway design alignment (specs/design-canvas). Home: the one-line Recent card; {event} is the latest activity line
+  ///
+  /// In en, this message translates to:
+  /// **'Recent: {event}'**
+  String homeRecentLine(String event);
+
   /// Fieldway design alignment (specs/design-canvas). Trip detail header: the trip's price; {price} is a number
   ///
   /// In en, this message translates to:

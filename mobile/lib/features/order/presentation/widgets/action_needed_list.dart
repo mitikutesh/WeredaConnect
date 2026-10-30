@@ -7,7 +7,9 @@ import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
@@ -146,13 +148,15 @@ String actionNeededLabel(AppLocalizations l10n, ActionNeededKind kind) =>
       ActionNeededKind.checkDelivery => l10n.actionCheckDelivery,
     };
 
-/// Home: the orders waiting for the signed-in user, above "At a glance".
+/// Home: the order waiting for the signed-in user, above "At a glance"
+/// (the Farmer and Trucker home boards show one cream Action needed card).
 /// Reads the user's orders through the app's order repository (Isar on
 /// mobile, `GET /orders` on web), and for a trucker the deliveries, so it
 /// works offline on mobile; on mobile it first pulls the user's orders
 /// (best-effort and throttled, as the Orders tab does) so a new request
-/// shows without visiting that tab. Shows nothing when nothing waits. Each
-/// card opens the order.
+/// shows without visiting that tab. Shows nothing when nothing waits. The
+/// card opens its order; when more orders wait, a "N more" link under it
+/// opens the full list through [onShowAll].
 class ActionNeededList extends StatefulWidget {
   final String userId;
   final UserRole role;
@@ -160,14 +164,16 @@ class ActionNeededList extends StatefulWidget {
   /// Called after an opened order is closed again (the user may have acted).
   final VoidCallback? onRefresh;
 
-  /// Most cards shown; the Orders tab has the rest.
-  static const maxShown = 5;
+  /// Opens the list with every waiting order (the Orders tab). Without it
+  /// the "N more" link is left out.
+  final VoidCallback? onShowAll;
 
   const ActionNeededList({
     required this.userId,
     required this.role,
     super.key,
     this.onRefresh,
+    this.onShowAll,
   });
 
   @override
@@ -259,26 +265,38 @@ class _ActionNeededListState extends State<ActionNeededList> {
       builder: (context, snapshot) {
         final items = snapshot.data ?? const <ActionNeededItem>[];
         if (items.isEmpty) return const SizedBox.shrink();
+        final more = items.length - 1;
+        final onShowAll = widget.onShowAll;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              l10n.actionNeededTitle,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.textDark,
-              ),
+            _ActionNeededCard(
+              item: items.first,
+              role: widget.role,
+              l10n: l10n,
+              onTap: () => _open(items.first),
             ),
-            const SizedBox(height: 8),
-            for (final item in items.take(ActionNeededList.maxShown)) ...[
-              _ActionNeededCard(
-                item: item,
-                l10n: l10n,
-                onTap: () => _open(item),
+            if (more > 0 && onShowAll != null)
+              Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: TextButton.icon(
+                  key: const Key('action_needed_more'),
+                  onPressed: onShowAll,
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppTheme.money,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 36),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    textStyle: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  iconAlignment: IconAlignment.end,
+                  icon: const Icon(Icons.chevron_right, size: 18),
+                  label: Text(l10n.homeActionMore(more)),
+                ),
               ),
-              const SizedBox(height: 8),
-            ],
           ],
         );
       },
@@ -288,34 +306,54 @@ class _ActionNeededListState extends State<ActionNeededList> {
 
 class _ActionNeededCard extends StatelessWidget {
   final ActionNeededItem item;
+  final UserRole role;
   final AppLocalizations l10n;
   final VoidCallback onTap;
 
   const _ActionNeededCard({
     required this.item,
+    required this.role,
     required this.l10n,
     required this.onTap,
   });
 
+  /// "Abebe Trading · Wheat · 1,200 kg": the other party the user answers
+  /// (the buyer for a farmer or a trucker, the farmer for a buyer), the crop
+  /// and the quantity.
+  String _facts() {
+    final order = item.order;
+    final party = partyDisplayName(
+      role == UserRole.buyer ? order.farmerName : order.buyerName,
+      l10n,
+    );
+    return [
+      if (party.isNotEmpty) party,
+      CropType.labelFor(order.cropType, l10n),
+      l10n.quantityKg(order.quantity.toStringAsFixed(0)),
+    ].join(' · ');
+  }
+
+  /// "Due today 16:00", or with the day when the deadline is another day.
+  ClockLabel _due(BuildContext context, DateTime due) {
+    final clock = clockFormatOf(context);
+    final today = dayInEthiopia(DateTime.now().toUtc());
+    if (DateUtils.isSameDay(dayInEthiopia(due), today)) {
+      return clock.deadline(due, sentence: l10n.homeDueToday);
+    }
+    return clock.deadline(
+      due,
+      date: DateFormat.MMMd(),
+      sentence: l10n.actionDueBy,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final order = item.order;
     final due = item.dueAt;
-    final facts = '${CropType.labelFor(order.cropType, l10n)} · '
-        '${l10n.quantityKg(order.quantity.toStringAsFixed(0))}';
-    final details = due == null
-        ? ClockLabel.text(facts)
-        : clockFormatOf(context)
-            .deadline(
-              due,
-              date: DateFormat.MMMd(),
-              sentence: l10n.actionDueBy,
-            )
-            .prefixed('$facts · ');
     return Semantics(
       button: true,
       child: Material(
-        color: const Color(0xFFFAEED8),
+        color: AppTheme.actionCream,
         borderRadius: BorderRadius.circular(20),
         child: InkWell(
           onTap: onTap,
@@ -326,24 +364,25 @@ class _ActionNeededCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      l10n.actionNeededTitle.toUpperCase(),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.8,
-                        color: Color(0xFF8A5410),
+                    Expanded(
+                      child: Text(
+                        l10n.actionNeededTitle.toUpperCase(),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.9,
+                          color: AppTheme.money,
+                        ),
                       ),
                     ),
                     if (due != null)
                       ClockText(
-                        details,
+                        _due(context, due),
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
-                          color: Color(0xFF6B400B),
+                          color: AppTheme.actionInk,
                         ),
                       ),
                   ],
@@ -354,28 +393,29 @@ class _ActionNeededCard extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w800,
+                    letterSpacing: -0.2,
                     color: AppTheme.soilDark,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Expanded(
                       child: Text(
-                        facts,
+                        _facts(),
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFF6B400B),
+                          color: AppTheme.actionInk,
                         ),
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     const Icon(
-                      Icons.arrow_forward_ios,
-                      size: 14,
-                      color: Color(0xFF6B400B),
+                      Icons.chevron_right,
+                      size: 20,
+                      color: AppTheme.actionInk,
                     ),
                   ],
                 ),

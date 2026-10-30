@@ -4379,6 +4379,69 @@ class AppLocalizationsEn extends AppLocalizations {
   String get homeToday => 'Today';
 
   @override
+  String homeDueToday(String time) {
+    return 'Due today $time';
+  }
+
+  @override
+  String homeActionMore(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count more',
+      one: '1 more',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String homeNextPickup(String name) {
+    return 'Next: pickup at $name';
+  }
+
+  @override
+  String homeNextDropoff(String name) {
+    return 'Next: drop-off at $name';
+  }
+
+  @override
+  String get homeTripNoneHint => 'Post a trip and buyers can book space on it.';
+
+  @override
+  String get homeTripMatchedLine => 'Scan each farmer\'s QR at pickup';
+
+  @override
+  String homeTileActiveReserved(int active, int reserved) {
+    return '$active active, $reserved reserved';
+  }
+
+  @override
+  String get homeTileWaitingForYou => 'waiting for you';
+
+  @override
+  String get homeTileHeldForYou => 'held for you';
+
+  @override
+  String get homeTileHeldInEscrow => 'held in escrow';
+
+  @override
+  String get homeTileInTransit => 'in transit';
+
+  @override
+  String get homeTileInProgress => 'in progress';
+
+  @override
+  String get homeTileAvailableNow => 'available now';
+
+  @override
+  String get homeTileBrowseAllTrips => 'all trucks heading out';
+
+  @override
+  String homeRecentLine(String event) {
+    return 'Recent: $event';
+  }
+
+  @override
   String tripPricePerQuintalValue(String price) {
     return '$price ETB per quintal';
   }
