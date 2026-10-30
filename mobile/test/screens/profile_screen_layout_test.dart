@@ -19,7 +19,6 @@ import 'package:wereda_connect/shared/providers/language_provider.dart';
 import 'package:wereda_connect/shared/providers/settings_provider.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
-import 'package:wereda_connect/shared/widgets/green_header.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
@@ -125,7 +124,6 @@ void main() {
           (tester) async {
         await pumpProfile(tester, role);
 
-        expect(find.byType(GreenHeader), findsNothing);
         expect(find.byType(AppBar), findsNothing);
         expect(find.byType(FwPageHeader), findsOneWidget);
         // The role is the eyebrow and the pill on the identity card.
