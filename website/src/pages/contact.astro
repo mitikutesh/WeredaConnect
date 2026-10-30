@@ -1,79 +1,11 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import ContactView from '../components/views/ContactView.astro';
 import { t } from '../i18n';
 
 const locale = 'en';
 ---
 
 <Layout locale={locale} title={`${t(locale, 'contact.heading')} | WeredaConnect`}>
-  <section class="bg-gradient-to-br from-primary-dark to-primary text-white py-16 md:py-20">
-    <div class="max-w-4xl mx-auto px-4 sm:px-6 text-center">
-      <h1 class="text-3xl md:text-4xl font-bold mb-4 animate-on-scroll">{t(locale, 'contact.heading')}</h1>
-      <p class="text-white/80 animate-on-scroll">{t(locale, 'contact.subtitle')}</p>
-    </div>
-  </section>
-
-  <section class="py-16 bg-surface">
-    <div class="max-w-4xl mx-auto px-4 sm:px-6">
-      <div class="grid md:grid-cols-2 gap-12">
-        <!-- Form -->
-        <form
-          action="https://formspree.io/f/xpznqkdl"
-          method="POST"
-          class="space-y-5 animate-on-scroll"
-        >
-          <div>
-            <label for="name" class="block text-sm font-medium mb-1">{t(locale, 'contact.name')}</label>
-            <input
-              type="text"
-              id="name"
-              name="name"
-              required
-              class="w-full px-4 py-2.5 border border-border-light rounded-lg focus:ring-2 focus:ring-primary focus:border-primary bg-cream"
-            />
-          </div>
-          <div>
-            <label for="email" class="block text-sm font-medium mb-1">{t(locale, 'contact.email')}</label>
-            <input
-              type="email"
-              id="email"
-              name="email"
-              required
-              class="w-full px-4 py-2.5 border border-border-light rounded-lg focus:ring-2 focus:ring-primary focus:border-primary bg-cream"
-            />
-          </div>
-          <div>
-            <label for="message" class="block text-sm font-medium mb-1">{t(locale, 'contact.message')}</label>
-            <textarea
-              id="message"
-              name="message"
-              rows="5"
-              required
-              class="w-full px-4 py-2.5 border border-border-light rounded-lg focus:ring-2 focus:ring-primary focus:border-primary bg-cream resize-none"
-            ></textarea>
-          </div>
-          <button
-            type="submit"
-            class="w-full px-6 py-3 bg-primary hover:bg-primary-light text-white font-semibold rounded-lg transition-colors"
-          >
-            {t(locale, 'contact.send')}
-          </button>
-        </form>
-
-        <!-- Contact Info -->
-        <div class="animate-on-scroll space-y-6">
-          <div class="bg-cream rounded-xl p-6">
-            <h3 class="font-semibold mb-3">Email</h3>
-            <a href={`mailto:${t(locale, 'contact.info.email')}`} class="text-primary hover:underline">
-              {t(locale, 'contact.info.email')}
-            </a>
-          </div>
-          <div class="bg-cream rounded-xl p-6">
-            <h3 class="font-semibold mb-3">Location</h3>
-            <p class="text-text-muted">{t(locale, 'contact.info.location')}</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
+  <ContactView locale={locale} />
 </Layout>

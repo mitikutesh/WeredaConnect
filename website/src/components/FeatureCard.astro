@@ -1,17 +1,26 @@
 ---
+import Icon, { type IconName } from './Icon.astro';
+
 interface Props {
   title: string;
   description: string;
-  icon: string;
+  icon: IconName;
+  /** Card fill: cream on white sections, white on cream sections. */
+  tone?: 'cream' | 'white';
 }
 
-const { title, description, icon } = Astro.props;
+const { title, description, icon, tone = 'cream' } = Astro.props;
 ---
 
-<div class="animate-on-scroll bg-surface rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow border border-border-light">
-  <div class="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4 text-2xl">
-    <Fragment set:html={icon} />
-  </div>
-  <h3 class="text-lg font-semibold text-text-dark mb-2">{title}</h3>
-  <p class="text-sm text-text-muted leading-relaxed">{description}</p>
-</div>
+<article
+  class:list={[
+    'flex flex-col gap-4 rounded-[20px] border border-border-light p-7 animate-on-scroll',
+    tone === 'cream' ? 'bg-cream' : 'bg-white',
+  ]}
+>
+  <span class="flex h-12 w-12 items-center justify-center rounded-[14px] bg-primary-tint text-primary">
+    <Icon name={icon} strokeWidth={1.8} />
+  </span>
+  <h3 class="m-0 text-xl font-bold tracking-[-0.01em]">{title}</h3>
+  <p class="m-0 text-[15px] leading-[1.6] text-text-muted">{description}</p>
+</article>

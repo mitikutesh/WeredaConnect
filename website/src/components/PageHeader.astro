@@ -1,0 +1,24 @@
+---
+// Plain page header (eyebrow, h1, lead) used by the inner pages. The default
+// slot renders under the lead, e.g. the role jump links on How it works.
+interface Props {
+  title: string;
+  eyebrow?: string;
+  lead?: string;
+  /** Tighter spacing when a card grid follows directly. */
+  compact?: boolean;
+  /** Match the 768px text column of the legal pages. */
+  narrow?: boolean;
+}
+
+const { title, eyebrow, lead, compact = false, narrow = false } = Astro.props;
+---
+
+<section aria-labelledby="page-title" class:list={['px-6 pt-20', compact ? 'pb-12' : 'pb-16']}>
+  <div class:list={['mx-auto flex flex-col animate-on-scroll', narrow ? 'max-w-3xl' : 'max-w-[1200px]', compact ? 'gap-5' : 'gap-7']}>
+    {eyebrow && <p class="eyebrow text-accent-dark">{eyebrow}</p>}
+    <h1 id="page-title" class="m-0 max-w-[760px] text-[clamp(38px,4.2vw,60px)] leading-[1.05] tracking-[-0.025em] font-extrabold">{title}</h1>
+    {lead && <p class="m-0 max-w-[640px] text-[19px] leading-[1.6] text-text-muted">{lead}</p>}
+    <slot />
+  </div>
+</section>

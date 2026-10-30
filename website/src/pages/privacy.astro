@@ -1,5 +1,6 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import PageHeader from '../components/PageHeader.astro';
 import { t, localePath } from '../i18n';
 import en from '../i18n/en.json';
 
@@ -13,12 +14,9 @@ const email = t(locale, 'contact.info.email');
   title={`${t(locale, 'privacyPolicy.title')} | WeredaConnect`}
   description={t(locale, 'privacyPolicy.intro')}
 >
-  <section class="bg-gradient-to-br from-primary-dark to-primary text-white py-16 md:py-20">
-    <div class="max-w-4xl mx-auto px-4 sm:px-6 text-center">
-      <h1 class="text-3xl md:text-4xl font-bold mb-3 animate-on-scroll">{t(locale, 'privacyPolicy.title')}</h1>
-      <p class="text-white/70 text-sm animate-on-scroll">{t(locale, 'privacyPolicy.updated')}</p>
-    </div>
-  </section>
+  <PageHeader title={t(locale, 'privacyPolicy.title')} compact narrow>
+    <p class="m-0 text-sm text-text-muted">{t(locale, 'privacyPolicy.updated')}</p>
+  </PageHeader>
 
   <section class="py-16 bg-surface">
     <div class="max-w-3xl mx-auto px-4 sm:px-6 space-y-10">
@@ -59,7 +57,7 @@ const email = t(locale, 'contact.info.email');
         <p class="text-text-muted leading-relaxed mb-4">{t(locale, 'privacyPolicy.deletion.text')}</p>
         <a
           href={localePath(locale, '/delete-account/')}
-          class="inline-flex px-5 py-2.5 bg-primary hover:bg-primary-light text-white text-sm font-semibold rounded-lg transition-colors"
+          class="inline-flex px-5 py-2.5 bg-primary hover:bg-primary-dark text-white text-sm font-semibold rounded-lg transition-colors"
         >
           {t(locale, 'privacyPolicy.deletion.link')}
         </a>

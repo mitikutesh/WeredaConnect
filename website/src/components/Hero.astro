@@ -1,50 +1,47 @@
 ---
 import type { Locale } from '../i18n';
 import { t, localePath } from '../i18n';
+import Icon from './Icon.astro';
+import HeroPhone from './HeroPhone.astro';
 
 interface Props {
   locale: Locale;
 }
 
 const { locale } = Astro.props;
+const points = ['hero.point1', 'hero.point2', 'hero.point3'];
 ---
 
-<section class="relative overflow-hidden bg-gradient-to-br from-primary-dark via-primary to-primary-light text-white">
-  <div class="absolute inset-0 opacity-10">
-    <svg class="w-full h-full" viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="200" cy="150" r="120" fill="white"/>
-      <circle cx="650" cy="400" r="180" fill="white"/>
-      <circle cx="400" cy="500" r="80" fill="white"/>
-    </svg>
-  </div>
-  <div class="relative max-w-6xl mx-auto px-4 sm:px-6 py-20 md:py-32">
-    <div class="max-w-2xl">
-      <h1 class="text-4xl md:text-5xl lg:text-6xl font-bold leading-tight mb-6 animate-on-scroll">
+<section aria-labelledby="hero-title" class="px-6 py-[72px]">
+  <div class="mx-auto max-w-[1200px] flex flex-wrap items-center gap-x-16 gap-y-12">
+    <div class="flex min-w-0 flex-[1_1_440px] flex-col gap-6 animate-on-scroll">
+      <p class="eyebrow text-accent-dark">{t(locale, 'hero.eyebrow')}</p>
+      <h1 id="hero-title" class="m-0 text-[clamp(40px,4.6vw,66px)] leading-[1.04] tracking-[-0.025em] font-extrabold">
         {t(locale, 'hero.title')}
       </h1>
-      <p class="text-lg md:text-xl text-white/80 mb-8 animate-on-scroll">
-        {t(locale, 'hero.subtitle')}
-      </p>
-      <div class="flex flex-wrap gap-4 animate-on-scroll">
-        <a
-          href={localePath(locale, '/#download')}
-          class="inline-flex items-center px-6 py-3 bg-accent hover:bg-accent-light text-white font-semibold rounded-lg transition-colors"
-        >
-          {t(locale, 'hero.cta')}
-          <svg class="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-          </svg>
+      <p class="m-0 max-w-[540px] text-xl leading-[1.55] text-text-muted">{t(locale, 'hero.subtitle')}</p>
+      <div class="flex flex-wrap items-center gap-3">
+        <a href={localePath(locale, '/#download')} class="btn bg-accent text-white hover:bg-accent-dark">
+          <Icon name="download" size={20} />
+          <span>{t(locale, 'hero.cta')}</span>
         </a>
-        <a
-          href={localePath(locale, '/about/')}
-          class="inline-flex items-center px-6 py-3 border-2 border-white/30 hover:bg-white/10 text-white font-semibold rounded-lg transition-colors"
-        >
-          {t(locale, 'hero.learnMore')}
-          <svg class="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-          </svg>
+        <a href={localePath(locale, '/how-it-works/')} class="btn border-[1.5px] border-primary text-primary hover:bg-primary-tint">
+          <span>{t(locale, 'hero.seeHow')}</span>
+          <Icon name="arrowRight" size={20} />
         </a>
       </div>
+      <ul class="mt-2 flex list-none flex-wrap gap-x-6 gap-y-3 p-0 text-sm font-semibold text-text-muted">
+        {points.map((key) => (
+          <li class="inline-flex items-center gap-2">
+            <Icon name="check" size={18} strokeWidth={2.2} class="text-primary" />
+            <span>{t(locale, key)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+
+    <div class="flex min-w-0 flex-[1_1_400px] justify-center animate-on-scroll fade">
+      <HeroPhone locale={locale} />
     </div>
   </div>
 </section>

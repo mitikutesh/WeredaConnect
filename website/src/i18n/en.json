@@ -6,61 +6,109 @@
   "nav": {
     "home": "Home",
     "about": "About",
-    "howItWorks": "How It Works",
+    "howItWorks": "How it works",
     "contact": "Contact",
-    "download": "Download App"
+    "download": "Download app",
+    "homeLabel": "WeredaConnect home",
+    "mainLabel": "Main",
+    "languageLabel": "Language"
   },
   "hero": {
-    "title": "Connecting Ethiopian Farmers to Markets",
-    "subtitle": "An offline-first platform that bridges the gap between farmers, transport providers, and urban buyers across Ethiopia.",
-    "cta": "Download the App",
-    "learnMore": "Learn More"
+    "eyebrow": "Offline-first · Amharic · Afan Oromo · Telebirr",
+    "title": "Connecting Ethiopian farmers to markets",
+    "subtitle": "An offline-first platform that bridges the gap between farmers, transport providers and urban buyers across Ethiopia.",
+    "cta": "Download the app",
+    "seeHow": "See how it works",
+    "point1": "Works with no internet",
+    "point2": "Built for 2G and low-cost phones",
+    "point3": "Telebirr escrow payments",
+    "mockup": {
+      "label": "Preview of the WeredaConnect app: a farmer's offers screen",
+      "greeting": "Good morning",
+      "name": "Almaz Bekele",
+      "offline": "Offline. 3 listings will sync when connected.",
+      "search": "Search listings and orders",
+      "chipAll": "All",
+      "chipCoffee": "Coffee",
+      "chipTeff": "Teff",
+      "chipOnion": "Onion",
+      "offersTitle": "Offers for your coffee",
+      "seeAll": "See all",
+      "buyer1": "Sara M.",
+      "city1": "Addis Ababa",
+      "verified": "Verified",
+      "offer1": "Washed coffee · 12 quintals · pickup Thursday",
+      "price1": "ETB 18,500",
+      "perQuintal": "/ quintal",
+      "accept": "Accept",
+      "buyer2": "Yonas T.",
+      "city2": "Hawassa",
+      "time2": "2 h ago",
+      "offer2": "Washed coffee · 8 quintals · truck arranged",
+      "price2": "ETB 17,900",
+      "view": "View",
+      "buyer3": "Hana G.",
+      "city3": "Adama",
+      "time3": "Yesterday",
+      "offer3": "Sun-dried coffee · 20 quintals",
+      "tabMarket": "Market",
+      "tabTrips": "Trips",
+      "tabWallet": "Wallet",
+      "tabProfile": "Profile",
+      "syncedTitle": "Synced",
+      "syncedText": "3 listings uploaded",
+      "escrowTitle": "Escrow released",
+      "escrowText": "ETB 222,000 via Telebirr"
+    }
   },
   "features": {
-    "heading": "Why WeredaConnect?",
+    "eyebrow": "Why WeredaConnect",
+    "heading": "Built for Ethiopia's reality, not for perfect networks",
+    "subtitle": "Every feature works without internet, in your language, with payments you can trust.",
     "offline": {
-      "title": "Works Offline",
-      "description": "Full functionality without internet. Syncs automatically when connected — perfect for rural Ethiopia."
+      "title": "Works offline",
+      "description": "Full functionality without internet. Everything syncs automatically when you reconnect, which is how rural Ethiopia actually works."
     },
     "voice": {
-      "title": "Voice in Your Language",
-      "description": "Voice-to-text in Amharic, Afan Oromo, and English. Designed for everyone, regardless of literacy."
+      "title": "Voice in your language",
+      "description": "Voice-to-text in Amharic, Afan Oromo and English. Designed for everyone, whatever their level of literacy."
     },
     "payment": {
-      "title": "Telebirr Payment",
-      "description": "Secure escrow payments through Telebirr. Funds released only when delivery is confirmed."
+      "title": "Telebirr escrow",
+      "description": "Secure payments held in Telebirr escrow. Funds are released only when the buyer confirms delivery."
     },
     "logistics": {
-      "title": "Smart Logistics",
-      "description": "Find available trucks, plan routes, and track deliveries from farm to market."
+      "title": "Smart logistics",
+      "description": "Find available trucks, plan routes and track deliveries from farm to market."
     },
     "lowData": {
-      "title": "Low Data Usage",
-      "description": "Built for expensive mobile data. Minimal bandwidth, maximum value."
+      "title": "Low data usage",
+      "description": "Built for expensive mobile data. Minimal bandwidth, maximum value, on a 2G connection and a low-cost phone."
     },
     "community": {
-      "title": "Community Trust",
-      "description": "Ratings, reviews, and verified profiles build trust between farmers, truckers, and buyers."
+      "title": "Community trust",
+      "description": "Ratings, reviews and verified profiles build trust between farmers, truckers and buyers."
     }
   },
   "stats": {
-    "heading": "Growing Impact",
-    "farmers": "Farmers Connected",
-    "trips": "Deliveries Completed",
-    "regions": "Regions Served",
-    "saved": "Saved in Transport Costs"
+    "heading": "Growing impact",
+    "farmers": "Farmers connected",
+    "trips": "Deliveries completed",
+    "regions": "Regions served",
+    "saved": "Saved in transport costs"
   },
   "testimonials": {
-    "heading": "Voices from the Field",
+    "heading": "Voices from the field",
+    "title": "Farmers, drivers and buyers, in their own words",
     "farmer": {
       "quote": "Before WeredaConnect, I had to travel to Addis to find buyers. Now they come to me.",
       "name": "Almaz Bekele",
-      "role": "Coffee Farmer, Jimma"
+      "role": "Coffee farmer, Jimma"
     },
     "trucker": {
       "quote": "I used to drive back empty half the time. Now I always find cargo for the return trip.",
       "name": "Dawit Haile",
-      "role": "Truck Driver, Hawassa"
+      "role": "Truck driver, Hawassa"
     },
     "buyer": {
       "quote": "I can source fresh produce directly from farmers at fair prices. Everyone wins.",
@@ -69,107 +117,172 @@
     }
   },
   "howItWorks": {
-    "heading": "How It Works",
+    "heading": "How it works",
     "subtitle": "Three simple steps for each user",
+    "intro": "Whether you grow, haul or buy, WeredaConnect takes you from listing to payment in three steps. Telebirr escrow protects everyone along the way.",
+    "seeFull": "See the full flow",
+    "jumpLabel": "Jump to a role",
     "farmer": {
-      "title": "For Farmers",
+      "title": "For farmers",
+      "short": "Farmers",
+      "tagline": "Sell directly, get paid safely",
+      "intro": "Sell directly to buyers who come to you, and get paid without travelling to the city.",
       "step1": {
-        "title": "List Your Produce",
-        "description": "Add what you're selling — type, quantity, and price. Works offline."
+        "title": "List your produce",
+        "description": "Add what you are selling: type, quantity and price. Speak it in Amharic or Afan Oromo. Works offline."
       },
       "step2": {
-        "title": "Get Matched",
-        "description": "Buyers browse your listings. Accept offers that work for you."
+        "title": "Get matched",
+        "description": "Buyers browse your listings. Accept the offers that work for you."
       },
       "step3": {
-        "title": "Get Paid Securely",
-        "description": "Payment held in Telebirr escrow. Released when buyer confirms delivery."
+        "title": "Get paid securely",
+        "description": "Payment is held in Telebirr escrow and released when the buyer confirms delivery."
       }
     },
     "trucker": {
-      "title": "For Truckers",
+      "title": "For truckers",
+      "short": "Truckers",
+      "tagline": "Never drive back empty",
+      "intro": "Fill the return trip. Post your route once and let buyers book you.",
       "step1": {
-        "title": "Post Your Trip",
-        "description": "List your route, capacity, and price. Buyers browse all trips and book you."
+        "title": "Post your trip",
+        "description": "List your route, capacity and price. Buyers browse all trips and book you."
       },
       "step2": {
-        "title": "Accept & Transport",
-        "description": "Confirm pickup details. Track your trip progress in the app."
+        "title": "Accept and transport",
+        "description": "Confirm pickup details and track your trip progress in the app."
       },
       "step3": {
-        "title": "Earn on Delivery",
-        "description": "Payment confirmed on delivery. Build your reputation with ratings."
+        "title": "Earn on delivery",
+        "description": "Payment is confirmed on delivery. Build your reputation with ratings."
       }
     },
     "buyer": {
-      "title": "For Buyers",
+      "title": "For buyers",
+      "short": "Buyers",
+      "tagline": "Fresh from the source, fair prices",
+      "intro": "Source fresh produce straight from the farm at fair prices, with transport arranged in the same app.",
       "step1": {
-        "title": "Search Produce",
-        "description": "Browse farmers by crop type, region, and price. Fresh from the source."
+        "title": "Search produce",
+        "description": "Browse farmers by crop type, region and price. Fresh from the source."
       },
       "step2": {
-        "title": "Arrange Transport",
-        "description": "Book a truck directly or let farmers arrange delivery."
+        "title": "Arrange transport",
+        "description": "Book a truck directly or let the farmer arrange delivery."
       },
       "step3": {
-        "title": "Receive & Pay",
-        "description": "Inspect on arrival. Confirm delivery to release escrow payment."
+        "title": "Receive and pay",
+        "description": "Inspect on arrival. Confirm delivery to release the escrow payment."
+      }
+    },
+    "escrow": {
+      "eyebrow": "Telebirr escrow",
+      "heading": "Money moves only when the produce does",
+      "text": "No one is paid before delivery, and no one delivers without a payment waiting. The same flow protects farmers, truckers and buyers.",
+      "step": "Step",
+      "step1": {
+        "title": "Buyer pays into escrow",
+        "text": "The buyer accepts a listing and pays through Telebirr. The money is held, not sent."
+      },
+      "step2": {
+        "title": "Farmer and trucker move",
+        "text": "Both see the payment is secured. The trucker picks up, and the trip is tracked in the app."
+      },
+      "step3": {
+        "title": "Buyer confirms delivery",
+        "text": "The buyer inspects the produce on arrival and confirms in one tap."
+      },
+      "step4": {
+        "title": "Funds are released",
+        "text": "Telebirr pays the farmer and the trucker. Ratings are exchanged and reputations grow."
       }
     }
   },
   "downloadCta": {
-    "heading": "Ready to Connect?",
-    "subtitle": "Download WeredaConnect and join thousands of Ethiopian farmers, truckers, and buyers.",
+    "eyebrow": "Get the app",
+    "heading": "Ready to connect?",
+    "subtitle": "Download WeredaConnect and join thousands of Ethiopian farmers, truckers and buyers.",
     "playStore": "Get it on Google Play",
-    "comingSoon": "Coming Soon on Google Play"
+    "comingSoon": "Coming soon on",
+    "talk": "Talk to us",
+    "languages": "Available in English, Amharic and Afan Oromo."
   },
   "about": {
-    "heading": "About WeredaConnect",
-    "mission": {
-      "title": "Our Mission",
-      "text": "WeredaConnect was born from a simple observation: Ethiopian farmers lose up to 40% of their income to middlemen and inefficient logistics. We're building technology that puts farmers first — connecting them directly to buyers and transport, even in areas with no internet."
+    "eyebrow": "About WeredaConnect",
+    "heading": "Technology that puts farmers first",
+    "lead": "WeredaConnect was born from a simple observation: Ethiopian farmers lose a large share of their income to middlemen and inefficient logistics. We are building technology that connects them directly to buyers and transport, even where there is no internet.",
+    "partner": "Partner with us",
+    "stat1": {
+      "value": "40%",
+      "text": "of a farmer's income can be lost to middlemen and inefficient logistics"
     },
+    "stat2": {
+      "value": "80%",
+      "text": "of Ethiopians depend on agriculture for their livelihood"
+    },
+    "location": "Built in Addis Ababa, for weredas across 8 regions of Ethiopia.",
     "problem": {
-      "title": "The Challenge",
-      "text": "Over 80% of Ethiopians depend on agriculture, yet rural farmers face enormous barriers: unreliable internet, limited market access, expensive transport, and a cash economy vulnerable to exploitation. Traditional solutions assume connectivity that doesn't exist."
+      "title": "The challenge",
+      "heading": "Traditional solutions assume connectivity that does not exist",
+      "text": "Over 80% of Ethiopians depend on agriculture, yet rural farmers face enormous barriers: unreliable internet, limited market access, expensive transport and a cash economy that is vulnerable to exploitation."
     },
     "solution": {
-      "title": "Our Approach",
-      "text": "WeredaConnect works offline-first. Every feature functions without internet, syncing when connected. Voice-to-text in Amharic and Afan Oromo ensures accessibility. Telebirr integration provides secure digital payments. We built for Ethiopia's reality, not Silicon Valley's assumptions."
+      "title": "Our approach",
+      "heading": "We built for Ethiopia's reality, not Silicon Valley's assumptions",
+      "text": "WeredaConnect works offline-first. Every feature functions without internet and syncs when connected.",
+      "point1": "Offline-first, with automatic sync",
+      "point2": "Voice-to-text in Amharic and Afan Oromo",
+      "point3": "Secure digital payments through Telebirr"
     },
     "values": {
-      "title": "Our Values",
+      "title": "Our values",
+      "heading": "Four things we will not compromise on",
       "items": [
         {
-          "title": "Offline First",
+          "title": "Offline first",
           "text": "Technology that works where people are, not where networks are."
         },
         {
-          "title": "Local Languages",
+          "title": "Local languages",
           "text": "Your language, your voice, your way of doing business."
         },
         {
-          "title": "Fair Markets",
+          "title": "Fair markets",
           "text": "Transparent pricing that benefits farmers and buyers equally."
         },
         {
-          "title": "Rural Access",
-          "text": "Designed for $50 phones and 2G connections."
+          "title": "Rural access",
+          "text": "Designed for 50 dollar phones and 2G connections."
         }
       ]
     }
   },
   "contact": {
-    "heading": "Get in Touch",
-    "subtitle": "Have questions? Want to partner with us? We'd love to hear from you.",
-    "name": "Your Name",
-    "email": "Your Email",
-    "message": "Your Message",
-    "send": "Send Message",
-    "success": "Thank you! We'll get back to you soon.",
+    "eyebrow": "Contact",
+    "heading": "Get in touch",
+    "subtitle": "Have questions? Want to partner with us? We would love to hear from you.",
+    "name": "Your name",
+    "email": "Your email",
+    "message": "Your message",
+    "namePlaceholder": "Almaz Bekele",
+    "emailPlaceholder": "you@example.com",
+    "messagePlaceholder": "Tell us who you are and how we can help.",
+    "note": "We reply by email. No account needed.",
+    "send": "Send message",
+    "sending": "Sending…",
+    "successTitle": "Thank you. Your message is on its way.",
+    "successText": "We will get back to you by email. In the meantime, have a look at how WeredaConnect works.",
+    "error": "We could not send your message. Check your connection and try again, or email us.",
     "info": {
       "email": "hello@weredaconnect.com",
-      "location": "Addis Ababa, Ethiopia"
+      "location": "Addis Ababa, Ethiopia",
+      "emailLabel": "Email",
+      "locationLabel": "Location"
+    },
+    "partnerships": {
+      "title": "Partnerships",
+      "text": "Working with farmers, transport or buyers in a region we should know about? Tell us about your organisation and where you operate."
     }
   },
   "notFound": {
@@ -292,13 +405,14 @@
     }
   },
   "footer": {
-    "tagline": "Connecting Ethiopian farmers, truckers, and buyers.",
-    "links": "Quick Links",
+    "tagline": "Connecting Ethiopian farmers, truckers and buyers. Offline-first, in your language, paid through Telebirr.",
+    "links": "Product",
     "legal": "Legal",
-    "privacy": "Privacy Policy",
+    "privacy": "Privacy policy",
     "deleteAccount": "Delete account",
-    "terms": "Terms of Service",
+    "terms": "Terms of service",
     "copyright": "WeredaConnect. All rights reserved.",
-    "language": "Language"
+    "language": "Language",
+    "builtFor": "Built offline-first for rural Ethiopia."
   }
 }

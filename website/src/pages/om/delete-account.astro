@@ -1,5 +1,6 @@
 ---
 import Layout from '../../layouts/Layout.astro';
+import PageHeader from '../../components/PageHeader.astro';
 import DownloadCTA from '../../components/DownloadCTA.astro';
 import { t, localePath } from '../../i18n';
 import om from '../../i18n/om.json';
@@ -14,12 +15,7 @@ const email = t(locale, 'contact.info.email');
   title={`${t(locale, 'deleteAccount.title')} | WeredaConnect`}
   description={t(locale, 'deleteAccount.subtitle')}
 >
-  <section class="bg-gradient-to-br from-primary-dark to-primary text-white py-16 md:py-20">
-    <div class="max-w-4xl mx-auto px-4 sm:px-6 text-center">
-      <h1 class="text-3xl md:text-4xl font-bold mb-4 animate-on-scroll">{t(locale, 'deleteAccount.title')}</h1>
-      <p class="text-white/80 max-w-2xl mx-auto animate-on-scroll">{t(locale, 'deleteAccount.subtitle')}</p>
-    </div>
-  </section>
+  <PageHeader title={t(locale, 'deleteAccount.title')} lead={t(locale, 'deleteAccount.subtitle')} compact narrow />
 
   <section class="py-16 bg-surface">
     <div class="max-w-3xl mx-auto px-4 sm:px-6 space-y-12">
@@ -50,7 +46,7 @@ const email = t(locale, 'contact.info.email');
       </div>
 
       <div class="animate-on-scroll">
-        <h2 class="text-2xl font-bold mb-4 text-primary-light">{t(locale, 'deleteAccount.kept.title')}</h2>
+        <h2 class="text-2xl font-bold mb-4 text-primary">{t(locale, 'deleteAccount.kept.title')}</h2>
         <p class="text-text-muted leading-relaxed">{t(locale, 'deleteAccount.kept.text')}</p>
       </div>
 

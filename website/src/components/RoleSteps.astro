@@ -1,0 +1,43 @@
+---
+// One role's three steps on the How it works page. Sections alternate white
+// and cream; the step cards take the other fill so they stay visible.
+import type { Locale } from '../i18n';
+import { t } from '../i18n';
+import Icon from './Icon.astro';
+import { stepNumbers, type roles } from './roles';
+
+interface Props {
+  locale: Locale;
+  role: (typeof roles)[number];
+  tone: 'white' | 'cream';
+}
+
+const { locale, role, tone } = Astro.props;
+const k = (key: string) => t(locale, `howItWorks.${role.key}.${key}`);
+---
+
+<section id={role.anchor} aria-labelledby={`${role.anchor}-title`} class:list={['px-6 py-20', tone === 'white' && 'bg-white']}>
+  <div class="mx-auto max-w-[1200px] flex flex-wrap items-start gap-x-16 gap-y-10">
+    <div class="flex min-w-0 flex-[1_1_280px] flex-col gap-4 animate-on-scroll">
+      <span class="flex h-14 w-14 items-center justify-center rounded-[18px] bg-primary text-white">
+        <Icon name={role.icon} size={28} strokeWidth={1.8} />
+      </span>
+      <h2 id={`${role.anchor}-title`} class="m-0 text-[34px] leading-[1.1] tracking-[-0.02em] font-extrabold">{k('title')}</h2>
+      <p class="m-0 text-base leading-[1.6] text-text-muted">{k('intro')}</p>
+    </div>
+    <ol class="m-0 grid min-w-0 flex-[2_1_560px] list-none grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-4 p-0 stagger-children">
+      {stepNumbers.map((step) => (
+        <li
+          class:list={[
+            'flex flex-col gap-3 rounded-[20px] border border-border-light p-6 animate-on-scroll',
+            tone === 'white' ? 'bg-cream' : 'bg-white',
+          ]}
+        >
+          <span aria-hidden="true" class="text-[40px] font-extrabold leading-none tracking-[-0.04em] text-primary">{`0${step}`}</span>
+          <h3 class="m-0 text-lg font-bold">{k(`step${step}.title`)}</h3>
+          <p class="m-0 text-sm leading-[1.55] text-text-muted">{k(`step${step}.description`)}</p>
+        </li>
+      ))}
+    </ol>
+  </div>
+</section>
