@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Lock } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { DispositionChoiceCard, VerdictMessages } from "@/components/disputes/DisputeVerdict";
@@ -65,22 +65,85 @@ export function DisputeDetailPage() {
   const dispute = escrow.dispute as Row | undefined;
   const status = String(escrow.status || "");
   const statusText = t(`escrows.${status}`);
+  // Admin trip evidence board: the parties as chips, the frozen money with its split.
+  const parties = [
+    { label: t("transactions.party_buyer"), name: escrow.buyerName, id: escrow.buyerId, tone: "bg-blue-50 text-blue-900" },
+    { label: t("transactions.party_farmer"), name: escrow.farmerName, id: escrow.farmerId, tone: "bg-green-50 text-green-900" },
+    { label: t("transactions.party_trucker"), name: escrow.truckerName, id: escrow.truckerId, tone: "bg-amber-50 text-amber-900" },
+  ].filter((party) => party.name || party.id);
+  const split = [
+    { label: t("transactions.crop"), amount: escrow.farmerPayout },
+    { label: t("transactions.party_trucker"), amount: escrow.truckerPayout },
+    { label: t("transactions.commission"), amount: escrow.commission },
+  ]
+    .filter((part) => Number(part.amount) > 0)
+    .map((part) => `${part.label} ${formatETB(Number(part.amount), locale)}`)
+    .join(" · ");
+  const decide =
+    status === "disputed" ? (
+      <>
+        <Card>
+          <h3 className="font-semibold">{t("disputes.decide")}</h3>
+          <div className="mt-3 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => verdictFlow.submit(String(escrow.escrowId || id || ""), "farmer_wins")}
+              disabled={verdictFlow.resolvingId !== null}
+              className="rounded-lg bg-success px-3 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+            >
+              {t("disputes.farmerWins")}
+            </button>
+            <button
+              type="button"
+              onClick={() => verdictFlow.submit(String(escrow.escrowId || id || ""), "buyer_wins")}
+              disabled={verdictFlow.resolvingId !== null}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm font-semibold hover:bg-gray-50 disabled:opacity-50"
+            >
+              {t("disputes.buyerWins")}
+            </button>
+          </div>
+          <p className="mt-3 text-xs text-text-muted">{t("disputes.auditNote")}</p>
+        </Card>
+        <DispositionChoiceCard flow={verdictFlow} t={t} />
+      </>
+    ) : null;
 
   return (
     <div>
       {back}
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <h2 className="text-xl font-bold">{t("disputes.detailTitle")}</h2>
-        <span className="font-mono text-xs text-text-muted">{String(escrow.escrowId || id || "")}</span>
-        {status && (
-          <Badge variant={status === "disputed" ? "warning" : "default"}>
-            {statusText !== `escrows.${status}` ? statusText : status}
-          </Badge>
-        )}
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-2xl font-bold">{t("disputes.detailTitle")}</h2>
+            <span className="font-mono text-xs text-text-muted">{String(escrow.escrowId || id || "")}</span>
+            {status && (
+              <Badge variant={status === "disputed" ? "warning" : "default"}>
+                {statusText !== `escrows.${status}` ? statusText : status}
+              </Badge>
+            )}
+          </div>
+          {parties.length > 0 && (
+            <ul className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
+              {parties.map((party) => (
+                <li key={party.label} className={`rounded-md px-2 py-1 ${party.tone}`}>
+                  {party.label} · {partyName(party.name, party.id, locale)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         {status === "disputed" && (
-          <span className="text-sm font-semibold">
-            {fill(t("disputes.frozen"), { amount: formatETB(Number(escrow.amount) || 0, locale) })}
-          </span>
+          <Card className="lg:min-w-[320px]">
+            <div className="flex items-start gap-3">
+              <Lock size={18} className="mt-1 shrink-0 text-info" aria-hidden="true" />
+              <div>
+                <span className="text-lg font-bold">
+                  {fill(t("disputes.frozen"), { amount: formatETB(Number(escrow.amount) || 0, locale) })}
+                </span>
+                {split && <p className="mt-1 text-xs text-text-muted">{split}</p>}
+              </div>
+            </div>
+          </Card>
         )}
       </div>
 
@@ -115,33 +178,7 @@ export function DisputeDetailPage() {
         </dl>
       </Card>
 
-      {/* Admin dispute evidence board: decide beside the evidence. */}
       <VerdictMessages flow={verdictFlow} />
-      {status === "disputed" && (
-        <Card className="mb-6">
-          <h3 className="font-semibold">{t("disputes.decide")}</h3>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => verdictFlow.submit(String(escrow.escrowId || id || ""), "farmer_wins")}
-              disabled={verdictFlow.resolvingId !== null}
-              className="rounded bg-success px-3 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
-            >
-              {t("disputes.farmerWins")}
-            </button>
-            <button
-              type="button"
-              onClick={() => verdictFlow.submit(String(escrow.escrowId || id || ""), "buyer_wins")}
-              disabled={verdictFlow.resolvingId !== null}
-              className="rounded bg-accent px-3 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
-            >
-              {t("disputes.buyerWins")}
-            </button>
-          </div>
-          <p className="mt-3 text-xs text-text-muted">{t("disputes.auditNote")}</p>
-        </Card>
-      )}
-      <DispositionChoiceCard flow={verdictFlow} t={t} />
 
       <div
         role="tablist"
@@ -167,7 +204,8 @@ export function DisputeDetailPage() {
       </div>
 
       <div role="tabpanel" id={`dispute-panel-${tab}`} aria-labelledby={`dispute-tab-${tab}`}>
-        {tab === "trail" && <TripTrailTab deliveryId={String(escrow.deliveryId || "")} />}
+        {/* Admin trip evidence board: Decide in the evidence's right column. */}
+        {tab === "trail" && <TripTrailTab deliveryId={String(escrow.deliveryId || "")} aside={decide} />}
       </div>
     </div>
   );

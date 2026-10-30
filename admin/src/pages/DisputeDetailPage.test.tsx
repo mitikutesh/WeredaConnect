@@ -297,6 +297,27 @@ describe("DisputeDetailPage Trip trail tab (LT-13)", () => {
     expect(screen.getByText(/at 8\.2000, 38\.7400, 7\.4 km from the nearest planned stop or QR scan/)).toBeTruthy();
   });
 
+  it("the map rings the stop off the list and gives each check-in its time", () => {
+    const withAway = trailWithAJump();
+    withAway.awayStops = [
+      {
+        from: "2026-10-27T06:40:00.000Z",
+        until: "2026-10-27T07:10:00.000Z",
+        latitude: 8.2,
+        longitude: 38.74,
+        nearestScanKm: 11.1,
+        nearestPlannedStopKm: 7.4,
+      },
+    ];
+    mocks.trail.data = withAway;
+    const { container } = renderPage();
+
+    expect(container.querySelectorAll('[data-testid="trail-away-stop"]')).toHaveLength(1);
+    const map = screen.getByRole("img");
+    // One time label per check-in with a place (the pause has none).
+    expect(map.querySelectorAll("text")).toHaveLength(withAway.points.filter((p) => p.latitude != null).length);
+  });
+
   it("without a linked delivery there is no trail to ask for", () => {
     mocks.escrow.data = escrow(null);
     renderPage();
@@ -370,6 +391,39 @@ describe("DisputeDetailPage Decide", () => {
     expect(screen.getByText("The order cannot follow this verdict as it is")).toBeTruthy();
     expect(screen.getByLabelText(/Return the goods to the farmer/)).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  // Admin trip evidence board: parties as chips, the frozen money's split, Decide beside the trail.
+  it("shows the parties and how the frozen money splits", () => {
+    mocks.escrow.data = {
+      escrow: {
+        ...escrow().escrow,
+        truckerName: "Dawit",
+        farmerPayout: 28000,
+        truckerPayout: 1500,
+        commission: 1400,
+      },
+    };
+    renderPage();
+
+    expect(screen.getByText("Buyer · Sara")).toBeTruthy();
+    expect(screen.getByText("Farmer · Abebe")).toBeTruthy();
+    expect(screen.getByText("Trucker · Dawit")).toBeTruthy();
+    expect(
+      screen.getByText(
+        `Crop ${formatETB(28000, "en")} · Trucker ${formatETB(1500, "en")} · Commission ${formatETB(1400, "en")}`,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("puts Decide in the trail's right column once the trail is in", () => {
+    mocks.trail.isLoading = false;
+    mocks.trail.data = trailWithAJump();
+    renderPage();
+
+    const aside = screen.getByRole("complementary");
+    expect(within(aside).getByRole("heading", { name: "Decide" })).toBeTruthy();
+    expect(within(aside).getByRole("heading", { name: "What the trail says" })).toBeTruthy();
   });
 
   it("a resolved dispute has nothing left to decide", () => {
