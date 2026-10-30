@@ -233,5 +233,10 @@ class PaymentStatusCard extends StatelessWidget {
 ButtonStyle paymentCardButtonStyle() => OutlinedButton.styleFrom(
       minimumSize: const Size.fromHeight(44),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+      textStyle: const TextStyle(
+        fontFamily: AppTheme.fontFamily,
+        fontFamilyFallback: AppTheme.ethiopicFontFallback,
+        fontSize: 14,
+        fontWeight: FontWeight.w700,
+      ),
     );

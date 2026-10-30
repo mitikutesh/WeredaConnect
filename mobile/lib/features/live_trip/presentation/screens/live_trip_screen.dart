@@ -1036,6 +1036,8 @@ class _ArrivingPanelState extends State<_ArrivingPanel> {
                   foregroundColor: Colors.white,
                   minimumSize: const Size.fromHeight(56),
                   textStyle: const TextStyle(
+                    fontFamily: AppTheme.fontFamily,
+                    fontFamilyFallback: AppTheme.ethiopicFontFallback,
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
                   ),
@@ -1128,8 +1130,12 @@ class _DeliveredSummary extends StatelessWidget {
               backgroundColor: AppTheme.surfaceWhite,
               side: const BorderSide(color: Color(0xFFD6D3C8)),
               minimumSize: const Size.fromHeight(44),
-              textStyle:
-                  const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+              textStyle: const TextStyle(
+                fontFamily: AppTheme.fontFamily,
+                fontFamilyFallback: AppTheme.ethiopicFontFallback,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),

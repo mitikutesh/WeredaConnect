@@ -205,6 +205,9 @@ class TripLogScreen extends StatelessWidget {
                                   horizontal: 10,
                                 ),
                                 textStyle: const TextStyle(
+                                  fontFamily: AppTheme.fontFamily,
+                                  fontFamilyFallback:
+                                      AppTheme.ethiopicFontFallback,
                                   fontSize: 14,
                                   fontWeight: FontWeight.w700,
                                 ),

@@ -119,6 +119,8 @@ class TripCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     textStyle: const TextStyle(
+                      fontFamily: AppTheme.fontFamily,
+                      fontFamilyFallback: AppTheme.ethiopicFontFallback,
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
                     ),

@@ -197,6 +197,8 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
             style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(52),
               textStyle: const TextStyle(
+                fontFamily: AppTheme.fontFamily,
+                fontFamilyFallback: AppTheme.ethiopicFontFallback,
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
               ),

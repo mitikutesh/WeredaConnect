@@ -386,7 +386,12 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
     final actionStyle = FilledButton.styleFrom(
       minimumSize: const Size.fromHeight(44),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+      textStyle: const TextStyle(
+        fontFamily: AppTheme.fontFamily,
+        fontFamilyFallback: AppTheme.ethiopicFontFallback,
+        fontSize: 14,
+        fontWeight: FontWeight.w700,
+      ),
     );
     final stillWaiting = _capReached && state.polls
         ? Text(l10n.orderCheckoutStillWaiting, style: _noteStyle)
@@ -523,7 +528,12 @@ class _OpenTelebirrButton extends StatelessWidget {
     final style = FilledButton.styleFrom(
       backgroundColor: AppTheme.soilDark,
       minimumSize: const Size.fromHeight(56),
-      textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+      textStyle: const TextStyle(
+        fontFamily: AppTheme.fontFamily,
+        fontFamilyFallback: AppTheme.ethiopicFontFallback,
+        fontSize: 16,
+        fontWeight: FontWeight.w800,
+      ),
     );
     final uri = Uri.tryParse(url);
     if (isWeb && uri != null) {

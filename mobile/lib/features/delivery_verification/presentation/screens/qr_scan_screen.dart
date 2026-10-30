@@ -278,7 +278,12 @@ class _QrScanScreenState extends State<QrScanScreen> {
 
   static final ButtonStyle _primaryStyle = FilledButton.styleFrom(
     minimumSize: const Size.fromHeight(56),
-    textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+    textStyle: const TextStyle(
+      fontFamily: AppTheme.fontFamily,
+      fontFamilyFallback: AppTheme.ethiopicFontFallback,
+      fontSize: 16,
+      fontWeight: FontWeight.w800,
+    ),
   );
 
   /// The camera in a rounded panel under the dark header, the scan frame

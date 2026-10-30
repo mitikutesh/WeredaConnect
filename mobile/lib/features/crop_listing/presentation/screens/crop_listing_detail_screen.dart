@@ -410,6 +410,8 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(56),
                 textStyle: const TextStyle(
+                  fontFamily: AppTheme.fontFamily,
+                  fontFamilyFallback: AppTheme.ethiopicFontFallback,
                   fontSize: 16,
                   fontWeight: FontWeight.w800,
                 ),
@@ -429,6 +431,8 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                     borderRadius: BorderRadius.circular(14),
                   ),
                   textStyle: const TextStyle(
+                    fontFamily: AppTheme.fontFamily,
+                    fontFamilyFallback: AppTheme.ethiopicFontFallback,
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                   ),

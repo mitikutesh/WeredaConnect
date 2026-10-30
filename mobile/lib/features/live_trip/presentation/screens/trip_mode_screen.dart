@@ -542,7 +542,12 @@ class _SharingCard extends StatelessWidget {
           backgroundColor: AppTheme.accentSoft,
           foregroundColor: AppTheme.soilDark,
           minimumSize: const Size.fromHeight(44),
-          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+          textStyle: const TextStyle(
+            fontFamily: AppTheme.fontFamily,
+            fontFamilyFallback: AppTheme.ethiopicFontFallback,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
@@ -581,8 +586,12 @@ class _SharingCard extends StatelessWidget {
             side: const BorderSide(color: Color(0xFF4A5A52)),
             minimumSize: const Size(48, 44),
             padding: const EdgeInsets.symmetric(horizontal: 14),
-            textStyle:
-                const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+            textStyle: const TextStyle(
+              fontFamily: AppTheme.fontFamily,
+              fontFamilyFallback: AppTheme.ethiopicFontFallback,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
@@ -854,6 +863,8 @@ class _NextStopCard extends StatelessWidget {
                       side: const BorderSide(color: Color(0xFFD6D3C8)),
                       minimumSize: const Size.fromHeight(48),
                       textStyle: const TextStyle(
+                        fontFamily: AppTheme.fontFamily,
+                        fontFamilyFallback: AppTheme.ethiopicFontFallback,
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
                       ),
@@ -884,6 +895,8 @@ class _NextStopCard extends StatelessWidget {
                     foregroundColor: Colors.white,
                     minimumSize: const Size.fromHeight(48),
                     textStyle: const TextStyle(
+                      fontFamily: AppTheme.fontFamily,
+                      fontFamilyFallback: AppTheme.ethiopicFontFallback,
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
                     ),

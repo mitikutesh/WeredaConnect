@@ -289,6 +289,8 @@ class _ActionNeededListState extends State<ActionNeededList> {
                     minimumSize: const Size(0, 36),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     textStyle: const TextStyle(
+                      fontFamily: AppTheme.fontFamily,
+                      fontFamilyFallback: AppTheme.ethiopicFontFallback,
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
                     ),

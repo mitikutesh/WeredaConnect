@@ -201,12 +201,22 @@ class DeliveryDetailScreen extends StatelessWidget {
 
   static final ButtonStyle _primaryStyle = FilledButton.styleFrom(
     minimumSize: const Size.fromHeight(56),
-    textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+    textStyle: const TextStyle(
+      fontFamily: AppTheme.fontFamily,
+      fontFamilyFallback: AppTheme.ethiopicFontFallback,
+      fontSize: 16,
+      fontWeight: FontWeight.w800,
+    ),
   );
 
   static final ButtonStyle _secondaryStyle = OutlinedButton.styleFrom(
     minimumSize: const Size.fromHeight(52),
-    textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+    textStyle: const TextStyle(
+      fontFamily: AppTheme.fontFamily,
+      fontFamilyFallback: AppTheme.ethiopicFontFallback,
+      fontSize: 15,
+      fontWeight: FontWeight.w700,
+    ),
   );
 
   /// The role's next step on this delivery, pinned at the foot of the page
@@ -370,6 +380,8 @@ class DeliveryDetailScreen extends StatelessWidget {
               foregroundColor: AppTheme.statusError,
               minimumSize: const Size.fromHeight(44),
               textStyle: const TextStyle(
+                fontFamily: AppTheme.fontFamily,
+                fontFamilyFallback: AppTheme.ethiopicFontFallback,
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
               ),

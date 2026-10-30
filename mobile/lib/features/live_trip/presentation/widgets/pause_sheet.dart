@@ -166,8 +166,12 @@ class _PauseSheetState extends State<PauseSheet> {
                 backgroundColor: AppTheme.soilDark,
                 foregroundColor: Colors.white,
                 minimumSize: const Size.fromHeight(56),
-                textStyle:
-                    const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                textStyle: const TextStyle(
+                  fontFamily: AppTheme.fontFamily,
+                  fontFamilyFallback: AppTheme.ethiopicFontFallback,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
@@ -181,8 +185,12 @@ class _PauseSheetState extends State<PauseSheet> {
               style: TextButton.styleFrom(
                 foregroundColor: AppTheme.unselectedNav,
                 minimumSize: const Size.fromHeight(44),
-                textStyle:
-                    const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                textStyle: const TextStyle(
+                  fontFamily: AppTheme.fontFamily,
+                  fontFamilyFallback: AppTheme.ethiopicFontFallback,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),

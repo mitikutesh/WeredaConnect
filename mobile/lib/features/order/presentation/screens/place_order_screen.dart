@@ -299,6 +299,9 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                                   horizontal: 8,
                                 ),
                                 textStyle: const TextStyle(
+                                  fontFamily: AppTheme.fontFamily,
+                                  fontFamilyFallback:
+                                      AppTheme.ethiopicFontFallback,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -325,7 +328,8 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                               const SizedBox(height: 11),
                               FwMoneyRow(
                                 label: l10n.cropCost,
-                                amount: l10n.etbCurrency(formatEtbAmount(_cropCost)),
+                                amount: l10n
+                                    .etbCurrency(formatEtbAmount(_cropCost)),
                               ),
                               if (trip != null) ...[
                                 const SizedBox(height: 9),
@@ -339,13 +343,14 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                               const SizedBox(height: 9),
                               FwMoneyRow(
                                 label: l10n.platformCommission,
-                                amount:
-                                    l10n.etbCurrency(formatEtbAmount(_commission)),
+                                amount: l10n
+                                    .etbCurrency(formatEtbAmount(_commission)),
                               ),
                               const SizedBox(height: 9),
                               FwMoneyRow(
                                 label: l10n.orderTotal,
-                                amount: l10n.etbCurrency(formatEtbAmount(_total)),
+                                amount:
+                                    l10n.etbCurrency(formatEtbAmount(_total)),
                                 total: true,
                               ),
                             ],
@@ -400,6 +405,8 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(56),
                   textStyle: const TextStyle(
+                    fontFamily: AppTheme.fontFamily,
+                    fontFamilyFallback: AppTheme.ethiopicFontFallback,
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
                   ),

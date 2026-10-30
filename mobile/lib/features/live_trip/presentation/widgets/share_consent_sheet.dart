@@ -131,6 +131,8 @@ class ShareConsentSheet extends StatelessWidget {
                   foregroundColor: Colors.white,
                   minimumSize: const Size.fromHeight(56),
                   textStyle: const TextStyle(
+                    fontFamily: AppTheme.fontFamily,
+                    fontFamilyFallback: AppTheme.ethiopicFontFallback,
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
                   ),
@@ -149,6 +151,8 @@ class ShareConsentSheet extends StatelessWidget {
                   foregroundColor: AppTheme.unselectedNav,
                   minimumSize: const Size.fromHeight(44),
                   textStyle: const TextStyle(
+                    fontFamily: AppTheme.fontFamily,
+                    fontFamilyFallback: AppTheme.ethiopicFontFallback,
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                   ),

@@ -337,6 +337,8 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(56),
                   textStyle: const TextStyle(
+                    fontFamily: AppTheme.fontFamily,
+                    fontFamilyFallback: AppTheme.ethiopicFontFallback,
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
                   ),

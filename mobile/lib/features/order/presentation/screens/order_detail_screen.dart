@@ -552,12 +552,22 @@ class _OrderDetailBody extends StatelessWidget {
 
   static final ButtonStyle _primaryStyle = FilledButton.styleFrom(
     minimumSize: const Size.fromHeight(56),
-    textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+    textStyle: const TextStyle(
+      fontFamily: AppTheme.fontFamily,
+      fontFamilyFallback: AppTheme.ethiopicFontFallback,
+      fontSize: 16,
+      fontWeight: FontWeight.w800,
+    ),
   );
 
   static final ButtonStyle _secondaryStyle = OutlinedButton.styleFrom(
     minimumSize: const Size.fromHeight(56),
-    textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+    textStyle: const TextStyle(
+      fontFamily: AppTheme.fontFamily,
+      fontFamilyFallback: AppTheme.ethiopicFontFallback,
+      fontSize: 16,
+      fontWeight: FontWeight.w800,
+    ),
   );
 
   /// The actions that sit in the page below the cards: the delivery

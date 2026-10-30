@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -50,5 +52,40 @@ void main() {
     final shape = AppTheme.light().dialogTheme.shape! as RoundedRectangleBorder;
     expect(shape.borderRadius, BorderRadius.circular(18));
     expect(AppTheme.light().dialogTheme.backgroundColor, AppTheme.surfaceWhite);
+  });
+
+  // A screen's own `styleFrom(textStyle: TextStyle(...))` replaces the
+  // theme's button text style instead of merging with it, so without the
+  // family the label is drawn in the platform face, not Manrope, and loses
+  // the Ethiopic fallback.
+  test('every button textStyle override names the app font', () {
+    final opener = RegExp(
+      r'textStyle:\s*(const\s+)?(WidgetStatePropertyAll(<TextStyle>)?\(\s*)?'
+      r'(const\s+)?TextStyle\(',
+    );
+    final missing = <String>[];
+    for (final file in Directory('lib').listSync(recursive: true)) {
+      if (file is! File ||
+          !file.path.endsWith('.dart') ||
+          file.path.endsWith('.g.dart') ||
+          file.path.contains('/l10n/')) {
+        continue;
+      }
+      final source = file.readAsStringSync();
+      for (final match in opener.allMatches(source)) {
+        var depth = 1;
+        var i = match.end;
+        while (depth > 0 && i < source.length) {
+          final c = source[i++];
+          if (c == '(') depth++;
+          if (c == ')') depth--;
+        }
+        if (!source.substring(match.start, i).contains('fontFamily')) {
+          final line = '\n'.allMatches(source.substring(0, match.start)).length;
+          missing.add('${file.path}:${line + 1}');
+        }
+      }
+    }
+    expect(missing, isEmpty);
   });
 }

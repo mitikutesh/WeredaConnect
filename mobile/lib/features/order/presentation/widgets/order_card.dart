@@ -166,6 +166,8 @@ class OrderCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(14),
                         ),
                         textStyle: const TextStyle(
+                          fontFamily: AppTheme.fontFamily,
+                          fontFamilyFallback: AppTheme.ethiopicFontFallback,
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
                         ),
@@ -186,6 +188,8 @@ class OrderCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(14),
                         ),
                         textStyle: const TextStyle(
+                          fontFamily: AppTheme.fontFamily,
+                          fontFamilyFallback: AppTheme.ethiopicFontFallback,
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
                         ),
