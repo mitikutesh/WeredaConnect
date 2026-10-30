@@ -50,6 +50,10 @@ class ListingCard extends StatelessWidget {
   /// the seller being the farmer looking).
   final String? subtitle;
 
+  /// Under the card's rows (Match results: why it matched, the estimate and
+  /// the order actions).
+  final Widget? footer;
+
   const ListingCard({
     required this.title,
     required this.location,
@@ -69,6 +73,7 @@ class ListingCard extends StatelessWidget {
     this.progress,
     this.priceUnit,
     this.status,
+    this.footer,
   });
 
   @override
@@ -259,6 +264,10 @@ class ListingCard extends StatelessWidget {
                 ],
               ],
             ),
+          ],
+          if (footer != null) ...[
+            const SizedBox(height: 12),
+            footer!,
           ],
         ],
       ),

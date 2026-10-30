@@ -7,7 +7,8 @@ import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
 import 'package:wereda_connect/features/buyer/presentation/widgets/match_result_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
-/// The estimated total groups thousands the way the boards write money.
+/// The match card is the Market listing card, and its estimated total
+/// groups thousands the way the boards write money.
 void main() {
   testWidgets('estimated total groups thousands', (tester) async {
     final listing = CropListing()
@@ -51,6 +52,7 @@ void main() {
             ),
             intent: intent,
             onTap: () {},
+            onOrder: () {},
           ),
         ),
       ),
@@ -58,5 +60,11 @@ void main() {
 
     expect(find.textContaining('241,000 ETB'), findsOneWidget);
     expect(find.textContaining('241000'), findsNothing);
+    // The Market board's listing card: crop and what is left, the price
+    // large with its unit, the transport pill, then the actions.
+    expect(find.text('Teff · 50 quintals left'), findsOneWidget);
+    expect(find.text('45'), findsOneWidget);
+    expect(find.text('No trips yet'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Place Order'), findsOneWidget);
   });
 }

@@ -985,8 +985,9 @@ class _AnswerRow extends StatelessWidget {
 /// is with, and the status pill. A farmer answering a new order reads "New
 /// order" with the crop under it and no pill, as on the board.
 /// "Thu, Oct 30": the trip's day on the Ethiopian calendar day, as the trip
-/// cards write it.
-String _tripDay(DateTime at) => DateFormat.MMMEd().format(dayInEthiopia(at));
+/// cards write it, with no-break spaces so a wrap never splits it.
+String _tripDay(DateTime at) =>
+    DateFormat.MMMEd().format(dayInEthiopia(at)).replaceAll(' ', '\u00A0');
 
 class _OrderHeader extends StatelessWidget {
   final Order order;
