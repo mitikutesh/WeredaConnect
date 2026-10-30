@@ -254,6 +254,33 @@ void main() {
       tester.getTopLeft(find.text('Wheat · 2,000 kg')).dy,
       greaterThan(tester.getBottomLeft(map).dy - 24),
     );
+    // A phone has no room for the check-ins beside the details.
+    expect(find.byKey(const Key('live_trip_check_ins_card')), findsNothing);
+  });
+
+  // Buyer · Live deliveries board (web): the check-ins beside the details.
+  testWidgets('wide: the check-ins sit beside the details', (tester) async {
+    await pumpView(tester);
+    tester.view.physicalSize = const Size(900, 1800);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final card = find.byKey(const Key('live_trip_check_ins_card'));
+    expect(card, findsOneWidget);
+    expect(
+      find.descendant(
+        of: card,
+        matching: find.text('Check-ins about every hour'),
+      ),
+      findsOneWidget,
+    );
+    final details = find.text('Wheat · 2,000 kg');
+    final left = tester.getTopLeft(details).dx;
+    expect(tester.getTopLeft(card).dx, greaterThan(left));
+    expect(
+      tester.getTopLeft(card).dy,
+      lessThan(tester.getTopLeft(details).dy + 40),
+    );
   });
 
   group('arriving', () {

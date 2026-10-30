@@ -255,20 +255,34 @@ class _LiveTripViewState extends State<LiveTripView> {
             track != null &&
             track.sharing != TrackSharing.ended &&
             trackFollowsTruck(track);
-        return RefreshIndicator(
-          onRefresh: view.refresh,
-          child: ListView(
-            padding: hero
-                ? const EdgeInsets.only(bottom: 32)
-                : const EdgeInsets.fromLTRB(16, 16, 16, 32),
-            children: _content(context, view),
+        return LayoutBuilder(
+          builder: (context, constraints) => RefreshIndicator(
+            onRefresh: view.refresh,
+            child: ListView(
+              padding: hero
+                  ? const EdgeInsets.only(bottom: 32)
+                  : const EdgeInsets.fromLTRB(16, 16, 16, 32),
+              children: _content(
+                context,
+                view,
+                wide: constraints.maxWidth >= _wideWidth,
+              ),
+            ),
           ),
         );
       },
     );
   }
 
-  List<Widget> _content(BuildContext context, TrackView view) {
+  /// From this width (the web pane beside the deliveries list) the check-ins
+  /// sit beside the details, as on the Buyer · Live deliveries board.
+  static const _wideWidth = 560.0;
+
+  List<Widget> _content(
+    BuildContext context,
+    TrackView view, {
+    bool wide = false,
+  }) {
     final l10n = AppLocalizations.of(context)!;
     final track = view.track;
     final ended =
@@ -352,14 +366,44 @@ class _LiveTripViewState extends State<LiveTripView> {
         ...details,
       ];
     }
+    final map = LiveTripMap(
+      track: track,
+      now: view.now,
+      places: _places,
+      height: arriving ? 280 : 340,
+      borderRadius: 0,
+    );
+    if (wide) {
+      return [
+        map,
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: WcCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [...trackReadNotice(context, view), ...details],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _CheckInsCard(
+                  delivery: _delivery,
+                  track: track,
+                  places: _places,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ];
+    }
     return [
-      LiveTripMap(
-        track: track,
-        now: view.now,
-        places: _places,
-        height: arriving ? 280 : 340,
-        borderRadius: 0,
-      ),
+      map,
       _Sheet(children: [...trackReadNotice(context, view), ...details]),
     ];
   }
@@ -433,6 +477,49 @@ class _LiveTripViewState extends State<LiveTripView> {
           kind: StatusKind.success,
         );
     }
+  }
+}
+
+/// The check-ins beside the details on a wide screen, with who sees the
+/// truck (the Buyer · Live deliveries board).
+class _CheckInsCard extends StatelessWidget {
+  const _CheckInsCard({
+    required this.delivery,
+    required this.track,
+    required this.places,
+  });
+
+  final Delivery delivery;
+  final DeliveryTrack track;
+  final List<Place> places;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    return WcCard(
+      key: const Key('live_trip_check_ins_card'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            l10n.liveTripCheckInCadence,
+            style: theme.textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          TripCheckInList(track: track, places: places),
+          const Divider(height: 24),
+          Text(
+            l10n.liveTripPrivacyNote(
+              partyDisplayName(delivery.farmerName, l10n),
+            ),
+            style:
+                theme.textTheme.bodySmall?.copyWith(color: AppTheme.textMuted),
+          ),
+        ],
+      ),
+    );
   }
 }
 

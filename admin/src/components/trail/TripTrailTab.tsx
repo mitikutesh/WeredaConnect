@@ -45,16 +45,27 @@ function Message({ children, role }: { children: ReactNode; role?: "status" | "a
  * delivery: the map, the check-ins with the leg since the last one, the pauses and gaps, what the
  * trail says, and the reminder that it shows where the truck was, not what it carried.
  */
-export function TripTrailTab({ deliveryId }: { deliveryId: string }) {
+export function TripTrailTab({ deliveryId, aside }: { deliveryId: string; aside?: ReactNode }) {
   const { t } = useLocale();
   const { data, isLoading, isError, error, refetch } = useDeliveryTrail(deliveryId);
 
-  if (!deliveryId) return <Message>{t("trail.noDelivery")}</Message>;
-  if (isLoading) return <Message role="status">{t("trail.loading")}</Message>;
+  // The page's own cards (Decide) sit in the right column; without a trail they follow the message.
+  const withAside = (node: ReactNode) =>
+    aside ? (
+      <div className="flex flex-col gap-6">
+        {node}
+        {aside}
+      </div>
+    ) : (
+      node
+    );
+
+  if (!deliveryId) return withAside(<Message>{t("trail.noDelivery")}</Message>);
+  if (isLoading) return withAside(<Message role="status">{t("trail.loading")}</Message>);
 
   if (isError || !data) {
     const code = (error as { code?: string } | null)?.code;
-    return (
+    return withAside(
       <Card>
         <div role="alert" className="text-sm text-danger">
           {code ? label(t, `errors.${code}`, t("trail.loadFailed")) : t("trail.loadFailed")}
@@ -66,13 +77,13 @@ export function TripTrailTab({ deliveryId }: { deliveryId: string }) {
         >
           {t("common.retry")}
         </button>
-      </Card>
+      </Card>,
     );
   }
 
   const trail = data as DeliveryTrail;
-  if (!trail.tripId) return <Message>{t("trail.selfPickup")}</Message>;
-  if (!trail.from) return <Message>{t("trail.notPickedUp")}</Message>;
+  if (!trail.tripId) return withAside(<Message>{t("trail.selfPickup")}</Message>);
+  if (!trail.from) return withAside(<Message>{t("trail.notPickedUp")}</Message>);
 
   const windowText = trail.open
     ? fill(t("trail.windowOpen"), { from: formatDateTime(trail.from) })
@@ -159,6 +170,7 @@ export function TripTrailTab({ deliveryId }: { deliveryId: string }) {
             </ul>
           )}
         </Card>
+        {aside}
       </aside>
     </div>
   );

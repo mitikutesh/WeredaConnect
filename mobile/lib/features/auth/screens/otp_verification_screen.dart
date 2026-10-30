@@ -172,7 +172,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
           backgroundColor: Colors.transparent,
           elevation: 0,
           foregroundColor: AppTheme.textDark,
-          title: Text(l10n.otpVerificationTitle),
+          // The page title below names the screen (Register OTP board).
         ),
         body: Align(
           alignment: Alignment.topCenter,

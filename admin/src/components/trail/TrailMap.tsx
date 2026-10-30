@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useLocale } from "@/hooks/useLocale";
+import { formatTime } from "@/lib/i18n";
 import {
   fill,
   makeProjection,
@@ -93,6 +94,30 @@ export function TrailMap({ trail }: { trail: DeliveryTrail }) {
               className={f.mocked ? "fill-white stroke-danger" : "fill-white stroke-primary"}
               strokeWidth={2.5}
             />
+          );
+        })}
+
+        {/* Admin trip evidence board: each point with its time, a stop off the stop list ringed. */}
+        {(trail.awayStops ?? []).map((stop) => {
+          const p = project({ latitude: stop.latitude, longitude: stop.longitude });
+          return (
+            <circle
+              key={`away-${stop.from}`}
+              data-testid="trail-away-stop"
+              cx={p.x}
+              cy={p.y}
+              r={16}
+              className="fill-accent/20 stroke-accent"
+              strokeWidth={2}
+            />
+          );
+        })}
+        {fixes.map((f) => {
+          const p = byTime.get(f.capturedAt)!;
+          return (
+            <text key={`t-${f.capturedAt}`} x={p.x + 10} y={p.y + 18} className="fill-text-muted text-[11px]">
+              {formatTime(f.capturedAt)}
+            </text>
           );
         })}
 
