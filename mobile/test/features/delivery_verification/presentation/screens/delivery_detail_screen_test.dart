@@ -89,7 +89,7 @@ void main() {
   }
 
   group('DeliveryDetailScreen', () {
-    testWidgets('renders delivery ID in app bar', (tester) async {
+    testWidgets('renders delivery ID in the header', (tester) async {
       final delivery = _makeDelivery();
 
       await tester.pumpWidget(buildTestWidget(delivery: delivery));
@@ -150,10 +150,27 @@ void main() {
       await tester.pumpWidget(buildTestWidget(delivery: delivery));
       await tester.pumpAndSettle();
 
-      expect(find.text('Pending'), findsOneWidget);
-      expect(find.text('Picked Up'), findsOneWidget);
-      expect(find.text('In Transit'), findsOneWidget);
-      expect(find.text('Delivered'), findsOneWidget);
+      // The header pill names the status too, so look inside the card.
+      final timeline = find.byKey(const Key('delivery_timeline'));
+      expect(timeline, findsOneWidget);
+      for (final step in ['Pending', 'Picked Up', 'In Transit', 'Delivered']) {
+        expect(
+          find.descendant(of: timeline, matching: find.text(step)),
+          findsOneWidget,
+        );
+      }
+      expect(find.text('Delivery Timeline'), findsOneWidget);
+    });
+
+    testWidgets('names the status in the header pill', (tester) async {
+      await tester.pumpWidget(
+        buildTestWidget(
+          delivery: _makeDelivery(status: DeliveryStatus.inTransit),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('In Transit'), findsNWidgets(2));
     });
 
     testWidgets('shows GPS coordinates when gpsPickup is set', (tester) async {
@@ -338,14 +355,28 @@ void main() {
       expect(find.text('Delivery Details'), findsOneWidget);
     });
 
-    testWidgets('shows Pickup and Delivery section titles', (tester) async {
+    testWidgets('shows Pickup and Delivery section labels', (tester) async {
       final delivery = _makeDelivery();
 
       await tester.pumpWidget(buildTestWidget(delivery: delivery));
       await tester.pumpAndSettle();
 
-      expect(find.text('Pickup'), findsAtLeastNWidgets(1));
-      expect(find.text('Delivery'), findsAtLeastNWidgets(1));
+      // The boards' section labels are uppercase.
+      expect(find.text('PICKUP'), findsOneWidget);
+      expect(find.text('DELIVERY'), findsOneWidget);
+    });
+
+    testWidgets('names the crop and weight when the row carries them',
+        (tester) async {
+      final delivery = _makeDelivery()
+        ..cropType = 'teff'
+        ..quantity = 1500;
+
+      await tester.pumpWidget(buildTestWidget(delivery: delivery));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Teff · 1,500 kg'), findsOneWidget);
+      expect(find.textContaining('Delivery #'), findsNothing);
     });
 
     testWidgets('shows "Not yet picked up" when pickedUpAt is null',

@@ -687,6 +687,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get deliveryDetails => 'የማድረሻ ዝርዝሮች';
 
   @override
+  String get restDeliveryTimeline => 'የማድረሻ የጊዜ መስመር';
+
+  @override
   String get deliveryScanQrCode => 'ኪዩአር ኮድ ቃኝ';
 
   @override
@@ -875,6 +878,9 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deliveryAddPhoto => 'ፎቶ ጨምር';
+
+  @override
+  String get restNoPhoto => 'ፎቶ የለም';
 
   @override
   String get deliveryMarkInTransit => 'በመጓጓዝ ላይ ምልክት';
@@ -2312,6 +2318,11 @@ class AppLocalizationsAm extends AppLocalizations {
       zero: 'ተመሳሳይ አልተገኘም',
     );
     return '$_temp0';
+  }
+
+  @override
+  String restMatchesFor(String crop) {
+    return 'ለ$crop ተመሳሳዮች';
   }
 
   @override

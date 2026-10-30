@@ -4,11 +4,12 @@ import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/features/delivery_verification/data/services/photo_manager.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Displays photo evidence thumbnail or a capture button.
 ///
-/// Shows existing photo as a 120x120 thumbnail, or a dashed-border
-/// container with camera icon when no photo exists.
+/// Shows the existing photo as a 120 by 120 thumbnail (radius 14, like the
+/// boards' tiles), or a chalk tile with a camera icon when no photo exists.
 class PhotoEvidenceWidget extends StatelessWidget {
   final String? photoRef;
   final PhotoType photoType;
@@ -27,14 +28,12 @@ class PhotoEvidenceWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (photoRef != null)
           ClipRRect(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(14),
             child: Image.file(
               File(photoRef!),
               width: 120,
@@ -53,13 +52,15 @@ class PhotoEvidenceWidget extends StatelessWidget {
             canCapture: canCapture,
             onCapture: onCapture,
           ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         Text(
           photoType == PhotoType.pickup
               ? AppLocalizations.of(context)!.deliveryPhotoPickup
               : AppLocalizations.of(context)!.deliveryPhotoDropoff,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: AppTheme.mutedSteel,
           ),
         ),
       ],
@@ -78,41 +79,41 @@ class _PlaceholderBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return GestureDetector(
-      onTap: canCapture ? onCapture : null,
-      child: Container(
-        width: 120,
-        height: 120,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: theme.colorScheme.outline.withValues(alpha: 0.5),
-          ),
-          color:
-              theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+    final ink = canCapture ? AppTheme.fieldGreen : AppTheme.mutedSteel;
+    return Semantics(
+      button: canCapture,
+      child: Material(
+        color: AppTheme.chalkBackground,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: AppTheme.whisperBorder),
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.camera_alt,
-              size: 32,
-              color: canCapture
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.onSurface.withValues(alpha: 0.3),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: canCapture ? onCapture : null,
+          child: SizedBox(
+            width: 120,
+            height: 120,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.camera_alt_outlined, size: 28, color: ink),
+                const SizedBox(height: 6),
+                Text(
+                  // Read-only evidence with no photo says so instead of
+                  // offering a capture that cannot happen.
+                  canCapture
+                      ? AppLocalizations.of(context)!.deliveryAddPhoto
+                      : AppLocalizations.of(context)!.restNoPhoto,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: ink,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 4),
-            Text(
-              AppLocalizations.of(context)!.deliveryAddPhoto,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: canCapture
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurface.withValues(alpha: 0.3),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

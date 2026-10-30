@@ -1402,6 +1402,12 @@ abstract class AppLocalizations {
   /// **'Delivery Details'**
   String get deliveryDetails;
 
+  /// Fieldway design alignment (specs/design-canvas). Delivery detail: title of the card with the delivery's four steps as bars
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery Timeline'**
+  String get restDeliveryTimeline;
+
   /// Title for the QR scan screen
   ///
   /// In en, this message translates to:
@@ -1773,6 +1779,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Add Photo'**
   String get deliveryAddPhoto;
+
+  /// Fieldway design alignment (specs/design-canvas). Delivery detail: the read-only photo tile of a leg that has no photo
+  ///
+  /// In en, this message translates to:
+  /// **'No photo'**
+  String get restNoPhoto;
 
   /// Button to mark delivery as in transit
   ///
@@ -4425,6 +4437,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{count, plural, =0{No matches found} =1{1 match found} other{{count} matches found}}'**
   String matchesFound(int count);
+
+  /// Fieldway design alignment (specs/design-canvas). Match results page title; {crop} is the crop name of the buyer's request
+  ///
+  /// In en, this message translates to:
+  /// **'Matches for {crop}'**
+  String restMatchesFor(String crop);
 
   /// Empty state when no listings match the intent
   ///

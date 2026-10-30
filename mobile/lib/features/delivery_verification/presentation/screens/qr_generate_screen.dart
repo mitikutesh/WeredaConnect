@@ -9,9 +9,14 @@ import 'package:wereda_connect/features/delivery_verification/data/delivery_cons
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/qr_verification_service.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
 /// Display QR code for farmers to show to truckers, or to the buyer on a
-/// self-pickup delivery.
+/// self-pickup delivery (a sibling of the detail boards: the code in a
+/// white card, the delivery under it, the offline note, Regenerate at the
+/// foot).
 ///
 /// Generates an HMAC-SHA256 QR token offline with a device-local key
 /// and cryptographic nonce. No internet required.
@@ -74,7 +79,6 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
     final dateFormat = DateFormat.yMMMd();
     final delivery = widget.delivery;
@@ -86,107 +90,119 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
             : l10n.deliveryQrShowInstruction;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.deliveryShowQrCode),
-        elevation: 0,
-      ),
       body: SafeArea(
+        bottom: false,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            children: [
-              const SizedBox(height: 16),
-              // Instruction
-              Text(
-                instruction,
-                style: theme.textTheme.titleMedium,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              // QR code or loading indicator
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.1),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: _isGenerating || _token == null
-                    ? const SizedBox(
-                        width: 280,
-                        height: 280,
-                        child: Center(child: CircularProgressIndicator()),
-                      )
-                    : QrImageView(
-                        data: _token!,
-                        size: 280,
-                        errorCorrectionLevel: QrErrorCorrectLevel.M,
-                      ),
-              ),
-              const SizedBox(height: 24),
-              // Delivery info
-              Text(
-                l10n.deliveryIdLabel(delivery.deliveryId.substring(0, 8)),
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                partyDisplayName(delivery.farmerName, l10n),
-                style: theme.textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                dateFormat.format(dayInEthiopia(delivery.createdAt)),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                ),
-              ),
-              const SizedBox(height: 24),
-              // Regenerate button
-              OutlinedButton.icon(
-                onPressed: _isGenerating ? null : _generateToken,
-                icon: const Icon(Icons.refresh),
-                label: Text(l10n.deliveryRegenerateQr),
-              ),
-              const SizedBox(height: 16),
-              // Info text
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color:
-                      theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.info_outline,
-                      size: 20,
-                      color: theme.colorScheme.primary,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        l10n.deliveryQrOfflineNote,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.primary,
+          child: FwContentWidth(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                FwDetailHeader(title: l10n.deliveryShowQrCode),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        instruction,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          height: 1.4,
+                          color: AppTheme.soilDark,
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 20),
+                      // The code itself, in a white card.
+                      Center(
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: AppTheme.surfaceWhite,
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(color: AppTheme.whisperBorder),
+                          ),
+                          child: _isGenerating || _token == null
+                              ? const SizedBox(
+                                  width: 280,
+                                  height: 280,
+                                  child: Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                )
+                              : QrImageView(
+                                  data: _token!,
+                                  size: 280,
+                                  errorCorrectionLevel: QrErrorCorrectLevel.M,
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      // Which delivery the code belongs to.
+                      FwCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              l10n.deliveryIdLabel(
+                                delivery.deliveryId.substring(0, 8),
+                              ),
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: AppTheme.soilDark,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              partyDisplayName(delivery.farmerName, l10n),
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.unselectedNav,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              dateFormat
+                                  .format(dayInEthiopia(delivery.createdAt)),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.mutedSteel,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      FwNoteBox(
+                        icon: Icons.qr_code_2,
+                        child: Text(l10n.deliveryQrOfflineNote),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
+      ),
+      bottomNavigationBar: FwBottomActions(
+        children: [
+          OutlinedButton.icon(
+            onPressed: _isGenerating ? null : _generateToken,
+            icon: const Icon(Icons.refresh),
+            label: Text(l10n.deliveryRegenerateQr),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(52),
+              textStyle: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

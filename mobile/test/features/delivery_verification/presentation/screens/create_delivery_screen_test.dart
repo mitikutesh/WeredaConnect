@@ -202,7 +202,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Tap submit without filling any fields
-      final submitButton = find.widgetWithText(ElevatedButton, 'Save');
+      final submitButton = find.widgetWithText(FilledButton, 'Save');
       await tester.ensureVisible(submitButton);
       await tester.tap(submitButton);
       await tester.pumpAndSettle();
@@ -222,7 +222,7 @@ void main() {
       await tester.enterText(buyerNameField, 'Test Buyer');
 
       // Tap submit
-      final submitButton = find.widgetWithText(ElevatedButton, 'Save');
+      final submitButton = find.widgetWithText(FilledButton, 'Save');
       await tester.ensureVisible(submitButton);
       await tester.tap(submitButton);
       await tester.pumpAndSettle();

@@ -132,12 +132,13 @@ void main() {
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
 
-      // Total amount
-      expect(find.textContaining('15,000.00'), findsWidgets);
+      // Total amount, as the boards write money: in the amount card and
+      // in the breakdown.
+      expect(find.text('15,000 ETB'), findsNWidgets(2));
       // Commission: max(15000 * 0.025, 5) = 375
-      expect(find.textContaining('375.00'), findsOneWidget);
+      expect(find.text('375 ETB'), findsOneWidget);
       // Farmer payout: 15000 - 375 = 14,625
-      expect(find.textContaining('14,625.00'), findsOneWidget);
+      expect(find.text('14,625 ETB'), findsOneWidget);
       // 2.5% label
       expect(find.textContaining('2.5'), findsOneWidget);
     });
@@ -148,10 +149,10 @@ void main() {
       await tester.pumpWidget(buildScreen(amount: 100.0));
       await tester.pumpAndSettle();
 
-      // Commission should be 5.00 (minimum)
-      expect(find.textContaining('5.00'), findsWidgets);
+      // Commission should be 5 (minimum)
+      expect(find.text('5 ETB'), findsOneWidget);
       // Farmer receives: 100 - 5 = 95
-      expect(find.textContaining('95.00'), findsOneWidget);
+      expect(find.text('95 ETB'), findsOneWidget);
     });
 
     testWidgets('shows Fayda warning when amount > 10,000',

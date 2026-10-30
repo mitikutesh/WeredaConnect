@@ -707,6 +707,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get deliveryDetails => 'Delivery Details';
 
   @override
+  String get restDeliveryTimeline => 'Delivery Timeline';
+
+  @override
   String get deliveryScanQrCode => 'Scan QR Code';
 
   @override
@@ -899,6 +902,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deliveryAddPhoto => 'Add Photo';
+
+  @override
+  String get restNoPhoto => 'No photo';
 
   @override
   String get deliveryMarkInTransit => 'Mark In Transit';
@@ -2381,6 +2387,11 @@ class AppLocalizationsEn extends AppLocalizations {
       zero: 'No matches found',
     );
     return '$_temp0';
+  }
+
+  @override
+  String restMatchesFor(String crop) {
+    return 'Matches for $crop';
   }
 
   @override

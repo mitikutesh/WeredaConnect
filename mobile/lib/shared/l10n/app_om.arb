@@ -863,6 +863,10 @@
   "@deliveryDetails": {
     "description": "Title for the delivery detail screen"
   },
+  "restDeliveryTimeline": "Sarara Yeroo Geejjibaa",
+  "@restDeliveryTimeline": {
+    "description": "Fieldway design alignment (specs/design-canvas). Delivery detail: title of the card with the delivery's four steps as bars"
+  },
   "deliveryScanQrCode": "Koodii QR Iskaan",
   "@deliveryScanQrCode": {
     "description": "Title for the QR scan screen"
@@ -1101,6 +1105,10 @@
   "deliveryAddPhoto": "Suuraa Ida'i",
   "@deliveryAddPhoto": {
     "description": "Button to add photo evidence"
+  },
+  "restNoPhoto": "Suuraan hin jiru",
+  "@restNoPhoto": {
+    "description": "Fieldway design alignment (specs/design-canvas). Delivery detail: the read-only photo tile of a leg that has no photo"
   },
   "deliveryMarkInTransit": "Daandii Irra Mallatteessi",
   "@deliveryMarkInTransit": {
@@ -2417,6 +2425,8 @@
   "quantityNeeded": "Hamma barbaadamu (kuuntaalii)",
   "maxPrice": "Gatii ol'aanaa (Birrii/kg)",
   "deliverTo": "Bakka geejjibaa",
+  "restMatchesFor": "Walsimatoota {crop}",
+  "@restMatchesFor": { "description": "Fieldway design alignment (specs/design-canvas). Match results page title; {crop} is the crop name of the buyer's request", "placeholders": { "crop": { "type": "String" } } },
   "matchesFound": "{count, plural, =0{Walsimatu hin argamne} =1{1 walsimatu argame} other{{count} walsimatu argame}}",
   "@matchesFound": { "placeholders": { "count": { "type": "int" } } },
   "noMatchesYet": "Hanga ammaatti walsimatu hin jiru",
