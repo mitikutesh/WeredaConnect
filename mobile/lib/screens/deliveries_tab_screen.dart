@@ -281,14 +281,14 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
     final Widget body;
     if (split) {
       // The web board's proportions: a narrow list, the pane gets the rest
-      // (at 1280 px about 610 px, wide enough for its two columns).
+      // (at 1280 px about 670 px, as on the board, for its two columns).
       body = Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             SizedBox(
-              width: 340,
+              width: 320,
               child: _list(
                 context,
                 l10n,
@@ -299,7 +299,7 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
                 selected: selected,
               ),
             ),
-            const SizedBox(width: 20),
+            const SizedBox(width: 16),
             Expanded(
               child: liveTripPane(selected!, userId) ?? const SizedBox.shrink(),
             ),

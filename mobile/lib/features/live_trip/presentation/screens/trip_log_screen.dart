@@ -626,10 +626,13 @@ class _CompactLogRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 4.5),
       child: Row(
         children: [
-          SizedBox(
-            width: 42,
+          // At least the width of "11:42", wider for a pause's range
+          // ("00:37-00:52"), never wrapped.
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 42),
             child: Text(
               row.time,
+              softWrap: false,
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: row.latest ? FontWeight.w800 : FontWeight.w700,

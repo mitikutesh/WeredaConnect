@@ -503,14 +503,20 @@ class _SidebarItemState extends State<_SidebarItem> {
                       children: [
                         _icon(iconColor, 20),
                         const SizedBox(width: 12),
-                        Text(
-                          widget.item.label,
-                          style: TextStyle(
-                            color: textColor,
-                            fontSize: 14,
-                            fontWeight: widget.selected
-                                ? FontWeight.w700
-                                : FontWeight.w600,
+                        // A long Amharic or Afaan Oromoo label ends in an
+                        // ellipsis instead of pushing out of the sidebar.
+                        Expanded(
+                          child: Text(
+                            widget.item.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: textColor,
+                              fontSize: 14,
+                              fontWeight: widget.selected
+                                  ? FontWeight.w700
+                                  : FontWeight.w600,
+                            ),
                           ),
                         ),
                       ],

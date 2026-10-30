@@ -263,7 +263,9 @@ class _LiveTripViewState extends State<LiveTripView> {
             return RefreshIndicator(
               onRefresh: view.refresh,
               child: ListView(
-                padding: hero && !wide
+                // Embedded beside the deliveries list, the pane's cards line
+                // up with the list's edge, as on the board.
+                padding: (hero && !wide) || (wide && widget.leading == null)
                     ? const EdgeInsets.only(bottom: 32)
                     : const EdgeInsets.fromLTRB(20, 0, 20, 32),
                 children: _content(
@@ -430,7 +432,7 @@ class _LiveTripViewState extends State<LiveTripView> {
                   ),
                 ),
               ),
-              const SizedBox(width: 20),
+              const SizedBox(width: 16),
               Expanded(
                 child: _CheckInsCard(
                   delivery: _delivery,

@@ -291,8 +291,9 @@ void main() {
     expect(find.byType(LiveTripScreen), findsNothing);
   });
 
-  // Web board at 1280 px: the sidebar leaves the tab about 1020 px, and the
-  // pane still puts the check-ins beside the details.
+  // Web board at 1280 px: the 220 px sidebar leaves the tab 1060 px, and
+  // the pane puts the check-ins beside the details, each column as wide as
+  // the board's (about 330 px) so the driver's name is not cut.
   testWidgets('desktop: the pane keeps the board\'s two columns at 1280 px',
       (tester) async {
     await pumpTab(
@@ -300,10 +301,11 @@ void main() {
       role: UserRole.buyer,
       userId: buyerId,
       deliveries: [onTheRoad],
-      size: const Size(1030, 1000),
+      size: const Size(1060, 1000),
     );
     final card = find.byKey(const Key('live_trip_check_ins_card'));
     expect(card, findsOneWidget);
+    expect(tester.getSize(card).width, greaterThanOrEqualTo(320));
     final details = find.byType(ArrivalWindowBlock);
     expect(
       tester.getTopLeft(card).dx,
