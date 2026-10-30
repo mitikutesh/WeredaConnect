@@ -4222,7 +4222,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String liveTripLogSentLateUntil(String time) {
-    return 'Booda ergame · hanga $time neetworkiin hin turre';
+    return 'Booda ergame, hanga $time neetworkiin hin turre';
   }
 
   @override

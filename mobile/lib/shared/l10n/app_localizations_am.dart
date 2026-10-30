@@ -4066,7 +4066,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String liveTripLogSentLateUntil(String time) {
-    return 'ዘግይቶ ደርሷል · እስከ $time ኔትወርክ አልነበረም';
+    return 'ዘግይቶ ደርሷል፣ እስከ $time ኔትወርክ አልነበረም';
   }
 
   @override

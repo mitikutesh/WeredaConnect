@@ -285,9 +285,10 @@ class _LiveTripViewState extends State<LiveTripView> {
   /// it, as on the Buyer · Live deliveries board.
   static const _wideWidth = 560.0;
 
-  /// From this width the two cards sit side by side; narrower panes stack
-  /// them so the arrival window stays on one line.
-  static const _twoColumnWidth = 760.0;
+  /// From this width the two cards sit side by side (the pane beside the
+  /// deliveries list at 1280 px); narrower panes stack them. The arrival
+  /// window scales down to stay on one line.
+  static const _twoColumnWidth = 600.0;
 
   List<Widget> _content(
     BuildContext context,

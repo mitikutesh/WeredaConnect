@@ -2924,7 +2924,7 @@
   "liveTripAboutEveryHour": "gara sa'aatii hundaa",
   "liveTripLogNext": "itti aanu",
   "liveTripLogThen": "ergasii",
-  "liveTripLogSentLateUntil": "Booda ergame · hanga {time} neetworkiin hin turre",
+  "liveTripLogSentLateUntil": "Booda ergame, hanga {time} neetworkiin hin turre",
   "liveTripExpectedToday": "har'a eegama",
   "liveTripLogSentLate": "Booda ergame, neetworkiin hin turre",
   "liveTripLogPassed": "darbe",

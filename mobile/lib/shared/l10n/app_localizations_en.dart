@@ -4185,7 +4185,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String liveTripLogSentLateUntil(String time) {
-    return 'Sent late · no network until $time';
+    return 'Sent late, no network until $time';
   }
 
   @override

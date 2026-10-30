@@ -4550,7 +4550,7 @@
   "@liveTripLogNext": {"description": "Buyer trip log (Fieldway board): in the time column of the stop the truck goes to next"},
   "liveTripLogThen": "then",
   "@liveTripLogThen": {"description": "Buyer trip log and delivered screen (Fieldway boards): in the time column of what comes after the next stop, and beside the payout step after the check window"},
-  "liveTripLogSentLateUntil": "Sent late · no network until {time}",
+  "liveTripLogSentLateUntil": "Sent late, no network until {time}",
   "@liveTripLogSentLateUntil": {"description": "Buyer trip log (Fieldway board): tag on a check-in that waited on the phone; {time} is when it reached the server, on the viewer's clock", "placeholders": {"time": {"type": "String"}}},
   "liveTripExpectedToday": "expected today",
   "@liveTripExpectedToday": {"description": "Farmer order on the road (Fieldway board): beside the Buyer confirms delivery step while the truck arrives today"},

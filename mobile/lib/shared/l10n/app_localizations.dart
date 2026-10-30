@@ -7423,7 +7423,7 @@ abstract class AppLocalizations {
   /// Buyer trip log (Fieldway board): tag on a check-in that waited on the phone; {time} is when it reached the server, on the viewer's clock
   ///
   /// In en, this message translates to:
-  /// **'Sent late · no network until {time}'**
+  /// **'Sent late, no network until {time}'**
   String liveTripLogSentLateUntil(String time);
 
   /// Farmer order on the road (Fieldway board): beside the Buyer confirms delivery step while the truck arrives today

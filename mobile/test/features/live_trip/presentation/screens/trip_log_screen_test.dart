@@ -84,7 +84,7 @@ void main() {
     // The latest check-in carries its tag in the title (the board).
     expect(find.text('Mojo · latest'), findsOneWidget);
     // The late check-in says until when the phone had no network.
-    expect(find.text('Sent late · no network until 12:22'), findsOneWidget);
+    expect(find.text('Sent late, no network until 12:22'), findsOneWidget);
     expect(find.text('10:30-11:00'), findsOneWidget);
     expect(find.text('Sharing paused'), findsOneWidget);
   });

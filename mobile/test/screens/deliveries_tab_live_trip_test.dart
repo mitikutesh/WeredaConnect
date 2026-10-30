@@ -13,6 +13,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
 import 'package:wereda_connect/features/live_trip/presentation/screens/live_trip_screen.dart';
+import 'package:wereda_connect/features/live_trip/presentation/widgets/live_trip_parts.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/on_the_road_card.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/track_map.dart';
 import 'package:wereda_connect/screens/deliveries_tab_screen.dart';
@@ -288,6 +289,30 @@ void main() {
       'delivery-103',
     );
     expect(find.byType(LiveTripScreen), findsNothing);
+  });
+
+  // Web board at 1280 px: the sidebar leaves the tab about 1020 px, and the
+  // pane still puts the check-ins beside the details.
+  testWidgets('desktop: the pane keeps the board\'s two columns at 1280 px',
+      (tester) async {
+    await pumpTab(
+      tester,
+      role: UserRole.buyer,
+      userId: buyerId,
+      deliveries: [onTheRoad],
+      size: const Size(1030, 1000),
+    );
+    final card = find.byKey(const Key('live_trip_check_ins_card'));
+    expect(card, findsOneWidget);
+    final details = find.byType(ArrivalWindowBlock);
+    expect(
+      tester.getTopLeft(card).dx,
+      greaterThan(tester.getTopLeft(details).dx),
+    );
+    expect(
+      tester.getTopLeft(card).dy,
+      lessThan(tester.getTopLeft(details).dy + 40),
+    );
   });
 
   testWidgets('desktop trucker: no pane', (tester) async {
