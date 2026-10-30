@@ -4172,6 +4172,26 @@ class AppLocalizationsEn extends AppLocalizations {
   String get liveTripLogLatest => 'latest';
 
   @override
+  String get liveTripCheckInsTitle => 'Check-ins';
+
+  @override
+  String get liveTripAboutEveryHour => 'about every hour';
+
+  @override
+  String get liveTripLogNext => 'next';
+
+  @override
+  String get liveTripLogThen => 'then';
+
+  @override
+  String liveTripLogSentLateUntil(String time) {
+    return 'Sent late · no network until $time';
+  }
+
+  @override
+  String get liveTripExpectedToday => 'expected today';
+
+  @override
   String get liveTripLogSentLate => 'Sent late, no network';
 
   @override

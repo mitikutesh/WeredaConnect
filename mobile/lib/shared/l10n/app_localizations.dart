@@ -7396,6 +7396,42 @@ abstract class AppLocalizations {
   /// **'latest'**
   String get liveTripLogLatest;
 
+  /// Buyer trip log and the wide live trip (Fieldway boards): the title of the check-ins card; "about every hour" sits beside it
+  ///
+  /// In en, this message translates to:
+  /// **'Check-ins'**
+  String get liveTripCheckInsTitle;
+
+  /// Buyer trip log (Fieldway board): how often the truck checks in, beside the Check-ins title
+  ///
+  /// In en, this message translates to:
+  /// **'about every hour'**
+  String get liveTripAboutEveryHour;
+
+  /// Buyer trip log (Fieldway board): in the time column of the stop the truck goes to next
+  ///
+  /// In en, this message translates to:
+  /// **'next'**
+  String get liveTripLogNext;
+
+  /// Buyer trip log and delivered screen (Fieldway boards): in the time column of what comes after the next stop, and beside the payout step after the check window
+  ///
+  /// In en, this message translates to:
+  /// **'then'**
+  String get liveTripLogThen;
+
+  /// Buyer trip log (Fieldway board): tag on a check-in that waited on the phone; {time} is when it reached the server, on the viewer's clock
+  ///
+  /// In en, this message translates to:
+  /// **'Sent late · no network until {time}'**
+  String liveTripLogSentLateUntil(String time);
+
+  /// Farmer order on the road (Fieldway board): beside the Buyer confirms delivery step while the truck arrives today
+  ///
+  /// In en, this message translates to:
+  /// **'expected today'**
+  String get liveTripExpectedToday;
+
   /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log tag: the check-in waited on the phone over 15 minutes before it arrived
   ///
   /// In en, this message translates to:

@@ -51,7 +51,8 @@ void main() {
     expect(find.text('Your Wheat is on the road'), findsOneWidget);
     expect(find.text('2,000 kg to Selam Traders'), findsOneWidget);
     expect(find.byType(TrackMap), findsOneWidget);
-    expect(find.text('11:42 · Mojo'), findsOneWidget);
+    // The board's chip under the map: time, town and age on one line.
+    expect(find.text('11:42 · Mojo · 28 min ago'), findsOneWidget);
     expect(find.text('Arrives 13:20-14:00'), findsOneWidget);
     expect(
       find.text(

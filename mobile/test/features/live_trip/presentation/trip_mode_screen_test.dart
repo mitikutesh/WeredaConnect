@@ -95,7 +95,11 @@ void main() {
       expect(find.text(l10n.tripModePrivacy), findsOneWidget);
 
       // The next stop is the pickup still waiting.
-      expect(find.text(l10n.tripModeNextPickup), findsOneWidget);
+      // The next stop label is set in capitals (the board).
+      expect(
+        find.text(l10n.tripModeNextPickup.toUpperCase()),
+        findsOneWidget,
+      );
       expect(find.byKey(const Key('trip_mode_scan')), findsOneWidget);
       expect(find.byKey(const Key('trip_mode_arrived')), findsOneWidget);
 
@@ -119,7 +123,7 @@ void main() {
       );
       expect(find.text(l10n.tripModeNextLabel), findsOneWidget);
 
-      expect(find.text(l10n.escrowEtbAmount('4,500')), findsOneWidget);
+      expect(find.text(l10n.etbCurrency('4,500')), findsOneWidget);
       expect(find.byKey(const Key('trip_mode_offline')), findsNothing);
     });
 
@@ -252,7 +256,10 @@ void main() {
       );
       final l10n = lookup('en');
 
-      expect(find.text(l10n.tripModeNextDropoff), findsOneWidget);
+      expect(
+        find.text(l10n.tripModeNextDropoff.toUpperCase()),
+        findsOneWidget,
+      );
       expect(find.text('Hawi Flour Mill, Addis Ababa'), findsOneWidget);
       expect(find.byKey(const Key('trip_mode_arrived')), findsOneWidget);
 

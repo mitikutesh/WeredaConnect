@@ -50,19 +50,58 @@ class _SharingDefaultTileState extends State<SharingDefaultTile> {
     final engine = _engine;
     if (engine == null || engine.userId == null) return const SizedBox.shrink();
     final l10n = AppLocalizations.of(context)!;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        ListTile(
-          key: const Key('settings_trip_location_tile'),
-          leading: const Icon(Icons.share_location),
-          title: Text(l10n.sharingDefaultSetting),
-          subtitle: Text(sharingDefaultLabel(l10n, engine.sharingDefault)),
-          trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-          onTap: () => _pick(engine),
+    // A row of the Settings card groups (Fieldway): the icon, the title
+    // and the current choice, a chevron; no divider, at least 56 tall.
+    return Semantics(
+      button: true,
+      child: InkWell(
+        key: const Key('settings_trip_location_tile'),
+        onTap: () => _pick(engine),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 56),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.share_location,
+                size: 22,
+                color: AppTheme.soilDark,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.sharingDefaultSetting,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.soilDark,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      sharingDefaultLabel(l10n, engine.sharingDefault),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: AppTheme.mutedSteel,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.chevron_right,
+                size: 20,
+                color: AppTheme.mutedSteel,
+              ),
+            ],
+          ),
         ),
-        const Divider(),
-      ],
+      ),
     );
   }
 }

@@ -56,6 +56,14 @@ String kmText(double km) => NumberFormat('0.#', 'en').format(km);
 /// An amount of birr with thousands separators: "91,200".
 String birrText(double amount) => NumberFormat('#,##0.##', 'en').format(amount);
 
+/// The first word of a display name ("Dawit" of "Dawit Tesfaye"), how the
+/// boards address a party on a short button; the whole name when it is one
+/// word or empty.
+String firstNameOf(String display) {
+  final words = display.trim().split(RegExp(r'\s+'));
+  return words.isEmpty ? display : words.first;
+}
+
 /// What a trip log row says about a check-in.
 String tripLogDescription(AppLocalizations l10n, TripLogEntry entry) =>
     switch (entry.kind) {

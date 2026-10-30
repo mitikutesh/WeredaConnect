@@ -4209,6 +4209,26 @@ class AppLocalizationsOm extends AppLocalizations {
   String get liveTripLogLatest => 'isa dhumaa';
 
   @override
+  String get liveTripCheckInsTitle => 'Gabaasota';
+
+  @override
+  String get liveTripAboutEveryHour => 'gara sa\'aatii hundaa';
+
+  @override
+  String get liveTripLogNext => 'itti aanu';
+
+  @override
+  String get liveTripLogThen => 'ergasii';
+
+  @override
+  String liveTripLogSentLateUntil(String time) {
+    return 'Booda ergame · hanga $time neetworkiin hin turre';
+  }
+
+  @override
+  String get liveTripExpectedToday => 'har\'a eegama';
+
+  @override
   String get liveTripLogSentLate => 'Booda ergame, neetworkiin hin turre';
 
   @override
