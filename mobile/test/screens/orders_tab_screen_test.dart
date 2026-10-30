@@ -14,6 +14,7 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart
 import 'package:wereda_connect/screens/orders_tab_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
+import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
 
 class MockOrderBloc extends Mock implements OrderBloc {}
 
@@ -71,7 +72,7 @@ void main() {
         ),
       );
 
-  // Wide enough for the wrapped (non-scrolling) chip row.
+  // A wide window: the pills still sit in one phone-width row.
   void useDesktop(WidgetTester tester) {
     tester.view.physicalSize = const Size(1600, 1000);
     tester.view.devicePixelRatio = 1.0;
@@ -90,7 +91,7 @@ void main() {
       en.statusDisbursing,
       en.statusSettled,
     ]) {
-      expect(find.widgetWithText(FilterChip, label), findsOneWidget);
+      expect(find.widgetWithText(FwFilterPill, label), findsOneWidget);
     }
   });
 
@@ -103,7 +104,9 @@ void main() {
       await tester.pumpWidget(buildScreen(const Locale('en')));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.widgetWithText(FilterChip, label));
+      final pill = find.widgetWithText(FwFilterPill, label);
+      await tester.ensureVisible(pill);
+      await tester.tap(pill);
       await tester.pump();
 
       verify(
@@ -127,7 +130,7 @@ void main() {
 
       final l10n = lookupAppLocalizations(locale);
       for (final label in [l10n.statusDisbursing, l10n.statusSettled]) {
-        expect(find.widgetWithText(FilterChip, label), findsOneWidget);
+        expect(find.widgetWithText(FwFilterPill, label), findsOneWidget);
       }
     });
   }

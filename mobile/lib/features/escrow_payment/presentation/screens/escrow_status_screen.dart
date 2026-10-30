@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/payout_expectation.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
@@ -20,8 +21,11 @@ import 'package:wereda_connect/features/escrow_payment/presentation/widgets/payo
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
-/// Escrow detail screen showing status, amount, timeline, and actions.
+/// Escrow detail screen showing status, amount, timeline, and actions, laid
+/// out like the boards' pushed pages: a back square and the title, then
+/// white cards with uppercase section labels, in the phone-width column.
 ///
 /// Loads a single escrow by ID or delivery ID. Supports pull-to-refresh
 /// and shows a stale data indicator when cache is older than 1 hour.
@@ -51,8 +55,6 @@ class EscrowStatusScreen extends StatefulWidget {
 
 class _EscrowStatusScreenState extends State<EscrowStatusScreen>
     with WidgetsBindingObserver {
-  static final _amountFormat = NumberFormat('#,##0.00', 'en_US');
-
   // Poll the escrow while the buyer completes payment in Telebirr. The webhook
   // (server-side) is the source of truth; polling just surfaces the flip to the
   // buyer. Bounded so a never-completed payment doesn't poll forever.
@@ -74,8 +76,8 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
       // Open Telebirr after first frame (needs a valid context for messenger).
       WidgetsBinding.instance.addPostFrameCallback((_) => _launchTelebirr());
       _startPolling();
-      // Refresh immediately when the buyer returns — via the deep-link
-      // (weredaconnect://payment/complete) or app resume — instead of waiting
+      // Refresh immediately when the buyer returns, via the deep-link
+      // (weredaconnect://payment/complete) or app resume, instead of waiting
       // for the next poll tick.
       WidgetsBinding.instance.addObserver(this);
       TelebirrReturnWatchers.add();
@@ -102,7 +104,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Returning from the Telebirr browser/app — check status right away.
+    // Returning from the Telebirr browser/app: check status right away.
     if (state == AppLifecycleState.resumed && widget.awaitingPayment) {
       _refreshNow();
     }
@@ -156,94 +158,125 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(AppLocalizations.of(context)!.escrowPaymentStatus),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadEscrow,
-          ),
-        ],
-      ),
-      body: BlocConsumer<EscrowBloc, EscrowState>(
-        listener: (context, state) {
-          // Stop polling once the escrow resolves; confirm to the buyer when
-          // the payment is captured (initiated → escrowed).
-          if (state is EscrowDetailLoaded &&
-              state.payment.status != PaymentStatus.initiated) {
-            _pollTimer?.cancel();
-            _resolved = true;
-            if (widget.awaitingPayment &&
-                state.payment.status == PaymentStatus.escrowed) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    AppLocalizations.of(context)!.escrowPaymentConfirmed,
-                  ),
-                ),
-              );
-            }
-          }
-        },
-        builder: (context, state) {
-          if (state is EscrowLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (state is EscrowError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+      body: SafeArea(
+        child: FwContentWidth(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                child: Row(
                   children: [
-                    const Icon(
-                      Icons.error_outline,
-                      size: 64,
-                      color: AppTheme.statusError,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      localizeEscrowError(
-                        AppLocalizations.of(context)!,
-                        state.code,
-                        state.message,
+                    FwSquareButton(
+                      onTap: () => Navigator.of(context).maybePop(),
+                      semanticLabel:
+                          MaterialLocalizations.of(context).backButtonTooltip,
+                      child: const Icon(
+                        Icons.arrow_back,
+                        size: 20,
+                        color: AppTheme.soilDark,
                       ),
-                      textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 16),
-                    FilledButton(
-                      onPressed: _loadEscrow,
-                      child: Text(AppLocalizations.of(context)!.retry),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FwPageHeader(
+                        padding: EdgeInsets.zero,
+                        title: l10n.escrowPaymentStatus,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    FwSquareButton(
+                      onTap: _loadEscrow,
+                      semanticLabel: l10n.retry,
+                      child: const Icon(
+                        Icons.refresh,
+                        size: 22,
+                        color: AppTheme.soilDark,
+                      ),
                     ),
                   ],
                 ),
               ),
-            );
-          }
+              Expanded(
+                child: BlocConsumer<EscrowBloc, EscrowState>(
+                  listener: (context, state) {
+                    // Stop polling once the escrow resolves; confirm to the
+                    // buyer when the payment is captured (initiated → escrowed).
+                    if (state is EscrowDetailLoaded &&
+                        state.payment.status != PaymentStatus.initiated) {
+                      _pollTimer?.cancel();
+                      _resolved = true;
+                      if (widget.awaitingPayment &&
+                          state.payment.status == PaymentStatus.escrowed) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(l10n.escrowPaymentConfirmed),
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  builder: (context, state) {
+                    if (state is EscrowLoading) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
 
-          if (state is! EscrowDetailLoaded) {
-            return const Center(child: CircularProgressIndicator());
-          }
+                    if (state is EscrowError) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.error_outline,
+                                size: 56,
+                                color: AppTheme.statusError,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                localizeEscrowError(
+                                  l10n,
+                                  state.code,
+                                  state.message,
+                                ),
+                                style: FwText.cardTitle,
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 16),
+                              FilledButton(
+                                onPressed: _loadEscrow,
+                                child: Text(l10n.retry),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
 
-          return _buildContent(context, theme, state.payment);
-        },
+                    if (state is! EscrowDetailLoaded) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    return _buildContent(context, state.payment);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildContent(
-    BuildContext context,
-    ThemeData theme,
-    Payment payment,
-  ) {
+  Widget _buildContent(BuildContext context, Payment payment) {
     final l10n = AppLocalizations.of(context)!;
     final clock = clockFormatOf(context);
     final staleMinutes =
         DateTime.now().toUtc().difference(payment.updatedAt).inMinutes;
+    String etb(double? amount) => l10n.etbCurrency(formatEtbAmount(amount ?? 0));
 
     return RefreshIndicator(
       onRefresh: () async {
@@ -253,7 +286,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
       },
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -264,7 +297,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
               _AwaitingPaymentBanner(
                 onOpenAgain: widget.toPayUrl != null ? _launchTelebirr : null,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
             ],
 
             // Status badge (large)
@@ -279,117 +312,109 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
               const SizedBox(height: 12),
               PayoutExpectedText(payoutAt: payoutAt, center: true),
             ],
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
 
             // Amount breakdown
-            Text(
+            FwSectionLabel(
               l10n.escrowTotalAmount,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+              padding: const EdgeInsets.only(bottom: 8),
             ),
-            const SizedBox(height: 8),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    _DetailRow(
-                      label: l10n.escrowTotalAmount,
-                      value: l10n.escrowEtbAmount(
-                        _amountFormat.format(payment.amount),
-                      ),
-                    ),
+            FwCard(
+              child: Column(
+                children: [
+                  _DetailRow(
+                    label: l10n.escrowTotalAmount,
+                    value: etb(payment.amount),
+                    emphasis: true,
+                  ),
+                  const Divider(height: 20, color: AppTheme.segmentTrack),
+                  _DetailRow(
+                    label: l10n.escrowCommission('2.5'),
+                    value: etb(payment.commission),
+                  ),
+                  const SizedBox(height: 8),
+                  _DetailRow(
+                    label: l10n.escrowFarmerReceives,
+                    value: etb(payment.farmerPayout),
+                    valueColor: AppTheme.fieldGreen,
+                  ),
+                  // Transport leg (SIM-15): total = commission + farmer +
+                  // trucker. Hidden for orders without a trucker split.
+                  if ((payment.truckerPayout ?? 0) > 0) ...[
                     const SizedBox(height: 8),
                     _DetailRow(
-                      label: l10n.escrowCommission('2.5'),
-                      value: l10n.escrowEtbAmount(
-                        _amountFormat.format(payment.commission),
-                      ),
+                      label: l10n.escrowTruckerReceives,
+                      value: etb(payment.truckerPayout),
+                      valueColor: AppTheme.fieldGreen,
                     ),
-                    const SizedBox(height: 8),
-                    _DetailRow(
-                      label: l10n.escrowFarmerReceives,
-                      value: l10n.escrowEtbAmount(
-                        _amountFormat.format(payment.farmerPayout),
-                      ),
-                      valueColor: AppTheme.onStatusSuccessContainer,
-                    ),
-                    // Transport leg (SIM-15): total = commission + farmer +
-                    // trucker. Hidden for orders without a trucker split.
-                    if ((payment.truckerPayout ?? 0) > 0) ...[
-                      const SizedBox(height: 8),
-                      _DetailRow(
-                        label: l10n.escrowTruckerReceives,
-                        value: l10n.escrowEtbAmount(
-                          _amountFormat.format(payment.truckerPayout),
-                        ),
-                        valueColor: AppTheme.onStatusSuccessContainer,
-                      ),
-                    ],
                   ],
-                ),
+                ],
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
 
             // Details section
-            Text(
+            FwSectionLabel(
               l10n.escrowDeliveryLabel,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
+              padding: const EdgeInsets.only(bottom: 8),
+            ),
+            FwCard(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Column(
+                children: [
+                  // An order-funded escrow has no delivery until the trucker
+                  // creates one: name the order instead of a blank "#".
+                  _InfoRow(
+                    icon: Icons.inventory_2_outlined,
+                    label: l10n.escrowDeliveryLabel,
+                    value: _reference(payment, l10n),
+                  ),
+                  _InfoRow(
+                    icon: Icons.calendar_today_outlined,
+                    label: l10n.escrowCreatedLabel,
+                    value: clock.dateTime(payment.createdAt),
+                  ),
+                  if (payment.expiresAt != null)
+                    _InfoRow(
+                      icon: Icons.timer_outlined,
+                      label: l10n.escrowExpiresLabel,
+                      clock: clock.deadline(
+                        payment.expiresAt!,
+                        date: DateFormat.yMMMd(),
+                      ),
+                    ),
+                  if (payment.telebirrRef != null)
+                    _InfoRow(
+                      icon: Icons.link,
+                      label: l10n.escrowTelebirrRefLabel,
+                      value: payment.telebirrRef!.length > 20
+                          ? '${payment.telebirrRef!.substring(0, 20)}...'
+                          : payment.telebirrRef!,
+                    ),
+                ],
               ),
             ),
-            const SizedBox(height: 8),
-            _InfoRow(
-              icon: Icons.inventory_2,
-              label: l10n.escrowDeliveryLabel,
-              value:
-                  '#${payment.deliveryId.length > 8 ? payment.deliveryId.substring(0, 8) : payment.deliveryId}',
-            ),
-            _InfoRow(
-              icon: Icons.calendar_today,
-              label: l10n.escrowCreatedLabel,
-              value: clock.dateTime(payment.createdAt),
-            ),
-            if (payment.expiresAt != null)
-              _InfoRow(
-                icon: Icons.timer,
-                label: l10n.escrowExpiresLabel,
-                clock: clock.deadline(
-                  payment.expiresAt!,
-                  date: DateFormat.yMMMd(),
-                ),
-              ),
-            if (payment.telebirrRef != null)
-              _InfoRow(
-                icon: Icons.link,
-                label: l10n.escrowTelebirrRefLabel,
-                value: payment.telebirrRef!.length > 20
-                    ? '${payment.telebirrRef!.substring(0, 20)}...'
-                    : payment.telebirrRef!,
-              ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
 
             // Timeline
-            Text(
+            FwSectionLabel(
               l10n.escrowTimeline,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+              padding: const EdgeInsets.only(bottom: 8),
             ),
-            const SizedBox(height: 12),
-            EscrowTimeline(payment: payment),
+            FwCard(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+              child: EscrowTimeline(payment: payment),
+            ),
 
             // Dispute info (if disputed)
             if (payment.status == PaymentStatus.disputed) ...[
-              const SizedBox(height: 24),
-              _DisputeInfoCard(payment: payment, theme: theme),
+              const SizedBox(height: 20),
+              _DisputeInfoCard(payment: payment),
             ],
 
             // Raise dispute button (only if escrowed + within 48h window)
             if (_canDispute(payment)) ...[
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               OutlinedButton.icon(
                 onPressed: () {
                   Navigator.push(
@@ -411,7 +436,10 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
                   side: const BorderSide(
                     color: AppTheme.onStatusWarningContainer,
                   ),
-                  minimumSize: const Size.fromHeight(48),
+                  minimumSize: const Size.fromHeight(52),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                 ),
               ),
             ],
@@ -422,18 +450,13 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.info_outline,
                     size: 14,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                    color: AppTheme.mutedSteel,
                   ),
                   const SizedBox(width: 4),
-                  Text(
-                    l10n.escrowMayBeOutdated,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
-                    ),
-                  ),
+                  Text(l10n.escrowMayBeOutdated, style: FwText.body),
                 ],
               ),
             ],
@@ -441,6 +464,18 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
         ),
       ),
     );
+  }
+
+  static String _short(String id) => id.length > 8 ? id.substring(0, 8) : id;
+
+  /// The delivery this escrow backs, else its order, else a dash.
+  static String _reference(Payment payment, AppLocalizations l10n) {
+    if (payment.deliveryId.isNotEmpty) return '#${_short(payment.deliveryId)}';
+    final orderId = payment.orderId;
+    if (orderId != null && orderId.isNotEmpty) {
+      return l10n.escrowOrderShort(_short(orderId));
+    }
+    return '-';
   }
 
   bool _canDispute(Payment payment) {
@@ -459,13 +494,12 @@ class _AwaitingPaymentBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(12),
+        color: AppTheme.actionCream,
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -475,13 +509,20 @@ class _AwaitingPaymentBanner extends StatelessWidget {
               const SizedBox(
                 height: 20,
                 width: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppTheme.money,
+                ),
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: Text(
                   l10n.escrowAwaitingPayment,
-                  style: theme.textTheme.bodyMedium,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.actionInk,
+                  ),
                 ),
               ),
             ],
@@ -494,6 +535,7 @@ class _AwaitingPaymentBanner extends StatelessWidget {
                 onPressed: () {
                   onOpenAgain!();
                 },
+                style: TextButton.styleFrom(foregroundColor: AppTheme.money),
                 icon: const Icon(Icons.open_in_new, size: 18),
                 label: Text(l10n.escrowOpenPaymentAgain),
               ),
@@ -507,31 +549,36 @@ class _AwaitingPaymentBanner extends StatelessWidget {
 
 class _DisputeInfoCard extends StatelessWidget {
   final Payment payment;
-  final ThemeData theme;
 
-  const _DisputeInfoCard({required this.payment, required this.theme});
+  const _DisputeInfoCard({required this.payment});
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppTheme.statusError.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.statusError.withValues(alpha: 0.2)),
+        color: AppTheme.statusErrorContainer,
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.warning, color: AppTheme.onStatusErrorContainer),
+              const Icon(
+                Icons.warning_amber,
+                color: AppTheme.onStatusErrorContainer,
+              ),
               const SizedBox(width: 8),
-              Text(
-                AppLocalizations.of(context)!.escrowDisputeDetailsTitle,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  color: AppTheme.onStatusErrorContainer,
-                  fontWeight: FontWeight.bold,
+              Expanded(
+                child: Text(
+                  l10n.escrowDisputeDetailsTitle,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.onStatusErrorContainer,
+                  ),
                 ),
               ),
             ],
@@ -539,16 +586,22 @@ class _DisputeInfoCard extends StatelessWidget {
           if (payment.disputeReason != null) ...[
             const SizedBox(height: 8),
             Text(
-              AppLocalizations.of(context)!
-                  .escrowDisputeReasonPrefix(payment.disputeReason!),
+              l10n.escrowDisputeReasonPrefix(payment.disputeReason!),
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.onStatusErrorContainer,
+              ),
             ),
           ],
           if (payment.disputeDescription != null) ...[
             const SizedBox(height: 4),
             Text(
               '"${payment.disputeDescription}"',
-              style: theme.textTheme.bodyMedium?.copyWith(
+              style: const TextStyle(
+                fontSize: 14,
                 fontStyle: FontStyle.italic,
+                color: AppTheme.onStatusErrorContainer,
               ),
             ),
           ],
@@ -563,24 +616,42 @@ class _DetailRow extends StatelessWidget {
   final String value;
   final Color? valueColor;
 
+  /// The total: bigger value, like the boards' "You receive" line.
+  final bool emphasis;
+
   const _DetailRow({
     required this.label,
     required this.value,
     this.valueColor,
+    this.emphasis = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
       children: [
-        Text(label, style: Theme.of(context).textTheme.bodyLarge),
+        Flexible(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: emphasis ? 13 : 14,
+              fontWeight: FontWeight.w500,
+              color: emphasis ? AppTheme.mutedSteel : AppTheme.inkSecondary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
         Text(
           value,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: valueColor,
-              ),
+          style: TextStyle(
+            fontSize: emphasis ? 22 : 14,
+            fontWeight: emphasis ? FontWeight.w800 : FontWeight.w700,
+            letterSpacing: emphasis ? -0.4 : 0,
+            color: valueColor ?? AppTheme.soilDark,
+          ),
         ),
       ],
     );
@@ -605,30 +676,24 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Icon(
-            icon,
-            size: 18,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-          ),
+          Icon(icon, size: 18, color: AppTheme.mutedSteel),
           const SizedBox(width: 12),
           SizedBox(
-            width: 80,
-            child: Text(
-              label,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-              ),
-            ),
+            width: 84,
+            child: Text(label, style: FwText.body),
           ),
           Expanded(
             child: ClockText(
               clock ?? ClockLabel.text(value),
-              style: theme.textTheme.bodyMedium,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.soilDark,
+              ),
             ),
           ),
         ],

@@ -39,14 +39,14 @@ void main() {
     expect(stored.isUtc, isTrue);
     await tester.pumpWidget(wrap(TripCard(trip: trip(stored))));
 
-    expect(find.text('Oct 25, 2026'), findsOneWidget);
-    expect(find.text('Oct 24, 2026'), findsNothing);
+    expect(find.textContaining('Oct 25'), findsOneWidget);
+    expect(find.textContaining('Oct 24'), findsNothing);
   });
 
   testWidgets('mobile: the local value Isar returns shows the same day',
       (tester) async {
     await tester.pumpWidget(wrap(TripCard(trip: trip(stored.toLocal()))));
 
-    expect(find.text('Oct 25, 2026'), findsOneWidget);
+    expect(find.textContaining('Oct 25'), findsOneWidget);
   });
 }

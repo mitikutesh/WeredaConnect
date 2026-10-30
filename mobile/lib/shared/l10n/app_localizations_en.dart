@@ -563,6 +563,27 @@ class AppLocalizationsEn extends AppLocalizations {
   String get myTrips => 'My Trips';
 
   @override
+  String listsTripBooked(String booked, String capacity) {
+    return '$booked of $capacity quintals booked';
+  }
+
+  @override
+  String get listsRouteFrom => 'From';
+
+  @override
+  String get listsRouteTo => 'To';
+
+  @override
+  String get listsMyTripsPrivacyNote =>
+      'Only you see your trips here. Buyers find them in the Market.';
+
+  @override
+  String get listsAllTripsNote => 'Every open trip from every trucker.';
+
+  @override
+  String get listsKeepTrip => 'Keep trip';
+
+  @override
   String get tripDetails => 'Trip Details';
 
   @override
@@ -2022,6 +2043,16 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get trackBuyerPayments => 'Track your payments & escrow';
+
+  @override
+  String get listsHeldInEscrow => 'Held in escrow';
+
+  @override
+  String get listsReleased => 'Released';
+
+  @override
+  String get listsPaymentsNote =>
+      'Each row is one escrow. Tap it for the timeline.';
 
   @override
   String get noDeliveries => 'No deliveries yet';

@@ -1126,6 +1126,42 @@ abstract class AppLocalizations {
   /// **'My Trips'**
   String get myTrips;
 
+  /// Trip card load bar: paid quintals out of the truck's capacity
+  ///
+  /// In en, this message translates to:
+  /// **'{booked} of {capacity} quintals booked'**
+  String listsTripBooked(String booked, String capacity);
+
+  /// Short hint of the origin field in the trips route filter
+  ///
+  /// In en, this message translates to:
+  /// **'From'**
+  String get listsRouteFrom;
+
+  /// Short hint of the destination field in the trips route filter
+  ///
+  /// In en, this message translates to:
+  /// **'To'**
+  String get listsRouteTo;
+
+  /// Note under the trucker's own trips (sibling of the My Crops board note)
+  ///
+  /// In en, this message translates to:
+  /// **'Only you see your trips here. Buyers find them in the Market.'**
+  String get listsMyTripsPrivacyNote;
+
+  /// Footer under the buyer's trip list
+  ///
+  /// In en, this message translates to:
+  /// **'Every open trip from every trucker.'**
+  String get listsAllTripsNote;
+
+  /// Dismiss button of the cancel-trip confirmation in the trips list
+  ///
+  /// In en, this message translates to:
+  /// **'Keep trip'**
+  String get listsKeepTrip;
+
   /// Title for trip details screen
   ///
   /// In en, this message translates to:
@@ -3783,6 +3819,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Track your payments & escrow'**
   String get trackBuyerPayments;
+
+  /// Payments summary: money currently held for this person
+  ///
+  /// In en, this message translates to:
+  /// **'Held in escrow'**
+  String get listsHeldInEscrow;
+
+  /// Payments summary: money released or paid out
+  ///
+  /// In en, this message translates to:
+  /// **'Released'**
+  String get listsReleased;
+
+  /// Footer under the payments list
+  ///
+  /// In en, this message translates to:
+  /// **'Each row is one escrow. Tap it for the timeline.'**
+  String get listsPaymentsNote;
 
   /// Empty state message when no deliveries exist
   ///

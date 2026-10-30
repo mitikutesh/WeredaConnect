@@ -22,8 +22,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('100.00'), findsOneWidget);
-      expect(find.textContaining('ETB'), findsOneWidget);
+      // The boards' money: grouped thousands, no decimals, unit after.
+      expect(find.text('100 ETB'), findsOneWidget);
     });
 
     testWidgets('formats 15,000 ETB with thousands separator',
@@ -33,7 +33,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('15,000.00'), findsOneWidget);
+      expect(find.textContaining('15,000 ETB'), findsOneWidget);
     });
 
     testWidgets('formats 500,000 ETB correctly', (WidgetTester tester) async {
@@ -42,7 +42,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('500,000.00'), findsOneWidget);
+      expect(find.textContaining('500,000 ETB'), findsOneWidget);
     });
 
     testWidgets('formats decimal amounts correctly',
@@ -52,7 +52,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('1,234.56'), findsOneWidget);
+      expect(find.text('1,234.56 ETB'), findsOneWidget);
     });
 
     testWidgets('large variant uses different text style',
@@ -62,8 +62,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Should render the text (large variant has headlineMedium style)
-      expect(find.textContaining('15,000.00'), findsOneWidget);
+      // Should render the text (the large variant is the 24/800 detail size)
+      expect(find.textContaining('15,000 ETB'), findsOneWidget);
     });
 
     testWidgets('applies custom color', (WidgetTester tester) async {
@@ -72,7 +72,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('15,000.00'), findsOneWidget);
+      expect(find.textContaining('15,000 ETB'), findsOneWidget);
     });
 
     testWidgets('applies custom style', (WidgetTester tester) async {
@@ -86,7 +86,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('15,000.00'), findsOneWidget);
+      expect(find.textContaining('15,000 ETB'), findsOneWidget);
     });
   });
 }

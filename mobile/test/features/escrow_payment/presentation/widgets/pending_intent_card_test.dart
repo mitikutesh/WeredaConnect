@@ -42,7 +42,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('5,000.00'), findsOneWidget);
+      expect(find.textContaining('5,000 ETB'), findsOneWidget);
     });
 
     testWidgets('displays truncated delivery ID', (WidgetTester tester) async {

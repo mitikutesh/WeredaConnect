@@ -15,6 +15,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
@@ -156,10 +157,89 @@ void main() {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      // From/To filters are place-autocomplete pickers (with a search apply
-      // button beside them).
+      // From/To filters are place-autocomplete pickers (with a square
+      // search button beside them, the boards' action square).
       expect(find.byType(PlaceSelector), findsNWidgets(2));
-      expect(find.widgetWithIcon(IconButton, Icons.search), findsOneWidget);
+      expect(
+        find.widgetWithIcon(FwSquareButton, Icons.search),
+        findsOneWidget,
+      );
+    });
+
+    Trip openTrip(String id, String from) => Trip()
+      ..tripId = id
+      ..truckerId = 'trucker-$id'
+      ..truckerName = 'Trucker $id'
+      ..truckerPhone = '+251900100002'
+      ..fromWoreda = from
+      ..toWoreda = 'Addis Ababa'
+      ..departureDate = DateTime(2026, 2, 18)
+      ..capacity = 150.0
+      ..pricePerQuintal = 120.0
+      ..status = TripStatus.open
+      ..matchedListings = []
+      ..createdAt = DateTime(2026, 2, 16)
+      ..updatedAt = DateTime(2026, 2, 16)
+      ..version = 1;
+
+    testWidgets('trucker: My Trips header, own trips, Cancel Trip asks first',
+        (tester) async {
+      final trips = [openTrip('t1', 'Meki'), openTrip('t2', 'Ziway')];
+      when(() => tripListingBloc.state).thenReturn(TripsLoaded(trips: trips));
+      when(() => tripListingBloc.stream)
+          .thenAnswer((_) => Stream.value(TripsLoaded(trips: trips)));
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(find.text('My Trips'), findsOneWidget);
+      verify(
+        () => tripListingBloc.add(const LoadTrips(truckerId: 'trucker-001')),
+      ).called(1);
+      expect(find.text('Cancel Trip'), findsNWidgets(2));
+
+      await tester.tap(find.text('Cancel Trip').first);
+      await tester.pumpAndSettle();
+      // The confirmation names the trip action and offers to keep it.
+      expect(find.text('Keep trip'), findsOneWidget);
+      verifyNever(() => tripListingBloc.add(any(that: isA<CancelTrip>())));
+
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel Trip'));
+      await tester.pumpAndSettle();
+      final sent = verify(
+        () => tripListingBloc.add(captureAny(that: isA<CancelTrip>())),
+      ).captured.single as CancelTrip;
+      expect(sent.tripId, 't1');
+      expect(sent.truckerId, 'trucker-001');
+    });
+
+    testWidgets('buyer: Trips header, every open trip, no Cancel Trip',
+        (tester) async {
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'buyer-001',
+          tokens: _testTokens,
+          role: UserRole.buyer,
+          userName: 'Selam Traders',
+          woreda: 'Merkato',
+        ),
+      );
+      final trips = [openTrip('t1', 'Meki'), openTrip('t2', 'Ziway')];
+      when(() => tripListingBloc.state).thenReturn(TripsLoaded(trips: trips));
+      when(() => tripListingBloc.stream)
+          .thenAnswer((_) => Stream.value(TripsLoaded(trips: trips)));
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      // The buyer sees ALL trips (CLAUDE.md): the open-trips read, both
+      // truckers' routes, and no owner actions.
+      verify(() => tripListingBloc.add(const LoadOpenTrips())).called(1);
+      expect(find.text('Trips'), findsOneWidget);
+      expect(find.text('Selam Traders · Merkato'), findsOneWidget);
+      expect(find.text('Meki → Addis Ababa'), findsOneWidget);
+      expect(find.text('Ziway → Addis Ababa'), findsOneWidget);
+      expect(find.text('Cancel Trip'), findsNothing);
     });
   });
 }
