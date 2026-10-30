@@ -27,6 +27,7 @@ import 'package:wereda_connect/features/order/presentation/screens/order_detail_
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
 class MockOrderBloc extends Mock implements OrderBloc {}
 
@@ -419,7 +420,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(DeliveryDetailScreen), findsOneWidget);
 
-      await tester.pageBack();
+      // The delivery detail has no app bar: its back is the square button.
+      await tester.tap(
+        find.descendant(
+          of: find.byType(DeliveryDetailScreen),
+          matching: find.byType(FwBackButton),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Collect it myself'), findsNothing);
