@@ -385,28 +385,30 @@ class _SidebarHeader extends StatelessWidget {
       ),
       child: Row(
         children: [
+          // The Web board's 36 px mark and 16 px name, which fit the
+          // 220 px sidebar.
           Container(
-            width: 40,
-            height: 40,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
               color: AppTheme.fieldGreen,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(11),
             ),
             // The boards' mark: a route between two places.
             child: const Icon(
               Icons.route,
               color: Colors.white,
-              size: 22,
+              size: 20,
             ),
           ),
           if (expanded) ...[
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: Text(
                 AppLocalizations.of(context)!.appName,
                 style: const TextStyle(
                   color: AppTheme.soilDark,
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: FontWeight.w800,
                   letterSpacing: -0.4,
                 ),

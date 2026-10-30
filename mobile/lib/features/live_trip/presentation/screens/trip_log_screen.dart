@@ -354,6 +354,8 @@ class TripCheckInList extends StatelessWidget {
                       clock.time(entry.fix!.receivedAt!),
                     ))
               : null,
+          sentLateShort:
+              entry.fix?.sentLate ?? false ? l10n.liveTripLogSentLate : null,
           latest: entry.latest,
           muted: entry.kind == TripLogKind.otherStopScan ||
               entry.kind == TripLogKind.paused,
@@ -459,6 +461,7 @@ class _LogRowData {
     required this.marker,
     this.tag,
     this.sentLate,
+    this.sentLateShort,
     this.latest = false,
     this.muted = false,
     this.done = false,
@@ -475,6 +478,9 @@ class _LogRowData {
 
   /// The "sent late" pill.
   final String? sentLate;
+
+  /// The pill without the time, for the one-line rows beside the details.
+  final String? sentLateShort;
   final bool latest;
   final bool muted;
 
@@ -655,13 +661,16 @@ class _CompactLogRow extends StatelessWidget {
           ),
           if (row.sentLate != null) ...[
             const SizedBox(width: 8),
-            DotPill(
-              label: row.sentLate!,
-              background: AppTheme.actionCream,
-              foreground: AppTheme.money,
-              height: 22,
-              radius: 6,
-              fontSize: 11,
+            // Shares the line with the town, never pushes past the card.
+            Flexible(
+              child: DotPill(
+                label: row.sentLateShort ?? row.sentLate!,
+                background: AppTheme.actionCream,
+                foreground: AppTheme.money,
+                height: 22,
+                radius: 6,
+                fontSize: 11,
+              ),
             ),
           ],
         ],

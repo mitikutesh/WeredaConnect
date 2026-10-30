@@ -319,8 +319,10 @@ class _LiveTripViewState extends State<LiveTripView> {
     final onRoad = track != null && trackFollowsTruck(track);
     final arriving = onRoad && isArriving(track, nearbyNotified: _nearby);
     final status = _statusOf(l10n, track, view.now);
+    // Beside the check-ins (the Web board) the column is narrow: the board's
+    // smaller avatar and padding leave room for the driver's name.
     final driver = Container(
-      padding: const EdgeInsets.all(14),
+      padding: EdgeInsets.all(twoColumns ? 10 : 14),
       decoration: BoxDecoration(
         color: AppTheme.chalkBackground,
         borderRadius: BorderRadius.circular(18),
@@ -333,6 +335,7 @@ class _LiveTripViewState extends State<LiveTripView> {
         order: _order,
         subtitle: _vehicle,
         role: UserRole.trucker,
+        avatarSize: twoColumns ? 36 : 46,
       ),
     );
     final details = <Widget>[

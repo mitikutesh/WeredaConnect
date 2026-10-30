@@ -71,6 +71,36 @@ void main() {
     await settleReads(tester);
   }
 
+  // Web board: beside the details the check-ins are one line each, newest
+  // first, the late one tagged with the short pill and a pause's range
+  // kept whole.
+  testWidgets('the compact list: short sent-late pill, unwrapped range',
+      (tester) async {
+    tester.view.physicalSize = const Size(330, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      liveTripApp(
+        deps: deps,
+        tracks: FakeTrackRepository(),
+        home: Scaffold(
+          body: TripCheckInList(
+            track: logTrack(),
+            places: corridorPlaces,
+            compact: true,
+          ),
+        ),
+      ),
+    );
+    await settleReads(tester);
+
+    expect(find.text('Sent late, no network'), findsOneWidget);
+    expect(find.textContaining('no network until'), findsNothing);
+    final range = find.textContaining('-');
+    expect(range, findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('check-ins with times, towns and tags', (tester) async {
     await pumpLog(tester);
     expect(find.text('08:05'), findsOneWidget);
