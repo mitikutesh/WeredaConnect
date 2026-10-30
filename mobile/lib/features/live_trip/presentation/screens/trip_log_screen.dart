@@ -94,7 +94,7 @@ class TripLogScreen extends StatelessWidget {
             const SizedBox(height: 20),
             _SectionTitle(l10n.liveTripCheckInCadence),
             const SizedBox(height: 8),
-            _CheckInList(track: track, places: places),
+            TripCheckInList(track: track, places: places),
             const SizedBox(height: 20),
             _SectionTitle(l10n.liveTripLogAhead),
             const SizedBox(height: 8),
@@ -173,9 +173,13 @@ class _SectionTitle extends StatelessWidget {
 }
 
 /// The check-ins and pauses, oldest first, then the other stops the truck
-/// has done (unnamed).
-class _CheckInList extends StatelessWidget {
-  const _CheckInList({required this.track, required this.places});
+/// has done (unnamed). Also beside the live trip details on a wide screen.
+class TripCheckInList extends StatelessWidget {
+  const TripCheckInList({
+    required this.track,
+    required this.places,
+    super.key,
+  });
 
   final DeliveryTrack track;
   final List<Place> places;
