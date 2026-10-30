@@ -4,18 +4,20 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
-/// Card displaying a single trip listing.
+/// One trip in a list, a sibling of the Trip detail board's header: the
+/// route as the title, the departure day and the price per quintal under
+/// it, the status pill, and the booked share as the boards' load bar.
 ///
-/// Redesigned for rural trucker usability:
-/// - Full-width status color bar at top
-/// - Visual route line (green dot → dashed → red dot)
-/// - Large bold price text
-/// - 56dp touch targets on all interactive elements
+/// [onCancel] (the trucker's own open or matched trips only) adds a plain
+/// Cancel Trip action inside the card.
 class TripCard extends StatelessWidget {
   final Trip trip;
   final VoidCallback? onTap;
@@ -28,193 +30,106 @@ class TripCard extends StatelessWidget {
     this.onCancel,
   });
 
+  /// Paid quintals on the trip: the server's count, else the gap between
+  /// the capacity and the room left; zero for a trip nobody booked.
+  static double bookedQuintals(Trip trip) {
+    final booked = trip.bookedQuintals;
+    if (booked != null) return booked;
+    final remaining = trip.remainingQuintals;
+    if (remaining == null) return 0;
+    return (trip.capacity - remaining).clamp(0, trip.capacity);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final dateFormat = DateFormat.yMMMd();
+    final day = DateFormat.MMMEd().format(dayInEthiopia(trip.departureDate));
+    final price = l10n.tripPricePerQuintalValue(
+      formatEtbAmount(trip.pricePerQuintal),
+    );
+    final booked = bookedQuintals(trip);
+    final canCancel = onCancel != null &&
+        (trip.status == TripStatus.open || trip.status == TripStatus.matched);
 
-    final statusColor = _statusColor(trip.status);
-
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+      child: FwCard(
         onTap: onTap,
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Status color bar
-            Container(
-              height: 4,
-              color: statusColor,
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Route line with dots
-                  Row(
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Visual route line
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Column(
-                          children: [
-                            Container(
-                              width: 10,
-                              height: 10,
-                              decoration: const BoxDecoration(
-                                color: AppTheme.statusSuccess,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            Container(
-                              width: 2,
-                              height: 20,
-                              color: AppTheme.borderLight,
-                            ),
-                            Container(
-                              width: 10,
-                              height: 10,
-                              decoration: const BoxDecoration(
-                                color: AppTheme.statusError,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ],
-                        ),
+                      Text(
+                        '${trip.fromWoreda} → ${trip.toWoreda}',
+                        style: FwText.cardTitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(width: 10),
-                      // Route text
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              trip.fromWoreda,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 15,
-                                color: AppTheme.textDark,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              trip.toWoreda,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 15,
-                                color: AppTheme.textDark,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
+                      const SizedBox(height: 3),
+                      Text(
+                        '$day · $price',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: AppTheme.mutedSteel,
                         ),
-                      ),
-                      // Status badge + cancel
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          _TripStatusChip(status: trip.status),
-                          if (onCancel != null &&
-                              (trip.status == TripStatus.open ||
-                                  trip.status == TripStatus.matched))
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: IconButton(
-                                icon: const Icon(Icons.cancel_outlined),
-                                onPressed: onCancel,
-                                iconSize: 20,
-                                color: AppTheme.statusError,
-                                constraints: const BoxConstraints(
-                                  minWidth: 56,
-                                  minHeight: 56,
-                                ),
-                              ),
-                            ),
-                        ],
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  // Price — large and bold
-                  Text(
-                    '${l10n.etbCurrency(trip.pricePerQuintal.toStringAsFixed(0))}/${l10n.quintals}',
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: AppTheme.primaryGreen,
+                ),
+                const SizedBox(width: 10),
+                StatusChip(
+                  label: tripStatusLabel(trip.status, l10n),
+                  kind: tripStatusKind(trip.status),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            FwLoadBar(
+              fraction: trip.capacity > 0 ? booked / trip.capacity : 0,
+              // Nothing booked: the whole truck is free (ESC-15 wording).
+              caption: booked > 0
+                  ? l10n.listsTripBooked(
+                      formatQuintals(booked),
+                      formatQuintals(trip.capacity),
+                    )
+                  : l10n.tripRemainingCapacity(formatQuintals(trip.capacity)),
+            ),
+            if (canCancel) ...[
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton(
+                  onPressed: onCancel,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.soilDark,
+                    side: const BorderSide(color: Color(0xFFD6D3C8)),
+                    minimumSize: const Size(0, 40),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  // Meta row: date + capacity
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.calendar_today,
-                        size: 14,
-                        color: AppTheme.textMuted,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        dateFormat.format(dayInEthiopia(trip.departureDate)),
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: AppTheme.textMuted,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      const Icon(
-                        Icons.local_shipping_outlined,
-                        size: 14,
-                        color: AppTheme.textMuted,
-                      ),
-                      const SizedBox(width: 4),
-                      Flexible(
-                        child: Text(
-                          // ESC-15: a booked trip shows the room left.
-                          trip.remainingQuintals == null
-                              ? '${trip.capacity} ${l10n.quintals}'
-                              : l10n.tripRemainingCapacity(
-                                  formatQuintals(tripRoomLeft(trip)),
-                                ),
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: AppTheme.textMuted,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                  child: Text(l10n.cancelTrip),
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),
-    );
-  }
-
-  static Color _statusColor(TripStatus status) =>
-      tripStatusKind(status).foreground;
-}
-
-class _TripStatusChip extends StatelessWidget {
-  final TripStatus status;
-
-  const _TripStatusChip({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-
-    return StatusChip(
-      label: tripStatusLabel(status, l10n),
-      kind: tripStatusKind(status),
     );
   }
 }

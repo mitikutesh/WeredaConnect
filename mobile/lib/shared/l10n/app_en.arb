@@ -699,6 +699,34 @@
   "@myTrips": {
     "description": "Navigation item for user's own trips"
   },
+  "listsTripBooked": "{booked} of {capacity} quintals booked",
+  "@listsTripBooked": {
+    "description": "Trip card load bar: paid quintals out of the truck's capacity",
+    "placeholders": {
+      "booked": {"type": "String"},
+      "capacity": {"type": "String"}
+    }
+  },
+  "listsRouteFrom": "From",
+  "@listsRouteFrom": {
+    "description": "Short hint of the origin field in the trips route filter"
+  },
+  "listsRouteTo": "To",
+  "@listsRouteTo": {
+    "description": "Short hint of the destination field in the trips route filter"
+  },
+  "listsMyTripsPrivacyNote": "Only you see your trips here. Buyers find them in the Market.",
+  "@listsMyTripsPrivacyNote": {
+    "description": "Note under the trucker's own trips (sibling of the My Crops board note)"
+  },
+  "listsAllTripsNote": "Every open trip from every trucker.",
+  "@listsAllTripsNote": {
+    "description": "Footer under the buyer's trip list"
+  },
+  "listsKeepTrip": "Keep trip",
+  "@listsKeepTrip": {
+    "description": "Dismiss button of the cancel-trip confirmation in the trips list"
+  },
   "tripDetails": "Trip Details",
   "@tripDetails": {
     "description": "Title for trip details screen"
@@ -2699,6 +2727,18 @@
   "trackBuyerPayments": "Track your payments & escrow",
   "@trackBuyerPayments": {
     "description": "Subtitle for the payments tab header (buyer)"
+  },
+  "listsHeldInEscrow": "Held in escrow",
+  "@listsHeldInEscrow": {
+    "description": "Payments summary: money currently held for this person"
+  },
+  "listsReleased": "Released",
+  "@listsReleased": {
+    "description": "Payments summary: money released or paid out"
+  },
+  "listsPaymentsNote": "Each row is one escrow. Tap it for the timeline.",
+  "@listsPaymentsNote": {
+    "description": "Footer under the payments list"
   },
   "noDeliveries": "No deliveries yet",
   "@noDeliveries": {

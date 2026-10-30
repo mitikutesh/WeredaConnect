@@ -566,6 +566,27 @@ class AppLocalizationsOm extends AppLocalizations {
   String get myTrips => 'Imala Koo';
 
   @override
+  String listsTripBooked(String booked, String capacity) {
+    return 'Kuntaala $capacity keessaa $booked qabameera';
+  }
+
+  @override
+  String get listsRouteFrom => 'Irraa';
+
+  @override
+  String get listsRouteTo => 'Gara';
+
+  @override
+  String get listsMyTripsPrivacyNote =>
+      'Imala kee asitti si qofatu arga. Bitattoonni Gabaa keessatti argatu.';
+
+  @override
+  String get listsAllTripsNote => 'Imala banaa konkolaachisaa hunda irraa.';
+
+  @override
+  String get listsKeepTrip => 'Imala tursi';
+
+  @override
   String get tripDetails => 'Bal\'ina Imaltuu';
 
   @override
@@ -2032,6 +2053,16 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get trackBuyerPayments => 'Kaffaltii fi eesciroo kee hordofi';
+
+  @override
+  String get listsHeldInEscrow => 'Eeskiroo keessatti qabame';
+
+  @override
+  String get listsReleased => 'Gadhiifame';
+
+  @override
+  String get listsPaymentsNote =>
+      'Sararri tokkoon tokkoon eeskiroo tokko. Seenaa isaa ilaaluuf tuqi.';
 
   @override
   String get noDeliveries => 'Hanga ammaatti geejjibni hin jiru';

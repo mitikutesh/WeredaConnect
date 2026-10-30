@@ -699,6 +699,12 @@
   "@myTrips": {
     "description": "Navigation item for user's own trips"
   },
+  "listsTripBooked": "ከ{capacity} ኩንታል {booked} ተይዟል",
+  "listsRouteFrom": "ከ",
+  "listsRouteTo": "ወደ",
+  "listsMyTripsPrivacyNote": "ጉዞዎችዎን እዚህ የሚያዩት እርስዎ ብቻ ነዎት። ገዢዎች በገበያ ውስጥ ያገኟቸዋል።",
+  "listsAllTripsNote": "ከሁሉም አሽከርካሪዎች የመጡ ክፍት ጉዞዎች።",
+  "listsKeepTrip": "ጉዞውን አቆይ",
   "tripDetails": "የጉዞ ዝርዝር",
   "@tripDetails": {
     "description": "Title for trip details screen"
@@ -2270,6 +2276,9 @@
   "trackDeliveries": "የሰብል ማጓጓዣዎን ይከታተሉ",
   "trackPayments": "ገቢዎን እና ኤስክሮ ይከታተሉ",
   "trackBuyerPayments": "ክፍያዎን እና ኤስክሮ ይከታተሉ",
+  "listsHeldInEscrow": "በኢስክሮ የተያዘ",
+  "listsReleased": "የተለቀቀ",
+  "listsPaymentsNote": "እያንዳንዱ ረድፍ አንድ ኢስክሮ ነው። የጊዜ መስመሩን ለማየት ይንኩት።",
   "noDeliveries": "ገና ማድረሻ የለም",
   "noPayments": "ገና ክፍያ የለም",
   "postTrip": "ጉዞ ያስገቡ",

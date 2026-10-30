@@ -693,6 +693,12 @@
   "@myTrips": {
     "description": "Navigation item for user's own trips"
   },
+  "listsTripBooked": "Kuntaala {capacity} keessaa {booked} qabameera",
+  "listsRouteFrom": "Irraa",
+  "listsRouteTo": "Gara",
+  "listsMyTripsPrivacyNote": "Imala kee asitti si qofatu arga. Bitattoonni Gabaa keessatti argatu.",
+  "listsAllTripsNote": "Imala banaa konkolaachisaa hunda irraa.",
+  "listsKeepTrip": "Imala tursi",
   "tripDetails": "Bal'ina Imaltuu",
   "@tripDetails": {
     "description": "Title for trip details screen"
@@ -2289,6 +2295,9 @@
   "trackDeliveries": "Geejjiba midhaanii kee hordofi",
   "trackPayments": "Galii fi eesciroo kee hordofi",
   "trackBuyerPayments": "Kaffaltii fi eesciroo kee hordofi",
+  "listsHeldInEscrow": "Eeskiroo keessatti qabame",
+  "listsReleased": "Gadhiifame",
+  "listsPaymentsNote": "Sararri tokkoon tokkoon eeskiroo tokko. Seenaa isaa ilaaluuf tuqi.",
   "noDeliveries": "Hanga ammaatti geejjibni hin jiru",
   "noPayments": "Hanga ammaatti kaffaltiin hin jiru",
   "postTrip": "Imala Galmeessi",

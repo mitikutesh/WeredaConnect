@@ -20,6 +20,7 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart
 import 'package:wereda_connect/screens/orders_tab_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
 
 class MockOrderBloc extends Mock implements OrderBloc {}
 
@@ -292,7 +293,7 @@ void main() {
 
     await tester.pumpWidget(screen());
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilterChip, en.statusFunded).first);
+    await tester.tap(find.widgetWithText(FwFilterPill, en.statusFunded).first);
     await tester.pumpAndSettle();
 
     verify(

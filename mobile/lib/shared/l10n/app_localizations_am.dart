@@ -545,6 +545,27 @@ class AppLocalizationsAm extends AppLocalizations {
   String get myTrips => 'የእኔ ጉዞዎች';
 
   @override
+  String listsTripBooked(String booked, String capacity) {
+    return 'ከ$capacity ኩንታል $booked ተይዟል';
+  }
+
+  @override
+  String get listsRouteFrom => 'ከ';
+
+  @override
+  String get listsRouteTo => 'ወደ';
+
+  @override
+  String get listsMyTripsPrivacyNote =>
+      'ጉዞዎችዎን እዚህ የሚያዩት እርስዎ ብቻ ነዎት። ገዢዎች በገበያ ውስጥ ያገኟቸዋል።';
+
+  @override
+  String get listsAllTripsNote => 'ከሁሉም አሽከርካሪዎች የመጡ ክፍት ጉዞዎች።';
+
+  @override
+  String get listsKeepTrip => 'ጉዞውን አቆይ';
+
+  @override
   String get tripDetails => 'የጉዞ ዝርዝር';
 
   @override
@@ -1960,6 +1981,16 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get trackBuyerPayments => 'ክፍያዎን እና ኤስክሮ ይከታተሉ';
+
+  @override
+  String get listsHeldInEscrow => 'በኢስክሮ የተያዘ';
+
+  @override
+  String get listsReleased => 'የተለቀቀ';
+
+  @override
+  String get listsPaymentsNote =>
+      'እያንዳንዱ ረድፍ አንድ ኢስክሮ ነው። የጊዜ መስመሩን ለማየት ይንኩት።';
 
   @override
   String get noDeliveries => 'ገና ማድረሻ የለም';
