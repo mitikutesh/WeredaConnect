@@ -545,10 +545,13 @@ void main() {
         'farmer-001',
       );
 
-      expect(inHero(en.orderYouReceive), findsOneWidget);
-      expect(inHero(en.etbCurrency('8000')), findsOneWidget);
-      expect(inHero('${en.buyer}: Buyer Bee'), findsOneWidget);
-      expect(inHero(en.escrowStatusEscrowed), findsOneWidget);
+      // Farmer · Answer a new order: the header names the new order, the
+      // card shows what they receive, the buyer and that the money is in.
+      expect(inHero(en.detailNewOrderTitle), findsOneWidget);
+      expect(find.text(en.orderYouReceive), findsOneWidget);
+      expect(find.text(en.etbCurrency('8,000')), findsOneWidget);
+      expect(find.text('Buyer Bee'), findsOneWidget);
+      expect(find.text(en.detailPaidIntoEscrow), findsOneWidget);
     });
 
     testWidgets('the buyer sees the total and the farmer', (tester) async {
@@ -559,8 +562,9 @@ void main() {
         'buyer-001',
       );
 
-      expect(inHero(en.orderTotal), findsOneWidget);
-      expect(inHero(en.etbCurrency('8725')), findsOneWidget);
+      // Buyer · Order detail: the money held closes the page.
+      expect(find.text(en.detailHeldInEscrow), findsOneWidget);
+      expect(find.text(en.etbCurrency('8,725')), findsOneWidget);
       expect(inHero(en.liveTripFrom('Farmer Fikru')), findsOneWidget);
     });
 
@@ -572,8 +576,8 @@ void main() {
         'trucker-001',
       );
 
-      expect(inHero(en.orderYourTransportPay), findsOneWidget);
-      expect(inHero(en.etbCurrency('300')), findsOneWidget);
+      expect(find.text(en.orderYourTransportPay), findsOneWidget);
+      expect(find.text(en.etbCurrency('300')), findsOneWidget);
     });
 
     testWidgets('no escrow line before the money is in', (tester) async {
@@ -584,7 +588,8 @@ void main() {
         'buyer-001',
       );
 
-      expect(inHero(en.escrowStatusEscrowed), findsNothing);
+      expect(find.text(en.detailHeldInEscrow), findsNothing);
+      expect(find.text(en.orderTotal), findsOneWidget);
     });
   });
 }

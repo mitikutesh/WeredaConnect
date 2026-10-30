@@ -11,7 +11,6 @@ import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
-import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
@@ -104,7 +103,7 @@ void main() {
   }) async {
     await tester.pumpWidget(app());
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(CropType.teff.icon));
+    await tester.tap(find.byKey(const Key('create_listing_crop_teff')));
     await tester.enterText(
       find.byKey(const Key('create_listing_quantity')),
       '10',
@@ -114,13 +113,20 @@ void main() {
       '50',
     );
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Location'),
+      find.descendant(
+        of: find.byKey(const Key('create_listing_location')),
+        matching: find.byType(TextFormField),
+      ),
       location,
     );
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Description'),
+      find.byKey(const Key('create_listing_description')),
       description,
     );
+    await tester.pumpAndSettle();
+    // The place suggestions hang below the location field, over the pinned
+    // Save; a picker closes them, so close them here too.
+    FocusManager.instance.primaryFocus?.unfocus();
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Save'));
     await tester.pumpAndSettle();
@@ -155,7 +161,7 @@ void main() {
     await fillAndSave(tester, description: 'Call 0911234567');
 
     final error = tester.widget<Text>(find.text(_contactInText));
-    expect(error.maxLines, 3);
+    expect(error.maxLines, 4);
   });
 
   testWidgets('prices, quantities and dates in Description still save',

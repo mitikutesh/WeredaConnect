@@ -4502,6 +4502,152 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String get detailYourPay => 'kaffaltii keessan';
+
+  @override
+  String get detailBookingWaitingFarmer => 'Qonnaan bulaa eegaa jira';
+
+  @override
+  String get detailBookingAskedNext => 'itti aansee isin gaafatamtu';
+
+  @override
+  String get detailBookingAcceptedContactOpen => 'quunnamtiin banaa dha';
+
+  @override
+  String detailBookedOf(String booked, String capacity) {
+    return 'kuntaala $capacity keessaa $booked';
+  }
+
+  @override
+  String detailLeft(String left) {
+    return '$left hafe';
+  }
+
+  @override
+  String get detailCropHere => 'midhaan asitti';
+
+  @override
+  String detailFarmerAcceptedAnswerBy(String time) {
+    return 'Qonnaan bulaan fudhateera. Maaloo hanga $time deebisaa.';
+  }
+
+  @override
+  String get detailBooked => 'Qabame';
+
+  @override
+  String detailQuintalsLeft(String quintals) {
+    return 'kuntaala $quintals hafe';
+  }
+
+  @override
+  String detailKmToYou(int km) {
+    return 'Gara km $km hanga isinitti';
+  }
+
+  @override
+  String detailForQuantity(String quantity) {
+    return '$quantity tiif';
+  }
+
+  @override
+  String get detailEtbPerQuintalShort => 'ETB/k';
+
+  @override
+  String detailFitsTrip(String quintals) {
+    return 'imala kana keessa gala (kuntaala $quintals hafe)';
+  }
+
+  @override
+  String detailExceedsTrip(String quintals) {
+    return 'iddoo imalli kun qabuu ol ($quintals kuntaala hafe)';
+  }
+
+  @override
+  String get detailChange => 'Jijjiiri';
+
+  @override
+  String get detailLess => 'Hir\'isi';
+
+  @override
+  String get detailMore => 'Dabali';
+
+  @override
+  String get detailGpsPickFromList =>
+      'GPS hin jiru? Bakka isaa aanaa keessan tarree irraa filadhaa.';
+
+  @override
+  String get detailNoPhoneNumbersNote =>
+      'Lakkoofsa bilbilaa hin jiru: kaffaltiin erga qabamee booda quunnamtiin banama.';
+
+  @override
+  String get detailYourFarm => 'Qonna keessan';
+
+  @override
+  String get detailNewOrderTitle => 'Ajaja haaraa';
+
+  @override
+  String detailFromYourListing(String what) {
+    return '$what tarree keessan irraa';
+  }
+
+  @override
+  String get detailPaidIntoEscrow => 'Qabannoo keessatti kaffalame';
+
+  @override
+  String get detailPickupLabel => 'Fe\'umsa';
+
+  @override
+  String detailTruckOf(String name) {
+    return 'konkolaataa $name';
+  }
+
+  @override
+  String get detailBuyerCollects => 'Bitaan ofii fudhata';
+
+  @override
+  String get detailHeldInEscrow => 'Qabannoo keessa jira';
+
+  @override
+  String detailPartyPaid(String party) {
+    return '$party kaffale';
+  }
+
+  @override
+  String detailPartyRole(String name, String role) {
+    return '$name, $role';
+  }
+
+  @override
+  String get detailYou => 'Isin';
+
+  @override
+  String detailTimelineThen(String steps) {
+    return 'Ergasii $steps. Hiika isaa dubbisuuf tarkaanfii tuqi.';
+  }
+
+  @override
+  String get detailTimelineTapStep => 'Hiika isaa dubbisuuf tarkaanfii tuqi.';
+
+  @override
+  String detailListAnd(String head, String last) {
+    return '$head fi $last';
+  }
+
+  @override
+  String get detailContactOpensWhenTruckerAccepts =>
+      'Konkolaachisaan yeroo fudhatu quunnamtiin banama';
+
+  @override
+  String detailMessageParty(String name) {
+    return '${name}f ergaa ergi';
+  }
+
+  @override
+  String detailCallParty(String name) {
+    return '${name}f bilbili';
+  }
+
+  @override
   String liveTripLogStopAhead(int minutes) {
     return 'Gara daqiiqaa $minutes, achiis gara keessanitti';
   }

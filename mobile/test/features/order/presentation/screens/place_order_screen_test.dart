@@ -160,14 +160,14 @@ void main() {
     );
 
     expect(find.text('500'), findsOneWidget);
-    expect(find.text('17000.00 ETB'), findsOneWidget);
-    expect(find.text('500.00 ETB'), findsOneWidget);
-    expect(find.text('850.00 ETB'), findsOneWidget);
-    expect(find.text('18350.00 ETB'), findsOneWidget);
-    expect(find.text('18375.00 ETB'), findsNothing);
+    expect(find.text('17,000 ETB'), findsOneWidget);
+    expect(find.text('500 ETB'), findsOneWidget);
+    expect(find.text('850 ETB'), findsOneWidget);
+    expect(find.text('18,350 ETB'), findsOneWidget);
+    expect(find.text('18,375 ETB'), findsNothing);
     // ESC-15: the buyer sees which trucker the order will ask, and the room.
-    expect(find.text('Trucker: Abebe'), findsOneWidget);
-    expect(find.textContaining('120 quintals free'), findsOneWidget);
+    expect(find.textContaining('Abebe · '), findsOneWidget);
+    expect(find.textContaining('120 quintals left'), findsOneWidget);
 
     await tester.ensureVisible(find.byType(FilledButton));
     await tester.tap(find.byType(FilledButton));

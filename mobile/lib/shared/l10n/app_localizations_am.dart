@@ -4335,6 +4335,150 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String get detailYourPay => 'የእርስዎ ክፍያ';
+
+  @override
+  String get detailBookingWaitingFarmer => 'ገበሬውን በመጠበቅ ላይ';
+
+  @override
+  String get detailBookingAskedNext => 'ቀጥሎ እርስዎ ይጠየቃሉ';
+
+  @override
+  String get detailBookingAcceptedContactOpen => 'ግንኙነት ተከፍቷል';
+
+  @override
+  String detailBookedOf(String booked, String capacity) {
+    return 'ከ$capacity ኩንታል $booked';
+  }
+
+  @override
+  String detailLeft(String left) {
+    return '$left ቀርቷል';
+  }
+
+  @override
+  String get detailCropHere => 'ሰብሉ እዚህ';
+
+  @override
+  String detailFarmerAcceptedAnswerBy(String time) {
+    return 'ገበሬው ተቀብሏል። እባክዎ እስከ $time ይመልሱ።';
+  }
+
+  @override
+  String get detailBooked => 'ተይዟል';
+
+  @override
+  String detailQuintalsLeft(String quintals) {
+    return '$quintals ኩንታል ቀርቷል';
+  }
+
+  @override
+  String detailKmToYou(int km) {
+    return 'እስከ እርስዎ ወደ $km ኪ.ሜ ገደማ';
+  }
+
+  @override
+  String detailForQuantity(String quantity) {
+    return 'ለ$quantity';
+  }
+
+  @override
+  String get detailEtbPerQuintalShort => 'ብር/ኩ';
+
+  @override
+  String detailFitsTrip(String quintals) {
+    return 'በዚህ ጉዞ ይገባል ($quintals ኩንታል ቀርቷል)';
+  }
+
+  @override
+  String detailExceedsTrip(String quintals) {
+    return 'ከዚህ ጉዞ ቦታ በላይ ነው ($quintals ኩንታል ቀርቷል)';
+  }
+
+  @override
+  String get detailChange => 'ቀይር';
+
+  @override
+  String get detailLess => 'ቀንስ';
+
+  @override
+  String get detailMore => 'ጨምር';
+
+  @override
+  String get detailGpsPickFromList => 'GPS የለም? በምትኩ ወረዳዎን ከዝርዝሩ ይምረጡ።';
+
+  @override
+  String get detailNoPhoneNumbersNote =>
+      'ስልክ ቁጥር የለም፦ ክፍያ በአደራ ከተያዘ በኋላ ግንኙነት ይከፈታል።';
+
+  @override
+  String get detailYourFarm => 'እርሻዎ';
+
+  @override
+  String get detailNewOrderTitle => 'አዲስ ትዕዛዝ';
+
+  @override
+  String detailFromYourListing(String what) {
+    return '$what ከዝርዝርዎ';
+  }
+
+  @override
+  String get detailPaidIntoEscrow => 'በአደራ ተከፍሏል';
+
+  @override
+  String get detailPickupLabel => 'መውሰጃ';
+
+  @override
+  String detailTruckOf(String name) {
+    return 'የ$name መኪና';
+  }
+
+  @override
+  String get detailBuyerCollects => 'ገዢው ራሱ ይወስዳል';
+
+  @override
+  String get detailHeldInEscrow => 'በአደራ ተይዟል';
+
+  @override
+  String detailPartyPaid(String party) {
+    return '$party ከፍሏል';
+  }
+
+  @override
+  String detailPartyRole(String name, String role) {
+    return '$name፣ $role';
+  }
+
+  @override
+  String get detailYou => 'እርስዎ';
+
+  @override
+  String detailTimelineThen(String steps) {
+    return 'ከዚያ $steps። ትርጉሙን ለማንበብ ደረጃ ይንኩ።';
+  }
+
+  @override
+  String get detailTimelineTapStep => 'ትርጉሙን ለማንበብ ደረጃ ይንኩ።';
+
+  @override
+  String detailListAnd(String head, String last) {
+    return '$head እና $last';
+  }
+
+  @override
+  String get detailContactOpensWhenTruckerAccepts => 'አሽከርካሪው ሲቀበል ግንኙነት ይከፈታል';
+
+  @override
+  String detailMessageParty(String name) {
+    return 'ለ$name መልእክት ላክ';
+  }
+
+  @override
+  String detailCallParty(String name) {
+    return 'ለ$name ደውል';
+  }
+
+  @override
   String liveTripLogStopAhead(int minutes) {
     return 'በግምት $minutes ደቂቃ፣ ከዚያ ወደ እርስዎ';
   }

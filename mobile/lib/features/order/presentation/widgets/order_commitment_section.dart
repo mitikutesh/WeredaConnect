@@ -8,6 +8,7 @@ import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 /// Order statuses at which the commitment rows are shown (ESC-15).
 const Set<OrderStatus> commitmentSectionStatuses = {
@@ -16,9 +17,11 @@ const Set<OrderStatus> commitmentSectionStatuses = {
   OrderStatus.accepted,
 };
 
-/// ESC-15: who has agreed to a paid order, one row per party (the farmer,
-/// then the trucker on a trip order), and the note that tells the viewer
-/// what happens next or by when they must answer.
+/// ESC-15: who has agreed to a paid order, as the order boards draw it: one
+/// card, a row per party (the buyer who paid, the farmer, then the trucker
+/// on a trip order) with a round icon, the name in bold and the answer or
+/// its deadline on the right, and under a rule the note that tells the
+/// viewer what happens next or by when they must answer.
 class OrderCommitmentSection extends StatelessWidget {
   final Order order;
   final String userId;
@@ -27,10 +30,15 @@ class OrderCommitmentSection extends StatelessWidget {
   /// LT-11); the order screen shows the rows only while someone decides.
   final bool showAfterPickup;
 
+  /// The order screen shows the viewer's own deadline in a banner above
+  /// this card, so the card does not repeat it.
+  final bool hideViewerDeadline;
+
   const OrderCommitmentSection({
     required this.order,
     required this.userId,
     this.showAfterPickup = false,
+    this.hideViewerDeadline = false,
     super.key,
   });
 
@@ -43,64 +51,151 @@ class OrderCommitmentSection extends StatelessWidget {
     }
     final l10n = AppLocalizations.of(context)!;
     final clock = clockFormatOf(context);
-    final theme = Theme.of(context);
     final note = _viewerNote(l10n, clock);
     final failure = order.status == OrderStatus.awaitingTransport
         ? transportFailureLabel(l10n, order.transportFailure)
         : null;
+    final noteLabel = switch ((failure, note)) {
+      (final String f, final ClockLabel n) => n.prefixed('$f. '),
+      (final String f, null) => ClockLabel.text('$f.'),
+      (null, final ClockLabel n) => n,
+      (null, null) => null,
+    };
+    final warning = order.status == OrderStatus.awaitingTransport;
+
+    final buyer = partyDisplayName(order.buyerName, l10n);
+    final farmer = partyDisplayName(order.farmerName, l10n);
+    final trucker = partyDisplayName(order.truckerName ?? '', l10n);
+    final paidAt = order.paymentVerifiedAt ?? order.createdAt;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            l10n.commitmentTitle,
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppTheme.whisperBorder),
-            ),
-            child: Column(
-              children: [
-                _PartyRow(
-                  role: l10n.farmer,
-                  name: partyDisplayName(order.farmerName, l10n),
-                  state: _farmerState(l10n, clock),
+      padding: const EdgeInsets.only(bottom: 12),
+      child: FwCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Semantics(
+              header: true,
+              child: Text(
+                l10n.commitmentTitle,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.soilDark,
                 ),
-                if (orderHasTrip(order)) ...[
-                  const Divider(height: 16),
-                  _PartyRow(
-                    role: l10n.trucker,
-                    name: partyDisplayName(order.truckerName, l10n),
-                    state: _truckerState(l10n, clock),
-                  ),
-                ],
-              ],
+              ),
             ),
-          ),
-          if (failure != null || note != null) ...[
             const SizedBox(height: 12),
-            _CommitmentNote(
-              label: switch ((failure, note)) {
-                (final String f, final ClockLabel n) => n.prefixed('$f. '),
-                (final String f, null) => ClockLabel.text('$f.'),
-                (null, final ClockLabel n) => n,
-                (null, null) => const ClockLabel.text(''),
-              },
-              warning: order.status == OrderStatus.awaitingTransport,
+            // The buyer paid: the money is in.
+            _PartyRow(
+              icon: Icons.check,
+              tone: _Tone.paid,
+              text: _bold(
+                l10n.detailPartyPaid(
+                  userId == order.buyerId ? l10n.detailYou : buyer,
+                ),
+                userId == order.buyerId ? l10n.detailYou : buyer,
+              ),
+              state: _RowState.label(
+                ClockLabel.text(
+                  clock.dateTime(paidAt, date: DateFormat.MMMd()),
+                ),
+                _Tone.idle,
+              ),
             ),
+            const SizedBox(height: 12),
+            _PartyRow(
+              icon: _farmerIcon,
+              tone: _farmerTone,
+              text: _bold(
+                l10n.detailPartyRole(
+                  userId == order.farmerId ? l10n.detailYou : farmer,
+                  l10n.farmer.toLowerCase(),
+                ),
+                userId == order.farmerId ? l10n.detailYou : farmer,
+              ),
+              state: _farmerState(l10n, clock),
+            ),
+            if (orderHasTrip(order)) ...[
+              const SizedBox(height: 12),
+              _PartyRow(
+                icon: _truckerIcon,
+                tone: _truckerTone,
+                text: _bold(
+                  trucker.isEmpty ||
+                          truckerResponseOf(order) ==
+                              CommitmentResponse.notAsked
+                      ? l10n.trucker
+                      : l10n.detailPartyRole(
+                          userId == order.truckerId ? l10n.detailYou : trucker,
+                          l10n.trucker.toLowerCase(),
+                        ),
+                  userId == order.truckerId ? l10n.detailYou : trucker,
+                ),
+                state: _truckerState(l10n, clock),
+              ),
+            ],
+            if (noteLabel != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.only(top: 10),
+                decoration: const BoxDecoration(
+                  border: Border(top: BorderSide(color: AppTheme.segmentTrack)),
+                ),
+                child: _CommitmentNote(label: noteLabel, warning: warning),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
+
+  /// [sentence] with [name] in bold, as the board writes "<b>You</b> paid".
+  static TextSpan _bold(String sentence, String name) {
+    final at = name.isEmpty ? -1 : sentence.indexOf(name);
+    const bold = TextStyle(fontWeight: FontWeight.w800);
+    if (at < 0) return TextSpan(text: sentence);
+    return TextSpan(
+      children: [
+        if (at > 0) TextSpan(text: sentence.substring(0, at)),
+        TextSpan(text: name, style: bold),
+        TextSpan(text: sentence.substring(at + name.length)),
+      ],
+    );
+  }
+
+  _Tone get _farmerTone => switch (farmerResponseOf(order)) {
+        CommitmentResponse.accepted => _Tone.done,
+        CommitmentResponse.declined ||
+        CommitmentResponse.expired =>
+          _Tone.failed,
+        _ => _Tone.waiting,
+      };
+
+  IconData get _farmerIcon => switch (_farmerTone) {
+        _Tone.done => Icons.check,
+        _Tone.failed => Icons.close,
+        _ => Icons.schedule,
+      };
+
+  _Tone get _truckerTone => switch (truckerResponseOf(order)) {
+        CommitmentResponse.accepted => _Tone.done,
+        CommitmentResponse.pending => _Tone.waiting,
+        CommitmentResponse.declined ||
+        CommitmentResponse.expired ||
+        CommitmentResponse.failedCapacity ||
+        CommitmentResponse.cancelled =>
+          _Tone.failed,
+        _ => _Tone.idle,
+      };
+
+  IconData get _truckerIcon => switch (_truckerTone) {
+        _Tone.done => Icons.check,
+        _Tone.failed => Icons.close,
+        _Tone.waiting => Icons.schedule,
+        _ => Icons.local_shipping_outlined,
+      };
 
   _RowState _farmerState(AppLocalizations l10n, ClockFormat clock) {
     return switch (farmerResponseOf(order)) {
@@ -175,6 +270,7 @@ class OrderCommitmentSection extends StatelessWidget {
     if (order.status != OrderStatus.funded) return null;
     final deadline = commitmentDeadlineFor(order, userId);
     if (deadline != null) {
+      if (hideViewerDeadline) return null;
       return clock.deadline(
         deadline,
         date: DateFormat.MMMd(),
@@ -246,7 +342,11 @@ Future<String?> showDeclineReasonSheet(
             ),
             if (warning != null) ...[
               const SizedBox(height: 12),
-              _CommitmentNote(label: ClockLabel.text(warning), warning: true),
+              _CommitmentNote(
+                label: ClockLabel.text(warning),
+                warning: true,
+                boxed: true,
+              ),
             ],
             const SizedBox(height: 8),
             for (final code in reasons)
@@ -268,7 +368,7 @@ Future<String?> showDeclineReasonSheet(
   );
 }
 
-enum _Tone { done, waiting, failed, idle }
+enum _Tone { paid, done, waiting, failed, idle }
 
 class _RowState {
   /// What the party has done; a waiting row carries its deadline.
@@ -280,43 +380,66 @@ class _RowState {
   const _RowState.label(this.text, this.tone);
 }
 
+/// One party: a 32 px round icon (blue for the payment, green done, cream
+/// waiting, red failed, grey idle), the sentence with the name in bold,
+/// and the answer on the right.
 class _PartyRow extends StatelessWidget {
-  final String role;
-  final String name;
+  final IconData icon;
+  final _Tone tone;
+  final TextSpan text;
   final _RowState state;
 
   const _PartyRow({
-    required this.role,
-    required this.name,
+    required this.icon,
+    required this.tone,
+    required this.text,
     required this.state,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final (icon, color) = switch (state.tone) {
-      _Tone.done => (Icons.check_circle, AppTheme.statusSuccess),
-      _Tone.waiting => (Icons.schedule, AppTheme.accentGold),
-      _Tone.failed => (Icons.cancel_outlined, AppTheme.statusError),
-      _Tone.idle => (Icons.more_horiz, AppTheme.textMuted),
+    final (background, foreground) = switch (tone) {
+      _Tone.paid => (AppTheme.dropoffBlueTint, AppTheme.dropoffBlue),
+      _Tone.done => (AppTheme.fieldGreenTint, AppTheme.fieldGreen),
+      _Tone.waiting => (AppTheme.actionCream, AppTheme.money),
+      _Tone.failed => (
+          AppTheme.statusErrorContainer,
+          AppTheme.onStatusErrorContainer
+        ),
+      _Tone.idle => (AppTheme.segmentTrack, AppTheme.mutedSteel),
+    };
+    final stateColor = switch (state.tone) {
+      _Tone.done => AppTheme.fieldGreen,
+      _Tone.waiting => AppTheme.money,
+      _Tone.failed => AppTheme.onStatusErrorContainer,
+      _ => AppTheme.mutedSteel,
     };
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 20, color: color),
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(color: background, shape: BoxShape.circle),
+          child: Icon(icon, size: 16, color: foreground),
+        ),
         const SizedBox(width: 12),
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                name.isEmpty ? role : '$role: $name',
-                style: theme.textTheme.bodyMedium
-                    ?.copyWith(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 2),
-              ClockText(state.text, style: theme.textTheme.bodyMedium),
-            ],
+          child: Text.rich(
+            text,
+            style: const TextStyle(fontSize: 14, color: AppTheme.soilDark),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Flexible(
+          child: ClockText(
+            state.text,
+            textAlign: TextAlign.end,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight:
+                  state.tone == _Tone.idle ? FontWeight.w500 : FontWeight.w700,
+              color: stateColor,
+            ),
           ),
         ),
       ],
@@ -324,32 +447,48 @@ class _PartyRow extends StatelessWidget {
   }
 }
 
+/// The note under the rows: plain muted text inside the card, or (in the
+/// reason sheet) the cream warning box.
 class _CommitmentNote extends StatelessWidget {
   final ClockLabel label;
   final bool warning;
+  final bool boxed;
 
-  const _CommitmentNote({required this.label, this.warning = false});
+  const _CommitmentNote({
+    required this.label,
+    this.warning = false,
+    this.boxed = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final ink = warning ? AppTheme.onStatusWarningContainer : null;
+    if (!boxed) {
+      return ClockText(
+        label,
+        style: TextStyle(
+          fontSize: 13,
+          height: 1.5,
+          fontWeight: warning ? FontWeight.w700 : FontWeight.w400,
+          color: warning ? AppTheme.actionInk : AppTheme.mutedSteel,
+        ),
+      );
+    }
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        color: warning ? const Color(0xFFFAEED8) : const Color(0xFFE3EEE6),
+        color: AppTheme.actionCream,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            warning ? Icons.warning_amber : Icons.info_outline,
-            size: 20,
-            color: ink,
-          ),
+          const Icon(Icons.warning_amber, size: 20, color: AppTheme.actionInk),
           const SizedBox(width: 12),
           Expanded(
-            child: ClockText(label, style: TextStyle(color: ink)),
+            child: ClockText(
+              label,
+              style: const TextStyle(color: AppTheme.actionInk),
+            ),
           ),
         ],
       ),

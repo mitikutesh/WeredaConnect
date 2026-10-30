@@ -221,6 +221,7 @@ void main() {
     }
 
     Future<void> chooseTelebirr(WidgetTester tester) async {
+      await tester.ensureVisible(find.text('Telebirr'));
       await tester.tap(find.text('Telebirr'));
       await tester.pumpAndSettle();
       expect(find.text('Telebirr Payment'), findsOneWidget);
@@ -330,6 +331,7 @@ void main() {
       );
 
       await open(tester);
+      await tester.ensureVisible(copyButtonFor(defaultOrderId));
       await tester.tap(copyButtonFor(defaultOrderId));
       await tester.pump();
 
@@ -389,7 +391,7 @@ void main() {
       expect(find.text('CBE Transaction ID (optional)'), findsNothing);
       expect(find.text(defaultOrderId), findsNothing);
       expect(find.text('Submit Payment'), findsNothing);
-      expect(find.textContaining('94500.00 ETB'), findsWidgets);
+      expect(find.textContaining('94,500 ETB'), findsWidgets);
     });
 
     testWidgets('sends a Telebirr payment with no reference', (tester) async {
