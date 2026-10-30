@@ -453,63 +453,58 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
               children: <Widget>[
                 LabeledField(
                   label: l10n.fromWoreda,
-                  // Room for the swap button on the right.
-                  field: Padding(
-                    padding: const EdgeInsetsDirectional.only(end: 56),
-                    child: PlaceSelector(
-                      key: const Key('create_trip_from'),
-                      controller: _fromWoredaController,
-                      labelAbove: true,
-                      showSearchIcon: false,
-                      prefix: const _RouteEndDot(origin: true),
-                      onPlaceSelected: (place) =>
-                          setState(() => _fromPlace = place),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return l10n.fromWoredaRequired;
-                        }
-                        // FUP-49: buyers read the route before any order.
-                        if (containsPhoneNumber(value)) {
-                          return l10n.errorContactInText;
-                        }
-                        return null;
-                      },
-                    ),
+                  // Full width: the swap button sits over the right end of
+                  // both fields, as on the board.
+                  field: PlaceSelector(
+                    key: const Key('create_trip_from'),
+                    controller: _fromWoredaController,
+                    labelAbove: true,
+                    showSearchIcon: false,
+                    prefix: const _RouteEndDot(origin: true),
+                    onPlaceSelected: (place) =>
+                        setState(() => _fromPlace = place),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return l10n.fromWoredaRequired;
+                      }
+                      // FUP-49: buyers read the route before any order.
+                      if (containsPhoneNumber(value)) {
+                        return l10n.errorContactInText;
+                      }
+                      return null;
+                    },
                   ),
                 ),
                 const SizedBox(height: 12),
                 LabeledField(
                   label: l10n.toWoreda,
-                  field: Padding(
-                    padding: const EdgeInsetsDirectional.only(end: 56),
-                    child: PlaceSelector(
-                      key: const Key('create_trip_to'),
-                      controller: _toWoredaController,
-                      labelAbove: true,
-                      showSearchIcon: false,
-                      prefix: const _RouteEndDot(origin: false),
-                      onPlaceSelected: (place) =>
-                          setState(() => _toPlace = place),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return l10n.toWoredaRequired;
-                        }
-                        if (value.trim() == _fromWoredaController.text.trim()) {
-                          return l10n.sameOriginDestination;
-                        }
-                        if (containsPhoneNumber(value)) {
-                          return l10n.errorContactInText;
-                        }
-                        return null;
-                      },
-                    ),
+                  field: PlaceSelector(
+                    key: const Key('create_trip_to'),
+                    controller: _toWoredaController,
+                    labelAbove: true,
+                    showSearchIcon: false,
+                    prefix: const _RouteEndDot(origin: false),
+                    onPlaceSelected: (place) =>
+                        setState(() => _toPlace = place),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return l10n.toWoredaRequired;
+                      }
+                      if (value.trim() == _fromWoredaController.text.trim()) {
+                        return l10n.sameOriginDestination;
+                      }
+                      if (containsPhoneNumber(value)) {
+                        return l10n.errorContactInText;
+                      }
+                      return null;
+                    },
                   ),
                 ),
               ].reversed.toList(),
             ),
             // Centred on the gap between From and To, as on the board.
             PositionedDirectional(
-              end: 0,
+              end: 10,
               top: 62,
               child: Tooltip(
                 message: l10n.createTripSwapRoute,

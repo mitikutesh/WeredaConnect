@@ -4585,7 +4585,7 @@ abstract class AppLocalizations {
   /// Helper under the max price field explaining it is optional
   ///
   /// In en, this message translates to:
-  /// **'Optional — leave empty to see all prices'**
+  /// **'Price is optional. Leave it empty to see all prices.'**
   String get maxPriceOptionalHint;
 
   /// Shown instead of a max price when the request has no budget

@@ -3190,7 +3190,7 @@
   "@enterValidPriceError": { "description": "Inline validation for an invalid max price" },
   "enterDeliveryWoredaError": "Enter your delivery woreda",
   "@enterDeliveryWoredaError": { "description": "Inline validation for missing delivery woreda" },
-  "maxPriceOptionalHint": "Optional — leave empty to see all prices",
+  "maxPriceOptionalHint": "Price is optional. Leave it empty to see all prices.",
   "@maxPriceOptionalHint": { "description": "Helper under the max price field explaining it is optional" },
   "anyPrice": "Any price",
   "@anyPrice": { "description": "Shown instead of a max price when the request has no budget" },

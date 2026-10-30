@@ -2477,7 +2477,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get enterDeliveryWoredaError => 'Enter your delivery woreda';
 
   @override
-  String get maxPriceOptionalHint => 'Optional — leave empty to see all prices';
+  String get maxPriceOptionalHint =>
+      'Price is optional. Leave it empty to see all prices.';
 
   @override
   String get anyPrice => 'Any price';
