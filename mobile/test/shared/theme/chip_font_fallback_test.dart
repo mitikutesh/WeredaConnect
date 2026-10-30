@@ -10,7 +10,7 @@ void main() {
         final chip = entry.value.chipTheme;
         for (final style in [chip.labelStyle, chip.secondaryLabelStyle]) {
           expect(style, isNotNull);
-          expect(style!.fontFamily, 'NotoSans');
+          expect(style!.fontFamily, AppTheme.fontFamily);
           expect(style.fontFamilyFallback, contains('NotoSansEthiopic'));
         }
         // Same fallback as the body text, so chips and text render alike.

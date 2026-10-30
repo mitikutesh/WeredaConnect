@@ -16,6 +16,7 @@ import 'package:wereda_connect/screens/main_navigation.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/navigation/role_nav_bar.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
@@ -116,7 +117,7 @@ void main() {
 
         expect(find.text(fabLabels[role]!), findsOneWidget);
         final fab = tester.getRect(find.byType(FloatingActionButton));
-        final bar = tester.getRect(find.byType(BottomAppBar));
+        final bar = tester.getRect(find.byType(RoleNavBar));
         expect(fab.bottom, lessThanOrEqualTo(bar.top));
         expect(
           bar.top - fab.top,

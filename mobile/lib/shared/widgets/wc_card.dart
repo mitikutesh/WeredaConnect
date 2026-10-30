@@ -25,7 +25,7 @@ class WcCard extends StatelessWidget {
     final card = Container(
       decoration: BoxDecoration(
         color: color ?? AppTheme.surfaceWhite,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppTheme.borderLight),
       ),
       child: Padding(
@@ -39,7 +39,7 @@ class WcCard extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(18),
           child: card,
         ),
       );

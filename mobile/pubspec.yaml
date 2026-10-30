@@ -106,18 +106,23 @@ flutter:
   assets:
     - assets/data/ethiopia_woredas.json
 
-  # Fonts — Noto Sans (Latin) + Noto Sans Ethiopic (Amharic fidäl),
-  # bundled so all three languages render identically on every device
-  # and offline (design brief 2026-07-06). Weights match the type
-  # scale: 400 / 600 / 700.
+  # Fonts: Manrope (Latin, the Fieldway canvas face) + Noto Sans Ethiopic
+  # (Amharic fidäl), bundled so all three languages render identically on
+  # every device and offline. Manrope's static weights are instanced from
+  # the OFL variable font (assets/fonts/Manrope-OFL.txt): 400 to 800, the
+  # weights the boards use.
   fonts:
-    - family: NotoSans
+    - family: Manrope
       fonts:
-        - asset: assets/fonts/NotoSans-Regular.ttf
-        - asset: assets/fonts/NotoSans-SemiBold.ttf
+        - asset: assets/fonts/Manrope-Regular.ttf
+        - asset: assets/fonts/Manrope-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Manrope-SemiBold.ttf
           weight: 600
-        - asset: assets/fonts/NotoSans-Bold.ttf
+        - asset: assets/fonts/Manrope-Bold.ttf
           weight: 700
+        - asset: assets/fonts/Manrope-ExtraBold.ttf
+          weight: 800
     - family: NotoSansEthiopic
       fonts:
         - asset: assets/fonts/NotoSansEthiopic-Regular.ttf

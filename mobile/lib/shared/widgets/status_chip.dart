@@ -6,7 +6,7 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 ///
 /// Every status enum (orders, trips, escrow, deliveries) maps onto these
 /// six kinds so users can transfer color-meaning between features:
-/// "in transit" is the same violet on a trip, an order, and a delivery.
+/// "in transit" is the same harvest brown on a trip, an order, and a delivery.
 /// Color is never the only signal — every chip carries an icon + label,
 /// and all pairs meet WCAG AA (≥6.3:1, computed in the design brief).
 enum StatusKind { neutral, success, warning, error, info, transit }
@@ -65,13 +65,13 @@ class StatusChip extends StatelessWidget {
     final bg = kind.background;
 
     return Container(
+      // The boards' status pill: tinted ground, no outline.
       padding: large
-          ? const EdgeInsets.symmetric(horizontal: 16, vertical: 8)
-          : const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          ? const EdgeInsets.symmetric(horizontal: 14, vertical: 7)
+          : const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: fg.withValues(alpha: 0.25)),
+        borderRadius: BorderRadius.circular(large ? 10 : 8),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -85,7 +85,7 @@ class StatusChip extends StatelessWidget {
               style: TextStyle(
                 color: fg,
                 fontSize: large ? 16 : 12,
-                fontWeight: large ? FontWeight.w700 : FontWeight.w600,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),

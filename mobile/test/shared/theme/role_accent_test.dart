@@ -26,27 +26,26 @@ double _contrast(Color a, Color b) {
 void main() {
   const white = Color(0xFFFFFFFF);
 
-  group('roleAccent — decorative role identity', () {
-    test('every role resolves and all three accents are distinct', () {
-      final light = {
-        for (final role in UserRole.values) role: AppTheme.roleAccent(role),
-      };
-      final dark = {
-        for (final role in UserRole.values) role: AppTheme.darkRoleAccent(role),
-      };
-      expect(light.values.toSet().length, UserRole.values.length);
-      expect(dark.values.toSet().length, UserRole.values.length);
+  group('roleAccent: the boards\' selected nav item', () {
+    test('farmers and buyers share field green, truckers get brown', () {
+      expect(AppTheme.roleAccent(UserRole.farmer), AppTheme.fieldGreen);
+      expect(AppTheme.roleAccent(UserRole.buyer), AppTheme.fieldGreen);
+      expect(AppTheme.roleAccent(UserRole.trucker), AppTheme.money);
+      expect(AppTheme.roleAccentTint(UserRole.farmer), AppTheme.fieldGreenTint);
+      expect(AppTheme.roleAccentTint(UserRole.buyer), AppTheme.fieldGreenTint);
+      expect(
+        AppTheme.roleAccentTint(UserRole.trucker),
+        AppTheme.accentSoftLight,
+      );
     });
 
-    test('farmer reuses the shared brand tokens (no third teal)', () {
+    test('farmer and buyer reuse the shared brand tokens', () {
       expect(AppTheme.roleAccent(UserRole.farmer), AppTheme.primary);
-      expect(AppTheme.darkRoleAccent(UserRole.farmer), AppTheme.darkPrimary);
+      expect(AppTheme.darkRoleAccent(UserRole.buyer), AppTheme.darkPrimary);
     });
 
-    test('accents never collide with money or status tokens', () {
+    test('accents never collide with status tokens', () {
       final reserved = {
-        AppTheme.money,
-        AppTheme.accentSoft,
         AppTheme.statusSuccess,
         AppTheme.statusWarning,
         AppTheme.statusError,
@@ -59,46 +58,42 @@ void main() {
       }
     });
 
-    test('light accents hit ≥3:1 (icon use) on white surfaces', () {
+    test('the selected label reads at 4.5:1 on its pill and on white', () {
       for (final role in UserRole.values) {
-        final ratio = _contrast(AppTheme.roleAccent(role), white);
-        expect(
-          ratio,
-          greaterThanOrEqualTo(3.0),
-          reason: '${role.name} light accent on white was $ratio',
-        );
+        final accent = AppTheme.roleAccent(role);
+        for (final ground in [white, AppTheme.roleAccentTint(role)]) {
+          final ratio = _contrast(accent, ground);
+          expect(
+            ratio,
+            greaterThanOrEqualTo(4.5),
+            reason: '${role.name} accent on $ground was $ratio',
+          );
+        }
       }
     });
 
-    test(
-        'dark accents hit ≥3:1 (icon use) on darkSurface AND the '
-        'always-dark sidebar rail', () {
-      for (final role in UserRole.values) {
-        final accent = AppTheme.darkRoleAccent(role);
-        final onSurface = _contrast(accent, AppTheme.darkSurface);
-        final onSidebar = _contrast(accent, AppTheme.primaryDeep);
-        expect(
-          onSurface,
-          greaterThanOrEqualTo(3.0),
-          reason: '${role.name} dark accent on darkSurface was $onSurface',
-        );
-        expect(
-          onSidebar,
-          greaterThanOrEqualTo(3.0),
-          reason: '${role.name} dark accent on sidebar rail was $onSidebar',
-        );
-      }
-    });
-
-    test('sidebar logo glyph (primaryDeep) is legible on every accent tile',
-        () {
+    test('dark accents hit 3:1 (icon use) on darkSurface', () {
       for (final role in UserRole.values) {
         final ratio =
-            _contrast(AppTheme.primaryDeep, AppTheme.darkRoleAccent(role));
+            _contrast(AppTheme.darkRoleAccent(role), AppTheme.darkSurface);
         expect(
           ratio,
           greaterThanOrEqualTo(3.0),
-          reason: '${role.name} logo tile glyph contrast was $ratio',
+          reason: '${role.name} dark accent on darkSurface was $ratio',
+        );
+      }
+    });
+
+    test('the create button label reads at 4.5:1 for every role', () {
+      for (final role in UserRole.values) {
+        final ratio = _contrast(
+          AppTheme.createButtonForeground(role),
+          AppTheme.createButtonBackground(role),
+        );
+        expect(
+          ratio,
+          greaterThanOrEqualTo(4.5),
+          reason: '${role.name} create button contrast was $ratio',
         );
       }
     });

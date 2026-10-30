@@ -12,6 +12,7 @@ import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.d
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/adaptive_shell.dart';
+import 'package:wereda_connect/shared/navigation/role_nav_bar.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
@@ -118,17 +119,18 @@ void main() {
 
         await tester.pumpWidget(buildApp(role));
         await tester.pumpAndSettle();
-        expect(find.byType(FloatingActionButton), findsOneWidget);
+        // A floating button on the phone, the sidebar's button on desktop.
+        expect(find.byType(RoleCreateButton), findsOneWidget);
         expect(find.text(fabLabels[role]!), findsOneWidget);
 
         await tester.tap(find.text('open detail'));
         await tester.pumpAndSettle();
         expect(find.text('pushed detail'), findsOneWidget);
-        expect(find.byType(FloatingActionButton), findsNothing);
+        expect(find.byType(RoleCreateButton), findsNothing);
 
         Navigator.of(tester.element(find.text('pushed detail'))).pop();
         await tester.pumpAndSettle();
-        expect(find.byType(FloatingActionButton), findsOneWidget);
+        expect(find.byType(RoleCreateButton), findsOneWidget);
       });
     }
   }
@@ -147,7 +149,7 @@ void main() {
         await tester.pumpAndSettle();
 
         final fab = tester.getRect(find.byType(FloatingActionButton));
-        final bar = tester.getRect(find.byType(BottomNavigationBar));
+        final bar = tester.getRect(find.byType(RoleNavBar));
         expect(fab.bottom, lessThanOrEqualTo(bar.top));
         expect(bar.top - fab.top, lessThanOrEqualTo(Breakpoints.fabClearance));
       });
