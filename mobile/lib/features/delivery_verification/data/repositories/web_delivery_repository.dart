@@ -583,6 +583,11 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       ..qrToken = m['qrToken'] as String? ?? ''
       ..deliveryType = m['deliveryType'] as String?
       ..orderId = m['orderId'] as String?
+      ..cropType = m['cropType'] as String?
+      ..quantity = (m['quantity'] as num?)?.toDouble()
+      ..pickupPlace = m['pickupPlace'] as String?
+      ..pickupPlannedAt =
+          DateTime.tryParse(m['pickupPlannedAt'] as String? ?? '')
       ..status = _parseDeliveryStatus(m['status'] as String?)
       ..pickedUpAt = DateTime.tryParse(m['pickedUpAt'] as String? ?? '')
       ..confirmedAt = DateTime.tryParse(m['confirmedAt'] as String? ?? '')

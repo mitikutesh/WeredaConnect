@@ -4,107 +4,255 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
+import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
-import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_status_indicator.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
-/// Card displaying a single delivery in a list.
+/// A delivery in a list, as the Buyer · Deliveries board draws the waiting
+/// and the delivered card: a crop tile, "Teff · 1,500 kg", who and where
+/// ("Kebede Alemu, Bichena · pickup Thu 30 Oct"), the buyer's report window
+/// with a "Release pending" pill once delivered. The crop line comes from the
+/// delivery row itself (delivery-verification-api 1.21.0); a delivery created
+/// before that keeps its number as the title.
 ///
-/// Shows status icon, delivery ID, participant names, date,
-/// and status chip. Follows the TripCard pattern for consistency.
+/// The same card serves all three roles: the line under the title names the
+/// parties the viewer is not.
 class DeliveryCard extends StatelessWidget {
   final Delivery delivery;
   final VoidCallback? onTap;
   final String currentUserId;
+
+  /// Highlighted (the delivery shown beside the list on a wide screen).
+  final bool selected;
 
   const DeliveryCard({
     required this.delivery,
     required this.currentUserId,
     super.key,
     this.onTap,
+    this.selected = false,
   });
+
+  /// The buyer's 48 h to report a problem after delivery (Web · Buyer
+  /// deliveries board: "report a problem until Wed 16:10"); null outside it.
+  static DateTime? reportWindowEnd(Delivery delivery, DateTime now) {
+    final confirmedAt = delivery.confirmedAt;
+    if (delivery.status != DeliveryStatus.delivered || confirmedAt == null) {
+      return null;
+    }
+    final end = confirmedAt.add(DeliveryConstants.disputeWindow);
+    return now.isBefore(end) ? end : null;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
-    final dateFormat = DateFormat.yMMMd();
-    // The buyer's 48 h to report a problem after delivery (Web · Buyer
-    // deliveries board: "report a problem until Wed 16:10").
-    final confirmedAt = delivery.confirmedAt;
-    final windowEnd = confirmedAt?.add(DeliveryConstants.disputeWindow);
-    final reportUntil = delivery.status == DeliveryStatus.delivered &&
-            delivery.buyerId == currentUserId &&
-            windowEnd != null &&
-            DateTime.now().toUtc().isBefore(windowEnd)
-        ? windowEnd
-        : null;
+    final now = DateTime.now().toUtc();
+    final status = delivery.status;
+    final isBuyer = currentUserId == delivery.buyerId;
+    final isFarmer = currentUserId == delivery.farmerId;
+    final selfPickup =
+        delivery.deliveryType == DeliveryConstants.selfPickupDeliveryType ||
+            delivery.truckerId.isEmpty;
+    final windowEnd = reportWindowEnd(delivery, now);
 
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
+    // "Teff · 1,500 kg", or the delivery number for rows without a crop.
+    final cropKey = delivery.cropType;
+    final crop = cropKey == null || cropKey.isEmpty
+        ? null
+        : CropType.labelFor(cropKey, l10n);
+    final quantity = delivery.quantity;
+    final id = delivery.deliveryId;
+    final title = crop == null
+        ? l10n.deliveryIdLabel(id.length > 8 ? id.substring(0, 8) : id)
+        : quantity == null
+            ? crop
+            : '$crop · ${l10n.quantityKg(NumberFormat('#,##0.##').format(quantity))}';
+
+    // Who the viewer deals with, and where the crop is picked up. The
+    // buyer's waiting card names the farmer alone, as on the board (the
+    // driver appears once the truck is on the road).
+    final farmer = partyDisplayName(delivery.farmerName, l10n);
+    final place = delivery.pickupPlace;
+    final farmerLine =
+        place == null || place.isEmpty ? farmer : '$farmer, $place';
+    final trucker = partyDisplayName(delivery.truckerName, l10n);
+    final buyer = partyDisplayName(delivery.buyerName, l10n);
+    final withTrucker = !selfPickup && status != DeliveryStatus.pending;
+    final parties = isBuyer
+        ? (withTrucker ? '$farmerLine · $trucker' : farmerLine)
+        : isFarmer
+            ? (selfPickup ? buyer : '$buyer · $trucker')
+            : '$farmerLine → $buyer';
+
+    // The stage's own words after the parties.
+    final planned = delivery.pickupPlannedAt;
+    final whenLine = switch (status) {
+      DeliveryStatus.pending when planned != null =>
+        l10n.delivPickupOn(_shortDay(planned)),
+      DeliveryStatus.delivered when windowEnd == null => l10n.delivDeliveredOn(
+          _shortDay(delivery.confirmedAt ?? delivery.updatedAt),
+        ),
+      _ => null,
+    };
+    final subtitle = whenLine == null ? parties : '$parties · $whenLine';
+
+    // The buyer's report window replaces the parties line, as on the board.
+    final showReportUntil = isBuyer && windowEnd != null;
+    final releasePending = windowEnd != null && (isBuyer || isFarmer);
+    final waitingNote =
+        isBuyer && !selfPickup && status == DeliveryStatus.pending;
+
+    final (icon, tileBackground, tileForeground) = _tile(cropKey, status);
+    final statusPill = switch (status) {
+      DeliveryStatus.pickedUp || DeliveryStatus.inTransit => FwPill(
+          label: deliveryStatusLabel(status, l10n),
+        ),
+      DeliveryStatus.disputed => FwPill(
+          label: deliveryStatusLabel(status, l10n),
+          background: AppTheme.statusErrorContainer,
+          foreground: AppTheme.onStatusErrorContainer,
+        ),
+      DeliveryStatus.cancelled => FwPill(
+          label: deliveryStatusLabel(status, l10n),
+          background: AppTheme.statusNeutralContainer,
+          foreground: AppTheme.onStatusNeutralContainer,
+        ),
+      _ => null,
+    };
+
+    return FwCard(
+      onTap: onTap,
+      padding: const EdgeInsets.all(14),
+      borderColor: selected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              DeliveryStatusIndicator(status: delivery.status),
-              const SizedBox(width: 16),
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: tileBackground,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, size: 22, color: tileForeground),
+              ),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      l10n.deliveryIdLabel(
-                        delivery.deliveryId.substring(0, 8),
-                      ),
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: FwText.cardTitle,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${partyDisplayName(delivery.farmerName, l10n)} \u2192 ${partyDisplayName(delivery.buyerName, l10n)}',
-                      style: theme.textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${partyDisplayName(delivery.truckerName, l10n)} \u00b7 ${dateFormat.format(dayInEthiopia(delivery.createdAt))}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color:
-                            theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                      ),
-                    ),
-                    if (reportUntil != null) ...[
-                      const SizedBox(height: 4),
+                    const SizedBox(height: 3),
+                    if (showReportUntil)
                       ClockText(
                         clockFormatOf(context).deadline(
-                          reportUntil,
-                          date: DateFormat.MMMd(),
+                          windowEnd,
+                          date: DateFormat.E(),
                           sentence: l10n.liveTripReportProblemUntil,
                         ),
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: AppTheme.statusError,
-                          fontWeight: FontWeight.w600,
-                        ),
+                        style: FwText.body,
+                      )
+                    else
+                      Text(
+                        subtitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: FwText.body,
+                      ),
+                    if (releasePending) ...[
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: FwPill(label: l10n.liveTripReleasePending),
                       ),
                     ],
                   ],
                 ),
               ),
-              _DeliveryStatusChip(status: delivery.status),
+              if (statusPill != null) ...[
+                const SizedBox(width: 8),
+                statusPill,
+              ],
             ],
           ),
-        ),
+          if (waitingNote) ...[
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(top: 1),
+                  child: Icon(
+                    Icons.schedule,
+                    size: 16,
+                    color: AppTheme.mutedSteel,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    l10n.liveTripMapStartsAtPickup,
+                    style: FwText.body.copyWith(height: 1.35),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }
+
+  /// "Thu Oct 30": the weekday, then the short date, on the Ethiopian day.
+  static String _shortDay(DateTime at) {
+    final day = dayInEthiopia(at);
+    return '${DateFormat.E().format(day)} ${DateFormat.MMMd().format(day)}';
+  }
+
+  /// The tile's icon and colours: the crop while the delivery lives (wheat on
+  /// cream, other crops on green), a check once delivered, muted when
+  /// cancelled, a warning when disputed.
+  static (IconData, Color, Color) _tile(
+    String? cropKey,
+    DeliveryStatus status,
+  ) {
+    switch (status) {
+      case DeliveryStatus.delivered:
+        return (Icons.check, AppTheme.fieldGreenTint, AppTheme.fieldGreen);
+      case DeliveryStatus.disputed:
+        return (
+          Icons.report_problem_outlined,
+          AppTheme.statusErrorContainer,
+          AppTheme.statusError,
+        );
+      case DeliveryStatus.cancelled:
+        return (Icons.close, AppTheme.segmentTrack, AppTheme.mutedSteel);
+      case DeliveryStatus.pending:
+      case DeliveryStatus.pickedUp:
+      case DeliveryStatus.inTransit:
+        final crop = cropKey == null ? null : CropType.tryFromKey(cropKey);
+        final icon = crop?.icon ?? Icons.eco_outlined;
+        if (crop == CropType.wheat) {
+          return (icon, const Color(0xFFF4EBCF), AppTheme.money);
+        }
+        return (icon, AppTheme.fieldGreenTint, AppTheme.fieldGreen);
+    }
+  }
 }
 
-/// Localized display label for a delivery status, shared by the status chip,
+/// Localized display label for a delivery status, shared by the status pill,
 /// the Home recent-activity feed and the Home notifications sheet.
 String deliveryStatusLabel(DeliveryStatus status, AppLocalizations l10n) {
   return switch (status) {
@@ -115,41 +263,4 @@ String deliveryStatusLabel(DeliveryStatus status, AppLocalizations l10n) {
     DeliveryStatus.disputed => l10n.deliveryStatusDisputed,
     DeliveryStatus.cancelled => l10n.deliveryStatusCancelled,
   };
-}
-
-class _DeliveryStatusChip extends StatelessWidget {
-  final DeliveryStatus status;
-
-  const _DeliveryStatusChip({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final label = deliveryStatusLabel(status, l10n);
-    final color = switch (status) {
-      DeliveryStatus.pending => AppTheme.statusWarning,
-      DeliveryStatus.pickedUp => AppTheme.statusInfo,
-      DeliveryStatus.inTransit => AppTheme.statusTransit,
-      DeliveryStatus.delivered => AppTheme.statusSuccess,
-      DeliveryStatus.disputed => AppTheme.statusError,
-      DeliveryStatus.cancelled => AppTheme.textMuted,
-    };
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
 }

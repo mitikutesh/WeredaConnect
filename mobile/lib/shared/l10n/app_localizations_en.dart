@@ -4396,7 +4396,53 @@ class AppLocalizationsEn extends AppLocalizations {
       'Your money is held safely. The farmer is asked first, then the trucker.';
 
   @override
-  String get deliveriesSearchHint => 'Farmer, buyer or driver';
+  String get deliveriesSearchHint => 'Crop, farmer or driver';
+
+  @override
+  String get delivSegmentActive => 'Active';
+
+  @override
+  String delivPickupOn(String date) {
+    return 'pickup $date';
+  }
+
+  @override
+  String delivDeliveredOn(String date) {
+    return 'Delivered $date';
+  }
+
+  @override
+  String delivSummaryOnTheRoad(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count on the road',
+      one: '1 on the road',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String delivSummaryWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count waiting for pickup',
+      one: '1 waiting for pickup',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String delivSummaryCheckWindow(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count in the check window',
+      one: '1 in the check window',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get savedOnPhoneFirstNote =>
@@ -4554,6 +4600,12 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get cropsListedToday => 'listed today';
+
+  @override
+  String get cropsDrafts => 'Drafts';
+
+  @override
   String liveTripLogStopAhead(int minutes) {
     return 'About $minutes min, then on to you';
   }
@@ -4576,6 +4628,22 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get marketNoTripYet => 'No trip yet';
+
+  @override
+  String marketFootnote(String place) {
+    return 'Every farmer\'s listing. Transport is matched for $place.';
+  }
+
+  @override
+  String get marketFootnoteNoPlace => 'Every farmer\'s listing.';
+
+  @override
+  String marketQuintalsLeft(String quantity) {
+    return '$quantity quintals left';
+  }
+
+  @override
+  String get marketSearchToggle => 'Search and price filters';
 
   @override
   String liveTripEscrowAmount(String amount) {

@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
-import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
@@ -15,20 +15,27 @@ import 'package:wereda_connect/features/live_trip/presentation/open_live_trip.da
 import 'package:wereda_connect/features/live_trip/presentation/widgets/on_the_road_card.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
-import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 
-/// Deliveries tab screen — shows user's deliveries with status filter chips.
+/// Which deliveries the segmented switch shows (Buyer · Deliveries board):
+/// Active is everything not cancelled and not yet past its check window.
+enum _Segment { active, delivered, all }
+
+/// Deliveries tab (Fieldway: `android/BuyerDeliveries.dc.html` and, from a
+/// desktop width, `web/LiveDeliveries.dc.html`). Reads the viewer's own
+/// deliveries from the app-root DeliveryBloc via LoadUserDeliveries.
 ///
-/// Uses GreenHeader for visual consistency with other tabs.
-/// Reads from DeliveryBloc (provided at app root) via LoadUserDeliveries.
-///
-/// LT-11: the buyer's and the farmer's own deliveries a truck carries now
-/// come first, under "On the road now", as live trip cards; a buyer's
-/// delivery waiting for pickup says the map starts there. On a desktop
-/// width the selected live trip shows beside the list (the Web · Buyer
-/// deliveries board). The trucker's list is unchanged: no buyer map.
+/// The list is one column at every phone and tablet width: the page header,
+/// the Active / Delivered / All switch, then the deliveries under uppercase
+/// stage labels (ON THE ROAD NOW, WAITING FOR PICKUP, DELIVERED, ...). The
+/// buyer's and the farmer's own deliveries on the road are live trip cards
+/// (LT-11); the trucker gets the same stages with plain cards, never the
+/// buyer's map. From a desktop width the web board applies: a list column
+/// with the selected delivery's live trip beside it, a summary line and a
+/// search box; the trucker (no live trip pane) keeps the centred column.
 class DeliveriesTabScreen extends StatefulWidget {
   const DeliveriesTabScreen({super.key});
 
@@ -37,41 +44,29 @@ class DeliveriesTabScreen extends StatefulWidget {
 }
 
 class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
-  String? _selectedStatus;
+  _Segment _segment = _Segment.active;
   String? _userRole;
 
-  /// The live trip shown beside the list on a desktop width.
-  String? _selectedLiveId;
+  /// The delivery shown beside the list on a desktop width.
+  String? _selectedId;
 
-  /// Wide-screen search: narrows the loaded list by farmer, buyer or
-  /// driver name. Empty shows everything.
+  /// Desktop search: narrows the loaded list by crop, place or party name.
   String _searchQuery = '';
-
-  bool _matchesSearch(Delivery delivery) {
-    final query = _searchQuery.trim().toLowerCase();
-    if (query.isEmpty) return true;
-    return [delivery.farmerName, delivery.buyerName, delivery.truckerName]
-        .any((name) => name.toLowerCase().contains(query));
-  }
 
   @override
   void initState() {
     super.initState();
-    final authState = context.read<AuthBloc>().state;
-    if (authState is AuthAuthenticated) {
-      _userRole = authState.role.name;
-    }
+    _userRole = _auth?.role.name;
     _loadDeliveries();
   }
 
-  String? _getUserId() {
-    final authState = context.read<AuthBloc>().state;
-    if (authState is AuthAuthenticated) return authState.userId;
-    return null;
+  AuthAuthenticated? get _auth {
+    final state = context.read<AuthBloc>().state;
+    return state is AuthAuthenticated ? state : null;
   }
 
   void _loadDeliveries() {
-    final userId = _getUserId();
+    final userId = _auth?.userId;
     if (userId != null) {
       context.read<DeliveryBloc>().add(
             LoadUserDeliveries(userId: userId, role: _userRole),
@@ -79,25 +74,11 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
     }
   }
 
-  void _applyFilter(String? status) {
-    setState(() => _selectedStatus = status);
-    final userId = _getUserId();
-    if (userId == null) return;
-    context.read<DeliveryBloc>().add(
-          FilterUserDeliveries(
-            userId: userId,
-            role: _userRole,
-            statusFilter: status,
-          ),
-        );
-  }
-
-  /// Opens the delivery detail and reloads the list (preserving the active
-  /// filter) on return. The detail screen mutates the shared app-root
-  /// DeliveryBloc (mark-in-transit / confirm / cancel / dispute) and the tab
-  /// has no BlocListener, so without this the list was left showing the
-  /// detail's terminal/one-trip state — blank or wrongly narrowed — until a
-  /// manual refresh.
+  /// Opens the delivery detail and reloads the list on return. The detail
+  /// mutates the shared app-root DeliveryBloc (mark-in-transit / confirm /
+  /// cancel / dispute) and the tab has no BlocListener, so without this the
+  /// list was left showing the detail's terminal state until a manual
+  /// refresh.
   Future<void> _openDeliveryDetail(Delivery delivery, String userId) async {
     await Navigator.push(
       context,
@@ -109,592 +90,487 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
       ),
     );
     if (!mounted) return;
-    _applyFilter(_selectedStatus);
+    _loadDeliveries();
   }
-
-  /// A delivery on the road that [userId] follows as its buyer or farmer.
-  static bool _isOwnLiveTrip(Delivery delivery, String userId) =>
-      isOnTheRoad(delivery) && liveTripViewerOf(delivery, userId) != null;
 
   /// Opens the viewer's live trip and reloads the list on return: the
   /// buyer's QR scan there confirms the delivery through the shared bloc.
   Future<void> _openLiveTrip(Delivery delivery, String userId) async {
     await openLiveTrip(context, delivery, userId);
     if (!mounted) return;
-    _applyFilter(_selectedStatus);
+    _loadDeliveries();
+  }
+
+  /// A delivery on the road that [userId] follows as its buyer or farmer.
+  static bool _isOwnLiveTrip(Delivery delivery, String userId) =>
+      isOnTheRoad(delivery) && liveTripViewerOf(delivery, userId) != null;
+
+  /// Active (Buyer · Deliveries board): everything not cancelled that is
+  /// not settled yet, so a delivered one stays here through the buyer's 48 h
+  /// check window ("Release pending") and moves to Delivered after it.
+  static bool _isActive(Delivery delivery) {
+    if (delivery.status == DeliveryStatus.cancelled) return false;
+    if (delivery.status != DeliveryStatus.delivered) return true;
+    return DeliveryCard.reportWindowEnd(delivery, DateTime.now().toUtc()) !=
+        null;
+  }
+
+  bool _inSegment(Delivery delivery) => switch (_segment) {
+        _Segment.active => _isActive(delivery),
+        _Segment.delivered => delivery.status == DeliveryStatus.delivered,
+        _Segment.all => true,
+      };
+
+  bool _matchesSearch(Delivery delivery, AppLocalizations l10n) {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return true;
+    final crop = delivery.cropType;
+    return [
+      delivery.farmerName,
+      delivery.buyerName,
+      delivery.truckerName,
+      delivery.pickupPlace ?? '',
+      if (crop != null) crop,
+      if (crop != null) CropType.labelFor(crop, l10n),
+    ].any((text) => text.toLowerCase().contains(query));
+  }
+
+  /// "Selam Traders · Merkato": the viewer and their place (the board's
+  /// eyebrow); null when the profile has neither.
+  String? _ownerLine() {
+    final auth = _auth;
+    if (auth == null) return null;
+    final parts = [auth.userName.trim(), (auth.woreda ?? '').trim()]
+        .where((part) => part.isNotEmpty);
+    return parts.isEmpty ? null : parts.join(' · ');
+  }
+
+  /// "2 on the road · 1 waiting for pickup · 1 in the check window" (the
+  /// web board's line under the title), or the tab's tagline when none.
+  String _summaryLine(List<Delivery> all, AppLocalizations l10n) {
+    final now = DateTime.now().toUtc();
+    final onTheRoad = all.where(isOnTheRoad).length;
+    final waiting = all.where((d) => d.status == DeliveryStatus.pending).length;
+    final inWindow =
+        all.where((d) => DeliveryCard.reportWindowEnd(d, now) != null).length;
+    final parts = [
+      if (onTheRoad > 0) l10n.delivSummaryOnTheRoad(onTheRoad),
+      if (waiting > 0) l10n.delivSummaryWaiting(waiting),
+      if (inWindow > 0) l10n.delivSummaryCheckWindow(inWindow),
+    ];
+    return parts.isEmpty ? l10n.trackDeliveries : parts.join(' · ');
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final userId = _auth?.userId ?? '';
 
-    final isMobile = Breakpoints.isMobile(context);
-    final isDesktop = Breakpoints.isDesktop(context);
-    final hPad = isDesktop ? 32.0 : 24.0;
-    final listHPad = isMobile ? 20.0 : 24.0;
+    return BlocBuilder<DeliveryBloc, DeliveryState>(
+      builder: (context, state) {
+        final all =
+            state is DeliveriesLoaded ? state.deliveries : const <Delivery>[];
+        if (Breakpoints.isDesktop(context)) {
+          return _desktop(context, l10n, state, all, userId);
+        }
+        return _column(context, l10n, state, all, userId);
+      },
+    );
+  }
 
-    // ── Profile avatar (shared between mobile and desktop headers) ──
-    final profileAvatar = GestureDetector(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute<void>(
-          builder: (_) => const ProfileScreen(),
-        ),
-      ),
-      child: const CircleAvatar(
-        radius: 18,
-        backgroundColor: Color(0xFFECEAE2),
-        child: Icon(
-          Icons.person,
-          size: 20,
-          color: AppTheme.soilDark,
+  // ── Phone and tablet: the board's column ────────────────────────────
+
+  Widget _column(
+    BuildContext context,
+    AppLocalizations l10n,
+    DeliveryState state,
+    List<Delivery> all,
+    String userId,
+  ) {
+    return SafeArea(
+      bottom: false,
+      child: FwContentWidth(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            FwPageHeader(
+              eyebrow: _ownerLine() ?? l10n.trackDeliveries,
+              title: l10n.deliveries,
+              trailing: _profileButton(context, l10n),
+            ),
+            const OfflineBanner(),
+            if (all.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                child: _segmented(all, l10n),
+              ),
+            Expanded(
+              child: _list(
+                context,
+                l10n,
+                state,
+                all.where(_inSegment).toList(),
+                userId,
+                split: false,
+              ),
+            ),
+          ],
         ),
       ),
     );
+  }
 
-    // ── Filter chips row ──────────────────────────────────────────
-    final Widget filterChips;
-    if (isMobile) {
-      filterChips = SizedBox(
-        height: 50,
-        child: ListView(
-          scrollDirection: Axis.horizontal,
-          padding: EdgeInsets.symmetric(horizontal: listHPad, vertical: 8),
+  // ── Desktop: the Web · Buyer deliveries board ───────────────────────
+
+  Widget _desktop(
+    BuildContext context,
+    AppLocalizations l10n,
+    DeliveryState state,
+    List<Delivery> all,
+    String userId,
+  ) {
+    final shown = all.where((d) => _matchesSearch(d, l10n)).toList();
+    // The live trip pane exists for the buyer and the farmer of a truck
+    // delivery; the trucker (and a list of self-pickups) keeps one column.
+    final withPane = [
+      for (final d in shown)
+        if (liveTripViewerOf(d, userId) != null) d,
+    ];
+    final split = withPane.isNotEmpty;
+    final selected = !split
+        ? null
+        : withPane.firstWhere(
+            (d) => d.deliveryId == _selectedId,
+            orElse: () => withPane.firstWhere(
+              isOnTheRoad,
+              orElse: () => withPane.first,
+            ),
+          );
+
+    final header = Padding(
+      padding: const EdgeInsets.fromLTRB(32, 28, 32, 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Semantics(
+                  header: true,
+                  child: Text(
+                    l10n.deliveries,
+                    style: FwText.pageTitle.copyWith(fontSize: 28),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _summaryLine(all, l10n),
+                  style: FwText.body.copyWith(fontSize: 14),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          _searchBox(l10n),
+        ],
+      ),
+    );
+
+    final Widget body;
+    if (split) {
+      body = Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _buildChip(null, l10n.deliveryFilterAll),
-            _buildChip('pending', l10n.deliveryFilterPending),
-            _buildChip('pickedUp', l10n.deliveryFilterPickedUp),
-            _buildChip('inTransit', l10n.deliveryFilterInTransit),
-            _buildChip('delivered', l10n.deliveryFilterDelivered),
+            SizedBox(
+              width: 380,
+              child: _list(
+                context,
+                l10n,
+                state,
+                shown,
+                userId,
+                split: true,
+                selected: selected,
+              ),
+            ),
+            const SizedBox(width: 24),
+            Expanded(
+              child: liveTripPane(selected!, userId) ?? const SizedBox.shrink(),
+            ),
           ],
         ),
       );
     } else {
-      filterChips = Padding(
-        padding: EdgeInsets.symmetric(horizontal: listHPad, vertical: 8),
-        child: Row(
-          children: [
-            Expanded(
-              child: _buildChip(null, l10n.deliveryFilterAll, expand: true),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _buildChip(
-                'pending',
-                l10n.deliveryFilterPending,
-                expand: true,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _buildChip(
-                'pickedUp',
-                l10n.deliveryFilterPickedUp,
-                expand: true,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _buildChip(
-                'inTransit',
-                l10n.deliveryFilterInTransit,
-                expand: true,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _buildChip(
-                'delivered',
-                l10n.deliveryFilterDelivered,
-                expand: true,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // ── Delivery list ─────────────────────────────────────────────
-    final deliveryList = Expanded(
-      child: BlocBuilder<DeliveryBloc, DeliveryState>(
-        builder: (context, state) {
-          if (state is DeliveryLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (state is DeliveryError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.local_shipping_outlined,
-                      size: 56,
-                      color: AppTheme.textMuted.withAlpha(150),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      l10n.noDeliveries,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.textDark,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      l10n.deliveryNoDeliveriesHint,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.textMuted,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 20),
-                    SizedBox(
-                      width: 200,
-                      child: FilledButton(
-                        onPressed: _loadDeliveries,
-                        child: Text(l10n.retry),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }
-
-          if (state is DeliveriesLoaded) {
-            final userId = _getUserId() ?? '';
-            final allDeliveries = isDesktop
-                ? state.deliveries.where(_matchesSearch).toList()
-                : state.deliveries;
-
-            if (allDeliveries.isEmpty && state.deliveries.isNotEmpty) {
-              // Only the search hid them: say so, not "no deliveries".
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 32),
-                  child: Text(
-                    l10n.deliveriesNoSearchMatch,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.textMuted,
-                    ),
-                  ),
-                ),
-              );
-            }
-
-            if (allDeliveries.isEmpty) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.local_shipping_outlined,
-                      size: 64,
-                      color: AppTheme.textMuted,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      l10n.noDeliveries,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                        color: AppTheme.textMuted,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      l10n.deliveryNoDeliveriesHint,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.textMuted,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            // The viewer's own deliveries on the road (never the
-            // trucker's: liveTripViewerOf answers null for them).
-            final live = [
-              for (final d in allDeliveries)
-                if (_isOwnLiveTrip(d, userId)) d,
-            ];
-            final others = [
-              for (final d in allDeliveries)
-                if (!live.contains(d)) d,
-            ];
-            final split = isDesktop && live.isNotEmpty;
-            final selected = !split
-                ? null
-                : live.firstWhere(
-                    (d) => d.deliveryId == _selectedLiveId,
-                    orElse: () => live.first,
-                  );
-            // Buyer and farmer (Buyer · Deliveries board): the rest under a
-            // heading per stage, in the order a delivery lives. The
-            // trucker's list stays one list.
-            List<Delivery> inStage(Set<DeliveryStatus> statuses) => [
-                  for (final d in others)
-                    if (statuses.contains(d.status)) d,
-                ];
-            final stages = _userRole != UserRole.trucker.name
-                ? [
-                    // Under the live cards' heading when there are some.
-                    (
-                      live.isEmpty ? l10n.liveTripOnTheRoadNow : null,
-                      inStage({
-                        DeliveryStatus.pickedUp,
-                        DeliveryStatus.inTransit,
-                      }),
-                    ),
-                    (
-                      l10n.liveTripWaitingForPickup,
-                      inStage({DeliveryStatus.pending}),
-                    ),
-                    (
-                      l10n.deliveryFilterDelivered,
-                      inStage({DeliveryStatus.delivered}),
-                    ),
-                    (
-                      l10n.deliveryStatusDisputed,
-                      inStage({DeliveryStatus.disputed}),
-                    ),
-                    (
-                      l10n.deliveryStatusCancelled,
-                      inStage({DeliveryStatus.cancelled}),
-                    ),
-                  ]
-                : [(null, others)];
-            final items = <Widget>[
-              if (live.isNotEmpty)
-                _StageHeading(label: l10n.liveTripOnTheRoadNow),
-              for (final delivery in live)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: OnTheRoadCard(
-                    key: ValueKey('on-road-${delivery.deliveryId}'),
-                    delivery: delivery,
-                    currentUserId: userId,
-                    selected: delivery == selected,
-                    onTap: split
-                        ? () => setState(
-                              () => _selectedLiveId = delivery.deliveryId,
-                            )
-                        : () => _openLiveTrip(delivery, userId),
-                  ),
-                ),
-              for (final (heading, inStage) in stages) ...[
-                if (heading != null && inStage.isNotEmpty)
-                  _StageHeading(label: heading),
-                for (final delivery in inStage)
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      DeliveryCard(
-                        delivery: delivery,
-                        currentUserId: userId,
-                        onTap: () => _openDeliveryDetail(delivery, userId),
-                      ),
-                      if (isWaitingForPickup(delivery) &&
-                          liveTripViewerOf(delivery, userId) ==
-                              LiveTripViewer.buyer)
-                        const WaitingForPickupNote(),
-                    ],
-                  ),
-              ],
-            ];
-
-            final list = RefreshIndicator(
-              onRefresh: () async => _loadDeliveries(),
-              child: ListView.separated(
-                padding: EdgeInsets.fromLTRB(
-                  listHPad,
-                  12,
-                  listHPad,
-                  Breakpoints.fabClearance,
-                ),
-                itemCount: items.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (context, index) => items[index],
-              ),
-            );
-            if (selected == null) return list;
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(flex: 2, child: list),
-                const VerticalDivider(width: 1),
-                Expanded(
-                  flex: 3,
-                  child:
-                      liveTripPane(selected, userId) ?? const SizedBox.shrink(),
-                ),
-              ],
-            );
-          }
-
-          // Initial state
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.local_shipping_outlined,
-                  size: 64,
-                  color: AppTheme.textMuted,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  l10n.noDeliveries,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: AppTheme.textMuted,
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-
-    // ── Mobile layout (Fieldway canvas: BuyerDeliveries.dc.html) ──
-    if (isMobile) {
-      return Column(
-        children: [
-          Container(
-            color: AppTheme.chalkBackground,
-            padding: EdgeInsets.fromLTRB(
-              listHPad,
-              MediaQuery.of(context).padding.top + 16,
-              listHPad,
-              12,
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        l10n.trackDeliveries,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.mutedSteel,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        l10n.myDeliveries,
-                        style: const TextStyle(
-                          fontSize: 26,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.5,
-                          color: AppTheme.soilDark,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                profileAvatar,
-              ],
-            ),
-          ),
-          const OfflineBanner(),
-          filterChips,
-          deliveryList,
-        ],
-      );
-    }
-
-    // ── Desktop / Tablet layout ───────────────────────────────────
-    // Wider on a desktop while a live trip shows beside the list.
-    final deliveryState = context.watch<DeliveryBloc>().state;
-    final splitView = isDesktop &&
-        deliveryState is DeliveriesLoaded &&
-        (deliveryState.deliveries.isEmpty ||
-            deliveryState.deliveries
-                .any((d) => _isOwnLiveTrip(d, _getUserId() ?? '')));
-    return Center(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: splitView ? Breakpoints.maxContentWidth : 900,
-        ),
+      body = FwContentWidth(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ── Flat page header ──────────────────────────────────
-            Padding(
-              padding: EdgeInsets.fromLTRB(hPad, 28, hPad, 20),
-              child: isDesktop
-                  ? Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                l10n.myDeliveries,
-                                style: const TextStyle(
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppTheme.soilDark,
-                                  letterSpacing: -0.5,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                l10n.trackDeliveries,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  color: AppTheme.mutedSteel,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Container(
-                          width: 280,
-                          height: 44,
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: AppTheme.whisperBorder),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.search,
-                                size: 18,
-                                color: AppTheme.mutedSteel,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: TextField(
-                                  key: const Key('deliveries_search'),
-                                  onChanged: (value) =>
-                                      setState(() => _searchQuery = value),
-                                  decoration: InputDecoration(
-                                    hintText: l10n.deliveriesSearchHint,
-                                    hintStyle: const TextStyle(
-                                      fontSize: 13,
-                                      color: AppTheme.mutedSteel,
-                                    ),
-                                    border: InputBorder.none,
-                                    isDense: true,
-                                  ),
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    color: AppTheme.soilDark,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    )
-                  : Column(
-                      children: [
-                        Text(
-                          l10n.myDeliveries,
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.textDark,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          l10n.trackDeliveries,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: AppTheme.textMuted,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
+            if (all.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                child: _segmented(all, l10n),
+              ),
+            Expanded(
+              child: _list(
+                context,
+                l10n,
+                state,
+                shown.where(_inSegment).toList(),
+                userId,
+                split: false,
+              ),
             ),
-            filterChips,
-            deliveryList,
           ],
         ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        header,
+        const OfflineBanner(),
+        Expanded(child: body),
+      ],
+    );
+  }
+
+  Widget _searchBox(AppLocalizations l10n) {
+    return Container(
+      width: 330,
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceWhite,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.whisperBorder),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.search, size: 18, color: AppTheme.mutedSteel),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              key: const Key('deliveries_search'),
+              onChanged: (value) => setState(() => _searchQuery = value),
+              decoration: InputDecoration(
+                hintText: l10n.deliveriesSearchHint,
+                hintStyle: FwText.body,
+                border: InputBorder.none,
+                isDense: true,
+              ),
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppTheme.soilDark,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildChip(String? status, String label, {bool expand = false}) {
-    final isSelected = _selectedStatus == status;
-    final chip = FilterChip(
-      label: expand
-          ? SizedBox(
-              width: double.infinity,
-              child: Text(label, textAlign: TextAlign.center),
-            )
-          : Text(label),
-      selected: isSelected,
-      selectedColor: AppTheme.fieldGreen,
-      backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(999),
-        side: BorderSide(
-          color: isSelected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
-        ),
+  // ── Shared pieces ───────────────────────────────────────────────────
+
+  Widget _profileButton(BuildContext context, AppLocalizations l10n) {
+    return FwSquareButton(
+      semanticLabel: l10n.profile,
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute<void>(builder: (_) => const ProfileScreen()),
       ),
-      labelStyle: TextStyle(
-        fontSize: 13,
-        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-        color: isSelected ? Colors.white : AppTheme.soilDark,
+      child: const Icon(
+        Icons.person_outline,
+        size: 20,
+        color: AppTheme.soilDark,
       ),
-      onSelected: (_) => _applyFilter(status),
     );
-    if (expand) return chip;
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: chip,
+  }
+
+  Widget _segmented(List<Delivery> all, AppLocalizations l10n) {
+    final active = all.where(_isActive).length;
+    final delivered =
+        all.where((d) => d.status == DeliveryStatus.delivered).length;
+    return FwSegmented<_Segment>(
+      segments: [
+        FwSegment(
+          value: _Segment.active,
+          label: l10n.delivSegmentActive,
+          count: active > 0 ? active : null,
+        ),
+        FwSegment(
+          value: _Segment.delivered,
+          label: l10n.deliveryFilterDelivered,
+          count: delivered > 0 ? delivered : null,
+        ),
+        FwSegment(value: _Segment.all, label: l10n.deliveryFilterAll),
+      ],
+      selected: _segment,
+      onChanged: (segment) => setState(() => _segment = segment),
+    );
+  }
+
+  /// The deliveries under their stage labels, or the loading, error and
+  /// empty states. [split] is the desktop list column: a tap there selects
+  /// the delivery for the pane when it has one.
+  Widget _list(
+    BuildContext context,
+    AppLocalizations l10n,
+    DeliveryState state,
+    List<Delivery> deliveries,
+    String userId, {
+    required bool split,
+    Delivery? selected,
+  }) {
+    if (state is DeliveryLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (state is DeliveryError) {
+      return _EmptyState(
+        title: l10n.noDeliveries,
+        hint: l10n.deliveryNoDeliveriesHint,
+        action: SizedBox(
+          width: 200,
+          child: FilledButton(
+            onPressed: _loadDeliveries,
+            child: Text(l10n.retry),
+          ),
+        ),
+      );
+    }
+    if (state is! DeliveriesLoaded) {
+      return _EmptyState(title: l10n.noDeliveries);
+    }
+    if (deliveries.isEmpty) {
+      if (state.deliveries.isNotEmpty && _searchQuery.trim().isNotEmpty) {
+        // Only the search hid them: say so, not "no deliveries".
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(
+              l10n.deliveriesNoSearchMatch,
+              textAlign: TextAlign.center,
+              style: FwText.body.copyWith(fontSize: 15),
+            ),
+          ),
+        );
+      }
+      return _EmptyState(
+        title: l10n.noDeliveries,
+        hint: l10n.deliveryNoDeliveriesHint,
+      );
+    }
+
+    // The stages in the order a delivery lives, each under its label.
+    List<Delivery> inStage(Set<DeliveryStatus> statuses) => [
+          for (final d in deliveries)
+            if (statuses.contains(d.status)) d,
+        ];
+    final stages = [
+      (
+        l10n.liveTripOnTheRoadNow,
+        inStage({DeliveryStatus.pickedUp, DeliveryStatus.inTransit}),
+      ),
+      (l10n.liveTripWaitingForPickup, inStage({DeliveryStatus.pending})),
+      (l10n.deliveryFilterDelivered, inStage({DeliveryStatus.delivered})),
+      (l10n.deliveryStatusDisputed, inStage({DeliveryStatus.disputed})),
+      (l10n.deliveryStatusCancelled, inStage({DeliveryStatus.cancelled})),
+    ];
+
+    Widget card(Delivery delivery) {
+      final isSelected = split && delivery.deliveryId == selected?.deliveryId;
+      if (_isOwnLiveTrip(delivery, userId)) {
+        return OnTheRoadCard(
+          key: ValueKey('on-road-${delivery.deliveryId}'),
+          delivery: delivery,
+          currentUserId: userId,
+          selected: isSelected,
+          onTap: split
+              ? () => setState(() => _selectedId = delivery.deliveryId)
+              : () => _openLiveTrip(delivery, userId),
+        );
+      }
+      final hasPane = split && liveTripViewerOf(delivery, userId) != null;
+      return DeliveryCard(
+        key: ValueKey('delivery-${delivery.deliveryId}'),
+        delivery: delivery,
+        currentUserId: userId,
+        selected: isSelected,
+        onTap: hasPane
+            ? () => setState(() => _selectedId = delivery.deliveryId)
+            : () => _openDeliveryDetail(delivery, userId),
+      );
+    }
+
+    final items = <Widget>[
+      for (final (label, stage) in stages)
+        if (stage.isNotEmpty) ...[
+          FwSectionLabel(label, padding: const EdgeInsets.only(top: 6)),
+          for (final delivery in stage) card(delivery),
+        ],
+    ];
+
+    final hPad = split ? 0.0 : 20.0;
+    return RefreshIndicator(
+      onRefresh: () async => _loadDeliveries(),
+      child: ListView.separated(
+        padding: EdgeInsets.fromLTRB(hPad, 12, hPad, Breakpoints.fabClearance),
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemBuilder: (context, index) => items[index],
+      ),
     );
   }
 }
 
-/// A stage heading over the deliveries list ("On the road now", "Waiting
-/// for pickup", ...), as the Buyer · Deliveries board sets them.
-class _StageHeading extends StatelessWidget {
-  final String label;
+/// The tab's empty, initial and error states: a truck, a line, a hint.
+class _EmptyState extends StatelessWidget {
+  final String title;
+  final String? hint;
+  final Widget? action;
 
-  const _StageHeading({required this.label});
+  const _EmptyState({required this.title, this.hint, this.action});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-      child: Semantics(
-        header: true,
-        child: Text(
-          label,
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.4,
-            color: AppTheme.mutedSteel,
-          ),
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.local_shipping_outlined,
+              size: 56,
+              color: AppTheme.textMuted.withAlpha(150),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textDark,
+              ),
+            ),
+            if (hint != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                hint!,
+                textAlign: TextAlign.center,
+                style: FwText.body,
+              ),
+            ],
+            if (action != null) ...[
+              const SizedBox(height: 20),
+              action!,
+            ],
+          ],
         ),
       ),
     );

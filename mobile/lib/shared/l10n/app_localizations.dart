@@ -7751,11 +7751,47 @@ abstract class AppLocalizations {
   /// **'Your money is held safely. The farmer is asked first, then the trucker.'**
   String get placeOrderEscrowNote;
 
-  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen): search box hint; matches the names on a delivery
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen): search box hint; matches the crop and the names on a delivery
   ///
   /// In en, this message translates to:
-  /// **'Farmer, buyer or driver'**
+  /// **'Crop, farmer or driver'**
   String get deliveriesSearchHint;
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries: segmented switch, every delivery not delivered or cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'Active'**
+  String get delivSegmentActive;
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries card waiting for pickup: the trip's departure day after the farmer; {date} is a short date like Thu 30 Oct
+  ///
+  /// In en, this message translates to:
+  /// **'pickup {date}'**
+  String delivPickupOn(String date);
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries card: a delivered delivery outside the buyer's report window; {date} is a short date
+  ///
+  /// In en, this message translates to:
+  /// **'Delivered {date}'**
+  String delivDeliveredOn(String date);
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) summary line under the title: trucks carrying the viewer's crops now
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 on the road} other{{count} on the road}}'**
+  String delivSummaryOnTheRoad(int count);
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) summary line: deliveries not picked up yet
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 waiting for pickup} other{{count} waiting for pickup}}'**
+  String delivSummaryWaiting(int count);
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) summary line: delivered within the last 48 hours, the buyer can still report a problem
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 in the check window} other{{count} in the check window}}'**
+  String delivSummaryCheckWindow(int count);
 
   /// Fieldway design alignment (specs/design-canvas). Create crop listing and create trip: offline save note under Save
   ///
@@ -7985,6 +8021,18 @@ abstract class AppLocalizations {
   /// **'listed {date}'**
   String myCropsListedOn(String date);
 
+  /// Fieldway design alignment (specs/design-canvas). My Crops card: a listing posted today, in place of "listed {date}"
+  ///
+  /// In en, this message translates to:
+  /// **'listed today'**
+  String get cropsListedToday;
+
+  /// Fieldway design alignment (specs/design-canvas). My Crops: segmented switch label for the farmer's draft listings
+  ///
+  /// In en, this message translates to:
+  /// **'Drafts'**
+  String get cropsDrafts;
+
   /// Fieldway design alignment (specs/design-canvas). Trip log, buyer: an unnamed stop before the buyer's drop-off; {minutes} is the estimate at the pace of the arrival window
   ///
   /// In en, this message translates to:
@@ -8008,6 +8056,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No trip yet'**
   String get marketNoTripYet;
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops: line under the list; the buyer sees every listing and the transport lines are for their drop-off place
+  ///
+  /// In en, this message translates to:
+  /// **'Every farmer\'s listing. Transport is matched for {place}.'**
+  String marketFootnote(String place);
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops: line under the list when the buyer's profile has no place
+  ///
+  /// In en, this message translates to:
+  /// **'Every farmer\'s listing.'**
+  String get marketFootnoteNoPlace;
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops card title after the crop: what the listing still has; a number
+  ///
+  /// In en, this message translates to:
+  /// **'{quantity} quintals left'**
+  String marketQuintalsLeft(String quantity);
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops: the header button that shows or hides the search box and the price range
+  ///
+  /// In en, this message translates to:
+  /// **'Search and price filters'**
+  String get marketSearchToggle;
 
   /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: the order's money still held; {amount} is the sum with ETB
   ///

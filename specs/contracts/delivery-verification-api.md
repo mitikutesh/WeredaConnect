@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.20.0
+1.21.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -361,6 +361,10 @@ GET /deliveries?role=trucker&status=pending&limit=20
       "buyerId": "buyer-555",
       "buyerName": "Fatuma Ahmed",
       "status": "pending",
+      "cropType": "teff",
+      "quantity": 1500,
+      "pickupPlace": "Bichena",
+      "pickupPlannedAt": "2026-02-20T06:00:00Z",
       "createdAt": "2026-02-18T08:00:00Z",
       "updatedAt": "2026-02-18T08:00:00Z",
       "version": 1
@@ -410,6 +414,10 @@ GET /deliveries/del-101
   "buyerName": "Fatuma Ahmed",
   "qrToken": "eyJkZWxpdmVyeUlkIjoiZGVsLTEwMSIs...",
   "status": "pickedUp",
+  "cropType": "teff",
+  "quantity": 1500,
+  "pickupPlace": "Bichena",
+  "pickupPlannedAt": "2026-02-18T06:00:00Z",
   "gpsPickup": {
     "latitude": 9.6778,
     "longitude": 39.5318
@@ -512,6 +520,10 @@ server refused the whole confirmation (`DELIVERY_INVALID_FIELD`).
 | `buyerPhone` | string | Server | E.164 | Buyer's phone, server-stamped on create from the users table (v1.6.1); never returned to clients since 1.15.0, admin view only |
 | `qrToken` | string | Yes | Base64-encoded, <500 bytes | HMAC-signed QR verification token |
 | `status` | enum | Yes | See Status Types | Delivery lifecycle status |
+| `cropType` | string | No | Server-only, a crop key | The order's crop, stamped on create from the order row (1.21.0) so the deliveries list titles a card ("Teff · 1,500 kg") without one order read per delivery; a client value is refused as an unknown field; absent on deliveries created before 1.21.0 |
+| `quantity` | number | No | Server-only, kilograms | The order's quantity, stamped with `cropType` (1.21.0) |
+| `pickupPlace` | string | No | Server-only | The listing's `locationName` at create time (1.21.0); absent when the listing has none |
+| `pickupPlannedAt` | string (ISO 8601) | No | Server-only | The trip's `departureDate` at create time (1.21.0), the planned pickup day on the waiting card; absent on a self-pickup |
 | `gpsPickup` | LatLng | No | -- | GPS coordinates at pickup (null until picked up) |
 | `gpsDropoff` | LatLng | No | -- | GPS coordinates at dropoff (null until delivered) |
 | `pickupPhotoRef` | string | No | `uploads/photos/{deliveryId}/pickup-{ms}.webp`, the key from section 4 | Photo evidence at pickup; any other value fails the op (1.7.0) |
@@ -1077,6 +1089,7 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.16.0 | 2026-10-22 | Dispute dispositions (FUP-16, `escrow-protocol.md` 1.21.0): an admin's disposition closes a delivery that never reached `delivered` as a system actor, conditional on the status read and on no verdict yet, version added to: `return_to_farmer` and `settle_now` to `cancelled` with `cancelReason` (`dispute_buyer_wins`, `dispute_farmer_wins`) and `cancelledAt`, `delivered_anyway` to `disputed` with `confirmedAt` set when missing; the verdict is stamped on both, audited in transaction-audit; a sync dispute still starts only from `delivered`, so the escrow's pickup rule (`ESCROW_041`) needs no change here. No client change: the statuses are known and the extra keys are ignored. |
 | 1.17.0 | 2026-10-23 | QR gate money check (FUP-42): with no nonce on record, a `pickedUp` or `delivered` (trucker flow and self-pickup) is money-bearing when the order's escrow `escrow-order-{orderId}` exists (strongly consistent, any status) or the `DeliveryIndex` finds an escrow; before, only the `DeliveryIndex` was asked, so an order escrow whose delivery link failed or lagged let the transition pass with no QR. A failed read answers `deferred` (`DELIVERY_NONCE_PENDING`), writes nothing, never hard-fails, and logs the alarmed `QR_GATE_UNDECIDED` (order escrow problems alarm); web shows its QR-pending text for it. Cash deliveries and the nonce checks are unchanged. No client change (`sync-protocol.md` 1.19.0). |
 | 1.20.0 | 2026-10-28 | Check-in effects (LT-07, `live-trip-api.md` sections 4 and 5): a system `pickedUp → inTransit` when an accepted check-in captured after the pickup is 2 km or more from the pickup point (fresh read, conditional on the status and the version read, the trucker's write, audited with the actor `system` and `source=check_in`, the same order coupling to `in_transit`); the trucker's own `inTransit` on an `inTransit` delivery answers `conflict` with the row instead of `DELIVERY_INVALID_TRANSITION`; the server-only `nearbyNotifiedAt`, `nearbyDistanceKm` and `nearbyMinutes`, stamped once when a check-in is within 5 km of the drop-off point (conditional on `pickedUp` or `inTransit` and no stamp; `version` and `updatedAt` unchanged), which sends the buyer `truck_nearby` (`notifications-api.md` 1.3.0). No client change: the status is known and the extra keys are ignored. |
+| 1.21.0 | 2026-10-30 | Cargo on the row (Fieldway deliveries boards): the create stamps the server-only `cropType` and `quantity` (kg) from the order, `pickupPlace` from the listing's `locationName` and `pickupPlannedAt` from the trip's `departureDate` (none on a self-pickup), all returned on `GET /deliveries`, `GET /deliveries/{id}` and every `/sync` delivery row, so the list cards read "Teff · 1,500 kg" and "Kebede Alemu, Bichena · pickup Thu 30 Oct" without one order read per delivery; a client that sends them hits the field whitelist; deliveries created before 1.21.0 carry none and the clients fall back to the delivery number. |
 | 1.19.0 | 2026-10-23 | Payout delay (FRD-13, `escrow-protocol.md` 1.33.0): the `delivered` transition stamps the linked escrow's `releaseNotBefore` in the same write as `deliveryConfirmedAt` and `disputeWindowEndsAt` (the trucker named by the delivery when the escrow has none yet); the automatic release waits for it. The dispute window and the delivery's own fields are unchanged; no client change on deliveries. |
 
 ---

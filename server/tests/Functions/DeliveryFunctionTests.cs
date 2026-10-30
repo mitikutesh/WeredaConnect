@@ -834,6 +834,35 @@ public class DeliveryFunctionTests
     }
 
     [Fact]
+    public void MapToDeliveryDto_WithCargoFields_MapsThem()
+    {
+        // delivery-verification-api 1.21.0: the row's crop line for the list cards.
+        var delivery = CreateDeliveryItem("del-001");
+        delivery["cropType"] = "wheat";
+        delivery["quantity"] = "2000";
+        delivery["pickupPlace"] = "Meki";
+        delivery["pickupPlannedAt"] = "2026-10-30T06:00:00Z";
+
+        var dto = DeliveryFunction.MapToDeliveryDto(delivery);
+
+        Assert.Equal("wheat", dto.CropType);
+        Assert.Equal(2000, dto.Quantity);
+        Assert.Equal("Meki", dto.PickupPlace);
+        Assert.Equal("2026-10-30T06:00:00Z", dto.PickupPlannedAt);
+    }
+
+    [Fact]
+    public void MapToDeliveryDto_LegacyRowWithoutCargo_LeavesCargoNull()
+    {
+        var dto = DeliveryFunction.MapToDeliveryDto(CreateDeliveryItem("del-001"));
+
+        Assert.Null(dto.CropType);
+        Assert.Null(dto.Quantity);
+        Assert.Null(dto.PickupPlace);
+        Assert.Null(dto.PickupPlannedAt);
+    }
+
+    [Fact]
     public void MapToDeliveryDto_WithGpsDropoff_ParsesCorrectly()
     {
         var delivery = CreateDeliveryItem("del-001");

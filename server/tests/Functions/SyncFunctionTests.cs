@@ -2986,6 +2986,87 @@ public partial class SyncFunctionTests
     }
 
     [Fact]
+    public async Task DeliveryCreate_StampsCargoFromOrderListingAndTrip()
+    {
+        // delivery-verification-api 1.21.0: the list cards title each delivery by crop and
+        // quantity and name the pickup place and day off the row itself, so the create copies
+        // them from the order, the listing and the trip it already reads.
+        SetupTruckOrder();
+        _mockOrderRepo.GetByIdAsync(TestOrderId).Returns(new Dictionary<string, object>
+        {
+            { "orderId", TestOrderId }, { "buyerId", TestBuyerId }, { "farmerId", TestFarmerId },
+            { "listingId", TestListingId }, { "tripId", TestTripId }, { "truckerId", TestTruckerId },
+            { "cropType", "wheat" }, { "quantity", "2000" },
+            { "status", "accepted" }, { "version", "1" }
+        });
+        _mockCropRepo.GetByIdAsync(TestListingId).Returns(new Dictionary<string, object>
+        {
+            { "cropId", TestListingId }, { "farmerId", TestFarmerId },
+            { "locationName", "Meki" }, { "status", "available" }, { "version", "1" }
+        });
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r =>
+                r.TableName == "test-trips-table" && r.ExpressionAttributeValues[":id"].S == TestTripId))
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    new()
+                    {
+                        { "tripId", new AttributeValue { S = TestTripId } },
+                        { "truckerId", new AttributeValue { S = TestTruckerId } },
+                        { "departureDate", new AttributeValue { S = "2026-10-30T06:00:00Z" } },
+                        { "status", new AttributeValue { S = "open" } }
+                    }
+                }
+            });
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await ReceivedDeliveryWrite(item =>
+            item["cropType"].S == "wheat"
+            && item["quantity"].N == "2000"
+            && item["pickupPlace"].S == "Meki"
+            && item["pickupPlannedAt"].S == "2026-10-30T06:00:00Z");
+        // The creator's echo carries the same fields.
+        Assert.Contains("\"cropType\":\"wheat\"", response.Body);
+        Assert.Contains("\"pickupPlace\":\"Meki\"", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_OrderWithoutCargo_WritesNoCargoFields()
+    {
+        // An order row without crop or quantity (older data) leaves the fields off the row
+        // instead of writing empty values; the clients fall back to the delivery number.
+        SetupTruckOrder();
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await ReceivedDeliveryWrite(item =>
+            !item.ContainsKey("cropType") && !item.ContainsKey("quantity")
+            && !item.ContainsKey("pickupPlace") && !item.ContainsKey("pickupPlannedAt"));
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_ClientCargoFields_AreRefused()
+    {
+        // The cargo fields are the server's: a client that sends them hits the whitelist.
+        SetupTruckOrder();
+        var op = MakeDeliveryCreateOp();
+        op.Data!["cropType"] = "teff";
+        op.Data["quantity"] = 5;
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
+
+        Assert.Contains("Unknown fields", response.Body);
+        await DidNotWriteDelivery();
+    }
+
+    [Fact]
     public async Task DeliveryCreate_FarmerIdMismatchListingOwner_ReturnsError()
     {
         // Listing owner is TestFarmerId (from default mock), but delivery says different farmer

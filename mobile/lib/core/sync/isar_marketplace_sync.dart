@@ -742,6 +742,10 @@ class IsarMarketplaceSync implements MarketplaceSync {
       // confirmation both key on it.
       ..deliveryType = m['deliveryType'] as String?
       ..qrNonce = m['qrNonce'] as String?
+      ..cropType = m['cropType'] as String?
+      ..quantity = (m['quantity'] as num?)?.toDouble()
+      ..pickupPlace = m['pickupPlace'] as String?
+      ..pickupPlannedAt = _tryParseUtc(m['pickupPlannedAt'] as String?)
       ..status = _parseDeliveryStatus(m['status'] as String?)
       ..pickupPhotoRef = m['pickupPhotoRef'] as String?
       ..dropoffPhotoRef = m['dropoffPhotoRef'] as String?

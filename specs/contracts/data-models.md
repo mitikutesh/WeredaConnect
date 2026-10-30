@@ -141,6 +141,10 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `tripId` | String | Yes | Associated trip ID | Links to Trip.tripId |
 | `orderId` | String? | No | The order this delivery fulfils | Links to Order.orderId; required on create since delivery-verification-api 1.2.0, exposed on list/detail and stored locally since 1.4.2 (SIM-14); null only for pre-1.2.0 deliveries |
 | `listingId` | String | Yes | Associated crop listing ID | Links to CropListing.listingId |
+| `cropType` | String? | No | The order's crop key, server-stamped on create | Titles the deliveries list card ("Teff · 1,500 kg") without an order read; null on deliveries created before delivery-verification-api 1.21.0 |
+| `quantity` | double? | No | The order's quantity in kg, server-stamped with `cropType` | Same fallback as `cropType` |
+| `pickupPlace` | String? | No | The listing's place name at create time | "Kebede Alemu, Bichena" on the waiting card; null when the listing has none |
+| `pickupPlannedAt` | DateTime? | No | The trip's departure date at create time (UTC) | "pickup Thu 30 Oct" on the waiting card; null on a self-pickup |
 | `qrToken` | String | Yes | QR code verification token | Scanned at pickup/dropoff |
 | `gpsPickup` | LatLng? | No | GPS at pickup location | Null until trucker confirms pickup |
 | `gpsDropoff` | LatLng? | No | GPS at dropoff location | Null until trucker confirms delivery |

@@ -7,7 +7,8 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// "Deliver to Merkato, Addis Ababa" (Buyer · Find crops board): the buyer's
-/// wereda, the drop-off that transport suggestions use. Nothing without one.
+/// wereda, the drop-off that transport suggestions use, after the board's
+/// blue place tile. Nothing without one.
 class DeliverToLine extends StatelessWidget {
   const DeliverToLine({super.key});
 
@@ -18,46 +19,50 @@ class DeliverToLine extends StatelessWidget {
     final woreda = auth is AuthAuthenticated ? auth.woreda?.trim() : null;
     if (woreda == null || woreda.isEmpty) return const SizedBox.shrink();
 
-    return Row(
-      children: [
-        Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: const Color(0xFFE6ECF5),
-            borderRadius: BorderRadius.circular(10),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: AppTheme.dropoffBlueTint,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.place_outlined,
+              size: 20,
+              color: AppTheme.dropoffBlue,
+            ),
           ),
-          child: const Icon(
-            Icons.place_outlined,
-            size: 18,
-            color: Color(0xFF2E4C7D),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                l10n.deliverTo,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: AppTheme.mutedSteel,
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l10n.deliverTo,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: AppTheme.mutedSteel,
+                  ),
                 ),
-              ),
-              Text(
-                woreda,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.soilDark,
+                Text(
+                  woreda,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.soilDark,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

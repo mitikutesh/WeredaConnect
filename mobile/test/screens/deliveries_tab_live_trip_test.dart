@@ -96,7 +96,8 @@ void main() {
       userId: buyerId,
       deliveries: [waiting, onTheRoad],
     );
-    expect(find.text('On the road now'), findsOneWidget);
+    expect(find.text('ON THE ROAD NOW'), findsOneWidget);
+    expect(find.text('WAITING FOR PICKUP'), findsOneWidget);
     expect(find.byType(OnTheRoadCard), findsOneWidget);
     expect(find.text('Wheat · 2,000 kg'), findsOneWidget);
     expect(find.text('Checked in 28 min ago'), findsOneWidget);
@@ -131,12 +132,83 @@ void main() {
       ],
     );
     // A delivered card's chip says "Delivered" too, below its heading.
-    final headings = ['On the road now', 'Waiting for pickup', 'Delivered']
+    // The switch starts on Active: the delivered one waits behind it.
+    expect(find.text('DELIVERED'), findsNothing);
+    await tester.tap(find.text('All'));
+    await settleReads(tester);
+    final headings = ['ON THE ROAD NOW', 'WAITING FOR PICKUP', 'DELIVERED']
         .map((text) => tester.getTopLeft(find.text(text).first).dy)
         .toList();
     expect(headings, orderedEquals([...headings]..sort()));
-    expect(find.text('Disputed'), findsNothing);
-    expect(find.text('Cancelled'), findsNothing);
+    expect(find.text('DISPUTED'), findsNothing);
+    expect(find.text('CANCELLED'), findsNothing);
+  });
+
+  testWidgets('buyer: Active / Delivered / All count and filter the list',
+      (tester) async {
+    final now = DateTime.now().toUtc();
+    await pumpTab(
+      tester,
+      role: UserRole.buyer,
+      userId: buyerId,
+      deliveries: [
+        // Settled: past its 48 h check window.
+        liveDelivery(
+          id: 'delivery-103',
+          status: DeliveryStatus.delivered,
+          confirmedAt: now.subtract(const Duration(hours: 72)),
+        ),
+        // Delivered, the money still waits out the window: still active.
+        liveDelivery(
+          id: 'delivery-105',
+          status: DeliveryStatus.delivered,
+          confirmedAt: now.subtract(const Duration(hours: 2)),
+        ),
+        waiting,
+        onTheRoad,
+      ],
+    );
+    expect(find.text('Active · 3'), findsOneWidget);
+    expect(find.text('Delivered · 2'), findsOneWidget);
+    expect(find.byKey(const ValueKey('delivery-delivery-105')), findsOneWidget);
+    expect(find.byKey(const ValueKey('delivery-delivery-103')), findsNothing);
+    // Buyer · Deliveries board, delivered card: the report window and the
+    // money still held.
+    expect(find.text('DELIVERED'), findsOneWidget);
+    expect(find.textContaining('Report a problem until'), findsOneWidget);
+    expect(find.text('Release pending'), findsOneWidget);
+
+    await tester.tap(find.text('Delivered · 2'));
+    await settleReads(tester);
+    expect(find.byKey(const ValueKey('delivery-delivery-103')), findsOneWidget);
+    expect(find.byKey(const ValueKey('delivery-delivery-105')), findsOneWidget);
+    expect(find.byType(OnTheRoadCard), findsNothing);
+    // The settled one says when it was delivered; the segment label is
+    // "Delivered · 2".
+    expect(find.textContaining(RegExp(r'· Delivered [A-Z]')), findsOneWidget);
+  });
+
+  testWidgets('a delivery row with its crop titles the card by crop and kg',
+      (tester) async {
+    // delivery-verification-api 1.21.0: no order read for the waiting card.
+    final teff =
+        liveDelivery(id: 'delivery-104', status: DeliveryStatus.pending)
+          ..cropType = 'teff'
+          ..quantity = 1500
+          ..pickupPlace = 'Bichena'
+          ..pickupPlannedAt = DateTime.utc(2026, 10, 30, 6);
+    await pumpTab(
+      tester,
+      role: UserRole.buyer,
+      userId: buyerId,
+      deliveries: [teff],
+    );
+    expect(find.text('Teff · 1,500 kg'), findsOneWidget);
+    expect(
+      find.text('Almaz Bekele, Bichena · pickup Fri Oct 30'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Delivery #'), findsNothing);
   });
 
   testWidgets('buyer: a card opens the live trip', (tester) async {
@@ -174,7 +246,7 @@ void main() {
     expect(tracks.readers, [farmerId]);
   });
 
-  testWidgets('trucker: the list is unchanged, no live trip, no read',
+  testWidgets('trucker: the same stages, no live trip, no read',
       (tester) async {
     await pumpTab(
       tester,
@@ -182,8 +254,10 @@ void main() {
       userId: truckerId,
       deliveries: [onTheRoad, waiting],
     );
-    expect(find.text('On the road now'), findsNothing);
-    expect(find.text('Waiting for pickup'), findsNothing);
+    // The same stages as the buyer's, as plain cards: no live trip card, no
+    // map, no track read.
+    expect(find.text('ON THE ROAD NOW'), findsOneWidget);
+    expect(find.text('WAITING FOR PICKUP'), findsOneWidget);
     expect(find.byType(OnTheRoadCard), findsNothing);
     expect(find.byType(DeliveryCard), findsNWidgets(2));
     expect(find.byType(TrackMap), findsNothing);

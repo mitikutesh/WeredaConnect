@@ -458,6 +458,42 @@ public partial class SyncFunction
     }
 
     /// <summary>
+    /// Copies the order's crop type and quantity (kg), the listing's place name and the
+    /// trip's departure date onto a new delivery row (delivery-verification-api 1.21.0), so
+    /// list cards need no order read. A missing source leaves its field off the row.
+    /// </summary>
+    private static void StampDeliveryCargo(
+        Dictionary<string, AttributeValue> item,
+        Dictionary<string, object> order,
+        Dictionary<string, object>? listing,
+        Dictionary<string, AttributeValue>? trip)
+    {
+        var cropType = order.GetValueOrDefault("cropType")?.ToString();
+        if (!string.IsNullOrWhiteSpace(cropType))
+        {
+            item["cropType"] = new AttributeValue { S = cropType };
+        }
+
+        var quantity = ParseDouble(order, "quantity");
+        if (quantity > 0)
+        {
+            item["quantity"] = new AttributeValue { N = quantity.ToString(CultureInfo.InvariantCulture) };
+        }
+
+        var place = listing?.GetValueOrDefault("locationName")?.ToString();
+        if (!string.IsNullOrWhiteSpace(place))
+        {
+            item["pickupPlace"] = new AttributeValue { S = place };
+        }
+
+        if (trip != null && trip.TryGetValue("departureDate", out var departure)
+            && !string.IsNullOrWhiteSpace(departure.S))
+        {
+            item["pickupPlannedAt"] = new AttributeValue { S = departure.S };
+        }
+    }
+
+    /// <summary>
     /// A delivery row as a party gets it back from /sync: no QR secret (<see cref="ScrubSyncSecrets"/>)
     /// and no phone numbers (ESC-48: the parties reach each other from the order, only while its
     /// contact is open). Delivery rows only: owner trip rows keep their own <c>truckerPhone</c>,
@@ -3933,6 +3969,11 @@ public partial class SyncFunction
                         }, FraudDetectionService.RoleForbiddenSignal, operation, "delivery", authenticatedUserId, context);
                     }
 
+                    // The listing and (trucker flow) the trip read below are kept: the row
+                    // takes its pickup place and planned pickup from them.
+                    Dictionary<string, object>? createListing = null;
+                    Dictionary<string, AttributeValue>? createTrip = null;
+
                     // SEC-VULN-002: Validate farmerId matches listing owner
                     if (operation.Data.TryGetValue("listingId", out var lidVal))
                     {
@@ -3977,6 +4018,8 @@ public partial class SyncFunction
                                     Message = "DELIVERY_PARTICIPANT_MISMATCH: farmerId does not match listing owner."
                                 };
                             }
+
+                            createListing = listing;
                         }
                     }
 
@@ -4249,7 +4292,7 @@ public partial class SyncFunction
                             };
                         }
 
-                        var createTrip = await GetTripItemAsync(coTripId);
+                        createTrip = await GetTripItemAsync(coTripId);
                         if (createTrip == null)
                         {
                             return new SyncOperationResult
@@ -4428,6 +4471,12 @@ public partial class SyncFunction
 
                     // Force status to "pending" for create
                     item["status"] = new AttributeValue { S = "pending" };
+
+                    // The deliveries list titles each card by crop and quantity and names
+                    // the pickup place and day without one order read per row (3G): the
+                    // row carries them from the order, listing and trip read above. They
+                    // are not client fields (the whitelist refuses them).
+                    StampDeliveryCargo(item, createOrder, createListing, createTrip);
 
                     // Participant index key: the buyer is the party that must receive
                     // status updates (pull-based), so ParticipantIndex is keyed on buyerId.

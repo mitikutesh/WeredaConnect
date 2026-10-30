@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'package:wereda_connect/features/buyer/presentation/widgets/deliver_to_line.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -11,18 +10,23 @@ import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_eve
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/create_intent_screen.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/match_results_screen.dart';
+import 'package:wereda_connect/features/buyer/presentation/widgets/deliver_to_line.dart';
 import 'package:wereda_connect/features/buyer/presentation/widgets/intent_card.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
+import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
-import 'package:wereda_connect/shared/widgets/green_header.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
-/// Combined "Find Crops" screen for buyers with two tabs: Browse and My Requests.
+/// The buyer's Find Crops screen (Fieldway Canvas: Market.dc.html): "Deliver
+/// to" with the place tile, the title, then the Browse / My Requests
+/// segmented switch.
 ///
-/// The **Browse** tab embeds [BrowseListingsScreen] to show all active
-/// marketplace listings. The **My Requests** tab shows the buyer's active
-/// intents and allows creating new ones.
+/// **Browse** embeds [BrowseListingsScreen] over every farmer's active
+/// listing; its search box and price range stay out of the default view,
+/// behind the header's search button, as the board shows the list bare.
+/// **My Requests** lists the buyer's active intents and creates new ones.
 ///
 /// When [embedded] is true the screen omits its own Scaffold and back arrow
 /// so it can live inside the adaptive shell as a tab child.
@@ -38,21 +42,17 @@ class FindCropsScreen extends StatefulWidget {
   State<FindCropsScreen> createState() => _FindCropsScreenState();
 }
 
-class _FindCropsScreenState extends State<FindCropsScreen>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
+class _FindCropsScreenState extends State<FindCropsScreen> {
+  /// 0 = Browse, 1 = My Requests.
+  int _segment = 0;
+
+  /// Whether Browse shows its search box and price range.
+  bool _filtersOpen = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
     _loadIntents();
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
   }
 
   String? _getUserId() {
@@ -86,105 +86,131 @@ class _FindCropsScreenState extends State<FindCropsScreen>
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    // "My Requests · 1": the buyer's active intents, when any.
+    final intentState = context.watch<BuyerIntentBloc>().state;
+    final intentCount =
+        intentState is ActiveIntentsLoaded ? intentState.intents.length : 0;
 
     final content = BlocListener<BuyerIntentBloc, BuyerIntentState>(
       listenWhen: (previous, current) => current is BuyerIntentCreated,
       listener: (context, state) => _loadIntents(),
-      child: Column(
-        children: [
-          // ── Header ──────────────────────────────────────────────────
-          GreenHeader(
-            light: true,
-            height: widget.embedded ? 116 : 146,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (!widget.embedded)
-                  GestureDetector(
-                    onTap: () => Navigator.of(context).pop(),
-                    child: const Padding(
-                      padding: EdgeInsets.only(top: 4, bottom: 4),
-                      child: Icon(
-                        Icons.arrow_back,
-                        color: AppTheme.soilDark,
-                        size: 24,
+      child: FwContentWidth(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SafeArea(
+              bottom: false,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!widget.embedded)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+                      child: IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        tooltip: l10n.back,
+                        icon: const Icon(
+                          Icons.arrow_back,
+                          color: AppTheme.soilDark,
+                        ),
                       ),
                     ),
+                  // Buyer · Find crops board: where the crops go, then the
+                  // title, with the search button and the profile square.
+                  FwPageHeader(
+                    eyebrowWidget: const DeliverToLine(),
+                    title: l10n.findCrops,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_segment == 0) ...[
+                          FwSquareButton(
+                            semanticLabel: l10n.marketSearchToggle,
+                            background: _filtersOpen
+                                ? AppTheme.fieldGreenTint
+                                : AppTheme.surfaceWhite,
+                            onTap: () =>
+                                setState(() => _filtersOpen = !_filtersOpen),
+                            child: Icon(
+                              Icons.search,
+                              size: 20,
+                              color: _filtersOpen
+                                  ? AppTheme.fieldGreen
+                                  : AppTheme.soilDark,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        FwSquareButton(
+                          semanticLabel: l10n.profile,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (_) => const ProfileScreen(),
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.person_outline,
+                            size: 20,
+                            color: AppTheme.soilDark,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                // Buyer · Find crops board: where the crops go, then the
-                // title.
-                const DeliverToLine(),
-                const SizedBox(height: 8),
-                Text(
-                  l10n.findCrops,
-                  style: const TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.5,
-                    color: AppTheme.soilDark,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // ── Tab bar: the board's segmented switch ──────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-            child: Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEAE6DB),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: TabBar(
-                controller: _tabController,
-                indicatorSize: TabBarIndicatorSize.tab,
-                indicator: BoxDecoration(
-                  color: AppTheme.surfaceWhite,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                dividerColor: Colors.transparent,
-                labelColor: AppTheme.soilDark,
-                unselectedLabelColor: AppTheme.mutedSteel,
-                labelStyle: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                ),
-                unselectedLabelStyle: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-                tabs: [
-                  Tab(height: 40, text: l10n.browseAll),
-                  Tab(height: 40, text: l10n.myRequests),
                 ],
               ),
             ),
-          ),
 
-          // ── Tab views ───────────────────────────────────────────────
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              // Disable swipe-to-change-tab: the horizontal filter chips
-              // inside the Browse tab would otherwise cause accidental tab
-              // switches when the user scrolls the chip row.
-              physics: const NeverScrollableScrollPhysics(),
-              children: [
-                // Browse tab — reuse the marketplace listings screen.
-                // showHeader: false because FindCropsScreen owns the header.
-                const BrowseListingsScreen(embedded: true, showHeader: false),
-
-                // My Requests tab
-                _MyRequestsTab(
-                  onRefresh: _loadIntents,
-                  onRefreshMatches: _refreshMatches,
-                ),
-              ],
+            // ── The board's segmented switch ───────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+              child: FwSegmented<int>(
+                segments: [
+                  FwSegment(value: 0, label: l10n.browseAll),
+                  FwSegment(
+                    value: 1,
+                    label: l10n.myRequests,
+                    count: intentCount > 0 ? intentCount : null,
+                  ),
+                ],
+                selected: _segment,
+                onChanged: (segment) => setState(() => _segment = segment),
+              ),
             ),
-          ),
-        ],
+
+            // ── Segment bodies (both kept alive: the list keeps its scroll,
+            // filters and reads while the buyer looks at their requests;
+            // the hidden one is off stage with its animations stopped) ──
+            Expanded(
+              child: Stack(
+                children: [
+                  for (final (index, body) in [
+                    // Browse: the marketplace list without its own header;
+                    // the search box and price range follow the header
+                    // button.
+                    BrowseListingsScreen(
+                      embedded: true,
+                      showHeader: false,
+                      showFilters: _filtersOpen,
+                    ),
+                    _MyRequestsTab(
+                      onRefresh: _loadIntents,
+                      onRefreshMatches: _refreshMatches,
+                    ),
+                  ].indexed)
+                    Offstage(
+                      offstage: _segment != index,
+                      child: TickerMode(
+                        enabled: _segment == index,
+                        child: body,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
 
@@ -192,7 +218,7 @@ class _FindCropsScreenState extends State<FindCropsScreen>
   }
 }
 
-/// The "My Requests" tab content showing the buyer's active intents.
+/// The "My Requests" segment showing the buyer's active intents.
 class _MyRequestsTab extends StatelessWidget {
   final VoidCallback onRefresh;
 
@@ -260,7 +286,7 @@ class _MyRequestsTab extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
 
-        // Error with retry — a real failure must look like a failure, not
+        // Error with retry: a real failure must look like a failure, not
         // like an empty "no matches yet" state, or buyers never retry.
         if (state is BuyerIntentError) {
           return Center(
@@ -308,8 +334,8 @@ class _MyRequestsTab extends StatelessWidget {
 
           return Column(
             children: [
-              // Offline-first: warn when the marketplace refresh failed and these
-              // counts/matches were computed against cached data (C1).
+              // Offline-first: warn when the marketplace refresh failed and
+              // these counts/matches were computed against cached data (C1).
               if (state.isStale)
                 Container(
                   width: double.infinity,
@@ -402,7 +428,8 @@ class _MyRequestsTab extends StatelessWidget {
   }
 }
 
-/// Empty state for the My Requests tab when the buyer has no active intents.
+/// Empty state for the My Requests segment when the buyer has no active
+/// intents.
 class _EmptyRequestsState extends StatelessWidget {
   final VoidCallback onRefresh;
 
