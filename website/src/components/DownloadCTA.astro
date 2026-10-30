@@ -1,35 +1,40 @@
 ---
 import type { Locale } from '../i18n';
-import { t } from '../i18n';
+import { t, localePath } from '../i18n';
+import Icon from './Icon.astro';
 
 interface Props {
   locale: Locale;
+  /** Home page variant: "Get the app" label above and the language line below. */
+  full?: boolean;
+  /** Drop the top padding when the section above already ends with it. */
+  flush?: boolean;
 }
 
-const { locale } = Astro.props;
+const { locale, full = false, flush = false } = Astro.props;
 ---
 
-<section id="download" class="py-16 md:py-24 bg-gradient-to-r from-primary to-primary-light text-white">
-  <div class="max-w-4xl mx-auto px-4 sm:px-6 text-center">
-    <h2 class="text-2xl md:text-3xl font-bold mb-4 animate-on-scroll">
+<section id="download" aria-labelledby="cta-title" class:list={['px-6 pb-24', flush ? 'pt-0' : 'pt-24']}>
+  <div class="mx-auto max-w-[1248px] flex flex-col items-center gap-6 rounded-[32px] bg-primary px-6 py-[clamp(48px,6vw,80px)] text-center text-white animate-on-scroll">
+    {full && <p class="eyebrow text-on-dark">{t(locale, 'downloadCta.eyebrow')}</p>}
+    <h2 id="cta-title" class="m-0 max-w-[760px] text-[clamp(32px,3.8vw,52px)] leading-[1.05] tracking-[-0.025em] font-extrabold">
       {t(locale, 'downloadCta.heading')}
     </h2>
-    <p class="text-white/80 mb-8 max-w-xl mx-auto animate-on-scroll">
-      {t(locale, 'downloadCta.subtitle')}
-    </p>
-    <div class="animate-on-scroll">
-      <a
-        href="#"
-        class="inline-flex items-center gap-3 px-6 py-3 bg-text-dark hover:bg-text-dark/90 text-white rounded-lg transition-colors"
-      >
-        <svg class="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 01-.61-.92V2.734a1 1 0 01.609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.198l2.807 1.626a1 1 0 010 1.73l-2.808 1.626L15.206 12l2.492-2.491zM5.864 2.658L16.8 8.99l-2.3 2.3-8.636-8.632z"/>
-        </svg>
-        <div class="text-left">
-          <div class="text-xs text-white/70">{t(locale, 'downloadCta.comingSoon')}</div>
-          <div class="text-sm font-semibold">Google Play</div>
-        </div>
+    <p class="m-0 max-w-[560px] text-lg leading-[1.6] text-on-dark">{t(locale, 'downloadCta.subtitle')}</p>
+    <div class="mt-2 flex flex-wrap justify-center gap-3">
+      {/* Not a link yet: the Play Store listing is not live. */}
+      <span class="btn gap-3 bg-white text-text-dark">
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6 3l14 9-14 9z"/></svg>
+        <span class="flex flex-col items-start leading-[1.15]">
+          <span class="text-[11px] font-semibold uppercase tracking-[0.04em] text-text-muted">{t(locale, 'downloadCta.comingSoon')}</span>
+          <span>Google Play</span>
+        </span>
+      </span>
+      <a href={localePath(locale, '/contact/')} class="btn border-[1.5px] border-white/60 text-white hover:border-white hover:bg-white/10">
+        <span>{t(locale, 'downloadCta.talk')}</span>
+        <Icon name="arrowRight" size={20} />
       </a>
     </div>
+    {full && <p class="mt-2 mb-0 text-sm text-on-dark">{t(locale, 'downloadCta.languages')}</p>}
   </div>
 </section>

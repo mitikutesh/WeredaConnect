@@ -1,0 +1,54 @@
+---
+import type { Locale } from '../../i18n';
+import { t } from '../../i18n';
+import Hero from '../Hero.astro';
+import AnimatedCounter from '../AnimatedCounter.astro';
+import FeatureCard from '../FeatureCard.astro';
+import HowItWorks from '../HowItWorks.astro';
+import Testimonials from '../Testimonials.astro';
+import DownloadCTA from '../DownloadCTA.astro';
+import SectionHeading from '../SectionHeading.astro';
+import type { IconName } from '../Icon.astro';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+
+const features: { key: string; icon: IconName }[] = [
+  { key: 'offline', icon: 'wifiOff' },
+  { key: 'voice', icon: 'mic' },
+  { key: 'payment', icon: 'shieldCheck' },
+  { key: 'logistics', icon: 'truck' },
+  { key: 'lowData', icon: 'chart' },
+  { key: 'community', icon: 'users' },
+];
+---
+
+<Hero locale={locale} />
+<AnimatedCounter locale={locale} />
+
+<section aria-labelledby="why-title" class="bg-white px-6 py-24">
+  <div class="mx-auto max-w-[1200px] flex flex-col gap-12">
+    <SectionHeading
+      id="why-title"
+      eyebrow={t(locale, 'features.eyebrow')}
+      title={t(locale, 'features.heading')}
+      subtitle={t(locale, 'features.subtitle')}
+    />
+    <div class="grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-6 stagger-children">
+      {features.map((f) => (
+        <FeatureCard
+          title={t(locale, `features.${f.key}.title`)}
+          description={t(locale, `features.${f.key}.description`)}
+          icon={f.icon}
+        />
+      ))}
+    </div>
+  </div>
+</section>
+
+<HowItWorks locale={locale} />
+<Testimonials locale={locale} />
+<DownloadCTA locale={locale} full />

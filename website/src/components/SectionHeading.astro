@@ -1,0 +1,21 @@
+---
+interface Props {
+  eyebrow: string;
+  title: string;
+  subtitle?: string;
+  id?: string;
+  /** Light text for dark sections. */
+  onDark?: boolean;
+  class?: string;
+}
+
+const { eyebrow, title, subtitle, id, onDark = false, class: className = 'max-w-[680px]' } = Astro.props;
+---
+
+<div class:list={['flex flex-col gap-4 animate-on-scroll', className]}>
+  <p class:list={['eyebrow', onDark ? 'text-on-dark' : 'text-accent-dark']}>{eyebrow}</p>
+  <h2 id={id} class="m-0 text-[clamp(32px,3.4vw,46px)] leading-[1.1] tracking-[-0.02em] font-extrabold">{title}</h2>
+  {subtitle && (
+    <p class:list={['m-0 text-lg leading-[1.6]', onDark ? 'text-on-dark' : 'text-text-muted']}>{subtitle}</p>
+  )}
+</div>

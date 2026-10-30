@@ -1,0 +1,99 @@
+---
+import type { Locale } from '../../i18n';
+import { t, localePath } from '../../i18n';
+import Icon, { type IconName } from '../Icon.astro';
+import FeatureCard from '../FeatureCard.astro';
+import SectionHeading from '../SectionHeading.astro';
+import DownloadCTA from '../DownloadCTA.astro';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+
+const valueIcons: IconName[] = ['wifiOff', 'globe', 'scale', 'phone'];
+const approachPoints = ['about.solution.point1', 'about.solution.point2', 'about.solution.point3'];
+const statValue = 'text-[clamp(44px,4.6vw,64px)] font-extrabold leading-none tracking-[-0.04em]';
+const cardHeading = 'm-0 text-[30px] leading-[1.15] tracking-[-0.02em] font-extrabold';
+---
+
+<section aria-labelledby="about-title" class="px-6 pt-20 pb-[72px]">
+  <div class="mx-auto max-w-[1200px] flex flex-wrap items-center gap-x-16 gap-y-12">
+    <div class="flex min-w-0 flex-[1_1_460px] flex-col gap-6 animate-on-scroll">
+      <p class="eyebrow text-accent-dark">{t(locale, 'about.eyebrow')}</p>
+      <h1 id="about-title" class="m-0 text-[clamp(38px,4.2vw,60px)] leading-[1.05] tracking-[-0.025em] font-extrabold">{t(locale, 'about.heading')}</h1>
+      <p class="m-0 max-w-[560px] text-[19px] leading-[1.6] text-text-muted">{t(locale, 'about.lead')}</p>
+      <div class="flex flex-wrap gap-3">
+        <a href={localePath(locale, '/how-it-works/')} class="btn bg-accent text-white hover:bg-accent-dark">
+          <span>{t(locale, 'nav.howItWorks')}</span>
+          <Icon name="arrowRight" size={20} />
+        </a>
+        <a href={localePath(locale, '/contact/')} class="btn border-[1.5px] border-primary text-primary hover:bg-primary-tint">{t(locale, 'about.partner')}</a>
+      </div>
+    </div>
+
+    <div class="grid min-w-0 flex-[1_1_360px] grid-cols-2 gap-4 animate-on-scroll fade">
+      <div class="flex min-h-[264px] flex-col justify-end gap-2.5 rounded-3xl bg-primary px-7 py-8 text-white">
+        <span class={statValue}>{t(locale, 'about.stat1.value')}</span>
+        <span class="text-[15px] leading-[1.5] text-on-dark">{t(locale, 'about.stat1.text')}</span>
+      </div>
+      <div class="flex min-h-[264px] flex-col justify-end gap-2.5 rounded-3xl border border-border-light bg-white px-7 py-8">
+        <span class:list={[statValue, 'text-primary']}>{t(locale, 'about.stat2.value')}</span>
+        <span class="text-[15px] leading-[1.5] text-text-muted">{t(locale, 'about.stat2.text')}</span>
+      </div>
+      <div class="col-span-2 flex items-center gap-4 rounded-3xl bg-accent-tint px-7 py-6">
+        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-accent text-white">
+          <Icon name="pin" size={22} />
+        </span>
+        <span class="text-[15px] font-semibold leading-[1.5] text-accent-dark">{t(locale, 'about.location')}</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="challenge-title" class="bg-white px-6 py-24">
+  <div class="mx-auto max-w-[1200px] grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-6 stagger-children">
+    <article class="flex flex-col gap-5 rounded-3xl border border-border-light bg-cream p-10 animate-on-scroll">
+      <p class="eyebrow text-accent-dark">{t(locale, 'about.problem.title')}</p>
+      <h2 id="challenge-title" class={cardHeading}>{t(locale, 'about.problem.heading')}</h2>
+      <p class="m-0 text-base leading-[1.65] text-text-muted">{t(locale, 'about.problem.text')}</p>
+    </article>
+    <article class="flex flex-col gap-5 rounded-3xl bg-primary-dark p-10 text-white animate-on-scroll">
+      <p class="eyebrow text-on-dark">{t(locale, 'about.solution.title')}</p>
+      <h2 class={cardHeading}>{t(locale, 'about.solution.heading')}</h2>
+      <p class="m-0 text-base leading-[1.65] text-on-dark">{t(locale, 'about.solution.text')}</p>
+      <ul class="mt-1 mb-0 flex list-none flex-col gap-3 p-0 text-[15px] font-semibold">
+        {approachPoints.map((key) => (
+          <li class="flex items-center gap-2.5">
+            <Icon name="check" size={20} strokeWidth={2.2} />
+            <span>{t(locale, key)}</span>
+          </li>
+        ))}
+      </ul>
+    </article>
+  </div>
+</section>
+
+<section aria-labelledby="values-title" class="px-6 py-24">
+  <div class="mx-auto max-w-[1200px] flex flex-col gap-12">
+    <SectionHeading
+      id="values-title"
+      eyebrow={t(locale, 'about.values.title')}
+      title={t(locale, 'about.values.heading')}
+      class="max-w-[640px]"
+    />
+    <div class="grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-6 stagger-children">
+      {valueIcons.map((icon, i) => (
+        <FeatureCard
+          title={t(locale, `about.values.items.${i}.title`)}
+          description={t(locale, `about.values.items.${i}.text`)}
+          icon={icon}
+          tone="white"
+        />
+      ))}
+    </div>
+  </div>
+</section>
+
+<DownloadCTA locale={locale} flush />

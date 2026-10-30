@@ -1,0 +1,58 @@
+---
+import type { Locale } from '../i18n';
+import { t } from '../i18n';
+import Icon, { type IconName } from './Icon.astro';
+import SectionHeading from './SectionHeading.astro';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+
+const steps: IconName[] = ['wallet', 'truck', 'check', 'shieldCheck'];
+---
+
+<section aria-labelledby="escrow-title" class="bg-primary-dark px-6 py-24 text-white">
+  <div class="mx-auto max-w-[1200px] flex flex-col gap-12">
+    <SectionHeading
+      id="escrow-title"
+      eyebrow={t(locale, 'howItWorks.escrow.eyebrow')}
+      title={t(locale, 'howItWorks.escrow.heading')}
+      subtitle={t(locale, 'howItWorks.escrow.text')}
+      onDark
+    />
+    <ol class="m-0 flex list-none flex-wrap items-stretch gap-4 p-0">
+      {steps.map((icon, i) => {
+        const n = i + 1;
+        const last = n === steps.length;
+        return (
+          <>
+            <li
+              class:list={[
+                // 268px basis = the canvas's 220px content-box card plus padding, so the
+                // fourth card drops to its own full-width row at desktop, as drawn.
+                'flex min-w-0 flex-[1_1_268px] flex-col gap-3.5 rounded-[20px] border p-6 animate-on-scroll',
+                last ? 'border-accent bg-accent' : 'border-white/15 bg-white/[0.08]',
+              ]}
+            >
+              <span class:list={['flex h-11 w-11 items-center justify-center rounded-[14px] bg-white', last ? 'text-accent-dark' : 'text-primary']}>
+                <Icon name={icon} size={22} />
+              </span>
+              <span class:list={['text-xs font-bold uppercase tracking-[0.1em]', last ? 'text-white' : 'text-on-dark']}>
+                {t(locale, 'howItWorks.escrow.step')} {n}
+              </span>
+              <h3 class="m-0 text-lg font-bold">{t(locale, `howItWorks.escrow.step${n}.title`)}</h3>
+              <p class:list={['m-0 text-sm leading-[1.55]', last ? 'text-white' : 'text-on-dark']}>{t(locale, `howItWorks.escrow.step${n}.text`)}</p>
+            </li>
+            {!last && (
+              <li aria-hidden="true" class="flex w-6 flex-none items-center justify-center text-on-dark">
+                <Icon name="arrowRight" size={20} />
+              </li>
+            )}
+          </>
+        );
+      })}
+    </ol>
+  </div>
+</section>

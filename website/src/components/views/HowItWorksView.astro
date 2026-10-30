@@ -1,0 +1,39 @@
+---
+import type { Locale } from '../../i18n';
+import { t } from '../../i18n';
+import Icon from '../Icon.astro';
+import PageHeader from '../PageHeader.astro';
+import RoleSteps from '../RoleSteps.astro';
+import EscrowFlow from '../EscrowFlow.astro';
+import DownloadCTA from '../DownloadCTA.astro';
+import { roles } from '../roles';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+---
+
+<PageHeader
+  eyebrow={t(locale, 'howItWorks.heading')}
+  title={t(locale, 'howItWorks.subtitle')}
+  lead={t(locale, 'howItWorks.intro')}
+>
+  <nav aria-label={t(locale, 'howItWorks.jumpLabel')} class="flex flex-wrap gap-2.5">
+    {roles.map((role) => (
+      <a
+        href={`#${role.anchor}`}
+        class="inline-flex min-h-[44px] items-center gap-2 rounded-full border border-border-light bg-white px-4 py-2.5 text-[15px] font-bold text-text-dark no-underline transition-colors hover:border-primary"
+      >
+        <Icon name={role.icon} size={18} class="text-primary" />
+        <span>{t(locale, `howItWorks.${role.key}.short`)}</span>
+      </a>
+    ))}
+  </nav>
+</PageHeader>
+
+{roles.map((role, i) => <RoleSteps locale={locale} role={role} tone={i % 2 === 0 ? 'white' : 'cream'} />)}
+
+<EscrowFlow locale={locale} />
+<DownloadCTA locale={locale} />

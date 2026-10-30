@@ -1,57 +1,58 @@
 ---
+// Home page summary of the three role flows. The full version lives on the
+// How it works page (RoleSteps + EscrowFlow).
 import type { Locale } from '../i18n';
-import { t } from '../i18n';
+import { t, localePath } from '../i18n';
+import Icon from './Icon.astro';
+import SectionHeading from './SectionHeading.astro';
+import { roles, stepNumbers } from './roles';
 
 interface Props {
   locale: Locale;
-  full?: boolean;
 }
 
-const { locale, full = false } = Astro.props;
-
-const userTypes = [
-  { key: 'farmer', icon: '🌾', color: 'border-primary', bg: 'bg-primary/5' },
-  { key: 'trucker', icon: '🚛', color: 'border-accent', bg: 'bg-accent/5' },
-  { key: 'buyer', icon: '🛒', color: 'border-primary-light', bg: 'bg-primary-light/5' },
-];
+const { locale } = Astro.props;
 ---
 
-<section class="py-16 md:py-24 bg-surface" id="how-it-works">
-  <div class="max-w-6xl mx-auto px-4 sm:px-6">
-    <div class="text-center mb-12">
-      <h2 class="text-2xl md:text-3xl font-bold mb-3 animate-on-scroll">
-        {t(locale, 'howItWorks.heading')}
-      </h2>
-      <p class="text-text-muted animate-on-scroll">
-        {t(locale, 'howItWorks.subtitle')}
-      </p>
+<section aria-labelledby="how-title" class="px-6 py-24">
+  <div class="mx-auto max-w-[1200px] flex flex-col gap-12">
+    <div class="flex flex-wrap items-end justify-between gap-6">
+      <SectionHeading
+        id="how-title"
+        eyebrow={t(locale, 'howItWorks.heading')}
+        title={t(locale, 'howItWorks.subtitle')}
+        class="max-w-[640px]"
+      />
+      <a href={localePath(locale, '/how-it-works/')} class="inline-flex min-h-[44px] items-center gap-2 text-base font-bold text-primary no-underline hover:underline">
+        <span>{t(locale, 'howItWorks.seeFull')}</span>
+        <Icon name="arrowRight" size={20} />
+      </a>
     </div>
 
-    <div class="space-y-12">
-      {userTypes.map((type) => (
-        <div class={`animate-on-scroll rounded-xl p-6 md:p-8 ${type.bg} border-l-4 ${type.color}`}>
-          <h3 class="text-xl font-bold mb-6 flex items-center gap-2">
-            <span class="text-2xl">{type.icon}</span>
-            {t(locale, `howItWorks.${type.key}.title`)}
-          </h3>
-          <div class="grid md:grid-cols-3 gap-6">
-            {[1, 2, 3].map((step) => (
-              <div class="flex gap-3">
-                <div class="flex-shrink-0 w-8 h-8 rounded-full bg-surface border-2 border-current flex items-center justify-center text-sm font-bold">
-                  {step}
-                </div>
-                <div>
-                  <h4 class="font-semibold text-sm mb-1">
-                    {t(locale, `howItWorks.${type.key}.step${step}.title`)}
-                  </h4>
-                  <p class="text-sm text-text-muted">
-                    {t(locale, `howItWorks.${type.key}.step${step}.description`)}
-                  </p>
-                </div>
-              </div>
-            ))}
+    <div class="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-6 stagger-children">
+      {roles.map((role) => (
+        <article class="flex flex-col gap-6 rounded-3xl border border-border-light bg-white p-8 animate-on-scroll">
+          <div class="flex items-center gap-3.5">
+            <span class="flex h-[52px] w-[52px] items-center justify-center rounded-2xl bg-primary text-white">
+              <Icon name={role.icon} size={26} strokeWidth={1.8} />
+            </span>
+            <div class="flex flex-col gap-0.5">
+              <h3 class="m-0 text-[22px] font-extrabold tracking-[-0.01em]">{t(locale, `howItWorks.${role.key}.title`)}</h3>
+              <span class="text-sm text-text-muted">{t(locale, `howItWorks.${role.key}.tagline`)}</span>
+            </div>
           </div>
-        </div>
+          <ol class="m-0 flex list-none flex-col gap-5 p-0">
+            {stepNumbers.map((step) => (
+              <li class="flex gap-3.5">
+                <span aria-hidden="true" class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-tint text-sm font-extrabold text-primary">{step}</span>
+                <div class="flex flex-col gap-1">
+                  <span class="text-base font-bold">{t(locale, `howItWorks.${role.key}.step${step}.title`)}</span>
+                  <span class="text-sm leading-[1.55] text-text-muted">{t(locale, `howItWorks.${role.key}.step${step}.description`)}</span>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </article>
       ))}
     </div>
   </div>

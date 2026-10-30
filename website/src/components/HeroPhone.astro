@@ -1,0 +1,122 @@
+---
+// Illustration of the farmer offers screen. role="img" keeps screen readers
+// on the one-line label instead of reading every mock string.
+import type { Locale } from '../i18n';
+import { t, initials } from '../i18n';
+import Icon from './Icon.astro';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const m = (key: string) => t(locale, `hero.mockup.${key}`);
+
+const chips = ['chipAll', 'chipCoffee', 'chipTeff', 'chipOnion'];
+const tabs = [
+  { key: 'tabMarket', icon: 'sprout' },
+  { key: 'tabTrips', icon: 'truck' },
+  { key: 'tabWallet', icon: 'wallet' },
+  { key: 'tabProfile', icon: 'user' },
+] as const;
+const card = 'flex flex-col gap-2 rounded-[14px] border border-border-light bg-white p-3';
+const floating = 'absolute flex items-center gap-2.5 rounded-[14px] bg-white px-3.5 py-3 leading-[normal] shadow-[0_16px_40px_rgba(0,0,0,0.25)]';
+---
+
+<div role="img" aria-label={m('label')} class="relative w-full max-w-[540px] min-h-[600px] overflow-hidden rounded-[32px] bg-primary px-6 pt-12 flex justify-center">
+  <div class="h-[640px] w-[300px] shrink-0 rounded-[44px] bg-phone-bezel p-2.5 shadow-[0_30px_60px_rgba(0,0,0,0.35)]">
+    <div class="flex h-full w-full flex-col overflow-hidden rounded-[34px] bg-cream text-[13px] leading-[normal] text-text-dark">
+      <div class="flex items-center justify-between gap-3 bg-white px-[18px] pt-[22px] pb-3">
+        <div class="flex flex-col gap-0.5">
+          <span class="text-[12px] font-semibold text-text-muted">{m('greeting')}</span>
+          <span class="text-[17px] font-extrabold tracking-[-0.01em]">{m('name')}</span>
+        </div>
+        <span class="flex h-9 w-9 items-center justify-center rounded-full bg-primary-tint text-[13px] font-extrabold text-primary">{initials(m('name'))}</span>
+      </div>
+      <div class="mx-3.5 mb-2.5 flex items-center gap-2 rounded-[10px] bg-accent-tint px-3 py-2 text-[12px] font-bold text-accent-dark">
+        <Icon name="wifiOff" size={16} />
+        <span>{m('offline')}</span>
+      </div>
+      <div class="mx-3.5 mb-3 flex items-center gap-2 rounded-xl border border-border-light bg-white px-3 py-2.5 text-text-muted">
+        <Icon name="search" size={16} />
+        <span class="min-w-0 flex-auto truncate">{m('search')}</span>
+        <Icon name="mic" size={16} class="text-primary" />
+      </div>
+      <div class="flex gap-1.5 overflow-hidden px-3.5 pb-3">
+        {chips.map((chip, i) => (
+          <span
+            class:list={[
+              'whitespace-nowrap rounded-full px-3 py-1.5 text-[12px]',
+              i === 0 ? 'bg-primary font-bold text-white' : 'border border-border-light bg-white font-semibold',
+            ]}
+          >
+            {m(chip)}
+          </span>
+        ))}
+      </div>
+      <div class="flex items-baseline justify-between px-3.5 pb-1.5">
+        <span class="text-[13px] font-extrabold">{m('offersTitle')}</span>
+        <span class="text-[12px] font-bold text-primary">{m('seeAll')}</span>
+      </div>
+      <div class="flex flex-auto flex-col gap-2 overflow-hidden px-3.5">
+        <div class={card}>
+          <div class="flex justify-between gap-2">
+            <span class="text-[14px] font-extrabold">{m('buyer1')} · {m('city1')}</span>
+            <span class="rounded-full bg-primary-tint px-2 py-0.5 text-[11px] font-bold text-primary">{m('verified')}</span>
+          </div>
+          <span class="text-[12px] text-text-muted">{m('offer1')}</span>
+          <div class="flex items-center justify-between">
+            <span class="text-[16px] font-extrabold">{m('price1')} <span class="text-[11px] font-semibold text-text-muted">{m('perQuintal')}</span></span>
+            <span class="rounded-lg bg-accent px-3 py-2 text-[12px] font-bold text-white">{m('accept')}</span>
+          </div>
+        </div>
+        <div class={card}>
+          <div class="flex justify-between gap-2">
+            <span class="text-[14px] font-extrabold">{m('buyer2')} · {m('city2')}</span>
+            <span class="text-[11px] font-bold text-text-muted">{m('time2')}</span>
+          </div>
+          <span class="text-[12px] text-text-muted">{m('offer2')}</span>
+          <div class="flex items-center justify-between">
+            <span class="text-[16px] font-extrabold">{m('price2')} <span class="text-[11px] font-semibold text-text-muted">{m('perQuintal')}</span></span>
+            <span class="rounded-lg border-[1.5px] border-primary px-3 py-[7px] text-[12px] font-bold text-primary">{m('view')}</span>
+          </div>
+        </div>
+        <div class={card}>
+          <div class="flex justify-between gap-2">
+            <span class="text-[14px] font-extrabold">{m('buyer3')} · {m('city3')}</span>
+            <span class="text-[11px] font-bold text-text-muted">{m('time3')}</span>
+          </div>
+          <span class="text-[12px] text-text-muted">{m('offer3')}</span>
+        </div>
+      </div>
+      <div class="grid grid-cols-4 border-t border-border-light bg-white px-2 pt-2.5 pb-[18px] text-center text-[10px] font-bold">
+        {tabs.map((tab, i) => (
+          <span class:list={['flex flex-col items-center gap-1', i === 0 ? 'text-primary' : 'text-text-muted']}>
+            <Icon name={tab.icon} size={20} />
+            <span>{m(tab.key)}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  </div>
+
+  <div class:list={[floating, 'left-4 top-[112px] max-w-[218px]']}>
+    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-primary-tint text-primary">
+      <Icon name="sync" size={18} />
+    </span>
+    <span class="flex flex-col gap-0.5">
+      <span class="text-[13px] font-extrabold text-text-dark">{m('syncedTitle')}</span>
+      <span class="text-[12px] text-text-muted">{m('syncedText')}</span>
+    </span>
+  </div>
+
+  <div class:list={[floating, 'right-4 top-[400px] max-w-[228px]']}>
+    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-accent-tint text-accent-dark">
+      <Icon name="shieldCheck" size={18} />
+    </span>
+    <span class="flex flex-col gap-0.5">
+      <span class="text-[13px] font-extrabold text-text-dark">{m('escrowTitle')}</span>
+      <span class="text-[12px] text-text-muted">{m('escrowText')}</span>
+    </span>
+  </div>
+</div>
