@@ -21,4 +21,26 @@ void main() {
       });
     }
   });
+
+  // A component theme's explicit textStyle does not inherit
+  // ThemeData.fontFamily, so without it button labels fell back to Roboto.
+  group('button labels use the Fieldway face', () {
+    for (final entry
+        in {'light': AppTheme.light(), 'dark': AppTheme.dark()}.entries) {
+      test('${entry.key} theme', () {
+        final theme = entry.value;
+        final styles = [
+          theme.filledButtonTheme.style?.textStyle?.resolve({}),
+          theme.elevatedButtonTheme.style?.textStyle?.resolve({}),
+          theme.outlinedButtonTheme.style?.textStyle?.resolve({}),
+          theme.textButtonTheme.style?.textStyle?.resolve({}),
+          theme.floatingActionButtonTheme.extendedTextStyle,
+        ];
+        for (final style in styles) {
+          expect(style?.fontFamily, AppTheme.fontFamily);
+          expect(style?.fontFamilyFallback, contains('NotoSansEthiopic'));
+        }
+      });
+    }
+  });
 }
