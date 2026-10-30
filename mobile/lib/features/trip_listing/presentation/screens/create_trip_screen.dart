@@ -743,15 +743,22 @@ class _RouteEndDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Container(
-        width: 12,
-        height: 12,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: origin ? Colors.white : AppTheme.dropoffBlue,
-          border:
-              origin ? Border.all(color: AppTheme.fieldGreen, width: 3) : null,
+    // A fixed slot: the prefix only gets a minimum width, so an unsized
+    // Center would stretch over the whole field and hide the input.
+    return SizedBox(
+      width: 40,
+      height: 40,
+      child: Center(
+        child: Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: origin ? Colors.white : AppTheme.dropoffBlue,
+            border: origin
+                ? Border.all(color: AppTheme.fieldGreen, width: 3)
+                : null,
+          ),
         ),
       ),
     );

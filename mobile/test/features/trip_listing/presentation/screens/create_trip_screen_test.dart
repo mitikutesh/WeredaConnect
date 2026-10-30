@@ -118,6 +118,24 @@ void main() {
       );
     });
 
+    // The route marker sits in a fixed slot: unsized, it stretched over the
+    // whole empty field and hid the input and its hint.
+    testWidgets('empty From and To keep their input and hint beside the marker',
+        (tester) async {
+      useTallPhone(tester);
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      for (final key in const ['create_trip_from', 'create_trip_to']) {
+        final field = find.descendant(
+          of: find.byKey(Key(key)),
+          matching: find.byType(EditableText),
+        );
+        expect(tester.getSize(field).width, greaterThan(150));
+      }
+      expect(find.text('Search woreda or town'), findsNWidgets(2));
+    });
+
     // The board's grid: two fields per row, labels above. A screen reader
     // hears each label as its field's, and a label that wraps (Afaan Oromoo)
     // keeps the pair lined up.
