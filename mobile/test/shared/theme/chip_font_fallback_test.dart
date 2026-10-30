@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -35,6 +36,7 @@ void main() {
           theme.outlinedButtonTheme.style?.textStyle?.resolve({}),
           theme.textButtonTheme.style?.textStyle?.resolve({}),
           theme.floatingActionButtonTheme.extendedTextStyle,
+          theme.dialogTheme.titleTextStyle,
         ];
         for (final style in styles) {
           expect(style?.fontFamily, AppTheme.fontFamily);
@@ -42,5 +44,11 @@ void main() {
         }
       });
     }
+  });
+
+  test('dialogs are the boards\' white card, radius 18', () {
+    final shape = AppTheme.light().dialogTheme.shape! as RoundedRectangleBorder;
+    expect(shape.borderRadius, BorderRadius.circular(18));
+    expect(AppTheme.light().dialogTheme.backgroundColor, AppTheme.surfaceWhite);
   });
 }

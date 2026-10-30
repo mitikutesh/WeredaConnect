@@ -463,6 +463,22 @@ class AppTheme {
         ),
         behavior: SnackBarBehavior.floating,
       ),
+
+      // ── Dialog ────────────────────────────────────────────────────
+      dialogTheme: DialogThemeData(
+        backgroundColor: surface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+        ),
+        titleTextStyle: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w800,
+          color: text,
+          fontFamily: fontFamily,
+          fontFamilyFallback: ethiopicFontFallback,
+        ),
+      ),
     );
   }
 
