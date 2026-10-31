@@ -18,6 +18,7 @@ import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
+import '../test/helpers/crop_photo_fixtures.dart';
 
 /// Integration tests for offline sync flow.
 ///
@@ -75,6 +76,7 @@ void main() {
     // Initialize dependencies
     syncQueue = SyncQueue(isar);
     repository = CropListingRepository(
+      photoFiles: tempCropPhotoFileStore(),
       isar: isar,
       syncQueue: syncQueue,
     );
@@ -137,6 +139,7 @@ void main() {
 
         // ACT: Create crop listing while offline
         final listing = await repository.createListing(
+          photos: testCropPhotos(),
           farmerId: testUserId,
           cropType: 'teff',
           quantity: 5.0, // 5 quintals = 500kg
@@ -200,6 +203,7 @@ void main() {
 
         // Create a listing
         await repository.createListing(
+          photos: testCropPhotos(),
           farmerId: testUserId,
           cropType: 'wheat',
           quantity: 10.0,
@@ -240,6 +244,7 @@ void main() {
 
         for (var i = 0; i < 10; i++) {
           final listing = await repository.createListing(
+            photos: testCropPhotos(),
             farmerId: testUserId,
             cropType: cropTypes[i % cropTypes.length],
             quantity: (i + 1).toDouble(),
@@ -296,6 +301,7 @@ void main() {
         // Create multiple listings
         for (var i = 0; i < 5; i++) {
           await repository.createListing(
+            photos: testCropPhotos(),
             farmerId: testUserId,
             cropType: 'teff',
             quantity: (i + 1).toDouble(),
@@ -335,6 +341,7 @@ void main() {
       // ARRANGE: Create a listing locally
       fakeConnectivity.setConnected(false);
       final listing = await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: testUserId,
         cropType: 'teff',
         quantity: 5.0,
@@ -475,6 +482,7 @@ void main() {
         // ARRANGE: Create a single listing offline
         fakeConnectivity.setConnected(false);
         await repository.createListing(
+          photos: testCropPhotos(),
           farmerId: testUserId,
           cropType: 'teff',
           quantity: 5.0,
@@ -512,6 +520,7 @@ void main() {
 
         for (var i = 0; i < 50; i++) {
           await repository.createListing(
+            photos: testCropPhotos(),
             farmerId: testUserId,
             cropType: 'teff',
             quantity: (i + 1).toDouble(),
@@ -575,6 +584,7 @@ void main() {
         fakeConnectivity.setConnected(false);
         for (var i = 0; i < 3; i++) {
           await repository.createListing(
+            photos: testCropPhotos(),
             farmerId: testUserId,
             cropType: 'teff',
             quantity: 5.0,

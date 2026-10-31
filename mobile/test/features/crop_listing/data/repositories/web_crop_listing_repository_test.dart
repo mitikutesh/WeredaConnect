@@ -6,6 +6,7 @@ import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/web_crop_listing_repository.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import '../../../../helpers/crop_photo_fixtures.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
 
@@ -16,7 +17,8 @@ void main() {
 
     setUp(() {
       api = _MockApiClient();
-      repository = WebCropListingRepository(api: api);
+      repository = WebCropListingRepository(
+          api: api, photoUploader: FakeCropPhotoUploader());
     });
 
     test('parses the {"crop": {...}} envelope (API field names)', () async {
@@ -78,7 +80,8 @@ void main() {
 
     setUp(() {
       api = _MockApiClient();
-      repository = WebCropListingRepository(api: api);
+      repository = WebCropListingRepository(
+          api: api, photoUploader: FakeCropPhotoUploader());
       when(
         () => api.get<Map<String, dynamic>>(
           '/crops',
@@ -153,7 +156,8 @@ void main() {
 
     setUp(() {
       api = _MockApiClient();
-      repository = WebCropListingRepository(api: api);
+      repository = WebCropListingRepository(
+          api: api, photoUploader: FakeCropPhotoUploader());
       sentBody = null;
       when(
         () => api.post<Map<String, dynamic>>(
@@ -248,7 +252,8 @@ void main() {
 
     setUp(() {
       api = _MockApiClient();
-      repository = WebCropListingRepository(api: api);
+      repository = WebCropListingRepository(
+          api: api, photoUploader: FakeCropPhotoUploader());
       when(() => api.get<Map<String, dynamic>>('/crops/crop-1')).thenAnswer(
         (_) async => {
           'crop': {'cropId': 'crop-1', 'farmerId': 'farmer-1', 'version': 3},
@@ -281,6 +286,7 @@ void main() {
 
         await expectLater(
           repository.createListing(
+            photos: testCropPhotos(),
             farmerId: 'farmer-1',
             cropType: 'teff',
             quantity: 10,

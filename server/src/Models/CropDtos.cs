@@ -174,4 +174,69 @@ public sealed record CropDto
     /// Crop's GPS longitude (WGS84). See <see cref="Latitude"/>.
     /// </summary>
     public double? Longitude { get; init; }
+
+    /// <summary>
+    /// The listing's photos in display order, the first being the cover (crop-listing-api 1.6.0).
+    /// GET /crops gives each a thumbUrl, GET /crops/{id} adds fullUrl. Null, and so omitted, for a
+    /// listing without photos or when photo storage is not configured.
+    /// </summary>
+    public List<CropPhotoDto>? Photos { get; init; }
+}
+
+/// <summary>
+/// One photo of a listing on a read response: presigned GET URLs of its renditions
+/// (thumb 6 hours, full 1 hour). Clients cache by photoId and rendition, never by URL.
+/// </summary>
+public sealed record CropPhotoDto
+{
+    public required string PhotoId { get; init; }
+
+    /// <summary>Presigned GET of the 320 px WebP thumb.</summary>
+    public string? ThumbUrl { get; init; }
+
+    /// <summary>Presigned GET of the 1024 px WebP rendition; GET /crops/{id} only.</summary>
+    public string? FullUrl { get; init; }
+}
+
+/// <summary>POST /crops/{id}/photos request body (crop-listing-api 1.6.0).</summary>
+public sealed record CropPhotoUploadRequest
+{
+    /// <summary>1 to 4 photos to upload.</summary>
+    public List<CropPhotoUploadItem>? Photos { get; init; }
+}
+
+/// <summary>One photo the device is about to upload.</summary>
+public sealed record CropPhotoUploadItem
+{
+    /// <summary>UUID made on the device; distinct within the request.</summary>
+    public string? PhotoId { get; init; }
+
+    /// <summary><c>image/jpeg</c>, <c>image/png</c> or <c>image/webp</c>.</summary>
+    public string? ContentType { get; init; }
+
+    /// <summary>Exact length of the bytes the device will PUT, 1 to 10485760.</summary>
+    public long? SizeBytes { get; init; }
+}
+
+/// <summary>POST /crops/{id}/photos response: one presigned PUT per photo.</summary>
+public sealed record CropPhotoUploadResponse
+{
+    public required List<CropPhotoUploadUrl> Uploads { get; init; }
+
+    public required int ExpiresInSeconds { get; init; }
+}
+
+/// <summary>
+/// A presigned PUT for one original. The device must send <c>Content-Type</c> equal to
+/// <see cref="ContentType"/> and <c>Content-Length</c> equal to <see cref="SizeBytes"/>: both are signed.
+/// </summary>
+public sealed record CropPhotoUploadUrl
+{
+    public required string PhotoId { get; init; }
+
+    public required string UploadUrl { get; init; }
+
+    public required string ContentType { get; init; }
+
+    public required long SizeBytes { get; init; }
 }

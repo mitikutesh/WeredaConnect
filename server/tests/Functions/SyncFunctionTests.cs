@@ -115,7 +115,8 @@ public partial class SyncFunctionTests
             { "pricePerKg", 45.5 },
             { "farmerId", farmerId },
             { "woreda", "Jimma" },
-            { "status", "active" }
+            { "status", "active" },
+            { "photoIds", CropPhotoFixtures.ValidPhotoIds() }
         },
             Timestamp = "2026-03-15T10:00:00Z"
         };

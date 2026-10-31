@@ -17,6 +17,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import '../../../../helpers/crop_photo_fixtures.dart';
 
 class _MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -92,7 +93,10 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: CreateCropListingScreen(gpsCaptureService: gps),
+          home: CreateCropListingScreen(
+            gpsCaptureService: gps,
+            photoPicker: FakeCropPhotoPicker(),
+          ),
         ),
       );
 
@@ -104,6 +108,7 @@ void main() {
     await tester.pumpWidget(app());
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('create_listing_crop_teff')));
+    await addTestPhotos(tester);
     await tester.enterText(
       find.byKey(const Key('create_listing_quantity')),
       '10',

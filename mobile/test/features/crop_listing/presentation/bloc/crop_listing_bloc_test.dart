@@ -16,6 +16,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 
 import '../../../../helpers/wait_for.dart';
+import '../../../../helpers/crop_photo_fixtures.dart';
 
 void main() {
   group('CropListingBloc', () {
@@ -42,6 +43,7 @@ void main() {
         name: 'test_crop_bloc_${DateTime.now().millisecondsSinceEpoch}',
       );
       repository = CropListingRepository(
+        photoFiles: tempCropPhotoFileStore(),
         isar: isar,
         syncQueue: SyncQueue(isar),
       );
@@ -84,7 +86,8 @@ void main() {
       addTearDown(subscription.cancel);
 
       bloc.add(
-        const CreateCropListing(
+        CreateCropListing(
+          photos: testCropPhotos(),
           farmerId: 'farmer-001',
           farmerName: 'Abebe Kebede',
           cropType: 'teff',
@@ -109,6 +112,7 @@ void main() {
     test('emits Loaded with filtered list on FilterCropListings', () async {
       // Create some listings first
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'teff',
         quantity: 50.0,
@@ -119,6 +123,7 @@ void main() {
         description: 'Teff',
       );
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'wheat',
         quantity: 30.0,
@@ -154,6 +159,7 @@ void main() {
 
     test('LoadActiveListings forwards searchQuery (SIM-51)', () async {
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         farmerName: 'Abebe Kebede',
         cropType: 'teff',
@@ -165,6 +171,7 @@ void main() {
         description: 'Teff',
       );
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-002',
         farmerName: 'Almaz Tesfaye',
         cropType: 'wheat',
@@ -199,6 +206,7 @@ void main() {
     test('emits [Loading, Loaded] on DeleteCropListing', () async {
       // Create a listing first
       final listing = await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'teff',
         quantity: 50.0,

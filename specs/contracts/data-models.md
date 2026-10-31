@@ -1,7 +1,7 @@
 # Data Models Contract
 
-**Version**: 1.3.0
-**Last Updated**: 2026-10-26
+**Version**: 1.4.0
+**Last Updated**: 2026-10-31
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
 
@@ -49,6 +49,7 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `location` | LatLng | Yes | Farm GPS coordinates | Latitude/longitude for truckers |
 | `description` | String | Yes | Crop condition/quality | Supports Amharic/Oromo/English |
 | `audioNoteRef` | String? | No | Voice note file reference | Format: `audio/{userId}/{listingId}.m4a` |
+| `photos` | List<CropPhoto> | Yes on new listings | 2 to 4 photos, the first the cover (`crop-listing-api.md` 1.6.0) | Embedded `CropPhoto`: `photoId` (UUID), `thumbUrl` / `fullUrl` (presigned, short-lived; cache by `photoId`), and on the farmer's own device `localPath`, `contentType`, `sizeBytes`, `uploaded`. On the wire: `photoIds` in the sync create, `photos` on reads |
 | `status` | ListingStatus | Yes | Enum: draft/active/sold/expired | Lifecycle state |
 | `createdAt` | DateTime | Yes | UTC timestamp | Listing creation time |
 | `updatedAt` | DateTime | Yes | UTC timestamp | Last edit time |
@@ -423,6 +424,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.1.0 | 2026-10-26 | Order entity table added (every `OrderDto` field plus the ESC-15 commitment fields: `fulfillment`, `pickupDate`, `farmerResponse`, `truckerResponse`, their deadlines and reminders, `transportFailure`, `declineReason`, `cancelledBy`, `faultParty`); Trip status casing fixed to the wire values (`open`, `matched`, `inTransit`, `delivered`, `cancelled`) and the booking fields `bookedQuintals`, `remainingQuintals`, `bookedOrderIds`, `acceptedOrderIds` added; relationships gain Order (`order-lifecycle.md` 2.0.0, `trip-listing-api.md` 2.0.0) | @Server |
 | 1.2.0 | 2026-10-31 | Order gains the server-only `pickupPlace` and `dropoffPlace`, stamped at create (order-lifecycle 2.2.0); Isar schema and web mirror | @Server |
 | 1.3.0 | 2026-10-31 | Trip gains `destinationLatitude` and `destinationLongitude` (trip-listing-api 2.1.0), sent on create from the picked place | @Server |
+| 1.4.0 | 2026-10-31 | CropListing gains `photos` (embedded `CropPhoto`, crop-listing-api 1.6.0); Isar schema and web mirror | @Mobile |
 
 ---
 

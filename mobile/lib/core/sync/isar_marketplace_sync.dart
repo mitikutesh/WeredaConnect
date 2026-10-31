@@ -15,6 +15,7 @@ import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
+import 'package:wereda_connect/features/crop_listing/domain/crop_photos.dart';
 
 /// Isar-backed [MarketplaceSync] (mobile only — imports Isar, so it is
 /// constructed exclusively from `run_mobile.dart`, never on web).
@@ -66,6 +67,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
 
     await _isar.writeTxn(() async {
       await _deleteStaleCrops(userId);
+      await _keepLocalPhotos(crops);
       await _isar.cropListings.putAllByListingId(crops);
     });
     _lastCropPull = DateTime.now();
@@ -535,6 +537,21 @@ class IsarMarketplaceSync implements MarketplaceSync {
     await _isar.cropListings.deleteAll(staleIds);
   }
 
+  /// Carries the photo files this device took onto the server's copy of the
+  /// same listings (crop-listing-api.md 1.6.0), so the farmer's own listing
+  /// keeps showing them offline; see [mergeLocalPhotos]. Runs inside the
+  /// pull's write.
+  Future<void> _keepLocalPhotos(List<CropListing> crops) async {
+    if (crops.isEmpty) return;
+    final local = await _isar.cropListings
+        .getAllByListingId(crops.map((c) => c.listingId).toList());
+    for (var i = 0; i < crops.length; i++) {
+      final mine = local[i];
+      if (mine == null || mine.photos.isEmpty) continue;
+      crops[i].photos = mergeLocalPhotos(crops[i].photos, mine.photos);
+    }
+  }
+
   Future<void> _deleteStaleTrips(String? userId) async {
     if (userId == null) return;
     final protectedIds = await _entityIdsWithPendingUploads();
@@ -639,6 +656,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
       ..description = m['description'] as String? ?? ''
       ..farmerReliability = (m['farmerReliability'] as num?)?.toDouble()
       ..audioNoteRef = m['audioNoteRef'] as String?
+      ..photos = parseCropPhotos(m['photos'])
       ..status = _parseListingStatus(m['status'] as String?)
       ..createdAt =
           DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now()

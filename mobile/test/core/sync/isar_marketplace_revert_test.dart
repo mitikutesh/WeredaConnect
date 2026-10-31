@@ -18,6 +18,7 @@ import 'package:wereda_connect/features/crop_listing/data/repositories/crop_list
 import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
 import 'package:wereda_connect/features/order/data/repositories/order_repository.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/trip_listing_repository.dart';
+import '../../helpers/crop_photo_fixtures.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
 
@@ -738,7 +739,8 @@ void main() {
     late CropListingRepository crops;
 
     setUp(() {
-      crops = CropListingRepository(isar: isar, syncQueue: queue);
+      crops = CropListingRepository(
+          isar: isar, syncQueue: queue, photoFiles: tempCropPhotoFileStore());
     });
 
     /// A listing as `GET /crops/{id}` and `GET /crops` return it (flat).

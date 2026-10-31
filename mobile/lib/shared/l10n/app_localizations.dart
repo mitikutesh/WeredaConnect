@@ -8482,6 +8482,102 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{name} gets {amount}'**
   String liveTripPartyGets(String name, String amount);
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: title of the required photo section
+  ///
+  /// In en, this message translates to:
+  /// **'Photos of your crop'**
+  String get cropPhotosTitle;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: what photos buyers need, under the section title
+  ///
+  /// In en, this message translates to:
+  /// **'Add 2 to 4 clear photos in daylight: the whole pile and a close-up of the grain.'**
+  String get cropPhotosHint;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: how many photos are added out of the most allowed
+  ///
+  /// In en, this message translates to:
+  /// **'{count} of {max}'**
+  String cropPhotosCount(int count, int max);
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: button that opens the camera
+  ///
+  /// In en, this message translates to:
+  /// **'Take photo'**
+  String get cropPhotosTake;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: button that opens the phone's photo gallery
+  ///
+  /// In en, this message translates to:
+  /// **'From gallery'**
+  String get cropPhotosGallery;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: tooltip of the button that removes one photo
+  ///
+  /// In en, this message translates to:
+  /// **'Remove photo'**
+  String get cropPhotosRemove;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: error when saving with too few photos
+  ///
+  /// In en, this message translates to:
+  /// **'Add at least {min} photos of your crop.'**
+  String cropPhotosRequired(int min);
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: shown when the farmer picked more photos than fit
+  ///
+  /// In en, this message translates to:
+  /// **'You can add up to {max} photos.'**
+  String cropPhotosLimitReached(int max);
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: a picked file is not a usable image
+  ///
+  /// In en, this message translates to:
+  /// **'That file is not a photo we can use. Choose a JPEG, PNG or WebP photo.'**
+  String get cropPhotosUnsupported;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: a picked photo is over the 10 MB upload cap
+  ///
+  /// In en, this message translates to:
+  /// **'That photo is too large. Choose a smaller one.'**
+  String get cropPhotosTooLarge;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: the camera or gallery failed to open
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open the camera or gallery. Check the app\'s permissions and try again.'**
+  String get cropPhotosPickFailed;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing (web): saving failed because a photo upload failed
+  ///
+  /// In en, this message translates to:
+  /// **'The photos did not upload. Check your connection and save again.'**
+  String get cropPhotosUploadFailed;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: tag on the first photo, the one buyers see in the list
+  ///
+  /// In en, this message translates to:
+  /// **'Cover'**
+  String get cropPhotoCover;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Crop photos: screen reader label of one photo
+  ///
+  /// In en, this message translates to:
+  /// **'Photo {index} of {count}'**
+  String cropPhotoPosition(int index, int count);
+
+  /// crop-listing-api.md 1.6.0, crop photos. Marketplace card: screen reader label of the listing photo with its photo count
+  ///
+  /// In en, this message translates to:
+  /// **'{count} photos'**
+  String cropPhotosCountLabel(int count);
+
+  /// crop-listing-api.md 1.6.0, crop photos. Crop photos: screen reader label when a photo cannot be shown (still processing or offline)
+  ///
+  /// In en, this message translates to:
+  /// **'Photo not available yet'**
+  String get cropPhotoUnavailable;
 }
 
 class _AppLocalizationsDelegate

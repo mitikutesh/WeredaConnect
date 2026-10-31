@@ -47,6 +47,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from crop_photo_upload import CropPhotoUploadError, upload_crop_photos
+
 BASE_URL = "https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com"
 PASSWORD = "TestPass1dev"
 APP_BUILD = "3"
@@ -239,10 +241,17 @@ def seed_crop(s: State, farmer: User) -> Optional[dict]:
     # size and price keep the duplicate-listing rule out of the way.
     salt = int(time.time()) % 20
     crop_id = uid()
+    # crop-listing-api 1.6.0: the photos go up before the create (rule 9). A
+    # failed upload falls through to reusing an available listing below.
+    try:
+        photo_ids = upload_crop_photos(BASE_URL, farmer.token, crop_id)
+    except CropPhotoUploadError as e:
+        print(f"  (crop photos: {e})")
+        photo_ids = []
     res = sync(farmer, "crop_listing", crop_id, "create", {
         "farmerId": farmer.user_id, "farmerName": farmer.name, "woreda": farmer.woreda,
         "cropType": "teff", "quantity": MIN_STOCK_QUINTALS + salt, "pricePerKg": 40.0 + salt % 9,
-        "status": "available",
+        "status": "available", "photoIds": photo_ids,
     })
     if not ok_result(res):
         # The farmer has a similar teff listing: use the largest available one.

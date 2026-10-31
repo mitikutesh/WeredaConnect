@@ -49,6 +49,17 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(GetCropResponse))]
 [JsonSerializable(typeof(CropDto))]
 [JsonSerializable(typeof(List<CropDto>))]
+// Crop photos (crop-listing-api 1.6.0)
+[JsonSerializable(typeof(CropPhotoDto))]
+[JsonSerializable(typeof(List<CropPhotoDto>))]
+[JsonSerializable(typeof(CropPhotoUploadRequest))]
+[JsonSerializable(typeof(CropPhotoUploadItem))]
+[JsonSerializable(typeof(List<CropPhotoUploadItem>))]
+[JsonSerializable(typeof(CropPhotoUploadResponse))]
+[JsonSerializable(typeof(CropPhotoUploadUrl))]
+[JsonSerializable(typeof(List<CropPhotoUploadUrl>))]
+// A DynamoDB L read back by DynamoDbHelper.FromList (crop photoIds) inside a sync ServerData.
+[JsonSerializable(typeof(List<object>))]
 [JsonSerializable(typeof(TripDto))]
 [JsonSerializable(typeof(List<TripDto>))]
 [JsonSerializable(typeof(GetTripsResponse))]

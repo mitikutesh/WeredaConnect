@@ -208,8 +208,11 @@ public class AccountDeletionRepositoryTests
     {
         var row = new Dictionary<string, AttributeValue>
         {
-            ["userId"] = S("user-1"), ["role"] = S("farmer"), ["deletionState"] = S("in_progress"),
-            ["phoneNumber"] = S("+251911000001"), ["version"] = new AttributeValue { N = "4" }
+            ["userId"] = S("user-1"),
+            ["role"] = S("farmer"),
+            ["deletionState"] = S("in_progress"),
+            ["phoneNumber"] = S("+251911000001"),
+            ["version"] = new AttributeValue { N = "4" }
         };
         GetItemReturns("users", row);
         _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
@@ -228,7 +231,10 @@ public class AccountDeletionRepositoryTests
     {
         GetItemReturns("users", new Dictionary<string, AttributeValue>
         {
-            ["userId"] = S("user-1"), ["role"] = S("farmer"), ["deletionState"] = S("cognito_pending"), ["deletedAt"] = S("t0")
+            ["userId"] = S("user-1"),
+            ["role"] = S("farmer"),
+            ["deletionState"] = S("cognito_pending"),
+            ["deletedAt"] = S("t0")
         });
 
         (await _repo.TombstoneAsync("user-1", "t1", AccountDeletionPolicy.CognitoPending, requireInProgress: true))
@@ -241,8 +247,12 @@ public class AccountDeletionRepositoryTests
     {
         GetItemReturns("crops", new Dictionary<string, AttributeValue>
         {
-            ["cropId"] = S("crop-1"), ["createdAt"] = S("c"), ["status"] = S("available"),
-            ["farmerName"] = S("Abebe"), ["farmerPhone"] = S("+251911000001"), ["version"] = new AttributeValue { N = "3" }
+            ["cropId"] = S("crop-1"),
+            ["createdAt"] = S("c"),
+            ["status"] = S("available"),
+            ["farmerName"] = S("Abebe"),
+            ["farmerPhone"] = S("+251911000001"),
+            ["version"] = new AttributeValue { N = "3" }
         });
 
         (await _repo.WithdrawCropAsync(new ListingKey("crop-1", "c"), "now")).Should().BeTrue();
@@ -255,8 +265,31 @@ public class AccountDeletionRepositoryTests
         update.ConditionExpression.Should().Be("#s = :readStatus AND #v = :readVersion");
         update.ExpressionAttributeNames.Values.Should().Contain(new[]
         {
-            "farmerPhone", "latitude", "longitude", "locationName", "description", "audioNoteRef"
+            "farmerPhone", "latitude", "longitude", "locationName", "description", "audioNoteRef", "photoIds"
         });
+    }
+
+    [Fact]
+    public async Task WithdrawCrop_RemovesThePhotoIds_SoNoPhotoUrlIsSignedAgain()
+    {
+        GetItemReturns("crops", new Dictionary<string, AttributeValue>
+        {
+            ["cropId"] = S("crop-1"),
+            ["createdAt"] = S("c"),
+            ["status"] = S("sold"),
+            ["farmerName"] = S("Abebe"),
+            ["version"] = new AttributeValue { N = "3" },
+            ["photoIds"] = new AttributeValue
+            {
+                L = new List<AttributeValue> { S("7d1c0a52-3f0e-4c4b-9a8e-0f3b6c2d9e11"), S("8e2d1b63-4a1f-4d5c-8b9f-1a4c7d3e0f22") }
+            }
+        });
+
+        await _repo.WithdrawCropAsync(new ListingKey("crop-1", "c"), "now");
+
+        var update = _updates.Single();
+        var alias = update.ExpressionAttributeNames.Single(kv => kv.Value == "photoIds").Key;
+        update.UpdateExpression.Should().MatchRegex($@"REMOVE .*{alias}\b");
     }
 
     [Fact]
@@ -264,8 +297,11 @@ public class AccountDeletionRepositoryTests
     {
         GetItemReturns("crops", new Dictionary<string, AttributeValue>
         {
-            ["cropId"] = S("crop-1"), ["createdAt"] = S("c"), ["status"] = S("sold"),
-            ["farmerName"] = S("Abebe"), ["version"] = new AttributeValue { N = "3" }
+            ["cropId"] = S("crop-1"),
+            ["createdAt"] = S("c"),
+            ["status"] = S("sold"),
+            ["farmerName"] = S("Abebe"),
+            ["version"] = new AttributeValue { N = "3" }
         });
 
         await _repo.WithdrawCropAsync(new ListingKey("crop-1", "c"), "now");
@@ -279,8 +315,12 @@ public class AccountDeletionRepositoryTests
     {
         GetItemReturns("crops", new Dictionary<string, AttributeValue>
         {
-            ["cropId"] = S("crop-1"), ["createdAt"] = S("c"), ["status"] = S("deleted"), ["deletedAt"] = S("t"),
-            ["farmerName"] = S(AccountDeletionPolicy.Sentinel), ["version"] = new AttributeValue { N = "4" }
+            ["cropId"] = S("crop-1"),
+            ["createdAt"] = S("c"),
+            ["status"] = S("deleted"),
+            ["deletedAt"] = S("t"),
+            ["farmerName"] = S(AccountDeletionPolicy.Sentinel),
+            ["version"] = new AttributeValue { N = "4" }
         });
 
         (await _repo.WithdrawCropAsync(new ListingKey("crop-1", "c"), "now")).Should().BeFalse();
@@ -292,8 +332,11 @@ public class AccountDeletionRepositoryTests
     {
         GetItemReturns("trips", new Dictionary<string, AttributeValue>
         {
-            ["tripId"] = S("trip-1"), ["createdAt"] = S("c"), ["status"] = S("matched"),
-            ["truckerName"] = S("Kebede"), ["version"] = new AttributeValue { N = "1" }
+            ["tripId"] = S("trip-1"),
+            ["createdAt"] = S("c"),
+            ["status"] = S("matched"),
+            ["truckerName"] = S("Kebede"),
+            ["version"] = new AttributeValue { N = "1" }
         });
 
         await _repo.WithdrawTripAsync(new ListingKey("trip-1", "c"), "now");
@@ -309,7 +352,10 @@ public class AccountDeletionRepositoryTests
     {
         var order = new Dictionary<string, object>
         {
-            ["orderId"] = "order-1", ["createdAt"] = "c", ["status"] = "created", ["version"] = "2"
+            ["orderId"] = "order-1",
+            ["createdAt"] = "c",
+            ["status"] = "created",
+            ["version"] = "2"
         };
 
         (await _repo.TryCancelUnpaidOrderAsync(order, "now")).Should().BeTrue();
@@ -329,7 +375,10 @@ public class AccountDeletionRepositoryTests
 
         (await _repo.TryCancelUnpaidOrderAsync(new Dictionary<string, object>
         {
-            ["orderId"] = "order-1", ["createdAt"] = "c", ["status"] = "created", ["version"] = "2"
+            ["orderId"] = "order-1",
+            ["createdAt"] = "c",
+            ["status"] = "created",
+            ["version"] = "2"
         }, "now")).Should().BeFalse();
     }
 
@@ -338,9 +387,12 @@ public class AccountDeletionRepositoryTests
     {
         var delivery = new Dictionary<string, object>
         {
-            ["deliveryId"] = "d-1", ["tripId"] = "trip-1",
-            ["farmerName"] = "Abebe", ["farmerPhone"] = "+251911000001",
-            ["buyerName"] = "Sara", ["buyerPhone"] = "+251911000003"
+            ["deliveryId"] = "d-1",
+            ["tripId"] = "trip-1",
+            ["farmerName"] = "Abebe",
+            ["farmerPhone"] = "+251911000001",
+            ["buyerName"] = "Sara",
+            ["buyerPhone"] = "+251911000003"
         };
 
         (await _repo.ScrubDeliveryAsync(delivery, new[] { "farmer" }, "now")).Should().BeTrue();
@@ -358,7 +410,11 @@ public class AccountDeletionRepositoryTests
     {
         var escrow = new Dictionary<string, object>
         {
-            ["escrowId"] = "e-1", ["createdAt"] = "c", ["buyerName"] = "Sara", ["amount"] = "100", ["status"] = "completed"
+            ["escrowId"] = "e-1",
+            ["createdAt"] = "c",
+            ["buyerName"] = "Sara",
+            ["amount"] = "100",
+            ["status"] = "completed"
         };
 
         await _repo.ScrubEscrowAsync(escrow, new[] { "buyer" });
@@ -373,7 +429,9 @@ public class AccountDeletionRepositoryTests
     {
         var order = new Dictionary<string, object>
         {
-            ["orderId"] = "order-1", ["createdAt"] = "c", ["farmerName"] = AccountDeletionPolicy.Sentinel
+            ["orderId"] = "order-1",
+            ["createdAt"] = "c",
+            ["farmerName"] = AccountDeletionPolicy.Sentinel
         };
 
         (await _repo.ScrubOrderAsync(order, new[] { "farmer", "trucker" }, "now")).Should().BeFalse();

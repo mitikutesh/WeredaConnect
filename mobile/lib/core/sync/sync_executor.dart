@@ -72,6 +72,13 @@ typedef LocationSharingEndedHandler = Future<void> Function(String tripId);
 /// `deferred` for 7 days (LT-08).
 typedef PickupRejectedHandler = Future<void> Function(String deliveryId);
 
+/// Readies an operation just before it is sent and answers whether it can
+/// go. False keeps it pending, without using a retry, for the next sync run;
+/// the operations queued behind it for the same entity wait with it. Used to
+/// upload a crop listing's photos before its create (crop-listing-api.md
+/// 1.6.0, `CropPhotoSyncPreflight`).
+typedef OperationPreflight = Future<bool> Function(SyncOperation operation);
+
 /// The operation data the server gets. Keys the client keeps for itself
 /// (prefixed `_`, such as the order status a refused payment goes back to)
 /// are left out: the server refuses unknown fields.
@@ -238,6 +245,21 @@ class SyncBatchResult {
     );
   }
 
+  /// This result with [count] more operations held back before sending (an
+  /// [OperationPreflight] answered "not yet"): counted as deferred, the
+  /// status unchanged.
+  SyncBatchResult withHeldBack(int count) => SyncBatchResult(
+        total: total + count,
+        succeeded: succeeded,
+        conflicted: conflicted,
+        failed: failed,
+        deferred: deferred + count,
+        stepUpRequired: stepUpRequired,
+        status: status,
+        errorMessage: errorMessage,
+        operationErrors: operationErrors,
+      );
+
   @override
   String toString() => 'SyncBatchResult(status: $status, total: $total, '
       'succeeded: $succeeded, conflicted: $conflicted, failed: $failed, '
@@ -329,6 +351,7 @@ class SyncExecutor {
   final PermanentRejectionHandler? _onPermanentRejection;
   final LocationSharingEndedHandler? _onLocationSharingEnded;
   final PickupRejectedHandler? _onPickupRejected;
+  final OperationPreflight? _preflight;
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   StreamSubscription<void>? _stepUpSubscription;
@@ -366,6 +389,12 @@ class SyncExecutor {
 
   /// Trips of [_deferredPingTrips] already probed in the current sync run.
   final Set<String> _probedPingTrips = {};
+
+  /// Entities (`entityType:entityId`) whose [OperationPreflight] answered
+  /// "not yet" in the current sync run (a listing whose photos could not be
+  /// uploaded). Their operations wait for the next run, so one sync tries an
+  /// upload once instead of on every batch.
+  final Set<String> _notReadyThisRun = {};
 
   static String _entityKey(SyncOperation op) =>
       '${op.entityType}:${op.entityId}';
@@ -423,6 +452,7 @@ class SyncExecutor {
     PermanentRejectionHandler? onPermanentRejection,
     LocationSharingEndedHandler? onLocationSharingEnded,
     PickupRejectedHandler? onPickupRejected,
+    OperationPreflight? preflight,
   })  : _syncQueue = syncQueue,
         _connectivityMonitor = connectivityMonitor,
         _dio = dio,
@@ -437,7 +467,8 @@ class SyncExecutor {
         _onKycRequired = onKycRequired,
         _onPermanentRejection = onPermanentRejection,
         _onLocationSharingEnded = onLocationSharingEnded,
-        _onPickupRejected = onPickupRejected;
+        _onPickupRejected = onPickupRejected,
+        _preflight = preflight;
 
   /// Stream of sync batch results for UI indicators.
   ///
@@ -502,6 +533,7 @@ class SyncExecutor {
 
     _isSyncing = true;
     _probedPingTrips.clear();
+    _notReadyThisRun.clear();
     var aggregated = const SyncBatchResult.empty();
     debugPrint('[SYNC] syncNow() started');
 
@@ -629,7 +661,10 @@ class SyncExecutor {
   /// Returns [SyncBatchResult] with counts of succeeded/conflicted/failed.
   Future<SyncBatchResult> executeBatch() async {
     // A batch sent outside syncNow is a sync run of its own (probes, LT-08).
-    if (!_isSyncing) _probedPingTrips.clear();
+    if (!_isSyncing) {
+      _probedPingTrips.clear();
+      _notReadyThisRun.clear();
+    }
     final currentUserId = await _getCurrentUserId?.call();
     if (_deletedAccounts.contains(currentUserId)) {
       return const SyncBatchResult(status: SyncBatchStatus.accountDeleted);
@@ -668,8 +703,56 @@ class SyncExecutor {
         pending.add(op);
       }
     }
-    if (pending.isEmpty) return const SyncBatchResult.empty();
+    final held = await _holdNotReady(pending);
+    if (pending.isEmpty) {
+      // Only operations still being readied: they count as deferred, so the
+      // run stops without backoff or a failure and tries again next time.
+      return held == 0
+          ? const SyncBatchResult.empty()
+          : SyncBatchResult(total: held, deferred: held);
+    }
+    final result = await _sendBatch(pending, currentUserId);
+    return held == 0 ? result : result.withHeldBack(held);
+  }
 
+  /// Runs the [OperationPreflight] over [pending] in queue order and removes
+  /// the operations that cannot go yet, with every later operation of the
+  /// same entity. Returns how many were held back. A preflight that throws
+  /// counts as "not yet".
+  Future<int> _holdNotReady(List<SyncOperation> pending) async {
+    final preflight = _preflight;
+    if (preflight == null || pending.isEmpty) return 0;
+    var held = 0;
+    final ready = <SyncOperation>[];
+    for (final op in pending) {
+      final key = _entityKey(op);
+      var go = !_notReadyThisRun.contains(key);
+      if (go) {
+        try {
+          go = await preflight(op);
+        } on Object catch (e) {
+          debugPrint('[SYNC] preflight failed for ${op.entityType}: $e');
+          go = false;
+        }
+      }
+      if (go) {
+        ready.add(op);
+      } else {
+        _notReadyThisRun.add(key);
+        held++;
+      }
+    }
+    pending
+      ..clear()
+      ..addAll(ready);
+    return held;
+  }
+
+  /// Sends [pending] as one `POST /sync` batch and settles each result.
+  Future<SyncBatchResult> _sendBatch(
+    List<SyncOperation> pending,
+    String? currentUserId,
+  ) async {
     // Mark all as syncing to prevent concurrent processing
     for (final op in pending) {
       await _syncQueue.markAsSyncing(op.operationId);

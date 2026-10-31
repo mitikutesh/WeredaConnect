@@ -2,17 +2,26 @@ import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/features/crop_listing/data/services/crop_photo_uploader.dart';
+import 'package:wereda_connect/features/crop_listing/domain/crop_photos.dart';
 import 'package:wereda_connect/features/crop_listing/domain/repositories/base_crop_listing_repository.dart';
 
 /// Web-only crop listing repository.
 ///
 /// All operations use HTTP calls via ApiClient. No Isar dependency.
 /// Write operations POST to /sync (same endpoint as mobile offline sync).
+/// A create uploads its photos first (crop-listing-api.md 1.6.0): the web has
+/// no queue to hold it, so a photo that does not go up fails the save.
 class WebCropListingRepository extends BaseCropListingRepository {
   static const _uuid = Uuid();
   final ApiClient _api;
+  final CropPhotoUploader _photoUploader;
 
-  WebCropListingRepository({required ApiClient api}) : _api = api;
+  WebCropListingRepository({
+    required ApiClient api,
+    CropPhotoUploader? photoUploader,
+  })  : _api = api,
+        _photoUploader = photoUploader ?? CropPhotoUploader(api: api);
 
   @override
   Future<CropListing> createListing({
@@ -24,13 +33,23 @@ class WebCropListingRepository extends BaseCropListingRepository {
     required double longitude,
     required String locationName,
     required String description,
+    required List<CropPhotoDraft> photos,
     String? audioNoteRef,
     String? woreda,
     String? farmerName,
     String? farmerPhone,
     String? placeId,
+    String? listingId,
   }) async {
-    final listingId = _uuid.v4();
+    BaseCropListingRepository.checkPhotoCount(photos);
+    final id = listingId ?? _uuid.v4();
+    final uploaded = await _photoUploader.upload(listingId: id, photos: photos);
+    if (uploaded.length != photos.length) {
+      throw CropPhotoUploadException(
+        '${photos.length - uploaded.length} of ${photos.length} photos did '
+        'not upload',
+      );
+    }
     final now = DateTime.now().toUtc().toIso8601String();
 
     final payload = <String, dynamic>{
@@ -45,8 +64,9 @@ class WebCropListingRepository extends BaseCropListingRepository {
       'locationName': locationName,
       'description': description,
       'status': 'available',
-      'listingId': listingId,
+      'listingId': id,
       'createdAt': now,
+      'photoIds': [for (final photo in photos) photo.photoId],
       if (audioNoteRef != null) 'audioNoteRef': audioNoteRef,
       if (woreda != null) 'woreda': woreda,
     };
@@ -61,10 +81,10 @@ class WebCropListingRepository extends BaseCropListingRepository {
             'operationId': _uuid.v4(),
             'entityType': 'crop_listing',
             'action': 'create',
-            'entityId': listingId,
+            'entityId': id,
             'timestamp': now,
             'idempotencyKey':
-                '$farmerId:crop_listing:$listingId:create:${DateTime.now().toUtc().millisecondsSinceEpoch}',
+                '$farmerId:crop_listing:$id:create:${DateTime.now().toUtc().millisecondsSinceEpoch}',
             'data': payload,
           },
         ],
@@ -75,7 +95,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
     ensureSyncSucceeded(response);
 
     final listing = CropListing()
-      ..listingId = listingId
+      ..listingId = id
       ..farmerId = farmerId
       ..farmerName = farmerName ?? ''
       ..farmerPhone = farmerPhone ?? ''
@@ -89,6 +109,14 @@ class WebCropListingRepository extends BaseCropListingRepository {
       ..placeId = placeId
       ..description = description
       ..audioNoteRef = audioNoteRef
+      ..photos = [
+        for (final photo in photos)
+          CropPhoto()
+            ..photoId = photo.photoId
+            ..contentType = photo.contentType
+            ..sizeBytes = photo.sizeBytes
+            ..uploaded = true,
+      ]
       ..status = ListingStatus.active
       ..createdAt = DateTime.now().toUtc()
       ..updatedAt = DateTime.now().toUtc()
@@ -255,6 +283,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
           m['locationName'] as String? ?? m['woreda'] as String? ?? ''
       ..description = m['description'] as String? ?? ''
       ..audioNoteRef = m['audioNoteRef'] as String?
+      ..photos = parseCropPhotos(m['photos'])
       ..status = _parseListingStatus(m['status'] as String?)
       ..createdAt =
           DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now()

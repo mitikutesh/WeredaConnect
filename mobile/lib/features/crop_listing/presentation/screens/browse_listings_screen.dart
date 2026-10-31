@@ -21,6 +21,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_listing_detail_screen.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/widgets/crop_photo_views.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
@@ -676,6 +677,11 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                   rating: rated ? summary.average : null,
                                   ratingCount: rated ? summary.count : null,
                                   cropKey: listing.cropType,
+                                  // The cover thumb (320 px rendition);
+                                  // the full photos open on the detail.
+                                  leading: listing.photos.isEmpty
+                                      ? null
+                                      : CropPhotoThumb(listing: listing),
                                   detail: widget.ownerMode
                                       ? _orderedDetail(listing, l10n)
                                       : _transportLine(listing, l10n),

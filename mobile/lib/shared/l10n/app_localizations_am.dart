@@ -4778,4 +4778,66 @@ class AppLocalizationsAm extends AppLocalizations {
   String liveTripPartyGets(String name, String amount) {
     return '$name $amount ያገኛል';
   }
+
+  @override
+  String get cropPhotosTitle => 'የሰብልዎ ፎቶዎች';
+
+  @override
+  String get cropPhotosHint =>
+      'ከ2 እስከ 4 ግልጽ ፎቶዎችን በቀን ብርሃን ያክሉ፦ ሙሉውን ክምር እና የእህሉን ቅርብ ፎቶ።';
+
+  @override
+  String cropPhotosCount(int count, int max) {
+    return '$count ከ$max';
+  }
+
+  @override
+  String get cropPhotosTake => 'ፎቶ አንሳ';
+
+  @override
+  String get cropPhotosGallery => 'ከጋለሪ';
+
+  @override
+  String get cropPhotosRemove => 'ፎቶውን አስወግድ';
+
+  @override
+  String cropPhotosRequired(int min) {
+    return 'ቢያንስ $min የሰብልዎን ፎቶዎች ያክሉ።';
+  }
+
+  @override
+  String cropPhotosLimitReached(int max) {
+    return 'እስከ $max ፎቶዎች ማከል ይችላሉ።';
+  }
+
+  @override
+  String get cropPhotosUnsupported =>
+      'ይህ ፋይል ልንጠቀምበት የምንችለው ፎቶ አይደለም። JPEG፣ PNG ወይም WebP ፎቶ ይምረጡ።';
+
+  @override
+  String get cropPhotosTooLarge => 'ፎቶው በጣም ትልቅ ነው። ትንሽ ይምረጡ።';
+
+  @override
+  String get cropPhotosPickFailed =>
+      'ካሜራውን ወይም ጋለሪውን መክፈት አልተቻለም። የመተግበሪያውን ፈቃዶች ያረጋግጡና እንደገና ይሞክሩ።';
+
+  @override
+  String get cropPhotosUploadFailed =>
+      'ፎቶዎቹ አልተጫኑም። ግንኙነትዎን ያረጋግጡና እንደገና ያስቀምጡ።';
+
+  @override
+  String get cropPhotoCover => 'ሽፋን';
+
+  @override
+  String cropPhotoPosition(int index, int count) {
+    return 'ፎቶ $index ከ$count';
+  }
+
+  @override
+  String cropPhotosCountLabel(int count) {
+    return '$count ፎቶዎች';
+  }
+
+  @override
+  String get cropPhotoUnavailable => 'ፎቶው ገና አልተገኘም';
 }

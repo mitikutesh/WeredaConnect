@@ -31,6 +31,10 @@ typedef LocationSharingEndedHandler = Future<void> Function(String tripId);
 /// A delivery's pickup was refused for good (web stub, unused).
 typedef PickupRejectedHandler = Future<void> Function(String deliveryId);
 
+/// Readies an operation before it is sent (web stub, unused: the web uploads
+/// a listing's photos before its own `POST /sync`).
+typedef OperationPreflight = Future<bool> Function(SyncOperation operation);
+
 /// Status of a sync batch execution.
 enum SyncBatchStatus {
   success,
@@ -87,6 +91,7 @@ class SyncExecutor {
     PermanentRejectionHandler? onPermanentRejection,
     LocationSharingEndedHandler? onLocationSharingEnded,
     PickupRejectedHandler? onPickupRejected,
+    OperationPreflight? preflight,
   });
 
   Stream<SyncBatchResult> get onSyncResult => const Stream.empty();

@@ -5,6 +5,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/web_crop_listing_repository.dart';
+import '../../../../helpers/crop_photo_fixtures.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
 
@@ -39,7 +40,8 @@ void main() {
 
   setUp(() {
     api = _MockApiClient();
-    repository = WebCropListingRepository(api: api);
+    repository = WebCropListingRepository(
+        api: api, photoUploader: FakeCropPhotoUploader());
   });
 
   test('createdAt shows the Ethiopia day and time', () async {

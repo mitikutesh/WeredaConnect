@@ -19,6 +19,7 @@ import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/buyer/presentation/widgets/suggested_trip_card.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/widgets/crop_photo_views.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/create_delivery_screen.dart';
 import 'package:wereda_connect/features/order/presentation/screens/place_order_screen.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
@@ -244,6 +245,12 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                     ],
                   ),
                   const SizedBox(height: 20),
+                  // The photos first: the full 1024 px renditions, read
+                  // when the detail opens (the list only has thumbs).
+                  if (widget.listing.photos.isNotEmpty) ...[
+                    CropPhotoGallery(listing: widget.listing),
+                    const SizedBox(height: 16),
+                  ],
                   _HeaderSection(cropType: cropType, listing: widget.listing),
                   const SizedBox(height: 14),
 

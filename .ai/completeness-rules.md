@@ -52,6 +52,7 @@ Mobile and web share the same Dart codebase (`mobile/`) but have **separate impl
 | `core/network/cert_pinning_io.dart` | `core/network/cert_pinning_stub.dart` | — |
 | `core/auth/fayda_callback_links_stub.dart` | `core/auth/fayda_callback_links_web.dart` | `fayda_callback_links.dart` |
 | `core/database/schemas/*.dart` | `core/models/web/*.dart` | `core/models/*.dart` (barrel) |
+| `features/crop_listing/presentation/widgets/crop_photo_local_image_io.dart` | `features/crop_listing/presentation/widgets/crop_photo_local_image_web.dart` | `crop_photo_local_image.dart` |
 
 **When this applies:**
 - ANY change to a file in the left or right column above

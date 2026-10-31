@@ -3107,5 +3107,21 @@
   "liveTripReleasePending": "Kaffaltiin ammallee hin gadhiifamne",
   "liveTripYouConfirmedDelivery": "Geejjiba mirkaneessitaniittu",
   "liveTripCheckWindowEnds": "Yeroon mirkaneessaa xumurama",
-  "liveTripPartyGets": "{name} {amount} argata"
+  "liveTripPartyGets": "{name} {amount} argata",
+  "cropPhotosTitle": "Suuraa midhaan keessanii",
+  "cropPhotosHint": "Suuraa ifa ta'an 2 hanga 4 ifa guyyaatiin dabalaa: tuullaa guutuu fi suuraa midhaanii dhihoo.",
+  "cropPhotosCount": "{max} keessaa {count}",
+  "cropPhotosTake": "Suuraa kaasi",
+  "cropPhotosGallery": "Gaalarii irraa",
+  "cropPhotosRemove": "Suuraa haqi",
+  "cropPhotosRequired": "Yoo xiqqaate suuraa midhaan keessanii {min} dabalaa.",
+  "cropPhotosLimitReached": "Hanga suuraa {max} dabaluu dandeessu.",
+  "cropPhotosUnsupported": "Faayilli kun suuraa itti fayyadamuu dandeenyu miti. Suuraa JPEG, PNG ykn WebP filadhaa.",
+  "cropPhotosTooLarge": "Suuraan sun baay'ee guddaa dha. Kan xiqqaa filadhaa.",
+  "cropPhotosPickFailed": "Kaameraa ykn gaalarii banuun hin danda'amne. Hayyama appichaa mirkaneessaatii irra deebi'aa yaalaa.",
+  "cropPhotosUploadFailed": "Suuraaleen hin olkaa'amne. Walqunnamtii keessan mirkaneessaatii irra deebi'aa olkaa'aa.",
+  "cropPhotoCover": "Fuula duraa",
+  "cropPhotoPosition": "Suuraa {count} keessaa {index}ffaa",
+  "cropPhotosCountLabel": "Suuraa {count}",
+  "cropPhotoUnavailable": "Suuraan ammaaf hin argamu"
 }

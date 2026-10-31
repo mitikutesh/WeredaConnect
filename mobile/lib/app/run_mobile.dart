@@ -33,6 +33,7 @@ import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_blo
 import 'package:wereda_connect/features/conflict_resolution/data/services/conflict_notification_service.dart';
 import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
+import 'package:wereda_connect/features/crop_listing/data/services/crop_photo_sync_preflight.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
@@ -195,6 +196,9 @@ Future<void> runMobile({
     // refused for good drops the trip's waiting check-ins.
     onLocationSharingEnded: checkInEngine.onSharingEnded,
     onPickupRejected: checkInEngine.onPickupRejected,
+    // A crop listing's create waits until its photos are in the incoming
+    // bucket (crop-listing-api.md 1.6.0).
+    preflight: CropPhotoSyncPreflight(isar: IsarService.instance.db).call,
   );
   final syncWorker = SyncWorker(
     executor: syncExecutor,

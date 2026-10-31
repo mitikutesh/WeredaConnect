@@ -1,4 +1,5 @@
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/features/crop_listing/domain/crop_photos.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 
 /// Abstract base for crop listing repositories.
@@ -7,6 +8,9 @@ import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dar
 /// web (HTTP-only) implementations can share the same BLoC interface.
 /// No Isar or SyncQueue types leak into this contract.
 abstract class BaseCropListingRepository {
+  /// Creates a listing with its [photos] (2 to 4, crop-listing-api.md 1.6.0;
+  /// an [ArgumentError] otherwise). [listingId] is the id the form already
+  /// made (it names the voice note and the photos); a new one when null.
   Future<CropListing> createListing({
     required String farmerId,
     required String cropType,
@@ -16,12 +20,28 @@ abstract class BaseCropListingRepository {
     required double longitude,
     required String locationName,
     required String description,
+    required List<CropPhotoDraft> photos,
     String? audioNoteRef,
     String? woreda,
     String? farmerName,
     String? farmerPhone,
     String? placeId,
+    String? listingId,
   });
+
+  /// Refuses a photo count the server would refuse (rule 9), before any
+  /// write.
+  static void checkPhotoCount(List<CropPhotoDraft> photos) {
+    if (!CropPhotoRules.isValidCount(photos.length) ||
+        photos.map((photo) => photo.photoId).toSet().length != photos.length) {
+      throw ArgumentError.value(
+        photos.length,
+        'photos',
+        'A listing needs ${CropPhotoRules.minPhotos} to '
+            '${CropPhotoRules.maxPhotos} distinct photos',
+      );
+    }
+  }
 
   Future<List<CropListing>> getListingsByFarmer(String farmerId);
 

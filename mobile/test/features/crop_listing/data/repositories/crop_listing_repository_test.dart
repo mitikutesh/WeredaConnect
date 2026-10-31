@@ -14,6 +14,7 @@ import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import '../../../../helpers/crop_photo_fixtures.dart';
 
 void main() {
   group('CropListingRepository', () {
@@ -42,6 +43,7 @@ void main() {
       );
       syncQueue = SyncQueue(isar);
       repository = CropListingRepository(
+        photoFiles: tempCropPhotoFileStore(),
         isar: isar,
         syncQueue: syncQueue,
       );
@@ -56,6 +58,7 @@ void main() {
 
     test('createListing saves to Isar with correct fields', () async {
       final listing = await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         farmerName: 'Abebe Kebede',
         cropType: 'teff',
@@ -91,6 +94,7 @@ void main() {
 
     test('getListingById returns the listing or null when absent', () async {
       final listing = await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'teff',
         quantity: 50.0,
@@ -111,6 +115,7 @@ void main() {
     test('createListing defaults farmerName to empty string when omitted',
         () async {
       final listing = await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-002',
         cropType: 'wheat',
         quantity: 30.0,
@@ -126,6 +131,7 @@ void main() {
 
     test('createListing enqueues sync operation', () async {
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'wheat',
         quantity: 30.0,
@@ -146,6 +152,7 @@ void main() {
 
     test('getListingsByFarmer returns only that farmer listings', () async {
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'teff',
         quantity: 50.0,
@@ -156,6 +163,7 @@ void main() {
         description: 'Teff',
       );
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-002',
         cropType: 'wheat',
         quantity: 30.0,
@@ -166,6 +174,7 @@ void main() {
         description: 'Wheat',
       );
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'barley',
         quantity: 20.0,
@@ -186,6 +195,7 @@ void main() {
 
     test('getActiveListings with filter returns filtered results', () async {
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'teff',
         quantity: 50.0,
@@ -196,6 +206,7 @@ void main() {
         description: 'Teff',
       );
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'wheat',
         quantity: 30.0,
@@ -225,6 +236,7 @@ void main() {
         required double price,
       }) async {
         final listing = await repository.createListing(
+          photos: testCropPhotos(),
           farmerId: 'farmer-${farmerName.hashCode}',
           farmerName: farmerName,
           cropType: cropType,
@@ -309,6 +321,7 @@ void main() {
 
     test('deleteListing marks as expired and enqueues sync', () async {
       final listing = await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'teff',
         quantity: 50.0,

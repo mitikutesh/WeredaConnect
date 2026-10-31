@@ -71,6 +71,11 @@ class CropListing {
   /// Null if farmer didn't record voice note
   String? audioNoteRef;
 
+  /// The listing's photos in display order, the first being the cover
+  /// (crop-listing-api.md 1.6.0: 2 to 4 on every new listing). Empty for
+  /// listings made before photos existed.
+  List<CropPhoto> photos = [];
+
   /// Current status of the listing
   @Index()
   @Enumerated(EnumType.name)
@@ -98,6 +103,39 @@ class LatLng {
   /// Longitude in decimal degrees
   /// Ethiopian range: ~33° to 48° East
   late double longitude;
+}
+
+/// One photo of a crop listing (crop-listing-api.md 1.6.0).
+///
+/// The server keeps two renditions per photo, a 320 px thumb and a 1024 px
+/// full image, read through short-lived presigned URLs. The farmer's own
+/// device also keeps the photo it took, so the listing shows it offline.
+@embedded
+class CropPhoto {
+  /// UUID made on the device; names the photo on the server.
+  String photoId = '';
+
+  /// Presigned URL of the 320 px thumb, from the last server read. Expires
+  /// (6 hours), so images are cached by [photoId], never by this URL.
+  String? thumbUrl;
+
+  /// Presigned URL of the 1024 px image. Only `GET /crops/{id}` hands it out
+  /// (1 hour), so it is usually null in the marketplace cache.
+  String? fullUrl;
+
+  /// The photo as this device took it (app-private file). Null for photos
+  /// read from the server.
+  String? localPath;
+
+  /// MIME type of [localPath] (`image/jpeg`, `image/png` or `image/webp`).
+  String contentType = 'image/jpeg';
+
+  /// Length of [localPath] in bytes, signed into the upload URL.
+  int sizeBytes = 0;
+
+  /// Whether [localPath] reached the incoming bucket. The sync executor holds
+  /// the listing's create until every photo is uploaded.
+  bool uploaded = false;
 }
 
 /// Status of a crop listing in its lifecycle

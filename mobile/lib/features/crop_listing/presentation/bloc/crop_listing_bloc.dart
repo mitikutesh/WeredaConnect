@@ -98,6 +98,8 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
         audioNoteRef: event.audioNoteRef,
         woreda: event.woreda,
         placeId: event.placeId,
+        photos: event.photos,
+        listingId: event.listingId,
       );
       emit(CropListingCreated(listing: listing));
     } on Object catch (e) {

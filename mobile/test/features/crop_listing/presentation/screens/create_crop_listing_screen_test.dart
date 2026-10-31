@@ -11,6 +11,7 @@ import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/crop_listing/data/services/crop_photo_picker.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
@@ -18,6 +19,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/screens/create
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
+import '../../../../helpers/crop_photo_fixtures.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -86,6 +88,7 @@ void main() {
         supportedLocales: AppLocalizations.supportedLocales,
         home: CreateCropListingScreen(
           gpsCaptureService: mockGpsService,
+          photoPicker: FakeCropPhotoPicker(),
         ),
       ),
     );
@@ -174,6 +177,7 @@ void main() {
           supportedLocales: AppLocalizations.supportedLocales,
           home: CreateCropListingScreen(
             gpsCaptureService: mockGpsService,
+            photoPicker: FakeCropPhotoPicker(),
           ),
         ),
       );
@@ -271,7 +275,10 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: CreateCropListingScreen(gpsCaptureService: mockGpsService),
+          home: CreateCropListingScreen(
+            gpsCaptureService: mockGpsService,
+            photoPicker: FakeCropPhotoPicker(),
+          ),
         ),
       );
     }
@@ -307,6 +314,7 @@ void main() {
 
     Future<void> fillForm(WidgetTester tester) async {
       await tester.tap(find.byKey(const Key('create_listing_crop_teff')));
+      await addTestPhotos(tester);
       await tester.enterText(
         find.byKey(const Key('create_listing_quantity')),
         '10',
@@ -368,6 +376,194 @@ void main() {
         find.text(
           'GPS is unavailable. Pick your location from the list or turn on '
           'GPS.',
+        ),
+        findsOneWidget,
+      );
+    });
+  });
+
+  group('Photos (crop-listing-api.md 1.6.0)', () {
+    Widget buildWith(
+      FakeCropPhotoPicker picker, {
+      Stream<CropListingState>? states,
+    }) {
+      if (states != null) {
+        when(() => cropListingBloc.stream).thenAnswer((_) => states);
+      }
+      return MultiBlocProvider(
+        providers: [
+          BlocProvider<AuthBloc>.value(value: authBloc),
+          BlocProvider<CropListingBloc>.value(value: cropListingBloc),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: CreateCropListingScreen(
+            gpsCaptureService: mockGpsService,
+            photoPicker: picker,
+          ),
+        ),
+      );
+    }
+
+    Future<void> fillRest(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('create_listing_crop_teff')));
+      await tester.enterText(
+        find.byKey(const Key('create_listing_quantity')),
+        '10',
+      );
+      await tester.enterText(
+        find.byKey(const Key('create_listing_price')),
+        '50',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('create_listing_location')),
+          matching: find.byType(TextFormField),
+        ),
+        'Bishoftu',
+      );
+      await tester.pumpAndSettle();
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> tapSave(WidgetTester tester) async {
+      await tester.ensureVisible(find.text('Save'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+    }
+
+    testWidgets('shows the required section with both sources', (tester) async {
+      await tester.pumpWidget(buildWith(FakeCropPhotoPicker()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Photos of your crop'), findsOneWidget);
+      expect(find.text('0 of 4'), findsOneWidget);
+      expect(find.text('Take photo'), findsOneWidget);
+      expect(find.text('From gallery'), findsOneWidget);
+    });
+
+    testWidgets('refuses to save without photos', (tester) async {
+      await tester.pumpWidget(buildWith(FakeCropPhotoPicker()));
+      await tester.pumpAndSettle();
+      await fillRest(tester);
+      await tapSave(tester);
+      await tester.pumpAndSettle();
+
+      verifyNever(() => cropListingBloc.add(any()));
+      expect(find.text('Add at least 2 photos of your crop.'), findsOneWidget);
+    });
+
+    testWidgets('one photo is not enough; the error goes at the second',
+        (tester) async {
+      await tester.pumpWidget(buildWith(FakeCropPhotoPicker()));
+      await tester.pumpAndSettle();
+      await fillRest(tester);
+      await addTestPhotos(tester, 1);
+      await tapSave(tester);
+      await tester.pumpAndSettle();
+
+      verifyNever(() => cropListingBloc.add(any()));
+      expect(find.text('Add at least 2 photos of your crop.'), findsOneWidget);
+
+      await addTestPhotos(tester, 1);
+      expect(find.text('Add at least 2 photos of your crop.'), findsNothing);
+      expect(find.text('2 of 4'), findsOneWidget);
+    });
+
+    testWidgets('sends the photos and the form\'s listing id', (tester) async {
+      await tester.pumpWidget(buildWith(FakeCropPhotoPicker()));
+      await tester.pumpAndSettle();
+      await fillRest(tester);
+      await addTestPhotos(tester, 3);
+      await tapSave(tester);
+
+      final event = verify(() => cropListingBloc.add(captureAny()))
+          .captured
+          .single as CreateCropListing;
+      expect(event.photos, hasLength(3));
+      expect(event.photos.map((p) => p.photoId).toSet(), hasLength(3));
+      expect(event.listingId, isNotNull);
+    });
+
+    testWidgets('tags the cover and removes a photo', (tester) async {
+      await tester.pumpWidget(buildWith(FakeCropPhotoPicker()));
+      await tester.pumpAndSettle();
+      await addTestPhotos(tester);
+
+      expect(find.text('Cover'), findsOneWidget);
+      expect(find.byKey(const Key('create_listing_photo_1')), findsOneWidget);
+
+      final remove = find.byTooltip('Remove photo').last;
+      await tester.ensureVisible(remove);
+      await tester.pumpAndSettle();
+      await tester.tap(remove);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('create_listing_photo_1')), findsNothing);
+      expect(find.text('1 of 4'), findsOneWidget);
+    });
+
+    testWidgets('the gallery asks only for the free slots and stops at 4',
+        (tester) async {
+      final picker = FakeCropPhotoPicker(galleryCount: 4);
+      await tester.pumpWidget(buildWith(picker));
+      await tester.pumpAndSettle();
+      await addTestPhotos(tester, 1);
+
+      final gallery = find.byKey(const Key('create_listing_photo_gallery'));
+      await tester.ensureVisible(gallery);
+      await tester.pumpAndSettle();
+      await tester.tap(gallery);
+      await tester.pumpAndSettle();
+
+      expect(picker.galleryLimits, [3]);
+      expect(find.text('4 of 4'), findsOneWidget);
+      // Full: both sources are off.
+      final camera = tester.widget<ButtonStyleButton>(
+        find.byKey(const Key('create_listing_photo_camera')),
+      );
+      expect(camera.onPressed, isNull);
+    });
+
+    testWidgets('explains a file that is not a usable photo', (tester) async {
+      await tester.pumpWidget(
+        buildWith(FakeCropPhotoPicker(issue: CropPhotoPickIssue.unsupported)),
+      );
+      await tester.pumpAndSettle();
+      await addTestPhotos(tester, 1);
+
+      expect(
+        find.text(
+          'That file is not a photo we can use. Choose a JPEG, PNG or WebP '
+          'photo.',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a failed web photo upload has its own message',
+        (tester) async {
+      final controller = StreamController<CropListingState>.broadcast();
+      addTearDown(controller.close);
+      await tester.pumpWidget(
+        buildWith(FakeCropPhotoPicker(), states: controller.stream),
+      );
+      await tester.pumpAndSettle();
+
+      controller.add(
+        const CropListingError(
+          message: 'CROP_PHOTO_UPLOAD_FAILED: 1 of 2 photos did not upload',
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.text(
+          'The photos did not upload. Check your connection and save again.',
         ),
         findsOneWidget,
       );

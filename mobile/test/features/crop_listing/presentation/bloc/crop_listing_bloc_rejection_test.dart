@@ -18,10 +18,12 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 
 import '../../../../helpers/wait_for.dart';
+import '../../../../helpers/crop_photo_fixtures.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
 
-const _create = CreateCropListing(
+final _create = CreateCropListing(
+  photos: testCropPhotos(),
   farmerId: 'farmer-1',
   cropType: 'teff',
   quantity: 10,
@@ -64,7 +66,8 @@ void main() {
     late WebCropListingRepository repository;
 
     setUp(() {
-      repository = WebCropListingRepository(api: api);
+      repository = WebCropListingRepository(
+          api: api, photoUploader: FakeCropPhotoUploader());
       when(() => api.get<Map<String, dynamic>>('/crops/crop-1')).thenAnswer(
         (_) async => {
           'crop': {'cropId': 'crop-1', 'farmerId': 'farmer-1', 'version': 3},
@@ -140,7 +143,8 @@ void main() {
         name: 'crop_bloc_rejection_${DateTime.now().microsecondsSinceEpoch}',
       );
       queue = SyncQueue(isar);
-      repository = CropListingRepository(isar: isar, syncQueue: queue);
+      repository = CropListingRepository(
+          isar: isar, syncQueue: queue, photoFiles: tempCropPhotoFileStore());
       sync = IsarMarketplaceSync(api: api, isar: isar);
     });
 

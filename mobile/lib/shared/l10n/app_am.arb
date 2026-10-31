@@ -3114,5 +3114,21 @@
   "liveTripReleasePending": "ክፍያው ገና አልተለቀቀም",
   "liveTripYouConfirmedDelivery": "ማድረሻውን አረጋግጠዋል",
   "liveTripCheckWindowEnds": "የማጣሪያ ጊዜው ያበቃል",
-  "liveTripPartyGets": "{name} {amount} ያገኛል"
+  "liveTripPartyGets": "{name} {amount} ያገኛል",
+  "cropPhotosTitle": "የሰብልዎ ፎቶዎች",
+  "cropPhotosHint": "ከ2 እስከ 4 ግልጽ ፎቶዎችን በቀን ብርሃን ያክሉ፦ ሙሉውን ክምር እና የእህሉን ቅርብ ፎቶ።",
+  "cropPhotosCount": "{count} ከ{max}",
+  "cropPhotosTake": "ፎቶ አንሳ",
+  "cropPhotosGallery": "ከጋለሪ",
+  "cropPhotosRemove": "ፎቶውን አስወግድ",
+  "cropPhotosRequired": "ቢያንስ {min} የሰብልዎን ፎቶዎች ያክሉ።",
+  "cropPhotosLimitReached": "እስከ {max} ፎቶዎች ማከል ይችላሉ።",
+  "cropPhotosUnsupported": "ይህ ፋይል ልንጠቀምበት የምንችለው ፎቶ አይደለም። JPEG፣ PNG ወይም WebP ፎቶ ይምረጡ።",
+  "cropPhotosTooLarge": "ፎቶው በጣም ትልቅ ነው። ትንሽ ይምረጡ።",
+  "cropPhotosPickFailed": "ካሜራውን ወይም ጋለሪውን መክፈት አልተቻለም። የመተግበሪያውን ፈቃዶች ያረጋግጡና እንደገና ይሞክሩ።",
+  "cropPhotosUploadFailed": "ፎቶዎቹ አልተጫኑም። ግንኙነትዎን ያረጋግጡና እንደገና ያስቀምጡ።",
+  "cropPhotoCover": "ሽፋን",
+  "cropPhotoPosition": "ፎቶ {index} ከ{count}",
+  "cropPhotosCountLabel": "{count} ፎቶዎች",
+  "cropPhotoUnavailable": "ፎቶው ገና አልተገኘም"
 }
