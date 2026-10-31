@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -154,5 +156,53 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  double sheetHeight(WidgetTester tester) =>
+      tester.getSize(find.byType(DraggableScrollableSheet)).height;
+
+  double windowHeight(WidgetTester tester) =>
+      tester.view.physicalSize.height / tester.view.devicePixelRatio;
+
+  testWidgets('a phone opens the sheet low', (tester) async {
+    await pumpBell(tester);
+
+    await tester.tap(find.byIcon(Icons.notifications_outlined));
+    await tester.pumpAndSettle();
+
+    expect(sheetHeight(tester), closeTo(windowHeight(tester) * 0.4, 1));
+  });
+
+  // No mouse can drag a sheet by default, so on a desktop browser it stayed
+  // at 40% with the rest of the list below the window.
+  testWidgets('a desktop opens the sheet tall', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      await pumpBell(tester);
+
+      await tester.tap(find.byIcon(Icons.notifications_outlined));
+      await tester.pumpAndSettle();
+
+      expect(sheetHeight(tester), closeTo(windowHeight(tester) * 0.9, 1));
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('a mouse drag grows the sheet', (tester) async {
+    await pumpBell(tester);
+    await tester.tap(find.byIcon(Icons.notifications_outlined));
+    await tester.pumpAndSettle();
+    final before = sheetHeight(tester);
+
+    final en = lookupAppLocalizations(const Locale('en'));
+    await tester.drag(
+      find.text(en.notifOrderRequestTitle),
+      const Offset(0, -150),
+      kind: PointerDeviceKind.mouse,
+    );
+    await tester.pumpAndSettle();
+
+    expect(sheetHeight(tester), greaterThan(before + 100));
   });
 }
