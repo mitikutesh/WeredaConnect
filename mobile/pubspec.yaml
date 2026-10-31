@@ -67,7 +67,7 @@ dependencies:
 
   # Fayda OIDC deep link + browser launch
   url_launcher: ^6.3.2
-  app_links: ^6.0.0
+  app_links: ^7.2.2
 
   # Device authentication (biometric or PIN/pattern fallback): QR delivery
   # confirm gate + app lock. Android/iOS only; guarded by kIsWeb on web.
