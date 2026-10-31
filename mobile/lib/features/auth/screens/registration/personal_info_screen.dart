@@ -215,6 +215,8 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                   PlaceSelector(
                     key: const Key('register_wereda'),
                     controller: _weredaController,
+                    // "Meki · Oromia" with a chevron, as on the board.
+                    pickerLook: true,
                     validator: (value) {
                       if (value == null || value.trim().isEmpty) {
                         return l10n.fieldRequired;

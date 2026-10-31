@@ -127,6 +127,16 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
         );
   }
 
+  void _onVerifyTap() {
+    if (_isComplete) {
+      _submit();
+      return;
+    }
+    setState(
+      () => _errorMessage = AppLocalizations.of(context)!.enterSixDigitCode,
+    );
+  }
+
   void _resend() {
     setState(() => _errorMessage = null);
     context
@@ -338,7 +348,12 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                     height: 56,
                     child: FilledButton(
                       key: const Key('otp_verify_button'),
-                      onPressed: (_isComplete && !isLoading) ? _submit : null,
+                      // Active from the first digit, as on the board; a short
+                      // code asks for the rest instead of sending.
+                      onPressed:
+                          (_codeController.text.isNotEmpty && !isLoading)
+                              ? _onVerifyTap
+                              : null,
                       child: isLoading
                           ? const SizedBox(
                               width: 20,

@@ -52,11 +52,12 @@ class PlaceSelector extends StatefulWidget {
     this.labelAbove = false,
     this.prefix,
     this.showSearchIcon = true,
+    this.pickerLook = false,
     super.key,
   });
 
-  /// Caller-owned controller. Holds the canonical English name after a pick, or
-  /// the raw free text otherwise.
+  /// Caller-owned controller. Holds the canonical English name after a pick
+  /// (with " · region" in [pickerLook]), or the raw free text otherwise.
   final TextEditingController controller;
 
   final String? labelText;
@@ -103,6 +104,11 @@ class PlaceSelector extends StatefulWidget {
 
   /// The search glass at the end of the field; the boards draw none.
   final bool showSearchIcon;
+
+  /// The Register personal board's picker: a picked place reads with its
+  /// region ("Meki · Oromia") and the field ends in a chevron instead of the
+  /// search glass. The place itself still reaches [onPlaceSelected].
+  final bool pickerLook;
 
   @override
   State<PlaceSelector> createState() => _PlaceSelectorState();
@@ -180,16 +186,21 @@ class _PlaceSelectorState extends State<PlaceSelector> {
   }
 
   void _handleSelected(Place place) {
-    // RawAutocomplete sets controller.text to displayStringForOption (== en).
+    // RawAutocomplete sets controller.text to displayStringForOption.
     _selectedPlace = place;
     _showNoResultsHint = false;
     widget.onPlaceSelected?.call(place);
     _focusNode.unfocus();
   }
 
+  /// What the field shows for a picked [place].
+  String _display(Place place) => widget.pickerLook && place.region.isNotEmpty
+      ? '${place.en} · ${place.region}'
+      : place.en;
+
   void _handleFieldChanged(String text) {
     // User typed: if it diverges from the picked place, drop the selection.
-    if (_selectedPlace != null && text.trim() != _selectedPlace!.en) {
+    if (_selectedPlace != null && text.trim() != _display(_selectedPlace!)) {
       _selectedPlace = null;
       widget.onPlaceSelected?.call(null);
     }
@@ -202,7 +213,7 @@ class _PlaceSelectorState extends State<PlaceSelector> {
     return RawAutocomplete<Place>(
       textEditingController: widget.controller,
       focusNode: _focusNode,
-      displayStringForOption: (place) => place.en,
+      displayStringForOption: _display,
       optionsBuilder: _optionsBuilder,
       onSelected: _handleSelected,
       fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
@@ -230,9 +241,14 @@ class _PlaceSelectorState extends State<PlaceSelector> {
                   prefixIconConstraints: widget.prefix == null
                       ? null
                       : const BoxConstraints(minWidth: 40, minHeight: 40),
-                  suffixIcon: widget.showSearchIcon
-                      ? const Icon(Icons.search, color: AppTheme.textMuted)
-                      : null,
+                  suffixIcon: widget.pickerLook
+                      ? const Icon(
+                          Icons.keyboard_arrow_down,
+                          color: AppTheme.textMuted,
+                        )
+                      : widget.showSearchIcon
+                          ? const Icon(Icons.search, color: AppTheme.textMuted)
+                          : null,
                   isDense: widget.isDense,
                   // Long validator texts (FUP-49 phone refusal) wrap, not clip.
                   errorMaxLines: 3,

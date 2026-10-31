@@ -156,6 +156,27 @@ void main() {
     expect(resend.dy, lessThan(verify.dy));
   });
 
+  // Register OTP board: Verify is active with three digits typed; a short
+  // code asks for the rest and sends nothing.
+  testWidgets('Verify is active from the first digit and asks for the rest',
+      (tester) async {
+    await tester.pumpWidget(app());
+    await tester.pump();
+    FilledButton button() => tester.widget<FilledButton>(
+          find.byKey(const Key('otp_verify_button')),
+        );
+    expect(button().onPressed, isNull);
+
+    await tester.enterText(find.byKey(const Key('otp_code_field')), '481');
+    await tester.pump();
+    expect(button().onPressed, isNotNull);
+
+    await tester.tap(find.byKey(const Key('otp_verify_button')));
+    await tester.pump();
+    expect(find.text('Please enter 6-digit code'), findsOneWidget);
+    verifyNever(() => bloc.add(any(that: isA<AuthVerifyOtpRequested>())));
+  });
+
   testWidgets('ignores non-digits', (tester) async {
     await tester.pumpWidget(app());
     await tester.pump();
