@@ -3904,6 +3904,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get tripModeNotSharing => 'This trip does not share its location.';
 
   @override
+  String get tripBookingsLoadFailed =>
+      'Could not load the bookings of this trip.';
+
+  @override
   String get tripModeLoadFailed => 'Could not load the stops of this trip.';
 
   @override

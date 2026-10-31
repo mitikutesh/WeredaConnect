@@ -198,6 +198,32 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
   /// line. Null until read (or with no trip repository), so no line shows.
   List<Trip>? _openTrips;
 
+  /// The trips this week per listing and the sorted list, worked out once
+  /// per trips read and buyer place, not on every rebuild (a filter
+  /// keystroke, a rating resolving): low-end phones.
+  List<Trip>? _matchTrips;
+  String? _matchWoreda;
+  final Map<String, List<Trip>> _thisWeek = {};
+  List<CropListing>? _sortedFrom;
+  List<CropListing> _sorted = const [];
+
+  List<Trip> _tripsThisWeek(
+    CropListing listing,
+    List<Trip> trips,
+    String? woreda,
+  ) {
+    if (!identical(trips, _matchTrips) || woreda != _matchWoreda) {
+      _matchTrips = trips;
+      _matchWoreda = woreda;
+      _thisWeek.clear();
+      _sortedFrom = null;
+    }
+    return _thisWeek.putIfAbsent(
+      listing.listingId,
+      () => tripsThisWeekFor(listing, trips, woreda, DateTime.now().toUtc()),
+    );
+  }
+
   Future<void> _loadOpenTrips() async {
     if (widget.ownerMode) return;
     final auth = context.read<AuthBloc>().state;
@@ -222,8 +248,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     final auth = context.read<AuthBloc>().state;
     final woreda =
         auth is AuthAuthenticated ? _buyerDeliveryWoreda(auth) : null;
-    final fitting =
-        tripsThisWeekFor(listing, trips, woreda, DateTime.now().toUtc());
+    final fitting = _tripsThisWeek(listing, trips, woreda);
     if (fitting.isEmpty) return l10n.marketNoTripYet;
     if (fitting.length > 1) return l10n.marketTripsThisWeek(fitting.length);
     final trip = fitting.single;
@@ -275,8 +300,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     final auth = context.read<AuthBloc>().state;
     final woreda =
         auth is AuthAuthenticated ? _buyerDeliveryWoreda(auth) : null;
-    return tripsThisWeekFor(listing, trips, woreda, DateTime.now().toUtc())
-        .isNotEmpty;
+    return _tripsThisWeek(listing, trips, woreda).isNotEmpty;
   }
 
   /// "32 of 60 quintals ordered", or "8 quintals, no orders yet".
@@ -769,12 +793,18 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     final auth = context.read<AuthBloc>().state;
     final woreda =
         auth is AuthAuthenticated ? _buyerDeliveryWoreda(auth) : null;
-    return sortedByTransportMatch(
-      listings,
-      trips,
-      woreda,
-      DateTime.now().toUtc(),
-    );
+    // Resets the caches when the trips or the place changed.
+    if (listings.isNotEmpty) _tripsThisWeek(listings.first, trips, woreda);
+    if (!identical(listings, _sortedFrom)) {
+      _sortedFrom = listings;
+      _sorted = sortedByTransportMatch(
+        listings,
+        trips,
+        woreda,
+        DateTime.now().toUtc(),
+      );
+    }
+    return _sorted;
   }
 
   /// Market board: "Every farmer's listing, sorted by the best match for

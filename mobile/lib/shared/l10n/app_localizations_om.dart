@@ -3939,6 +3939,10 @@ class AppLocalizationsOm extends AppLocalizations {
   String get tripModeNotSharing => 'Imalli kun bakka isaa hin qoodu.';
 
   @override
+  String get tripBookingsLoadFailed =>
+      'Qabannaa imala kanaa fe\'uun hin danda\'amne.';
+
+  @override
   String get tripModeLoadFailed =>
       'Dhaabbiiwwan imala kanaa fe\'uun hin danda\'amne.';
 

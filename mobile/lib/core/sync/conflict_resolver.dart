@@ -197,8 +197,11 @@ class ConflictResolver {
             (serverData['quantity'] as num?)?.toDouble() ?? delivery!.quantity;
         delivery!.pickupPlace =
             serverData['pickupPlace'] as String? ?? delivery!.pickupPlace;
+        // UTC, as the full sync and the web read it, so the pickup day is
+        // the same whichever path wrote the row.
         delivery!.pickupPlannedAt =
-            DateTime.tryParse(serverData['pickupPlannedAt'] as String? ?? '') ??
+            DateTime.tryParse(serverData['pickupPlannedAt'] as String? ?? '')
+                    ?.toUtc() ??
                 delivery!.pickupPlannedAt;
         delivery!.listingId = serverData['listingId'] as String? ?? '';
         delivery!.farmerId = serverData['farmerId'] as String? ?? '';

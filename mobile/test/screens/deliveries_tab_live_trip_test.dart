@@ -163,7 +163,8 @@ void main() {
           status: DeliveryStatus.delivered,
           confirmedAt: now.subtract(const Duration(hours: 72)),
         ),
-        // Delivered, the money still waits out the window: still active.
+        // Delivered, the money still waits out the window: still listed
+        // under Active, counted under Delivered (the board's "Active · 2").
         liveDelivery(
           id: 'delivery-105',
           status: DeliveryStatus.delivered,
@@ -173,7 +174,7 @@ void main() {
         onTheRoad,
       ],
     );
-    expect(find.text('Active · 3'), findsOneWidget);
+    expect(find.text('Active · 2'), findsOneWidget);
     expect(find.text('Delivered · 2'), findsOneWidget);
     expect(find.byKey(const ValueKey('delivery-delivery-105')), findsOneWidget);
     expect(find.byKey(const ValueKey('delivery-delivery-103')), findsNothing);

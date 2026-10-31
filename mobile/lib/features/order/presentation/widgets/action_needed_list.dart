@@ -255,7 +255,10 @@ class _ActionNeededListState extends State<ActionNeededList> {
   Future<void> _open(ActionNeededItem item) async {
     await openOrderDetail(context, item.order.orderId);
     if (!mounted) return;
-    setState(() => _items = _load());
+    // A block body: an arrow would hand setState the Future it assigns.
+    setState(() {
+      _items = _load();
+    });
     widget.onRefresh?.call();
   }
 

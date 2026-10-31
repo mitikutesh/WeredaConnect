@@ -2856,6 +2856,7 @@
   "tripModeCheckInSaved": "Gabaasni olkaa'ameera.",
   "tripModeNoFix": "Amma bakka argachuun hin danda'amne. Tajaajilli bakkaa banaa ta'uu mirkaneessaatii irra deebi'aa yaalaa.",
   "tripModeNotSharing": "Imalli kun bakka isaa hin qoodu.",
+  "tripBookingsLoadFailed": "Qabannaa imala kanaa fe'uun hin danda'amne.",
   "tripModeLoadFailed": "Dhaabbiiwwan imala kanaa fe'uun hin danda'amne.",
   "tripModeOfflineTitle": "Asitti neetworkiin hin jiru",
   "tripModeOfflineWaiting": "{count, plural, =0{Gabaasni bilbila kana irra eegee yeroo neetworkiin deebi'u ofumaan ergama.} =1{Gabaasni 1 bilbila kana irra eegaa jira. Yeroo neetworkiin deebi'u ofumaan ergama.} other{Gabaasni {count} bilbila kana irra eegaa jira. Yeroo neetworkiin deebi'u ofumaan ergamu.}}",

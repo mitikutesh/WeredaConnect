@@ -6970,6 +6970,12 @@ abstract class AppLocalizations {
   /// **'This trip does not share its location.'**
   String get tripModeNotSharing;
 
+  /// Fieldway structure pass. Trip detail, trucker: the booked orders could not be read (offline, server error); a Retry button follows
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load the bookings of this trip.'**
+  String get tripBookingsLoadFailed;
+
   /// Trip mode: the deliveries of the trip could not be read
   ///
   /// In en, this message translates to:

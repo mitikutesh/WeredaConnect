@@ -8,7 +8,6 @@ import 'package:wereda_connect/core/database/isar_service.dart'
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
-import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
@@ -569,7 +568,7 @@ class _DeliveryHeader extends StatelessWidget {
             : '$farmerLine → $buyer';
     final planned = delivery.pickupPlannedAt;
     final subtitle = status == DeliveryStatus.pending && planned != null
-        ? '$parties · ${l10n.delivPickupOn(_shortDay(planned))}'
+        ? '$parties · ${l10n.delivPickupOn(boardDayInEthiopia(planned))}'
         : parties;
 
     return FwDetailHeader(
@@ -580,12 +579,6 @@ class _DeliveryHeader extends StatelessWidget {
         kind: _statusKind(status),
       ),
     );
-  }
-
-  /// "Thu Oct 30": the weekday, then the short date, on the Ethiopian day.
-  static String _shortDay(DateTime at) {
-    final day = dayInEthiopia(at);
-    return formatBoardDay(day);
   }
 
   static StatusKind _statusKind(DeliveryStatus status) => switch (status) {

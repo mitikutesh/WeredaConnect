@@ -75,7 +75,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
     final kgQuantity = neededKg < listingKg ? neededKg : listingKg;
     // Grouped as the field groups what is typed ("1,500").
     _quantityController =
-        TextEditingController(text: wholeNumber(kgQuantity.round()));
+        TextEditingController(text: formatGroupedNumber(kgQuantity));
     _loadTruckerRating();
   }
 
@@ -137,7 +137,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
 
   void _step(double delta) {
     final next = (_quantity + delta).clamp(0, _stockKg).toDouble();
-    _quantityController.text = wholeNumber(next.round());
+    _quantityController.text = formatGroupedNumber(next);
     setState(() {});
   }
 

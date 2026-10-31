@@ -95,13 +95,20 @@ class _TripBookingsSectionState extends State<TripBookingsSection> {
           )
           .toList()
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    } on Object {
-      return const [];
+    } on Object catch (e) {
+      // Not "no bookings": a request waiting for an answer may be among
+      // them, so the section says it could not read them and offers Retry.
+      debugPrint('[TripBookingsSection] orders unreadable: $e');
+      rethrow;
     }
   }
 
   void _reload() {
-    if (mounted) setState(() => _orders = _load());
+    if (!mounted) return;
+    // A block body: an arrow would hand setState the Future it assigns.
+    setState(() {
+      _orders = _load();
+    });
   }
 
   Future<void> _open(Order order) async {
@@ -167,7 +174,26 @@ class _TripBookingsSectionState extends State<TripBookingsSection> {
               child: Text(l10n.tripBookings, style: _sectionTitle),
             ),
             const SizedBox(height: 12),
-            if (orders.isEmpty)
+            if (snapshot.hasError)
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      l10n.tripBookingsLoadFailed,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: AppTheme.mutedSteel,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    key: const Key('trip_bookings_retry'),
+                    onPressed: _reload,
+                    child: Text(l10n.retry),
+                  ),
+                ],
+              )
+            else if (orders.isEmpty)
               Text(
                 l10n.tripNoBookings,
                 style: const TextStyle(
@@ -183,6 +209,8 @@ class _TripBookingsSectionState extends State<TripBookingsSection> {
                     order: order,
                     trip: widget.trip,
                     answering: _answering == order.orderId,
+                    // One answer at a time: another card's buttons wait.
+                    locked: _answering != null,
                     onOpen: () => _open(order),
                     onAccept: () => _accept(order),
                     onDecline: () => _decline(order),
@@ -208,18 +236,21 @@ const TextStyle _sectionTitle = TextStyle(
   color: AppTheme.soilDark,
 );
 
-/// One booked order. A request the trucker must answer gets the gold
-/// outline, the farmer's accept with the deadline, and the two buttons.
 /// A stamped place, or null when it is missing or blank.
 String? _place(String? value) {
   final trimmed = value?.trim() ?? '';
   return trimmed.isEmpty ? null : trimmed;
 }
 
+/// One booked order. A request the trucker must answer gets the gold
+/// outline, the farmer's accept with the deadline, and the two buttons.
 class _BookingCard extends StatelessWidget {
   final Order order;
   final Trip trip;
   final bool answering;
+
+  /// An answer is in flight (on this card or another): the buttons wait.
+  final bool locked;
   final VoidCallback onOpen;
   final VoidCallback onAccept;
   final VoidCallback onDecline;
@@ -228,6 +259,7 @@ class _BookingCard extends StatelessWidget {
     required this.order,
     required this.trip,
     required this.answering,
+    required this.locked,
     required this.onOpen,
     required this.onAccept,
     required this.onDecline,
@@ -278,8 +310,8 @@ class _BookingCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 2),
-                        // The order has no places of its own; the trip's
-                        // ends stand in for the farm and the drop-off.
+                        // The order's farm and drop-off (order-lifecycle
+                        // 2.2.0), the trip's ends on an older order.
                         Text(
                           '$farmer, $from → $buyer, $to',
                           style: const TextStyle(
@@ -318,6 +350,7 @@ class _BookingCard extends StatelessWidget {
                 _TransportRequest(
                   order: order,
                   answering: answering,
+                  locked: locked,
                   onAccept: onAccept,
                   onDecline: onDecline,
                 )
@@ -365,12 +398,14 @@ class _BookingCard extends StatelessWidget {
 class _TransportRequest extends StatelessWidget {
   final Order order;
   final bool answering;
+  final bool locked;
   final VoidCallback onAccept;
   final VoidCallback onDecline;
 
   const _TransportRequest({
     required this.order,
     required this.answering,
+    required this.locked,
     required this.onAccept,
     required this.onDecline,
   });
@@ -416,7 +451,7 @@ class _TransportRequest extends StatelessWidget {
             Expanded(
               child: OutlinedButton(
                 key: Key('booking_decline_${order.orderId}'),
-                onPressed: answering ? null : onDecline,
+                onPressed: locked ? null : onDecline,
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(48),
                   shape: RoundedRectangleBorder(
@@ -436,7 +471,7 @@ class _TransportRequest extends StatelessWidget {
             Expanded(
               child: FilledButton(
                 key: Key('booking_accept_${order.orderId}'),
-                onPressed: answering ? null : onAccept,
+                onPressed: locked ? null : onAccept,
                 style: FilledButton.styleFrom(
                   backgroundColor: AppTheme.soilDark,
                   minimumSize: const Size.fromHeight(48),

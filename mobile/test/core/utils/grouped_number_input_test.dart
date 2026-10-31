@@ -38,6 +38,26 @@ void main() {
     expect(v.selection.baseOffset, 4);
   });
 
+  test('a backspace on the comma removes the digit before it', () {
+    final v = formatter.formatEditUpdate(
+      const TextEditingValue(
+        text: '1,500',
+        selection: TextSelection.collapsed(offset: 2),
+      ),
+      const TextEditingValue(
+        text: '1500',
+        selection: TextSelection.collapsed(offset: 1),
+      ),
+    );
+    expect(v.text, '500');
+    expect(v.selection.baseOffset, 0);
+  });
+
+  test('a pasted run of digits is capped, never thrown on', () {
+    final v = type('1' * 30);
+    expect(v.text.replaceAll(',', '').length, 15);
+  });
+
   test('the value reads back without the commas', () {
     expect(parseGroupedNumber('1,500.5'), 1500.5);
     expect(parseGroupedNumber(''), isNull);

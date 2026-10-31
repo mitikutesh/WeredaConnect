@@ -102,9 +102,9 @@ class DeliveryCard extends StatelessWidget {
     final planned = delivery.pickupPlannedAt;
     final whenLine = switch (status) {
       DeliveryStatus.pending when planned != null =>
-        l10n.delivPickupOn(_shortDay(planned)),
+        l10n.delivPickupOn(boardDayInEthiopia(planned)),
       DeliveryStatus.delivered when windowEnd == null => l10n.delivDeliveredOn(
-          _shortDay(delivery.confirmedAt ?? delivery.updatedAt),
+          boardDayInEthiopia(delivery.confirmedAt ?? delivery.updatedAt),
         ),
       _ => null,
     };
@@ -254,7 +254,7 @@ class DeliveryCard extends StatelessWidget {
       final planned = delivery.pickupPlannedAt;
       final waiting = planned == null
           ? l10n.liveTripWaitingForPickup
-          : l10n.delivWaitingForPickupOn(_shortDay(planned));
+          : l10n.delivWaitingForPickupOn(boardDayInEthiopia(planned));
       line = Text(
         '$waiting · ${l10n.delivMapStartsAtPickup}',
         maxLines: 1,
@@ -265,7 +265,7 @@ class DeliveryCard extends StatelessWidget {
       // Inside the 48 h window the weekday alone places the day.
       final at = delivery.confirmedAt ?? delivery.updatedAt;
       final deliveredOn = l10n.delivDeliveredOn(
-        windowEnd == null ? _shortDay(at) : _weekday(at),
+        windowEnd == null ? boardDayInEthiopia(at) : _weekday(at),
       );
       line = isBuyer && windowEnd != null
           ? ClockText(
@@ -326,12 +326,6 @@ class DeliveryCard extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  /// "Thu Oct 30": the weekday, then the short date, on the Ethiopian day.
-  static String _shortDay(DateTime at) {
-    final day = dayInEthiopia(at);
-    return formatBoardDay(day);
   }
 
   /// "Mon": the weekday alone, on the Ethiopian day.

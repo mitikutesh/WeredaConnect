@@ -4404,6 +4404,8 @@
   "@tripModeNoFix": {"description": "Snackbar: no GPS fix in time"},
   "tripModeNotSharing": "This trip does not share its location.",
   "@tripModeNotSharing": {"description": "Snackbar: the trip does not share now (scans only or ended)"},
+  "tripBookingsLoadFailed": "Could not load the bookings of this trip.",
+  "@tripBookingsLoadFailed": {"description": "Fieldway structure pass. Trip detail, trucker: the booked orders could not be read (offline, server error); a Retry button follows"},
   "tripModeLoadFailed": "Could not load the stops of this trip.",
   "@tripModeLoadFailed": {"description": "Trip mode: the deliveries of the trip could not be read"},
   "tripModeOfflineTitle": "No network here",

@@ -2863,6 +2863,7 @@
   "tripModeCheckInSaved": "ሪፖርቱ ተቀምጧል።",
   "tripModeNoFix": "አሁን ቦታ ማግኘት አልተቻለም። የቦታ አገልግሎት መብራቱን አረጋግጠው እንደገና ይሞክሩ።",
   "tripModeNotSharing": "ይህ ጉዞ ቦታውን አያጋራም።",
+  "tripBookingsLoadFailed": "የዚህን ጉዞ ቦታ ማስያዣዎች መጫን አልተቻለም።",
   "tripModeLoadFailed": "የዚህን ጉዞ ማቆሚያዎች መጫን አልተቻለም።",
   "tripModeOfflineTitle": "እዚህ ኔትወርክ የለም",
   "tripModeOfflineWaiting": "{count, plural, =0{ሪፖርቶች ስልኩ ላይ ይቆያሉ፤ ኔትወርክ ሲመለስ በራሳቸው ይላካሉ።} =1{1 ሪፖርት ስልኩ ላይ እየጠበቀ ነው። ኔትወርክ ሲመለስ በራሱ ይላካል።} other{{count} ሪፖርቶች ስልኩ ላይ እየጠበቁ ነው። ኔትወርክ ሲመለስ በራሳቸው ይላካሉ።}}",

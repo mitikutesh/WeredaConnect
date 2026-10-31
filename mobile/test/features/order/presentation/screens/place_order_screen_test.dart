@@ -136,6 +136,21 @@ void main() {
     expect(created.single.quantity, 1500);
   });
 
+  // A listing with fractional stock (2.555 q = 255.5 kg): the field shows
+  // the fraction and the stepper stops at the stock, never above it.
+  testWidgets('fractional stock is never rounded above itself',
+      (tester) async {
+    await open(tester, quintals: 2.555);
+
+    expect(find.text('255.5'), findsOneWidget);
+    await tester.ensureVisible(find.byIcon(Icons.add));
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pump();
+    expect(find.text('255.5'), findsOneWidget);
+    expect(find.textContaining('kg available'), findsNothing);
+    expect(placeOrderButton(tester).onPressed, isNotNull);
+  });
+
   testWidgets(
       'more kg than the listing has shows an error and blocks the order',
       (tester) async {

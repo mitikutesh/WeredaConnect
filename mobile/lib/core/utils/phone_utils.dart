@@ -10,6 +10,8 @@ library;
 
 import 'package:flutter/services.dart';
 
+import 'package:wereda_connect/core/utils/grouped_number_input.dart';
+
 final _e164Regex = RegExp(r'^\+251\d{9}$');
 final _digit = RegExp(r'\d');
 
@@ -70,6 +72,7 @@ class EthiopianPhoneInputFormatter extends TextInputFormatter {
     TextEditingValue oldValue,
     TextEditingValue newValue,
   ) {
+    newValue = deleteAcrossSeparator(oldValue, newValue, ' ');
     final text = newValue.text;
     final cursor = newValue.selection.baseOffset.clamp(0, text.length);
     final raw = StringBuffer();

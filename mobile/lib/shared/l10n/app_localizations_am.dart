@@ -3790,6 +3790,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get tripModeNotSharing => 'ይህ ጉዞ ቦታውን አያጋራም።';
 
   @override
+  String get tripBookingsLoadFailed => 'የዚህን ጉዞ ቦታ ማስያዣዎች መጫን አልተቻለም።';
+
+  @override
   String get tripModeLoadFailed => 'የዚህን ጉዞ ማቆሚያዎች መጫን አልተቻለም።';
 
   @override

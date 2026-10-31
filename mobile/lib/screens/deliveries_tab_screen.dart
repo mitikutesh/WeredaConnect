@@ -105,9 +105,12 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
   static bool _isOwnLiveTrip(Delivery delivery, String userId) =>
       isOnTheRoad(delivery) && liveTripViewerOf(delivery, userId) != null;
 
-  /// Active (Buyer · Deliveries board): everything not cancelled that is
-  /// not settled yet, so a delivered one stays here through the buyer's 48 h
-  /// check window ("Release pending") and moves to Delivered after it.
+  /// Active (Buyer · Deliveries board) lists everything not cancelled that
+  /// is not settled yet, so a delivered one stays here through the buyer's
+  /// 48 h check window ("Release pending") and leaves after it; Delivered
+  /// lists every delivered one. As on the board, the Active count is only
+  /// what is still moving ("Active · 2" over the two loads and the release
+  /// pending card), so no delivery is counted twice.
   static bool _isActive(Delivery delivery) {
     if (delivery.status == DeliveryStatus.cancelled) return false;
     if (delivery.status != DeliveryStatus.delivered) return true;
@@ -383,7 +386,13 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
   }
 
   Widget _segmented(List<Delivery> all, AppLocalizations l10n) {
-    final active = all.where(_isActive).length;
+    final active = all
+        .where(
+          (d) =>
+              d.status != DeliveryStatus.cancelled &&
+              d.status != DeliveryStatus.delivered,
+        )
+        .length;
     final delivered =
         all.where((d) => d.status == DeliveryStatus.delivered).length;
     return FwSegmented<_Segment>(

@@ -55,6 +55,21 @@ void main() {
       expect(v.selection.baseOffset, 7);
     });
 
+    test('a backspace on the space removes the digit before it', () {
+      final v = formatter.formatEditUpdate(
+        const TextEditingValue(
+          text: '0911 234',
+          selection: TextSelection.collapsed(offset: 5),
+        ),
+        const TextEditingValue(
+          text: '0911234',
+          selection: TextSelection.collapsed(offset: 4),
+        ),
+      );
+      expect(v.text, '0912 34');
+      expect(v.selection.baseOffset, 3);
+    });
+
     test('the spaces do not reach the server', () {
       expect(normalizeEthiopianPhone(type('0911234567').text), '+251911234567');
     });
