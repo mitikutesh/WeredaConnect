@@ -134,7 +134,6 @@ class MatchResultCard extends StatelessWidget {
         price: wholeNumber(listing.pricePerKg.round()),
         priceUnit: l10n.etbPerKg,
         cropKey: listing.cropType,
-        icon: cropType.icon,
         onTap: onTap,
         detail: hasTrips
             ? l10n.tripsAvailable(result.suggestedTrips.length)

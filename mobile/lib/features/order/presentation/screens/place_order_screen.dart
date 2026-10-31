@@ -258,9 +258,6 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                         Semantics(
                           label: l10n.listingSummary,
                           child: _PartyCard(
-                            icon: CropType.tryFromKey(widget.listing.cropType)
-                                    ?.icon ??
-                                Icons.eco_outlined,
                             iconBackground:
                                 cropTileColors(widget.listing.cropType)
                                     .background,
@@ -463,7 +460,8 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
 /// The board's one-line card: a tinted icon tile, a title, a line under it
 /// and an optional action at the end (the listing, the transport).
 class _PartyCard extends StatelessWidget {
-  final IconData icon;
+  /// The tile's icon; null draws the boards' crop sprout.
+  final IconData? icon;
   final Color iconBackground;
   final Color iconColor;
   final String title;
@@ -471,10 +469,10 @@ class _PartyCard extends StatelessWidget {
   final Widget? trailing;
 
   const _PartyCard({
-    required this.icon,
     required this.iconBackground,
     required this.title,
     required this.subtitle,
+    this.icon,
     this.iconColor = AppTheme.money,
     this.trailing,
   });
@@ -492,7 +490,9 @@ class _PartyCard extends StatelessWidget {
               color: iconBackground,
               borderRadius: BorderRadius.circular(13),
             ),
-            child: Icon(icon, size: 22, color: iconColor),
+            child: icon == null
+                ? FwSprout(color: iconColor)
+                : Icon(icon, size: 22, color: iconColor),
           ),
           const SizedBox(width: 12),
           Expanded(

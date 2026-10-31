@@ -363,14 +363,17 @@ class DeliveryCropTile extends StatelessWidget {
         color: background,
         borderRadius: BorderRadius.circular(14),
       ),
-      child: Icon(icon, size: 22, color: foreground),
+      // The boards' sprout while the crop is on its way.
+      child: icon == null
+          ? FwSprout(color: foreground)
+          : Icon(icon, size: 22, color: foreground),
     );
   }
 
-  /// The tile's icon and colours: the crop while the delivery lives (in the
-  /// crop's board colours, [cropTileColors]), a check once delivered, muted
-  /// when cancelled, a warning when disputed.
-  static (IconData, Color, Color) _tile(
+  /// The tile's icon and colours: the sprout (null icon) while the delivery
+  /// lives, in the crop's board colours ([cropTileColors]), a check once
+  /// delivered, muted when cancelled, a warning when disputed.
+  static (IconData?, Color, Color) _tile(
     String? cropKey,
     DeliveryStatus status,
   ) {
@@ -388,10 +391,8 @@ class DeliveryCropTile extends StatelessWidget {
       case DeliveryStatus.pending:
       case DeliveryStatus.pickedUp:
       case DeliveryStatus.inTransit:
-        final crop = cropKey == null ? null : CropType.tryFromKey(cropKey);
-        final icon = crop?.icon ?? Icons.eco_outlined;
         final tile = cropTileColors(cropKey);
-        return (icon, tile.background, tile.foreground);
+        return (null, tile.background, tile.foreground);
     }
   }
 }

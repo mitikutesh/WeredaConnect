@@ -652,8 +652,6 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                   rating: rated ? summary.average : null,
                                   ratingCount: rated ? summary.count : null,
                                   cropKey: listing.cropType,
-                                  icon: CropType.tryFromKey(listing.cropType)
-                                      ?.icon,
                                   detail: widget.ownerMode
                                       ? _orderedDetail(listing, l10n)
                                       : _transportLine(listing, l10n),

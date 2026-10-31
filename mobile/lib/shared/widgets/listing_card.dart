@@ -21,7 +21,6 @@ class ListingCard extends StatelessWidget {
 
   /// Number of ratings behind [rating]; rendered as "4.6 (12)" when set.
   final int? ratingCount;
-  final IconData? icon;
 
   /// The crop's stored key ("wheat"), for the tile's colours
   /// ([cropTileColors]). Falls back to the title when null.
@@ -63,7 +62,6 @@ class ListingCard extends StatelessWidget {
     this.hasEscrow = false,
     this.rating,
     this.ratingCount,
-    this.icon,
     this.cropKey,
     this.onTap,
     this.detail,
@@ -104,8 +102,7 @@ class ListingCard extends StatelessWidget {
                   color: iconBg,
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child:
-                    Icon(icon ?? Icons.eco_outlined, color: iconFg, size: 24),
+                child: FwSprout(color: iconFg, size: 24),
               ),
               const SizedBox(width: 12),
               Expanded(

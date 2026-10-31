@@ -436,3 +436,67 @@ class FwContentWidth extends StatelessWidget {
       );
   }
 }
+
+/// The boards' crop glyph: a stem and two leaves, the same for every crop
+/// (the tile's colour tells the crops apart, [cropTileColors]). Drawn from
+/// the canvas's 24 px path, stroked at 2 px with round ends.
+class FwSprout extends StatelessWidget {
+  final double size;
+  final Color color;
+
+  const FwSprout({this.size = 22, this.color = AppTheme.fieldGreen, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    // Centred at its own size inside a tile (a tight box), and only its
+    // size anywhere else.
+    return Center(
+      widthFactor: 1,
+      heightFactor: 1,
+      child: CustomPaint(
+        size: Size.square(size),
+        painter: _SproutPainter(color),
+      ),
+    );
+  }
+}
+
+class _SproutPainter extends CustomPainter {
+  final Color color;
+
+  const _SproutPainter(this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.scale(size.width / 24, size.height / 24);
+    final stroke = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    // M12 20v-8
+    canvas.drawLine(const Offset(12, 20), const Offset(12, 12), stroke);
+    // M12 12c0-4 3-7 8-7 0 5-3 8-8 7z
+    canvas.drawPath(
+      Path()
+        ..moveTo(12, 12)
+        ..cubicTo(12, 8, 15, 5, 20, 5)
+        ..cubicTo(20, 10, 17, 13, 12, 12)
+        ..close(),
+      stroke,
+    );
+    // M12 14c0-3-2.5-5.5-7-5.5 0 4 2.5 6 7 5.5z
+    canvas.drawPath(
+      Path()
+        ..moveTo(12, 14)
+        ..cubicTo(12, 11, 9.5, 8.5, 5, 8.5)
+        ..cubicTo(5, 12.5, 7.5, 14.5, 12, 14)
+        ..close(),
+      stroke,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_SproutPainter oldDelegate) => oldDelegate.color != color;
+}
