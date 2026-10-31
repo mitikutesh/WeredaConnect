@@ -110,7 +110,7 @@ void main() {
       expect(find.text('28 min ago'), findsOneWidget);
       expect(find.text('13:20-14:00'), findsOneWidget);
       expect(
-        find.text('About 47.2 km to go, from the last check-in'),
+        find.text('About 47 km to go, from the last check-in'),
         findsOneWidget,
       );
       expect(find.text('Wheat · 2,000 kg'), findsOneWidget);
@@ -341,7 +341,7 @@ void main() {
       );
       expect(find.text('Sharing ended at delivery'), findsOneWidget);
       expect(find.text('Delivered at 14:02'), findsOneWidget);
-      expect(find.text('96.4 km'), findsOneWidget);
+      expect(find.text('96 km'), findsOneWidget);
       expect(find.text('5 h 35 min'), findsOneWidget);
       expect(find.text('7'), findsOneWidget);
       expect(find.byType(TrackMap), findsNothing);

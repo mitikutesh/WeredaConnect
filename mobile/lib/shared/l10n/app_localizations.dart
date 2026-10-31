@@ -7216,7 +7216,7 @@ abstract class AppLocalizations {
   /// **'Expected arrival'**
   String get liveTripArrivalWindow;
 
-  /// LT-11 live trip (specs/features/live-trip.md section 4). Under the arrival window; {km} has one decimal
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Under the arrival window; {km} is whole from 10 km, one decimal below
   ///
   /// In en, this message translates to:
   /// **'About {km} km to go, from the last check-in'**
@@ -7318,7 +7318,7 @@ abstract class AppLocalizations {
   /// **'Trip log'**
   String get liveTripTripLogTitle;
 
-  /// LT-11 live trip (specs/features/live-trip.md section 4). A distance; {km} has one decimal or none
+  /// LT-11 live trip (specs/features/live-trip.md section 4). A distance; {km} is whole from 10 km, one decimal below
   ///
   /// In en, this message translates to:
   /// **'{km} km'**
@@ -7571,7 +7571,7 @@ abstract class AppLocalizations {
   /// **'{trucker} is less than 5 km away'**
   String liveTripArrivingNear(String trucker);
 
-  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving: the truck's distance to the drop-off; {km} has one decimal
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving: the truck's distance to the drop-off; {km} is whole from 10 km, one decimal below
   ///
   /// In en, this message translates to:
   /// **'{km} km from the drop-off'**

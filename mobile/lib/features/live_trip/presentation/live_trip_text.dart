@@ -50,8 +50,10 @@ const int _maxNamed = 256;
 List<Place>? _namedFor;
 final Map<(GeoPoint, String), String?> _named = {};
 
-/// A distance with one decimal, the way the server rounds it.
-String kmText(double km) => NumberFormat('0.#', 'en').format(km);
+/// A distance the way the boards write it: whole km from 10 km ("47", "134"),
+/// one decimal below ("3.2", "0.8"). The server sends one decimal.
+String kmText(double km) =>
+    NumberFormat(km.abs() >= 10 ? '#,##0' : '0.#', 'en').format(km);
 
 /// An amount of birr with thousands separators: "91,200".
 String birrText(double amount) => NumberFormat('#,##0.##', 'en').format(amount);
