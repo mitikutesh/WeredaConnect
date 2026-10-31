@@ -9,17 +9,23 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// A suggested trip on the crop detail screen, as the Buyer · Crop detail
 /// board draws it: a radio, the trucker and the day, the route with the
-/// room left, and the price per quintal on the right. Tapping anywhere on
-/// the card picks (or unpicks) it; the chosen one gets the dark outline.
+/// room left and the trucker's rating when they have one, and the price per
+/// quintal on the right. Tapping anywhere on the card picks (or unpicks) it;
+/// the chosen one gets the dark outline.
 class SuggestedTripCard extends StatelessWidget {
   final Trip trip;
   final bool isSelected;
   final VoidCallback onSelect;
 
+  /// The trucker's average rating, ending the route line as " · 4.7"; null
+  /// (nothing shown, no placeholder) when they have none or it is unknown.
+  final double? rating;
+
   const SuggestedTripCard({
     required this.trip,
     required this.isSelected,
     required this.onSelect,
+    this.rating,
     super.key,
   });
 
@@ -28,6 +34,7 @@ class SuggestedTripCard extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final day = DateFormat.MMMd().format(dayInEthiopia(trip.departureDate));
     final room = l10n.tripRemainingCapacity(formatQuintals(tripRoomLeft(trip)));
+    final rated = rating == null ? '' : ' · ${rating!.toStringAsFixed(1)}';
 
     return Semantics(
       button: true,
@@ -65,7 +72,7 @@ class SuggestedTripCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${trip.fromWoreda} → ${trip.toWoreda} · $room',
+                        '${trip.fromWoreda} → ${trip.toWoreda} · $room$rated',
                         style: const TextStyle(
                           fontSize: 12,
                           color: AppTheme.mutedSteel,

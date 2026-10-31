@@ -103,6 +103,18 @@ public sealed record OrderDto
     /// <summary>Trucker display name.</summary>
     public string? TruckerName { get; init; }
 
+    /// <summary>
+    /// The listing's place name at create (order-lifecycle 2.2.0): where the goods are
+    /// collected. Server-only; null on orders from before it or when the listing had none.
+    /// </summary>
+    public string? PickupPlace { get; init; }
+
+    /// <summary>
+    /// The buyer's registered woreda at create (order-lifecycle 2.2.0): where the goods go.
+    /// Server-only; null on orders from before it.
+    /// </summary>
+    public string? DropoffPlace { get; init; }
+
     /// <summary>Transport cost from the assigned trip.</summary>
     public double? TransportCost { get; init; }
 
