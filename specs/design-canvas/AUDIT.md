@@ -153,7 +153,7 @@ The trip's day on orders: the server has stamped `pickupDate` (the trip's depart
 
 Button labels: a screen's own `styleFrom(textStyle: ...)` replaces the theme's button text style instead of merging with it, so 41 action buttons drew their label in the platform face without the Ethiopic fallback. Each now names Manrope and the fallback, and `chip_font_fallback_test.dart` fails on any override that does not.
 
-Also from that check: Match results draws each match as the Market listing card; Create trip's From and To run full width under the swap button; the intent's price hint and the OTP's grouped phone ("+251 911 234 567") read as on their boards; and at 1280 px the Web deliveries pane has the board's proportions (a 220 px sidebar with the board's 36 px mark, a 336 px list, two columns of about 320 px with the smaller driver avatar and the short sent-late pill).
+Also from that check: days read as the boards write them ("Thu 30 Oct", a date field "Thu 30 Oct 2026") through `board_day.dart`; crop tiles take the boards' colours per crop (`cropTileColors`: wheat, barley and sesame cream, teff, sorghum and coffee sand, the pulses olive, maize green), while each crop keeps its own icon where the boards draw one sprout for all, so a farmer who reads little still tells the crops apart; phone fields group the digits as they are typed ("0911 234 567"); the trucker home card reads "Next: drop-off in Dukem, about 12:35" from the drop-off's own track (the server answers its trucker too) and "Next: pickup in Meki" from the listing's place, with the party's name only while offline with no stored track; the driver's truck and plate may take two lines in the Web pane. Match results draws each match as the Market listing card; Create trip's From and To run full width under the swap button; the intent's price hint and the OTP's grouped phone ("+251 911 234 567") read as on their boards; and at 1280 px the Web deliveries pane has the board's proportions (a 220 px sidebar with the board's 36 px mark, a 336 px list, two columns of about 320 px with the smaller driver avatar and the short sent-late pill).
 
 Checked after these changes in the running web build (dev API) at 390 and 1280 px for the three roles: every tab, Welcome, Trip detail, Create trip, Crop detail, Create intent, order detail, Delivery detail (pending, self-pickup, trucker), QR show and scan, both dispute screens and Match results; the live trip and Join boards in the same build. Initiate payment cannot be opened on the web (its pay button needs the phone's database), so it was rendered from a widget test with the app's fonts at 390 and 1280 px in en and am.
 
@@ -161,7 +161,6 @@ Still different after this pass:
 
 | Board | Why |
 |---|---|
-| "Next: drop-off in Dukem, about 12:35" (Trucker home) | The trucker side has no arrival estimate (only the buyer's track carries one), so the line names the next stop without a time. |
 | No Messages, bell or Profile icons in the home header row | Neither Messages nor Profile has a tab on the bar, so Home keeps quiet icons for them. |
 | Transport segment on Market | The board has none; buyers reach every trucker's trip from Home (Find Trips), `/trips` and the crop detail's suggested transport. |
 | "Sorted by how well transport fits your place" (Market footnote) | Nothing sorts by match yet; the footnote says every listing shows and transport is matched for the buyer's place. |
@@ -172,7 +171,4 @@ Still different after this pass:
 | Trucker rating on the crop detail's suggested transport | Trips carry no trucker rating. |
 | Grouped thousands in a typed quantity (Place order) | The field shows the digits as typed; the price summary under it groups the amounts. |
 | Amount at the foot of Delivery detail (no board) | The delivery row carries no amount; the order detail and Payment show it. |
-| Teff and other crops in their own tile colour (Market, My Crops) | Wheat has the cream tile, every other crop the green one. |
-| The phone typed as "0911 234 567" (Welcome, Register personal) | The field keeps the digits as typed. |
-| Trip day as "Thu 30 Oct" | The app writes days the way its date format does elsewhere ("Thu, Oct 30"). |
 | A held and released total on Payments (no board) | The history loads a page at a time, so a total of the loaded rows would be wrong; Home and Profile show the escrow total from every order. |
