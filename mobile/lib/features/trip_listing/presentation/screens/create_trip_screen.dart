@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/models/place.dart';
@@ -18,6 +17,7 @@ import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/core/utils/contact_in_text.dart';
 import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
@@ -547,7 +547,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
               DateFieldButton(
                 key: const Key('create_trip_departure_date'),
                 text: _selectedDepartureDate != null
-                    ? DateFormat.yMMMEd().format(_selectedDepartureDate!)
+                    ? formatBoardDate(_selectedDepartureDate!)
                     : l10n.selectDepartureDate,
                 placeholder: _selectedDepartureDate == null,
                 onTap: _pickDepartureDate,

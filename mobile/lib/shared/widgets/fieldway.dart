@@ -413,3 +413,26 @@ class FwContentWidth extends StatelessWidget {
     );
   }
 }
+
+/// A crop tile's colours as the boards paint them (Market, My Crops,
+/// Deliveries): wheat, barley and sesame on cream, teff, sorghum and coffee
+/// on the warmer sand, the pulses on the olive tint, maize and anything
+/// else on field green tint. [cropKey] is the stored key ("wheat").
+({Color background, Color foreground}) cropTileColors(String? cropKey) {
+  switch (cropKey?.toLowerCase()) {
+    case 'wheat' || 'barley' || 'sesame':
+      return (background: const Color(0xFFF4EBCF), foreground: AppTheme.money);
+    case 'teff' || 'sorghum' || 'coffee':
+      return (background: const Color(0xFFEFE6D8), foreground: AppTheme.money);
+    case 'chickpea' || 'lentils':
+      return (
+        background: const Color(0xFFE6EFD9),
+        foreground: AppTheme.fieldGreen,
+      );
+    default:
+      return (
+        background: AppTheme.fieldGreenTint,
+        foreground: AppTheme.fieldGreen,
+      );
+  }
+}

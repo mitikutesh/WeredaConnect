@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
-import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -43,7 +42,7 @@ class TripCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final day = DateFormat.MMMEd().format(dayInEthiopia(trip.departureDate));
+    final day = boardDayInEthiopia(trip.departureDate);
     final price = l10n.tripPricePerQuintalValue(
       formatEtbAmount(trip.pricePerQuintal),
     );

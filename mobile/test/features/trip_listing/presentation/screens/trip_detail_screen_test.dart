@@ -147,8 +147,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // The header reads "Sun, Oct 25 · 100 ETB per quintal".
-      expect(find.textContaining('Sun, Oct 25'), findsOneWidget);
+      // The header reads "Sun 25 Oct · 100 ETB per quintal".
+      expect(find.textContaining('Sun 25 Oct'), findsOneWidget);
       expect(find.textContaining('Oct 24'), findsNothing);
     });
   }

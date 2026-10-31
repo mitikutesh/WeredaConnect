@@ -7,6 +7,7 @@ import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
@@ -320,8 +321,7 @@ String actionNeededFacts(Order order, UserRole role, AppLocalizations l10n) {
     return [
       crop,
       quantity,
-      if (pickup != null)
-        l10n.orderTripOn(DateFormat.MMMEd().format(dayInEthiopia(pickup))),
+      if (pickup != null) l10n.orderTripOn(boardDayInEthiopia(pickup)),
     ].join(' · ');
   }
   final party = partyDisplayName(

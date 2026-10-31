@@ -206,7 +206,7 @@ void main() {
     );
     expect(find.text('Teff · 1,500 kg'), findsOneWidget);
     expect(
-      find.text('Almaz Bekele, Bichena · pickup Fri Oct 30'),
+      find.text('Almaz Bekele, Bichena · pickup Fri 30 Oct'),
       findsOneWidget,
     );
     expect(find.textContaining('Delivery #'), findsNothing);

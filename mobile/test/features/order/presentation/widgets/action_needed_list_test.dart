@@ -210,7 +210,7 @@ void main() {
         ..pickupDate = DateTime.utc(2026, 10, 30, 3);
       expect(
         actionNeededFacts(dated, UserRole.trucker, en),
-        'Teff · 1,500 kg · ${en.orderTripOn('Fri, Oct 30')}',
+        'Teff · 1,500 kg · ${en.orderTripOn('Fri 30 Oct')}',
       );
     });
 

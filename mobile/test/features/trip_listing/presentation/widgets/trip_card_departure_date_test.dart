@@ -39,7 +39,7 @@ void main() {
     expect(stored.isUtc, isTrue);
     await tester.pumpWidget(wrap(TripCard(trip: trip(stored))));
 
-    expect(find.textContaining('Oct 25'), findsOneWidget);
+    expect(find.textContaining('25 Oct'), findsOneWidget);
     expect(find.textContaining('Oct 24'), findsNothing);
   });
 
@@ -47,6 +47,6 @@ void main() {
       (tester) async {
     await tester.pumpWidget(wrap(TripCard(trip: trip(stored.toLocal()))));
 
-    expect(find.textContaining('Oct 25'), findsOneWidget);
+    expect(find.textContaining('25 Oct'), findsOneWidget);
   });
 }

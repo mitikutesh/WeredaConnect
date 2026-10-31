@@ -10,8 +10,8 @@ import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
-import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -987,7 +987,7 @@ class _AnswerRow extends StatelessWidget {
 /// "Thu, Oct 30": the trip's day on the Ethiopian calendar day, as the trip
 /// cards write it, with no-break spaces so a wrap never splits it.
 String _tripDay(DateTime at) =>
-    DateFormat.MMMEd().format(dayInEthiopia(at)).replaceAll(' ', '\u00A0');
+    boardDayInEthiopia(at).replaceAll(' ', '\u00A0');
 
 class _OrderHeader extends StatelessWidget {
   final Order order;

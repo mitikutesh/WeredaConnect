@@ -579,7 +579,7 @@ void main() {
       expect(
         inHero(
           '${en.liveTripFrom('Farmer Fikru')} · '
-          '${en.orderTripOn('Fri,\u00A0Oct\u00A030')}',
+          '${en.orderTripOn('Fri\u00A030\u00A0Oct')}',
         ),
         findsOneWidget,
       );
@@ -589,7 +589,7 @@ void main() {
       await show(tester, dated(), UserRole.farmer, 'farmer-001');
       expect(
         find.text(
-          'Fri,\u00A0Oct\u00A030 · ${en.detailTruckOf('Trucker Tesfaye')}',
+          'Fri\u00A030\u00A0Oct · ${en.detailTruckOf('Trucker Tesfaye')}',
         ),
         findsOneWidget,
       );

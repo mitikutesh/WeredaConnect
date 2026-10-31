@@ -46,7 +46,7 @@ void main() {
     await tester.pumpWidget(wrap(TripCard(trip: trip())));
 
     expect(find.text('Meki → Addis Ababa'), findsOneWidget);
-    expect(find.text('Fri, Oct 30 · 150 ETB per quintal'), findsOneWidget);
+    expect(find.text('Fri 30 Oct · 150 ETB per quintal'), findsOneWidget);
     expect(find.text('Open'), findsOneWidget);
   });
 

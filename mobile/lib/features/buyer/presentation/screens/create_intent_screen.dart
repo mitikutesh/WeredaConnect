@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -11,6 +10,7 @@ import 'package:wereda_connect/features/buyer/presentation/screens/match_results
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/place.dart';
+import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -301,7 +301,7 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
                                 key: const Key('create_intent_needed_by'),
                                 text: _neededByDate == null
                                     ? l10n.selectDate
-                                    : DateFormat.MMMEd().format(_neededByDate!),
+                                    : formatBoardDay(_neededByDate!),
                                 placeholder: _neededByDate == null,
                                 onTap: _pickNeededByDate,
                                 onClear: _neededByDate == null

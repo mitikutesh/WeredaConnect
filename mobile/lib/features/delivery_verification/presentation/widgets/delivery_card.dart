@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
@@ -209,7 +210,7 @@ class DeliveryCard extends StatelessWidget {
   /// "Thu Oct 30": the weekday, then the short date, on the Ethiopian day.
   static String _shortDay(DateTime at) {
     final day = dayInEthiopia(at);
-    return '${DateFormat.E().format(day)} ${DateFormat.MMMd().format(day)}';
+    return formatBoardDay(day);
   }
 }
 
@@ -241,9 +242,9 @@ class DeliveryCropTile extends StatelessWidget {
     );
   }
 
-  /// The tile's icon and colours: the crop while the delivery lives (wheat on
-  /// cream, other crops on green), a check once delivered, muted when
-  /// cancelled, a warning when disputed.
+  /// The tile's icon and colours: the crop while the delivery lives (in the
+  /// crop's board colours, [cropTileColors]), a check once delivered, muted
+  /// when cancelled, a warning when disputed.
   static (IconData, Color, Color) _tile(
     String? cropKey,
     DeliveryStatus status,
@@ -264,10 +265,8 @@ class DeliveryCropTile extends StatelessWidget {
       case DeliveryStatus.inTransit:
         final crop = cropKey == null ? null : CropType.tryFromKey(cropKey);
         final icon = crop?.icon ?? Icons.eco_outlined;
-        if (crop == CropType.wheat) {
-          return (icon, const Color(0xFFF4EBCF), AppTheme.money);
-        }
-        return (icon, AppTheme.fieldGreenTint, AppTheme.fieldGreen);
+        final tile = cropTileColors(cropKey);
+        return (icon, tile.background, tile.foreground);
     }
   }
 }

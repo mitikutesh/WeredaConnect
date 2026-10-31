@@ -23,8 +23,8 @@ class ListingCard extends StatelessWidget {
   final int? ratingCount;
   final IconData? icon;
 
-  /// The crop's stored key ("wheat"): wheat gets the cream tile, every other
-  /// crop the green one. Falls back to the title when null.
+  /// The crop's stored key ("wheat"), for the tile's colours
+  /// ([cropTileColors]). Falls back to the title when null.
   final String? cropKey;
   final VoidCallback? onTap;
 
@@ -78,12 +78,12 @@ class ListingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isWheat = cropKey == null
-        ? title.toLowerCase().contains('wheat') ||
-            title.toLowerCase().contains('ስንዴ')
-        : cropKey == 'wheat';
-    final iconBg = isWheat ? const Color(0xFFF4EBCF) : AppTheme.fieldGreenTint;
-    final iconFg = isWheat ? AppTheme.money : AppTheme.fieldGreen;
+    final isWheat = cropKey == null &&
+        (title.toLowerCase().contains('wheat') ||
+            title.toLowerCase().contains('ስንዴ'));
+    final tile = cropTileColors(isWheat ? 'wheat' : cropKey);
+    final iconBg = tile.background;
+    final iconFg = tile.foreground;
     final line = subtitle ??
         (location.isNotEmpty ? '$sellerName, $location' : sellerName);
 

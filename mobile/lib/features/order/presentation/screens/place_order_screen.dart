@@ -9,7 +9,7 @@ import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
-import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -235,8 +235,14 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                         Semantics(
                           label: l10n.listingSummary,
                           child: _PartyCard(
-                            icon: Icons.grass,
-                            iconBackground: const Color(0xFFF4EBCF),
+                            icon: CropType.tryFromKey(widget.listing.cropType)
+                                    ?.icon ??
+                                Icons.eco_outlined,
+                            iconBackground:
+                                cropTileColors(widget.listing.cropType)
+                                    .background,
+                            iconColor: cropTileColors(widget.listing.cropType)
+                                .foreground,
                             title: '${CropType.labelFor(
                               widget.listing.cropType,
                               l10n,
@@ -288,7 +294,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                             icon: Icons.local_shipping_outlined,
                             iconBackground: AppTheme.actionCream,
                             title: '${trip.truckerName} · '
-                                '${DateFormat.MMMEd().format(dayInEthiopia(trip.departureDate))}',
+                                '${boardDayInEthiopia(trip.departureDate)}',
                             subtitle: '${trip.fromWoreda} → ${trip.toWoreda} · '
                                 '${l10n.tripPricePerQuintalValue(trip.pricePerQuintal.toStringAsFixed(0))}',
                             trailing: TextButton(
@@ -435,6 +441,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
 class _PartyCard extends StatelessWidget {
   final IconData icon;
   final Color iconBackground;
+  final Color iconColor;
   final String title;
   final String subtitle;
   final Widget? trailing;
@@ -444,6 +451,7 @@ class _PartyCard extends StatelessWidget {
     required this.iconBackground,
     required this.title,
     required this.subtitle,
+    this.iconColor = AppTheme.money,
     this.trailing,
   });
 
@@ -460,7 +468,7 @@ class _PartyCard extends StatelessWidget {
               color: iconBackground,
               borderRadius: BorderRadius.circular(13),
             ),
-            child: Icon(icon, size: 22, color: AppTheme.money),
+            child: Icon(icon, size: 22, color: iconColor),
           ),
           const SizedBox(width: 12),
           Expanded(

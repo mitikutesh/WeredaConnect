@@ -7,6 +7,7 @@ import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
@@ -584,7 +585,7 @@ class _DeliveryHeader extends StatelessWidget {
   /// "Thu Oct 30": the weekday, then the short date, on the Ethiopian day.
   static String _shortDay(DateTime at) {
     final day = dayInEthiopia(at);
-    return '${DateFormat.E().format(day)} ${DateFormat.MMMd().format(day)}';
+    return formatBoardDay(day);
   }
 
   static StatusKind _statusKind(DeliveryStatus status) => switch (status) {
