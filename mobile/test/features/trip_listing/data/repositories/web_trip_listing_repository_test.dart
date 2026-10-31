@@ -51,6 +51,53 @@ void main() {
     });
   });
 
+  // The server answers 20 trips a page: a buyer must see ALL open trips
+  // (role rule), a trucker all of their own, so every page is read.
+  test('open and own trips follow nextToken to the last page', () async {
+    final api = _MockApiClient();
+    Map<String, dynamic> trip(String id) => {
+          'tripId': id,
+          'truckerId': 'trucker-1',
+          'fromWoreda': 'Debre Birhan',
+          'toWoreda': 'Dire Dawa',
+          'departureDate': '2026-11-01T06:00:00.000Z',
+          'capacity': 40,
+          'pricePerQuintal': 92,
+          'status': 'open',
+          'createdAt': '2026-10-28T00:00:00.000Z',
+          'updatedAt': '2026-10-28T00:00:00.000Z',
+          'version': 1,
+        };
+    when(
+      () => api.get<Map<String, dynamic>>(
+        '/trips',
+        queryParameters: any(named: 'queryParameters'),
+      ),
+    ).thenAnswer((inv) async {
+      final params =
+          inv.namedArguments[#queryParameters] as Map<String, dynamic>;
+      return switch (params['nextToken']) {
+        null => {
+            'trips': [trip('p1')],
+            'nextToken': 'page-2',
+          },
+        'page-2' => {
+            'trips': [trip('p2')],
+            'nextToken': 'page-3',
+          },
+        _ => {
+            'trips': [trip('p3')],
+          },
+      };
+    });
+    final repository = WebTripListingRepository(api: api);
+
+    final open = await repository.getOpenTrips();
+    expect(open.map((t) => t.tripId), ['p1', 'p2', 'p3']);
+    final own = await repository.getTripsByTrucker('trucker-1');
+    expect(own.map((t) => t.tripId), ['p1', 'p2', 'p3']);
+  });
+
   // Create trip offers the first recent route as "Repeat Last Trip", so the
   // web list is newest first whatever order the API answers in.
   test('getRecentRoutes lists the newest route first', () async {

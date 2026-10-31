@@ -93,13 +93,8 @@ class WebTripListingRepository extends BaseTripListingRepository {
   }
 
   @override
-  Future<List<Trip>> getTripsByTrucker(String truckerId) async {
-    final data = await _api.get<Map<String, dynamic>>(
-      '/trips',
-      queryParameters: {'truckerId': truckerId},
-    );
-    return _parseTrips(data);
-  }
+  Future<List<Trip>> getTripsByTrucker(String truckerId) =>
+      _allPages({'truckerId': truckerId});
 
   @override
   Future<List<Trip>> getOpenTrips({
@@ -109,12 +104,32 @@ class WebTripListingRepository extends BaseTripListingRepository {
     final params = <String, dynamic>{'status': 'open'};
     if (fromWoreda != null) params['fromWoreda'] = fromWoreda;
     if (toWoreda != null) params['toWoreda'] = toWoreda;
-    final data = await _api.get<Map<String, dynamic>>(
-      '/trips',
-      queryParameters: params,
-    );
-    return _parseTrips(data);
+    return _allPages(params);
   }
+
+  /// Every page of `GET /trips` for [params]: the server answers 20 trips a
+  /// page with a `nextToken`, and a buyer must see ALL trips (role rule),
+  /// a trucker all of their own. Stops after [_maxPages] as a guard.
+  Future<List<Trip>> _allPages(Map<String, dynamic> params) async {
+    final trips = <Trip>[];
+    String? nextToken;
+    var pages = 0;
+    do {
+      final data = await _api.get<Map<String, dynamic>>(
+        '/trips',
+        queryParameters: {
+          ...params,
+          if (nextToken != null) 'nextToken': nextToken,
+        },
+      );
+      trips.addAll(_parseTrips(data));
+      nextToken = data['nextToken'] as String?;
+      pages++;
+    } while (nextToken != null && nextToken.isNotEmpty && pages < _maxPages);
+    return trips;
+  }
+
+  static const int _maxPages = 50;
 
   @override
   Future<void> cancelTrip({
