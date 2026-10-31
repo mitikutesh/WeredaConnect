@@ -4,6 +4,8 @@ import { DatabaseStack } from '../../lib/stacks/database-stack';
 import { ApiStack } from '../../lib/stacks/api-stack';
 import { MonitoringStack } from '../../lib/stacks/monitoring-stack';
 import { GithubActionsStack } from '../../lib/stacks/github-actions-stack';
+import { WebStack } from '../../lib/stacks/web-stack';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import { environments, EnvironmentConfig } from '../../lib/config/environments';
 
 const devConfig = environments['dev'];
@@ -2974,5 +2976,61 @@ describe('GithubActionsStack', () => {
     );
     expect(prodPolicies).not.toContain('SeedSsmSecrets');
     expect(prodPolicies).not.toContain('secretsmanager:GetSecretValue');
+  });
+});
+
+describe('WebStack security headers (CSP)', () => {
+  const cspFor = (config: EnvironmentConfig): string => {
+    const app = new cdk.App();
+    const env = { account: '123456789012', region: config.region };
+    const certScope = new cdk.Stack(app, `TestCert-${config.name}`, { env });
+    const certificate = acm.Certificate.fromCertificateArn(
+      certScope,
+      'Cert',
+      'arn:aws:acm:us-east-1:123456789012:certificate/test',
+    );
+    const stack = new WebStack(app, `TestWebStack-${config.name}`, {
+      env,
+      envConfig: config,
+      certificate,
+    });
+    const policies = Template.fromStack(stack).findResources(
+      'AWS::CloudFront::ResponseHeadersPolicy',
+    );
+    const [policy] = Object.values(policies) as Array<{
+      Properties: {
+        ResponseHeadersPolicyConfig: {
+          SecurityHeadersConfig: { ContentSecurityPolicy: { ContentSecurityPolicy: string } };
+        };
+      };
+    }>;
+    return policy.Properties.ResponseHeadersPolicyConfig.SecurityHeadersConfig
+      .ContentSecurityPolicy.ContentSecurityPolicy;
+  };
+
+  const directive = (csp: string, name: string): string[] => {
+    const found = csp
+      .split(';')
+      .map((d) => d.trim())
+      .find((d) => d.startsWith(`${name} `));
+    return found ? found.split(/\s+/).slice(1) : [];
+  };
+
+  test.each([
+    ['dev', devConfig],
+    ['prod', prodConfig],
+  ])('%s: crop photo upload and display sources are allowed', (_name, config) => {
+    const csp = cspFor(config);
+    const connect = directive(csp, 'connect-src');
+    const img = directive(csp, 'img-src');
+
+    // image_picker on web returns a blob: URL that readAsBytes() fetches.
+    expect(connect).toContain('blob:');
+    // Presigned PUT of the original and GETs of renditions hit the regional bucket.
+    expect(connect).toContain(`https://*.s3.${config.region}.amazonaws.com`);
+    expect(img).toContain(`https://*.s3.${config.region}.amazonaws.com`);
+    // Scoped to the stack's region, never every S3 endpoint.
+    expect(connect).not.toContain('https://*.amazonaws.com');
+    expect(connect).not.toContain('https://*.s3.amazonaws.com');
   });
 });

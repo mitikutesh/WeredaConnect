@@ -60,6 +60,9 @@ function handler(event) {
     );
 
     // ─── Security Headers Policy ──────────────────────────────────
+    // Regional S3 endpoints only: virtual-hosted (bucket.s3.<region>) and
+    // path style (s3.<region>), never every bucket on s3.amazonaws.com.
+    const s3Sources = `https://*.s3.${envConfig.region}.amazonaws.com https://s3.${envConfig.region}.amazonaws.com`;
     const securityHeaders = new cloudfront.ResponseHeadersPolicy(
       this,
       "SecurityHeaders",
@@ -69,8 +72,16 @@ function handler(event) {
           contentSecurityPolicy: {
             // connect-src is region-scoped: dev=eu-north-1, staging/prod=me-south-1.
             // Hardcoding eu-north-1 here would block the API + Cognito on me-south-1.
+            // Crop photos (crop-listing-api 1.6.0) need two more kinds of source:
+            //   blob:  image_picker on web hands back a blob: URL and
+            //          XFile.readAsBytes() fetches it, which connect-src governs.
+            //   S3     the presigned PUT of an original and the presigned GETs of
+            //          thumb/full renditions go straight to the regional bucket
+            //          (virtual-hosted style). CanvasKit loads images with XHR, so
+            //          the GETs count as connect-src; img-src covers any image
+            //          drawn through an <img> element instead.
             contentSecurityPolicy:
-              `default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.weredaconnect.com https://*.execute-api.${envConfig.region}.amazonaws.com https://www.gstatic.com https://fonts.gstatic.com https://fonts.googleapis.com https://cognito-idp.${envConfig.region}.amazonaws.com; worker-src 'self' blob:; frame-ancestors 'none'`,
+              `default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: ${s3Sources}; font-src 'self' https://fonts.gstatic.com; connect-src 'self' blob: https://*.weredaconnect.com https://*.execute-api.${envConfig.region}.amazonaws.com https://www.gstatic.com https://fonts.gstatic.com https://fonts.googleapis.com https://cognito-idp.${envConfig.region}.amazonaws.com ${s3Sources}; worker-src 'self' blob:; frame-ancestors 'none'`,
             override: true,
           },
           strictTransportSecurity: {
