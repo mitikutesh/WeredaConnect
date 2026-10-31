@@ -8393,6 +8393,18 @@ abstract class AppLocalizations {
   /// **'About {minutes} min, then on to you'**
   String liveTripLogStopAhead(int minutes);
 
+  /// Fieldway structure pass (specs/design-canvas). Find Crops transport pill: the room left on the trip, short ("Transport Thu · 18 q room"); q is quintals
+  ///
+  /// In en, this message translates to:
+  /// **'{quintals} q room'**
+  String marketQuintalsRoom(String quintals);
+
+  /// Fieldway structure pass. Crop detail suggested transport: the room left on the trip ("Meki → Addis Ababa · 18 quintals room · 4.7")
+  ///
+  /// In en, this message translates to:
+  /// **'{quintals} quintals room'**
+  String detailQuintalsRoom(String quintals);
+
   /// Fieldway design alignment (specs/design-canvas). Find Crops card: the one trip this week that can carry the crop; {day} is a short weekday, followed by the room left
   ///
   /// In en, this message translates to:

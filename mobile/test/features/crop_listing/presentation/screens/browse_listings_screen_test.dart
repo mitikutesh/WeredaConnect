@@ -415,7 +415,7 @@ void main() {
 
       // The pill, not the footnote's "Transport is matched for ...".
       expect(find.textContaining(RegExp(r'^Transport ')), findsOneWidget);
-      expect(find.textContaining('18 quintals free'), findsOneWidget);
+      expect(find.textContaining('18 q room'), findsOneWidget);
       expect(find.text('2 trips this week'), findsOneWidget);
       expect(find.text('No trip yet'), findsOneWidget);
     });

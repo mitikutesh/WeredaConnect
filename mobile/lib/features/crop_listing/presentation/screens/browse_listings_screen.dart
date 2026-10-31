@@ -228,8 +228,9 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     if (fitting.length > 1) return l10n.marketTripsThisWeek(fitting.length);
     final trip = fitting.single;
     final day = DateFormat.E().format(dayInEthiopia(trip.departureDate));
+    // "Transport Thu · 18 q room", short enough for the pill.
     return '${l10n.marketTransportOn(day)} · '
-        '${l10n.tripRemainingCapacity(formatQuintals(tripRoomLeft(trip)))}';
+        '${l10n.marketQuintalsRoom(formatQuintals(tripRoomLeft(trip)))}';
   }
 
   /// "Meki · listed Mon" (this week), "Meki · listed today", or the short

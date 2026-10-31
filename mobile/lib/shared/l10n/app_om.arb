@@ -3093,6 +3093,8 @@
   "detailMessageParty": "{name}f ergaa ergi",
   "detailCallParty": "{name}f bilbili",
   "liveTripLogStopAhead": "Gara daqiiqaa {minutes}, achiis gara keessanitti",
+  "marketQuintalsRoom": "bakka kuntaala {quintals}",
+  "detailQuintalsRoom": "bakka kuntaala {quintals}",
   "marketTransportOn": "Geejjiba {day}",
   "marketFootnote": "Tarree qonnaan bultoota hundaa, walsimannaa {place}f hunda caaluun tartiibeffame.",
   "marketFootnoteNoPlace": "Tarree qonnaan bultoota hundaa, walsimannaa geejjibaa hunda caaluun tartiibeffame.",

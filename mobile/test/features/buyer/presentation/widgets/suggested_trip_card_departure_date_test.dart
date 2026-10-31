@@ -81,6 +81,7 @@ void main() {
 
     await pump(rating: 4.66);
     expect(find.textContaining('Adama → Bishoftu ·'), findsOneWidget);
+    expect(find.textContaining('quintals room'), findsOneWidget);
     expect(find.textContaining(' · 4.7'), findsOneWidget);
 
     await pump();

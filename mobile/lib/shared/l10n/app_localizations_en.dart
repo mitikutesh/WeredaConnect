@@ -4840,6 +4840,16 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String marketQuintalsRoom(String quintals) {
+    return '$quintals q room';
+  }
+
+  @override
+  String detailQuintalsRoom(String quintals) {
+    return '$quintals quintals room';
+  }
+
+  @override
   String marketTransportOn(String day) {
     return 'Transport $day';
   }

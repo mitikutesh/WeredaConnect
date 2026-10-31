@@ -3100,6 +3100,8 @@
   "detailMessageParty": "ለ{name} መልእክት ላክ",
   "detailCallParty": "ለ{name} ደውል",
   "liveTripLogStopAhead": "በግምት {minutes} ደቂቃ፣ ከዚያ ወደ እርስዎ",
+  "marketQuintalsRoom": "{quintals} ኩ. ቦታ",
+  "detailQuintalsRoom": "{quintals} ኩንታል ቦታ",
   "marketTransportOn": "ትራንስፖርት {day}",
   "marketFootnote": "የሁሉም ገበሬዎች ዝርዝር፣ ለ{place} በተሻለ ተዛማጅነት ተደርድሯል።",
   "marketFootnoteNoPlace": "የሁሉም ገበሬዎች ዝርዝር፣ በተሻለ የትራንስፖርት ተዛማጅነት ተደርድሯል።",

@@ -32,7 +32,7 @@ class SuggestedTripCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final day = boardDayInEthiopia(trip.departureDate);
-    final room = l10n.tripRemainingCapacity(formatQuintals(tripRoomLeft(trip)));
+    final room = l10n.detailQuintalsRoom(formatQuintals(tripRoomLeft(trip)));
     final rated = rating == null ? '' : ' · ${rating!.toStringAsFixed(1)}';
 
     return Semantics(

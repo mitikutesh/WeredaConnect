@@ -4886,6 +4886,16 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String marketQuintalsRoom(String quintals) {
+    return 'bakka kuntaala $quintals';
+  }
+
+  @override
+  String detailQuintalsRoom(String quintals) {
+    return 'bakka kuntaala $quintals';
+  }
+
+  @override
   String marketTransportOn(String day) {
     return 'Geejjiba $day';
   }

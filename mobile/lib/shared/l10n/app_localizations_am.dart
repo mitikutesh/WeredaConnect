@@ -4712,6 +4712,16 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String marketQuintalsRoom(String quintals) {
+    return '$quintals ኩ. ቦታ';
+  }
+
+  @override
+  String detailQuintalsRoom(String quintals) {
+    return '$quintals ኩንታል ቦታ';
+  }
+
+  @override
   String marketTransportOn(String day) {
     return 'ትራንስፖርት $day';
   }
