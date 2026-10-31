@@ -157,6 +157,8 @@ Also from that check: days read as the boards write them ("Thu 30 Oct", a date f
 
 Checked after these changes in the running web build (dev API) at 390 and 1280 px for the three roles: every tab, Welcome, Trip detail, Create trip, Crop detail, Create intent, order detail, Delivery detail (pending, self-pickup, trucker), QR show and scan, both dispute screens and Match results; the live trip and Join boards in the same build. Initiate payment cannot be opened on the web (its pay button needs the phone's database), so it was rendered from a widget test with the app's fonts at 390 and 1280 px in en and am.
 
+Closed in the same pass: Trip detail's booking rows name each order's own places ("Almaz Bekele, Meki → Selam Traders, Merkato"), which order create now stamps from the listing and the buyer's profile it already reads (order-lifecycle 2.2.0; an older order shows the trip's route); the suggested transport on Crop detail and Place order ends with the trucker's real rating when they have one; the Place order quantity groups thousands as it is typed; the Web deliveries list has the board's compact cards without stage labels (phone width keeps its labels and cards, as on the phone board); and Find Crops lists first what a trip this week can carry to the buyer's place, then what some open trip leaves from, then the rest, every listing kept, under the board's footnote ("sorted by the best match for Merkato").
+
 The Register personal picker now reads "Meki · Oromia" with a chevron, and Verify on Register OTP is active from the first digit (a short code asks for the rest and sends nothing).
 
 Not differences, for the record: the app has no Transport segment on Market, as the board has none (buyers reach every trucker's trip from Home's Find Trips, `/trips` and the crop detail's suggested transport). Delivery detail has no board; its foot carries no amount because the delivery row has none (the order detail and Payment show it). Payments has no board; it shows no held and released total because the history loads a page at a time, so a total of the loaded rows would be wrong (Home and Profile show the escrow total from every order).
@@ -166,8 +168,3 @@ Still different after this pass:
 | Board | Why |
 |---|---|
 | Home header with only the bell (Farmer and Buyer home); none on Trucker home | Home also shows small Messages and Profile icons: the bottom bar has no Messages or Profile tab, so on a phone they are the only way there. |
-| "Sorted by how well transport fits your place" (Market footnote) | Nothing sorts by match yet; the footnote says every listing shows and transport is matched for the buyer's place. |
-| Compact label-less cards in the web deliveries list | The list keeps the stage labels and the phone cards. |
-| Booking rows on Trip detail with each order's farm and drop-off places | A booking carries no places of its own, so the row shows the trip's route. |
-| Trucker rating on the crop detail's suggested transport | Trips carry no trucker rating. |
-| Grouped thousands in a typed quantity (Place order) | The field shows the digits as typed; the price summary under it groups the amounts. |
