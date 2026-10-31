@@ -4497,6 +4497,22 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get delivArrivingCaption => 'arriving';
+
+  @override
+  String delivWaitingForPickupOn(String date) {
+    return 'Waiting for pickup $date';
+  }
+
+  @override
+  String get delivMapStartsAtPickup => 'map starts at pickup';
+
+  @override
+  String delivReportProblemUntil(String time) {
+    return 'report a problem until $time';
+  }
+
+  @override
   String get savedOnPhoneFirstNote =>
       'Saved on your phone first, sent when you have network.';
 
@@ -4844,11 +4860,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String marketFootnote(String place) {
-    return 'Every farmer\'s listing. Transport is matched for $place.';
+    return 'Every farmer\'s listing, sorted by the best match for $place.';
   }
 
   @override
-  String get marketFootnoteNoPlace => 'Every farmer\'s listing.';
+  String get marketFootnoteNoPlace =>
+      'Every farmer\'s listing, sorted by the best transport match.';
 
   @override
   String marketQuintalsLeft(String quantity) {

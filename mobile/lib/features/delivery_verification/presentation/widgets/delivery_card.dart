@@ -21,6 +21,11 @@ import 'package:wereda_connect/shared/widgets/fieldway.dart';
 ///
 /// The same card serves all three roles: the line under the title names the
 /// parties the viewer is not.
+///
+/// [compact] is the web deliveries board's list card beside the live trip
+/// pane: no crop tile, the title with the pill on its right, one line under
+/// it ("Waiting for pickup Thu 30 Oct · map starts at pickup", "Delivered
+/// Mon · report a problem until Wed 16:10").
 class DeliveryCard extends StatelessWidget {
   final Delivery delivery;
   final VoidCallback? onTap;
@@ -29,12 +34,16 @@ class DeliveryCard extends StatelessWidget {
   /// Highlighted (the delivery shown beside the list on a wide screen).
   final bool selected;
 
+  /// The web board's list card (see the class note).
+  final bool compact;
+
   const DeliveryCard({
     required this.delivery,
     required this.currentUserId,
     super.key,
     this.onTap,
     this.selected = false,
+    this.compact = false,
   });
 
   /// The buyer's 48 h to report a problem after delivery (Web · Buyer
@@ -124,6 +133,21 @@ class DeliveryCard extends StatelessWidget {
       _ => null,
     };
 
+    if (compact) {
+      return _compact(
+        context,
+        l10n,
+        title: title,
+        parties: parties,
+        subtitle: subtitle,
+        selfPickup: selfPickup,
+        windowEnd: windowEnd,
+        pill: releasePending
+            ? FwPill(label: l10n.liveTripReleasePending)
+            : statusPill,
+      );
+    }
+
     return FwCard(
       onTap: onTap,
       padding: const EdgeInsets.all(14),
@@ -207,11 +231,112 @@ class DeliveryCard extends StatelessWidget {
     );
   }
 
+  /// The web board's list card: the title with [pill] on its right, then
+  /// one line. A buyer's waiting truck delivery reads "Waiting for pickup
+  /// Thu 30 Oct · map starts at pickup"; a delivered one "Delivered Mon",
+  /// with "report a problem until Wed 16:10" for the buyer inside the
+  /// window; every other state keeps the phone card's [subtitle].
+  Widget _compact(
+    BuildContext context,
+    AppLocalizations l10n, {
+    required String title,
+    required String parties,
+    required String subtitle,
+    required bool selfPickup,
+    required DateTime? windowEnd,
+    required Widget? pill,
+  }) {
+    final status = delivery.status;
+    final isBuyer = currentUserId == delivery.buyerId;
+    final style = FwText.body.copyWith(fontSize: 12);
+    final Widget line;
+    if (isBuyer && !selfPickup && status == DeliveryStatus.pending) {
+      final planned = delivery.pickupPlannedAt;
+      final waiting = planned == null
+          ? l10n.liveTripWaitingForPickup
+          : l10n.delivWaitingForPickupOn(_shortDay(planned));
+      line = Text(
+        '$waiting · ${l10n.delivMapStartsAtPickup}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: style,
+      );
+    } else if (status == DeliveryStatus.delivered) {
+      // Inside the 48 h window the weekday alone places the day.
+      final at = delivery.confirmedAt ?? delivery.updatedAt;
+      final deliveredOn = l10n.delivDeliveredOn(
+        windowEnd == null ? _shortDay(at) : _weekday(at),
+      );
+      line = isBuyer && windowEnd != null
+          ? ClockText(
+              clockFormatOf(context)
+                  .deadline(
+                    windowEnd,
+                    date: DateFormat.E(),
+                    sentence: l10n.delivReportProblemUntil,
+                  )
+                  .prefixed('$deliveredOn · '),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: style,
+            )
+          : Text(
+              '$parties · $deliveredOn',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: style,
+            );
+    } else {
+      line = Text(
+        subtitle,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: style,
+      );
+    }
+    return FwCard(
+      onTap: onTap,
+      padding: const EdgeInsets.all(14),
+      borderColor: selected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: FwText.cardTitle.copyWith(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (pill != null) ...[
+                const SizedBox(width: 8),
+                pill,
+              ],
+            ],
+          ),
+          const SizedBox(height: 6),
+          line,
+        ],
+      ),
+    );
+  }
+
   /// "Thu Oct 30": the weekday, then the short date, on the Ethiopian day.
   static String _shortDay(DateTime at) {
     final day = dayInEthiopia(at);
     return formatBoardDay(day);
   }
+
+  /// "Mon": the weekday alone, on the Ethiopian day.
+  static String _weekday(DateTime at) =>
+      DateFormat.E().format(dayInEthiopia(at));
 }
 
 /// The 44 px tile that leads a delivery card (the deliveries board): the

@@ -10,6 +10,7 @@ import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dar
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
 import 'package:wereda_connect/features/live_trip/domain/live_trip_rules.dart';
+import 'package:wereda_connect/features/live_trip/domain/models/delivery_track.dart';
 import 'package:wereda_connect/features/live_trip/domain/track_freshness.dart';
 import 'package:wereda_connect/features/live_trip/presentation/live_trip_data.dart';
 import 'package:wereda_connect/features/live_trip/presentation/live_trip_text.dart';
@@ -29,12 +30,18 @@ import 'package:wereda_connect/shared/widgets/status_chip.dart';
 /// buyer with the arrival window and the age of the last check-in). Never
 /// for the trucker, and never on trip rows, browse screens or crop listings:
 /// live location stays behind the delivery's track.
+///
+/// [compact] is the web deliveries board's list card beside the live trip
+/// pane: the title and the parties with the arrival window and "arriving"
+/// on the right, a thin bar for the share of the way driven, then the
+/// check-in chip; no crop tile and no route ribbon.
 class OnTheRoadCard extends StatefulWidget {
   const OnTheRoadCard({
     required this.delivery,
     required this.currentUserId,
     this.onTap,
     this.selected = false,
+    this.compact = false,
     this.places,
     this.clock,
     super.key,
@@ -48,6 +55,9 @@ class OnTheRoadCard extends StatefulWidget {
 
   /// Highlighted (the delivery shown beside the list on a wide screen).
   final bool selected;
+
+  /// The web board's list card (see the class note).
+  final bool compact;
   final List<Place>? places;
   final DateTime Function()? clock;
 
@@ -125,20 +135,47 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
     // still says so.
     final showStatus = farmer || band == TrackFreshness.late;
 
+    final shell = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(18),
+      side: BorderSide(
+        color: widget.selected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+        width: widget.selected ? 2.0 : 1.0,
+      ),
+    );
+    final onTap = widget.onTap ??
+        () => openLiveTrip(context, delivery, widget.currentUserId);
+
+    if (widget.compact) {
+      return Material(
+        color: AppTheme.surfaceWhite,
+        shape: shell,
+        child: InkWell(
+          key: Key('on_the_road_${delivery.deliveryId}'),
+          borderRadius: BorderRadius.circular(18),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: _compactBody(
+              l10n,
+              clock,
+              title: title,
+              subtitle: subtitle,
+              eta: eta,
+              track: track,
+              now: view.now,
+            ),
+          ),
+        ),
+      );
+    }
+
     return Material(
       color: AppTheme.surfaceWhite,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-        side: BorderSide(
-          color: widget.selected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
-          width: widget.selected ? 2.0 : 1.0,
-        ),
-      ),
+      shape: shell,
       child: InkWell(
         key: Key('on_the_road_${delivery.deliveryId}'),
         borderRadius: BorderRadius.circular(18),
-        onTap: widget.onTap ??
-            () => openLiveTrip(context, delivery, widget.currentUserId),
+        onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -283,6 +320,93 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
     );
   }
 
+  /// The web board's list card: "Wheat · 2,000 kg" over the parties, the
+  /// window with "arriving" under it on the right, the bar, the chip.
+  Widget _compactBody(
+    AppLocalizations l10n,
+    ClockFormat clock, {
+    required String title,
+    required String subtitle,
+    required TrackEta? eta,
+    required DeliveryTrack? track,
+    required DateTime now,
+  }) {
+    final share = track == null ? null : tripProgressShare(track);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: FwText.cardTitle.copyWith(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: FwText.body.copyWith(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            if (eta != null) ...[
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  ClockText(
+                    clock.window(eta.from, eta.to),
+                    textAlign: TextAlign.end,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.soilDark,
+                    ),
+                  ),
+                  Text(
+                    l10n.delivArrivingCaption,
+                    style: FwText.body.copyWith(fontSize: 11),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+        if (share != null) ...[
+          const SizedBox(height: 10),
+          TripProgressBar(
+            key: Key('trip_progress_${widget.delivery.deliveryId}'),
+            share: share,
+          ),
+        ],
+        if (track != null) ...[
+          const SizedBox(height: 10),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: CheckInChip(
+              track: track,
+              now: now,
+              places: _places,
+              compact: true,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   static ClockLabel _sentence(ClockLabel window, String Function(String) put) {
     const slot = '\u{FFFC}';
     final whole = put(slot);
@@ -293,6 +417,31 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
       time: window.time,
       time24: window.time24,
       after: whole.substring(at + slot.length),
+    );
+  }
+}
+
+/// The thin bar of the web deliveries board's list card: [share] of the way
+/// driven in field green on the segment track, 6 px, pill ends.
+class TripProgressBar extends StatelessWidget {
+  const TripProgressBar({required this.share, super.key});
+
+  /// 0 at pickup to 1 at the drop-off.
+  final double share;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: SizedBox(
+        height: 6,
+        child: LinearProgressIndicator(
+          value: share.clamp(0.0, 1.0),
+          minHeight: 6,
+          backgroundColor: AppTheme.segmentTrack,
+          valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.fieldGreen),
+        ),
+      ),
     );
   }
 }

@@ -538,7 +538,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                               for (final l in state.listings)
                                 if (l.status == _selectedStatus) l,
                             ]
-                          : state.listings;
+                          : _sortedByTransport(state.listings);
                       if (widget.ownerMode &&
                           listings.isEmpty &&
                           state.listings.isNotEmpty) {
@@ -759,9 +759,27 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     );
   }
 
+  /// Market board: every farmer's listing, the ones a trip this week can
+  /// carry to the buyer's place first (the amber pill), then those some open
+  /// trip still leaves from, then the rest, the server's order kept inside
+  /// each group. Unsorted until the trips are read. Nothing is dropped: the
+  /// buyer sees every listing.
+  List<CropListing> _sortedByTransport(List<CropListing> listings) {
+    final trips = _openTrips;
+    if (trips == null) return listings;
+    final auth = context.read<AuthBloc>().state;
+    final woreda =
+        auth is AuthAuthenticated ? _buyerDeliveryWoreda(auth) : null;
+    return sortedByTransportMatch(
+      listings,
+      trips,
+      woreda,
+      DateTime.now().toUtc(),
+    );
+  }
+
   /// Market board: "Every farmer's listing, sorted by the best match for
-  /// Merkato." The app sorts no listing by match, so it says what is true:
-  /// every listing, with the transport lines for the buyer's place.
+  /// Merkato." (the buyer's place), or the no-place line.
   String _footnote(AppLocalizations l10n) {
     final auth = context.read<AuthBloc>().state;
     final woreda =
