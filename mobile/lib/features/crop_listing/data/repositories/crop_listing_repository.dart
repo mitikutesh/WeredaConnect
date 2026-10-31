@@ -6,6 +6,8 @@ import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
+import 'package:wereda_connect/features/crop_listing/data/services/crop_photo_file_store.dart';
+import 'package:wereda_connect/features/crop_listing/domain/crop_photos.dart';
 import 'package:wereda_connect/features/crop_listing/domain/repositories/base_crop_listing_repository.dart';
 
 /// Offline-first repository for crop listing CRUD operations.
@@ -15,18 +17,23 @@ import 'package:wereda_connect/features/crop_listing/domain/repositories/base_cr
 class CropListingRepository extends BaseCropListingRepository {
   final Isar _isar;
   final SyncQueue _syncQueue;
+  final CropPhotoFileStore _photoFiles;
   static const _uuid = Uuid();
 
   CropListingRepository({
     required Isar isar,
     required SyncQueue syncQueue,
+    CropPhotoFileStore? photoFiles,
   })  : _isar = isar,
-        _syncQueue = syncQueue;
+        _syncQueue = syncQueue,
+        _photoFiles = photoFiles ?? CropPhotoFileStore();
 
   /// Create a new crop listing.
   ///
-  /// Generates a UUID, saves to Isar with status=active and version=1,
-  /// then enqueues a sync operation for server upload.
+  /// Keeps the photos in app-private files, saves to Isar with status=active
+  /// and version=1, then enqueues a sync operation for server upload. The
+  /// photos themselves go up just before that operation is sent
+  /// (`CropPhotoSyncPreflight`), so a listing made offline keeps them.
   @override
   Future<CropListing> createListing({
     required String farmerId,
@@ -37,21 +44,36 @@ class CropListingRepository extends BaseCropListingRepository {
     required double longitude,
     required String locationName,
     required String description,
+    required List<CropPhotoDraft> photos,
     String? audioNoteRef,
     String? woreda,
     String? farmerName,
     String? farmerPhone,
     String? placeId,
+    String? listingId,
   }) async {
-    final listingId = _uuid.v4();
+    BaseCropListingRepository.checkPhotoCount(photos);
+    final id = listingId ?? _uuid.v4();
     final now = DateTime.now().toUtc();
+
+    final storedPhotos = <CropPhoto>[];
+    for (final photo in photos) {
+      final path = await _photoFiles.save(id, photo);
+      storedPhotos.add(
+        CropPhoto()
+          ..photoId = photo.photoId
+          ..localPath = path
+          ..contentType = photo.contentType
+          ..sizeBytes = photo.sizeBytes,
+      );
+    }
 
     final location = LatLng()
       ..latitude = latitude
       ..longitude = longitude;
 
     final listing = CropListing()
-      ..listingId = listingId
+      ..listingId = id
       ..farmerId = farmerId
       ..farmerName = farmerName ?? ''
       ..farmerPhone = farmerPhone ?? ''
@@ -63,6 +85,7 @@ class CropListingRepository extends BaseCropListingRepository {
       ..placeId = placeId
       ..description = description
       ..audioNoteRef = audioNoteRef
+      ..photos = storedPhotos
       ..status = ListingStatus.active
       ..createdAt = now
       ..updatedAt = now
@@ -74,7 +97,7 @@ class CropListingRepository extends BaseCropListingRepository {
 
     // Enqueue sync operation
     final data = jsonEncode({
-      'listingId': listingId,
+      'listingId': id,
       'farmerId': farmerId,
       'farmerName': farmerName ?? '',
       'farmerPhone': farmerPhone ?? '',
@@ -87,6 +110,7 @@ class CropListingRepository extends BaseCropListingRepository {
       'description': description,
       'audioNoteRef': audioNoteRef,
       'woreda': woreda ?? '',
+      'photoIds': [for (final photo in photos) photo.photoId],
       'status': listing.status.name,
       'createdAt': now.toIso8601String(),
       'version': 1,
@@ -99,7 +123,7 @@ class CropListingRepository extends BaseCropListingRepository {
       await _syncQueue.enqueue(
         userId: farmerId,
         entityType: 'crop_listing',
-        entityId: listingId,
+        entityId: id,
         action: 'create',
         data: data,
         operationId: _uuid.v4(),

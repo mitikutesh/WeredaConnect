@@ -11,6 +11,7 @@ import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import * as s3n from "aws-cdk-lib/aws-s3-notifications";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as ssm from "aws-cdk-lib/aws-ssm";
@@ -129,6 +130,25 @@ export class ApiStack extends cdk.Stack {
 
     const { envConfig } = props;
     const prefix = `wereda-connect-${envConfig.name}`;
+
+    // CORS origins: prod uses exact subdomains, dev allows localhost + wildcard.
+    // Shared by the HTTP API and the crop photo buckets (the web app PUTs
+    // originals and fetches renditions straight from S3).
+    const corsOrigins = envConfig.isProd
+      ? [
+          "https://app.weredaconnect.com",
+          "https://admin.weredaconnect.com",
+        ]
+      : [
+          "http://localhost:3000",
+          "http://localhost:4321",
+          "http://localhost:5173",
+          "http://localhost:8080",
+          `https://${envConfig.domain.webappSubdomain}.${envConfig.domain.zoneName}`,
+          `https://${envConfig.domain.adminSubdomain}.${envConfig.domain.zoneName}`,
+          ...(envConfig.extraCorsOrigins ?? []),
+        ];
+
 
     // ─── T-SEC-01/02: Hard guard — block dev-only bypasses in production ───
     if (envConfig.isProd) {
@@ -541,15 +561,110 @@ export class ApiStack extends cdk.Stack {
       },
     });
 
+    // ─── Crop photos (crop-listing-api.md 1.6.0) ─────────────────────
+    //
+    // Devices PUT originals (presigned, type and length signed, 10 MiB cap)
+    // into a private incoming bucket. Its ObjectCreated event runs the photo
+    // processor, which writes the only two renditions kept (320 px thumb and
+    // 1024 px full WebP, metadata stripped) to a private photos bucket and
+    // deletes the original. Reads go through short-lived presigned GETs that
+    // CropFunction signs after its role gate. Both buckets live in this stack
+    // because an S3 notification to a Lambda in another stack is a
+    // cross-stack cycle. Design and costs: crop-photos-architecture.md.
+    const photoBucketRemoval = envConfig.isProd
+      ? { removalPolicy: cdk.RemovalPolicy.RETAIN, autoDeleteObjects: false }
+      : { removalPolicy: cdk.RemovalPolicy.DESTROY, autoDeleteObjects: true };
+
+    const cropPhotoIncomingBucket = new s3.Bucket(
+      this,
+      "CropPhotoIncomingBucket",
+      {
+        encryption: s3.BucketEncryption.S3_MANAGED,
+        blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+        enforceSSL: true,
+        ...photoBucketRemoval,
+        // Originals live seconds; anything the processor left goes in a day.
+        lifecycleRules: [
+          {
+            expiration: cdk.Duration.days(1),
+            abortIncompleteMultipartUploadAfter: cdk.Duration.days(1),
+          },
+        ],
+        cors: [
+          {
+            allowedMethods: [s3.HttpMethods.PUT],
+            allowedOrigins: corsOrigins,
+            allowedHeaders: ["Content-Type"],
+            maxAge: 3000,
+          },
+        ],
+      },
+    );
+
+    const cropPhotosBucket = new s3.Bucket(this, "CropPhotosBucket", {
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+      ...photoBucketRemoval,
+      // Renditions are 8 to 150 KB: S3 Standard is the cheapest class for
+      // them (IA and Glacier bill at least 128 KB per object plus retrieval).
+      // Listings expire after 30 days; a year covers orders and disputes.
+      lifecycleRules: [
+        {
+          expiration: cdk.Duration.days(365),
+          abortIncompleteMultipartUploadAfter: cdk.Duration.days(1),
+        },
+      ],
+      cors: [
+        {
+          // Flutter web (CanvasKit) fetches images with XHR, so GETs need CORS.
+          allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.HEAD],
+          allowedOrigins: corsOrigins,
+          allowedHeaders: ["*"],
+          maxAge: 3000,
+        },
+      ],
+    });
+
+    const cropPhotoProcessorFn = new WeredaLambda(
+      this,
+      "CropPhotoProcessorFunction",
+      {
+        functionName: `${prefix}-crop-photo-processor`,
+        description:
+          "S3 ObjectCreated on crop photo originals: 320 px thumb + 1024 px full WebP, original deleted",
+        handlerName: "CropPhotoProcessorFunction",
+        environment: {
+          CROP_PHOTO_INCOMING_BUCKET: cropPhotoIncomingBucket.bucketName,
+          CROP_PHOTOS_BUCKET: cropPhotosBucket.bucketName,
+        },
+        // Decoding a 12 MP photo takes ~50 MB per frame; 1024 MB also buys
+        // the CPU that keeps one photo near a second (~0.00002 USD each).
+        memorySize: 1024,
+        timeout: cdk.Duration.seconds(30),
+        reservedConcurrentExecutions: 5,
+      },
+    );
+    cropPhotoIncomingBucket.grantRead(cropPhotoProcessorFn.function);
+    cropPhotoIncomingBucket.grantDelete(cropPhotoProcessorFn.function);
+    cropPhotosBucket.grantPut(cropPhotoProcessorFn.function);
+    cropPhotoIncomingBucket.addEventNotification(
+      s3.EventType.OBJECT_CREATED,
+      new s3n.LambdaDestination(cropPhotoProcessorFn.function),
+    );
+
     // ─── Crop Function ───────────────────────────────────────────────
 
     const cropFn = new WeredaLambda(this, "CropFunction", {
       functionName: `${prefix}-crops`,
-      description: "GET /crops — browse crop listings (read-only)",
+      description:
+        "GET /crops (read-only browse, photo thumbs) and POST /crops/{id}/photos (presigned photo uploads)",
       handlerName: "CropFunction",
       environment: {
         CROPS_TABLE: props.cropsTable.tableName,
         PAGINATION_SECRET_ARN: paginationSecret.reference,
+        CROP_PHOTO_INCOMING_BUCKET: cropPhotoIncomingBucket.bucketName,
+        CROP_PHOTOS_BUCKET: cropPhotosBucket.bucketName,
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
@@ -558,6 +673,10 @@ export class ApiStack extends cdk.Stack {
     // Crop function needs read-only access to crops table
     props.cropsTable.grantReadData(cropFn.function);
     paginationSecret.grantRead(cropFn.function);
+    // Presigned URLs carry the signer's rights: PUT originals only, GET
+    // renditions only. Nothing else on either bucket.
+    cropPhotoIncomingBucket.grantPut(cropFn.function);
+    cropPhotosBucket.grantRead(cropFn.function);
 
     // ─── Trip Function ────────────────────────────────────────────────
 
@@ -1689,21 +1808,7 @@ export class ApiStack extends cdk.Stack {
 
     // ─── HTTP API Gateway ────────────────────────────────────────────
 
-    // CORS origins: prod uses exact subdomains, dev allows localhost + wildcard
-    const corsOrigins = envConfig.isProd
-      ? [
-          "https://app.weredaconnect.com",
-          "https://admin.weredaconnect.com",
-        ]
-      : [
-          "http://localhost:3000",
-          "http://localhost:4321",
-          "http://localhost:5173",
-          "http://localhost:8080",
-          `https://${envConfig.domain.webappSubdomain}.${envConfig.domain.zoneName}`,
-          `https://${envConfig.domain.adminSubdomain}.${envConfig.domain.zoneName}`,
-          ...(envConfig.extraCorsOrigins ?? []),
-        ];
+    // CORS origins: see `corsOrigins` at the top of the constructor.
 
     const httpApi = new apigateway.HttpApi(this, "HttpApi", {
       apiName: `${prefix}-api`,
@@ -1951,6 +2056,20 @@ export class ApiStack extends cdk.Stack {
       authorizer: jwtAuthorizer,
       integration: new integrations.HttpLambdaIntegration(
         "CropsGetInt",
+        cropFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    // crop-listing-api.md 1.6.0: presigned PUT URLs for a listing's photos.
+    httpApi.addRoutes({
+      path: "/crops/{id}/photos",
+      methods: [apigateway.HttpMethod.POST],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration(
+        "CropsPhotosInt",
         cropFn.function,
         {
           payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,

@@ -65,6 +65,7 @@ export class MonitoringStack extends cdk.Stack {
       { label: 'Escrow Cron', nameSuffix: 'escrow-cron' },
       { label: 'Order Cron', nameSuffix: 'order-cron' },
       { label: 'Crops', nameSuffix: 'crops' },
+      { label: 'Crop Photo Processor', nameSuffix: 'crop-photo-processor' },
       { label: 'Trips', nameSuffix: 'trips' },
       { label: 'Orders', nameSuffix: 'orders' },
       { label: 'Deliveries', nameSuffix: 'deliveries' },

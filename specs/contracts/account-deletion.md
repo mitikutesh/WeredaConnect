@@ -1,7 +1,7 @@
 # Account Deletion Contract
 
 ## Version
-1.3.2
+1.3.3
 
 ## Parties
 - **Mobile / Web** (client, ACC-03): Profile > "Delete account" flow, step-up re-auth, local wipe. Mobile and web are a platform pair and ship together.
@@ -273,7 +273,7 @@ Every DynamoDB table in `infra/lib/stacks/database-stack.ts` and `infra/lib/cons
 | Table | Action | Detail |
 |-------|--------|--------|
 | `users` | Anonymize (tombstone) | See Tombstone. Written in step 11 |
-| `crops` | Delete (withdraw and scrub) | Step 7 rule per status. Remove `farmerPhone`, `latitude`, `longitude`, `locationName`, `description`, `audioNoteRef`; `farmerName` to sentinel. Keep `cropId`, `listingId`, `farmerId`, `cropType`, `quantity`, `pricePerKg`, `woreda`, `status`, `deletedAt`, timestamps, `version` |
+| `crops` | Delete (withdraw and scrub) | Step 7 rule per status. Remove `farmerPhone`, `latitude`, `longitude`, `locationName`, `description`, `audioNoteRef`, `photoIds` (1.3.3: no photo URL is signed again; the objects expire with the photos bucket lifecycle, `crop-listing-api.md` 1.6.0); `farmerName` to sentinel. Keep `cropId`, `listingId`, `farmerId`, `cropType`, `quantity`, `pricePerKg`, `woreda`, `status`, `deletedAt`, timestamps, `version` |
 | `trips` | Delete (withdraw and scrub) | Step 7 rule per status. Remove `truckerPhone`, `vehiclePlate`, `vehicleDescription`; `truckerName` to sentinel. Keep `tripId`, `truckerId`, `fromWoreda`, `toWoreda`, `departureDate`, `capacity`, `pricePerQuintal`, `matchedListings`, `status`, `deletedAt`, timestamps, `version` |
 | `orders` | Anonymize (kept as money record) | The user's copied name to sentinel. Ids, `quantity`, `pricePerUnit`, `transportCost`, `paymentMethod`, `cbeTransactionId`, `telebirr*` fields, statuses, reasons and timestamps unchanged. Unpaid orders are cancelled first (step 8) |
 | `deliveries` | Anonymize | The user's copied name to sentinel, phone removed. Evidence kept: `gpsPickup`, `gpsDropoff`, `pickupPhotoRef`, `dropoffPhotoRef`, `qrToken`, `qrNonce`, `gpsAnomalyFlag`, `disputeReason`, `disputedBy`, statuses, timestamps. Found via the Lookups table, including the `ListingIndex` fallback |
@@ -440,6 +440,7 @@ Not built yet (follow-ups):
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.3.3 | 2026-10-31 | Per-table policy: `crops` also drops `photoIds` (`crop-listing-api.md` 1.6.0), so no photo URL is signed for a deleted farmer's listings; the photo objects expire with the photos bucket lifecycle (365 days) |
 | 1.3.2 | 2026-10-28 | Per-table policy: `trip-locations` (LT-05, Live Trip check-ins) retained until its 60 day TTL as dispute and fraud evidence; no deletion step |
 | 1.3.1 | 2026-10-26 | Per-table policy: `notifications` (ESC-21 inbox) retained until its 90 day TTL; no deletion step yet |
 | 1.3.0 | 2026-10-23 | Client wipe and refusals as built (ACC-03): the user-scoped Isar wipe, the 5 session keys, `forgetAccount` with `rate_limit_<phone>`, a local FCM `deleteToken` only, `msg_read_*` and data usage keys replace "Isar `clearAllData`"; other accounts' rows and public listings stay; the right-account check before every send (the stored ID token, sent as the request's own bearer only when its `sub` is the account; a `401` asks for the password; a failed check says another account is signed in) and the `userId` check of the `200`; a `200` for an account no longer signed in wipes only its local data; resume backoff; gateway errors read as unknown; `410 ACCOUNT_004` from `/sync` and other endpoints is terminal (no retry counted, final states not resent) and wipes unless `in_progress`; `AUTH_014` on refresh does not wipe |
@@ -449,5 +450,5 @@ Not built yet (follow-ups):
 
 ---
 
-**Last Updated**: 2026-10-28
-**Version**: 1.3.2
+**Last Updated**: 2026-10-31
+**Version**: 1.3.3

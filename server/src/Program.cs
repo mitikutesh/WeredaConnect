@@ -60,6 +60,12 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new SyncFunction().FunctionHandler, serializer),
 
+            // crop-listing-api 1.6.0: S3 ObjectCreated on the crop photo incoming bucket (raw Stream
+            // in, parsed with JsonDocument; S3 ignores the async result, so nothing comes out).
+            var h when h.Contains("CropPhotoProcessorFunction") =>
+                HandlerWrapper.GetHandlerWrapper(
+                    (Func<Stream, ILambdaContext, Task>)new CropPhotoProcessorFunction().HandleAsync),
+
             var h when h.Contains("CropFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new CropFunction().FunctionHandler, serializer),

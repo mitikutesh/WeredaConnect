@@ -65,6 +65,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from crop_photo_upload import CropPhotoUploadError, upload_crop_photos
+
 _BASE_URL = "https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com"
 PASSWORD = "testpass1a"  # 8+ chars, lowercase + digit
 
@@ -347,6 +349,13 @@ def phase_create_crops(state: TestState):
         now = ts()
         print_step(f"Creating {listing['cropType']} listing for {farmer.display_name}")
 
+        # crop-listing-api 1.6.0: the photos go up before the create (rule 9).
+        try:
+            photo_ids = upload_crop_photos(_BASE_URL, farmer.access_token, crop_id)
+        except CropPhotoUploadError as e:
+            state.record(f"Create {listing['cropType']}", False, f"photo upload: {e}")
+            continue
+
         sync_body = {
             "syncBatchId": uid(),
             "clientId": uid(),
@@ -364,6 +373,7 @@ def phase_create_crops(state: TestState):
                     "description": listing["description"],
                     "woreda": farmer.woreda,
                     "status": "available",
+                    "photoIds": photo_ids,
                 },
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             }]

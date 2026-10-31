@@ -53,6 +53,10 @@ class ListingCard extends StatelessWidget {
   /// the order actions).
   final Widget? footer;
 
+  /// Replaces the crop tile at the start (the listing's cover photo,
+  /// crop-listing-api.md 1.6.0). The tile stays when null.
+  final Widget? leading;
+
   const ListingCard({
     required this.title,
     required this.location,
@@ -72,6 +76,7 @@ class ListingCard extends StatelessWidget {
     this.priceUnit,
     this.status,
     this.footer,
+    this.leading,
   });
 
   @override
@@ -95,15 +100,16 @@ class ListingCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: iconBg,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: FwSprout(color: iconFg, size: 24),
-              ),
+              leading ??
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: iconBg,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: FwSprout(color: iconFg, size: 24),
+                  ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(

@@ -105,6 +105,7 @@ public class SyncFunctionContactInTextTests
             { "woreda", "Jimma" },
             { "locationName", "Jimma" },
             { "description", "White teff" },
+            { "photoIds", CropPhotoFixtures.ValidPhotoIds() },
         };
         foreach (var (key, value) in extra)
         {

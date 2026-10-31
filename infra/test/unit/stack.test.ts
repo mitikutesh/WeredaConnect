@@ -240,8 +240,10 @@ describe('ApiStack', () => {
     // the delivery-qr-secrets work) + messages (read) + message-stream (push) = 22,
     // + auth-verify-otp (SMS phone proof) + the dev-only mock Fayda provider = 24,
     // + account deletion and its sweep (ACC-02) = 26,
-    // + order-notify-stream and the notifications inbox read (ESC-21) = 28.
-    template.resourceCountIs('AWS::Lambda::Function', 28);
+    // + order-notify-stream and the notifications inbox read (ESC-21) = 28,
+    // + the crop photo processor and the two CDK helpers its buckets bring
+    // (bucket notifications, dev auto-delete) (crop-listing-api 1.6.0) = 31.
+    template.resourceCountIs('AWS::Lambda::Function', 31);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
@@ -270,8 +272,108 @@ describe('ApiStack', () => {
     // plus DELETE /user/account (ACC-02) → 61,
     // plus GET /notifications (ESC-21, order notification inbox) → 62,
     // plus GET /deliveries/{id}/track (LT-06, live trip) → 63,
-    // plus GET /admin/deliveries/{id}/trail (LT-13, dispute evidence) → 64 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 64);
+    // plus GET /admin/deliveries/{id}/trail (LT-13, dispute evidence) → 64,
+    // plus POST /crops/{id}/photos (crop-listing-api 1.6.0) → 65 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 65);
+  });
+
+  // ─── Crop photos (crop-listing-api 1.6.0) ───
+  const PROCESSOR_FN = 'wereda-connect-dev-crop-photo-processor';
+
+  /** The API stack's buckets by the S3 methods their CORS allows. */
+  function photoBucket(method: string): Record<string, any> {
+    const buckets = Object.values(template.findResources('AWS::S3::Bucket')).filter((b: any) =>
+      (b.Properties?.CorsConfiguration?.CorsRules ?? []).some((rule: any) =>
+        rule.AllowedMethods.includes(method),
+      ),
+    );
+    expect(buckets).toHaveLength(1);
+    return buckets[0] as Record<string, any>;
+  }
+
+  test('crop photos: two private, encrypted buckets with short lifecycles', () => {
+    template.resourceCountIs('AWS::S3::Bucket', 2);
+    for (const method of ['PUT', 'GET']) {
+      const bucket = photoBucket(method);
+      expect(bucket.Properties.PublicAccessBlockConfiguration).toEqual({
+        BlockPublicAcls: true,
+        BlockPublicPolicy: true,
+        IgnorePublicAcls: true,
+        RestrictPublicBuckets: true,
+      });
+      expect(bucket.Properties.BucketEncryption.ServerSideEncryptionConfiguration[0]
+        .ServerSideEncryptionByDefault.SSEAlgorithm).toBe('AES256');
+      // No versioning: an overwritten or expired photo leaves no paid copy behind.
+      expect(bucket.Properties.VersioningConfiguration).toBeUndefined();
+    }
+    // Originals are gone within a day; renditions after a year.
+    expect(photoBucket('PUT').Properties.LifecycleConfiguration.Rules[0].ExpirationInDays).toBe(1);
+    expect(photoBucket('GET').Properties.LifecycleConfiguration.Rules[0].ExpirationInDays).toBe(365);
+    // The web app may PUT with Content-Type only, and read renditions.
+    expect(photoBucket('PUT').Properties.CorsConfiguration.CorsRules[0]).toMatchObject({
+      AllowedMethods: ['PUT'],
+      AllowedHeaders: ['Content-Type'],
+    });
+    expect(photoBucket('GET').Properties.CorsConfiguration.CorsRules[0].AllowedMethods).toEqual(
+      ['GET', 'HEAD'],
+    );
+  });
+
+  test('crop photos: the processor runs on every new original', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: PROCESSOR_FN,
+      MemorySize: 1024,
+      Timeout: 30,
+      Environment: {
+        Variables: Match.objectLike({
+          FUNCTION_HANDLER: 'CropPhotoProcessorFunction',
+          CROP_PHOTO_INCOMING_BUCKET: Match.anyValue(),
+          CROP_PHOTOS_BUCKET: Match.anyValue(),
+        }),
+      },
+    });
+    template.hasResourceProperties('Custom::S3BucketNotifications', {
+      NotificationConfiguration: {
+        LambdaFunctionConfigurations: [
+          Match.objectLike({
+            Events: ['s3:ObjectCreated:*'],
+            LambdaFunctionArn: { 'Fn::GetAtt': [lambdaId(PROCESSOR_FN), 'Arn'] },
+          }),
+        ],
+      },
+    });
+  });
+
+  test('crop photos: the crop function signs uploads and reads, the route is authorized', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-crops',
+      Environment: {
+        Variables: Match.objectLike({
+          CROP_PHOTO_INCOMING_BUCKET: Match.anyValue(),
+          CROP_PHOTOS_BUCKET: Match.anyValue(),
+        }),
+      },
+    });
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'POST /crops/{id}/photos',
+      AuthorizationType: 'JWT',
+    });
+  });
+
+  test('crop photos: the crop function cannot delete photos', () => {
+    // Its role may sign PUTs of originals and GETs of renditions, nothing more.
+    const cropRole = (
+      template.findResources('AWS::Lambda::Function', {
+        Properties: { FunctionName: 'wereda-connect-dev-crops' },
+      }) as Record<string, any>
+    )[lambdaId('wereda-connect-dev-crops')].Properties.Role['Fn::GetAtt'][0];
+    const actions = Object.values(template.findResources('AWS::IAM::Policy'))
+      .filter((p: any) => p.Properties.Roles.some((r: any) => r.Ref === cropRole))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement)
+      .flatMap((st: any) => (Array.isArray(st.Action) ? st.Action : [st.Action]));
+    expect(actions).toContain('s3:PutObject');
+    expect(actions.some((a: string) => a.startsWith('s3:GetObject'))).toBe(true);
+    expect(actions.filter((a: string) => a.startsWith('s3:DeleteObject'))).toEqual([]);
   });
 
   // ─── ESC-21: order notifications (stream consumer + inbox read) ───

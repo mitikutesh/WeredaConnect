@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.5.0
+1.6.0
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -230,6 +230,73 @@ GET /crops/crop-456
 
 ---
 
+### 4. Request Photo Upload URLs (1.6.0)
+**Method**: POST /crops/{id}/photos
+**Authentication**: Required. Farmers only; any other role gets `403 CROP_FORBIDDEN`.
+**Path Parameters**: `id` (string, UUID): the listing id. The device makes it, so the listing may not exist on the server yet (offline-first: photos go up before the create).
+
+Every listing carries 2 to 4 photos (rule 9). The device uploads each original once to a private incoming bucket; a processor Lambda turns it into the only two renditions that are kept (see Photo Renditions). Full design and costs: `specs/architecture/crop-photos-architecture.md`.
+
+**Request Body**:
+```json
+{
+  "photos": [
+    { "photoId": "7d1c0a52-3f0e-4c4b-9a8e-0f3b6c2d9e11", "contentType": "image/jpeg", "sizeBytes": 412873 }
+  ]
+}
+```
+
+| Field | Rule |
+|-------|------|
+| `photos` | 1 to 4 entries |
+| `photoId` | UUID, made on the device; distinct within the request |
+| `contentType` | `image/jpeg`, `image/png` or `image/webp` |
+| `sizeBytes` | 1 to 10485760 (10 MiB): the exact length of the bytes the device will PUT |
+
+**Ownership**: when a listing with this id already exists, its `farmerId` must be the caller (`403 CROP_FORBIDDEN` otherwise). The upload key is always built from the caller's own id, so a farmer can never write into another farmer's photos.
+
+**Response (200)**:
+```json
+{
+  "uploads": [
+    {
+      "photoId": "7d1c0a52-3f0e-4c4b-9a8e-0f3b6c2d9e11",
+      "uploadUrl": "https://<incoming-bucket>.s3.eu-north-1.amazonaws.com/<farmerId>/<cropId>/<photoId>?X-Amz-...",
+      "contentType": "image/jpeg",
+      "sizeBytes": 412873
+    }
+  ],
+  "expiresInSeconds": 900
+}
+```
+
+The device sends `PUT uploadUrl` with the raw bytes, `Content-Type` equal to `contentType` and `Content-Length` equal to `sizeBytes`. Both headers are signed, so any other type or length fails at S3 with `403 SignatureDoesNotMatch` and nothing is stored. A URL lives 15 minutes; a device that missed it asks again.
+
+**Error Codes**:
+- `400 CROP_VALIDATION`: bad id, body, count, type or size
+- `403 CROP_FORBIDDEN`: not a farmer, or the listing belongs to another farmer
+- `500 CROP_SERVER_ERROR`: signing failed or photo storage is not configured
+
+### Photo Renditions (1.6.0)
+
+The S3 `ObjectCreated` event on the incoming bucket (key `{farmerId}/{cropId}/{photoId}`) runs the photo processor. It:
+
+1. Deletes, without decoding, an object over 10 MiB or a key that is not three UUID segments.
+2. Reads only the header first and refuses an image over 40 megapixels (decompression bombs) or a format other than JPEG, PNG or WebP.
+3. Applies the EXIF orientation, then drops all metadata (EXIF, GPS, ICC, XMP), so the farm's location never reaches a buyer.
+4. Writes the two renditions to the private photos bucket, never upscaling:
+
+| Rendition | Key | Longest edge | Encoding | Typical size | Used by |
+|-----------|-----|--------------|----------|--------------|---------|
+| `thumb` | `{farmerId}/{cropId}/{photoId}/thumb.webp` | 320 px | WebP, quality 60 | 8 to 20 KB | Marketplace list cards |
+| `full` | `{farmerId}/{cropId}/{photoId}/full.webp` | 1024 px | WebP, quality 75; re-encoded at 60 when over 150 KB | 60 to 150 KB | Listing detail and zoom |
+
+5. Deletes the original. A failed decode deletes it too and writes nothing. The incoming bucket expires anything still there after 1 day.
+
+Processing is asynchronous (usually 1 to 3 seconds). Until it finishes, or when it refused the photo, the photo's URLs answer 403/404 from S3 and clients show a placeholder.
+
+---
+
 ## Data Models
 
 ### CropListing Entity
@@ -257,6 +324,10 @@ GET /crops/crop-456
 | `updatedAt` | string (ISO 8601) | Yes | — | Timestamp when listing was last updated |
 | `deletedAt` | string (ISO 8601) | No | — | Timestamp when listing was soft-deleted |
 | `version` | number | Yes | ≥1 | Optimistic concurrency control version |
+| `photoIds` | string[] (UUID) | Yes on create (1.6.0) | 2 to 4, distinct | Sync payload and stored item only: the listing's photos in display order (the first is the cover). Absent on listings made before 1.6.0 |
+| `photos` | object[] | No | none | Read responses only (1.6.0): one entry per `photoIds` element, same order. `GET /crops` gives `{photoId, thumbUrl}`; `GET /crops/{id}` gives `{photoId, thumbUrl, fullUrl}`. Omitted when the listing has no photos |
+
+**Photo URLs (1.6.0)**: `thumbUrl` and `fullUrl` are presigned S3 GET URLs, signed only for a caller who passed the visibility gate above. `thumbUrl` lives 6 hours and `fullUrl` 1 hour (less when the server's signing credentials expire first). The query string changes on every read, so clients cache an image by `photoId` and rendition, never by URL, and treat a 403 from S3 as "fetch the listing again".
 
 > **Implementation note — flat wire shape (`CropDto`).** The live `GET /crops`
 > response is **flat**, not the nested `location` object above: it returns
@@ -340,6 +411,12 @@ GET /crops/crop-456
 8. **Account under review** (1.5.0, FRD-04):
    - A create from a farmer at risk tier CRITICAL (`specs/architecture/fraud-detection-architecture.md` sections 16 and 17) is refused with `FRAUD_ACCOUNT_HELD: Your account is under review. Some actions are paused. Contact support.` and nothing is written. The check runs after the field rules above (rule 6b included) and before the fraud listing checks (velocity, duplicate, price), so a held account writes no velocity signal either. Permanent on clients like every `FRAUD_*` code (`sync-protocol.md` 1.9.0, 1.25.0). The tier is never returned.
    - Updates and deletes of existing listings are not gated. A score that cannot be read is LOW (the create goes on).
+9. **Photos** (1.6.0):
+   - `photoIds` is required on create: a JSON array of 2 to 4 distinct UUID strings. Anything else (missing, not an array, a non-UUID or repeated id, fewer than 2, more than 4) is refused with `CROP_VALIDATION: photoIds must list 2 to 4 distinct photo ids.` and nothing is written. Permanent on clients like every `CROP_VALIDATION`.
+   - On update `photoIds` is optional; when present the same rule applies.
+   - The server stores the ids as a list of strings. Rendition keys are derived from the listing's own `farmerId` and id, so a listing can only ever show photos that its farmer uploaded for that listing id.
+   - The server does not check at create time that the renditions exist: processing is asynchronous and the create may arrive a second after the upload. Clients upload first (mobile: the sync executor holds a crop create until its photos are uploaded; web: upload, then `POST /sync`).
+   - Shipped apps older than 1.6.0 send no `photoIds`, so their creates are refused. Accepted while only dev builds exist.
 
 ### Client-Side Validation
 
@@ -424,6 +501,7 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 - Phone numbers returned only to the owning farmer and admins, never to buyers (1.3.0, ESC-48: no contact before the money is held, so a buyer and a farmer cannot agree to trade off the platform)
 - GPS coordinates optional (farmers may not want exact farm location public)
 - Listing text carries no phone number (1.4.0, FUP-49, rule 6b)
+- Photos (1.6.0): both buckets block all public access. Reads go only through short-lived presigned URLs handed to callers who may see the listing, so a farmer cannot fetch another farmer's photos and a trucker cannot browse them. Renditions carry no EXIF or GPS data. On account deletion `photoIds` is stripped with the other listing fields, so no URL is ever signed for them again
 
 ---
 
@@ -431,7 +509,7 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 
 ### Phase R4+
 - **Voice notes**: Attach audio description (Amharic/Afan Oromo) for low-literacy farmers
-- **Image upload**: Photos of crop quality (S3 storage, optimized for 3G)
+- **Photo editing**: change a listing's photos after create (the wire already accepts `photoIds` on update)
 - **Bidding system**: Transport providers bid on crop lots
 - **Delivery tracking**: Link crop listings to trip entities
 - **Quality certification**: Verify crop quality (Ethiopian Grain Trade Enterprise standards)
@@ -454,9 +532,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 | 1.3.0 | 2026-10-17 | `GET /crops` and `GET /crops/{id}` return `farmerPhone` only to the listing's farmer and admins; buyers get none (ESC-48). Clients read `farmerPhone ?? ''`, so shipped apps keep working and their browse cache loses the numbers at the next pull |
 | 1.4.0 | 2026-10-23 | No phone number in listing text (FUP-49): a `description` or `locationName` that holds an Ethiopian mobile number is refused with `CROP_CONTACT_IN_TEXT` on create and on an update that changes it (an unchanged echo is accepted), nothing written; permanent on clients; the forms run the same check first; detector in rule 6b; audio notes are not screened |
 | 1.5.0 | 2026-10-23 | Account under review (FRD-04, rule 8): a create from a farmer at risk tier CRITICAL is refused with `FRAUD_ACCOUNT_HELD` after the field rules and before the fraud listing checks, nothing written; permanent on clients (already handled since `sync-protocol.md` 1.18.0); updates and deletes not gated |
+| 1.6.0 | 2026-10-31 | Crop photos: `POST /crops/{id}/photos` hands out presigned PUT URLs (farmer only, 1 to 4 per call, type and length signed); an S3-triggered processor keeps only a 320 px thumb and a 1024 px full WebP, metadata stripped, original deleted; `photoIds` (2 to 4) required on create (rule 9); `GET /crops` returns `photos[].thumbUrl`, `GET /crops/{id}` adds `photos[].fullUrl` |
 
 ---
 
-**Last Updated**: 2026-10-23
-**Version**: 1.5.0
+**Last Updated**: 2026-10-31
+**Version**: 1.6.0
 **Status**: Implemented (Phase R3)

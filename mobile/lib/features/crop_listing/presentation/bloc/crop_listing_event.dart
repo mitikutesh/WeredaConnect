@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+import 'package:wereda_connect/features/crop_listing/domain/crop_photos.dart';
+
 /// Base class for crop listing events.
 abstract class CropListingEvent extends Equatable {
   const CropListingEvent();
@@ -37,6 +39,12 @@ class CreateCropListing extends CropListingEvent {
   /// null for free-text entries. Stored locally only.
   final String? placeId;
 
+  /// The 2 to 4 photos the farmer took or chose (crop-listing-api.md 1.6.0).
+  final List<CropPhotoDraft> photos;
+
+  /// The id the form made for this listing (it names the voice note).
+  final String? listingId;
+
   const CreateCropListing({
     required this.farmerId,
     required this.cropType,
@@ -51,6 +59,8 @@ class CreateCropListing extends CropListingEvent {
     this.audioNoteRef,
     this.woreda,
     this.placeId,
+    this.photos = const [],
+    this.listingId,
   });
 
   @override
@@ -68,6 +78,9 @@ class CreateCropListing extends CropListingEvent {
         audioNoteRef,
         woreda,
         placeId,
+        // Ids, not the bytes: two drafts are the same photo by id.
+        [for (final photo in photos) photo.photoId],
+        listingId,
       ];
 }
 

@@ -19,6 +19,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 
 import '../../helpers/wait_for.dart';
+import '../../helpers/crop_photo_fixtures.dart';
 
 /// Counts pull invocations so we can assert which BLoC events trigger a
 /// marketplace pull. This guards the HARD CLAUDE.md role rule: only Buyer
@@ -79,6 +80,7 @@ void main() {
   group('CropListingBloc marketplace-pull gating', () {
     CropListingBloc build() => CropListingBloc(
           repository: CropListingRepository(
+            photoFiles: tempCropPhotoFileStore(),
             isar: isar,
             syncQueue: SyncQueue(isar),
           ),

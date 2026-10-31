@@ -133,7 +133,8 @@ public class SyncFunctionRiskGateTests
         Data = new Dictionary<string, object>
         {
             { "farmerId", FarmerId }, { "cropType", "teff" }, { "quantity", 50 }, { "pricePerKg", 45.5 },
-            { "woreda", "Jimma" }, { "locationName", "Jimma" }, { "description", "White teff" }
+            { "woreda", "Jimma" }, { "locationName", "Jimma" }, { "description", "White teff" },
+            { "photoIds", CropPhotoFixtures.ValidPhotoIds() }
         }
     };
 

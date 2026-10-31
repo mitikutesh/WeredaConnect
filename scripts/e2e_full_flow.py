@@ -41,6 +41,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse, parse_qs
 from urllib.request import Request, urlopen
 
+from crop_photo_upload import CropPhotoUploadError, upload_crop_photos
+
 BASE_URL = "https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com"
 SIM_URL: Optional[str] = None
 PASSWORD = "testpass1a"
@@ -237,8 +239,14 @@ def seed_listings(s: State):
     ]
     for farmer, c in crops:
         cid = uid()
+        # crop-listing-api 1.6.0: the photos go up before the create (rule 9).
+        try:
+            photo_ids = upload_crop_photos(BASE_URL, farmer.token, cid)
+        except CropPhotoUploadError as e:
+            s.check(f"crop {c['cropType']} ({farmer.name})", False, f"photo upload: {e}")
+            continue
         data = {"farmerId": farmer.user_id, "farmerName": farmer.name,
-                "woreda": farmer.woreda, "status": "available", **c}
+                "woreda": farmer.woreda, "status": "available", "photoIds": photo_ids, **c}
         r = sync_create(farmer, "crop_listing", cid, data)
         ok = r.status == 200 and (r.json().get("results", [{}])[0].get("status") in ("success",))
         dup = "FRAUD_DUPLICATE" in r.body

@@ -18,6 +18,7 @@ class CropListing {
   late String description;
   double? farmerReliability;
   String? audioNoteRef;
+  List<CropPhoto> photos = [];
   late ListingStatus status;
   late DateTime createdAt;
   late DateTime updatedAt;
@@ -28,6 +29,17 @@ class CropListing {
 class LatLng {
   late double latitude;
   late double longitude;
+}
+
+/// One photo of a crop listing (see the Isar schema for the field docs).
+class CropPhoto {
+  String photoId = '';
+  String? thumbUrl;
+  String? fullUrl;
+  String? localPath;
+  String contentType = 'image/jpeg';
+  int sizeBytes = 0;
+  bool uploaded = false;
 }
 
 /// Status of a crop listing in its lifecycle.

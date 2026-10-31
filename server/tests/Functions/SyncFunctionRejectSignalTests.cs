@@ -105,20 +105,21 @@ public class SyncFunctionRejectSignalTests
 
     private static SyncOperationRequest Op(
         string entityType, string entityId, string action, Dictionary<string, object> data, string? opId = null) => new()
-    {
-        OperationId = opId ?? $"op-{entityId}-{action}",
-        IdempotencyKey = $"caller:{entityType}:{entityId}:{action}:{opId ?? "1"}",
-        EntityType = entityType,
-        EntityId = entityId,
-        Action = action,
-        Data = data
-    };
+        {
+            OperationId = opId ?? $"op-{entityId}-{action}",
+            IdempotencyKey = $"caller:{entityType}:{entityId}:{action}:{opId ?? "1"}",
+            EntityType = entityType,
+            EntityId = entityId,
+            Action = action,
+            Data = data
+        };
 
     private static SyncOperationRequest CropCreate(string entityId, string farmerId, string? opId = null) =>
         Op("crop_listing", entityId, "create", new Dictionary<string, object>
         {
             { "farmerId", farmerId }, { "cropType", "teff" }, { "quantity", 50 }, { "pricePerKg", 45.5 },
-            { "woreda", "Jimma" }, { "locationName", "Jimma" }, { "description", "White teff" }
+            { "woreda", "Jimma" }, { "locationName", "Jimma" }, { "description", "White teff" },
+            { "photoIds", CropPhotoFixtures.ValidPhotoIds() }
         }, opId);
 
     private static SyncOperationRequest CropUpdate(string entityId, Dictionary<string, object> data, string? opId = null) =>

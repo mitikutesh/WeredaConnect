@@ -4907,4 +4907,67 @@ class AppLocalizationsEn extends AppLocalizations {
   String liveTripPartyGets(String name, String amount) {
     return '$name gets $amount';
   }
+
+  @override
+  String get cropPhotosTitle => 'Photos of your crop';
+
+  @override
+  String get cropPhotosHint =>
+      'Add 2 to 4 clear photos in daylight: the whole pile and a close-up of the grain.';
+
+  @override
+  String cropPhotosCount(int count, int max) {
+    return '$count of $max';
+  }
+
+  @override
+  String get cropPhotosTake => 'Take photo';
+
+  @override
+  String get cropPhotosGallery => 'From gallery';
+
+  @override
+  String get cropPhotosRemove => 'Remove photo';
+
+  @override
+  String cropPhotosRequired(int min) {
+    return 'Add at least $min photos of your crop.';
+  }
+
+  @override
+  String cropPhotosLimitReached(int max) {
+    return 'You can add up to $max photos.';
+  }
+
+  @override
+  String get cropPhotosUnsupported =>
+      'That file is not a photo we can use. Choose a JPEG, PNG or WebP photo.';
+
+  @override
+  String get cropPhotosTooLarge =>
+      'That photo is too large. Choose a smaller one.';
+
+  @override
+  String get cropPhotosPickFailed =>
+      'Could not open the camera or gallery. Check the app\'s permissions and try again.';
+
+  @override
+  String get cropPhotosUploadFailed =>
+      'The photos did not upload. Check your connection and save again.';
+
+  @override
+  String get cropPhotoCover => 'Cover';
+
+  @override
+  String cropPhotoPosition(int index, int count) {
+    return 'Photo $index of $count';
+  }
+
+  @override
+  String cropPhotosCountLabel(int count) {
+    return '$count photos';
+  }
+
+  @override
+  String get cropPhotoUnavailable => 'Photo not available yet';
 }

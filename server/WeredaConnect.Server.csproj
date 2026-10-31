@@ -59,6 +59,11 @@
 
     <!-- AWS Cognito -->
     <PackageReference Include="AWSSDK.CognitoIdentityProvider" Version="3.7.505.13" />
+
+    <!-- Crop photo renditions (crop-listing-api 1.6.0). Pure managed, no native libs, so it
+         compiles into the single AOT bootstrap. Six Labors Split License: Apache 2.0 terms for
+         organisations under 1M USD annual gross revenue. -->
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
   </ItemGroup>
 
   <ItemGroup>

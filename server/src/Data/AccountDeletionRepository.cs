@@ -34,8 +34,9 @@ public sealed class AccountDeletionRepository : IAccountDeletionRepository
     /// <summary>Attempts of a conditional write that re-reads its row after a lost condition.</summary>
     private const int MaxConditionAttempts = 3;
 
+    // photoIds (crop-listing-api 1.6.0): without them no photo URL is ever signed for the listing again.
     private static readonly string[] CropScrubFields =
-        { "farmerPhone", "latitude", "longitude", "locationName", "description", "audioNoteRef" };
+        { "farmerPhone", "latitude", "longitude", "locationName", "description", "audioNoteRef", "photoIds" };
 
     private static readonly string[] TripScrubFields = { "truckerPhone", "vehiclePlate", "vehicleDescription" };
 
@@ -686,12 +687,12 @@ public sealed class AccountDeletionRepository : IAccountDeletionRepository
 
     public async Task<List<string>> QueryIntentIdsAsync(string buyerId)
         => (await QueryAllAsync(new QueryRequest
-            {
-                TableName = _tables.Intents,
-                KeyConditionExpression = "buyerId = :id",
-                ProjectionExpression = "intentId",
-                ExpressionAttributeValues = new Dictionary<string, AttributeValue> { { ":id", S(buyerId) } }
-            }))
+        {
+            TableName = _tables.Intents,
+            KeyConditionExpression = "buyerId = :id",
+            ProjectionExpression = "intentId",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { { ":id", S(buyerId) } }
+        }))
             .Select(i => i.TryGetValue("intentId", out var id) ? id.S : null)
             .Where(id => !string.IsNullOrEmpty(id))
             .Select(id => id!)
@@ -699,12 +700,12 @@ public sealed class AccountDeletionRepository : IAccountDeletionRepository
 
     public async Task<List<string>> QueryMatchEventIdsAsync(string intentId)
         => (await QueryAllAsync(new QueryRequest
-            {
-                TableName = _tables.MatchEvents,
-                KeyConditionExpression = "intentId = :id",
-                ProjectionExpression = "eventId",
-                ExpressionAttributeValues = new Dictionary<string, AttributeValue> { { ":id", S(intentId) } }
-            }))
+        {
+            TableName = _tables.MatchEvents,
+            KeyConditionExpression = "intentId = :id",
+            ProjectionExpression = "eventId",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { { ":id", S(intentId) } }
+        }))
             .Select(i => i.TryGetValue("eventId", out var id) ? id.S : null)
             .Where(id => !string.IsNullOrEmpty(id))
             .Select(id => id!)

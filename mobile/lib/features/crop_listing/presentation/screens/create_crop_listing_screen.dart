@@ -5,10 +5,14 @@ import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/crop_listing/data/services/crop_photo_picker.dart';
+import 'package:wereda_connect/features/crop_listing/data/services/crop_photo_uploader.dart';
+import 'package:wereda_connect/features/crop_listing/domain/crop_photos.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/widgets/crop_photo_picker_field.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/place.dart';
@@ -24,9 +28,10 @@ import 'package:wereda_connect/shared/widgets/place_selector.dart';
 import 'package:wereda_connect/shared/widgets/voice_note_widget.dart';
 
 /// Screen for creating a new crop listing (the Farmer · Create crop listing
-/// board): the crop as three text tiles per row, quantity and price side by
-/// side, the location with the farm drawn from the GPS fix, the description
-/// and the voice note, and Save pinned at the foot.
+/// board): the crop as three text tiles per row, the required 2 to 4 photos
+/// (crop-listing-api.md 1.6.0), quantity and price side by side, the
+/// location with the farm drawn from the GPS fix, the description and the
+/// voice note, and Save pinned at the foot.
 ///
 /// - Large touch targets (48dp min)
 /// - Localized labels and validation
@@ -36,7 +41,14 @@ class CreateCropListingScreen extends StatefulWidget {
   /// Injectable GPS capture service (for testing).
   final GpsCaptureService? gpsCaptureService;
 
-  const CreateCropListingScreen({this.gpsCaptureService, super.key});
+  /// Injectable camera and gallery access (for testing).
+  final CropPhotoPicker? photoPicker;
+
+  const CreateCropListingScreen({
+    this.gpsCaptureService,
+    this.photoPicker,
+    super.key,
+  });
 
   @override
   State<CreateCropListingScreen> createState() =>
@@ -50,11 +62,15 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
   final _locationController = TextEditingController();
   final _descriptionController = TextEditingController();
 
-  /// Pre-generated listing ID used for audio file naming.
+  /// Pre-generated listing ID: names the voice note and the photos, and is
+  /// the listing's id once saved.
   final String _listingId = const Uuid().v4();
 
   CropType? _selectedCropType;
   String? _audioNoteRef;
+
+  /// The photos picked so far (2 to 4 to save).
+  List<CropPhotoDraft> _photos = const [];
 
   /// The place chosen from the location selector, if any. Null for free text.
   Place? _selectedLocationPlace;
@@ -152,6 +168,8 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
             audioNoteRef: _audioNoteRef,
             woreda: authState.woreda,
             placeId: _selectedLocationPlace?.id,
+            photos: _photos,
+            listingId: _listingId,
           ),
         );
   }
@@ -175,6 +193,13 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
               SnackBar(
                 content: Text(l10n.fraudDuplicateListing),
                 backgroundColor: AppTheme.statusWarning,
+              ),
+            );
+          } else if (state.message.contains(CropPhotoUploadException.marker)) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(l10n.cropPhotosUploadFailed),
+                backgroundColor: AppTheme.statusError,
               ),
             );
           } else if (state.message.contains('FRAUD_VELOCITY_EXCEEDED')) {
@@ -271,6 +296,15 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
               _selectedCropType = type;
             });
           },
+        ),
+        const SizedBox(height: 18),
+
+        // The required photos: buyers see them before they decide.
+        CropPhotoPickerField(
+          key: const Key('create_listing_photos'),
+          photos: _photos,
+          picker: widget.photoPicker,
+          onChanged: (photos) => setState(() => _photos = photos),
         ),
         const SizedBox(height: 18),
 

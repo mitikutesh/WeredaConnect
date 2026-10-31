@@ -173,7 +173,9 @@ public partial class SyncFunction
     {
         "farmerId", "farmerName", "farmerPhone", "cropType", "quantity", "pricePerKg",
         "latitude", "longitude", "locationName", "description",
-        "status", "woreda", "listingId", "audioNoteRef", "createdAt"
+        "status", "woreda", "listingId", "audioNoteRef", "createdAt",
+        // crop-listing-api 1.6.0 rule 9: 2 to 4 photo ids, stored as an L of S.
+        "photoIds"
     };
 
     private static readonly HashSet<string> AllowedIntentFields = new()
@@ -1168,7 +1170,34 @@ public partial class SyncFunction
             }
         }
 
+        // crop-listing-api 1.6.0 rule 9: required on create, optional on update, same rule when
+        // present. NormalizeCropPhotoIds writes the parsed list back before the repository write.
+        if (data.TryGetValue("photoIds", out var photoIdsObj))
+        {
+            if (!CropPhotoKeys.TryNormalizePhotoIds(photoIdsObj, out _))
+            {
+                errors.Add(CropPhotoKeys.PhotoIdsRule);
+            }
+        }
+        else if (isCreate)
+        {
+            errors.Add(CropPhotoKeys.PhotoIdsRule);
+        }
+
         return errors;
+    }
+
+    /// <summary>
+    /// Rule 9: replace a validated <c>photoIds</c> (a JSON array on the wire) with its lower-cased
+    /// string list, so the repository stores an L of S rather than the array's raw text.
+    /// </summary>
+    private static void NormalizeCropPhotoIds(Dictionary<string, object> data)
+    {
+        if (data.TryGetValue("photoIds", out var raw)
+            && CropPhotoKeys.TryNormalizePhotoIds(raw, out var photoIds))
+        {
+            data["photoIds"] = photoIds;
+        }
     }
 
     /// <summary>Ethiopia bounding box (contract: 3-15°N, 33-48°E).</summary>
@@ -2540,6 +2569,8 @@ public partial class SyncFunction
                         operation.Data["farmerReliability"] = rel;
                     }
 
+                    NormalizeCropPhotoIds(operation.Data);
+
                     var createResult = await _cropRepo.CreateAsync(operation.EntityId, operation.Data);
 
                     if (createResult.IsSuccess)
@@ -2700,6 +2731,8 @@ public partial class SyncFunction
 
                     // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
                     TryGetClientVersion(operation, out var clientVersion);
+
+                    NormalizeCropPhotoIds(operation.Data);
 
                     var updateResult = await _cropRepo.UpdateAsync(
                         operation.EntityId, operation.Data, clientVersion);

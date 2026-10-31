@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { TEST_USERS, apiLogin, API_URL, seedAuth } from "../helpers/auth";
+import { uploadCropPhotos } from "../helpers/crop-photos";
 
 /**
  * Flutter Web App - Role-Based Visibility / Isolation Tests
@@ -179,8 +180,11 @@ test.describe("Role Isolation - API Level", () => {
   test("farmer creates a crop listing via /sync", async () => {
     test.skip(!farmerTokens, "API unavailable - skipping");
 
-    const listingId = `e2e_role_${Date.now()}`;
+    // A UUID: the photo upload endpoint takes nothing else (crop-listing-api 1.6.0).
+    const listingId = crypto.randomUUID();
     const now = new Date().toISOString();
+    // crop-listing-api 1.6.0: the photos go up before the create (rule 9).
+    const photoIds = await uploadCropPhotos(farmerTokens!.idToken, listingId);
 
     const res = await fetch(`${API_URL}/sync`, {
       method: "POST",
@@ -211,6 +215,7 @@ test.describe("Role Isolation - API Level", () => {
               description: "Role isolation test listing",
               status: "active",
               createdAt: now,
+              photoIds,
             },
           },
         ],

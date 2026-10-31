@@ -4953,4 +4953,67 @@ class AppLocalizationsOm extends AppLocalizations {
   String liveTripPartyGets(String name, String amount) {
     return '$name $amount argata';
   }
+
+  @override
+  String get cropPhotosTitle => 'Suuraa midhaan keessanii';
+
+  @override
+  String get cropPhotosHint =>
+      'Suuraa ifa ta\'an 2 hanga 4 ifa guyyaatiin dabalaa: tuullaa guutuu fi suuraa midhaanii dhihoo.';
+
+  @override
+  String cropPhotosCount(int count, int max) {
+    return '$max keessaa $count';
+  }
+
+  @override
+  String get cropPhotosTake => 'Suuraa kaasi';
+
+  @override
+  String get cropPhotosGallery => 'Gaalarii irraa';
+
+  @override
+  String get cropPhotosRemove => 'Suuraa haqi';
+
+  @override
+  String cropPhotosRequired(int min) {
+    return 'Yoo xiqqaate suuraa midhaan keessanii $min dabalaa.';
+  }
+
+  @override
+  String cropPhotosLimitReached(int max) {
+    return 'Hanga suuraa $max dabaluu dandeessu.';
+  }
+
+  @override
+  String get cropPhotosUnsupported =>
+      'Faayilli kun suuraa itti fayyadamuu dandeenyu miti. Suuraa JPEG, PNG ykn WebP filadhaa.';
+
+  @override
+  String get cropPhotosTooLarge =>
+      'Suuraan sun baay\'ee guddaa dha. Kan xiqqaa filadhaa.';
+
+  @override
+  String get cropPhotosPickFailed =>
+      'Kaameraa ykn gaalarii banuun hin danda\'amne. Hayyama appichaa mirkaneessaatii irra deebi\'aa yaalaa.';
+
+  @override
+  String get cropPhotosUploadFailed =>
+      'Suuraaleen hin olkaa\'amne. Walqunnamtii keessan mirkaneessaatii irra deebi\'aa olkaa\'aa.';
+
+  @override
+  String get cropPhotoCover => 'Fuula duraa';
+
+  @override
+  String cropPhotoPosition(int index, int count) {
+    return 'Suuraa $count keessaa ${index}ffaa';
+  }
+
+  @override
+  String cropPhotosCountLabel(int count) {
+    return 'Suuraa $count';
+  }
+
+  @override
+  String get cropPhotoUnavailable => 'Suuraan ammaaf hin argamu';
 }

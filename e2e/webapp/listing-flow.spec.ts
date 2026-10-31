@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { TEST_USERS, apiLogin, API_URL } from "../helpers/auth";
+import { uploadCropPhotos } from "../helpers/crop-photos";
 
 /**
  * E2E: Listing creation flow.
@@ -171,6 +172,8 @@ async function tryCreateListing(
   cropType: string,
 ): Promise<CreateListingResult> {
   const now = new Date().toISOString();
+  // crop-listing-api 1.6.0: the photos go up before the create (rule 9).
+  const photoIds = await uploadCropPhotos(token, listingId);
 
   const res = await fetch(`${API_URL}/sync`, {
     method: "POST",
@@ -201,6 +204,7 @@ async function tryCreateListing(
             description: `E2E test listing - ${cropType}`,
             status: "active",
             createdAt: now,
+            photoIds,
           },
         },
       ],
@@ -334,7 +338,8 @@ test.describe("Listing Creation Flow", () => {
   test("farmer creates a listing and count increases", async () => {
     // Recorded before the request goes out so afterAll can clean up a
     // listing whose create committed even if this test then fails.
-    const listingId = `e2e_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    // A UUID: the photo upload endpoint takes nothing else (crop-listing-api 1.6.0).
+    const listingId = crypto.randomUUID();
     sharedListingId = listingId;
 
     const result = await tryCreateListing(
