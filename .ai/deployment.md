@@ -94,6 +94,20 @@ Steps performed by `deploy.sh`:
 4. `./scripts/seed-ssm-secrets.sh $ENV` (non-prod) — seed/verify SSM SecureString secrets
 5. `npx cdk deploy --all --context environment=$ENV --require-approval broadening`
 
+The step 2 binary is a compile check only: without `LAMBDA_BOOTSTRAP_PATH`, CDK
+bundles its own bootstrap in the `provided.al2023` build image (glibc 2.34).
+
+**CI builds the bootstrap against an old glibc.** `deploy-server.yml` cross-compiles
+in `mcr.microsoft.com/dotnet-buildtools/prereqs:azurelinux-3.0-net10.0-cross-arm64`
+against its arm64 sysroot (`-p:SysRoot=/crossrootfs/arm64 -p:LinkerFlavor=lld`), then
+refuses any bootstrap that needs glibc above 2.34, before anything is deployed.
+Lambda `provided.al2023` has glibc 2.34. Linked against the runner's 2.39,
+ImageSharp's `fmod` bound to `GLIBC_2.38`, and on 2026-10-31 every dev function
+failed at init (`Runtime.ExitError ... exit status 1`, API 500s). The
+`aot-validation` job in `server-tests.yml` runs the same build and also boots the
+health check in the `provided.al2023` image. To check a binary by hand:
+`readelf -W --version-info bootstrap | grep -oE 'GLIBC_[0-9.]+' | sort -uV | tail -1`.
+
 ### 3. Manual Backend Deploy (without script)
 
 ```bash
