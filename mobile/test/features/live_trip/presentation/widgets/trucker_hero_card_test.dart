@@ -5,11 +5,14 @@ import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/schemas/order.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
 import 'package:wereda_connect/features/live_trip/domain/models/delivery_track.dart';
 import 'package:wereda_connect/features/live_trip/domain/repositories/base_track_repository.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
@@ -145,7 +148,15 @@ void main() {
       WidgetTester tester, {
       required List<Delivery> rows,
       DeliveryTrack? track,
+      List<Order> orders = const [],
     }) async {
+      final orderBloc = harness.MockOrderBloc();
+      final orderRepo = harness.MockOrderRepository();
+      when(() => orderBloc.repository).thenReturn(orderRepo);
+      when(() => orderBloc.state).thenReturn(const OrderInitial());
+      when(() => orderBloc.stream).thenAnswer((_) => const Stream.empty());
+      when(() => orderRepo.getOrdersByUser('trucker-001', role: 'trucker'))
+          .thenAnswer((_) async => orders);
       when(
         () => deliveryRepo.getDeliveriesByUser(
           'trucker-001',
@@ -157,6 +168,7 @@ void main() {
           providers: [
             BlocProvider<TripListingBloc>.value(value: bloc),
             BlocProvider<DeliveryBloc>.value(value: deliveries),
+            BlocProvider<OrderBloc>.value(value: orderBloc),
             Provider<BaseTrackRepository>.value(
               value: harness.FakeTrackRepository(track: track),
             ),
@@ -192,6 +204,18 @@ void main() {
         find.textContaining('Next: drop-off in Adama, about '),
         findsOneWidget,
       );
+    });
+
+    // No point on the track (a trip without drop-off coordinates): the
+    // order's own drop-off place names the town (order-lifecycle 2.2.0).
+    testWidgets('without a track point the order names the drop-off town',
+        (tester) async {
+      await pumpWith(
+        tester,
+        rows: [harness.liveDelivery()],
+        orders: [harness.liveOrder()..dropoffPlace = 'Merkato'],
+      );
+      expect(find.text('Next: drop-off in Merkato'), findsOneWidget);
     });
 
     testWidgets('offline, the drop-off falls back to the buyer',

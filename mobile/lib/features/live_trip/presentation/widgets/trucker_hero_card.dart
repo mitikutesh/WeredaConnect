@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
+import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
@@ -19,6 +20,7 @@ import 'package:wereda_connect/features/live_trip/presentation/check_in_engine_o
 import 'package:wereda_connect/features/live_trip/presentation/live_trip_data.dart';
 import 'package:wereda_connect/features/live_trip/presentation/live_trip_text.dart';
 import 'package:wereda_connect/features/live_trip/presentation/screens/trip_mode_screen.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/trip_detail_screen.dart';
@@ -154,17 +156,36 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
     } on ProviderNotFoundException {
       return null;
     }
+    // The orders give a drop-off its own place (order-lifecycle 2.2.0) when
+    // the track has no point for it; best effort.
+    OrderBloc? orderBloc;
+    try {
+      orderBloc = context.read<OrderBloc>();
+    } on ProviderNotFoundException {
+      orderBloc = null;
+    }
     try {
       final deliveries = await bloc.repository.getDeliveriesByUser(
         widget.userId,
         role: 'trucker',
       );
+      var orders = const <String, Order>{};
+      if (orderBloc != null) {
+        try {
+          final list = await orderBloc.repository
+              .getOrdersByUser(widget.userId, role: 'trucker');
+          orders = {for (final o in list) o.orderId: o};
+        } on Object catch (e) {
+          debugPrint('[TruckerHeroCard] orders unreadable: $e');
+        }
+      }
       return TripPlan.build(
         trip: trip,
         deliveries: [
           for (final d in deliveries)
             if (d.tripId == trip.tripId && d.truckerId == widget.userId) d,
         ],
+        orders: orders,
       ).next;
     } on Object catch (e) {
       debugPrint('[TruckerHeroCard] deliveries unreadable: $e');
@@ -174,8 +195,9 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
 
   /// "Next: drop-off in Dukem, about 12:35" (Trucker · Home board): the
   /// stop's town, from the listing's place for a pickup and the drop-off's
-  /// track for a drop-off, with the server's arrival when it has one; the
-  /// party's name when no town is known.
+  /// track (else the order's own drop-off place) for a drop-off, with the
+  /// server's arrival when it has one; the party's name when no town is
+  /// known.
   String _nextLine(
     BuildContext context,
     AppLocalizations l10n,
@@ -192,11 +214,13 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
               );
       case TripStopKind.dropoff:
         final track = _nextTrack;
+        final dropoffPlace = next.order?.dropoffPlace?.trim() ?? '';
         final place = placeNameNear(
-          _places,
-          track?.dropoff,
-          Localizations.localeOf(context).languageCode,
-        );
+              _places,
+              track?.dropoff,
+              Localizations.localeOf(context).languageCode,
+            ) ??
+            (dropoffPlace.isEmpty ? null : dropoffPlace);
         final eta = track?.eta;
         if (place == null) {
           return l10n.homeNextDropoff(
