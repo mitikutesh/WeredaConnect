@@ -164,3 +164,32 @@ The Register personal picker now reads "Meki · Oromia" with a chevron, and Veri
 Not differences, for the record: the app has no Transport segment on Market, as the board has none (buyers reach every trucker's trip from Home's Find Trips, `/trips` and the crop detail's suggested transport). Delivery detail has no board; its foot carries no amount because the delivery row has none (the order detail and Payment show it). Payments has no board; it shows no held and released total because the history loads a page at a time, so a total of the loaded rows would be wrong (Home and Profile show the escrow total from every order).
 
 Still different after this pass: none. Home's headers now draw only what the boards draw (the bell and the Synced chip; the greeting, Today and the chip on Trucker home). Messages, with its unread count, and Profile open from the top of the bell's sheet on every tab with the bell, as the phone bar has no tab for them; the desktop sidebar lists them too. On a phone the Synced chip opens what waits to sync. The Find Crops pill reads "Transport Thu · 18 q room" and Crop detail's suggested transport "18 quintals room", the boards' words. The privacy rules of the earlier passes stay as specified (other stops never named, no sack count).
+
+## Board by board on the final build (2026-10-31)
+
+Every board of the canvas (this folder is its archived copy; the live artifact sits in another organization and could not be opened from the session) was set beside the app on the final build of PR #259, at 390 px and, for the web board, 1280 px. "Live" is the web build against the dev API with its real data; "faked" is the same build with the screen's reads answered by sample data (live dev data has no such state); "render" is a widget test with the app's theme and fonts, for a screen the web build cannot open.
+
+| Board | Checked | Result |
+|---|---|---|
+| Welcome | live | matches |
+| Register role, Fayda, role details, personal, OTP | live (fake Fayda portal) | match; the place picker reads "Meki · Oromia" with a chevron, the phone groups as typed, Verify is active from the first digit |
+| Farmer home | live | matches (bell only; the on-the-road card shows when a load is in transit) |
+| Trucker home | live (a real trip put on the road on dev) and faked | matches: dark header, trip card with In Transit and the load, one Action needed card, three tiles, one Recent line, centred Post Trip; the next stop reads "Next: drop-off in Addis Ababa, about 05:25" (faked) and, live, names the drop-off from the order until the trip has a destination point (trip-listing-api 2.1.0, needs the deploy) |
+| My Crops | live | matches (sprout tiles in the crop's colours) |
+| Market | live and faked | matches: listings with a trip this week first, "11 trips this week" and "Transport Mon · 18 q room" pills, the board's footnote |
+| Crop detail | live | matches (suggested transport as radio cards, cost card, Place Order + Transport) |
+| Place order | live | matches ("1,500" grouped, "= 15 quintals", the trucker card when a trip is picked) |
+| Payment (Telebirr) | live (order write answered) | the board's Telebirr screen follows the app's payment method step (CBE or Telebirr, no board) |
+| Create listing | live | matches; the app adds Record Audio Note under the description (no board), and the headless browser has no GPS |
+| Create trip | live | matches (full width From and To under the swap button) |
+| Create intent | live | matches |
+| Trip detail | live | matches; booking rows name each order's places once the order has them (order-lifecycle 2.2.0, needs the deploy) |
+| Buyer order detail, Farmer order request | live | match ("From … · Sun 1 Nov trip", the Live trip step, "Sun 1 Nov · …'s truck") |
+| Buyer deliveries | live (the real trip on the road) | matches: Active · count, ON THE ROAD NOW, "Teff · 100 kg", the ribbon, "Checked in just now" |
+| Buyer live trip, Arriving, Delivered, Trip log, live trip am and om | faked | match; live, the arrival window waits for a trip with a destination point (trip-listing-api 2.1.0) |
+| Farmer journey | faked | matches |
+| Trucker trip mode, Offline and pause | faked | match |
+| Trucker share consent | render | matches; the fourth row gives the app's measured data use ("about 170 KB a day") where the board says "about 3 KB a day" |
+| Buyer · Live deliveries (web) | live and faked, 1280 px | matches: compact cards without stage labels, the map, details and check-ins side by side |
+| Admin trip evidence (web) | unchanged in this PR | checked in #257 |
+| Ethiopian clock, How it works (system) | the live trip boards in am and om, Settings | the clock rules hold; "tap any time to see the other clock" stays not built (see "Not built") |

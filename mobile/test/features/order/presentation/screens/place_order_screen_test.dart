@@ -121,6 +121,14 @@ void main() {
     expect(created.single.quantity, 1000000);
   });
 
+  // Place order board: "= 15 quintals", no trailing ".0".
+  testWidgets('the quintal line drops a whole number\'s decimal',
+      (tester) async {
+    await open(tester, quintals: 15);
+    expect(find.textContaining('15 quintals'), findsOneWidget);
+    expect(find.textContaining('15.0 quintals'), findsNothing);
+  });
+
   // Place order board: the typed quantity reads "1,500" kg.
   testWidgets('the typed quantity is grouped and ordered as a number',
       (tester) async {

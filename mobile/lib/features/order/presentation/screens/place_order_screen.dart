@@ -203,7 +203,8 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
   /// for them (the room left either way).
   String _quantityNote(AppLocalizations l10n) {
     final quintals =
-        l10n.quintalEquivalent((_quantity / 100).toStringAsFixed(1));
+        // "= 15 quintals" as on the board, "= 2.55 quintals" for a part.
+        l10n.quintalEquivalent(formatQuintals(_quantity / 100));
     final trip = widget.selectedTrip;
     if (trip == null) return quintals;
     final room = tripRoomLeft(trip);
