@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
@@ -12,9 +13,13 @@ import 'package:wereda_connect/core/sync/sync_queue.dart'
     if (dart.library.html) 'package:wereda_connect/core/sync/sync_queue_web.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
+import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.dart';
+import 'package:wereda_connect/features/messaging/presentation/screens/messages_inbox_screen.dart';
 import 'package:wereda_connect/features/notifications/domain/base_notification_repository.dart';
 import 'package:wereda_connect/features/notifications/presentation/notification_text.dart';
 import 'package:wereda_connect/features/order/presentation/open_order_detail.dart';
+import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
@@ -399,6 +404,13 @@ class _NotificationBellState extends State<NotificationBell> {
                           ),
                         ],
                       ),
+                    ),
+                    // The boards' headers draw no Messages or Profile icon
+                    // and the phone bar has no tab for them, so they open
+                    // from here (the desktop sidebar lists them too).
+                    _AccountShortcuts(
+                      l10n: widget.l10n,
+                      onOpen: () => Navigator.of(sheetContext).pop(),
                     ),
                     const Divider(height: 1),
                     // Notification list
@@ -937,6 +949,104 @@ class _SyncInfoRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Messages (with the unread count) and Profile, side by side at the top of
+/// the notifications sheet.
+class _AccountShortcuts extends StatelessWidget {
+  final AppLocalizations l10n;
+
+  /// Closes the sheet before the screen opens.
+  final VoidCallback onOpen;
+
+  const _AccountShortcuts({required this.l10n, required this.onOpen});
+
+  void _open(BuildContext context, String route, Widget screen) {
+    final navigator = Navigator.of(context);
+    final router = kIsWeb ? GoRouter.maybeOf(context) : null;
+    onOpen();
+    if (router != null) {
+      router.go(route);
+      return;
+    }
+    navigator.push(MaterialPageRoute<void>(builder: (_) => screen));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final messages = _ShortcutButton(
+      key: const Key('notif_open_messages'),
+      icon: Icons.chat_bubble_outline,
+      label: l10n.messages,
+      onTap: () => _open(context, '/messages', const MessagesInboxScreen()),
+    );
+    InboxBloc? inbox;
+    try {
+      inbox = context.read<InboxBloc>();
+    } on ProviderNotFoundException {
+      inbox = null;
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 14),
+      child: Row(
+        children: [
+          Expanded(
+            child: inbox == null
+                ? messages
+                : BlocBuilder<InboxBloc, InboxState>(
+                    bloc: inbox,
+                    builder: (context, state) {
+                      final unread =
+                          state is InboxLoaded ? state.totalUnread : 0;
+                      return unread <= 0
+                          ? messages
+                          : Badge(
+                              label: Text('$unread'),
+                              offset: const Offset(-8, 4),
+                              child: messages,
+                            );
+                    },
+                  ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _ShortcutButton(
+              key: const Key('notif_open_profile'),
+              icon: Icons.person_outline,
+              label: l10n.profile,
+              onTap: () => _open(context, '/profile', const ProfileScreen()),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ShortcutButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _ShortcutButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 18),
+      label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size.fromHeight(44),
+        foregroundColor: AppTheme.soilDark,
+      ),
     );
   }
 }

@@ -130,4 +130,29 @@ void main() {
     expect(find.text(en.notifOrderRequestTitle), findsOneWidget);
     expect(inbox.markedRead, 1);
   });
+
+  // The boards' headers draw no Messages or Profile icon and the phone bar
+  // has no tab for them, so the bell's sheet opens both.
+  testWidgets('the sheet opens Messages and Profile', (tester) async {
+    await pumpBell(tester);
+
+    await tester.tap(find.byIcon(Icons.notifications_outlined));
+    await tester.pumpAndSettle();
+
+    final en = lookupAppLocalizations(const Locale('en'));
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('notif_open_messages')),
+        matching: find.text(en.messages),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('notif_open_profile')),
+        matching: find.text(en.profile),
+      ),
+      findsOneWidget,
+    );
+  });
 }

@@ -313,6 +313,11 @@ void main() {
       expect(find.text('Sell Crops'), findsNothing);
       expect(find.text('Today'), findsOneWidget);
       expect(find.text('No active trip'), findsOneWidget);
+      // The board's dark header has no icons: the bell, with Messages and
+      // Profile in its sheet, is on the trucker's other tabs.
+      expect(find.byIcon(Icons.notifications_outlined), findsNothing);
+      expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
+      expect(find.byIcon(Icons.person_outline), findsNothing);
     });
 
     testWidgets('tab tiles open their tabs', (tester) async {

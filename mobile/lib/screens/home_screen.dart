@@ -23,12 +23,9 @@ import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart'
     if (dart.library.html) 'package:wereda_connect/core/sync/sync_executor_web.dart';
-import 'package:wereda_connect/core/sync/sync_queue.dart'
-    if (dart.library.html) 'package:wereda_connect/core/sync/sync_queue_web.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
-import 'package:wereda_connect/features/messaging/presentation/widgets/messages_badge_button.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_event.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/create_intent_screen.dart';
@@ -51,7 +48,6 @@ import 'package:wereda_connect/features/trip_listing/presentation/screens/browse
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/trucker_hero_card.dart';
 import 'package:wereda_connect/screens/orders_tab_screen.dart';
-import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
@@ -307,8 +303,8 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 /// The Farmer · Home board's header (the buyer's too): the place line, the
-/// greeting, the bell in a square, then the Synced chip with the quiet
-/// Messages and Profile buttons beside it (neither has a bar tab).
+/// greeting, the bell in a square, then the Synced chip. Messages and
+/// Profile open from the bell's sheet (neither has a bar tab).
 class _LightHomeHeader extends StatelessWidget {
   final String userName;
   final String userId;
@@ -350,10 +346,6 @@ class _LightHomeHeader extends StatelessWidget {
             child: Row(
               children: [
                 _SyncChip(isOnline: isOnline),
-                const Spacer(),
-                if (!kIsWeb) _SyncStatusIcon(isOnline: isOnline),
-                const MessagesBadgeButton(color: AppTheme.mutedSteel),
-                const _ProfileButton(color: AppTheme.mutedSteel),
               ],
             ),
           ),
@@ -363,9 +355,10 @@ class _LightHomeHeader extends StatelessWidget {
   }
 }
 
-/// The Trucker · Home board's dark header: the greeting with the quiet
-/// Messages, bell and Profile icons, "Today" with the Synced chip, and the
-/// trip card ([TruckerHeroCard]).
+/// The Trucker · Home board's dark header: the greeting, "Today" with the
+/// Synced chip, and the trip card ([TruckerHeroCard]). The board draws no
+/// icons here; the bell (with Messages and Profile in its sheet) is on the
+/// trucker's other tabs.
 class _TruckerHomeHeader extends StatelessWidget {
   final String userName;
   final String userId;
@@ -406,20 +399,6 @@ class _TruckerHomeHeader extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (!kIsWeb)
-                  _SyncStatusIcon(
-                    isOnline: isOnline,
-                    iconColor: AppTheme.soilMuted,
-                  ),
-                const MessagesBadgeButton(color: AppTheme.soilMuted),
-                NotificationBell(
-                  userId: userId,
-                  l10n: l10n,
-                  isOnline: isOnline,
-                  iconColor: AppTheme.soilMuted,
-                  ringColor: AppTheme.soilDark,
-                ),
-                const _ProfileButton(color: AppTheme.soilMuted),
               ],
             ),
             Row(
@@ -507,32 +486,6 @@ String homePlaceLine(String woreda, List<Place> places, String languageCode) {
   return woreda;
 }
 
-/// The quiet Profile button beside the Synced chip (no bar tab).
-class _ProfileButton extends StatelessWidget {
-  final Color color;
-
-  const _ProfileButton({required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return IconButton(
-      icon: Icon(Icons.person_outline, color: color),
-      tooltip: l10n.profile,
-      onPressed: () {
-        if (kIsWeb) {
-          context.go('/profile');
-          return;
-        }
-        Navigator.push(
-          context,
-          MaterialPageRoute<void>(builder: (_) => const ProfileScreen()),
-        );
-      },
-    );
-  }
-}
-
 /// The boards' Synced chip: a check on a green tint (soil ground with
 /// pale green on the trucker's dark header); Offline on grey.
 class _SyncChip extends StatelessWidget {
@@ -540,6 +493,23 @@ class _SyncChip extends StatelessWidget {
   final bool dark;
 
   const _SyncChip({required this.isOnline, this.dark = false});
+
+  /// On a phone the chip opens what waits to sync (the queue lives there).
+  void _showSyncStatus(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final executor = context.read<SyncExecutor>();
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => SyncStatusSheet(
+        isOnline: isOnline,
+        l10n: l10n,
+        executor: executor,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -553,7 +523,7 @@ class _SyncChip extends StatelessWidget {
             ? (AppTheme.fieldGreenTint, AppTheme.fieldGreen)
             : (AppTheme.segmentTrack, AppTheme.mutedSteel);
 
-    return Container(
+    final chip = Container(
       height: 28,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
@@ -578,6 +548,16 @@ class _SyncChip extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+    if (kIsWeb) return chip;
+    return Semantics(
+      button: true,
+      child: InkWell(
+        key: const Key('home_sync_chip'),
+        borderRadius: BorderRadius.circular(999),
+        onTap: () => _showSyncStatus(context),
+        child: chip,
       ),
     );
   }
@@ -2014,166 +1994,6 @@ class _RecentLineCard extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// Tappable cloud icon that shows sync status and triggers manual sync.
-///
-/// - Online: cloud_done (white)
-/// - Offline: cloud_off (dimmed)
-///
-/// On tap: shows a bottom sheet with sync queue status and retry option.
-/// Live cloud sync icon that reflects real sync state.
-///
-/// States:
-/// - **Offline** (cloud_off): No connectivity detected.
-/// - **Syncing** (animated sync): SyncExecutor is actively processing.
-/// - **All synced** (cloud_done + checkmark): Pending=0, Failed=0.
-/// - **Pending** (cloud_upload): Items waiting to sync.
-/// - **Failed** (cloud_off + error tint): Failed items need attention.
-class _SyncStatusIcon extends StatefulWidget {
-  final bool isOnline;
-
-  /// The icon's colour at rest: muted on the chalk header, pale on the
-  /// trucker's dark one.
-  final Color iconColor;
-
-  const _SyncStatusIcon({
-    required this.isOnline,
-    this.iconColor = AppTheme.mutedSteel,
-  });
-
-  @override
-  State<_SyncStatusIcon> createState() => _SyncStatusIconState();
-}
-
-class _SyncStatusIconState extends State<_SyncStatusIcon>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _spinController;
-  StreamSubscription<SyncBatchResult>? _syncSub;
-
-  int _pendingCount = 0;
-  int _failedCount = 0;
-  bool _isSyncing = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _spinController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 1),
-    );
-    _loadCounts();
-    _listenToSync();
-  }
-
-  void _listenToSync() {
-    final executor = context.read<SyncExecutor>();
-    _isSyncing = executor.isSyncing;
-    if (_isSyncing) _spinController.repeat();
-
-    _syncSub = executor.onSyncResult.listen((_) {
-      _loadCounts();
-    });
-  }
-
-  Future<void> _loadCounts() async {
-    try {
-      final queue = SyncQueue(IsarService.instance.db);
-      final executor = context.read<SyncExecutor>();
-      final pending = await queue.getPendingCount();
-      final failed = await queue.getFailedCount();
-      if (mounted) {
-        setState(() {
-          _pendingCount = pending;
-          _failedCount = failed;
-          _isSyncing = executor.isSyncing;
-          if (_isSyncing) {
-            _spinController.repeat();
-          } else {
-            _spinController.stop();
-            _spinController.reset();
-          }
-        });
-      }
-    } on Object {
-      // Ignore errors reading queue
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant _SyncStatusIcon oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.isOnline != widget.isOnline) {
-      _loadCounts();
-    }
-  }
-
-  @override
-  void dispose() {
-    _syncSub?.cancel();
-    _spinController.dispose();
-    super.dispose();
-  }
-
-  /// Determine the icon, color, and tooltip based on real state.
-  ({IconData icon, Color color}) get _iconState {
-    final color = widget.iconColor;
-    if (!widget.isOnline) {
-      return (icon: Icons.cloud_off_outlined, color: color.withAlpha(110));
-    }
-    if (_isSyncing) {
-      return (icon: Icons.sync, color: color);
-    }
-    if (_failedCount > 0) {
-      return (
-        icon: Icons.cloud_off_outlined,
-        color: AppTheme.statusError,
-      );
-    }
-    if (_pendingCount > 0) {
-      return (icon: Icons.cloud_upload_outlined, color: color.withAlpha(190));
-    }
-    // All synced
-    return (icon: Icons.cloud_done_outlined, color: color);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final state = _iconState;
-
-    return IconButton(
-      onPressed: () => _showSyncStatus(context),
-      tooltip: AppLocalizations.of(context)!.syncNow,
-      icon: _isSyncing
-          ? RotationTransition(
-              turns: _spinController,
-              child: Icon(state.icon, size: 22, color: state.color),
-            )
-          : Icon(state.icon, size: 22, color: state.color),
-    );
-  }
-
-  Future<void> _showSyncStatus(BuildContext context) async {
-    final l10n = AppLocalizations.of(context)!;
-    final executor = context.read<SyncExecutor>();
-
-    if (!context.mounted) return;
-
-    showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) {
-        return SyncStatusSheet(
-          isOnline: widget.isOnline,
-          l10n: l10n,
-          executor: executor,
-          onSyncComplete: _loadCounts,
-        );
-      },
     );
   }
 }

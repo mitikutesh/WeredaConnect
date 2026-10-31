@@ -142,6 +142,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(inbox.pulls, ['farmer-001']);
+    // Farmer · Home board: the bell is the header's only icon; Messages
+    // and Profile open from its sheet.
+    expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
+    expect(find.byIcon(Icons.person_outline), findsNothing);
     await tester.tap(find.byIcon(Icons.notifications_outlined));
     await tester.pumpAndSettle();
 
@@ -149,5 +153,7 @@ void main() {
     expect(find.text(en.notifOrderRequestTitle), findsOneWidget);
     expect(find.textContaining('Abebe paid'), findsOneWidget);
     expect(inbox.markedRead, 1);
+    expect(find.byKey(const Key('notif_open_messages')), findsOneWidget);
+    expect(find.byKey(const Key('notif_open_profile')), findsOneWidget);
   });
 }
