@@ -163,8 +163,4 @@ The Register personal picker now reads "Meki · Oromia" with a chevron, and Veri
 
 Not differences, for the record: the app has no Transport segment on Market, as the board has none (buyers reach every trucker's trip from Home's Find Trips, `/trips` and the crop detail's suggested transport). Delivery detail has no board; its foot carries no amount because the delivery row has none (the order detail and Payment show it). Payments has no board; it shows no held and released total because the history loads a page at a time, so a total of the loaded rows would be wrong (Home and Profile show the escrow total from every order).
 
-Still different after this pass:
-
-| Board | Why |
-|---|---|
-| Home header with only the bell (Farmer and Buyer home); none on Trucker home | Home also shows small Messages and Profile icons: the bottom bar has no Messages or Profile tab, so on a phone they are the only way there. |
+Still different after this pass: none. Home's headers now draw only what the boards draw (the bell and the Synced chip; the greeting, Today and the chip on Trucker home). Messages, with its unread count, and Profile open from the top of the bell's sheet on every tab with the bell, as the phone bar has no tab for them; the desktop sidebar lists them too. On a phone the Synced chip opens what waits to sync. The Find Crops pill reads "Transport Thu · 18 q room" and Crop detail's suggested transport "18 quintals room", the boards' words. Each crop keeps its own icon where the boards draw one sprout for all (see above), and the privacy rules of the earlier passes stay as specified (other stops never named, no sack count).
