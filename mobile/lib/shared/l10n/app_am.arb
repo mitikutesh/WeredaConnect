@@ -3130,5 +3130,7 @@
   "cropPhotoCover": "ሽፋን",
   "cropPhotoPosition": "ፎቶ {index} ከ{count}",
   "cropPhotosCountLabel": "{count} ፎቶዎች",
-  "cropPhotoUnavailable": "ፎቶው ገና አልተገኘም"
+  "cropPhotoUnavailable": "ፎቶው ገና አልተገኘም",
+  "cropPhotoPrevious": "ያለፈው ፎቶ",
+  "cropPhotoNext": "ቀጣይ ፎቶ"
 }

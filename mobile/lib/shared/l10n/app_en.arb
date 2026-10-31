@@ -4939,5 +4939,9 @@
   "cropPhotosCountLabel": "{count} photos",
   "@cropPhotosCountLabel": {"description": "crop-listing-api.md 1.6.0, crop photos. Marketplace card: screen reader label of the listing photo with its photo count", "placeholders": {"count": {"type": "int"}}},
   "cropPhotoUnavailable": "Photo not available yet",
-  "@cropPhotoUnavailable": {"description": "crop-listing-api.md 1.6.0, crop photos. Crop photos: screen reader label when a photo cannot be shown (still processing or offline)"}
+  "@cropPhotoUnavailable": {"description": "crop-listing-api.md 1.6.0, crop photos. Crop photos: screen reader label when a photo cannot be shown (still processing or offline)"},
+  "cropPhotoPrevious": "Previous photo",
+  "@cropPhotoPrevious": {"description": "Crop photos: tooltip of the arrow button that shows the photo before this one (listing detail and full-screen viewer)"},
+  "cropPhotoNext": "Next photo",
+  "@cropPhotoNext": {"description": "Crop photos: tooltip of the arrow button that shows the photo after this one (listing detail and full-screen viewer)"}
 }

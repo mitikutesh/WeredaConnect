@@ -4970,4 +4970,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get cropPhotoUnavailable => 'Photo not available yet';
+
+  @override
+  String get cropPhotoPrevious => 'Previous photo';
+
+  @override
+  String get cropPhotoNext => 'Next photo';
 }

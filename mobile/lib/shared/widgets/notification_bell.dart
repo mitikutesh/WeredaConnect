@@ -1,6 +1,8 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -343,13 +345,23 @@ class _NotificationBellState extends State<NotificationBell> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (sheetContext) {
+        // A phone opens it low and swipes it up. A desktop browser opens it
+        // tall: no mouse could drag a sheet, so it stayed at 40% with the
+        // rest of the list below the window.
+        final desktop = switch (defaultTargetPlatform) {
+          TargetPlatform.macOS ||
+          TargetPlatform.windows ||
+          TargetPlatform.linux =>
+            true,
+          _ => false,
+        };
         return StatefulBuilder(
           builder: (sheetContext, setSheetState) {
             final visible = _visibleNotifications;
             return DraggableScrollableSheet(
               expand: false,
-              initialChildSize: 0.4,
-              maxChildSize: 0.7,
+              initialChildSize: desktop ? _notifSheetMax : 0.4,
+              maxChildSize: _notifSheetMax,
               builder: (context, scrollController) {
                 return Column(
                   children: [
@@ -449,44 +461,56 @@ class _NotificationBellState extends State<NotificationBell> {
                                 ],
                               ),
                             )
-                          : ListView.separated(
-                              controller: scrollController,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 20,
-                                vertical: 12,
+                          : ScrollConfiguration(
+                              // A mouse or trackpad drag grows and shrinks
+                              // the sheet too, not only a finger.
+                              behavior:
+                                  ScrollConfiguration.of(context).copyWith(
+                                dragDevices: PointerDeviceKind.values.toSet(),
                               ),
-                              itemCount: visible.length,
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(height: 8),
-                              itemBuilder: (context, index) {
-                                final item = visible[index];
-                                return Dismissible(
-                                  key: ValueKey(item.key),
-                                  direction: DismissDirection.endToStart,
-                                  onDismissed: (_) {
-                                    _dismissNotification(item.key);
-                                    setSheetState(() {});
-                                  },
-                                  background: Container(
-                                    alignment: Alignment.centerRight,
-                                    padding: const EdgeInsets.only(right: 20),
-                                    decoration: BoxDecoration(
-                                      color: AppTheme.statusError,
-                                      borderRadius: BorderRadius.circular(18),
+                              child: ListView.separated(
+                                controller: scrollController,
+                                // The last card clears the phone's gesture
+                                // bar or home indicator.
+                                padding: EdgeInsets.fromLTRB(
+                                  20,
+                                  12,
+                                  20,
+                                  12 + MediaQuery.viewPaddingOf(context).bottom,
+                                ),
+                                itemCount: visible.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(height: 8),
+                                itemBuilder: (context, index) {
+                                  final item = visible[index];
+                                  return Dismissible(
+                                    key: ValueKey(item.key),
+                                    direction: DismissDirection.endToStart,
+                                    onDismissed: (_) {
+                                      _dismissNotification(item.key);
+                                      setSheetState(() {});
+                                    },
+                                    background: Container(
+                                      alignment: Alignment.centerRight,
+                                      padding: const EdgeInsets.only(right: 20),
+                                      decoration: BoxDecoration(
+                                        color: AppTheme.statusError,
+                                        borderRadius: BorderRadius.circular(18),
+                                      ),
+                                      child: const Icon(
+                                        Icons.delete_outline,
+                                        color: Colors.white,
+                                      ),
                                     ),
-                                    child: const Icon(
-                                      Icons.delete_outline,
-                                      color: Colors.white,
+                                    child: _NotifCard(
+                                      item: item,
+                                      l10n: widget.l10n,
+                                      onTap: () =>
+                                          _handleNotifTap(sheetContext, item),
                                     ),
-                                  ),
-                                  child: _NotifCard(
-                                    item: item,
-                                    l10n: widget.l10n,
-                                    onTap: () =>
-                                        _handleNotifTap(sheetContext, item),
-                                  ),
-                                );
-                              },
+                                  );
+                                },
+                              ),
                             ),
                     ),
                   ],
@@ -499,6 +523,9 @@ class _NotificationBellState extends State<NotificationBell> {
     );
   }
 }
+
+/// The notification sheet's tallest size, a share of the window height.
+const double _notifSheetMax = 0.9;
 
 enum _NotifAction { syncStatus, openOrder }
 

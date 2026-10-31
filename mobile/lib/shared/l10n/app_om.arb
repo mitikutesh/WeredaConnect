@@ -3123,5 +3123,7 @@
   "cropPhotoCover": "Fuula duraa",
   "cropPhotoPosition": "Suuraa {count} keessaa {index}ffaa",
   "cropPhotosCountLabel": "Suuraa {count}",
-  "cropPhotoUnavailable": "Suuraan ammaaf hin argamu"
+  "cropPhotoUnavailable": "Suuraan ammaaf hin argamu",
+  "cropPhotoPrevious": "Suuraa duraa",
+  "cropPhotoNext": "Suuraa itti aanu"
 }
