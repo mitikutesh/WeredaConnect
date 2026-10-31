@@ -203,7 +203,9 @@ jobs:
             -v "$PUB:/var/runtime:ro" -e FUNCTION_HANDLER=HealthCheckFunction \
             -e DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
             public.ecr.aws/lambda/provided:al2023 bootstrap
-          out="$(curl -s --retry 15 --retry-connrefused --retry-delay 2 -m 120 \
+          # Docker's port proxy accepts before the emulator listens and answers an
+          # empty reply, which only --retry-all-errors retries.
+          out="$(curl -s --retry 30 --retry-all-errors --retry-delay 2 -m 120 \
             http://localhost:9000/2015-03-31/functions/function/invocations -d '{}')" || true
           echo "health check answered: $out"
           docker logs al2023-boot 2>&1 | tail -30
