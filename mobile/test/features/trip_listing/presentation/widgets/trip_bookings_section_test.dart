@@ -113,6 +113,36 @@ void main() {
     expect(find.text(en.actionAnswerTransport), findsOneWidget);
   });
 
+  // Trip detail board: "Almaz Bekele, Meki → Selam Traders, Merkato", the
+  // order's own places (order-lifecycle 2.2.0), else the trip's route.
+  testWidgets('a booking names its own places, else the trip\'s route',
+      (tester) async {
+    final bloc = MockOrderBloc();
+    final repo = MockOrderRepository();
+    when(() => bloc.repository).thenReturn(repo);
+    when(() => bloc.stream).thenAnswer((_) => const Stream.empty());
+    when(() => repo.getOrdersByUser('trucker-1', role: 'trucker')).thenAnswer(
+      (_) async => [
+        _order('placed', OrderStatus.funded, farmerName: 'Almaz')
+          ..pickupPlace = 'Meki'
+          ..dropoffPlace = 'Merkato',
+        _order(
+          'older',
+          OrderStatus.accepted,
+          trucker: 'accepted',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      _app(TripBookingsSection(trip: _trip()), bloc: bloc),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Almaz, Meki → Buyer, Merkato'), findsOneWidget);
+    expect(find.text('Chaltu, Adama → Buyer, Bishoftu'), findsOneWidget);
+  });
+
   testWidgets('says when nothing is booked', (tester) async {
     final bloc = MockOrderBloc();
     final repo = MockOrderRepository();

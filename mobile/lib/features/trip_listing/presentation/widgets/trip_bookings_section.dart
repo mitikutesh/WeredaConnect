@@ -210,6 +210,12 @@ const TextStyle _sectionTitle = TextStyle(
 
 /// One booked order. A request the trucker must answer gets the gold
 /// outline, the farmer's accept with the deadline, and the two buttons.
+/// A stamped place, or null when it is missing or blank.
+String? _place(String? value) {
+  final trimmed = value?.trim() ?? '';
+  return trimmed.isEmpty ? null : trimmed;
+}
+
 class _BookingCard extends StatelessWidget {
   final Order order;
   final Trip trip;
@@ -233,6 +239,10 @@ class _BookingCard extends StatelessWidget {
     final asked = canTruckerRespond(order, trip.truckerId);
     final farmer = partyDisplayName(order.farmerName, l10n);
     final buyer = partyDisplayName(order.buyerName, l10n);
+    // The order's own places (order-lifecycle 2.2.0), else the trip's route
+    // on an order from before them.
+    final from = _place(order.pickupPlace) ?? trip.fromWoreda;
+    final to = _place(order.dropoffPlace) ?? trip.toWoreda;
     final pay = order.transportCost ?? 0;
 
     return Material(
@@ -271,8 +281,7 @@ class _BookingCard extends StatelessWidget {
                         // The order has no places of its own; the trip's
                         // ends stand in for the farm and the drop-off.
                         Text(
-                          '$farmer, ${trip.fromWoreda} → '
-                          '$buyer, ${trip.toWoreda}',
+                          '$farmer, $from → $buyer, $to',
                           style: const TextStyle(
                             fontSize: 12,
                             color: AppTheme.mutedSteel,

@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
-import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
@@ -32,7 +31,7 @@ class SuggestedTripCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final day = DateFormat.MMMd().format(dayInEthiopia(trip.departureDate));
+    final day = boardDayInEthiopia(trip.departureDate);
     final room = l10n.tripRemainingCapacity(formatQuintals(tripRoomLeft(trip)));
     final rated = rating == null ? '' : ' · ${rating!.toStringAsFixed(1)}';
 

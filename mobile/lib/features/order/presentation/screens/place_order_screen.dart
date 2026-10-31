@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
@@ -11,6 +10,7 @@ import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
+import 'package:wereda_connect/core/utils/grouped_number_input.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
@@ -20,6 +20,7 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart'
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
+import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
@@ -72,8 +73,10 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
     final neededKg =
         widget.intent != null ? widget.intent!.quantityNeeded * 100 : listingKg;
     final kgQuantity = neededKg < listingKg ? neededKg : listingKg;
+    // Grouped as the field groups what is typed ("1,500").
     _quantityController =
-        TextEditingController(text: kgQuantity.toStringAsFixed(0));
+        TextEditingController(text: wholeNumber(kgQuantity.round()));
+    _loadTruckerRating();
   }
 
   @override
@@ -82,7 +85,27 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
     super.dispose();
   }
 
-  double get _quantity => double.tryParse(_quantityController.text) ?? 0;
+  double get _quantity => parseGroupedNumber(_quantityController.text) ?? 0;
+
+  /// The trucker's average rating, ending the transport line as on the
+  /// board; null while unread, offline or unrated.
+  double? _truckerRating;
+
+  Future<void> _loadTruckerRating() async {
+    final truckerId = widget.selectedTrip?.truckerId;
+    if (truckerId == null || truckerId.isEmpty) return;
+    try {
+      final summary = await context
+          .read<RatingBloc>()
+          .repository
+          .getRatingSummary(truckerId);
+      if (mounted && summary.count > 0) {
+        setState(() => _truckerRating = summary.average);
+      }
+    } on Object {
+      // No rating shown: never a placeholder.
+    }
+  }
 
   /// The listing's stock in kg (listings are quoted in quintals). The server
   /// rejects an order above it; checking here catches it offline, before a
@@ -114,7 +137,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
 
   void _step(double delta) {
     final next = (_quantity + delta).clamp(0, _stockKg).toDouble();
-    _quantityController.text = next.toStringAsFixed(0);
+    _quantityController.text = wholeNumber(next.round());
     setState(() {});
   }
 
@@ -296,7 +319,8 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                             title: '${trip.truckerName} · '
                                 '${boardDayInEthiopia(trip.departureDate)}',
                             subtitle: '${trip.fromWoreda} → ${trip.toWoreda} · '
-                                '${l10n.tripPricePerQuintalValue(trip.pricePerQuintal.toStringAsFixed(0))}',
+                                '${l10n.tripPricePerQuintalValue(trip.pricePerQuintal.toStringAsFixed(0))}'
+                                '${_truckerRating == null ? '' : ' · ${_truckerRating!.toStringAsFixed(1)}'}',
                             trailing: TextButton(
                               onPressed: () => Navigator.of(context).pop(),
                               style: TextButton.styleFrom(
@@ -548,11 +572,8 @@ class _QuantityField extends StatelessWidget {
                   controller: controller,
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(
-                      RegExp(r'^\d*\.?\d{0,2}'),
-                    ),
-                  ],
+                  // "1,500" as on the board; [parseGroupedNumber] reads it.
+                  inputFormatters: [GroupedNumberInputFormatter()],
                   style: const TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w800,

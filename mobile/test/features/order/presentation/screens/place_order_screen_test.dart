@@ -110,7 +110,7 @@ void main() {
   testWidgets('a whole 10,000-quintal listing can be ordered', (tester) async {
     await open(tester, quintals: 10000);
 
-    expect(find.text('1000000'), findsOneWidget);
+    expect(find.text('1,000,000'), findsOneWidget);
     expect(find.textContaining('kg available'), findsNothing);
 
     await tester.ensureVisible(find.byType(FilledButton));
@@ -119,6 +119,21 @@ void main() {
 
     expect(created, hasLength(1));
     expect(created.single.quantity, 1000000);
+  });
+
+  // Place order board: the typed quantity reads "1,500" kg.
+  testWidgets('the typed quantity is grouped and ordered as a number',
+      (tester) async {
+    await open(tester, quintals: 10000);
+
+    await tester.enterText(find.byType(TextField), '1500');
+    await tester.pump();
+    expect(find.text('1,500'), findsOneWidget);
+
+    await tester.ensureVisible(find.byType(FilledButton));
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    expect(created.single.quantity, 1500);
   });
 
   testWidgets(
@@ -142,7 +157,7 @@ void main() {
     // 12.34 * 100 is 1233.9999999999998 in floating point.
     await open(tester, quintals: 12.34);
 
-    expect(find.text('1234'), findsOneWidget);
+    expect(find.text('1,234'), findsOneWidget);
     expect(find.textContaining('kg available'), findsNothing);
     expect(placeOrderButton(tester).onPressed, isNotNull);
   });

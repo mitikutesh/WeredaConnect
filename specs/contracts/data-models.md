@@ -1,6 +1,6 @@
 # Data Models Contract
 
-**Version**: 1.1.0
+**Version**: 1.2.0
 **Last Updated**: 2026-10-26
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
@@ -294,6 +294,8 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `buyerPhone`, `farmerPhone`, `truckerPhone` | String? | No | E.164, only to a party of an order whose contact is open (the trucker's only once the trucker accepted, order-lifecycle 2.0.0) | server, at read time |
 | `fulfillment` | String? | No | `trucker` or `self_pickup` (order-lifecycle 2.0.0) | server, at funding |
 | `pickupDate` | String? | No | The trip's departure (trip orders, 2.0.0) | server, at funding |
+| `pickupPlace` | String? | No | The listing's place name (order-lifecycle 2.2.0) | server, at create |
+| `dropoffPlace` | String? | No | The buyer's registered woreda (order-lifecycle 2.2.0) | server, at create |
 | `farmerResponse` | String? | No | `pending`, `accepted`, `declined`, `expired` (2.0.0) | server |
 | `farmerRespondedAt`, `farmerDeadlineAt` | String? | No | The farmer's answer and its deadline (2.0.0) | server |
 | `truckerResponse` | String? | No | `none`, `not_asked`, `pending`, `accepted`, `declined`, `expired`, `cancelled`, `failed_capacity` (2.0.0) | server |
@@ -418,6 +420,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.0.1 | 2026-09-25 | Documented the order quantity unit: kilograms on the wire vs quintal stock and capacity (SIM-07) | @Server |
 | 1.0.2 | 2026-09-25 | Delivery gains `orderId` (server DTO, Isar schema, web mirror) so clients can tie a delivery to its order (SIM-14) | @Server |
 | 1.1.0 | 2026-10-26 | Order entity table added (every `OrderDto` field plus the ESC-15 commitment fields: `fulfillment`, `pickupDate`, `farmerResponse`, `truckerResponse`, their deadlines and reminders, `transportFailure`, `declineReason`, `cancelledBy`, `faultParty`); Trip status casing fixed to the wire values (`open`, `matched`, `inTransit`, `delivered`, `cancelled`) and the booking fields `bookedQuintals`, `remainingQuintals`, `bookedOrderIds`, `acceptedOrderIds` added; relationships gain Order (`order-lifecycle.md` 2.0.0, `trip-listing-api.md` 2.0.0) | @Server |
+| 1.2.0 | 2026-10-31 | Order gains the server-only `pickupPlace` and `dropoffPlace`, stamped at create (order-lifecycle 2.2.0); Isar schema and web mirror | @Server |
 
 ---
 

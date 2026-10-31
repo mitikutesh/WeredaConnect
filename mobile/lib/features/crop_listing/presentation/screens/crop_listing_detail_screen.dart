@@ -68,6 +68,22 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
   Trip? _selectedTrip;
   bool _tripsLoading = false;
 
+  /// Each suggested trucker's aggregate (`GET /ratings?rateeId=`), fetched
+  /// once per screen (3G data); null when it cannot be read.
+  final Map<String, Future<RatingSummary?>> _truckerRatings = {};
+
+  Future<RatingSummary?> _truckerRatingFor(String truckerId) =>
+      _truckerRatings.putIfAbsent(truckerId, () async {
+        try {
+          return await context
+              .read<RatingBloc>()
+              .repository
+              .getRatingSummary(truckerId);
+        } on Object {
+          return null;
+        }
+      });
+
   @override
   void initState() {
     super.initState();
@@ -317,14 +333,26 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
         ...(_suggestedTrips!.take(3).map(
               (trip) => Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: SuggestedTripCard(
-                  trip: trip,
-                  isSelected: _selectedTrip?.tripId == trip.tripId,
-                  onSelect: () {
-                    setState(() {
-                      _selectedTrip =
-                          _selectedTrip?.tripId == trip.tripId ? null : trip;
-                    });
+                // The trucker's real rating ends the route line, as on the
+                // board; nothing while it loads, offline or unrated.
+                child: FutureBuilder<RatingSummary?>(
+                  future: _truckerRatingFor(trip.truckerId),
+                  builder: (context, snapshot) {
+                    final summary = snapshot.data;
+                    return SuggestedTripCard(
+                      trip: trip,
+                      isSelected: _selectedTrip?.tripId == trip.tripId,
+                      rating: summary != null && summary.count > 0
+                          ? summary.average
+                          : null,
+                      onSelect: () {
+                        setState(() {
+                          _selectedTrip = _selectedTrip?.tripId == trip.tripId
+                              ? null
+                              : trip;
+                        });
+                      },
+                    );
                   },
                 ),
               ),

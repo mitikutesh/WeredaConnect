@@ -40,6 +40,50 @@ void main() {
       ),
     );
 
-    expect(find.text('Trucker Tesfaye · Oct 25'), findsOneWidget);
+    expect(find.text('Trucker Tesfaye · Sun 25 Oct'), findsOneWidget);
+  });
+
+  // Crop detail board: "Meki → Addis Ababa · 18 quintals room · 4.7".
+  testWidgets('a rated trucker ends the route line with the rating',
+      (tester) async {
+    final trip = Trip()
+      ..tripId = 'trip-1'
+      ..truckerId = 'trucker-1'
+      ..truckerName = 'Trucker Tesfaye'
+      ..truckerPhone = '+251900100002'
+      ..fromWoreda = 'Adama'
+      ..toWoreda = 'Bishoftu'
+      ..departureDate = DateTime.parse('2026-10-24T21:00:00.000Z')
+      ..capacity = 50
+      ..pricePerQuintal = 200
+      ..status = TripStatus.open
+      ..matchedListings = <String>[]
+      ..createdAt = DateTime.utc(2026, 10, 20)
+      ..updatedAt = DateTime.utc(2026, 10, 20)
+      ..version = 1;
+
+    Future<void> pump({double? rating}) => tester.pumpWidget(
+          MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: Scaffold(
+              body: SuggestedTripCard(
+                key: ValueKey(rating),
+                trip: trip,
+                isSelected: false,
+                onSelect: () {},
+                rating: rating,
+              ),
+            ),
+          ),
+        );
+
+    await pump(rating: 4.66);
+    expect(find.textContaining('Adama → Bishoftu ·'), findsOneWidget);
+    expect(find.textContaining(' · 4.7'), findsOneWidget);
+
+    await pump();
+    expect(find.textContaining(' · 4.7'), findsNothing);
   });
 }
