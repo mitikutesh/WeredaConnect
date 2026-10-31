@@ -41,7 +41,9 @@ void main() {
   setUp(() {
     api = _MockApiClient();
     repository = WebCropListingRepository(
-        api: api, photoUploader: FakeCropPhotoUploader());
+      api: api,
+      photoUploader: FakeCropPhotoUploader(),
+    );
   });
 
   test('createdAt shows the Ethiopia day and time', () async {

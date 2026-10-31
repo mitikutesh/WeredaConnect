@@ -55,9 +55,10 @@ void main() {
 
       syncQueue = SyncQueue(isar);
       repository = CropListingRepository(
-          isar: isar,
-          syncQueue: syncQueue,
-          photoFiles: tempCropPhotoFileStore());
+        isar: isar,
+        syncQueue: syncQueue,
+        photoFiles: tempCropPhotoFileStore(),
+      );
       conflictResolver = ConflictResolver(isar);
     });
 

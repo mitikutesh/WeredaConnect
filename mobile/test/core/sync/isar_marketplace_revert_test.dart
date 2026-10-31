@@ -740,7 +740,10 @@ void main() {
 
     setUp(() {
       crops = CropListingRepository(
-          isar: isar, syncQueue: queue, photoFiles: tempCropPhotoFileStore());
+        isar: isar,
+        syncQueue: queue,
+        photoFiles: tempCropPhotoFileStore(),
+      );
     });
 
     /// A listing as `GET /crops/{id}` and `GET /crops` return it (flat).

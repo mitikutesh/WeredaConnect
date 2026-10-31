@@ -18,7 +18,9 @@ void main() {
     setUp(() {
       api = _MockApiClient();
       repository = WebCropListingRepository(
-          api: api, photoUploader: FakeCropPhotoUploader());
+        api: api,
+        photoUploader: FakeCropPhotoUploader(),
+      );
     });
 
     test('parses the {"crop": {...}} envelope (API field names)', () async {
@@ -81,7 +83,9 @@ void main() {
     setUp(() {
       api = _MockApiClient();
       repository = WebCropListingRepository(
-          api: api, photoUploader: FakeCropPhotoUploader());
+        api: api,
+        photoUploader: FakeCropPhotoUploader(),
+      );
       when(
         () => api.get<Map<String, dynamic>>(
           '/crops',
@@ -157,7 +161,9 @@ void main() {
     setUp(() {
       api = _MockApiClient();
       repository = WebCropListingRepository(
-          api: api, photoUploader: FakeCropPhotoUploader());
+        api: api,
+        photoUploader: FakeCropPhotoUploader(),
+      );
       sentBody = null;
       when(
         () => api.post<Map<String, dynamic>>(
@@ -253,7 +259,9 @@ void main() {
     setUp(() {
       api = _MockApiClient();
       repository = WebCropListingRepository(
-          api: api, photoUploader: FakeCropPhotoUploader());
+        api: api,
+        photoUploader: FakeCropPhotoUploader(),
+      );
       when(() => api.get<Map<String, dynamic>>('/crops/crop-1')).thenAnswer(
         (_) async => {
           'crop': {'cropId': 'crop-1', 'farmerId': 'farmer-1', 'version': 3},

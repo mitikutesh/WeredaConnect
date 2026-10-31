@@ -67,7 +67,9 @@ void main() {
 
     setUp(() {
       repository = WebCropListingRepository(
-          api: api, photoUploader: FakeCropPhotoUploader());
+        api: api,
+        photoUploader: FakeCropPhotoUploader(),
+      );
       when(() => api.get<Map<String, dynamic>>('/crops/crop-1')).thenAnswer(
         (_) async => {
           'crop': {'cropId': 'crop-1', 'farmerId': 'farmer-1', 'version': 3},
@@ -144,7 +146,10 @@ void main() {
       );
       queue = SyncQueue(isar);
       repository = CropListingRepository(
-          isar: isar, syncQueue: queue, photoFiles: tempCropPhotoFileStore());
+        isar: isar,
+        syncQueue: queue,
+        photoFiles: tempCropPhotoFileStore(),
+      );
       sync = IsarMarketplaceSync(api: api, isar: isar);
     });
 
