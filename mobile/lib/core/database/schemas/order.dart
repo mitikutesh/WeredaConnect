@@ -158,6 +158,15 @@ class Order {
 
   /// ESC-15: who ended the order: `buyer`, `farmer`, `trucker` or `system`.
   String? cancelledBy;
+
+  /// The listing's place name at create (order-lifecycle 2.2.0): where the
+  /// goods are collected. Server-written; null on an older order or when the
+  /// listing had none (the trip's route stands in).
+  String? pickupPlace;
+
+  /// The buyer's registered woreda at create (order-lifecycle 2.2.0): where
+  /// the goods go. Server-written; null on an older order.
+  String? dropoffPlace;
 }
 
 /// Status of an order in its lifecycle

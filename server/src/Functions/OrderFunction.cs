@@ -327,6 +327,8 @@ public class OrderFunction
             TripId = GetStringOrNull(item, "tripId"),
             TruckerId = GetStringOrNull(item, "truckerId"),
             TruckerName = GetStringOrNull(item, "truckerName"),
+            PickupPlace = GetStringOrNull(item, "pickupPlace"),
+            DropoffPlace = GetStringOrNull(item, "dropoffPlace"),
             TransportCost = GetDoubleOrNull(item, "transportCost"),
             CommissionRate = GetDouble(item, "commissionRate"),
             CommissionAmount = GetDouble(item, "commissionAmount"),

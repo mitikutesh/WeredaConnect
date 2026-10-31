@@ -3207,15 +3207,22 @@ public partial class SyncFunctionTests
         string cropType = "teff",
         double quantityQuintals = 10,
         double pricePerKg = 45.5,
-        string status = "available")
+        string status = "available",
+        string? locationName = null)
     {
-        _mockCropRepo.GetByIdAsync(listingId).Returns(new Dictionary<string, object>
+        var listing = new Dictionary<string, object>
         {
             { "cropId", listingId }, { "listingId", listingId }, { "farmerId", farmerId },
             { "farmerName", "Abebe Kebede" }, { "cropType", cropType },
             { "quantity", quantityQuintals }, { "pricePerKg", pricePerKg },
             { "status", status }, { "version", "1" }
-        });
+        };
+        if (locationName != null)
+        {
+            listing["locationName"] = locationName;
+        }
+
+        _mockCropRepo.GetByIdAsync(listingId).Returns(listing);
     }
 
     private Dictionary<string, object>? _createdOrder;
@@ -3415,6 +3422,68 @@ public partial class SyncFunctionTests
         Assert.Equal(0.0, (double)_createdOrder!["transportCost"]);
         Assert.Equal(2275.0 + 2275.0 * (double)_createdOrder["commissionRate"],
             (double)_createdOrder["orderTotal"], 6);
+    }
+
+    [Fact]
+    public async Task OrderCreate_Places_AreStampedFromListingAndBuyerProfile_NotClient()
+    {
+        // order-lifecycle 2.2.0: the trip bookings row reads "farmer, farm place → buyer,
+        // drop-off place", so the create stamps the listing's locationName and the buyer's
+        // registered woreda from the reads it already makes; a client's values are dropped.
+        SetupListing(locationName: "Meki");
+        SetupOrderCreateSucceeds();
+        _mockUserRepo.GetUserByIdAsync("buyer-001").Returns(new UserDto
+        {
+            UserId = "buyer-001",
+            PhoneNumber = "+251933333333",
+            DisplayName = "Selam Traders",
+            Role = "buyer",
+            Woreda = "Merkato",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-16T10:00:00Z",
+            UpdatedAt = "2026-02-16T10:00:00Z",
+            Version = 1
+        });
+
+        var op = MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "pickupPlace", "Spoofed Farm" }, { "dropoffPlace", "Spoofed Warehouse" }
+        });
+
+        var body = await CreateOrderAsBuyer(op);
+
+        Assert.Contains("success", body);
+        Assert.NotNull(_createdOrder);
+        Assert.Equal("Meki", _createdOrder!["pickupPlace"]);
+        Assert.Equal("Merkato", _createdOrder["dropoffPlace"]);
+    }
+
+    [Fact]
+    public async Task OrderCreate_Places_MissingSourcesLeaveTheFieldsOff()
+    {
+        // A listing without a place name and a profile without a woreda stamp nothing, so a
+        // client reading the row falls back to the trip's route.
+        SetupListing();
+        SetupOrderCreateSucceeds();
+        _mockUserRepo.GetUserByIdAsync("buyer-001").Returns(new UserDto
+        {
+            UserId = "buyer-001",
+            PhoneNumber = "+251933333333",
+            DisplayName = "Selam Traders",
+            Role = "buyer",
+            Woreda = " ",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-16T10:00:00Z",
+            UpdatedAt = "2026-02-16T10:00:00Z",
+            Version = 1
+        });
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp());
+
+        Assert.Contains("success", body);
+        Assert.NotNull(_createdOrder);
+        Assert.False(_createdOrder!.ContainsKey("pickupPlace"));
+        Assert.False(_createdOrder.ContainsKey("dropoffPlace"));
     }
 
     [Fact]

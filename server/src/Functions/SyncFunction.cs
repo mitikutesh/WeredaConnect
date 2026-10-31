@@ -325,7 +325,10 @@ public partial class SyncFunction
         // ESC-45: the webhook holds an order whose verified payment is still pending in its inbox.
         PaymentHoldFields.HoldUntil,
         // ESC-47: when the order last entered pending_payment; the auto-cancel counts from it.
-        "pendingPaymentAt"
+        "pendingPaymentAt",
+        // Fieldway trip bookings (order-lifecycle 2.2.0): the farm and the drop-off place of the
+        // order, stamped at create from the listing and the buyer's profile.
+        "pickupPlace", "dropoffPlace"
     };
 
     /// <summary>
@@ -7885,8 +7888,10 @@ public partial class SyncFunction
     /// FUP-99: the order's buyerName is shown to the farmer before escrow, so it is stamped
     /// from the buyer's profile (display name, else the Fayda legal name), never kept from
     /// the client. This inherits the FUP-52 phone screen applied to the profile fields.
-    /// Orders carry no buyerPhone, so only the name is set. Returns null when stamped, else
-    /// a validation message. Mirrors <see cref="StampOwnerContactAsync"/> for listings.
+    /// Orders carry no buyerPhone, so only the name is set, plus the buyer's registered
+    /// woreda as the order's drop-off place (order-lifecycle 2.2.0) from the same read.
+    /// Returns null when stamped, else a validation message. Mirrors
+    /// <see cref="StampOwnerContactAsync"/> for listings.
     /// </summary>
     private async Task<string?> StampOrderBuyerNameAsync(
         Dictionary<string, object> data, string buyerId, ILambdaContext context)
@@ -7912,6 +7917,11 @@ public partial class SyncFunction
         }
 
         data["buyerName"] = name.Trim();
+        if (!string.IsNullOrWhiteSpace(buyer.Woreda))
+        {
+            data["dropoffPlace"] = buyer.Woreda.Trim();
+        }
+
         return null;
     }
 
@@ -8231,6 +8241,14 @@ public partial class SyncFunction
         if (listing.TryGetValue("farmerName", out var lfn) && !string.IsNullOrWhiteSpace(lfn?.ToString()))
         {
             data["farmerName"] = lfn.ToString()!;
+        }
+
+        // The farm's place for the trip bookings row (order-lifecycle 2.2.0), from the read this
+        // bind already makes; a listing without one leaves the field off the row.
+        var pickupPlace = listing.GetValueOrDefault("locationName")?.ToString();
+        if (!string.IsNullOrWhiteSpace(pickupPlace))
+        {
+            data["pickupPlace"] = pickupPlace.Trim();
         }
 
         return null;
