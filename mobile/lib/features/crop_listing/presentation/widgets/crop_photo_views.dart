@@ -1,5 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/features/crop_listing/data/services/crop_photo_urls.dart';
@@ -184,11 +186,11 @@ class _CountBadge extends StatelessWidget {
   }
 }
 
-/// The listing detail's photos: a swipeable 4:3 strip with page dots, each
-/// page the full 1024 px image (thumb first while it loads). Tapping opens
-/// [CropPhotoViewer] to zoom. On open it reads the full-size URLs once
-/// (`GET /crops/{id}`); offline or refused, it keeps the thumbs. Renders
-/// nothing for a listing without photos.
+/// The listing detail's photos: a swipeable 4:3 strip with page dots and
+/// previous/next arrows, each page the full 1024 px image (thumb first while
+/// it loads). Tapping opens [CropPhotoViewer] to zoom. On open it reads the
+/// full-size URLs once (`GET /crops/{id}`); offline or refused, it keeps the
+/// thumbs. Renders nothing for a listing without photos.
 class CropPhotoGallery extends StatefulWidget {
   final CropListing listing;
 
@@ -203,6 +205,7 @@ class CropPhotoGallery extends StatefulWidget {
 
 class _CropPhotoGalleryState extends State<CropPhotoGallery> {
   late List<CropPhoto> _photos = widget.listing.photos;
+  final PageController _controller = PageController();
   int _page = 0;
 
   @override
@@ -212,6 +215,12 @@ class _CropPhotoGalleryState extends State<CropPhotoGallery> {
       (photo) => photo.fullUrl == null && photo.localPath == null,
     );
     if (needsUrls) _loadFullUrls();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
   Future<void> _loadFullUrls() async {
@@ -245,6 +254,7 @@ class _CropPhotoGalleryState extends State<CropPhotoGallery> {
     final width = MediaQuery.sizeOf(context).width;
     final pixels =
         (width * MediaQuery.devicePixelRatioOf(context)).round().clamp(1, 1024);
+    final count = _photos.length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -252,24 +262,39 @@ class _CropPhotoGalleryState extends State<CropPhotoGallery> {
           borderRadius: BorderRadius.circular(18),
           child: AspectRatio(
             aspectRatio: 4 / 3,
-            child: PageView.builder(
-              key: const Key('crop_photo_gallery'),
-              itemCount: _photos.length,
-              onPageChanged: (page) => setState(() => _page = page),
-              itemBuilder: (context, index) => Semantics(
-                image: true,
-                button: true,
-                label: l10n.cropPhotoPosition(index + 1, _photos.length),
-                child: GestureDetector(
-                  onTap: () => _open(index),
-                  child: CropPhotoImage(
-                    photo: _photos[index],
-                    full: true,
-                    cacheWidth: pixels,
-                    cropKey: widget.listing.cropType,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ScrollConfiguration(
+                  behavior: _photoPagerBehavior(context),
+                  child: PageView.builder(
+                    key: const Key('crop_photo_gallery'),
+                    controller: _controller,
+                    itemCount: count,
+                    onPageChanged: (page) => setState(() => _page = page),
+                    itemBuilder: (context, index) => Semantics(
+                      image: true,
+                      button: true,
+                      label: l10n.cropPhotoPosition(index + 1, count),
+                      child: GestureDetector(
+                        onTap: () => _open(index),
+                        child: CropPhotoImage(
+                          photo: _photos[index],
+                          full: true,
+                          cacheWidth: pixels,
+                          cropKey: widget.listing.cropType,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                ..._photoArrows(
+                  page: _page,
+                  count: count,
+                  size: 36,
+                  onGo: (page) => _goToPhoto(_controller, page, count),
+                ),
+              ],
             ),
           ),
         ),
@@ -301,7 +326,8 @@ class _CropPhotoGalleryState extends State<CropPhotoGallery> {
   }
 }
 
-/// Full-screen photos on black, pinch to zoom, swipe between them.
+/// Full-screen photos on black, pinch to zoom. Swipe, tap the arrows or
+/// press the left/right keys to move between them.
 class CropPhotoViewer extends StatefulWidget {
   final List<CropPhoto> photos;
   final int initialIndex;
@@ -333,37 +359,140 @@ class _CropPhotoViewerState extends State<CropPhotoViewer> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final count = widget.photos.length;
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          tooltip: l10n.close,
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text(
-          l10n.cropPhotoPosition(_page + 1, count),
-          style: const TextStyle(fontSize: 15, color: Colors.white),
-        ),
-      ),
-      body: PageView.builder(
-        controller: _controller,
-        itemCount: count,
-        onPageChanged: (page) => setState(() => _page = page),
-        itemBuilder: (context, index) => InteractiveViewer(
-          maxScale: 4,
-          child: Center(
-            child: CropPhotoImage(
-              photo: widget.photos[index],
-              full: true,
-              fit: BoxFit.contain,
-              cropKey: widget.cropKey,
+    void go(int page) => _goToPhoto(_controller, page, count);
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
+            go(_page - 1),
+        const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
+            go(_page + 1),
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            foregroundColor: Colors.white,
+            leading: IconButton(
+              icon: const Icon(Icons.close),
+              tooltip: l10n.close,
+              onPressed: () => Navigator.of(context).pop(),
             ),
+            title: Text(
+              l10n.cropPhotoPosition(_page + 1, count),
+              style: const TextStyle(fontSize: 15, color: Colors.white),
+            ),
+          ),
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              // No mouse drag here: the zoom's pan claims a mouse drag
+              // first, so a mouse uses the arrows or the arrow keys.
+              PageView.builder(
+                controller: _controller,
+                itemCount: count,
+                onPageChanged: (page) => setState(() => _page = page),
+                itemBuilder: (context, index) => InteractiveViewer(
+                  maxScale: 4,
+                  child: Center(
+                    child: CropPhotoImage(
+                      photo: widget.photos[index],
+                      full: true,
+                      fit: BoxFit.contain,
+                      cropKey: widget.cropKey,
+                    ),
+                  ),
+                ),
+              ),
+              ..._photoArrows(page: _page, count: count, size: 48, onGo: go),
+            ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Flutter lets only touch drag a [PageView] by default, so on desktop web a
+/// mouse could not get past the first photo. The detail strip takes any
+/// pointer.
+ScrollBehavior _photoPagerBehavior(BuildContext context) =>
+    ScrollConfiguration.of(context).copyWith(
+      dragDevices: PointerDeviceKind.values.toSet(),
+      scrollbars: false,
+    );
+
+/// Slides [controller] to [page]; out of range (an arrow key at either end)
+/// does nothing.
+void _goToPhoto(PageController controller, int page, int count) {
+  if (!controller.hasClients || page < 0 || page >= count) return;
+  controller.animateToPage(
+    page,
+    duration: const Duration(milliseconds: 250),
+    curve: Curves.easeOut,
+  );
+}
+
+/// Previous and next buttons for a [Stack] over a photo pager: one swipe
+/// gesture is not enough on a desktop browser. Hidden at either end.
+List<Widget> _photoArrows({
+  required int page,
+  required int count,
+  required double size,
+  required ValueChanged<int> onGo,
+}) {
+  if (count < 2) return const [];
+  return [
+    if (page > 0)
+      PositionedDirectional(
+        start: 8,
+        top: 0,
+        bottom: 0,
+        child: Center(
+          child:
+              _PhotoArrow(next: false, size: size, onTap: () => onGo(page - 1)),
+        ),
+      ),
+    if (page < count - 1)
+      PositionedDirectional(
+        end: 8,
+        top: 0,
+        bottom: 0,
+        child: Center(
+          child:
+              _PhotoArrow(next: true, size: size, onTap: () => onGo(page + 1)),
+        ),
+      ),
+  ];
+}
+
+class _PhotoArrow extends StatelessWidget {
+  final bool next;
+  final double size;
+  final VoidCallback onTap;
+
+  const _PhotoArrow({
+    required this.next,
+    required this.size,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return IconButton(
+      tooltip: next ? l10n.cropPhotoNext : l10n.cropPhotoPrevious,
+      onPressed: onTap,
+      iconSize: size * 0.6,
+      style: IconButton.styleFrom(
+        backgroundColor: Colors.black.withValues(alpha: 0.45),
+        foregroundColor: Colors.white,
+        fixedSize: Size.square(size),
+        minimumSize: Size.square(size),
+        padding: EdgeInsets.zero,
+      ),
+      icon: Icon(next ? Icons.chevron_right : Icons.chevron_left),
     );
   }
 }

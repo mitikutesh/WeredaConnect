@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
@@ -130,5 +132,106 @@ void main() {
     );
 
     expect(find.byKey(const Key('crop_photo_gallery')), findsNothing);
+  });
+
+  // A desktop browser has no swipe: the strip needs arrows to get past the
+  // first photo.
+  testWidgets('the gallery arrows move the strip', (tester) async {
+    await tester.pumpWidget(
+      _app(
+        CropPhotoGallery(
+          listing: _listing([localPhoto('a'), localPhoto('b')]),
+          loadPhotos: (_) async => [],
+        ),
+      ),
+    );
+    expect(find.byTooltip('Previous photo'), findsNothing);
+
+    await tester.tap(find.byTooltip('Next photo'));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('Next photo'), findsNothing);
+    expect(find.byTooltip('Previous photo'), findsOneWidget);
+  });
+
+  testWidgets('a mouse drag swipes the strip', (tester) async {
+    await tester.pumpWidget(
+      _app(
+        CropPhotoGallery(
+          listing: _listing([localPhoto('a'), localPhoto('b')]),
+          loadPhotos: (_) async => [],
+        ),
+      ),
+    );
+
+    await tester.drag(
+      find.byKey(const Key('crop_photo_gallery')),
+      const Offset(-500, 0),
+      kind: PointerDeviceKind.mouse,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('Previous photo'), findsOneWidget);
+  });
+
+  testWidgets('one photo has no arrows', (tester) async {
+    await tester.pumpWidget(
+      _app(
+        CropPhotoGallery(
+          listing: _listing([localPhoto('a')]),
+          loadPhotos: (_) async => [],
+        ),
+      ),
+    );
+
+    expect(find.byTooltip('Next photo'), findsNothing);
+    expect(find.byTooltip('Previous photo'), findsNothing);
+  });
+
+  group('viewer', () {
+    Future<void> pumpViewer(WidgetTester tester) => tester.pumpWidget(
+          MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: CropPhotoViewer(
+              photos: [localPhoto('a'), localPhoto('b'), localPhoto('c')],
+            ),
+          ),
+        );
+
+    testWidgets('the arrows step through every photo', (tester) async {
+      await pumpViewer(tester);
+      expect(find.text('Photo 1 of 3'), findsOneWidget);
+      expect(find.byTooltip('Previous photo'), findsNothing);
+
+      await tester.tap(find.byTooltip('Next photo'));
+      await tester.pumpAndSettle();
+      expect(find.text('Photo 2 of 3'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Next photo'));
+      await tester.pumpAndSettle();
+      expect(find.text('Photo 3 of 3'), findsOneWidget);
+      expect(find.byTooltip('Next photo'), findsNothing);
+
+      await tester.tap(find.byTooltip('Previous photo'));
+      await tester.pumpAndSettle();
+      expect(find.text('Photo 2 of 3'), findsOneWidget);
+    });
+
+    testWidgets('the arrow keys move between photos', (tester) async {
+      await pumpViewer(tester);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.pumpAndSettle();
+      expect(find.text('Photo 1 of 3'), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pumpAndSettle();
+      expect(find.text('Photo 2 of 3'), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.pumpAndSettle();
+      expect(find.text('Photo 1 of 3'), findsOneWidget);
+    });
   });
 }

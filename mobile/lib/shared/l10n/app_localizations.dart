@@ -8578,6 +8578,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Photo not available yet'**
   String get cropPhotoUnavailable;
+
+  /// Crop photos: tooltip of the arrow button that shows the photo before this one (listing detail and full-screen viewer)
+  ///
+  /// In en, this message translates to:
+  /// **'Previous photo'**
+  String get cropPhotoPrevious;
+
+  /// Crop photos: tooltip of the arrow button that shows the photo after this one (listing detail and full-screen viewer)
+  ///
+  /// In en, this message translates to:
+  /// **'Next photo'**
+  String get cropPhotoNext;
 }
 
 class _AppLocalizationsDelegate

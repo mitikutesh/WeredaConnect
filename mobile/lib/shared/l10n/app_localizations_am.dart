@@ -4840,4 +4840,10 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get cropPhotoUnavailable => 'ፎቶው ገና አልተገኘም';
+
+  @override
+  String get cropPhotoPrevious => 'ያለፈው ፎቶ';
+
+  @override
+  String get cropPhotoNext => 'ቀጣይ ፎቶ';
 }

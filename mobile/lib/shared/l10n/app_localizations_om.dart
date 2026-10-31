@@ -5016,4 +5016,10 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get cropPhotoUnavailable => 'Suuraan ammaaf hin argamu';
+
+  @override
+  String get cropPhotoPrevious => 'Suuraa duraa';
+
+  @override
+  String get cropPhotoNext => 'Suuraa itti aanu';
 }
