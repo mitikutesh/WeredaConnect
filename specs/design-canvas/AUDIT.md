@@ -167,7 +167,9 @@ Still different after this pass: none. Home's headers now draw only what the boa
 
 ## Board by board on the final build (2026-10-31)
 
-Every board of the canvas (this folder is its archived copy; the live artifact sits in another organization and could not be opened from the session) was set beside the app on the final build of PR #259, at 390 px and, for the web board, 1280 px. "Live" is the web build against the dev API with its real data; "faked" is the same build with the screen's reads answered by sample data (live dev data has no such state); "render" is a widget test with the app's theme and fonts, for a screen the web build cannot open.
+Every board of the canvas (this folder is its archived copy) was set beside the app on the final build of PR #259, at 390 px and, for the web board, 1280 px. "Live" is the web build against the dev API with its real data; "faked" is the same build with the screen's reads answered by sample data (live dev data has no such state); "render" is a widget test with the app's theme and fonts, for a screen the web build cannot open.
+
+The archive was then checked against a download of the live artifact (K6DUM33R6apPwa2jmdsLax, exported 2026-10-31). It has the same 35 pages, and every page matches its file here tag for tag, attribute for attribute (inline styles included) and word for word. The only differences are how the export writes markup (`viewBox` as `sc-camel-view-box`, tables as `sc-raw-table`, self-closing tags written out), not what it draws. So the table below holds for the live design too.
 
 | Board | Checked | Result |
 |---|---|---|
