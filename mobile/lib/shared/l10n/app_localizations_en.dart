@@ -4524,6 +4524,21 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String homeNextDropoffAbout(String place, String time) {
+    return 'Next: drop-off in $place, about $time';
+  }
+
+  @override
+  String homeNextDropoffIn(String place) {
+    return 'Next: drop-off in $place';
+  }
+
+  @override
+  String homeNextPickupIn(String place) {
+    return 'Next: pickup in $place';
+  }
+
+  @override
   String homeNextPickup(String name) {
     return 'Next: pickup at $name';
   }

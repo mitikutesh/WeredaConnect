@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -147,11 +146,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                               helperMaxLines: 2,
                             ),
                             keyboardType: TextInputType.phone,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.allow(
-                                RegExp(r'[+\d]'),
-                              ),
-                            ],
+                            inputFormatters: [EthiopianPhoneInputFormatter()],
                             validator: (value) {
                               if (value == null ||
                                   value.isEmpty ||

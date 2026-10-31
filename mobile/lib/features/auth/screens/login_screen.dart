@@ -1,10 +1,10 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:wereda_connect/core/auth/presentation/auth_error_l10n.dart';
+import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -13,7 +13,6 @@ import 'package:wereda_connect/features/auth/screens/otp_verification_screen.dar
 import 'package:wereda_connect/features/auth/screens/register_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
-import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/join_chrome.dart';
 import 'package:wereda_connect/shared/widgets/labeled_field.dart';
@@ -371,9 +370,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         autovalidateMode: _autovalidateMode,
                         decoration: _fieldDecoration(),
                         keyboardType: TextInputType.phone,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(RegExp(r'[+\d]')),
-                        ],
+                        inputFormatters: [EthiopianPhoneInputFormatter()],
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return l10n.phoneNumberRequired;

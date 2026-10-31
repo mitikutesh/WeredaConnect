@@ -7913,6 +7913,24 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{1 more} other{{count} more}}'**
   String homeActionMore(int count);
 
+  /// Fieldway structure pass (specs/design-canvas). Trucker home trip card: the next stop is a drop-off near the town {place}, with the arrival the server estimates ("Next: drop-off in Dukem, about 12:35")
+  ///
+  /// In en, this message translates to:
+  /// **'Next: drop-off in {place}, about {time}'**
+  String homeNextDropoffAbout(String place, String time);
+
+  /// Fieldway structure pass. Trucker home trip card: the next drop-off's town, before any arrival estimate
+  ///
+  /// In en, this message translates to:
+  /// **'Next: drop-off in {place}'**
+  String homeNextDropoffIn(String place);
+
+  /// Fieldway structure pass. Trucker home trip card: the next pickup's town (the listing's place)
+  ///
+  /// In en, this message translates to:
+  /// **'Next: pickup in {place}'**
+  String homeNextPickupIn(String place);
+
   /// Fieldway design alignment (specs/design-canvas). Trucker home trip card: the next stop is a pickup at the farmer {name}
   ///
   /// In en, this message translates to:

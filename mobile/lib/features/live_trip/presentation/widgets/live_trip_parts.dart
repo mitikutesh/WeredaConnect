@@ -1033,9 +1033,11 @@ class PartyContactTile extends StatelessWidget {
                   color: AppTheme.soilDark,
                 ),
               ),
+              // Two lines, so a truck and its plate ("Isuzu FSR 5 t ·
+              // 3-AA-12345") stay whole in the web pane's narrow column.
               Text(
                 subtitle ?? roleLabel,
-                maxLines: 1,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   fontSize: 12,

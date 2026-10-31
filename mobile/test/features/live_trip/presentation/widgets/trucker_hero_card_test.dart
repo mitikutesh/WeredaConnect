@@ -2,15 +2,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:provider/provider.dart';
 
+import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/live_trip/domain/models/delivery_track.dart';
+import 'package:wereda_connect/features/live_trip/domain/repositories/base_track_repository.dart';
 import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/trucker_hero_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
+import '../../live_trip_fixtures.dart';
+import '../../live_trip_harness.dart' as harness;
+
 class MockTripListingBloc extends Mock implements TripListingBloc {}
+
+class MockDeliveryBloc extends Mock implements DeliveryBloc {}
 
 class MockTripRepository extends Mock implements BaseTripListingRepository {}
 
@@ -112,6 +123,89 @@ void main() {
     expect(find.text('In Transit'), findsOneWidget);
     // No deliveries to read here: the price stands in for the next stop.
     expect(find.text('150 ETB per quintal'), findsOneWidget);
+  });
+
+  // Trucker · Home board: "Next: drop-off in Dukem, about 12:35": the
+  // drop-off's town and the arrival the server estimates on its track.
+  group('the next stop', () {
+    late MockDeliveryBloc deliveries;
+    late harness.MockDeliveryRepository deliveryRepo;
+
+    setUp(() {
+      deliveries = MockDeliveryBloc();
+      deliveryRepo = harness.MockDeliveryRepository();
+      when(() => deliveries.repository).thenReturn(deliveryRepo);
+      when(() => deliveries.state).thenReturn(const DeliveryInitial());
+      when(() => deliveries.stream).thenAnswer((_) => const Stream.empty());
+      when(() => repository.getMostRelevantTrip('trucker-001'))
+          .thenAnswer((_) async => trip(status: TripStatus.inTransit));
+    });
+
+    Future<void> pumpWith(
+      WidgetTester tester, {
+      required List<Delivery> rows,
+      DeliveryTrack? track,
+    }) async {
+      when(
+        () => deliveryRepo.getDeliveriesByUser(
+          'trucker-001',
+          role: 'trucker',
+        ),
+      ).thenAnswer((_) async => rows);
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            BlocProvider<TripListingBloc>.value(value: bloc),
+            BlocProvider<DeliveryBloc>.value(value: deliveries),
+            Provider<BaseTrackRepository>.value(
+              value: harness.FakeTrackRepository(track: track),
+            ),
+          ],
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: TruckerHeroCard(
+                userId: 'trucker-001',
+                places: corridorPlaces,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a drop-off names its town and the arrival', (tester) async {
+      await pumpWith(
+        tester,
+        rows: [harness.liveDelivery()],
+        track: DeliveryTrack(
+          deliveryId: 'delivery-101',
+          sharing: TrackSharing.live,
+          asOf: asOf,
+          dropoff: const GeoPoint(8.55, 39.27),
+          eta: TrackEta(from: at(10, 20), to: at(11, 0)),
+        ),
+      );
+      expect(
+        find.textContaining('Next: drop-off in Adama, about '),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('offline, the drop-off falls back to the buyer',
+        (tester) async {
+      await pumpWith(tester, rows: [harness.liveDelivery()]);
+      expect(find.text('Next: drop-off at Selam Traders'), findsOneWidget);
+    });
+
+    testWidgets('a pickup names the listing\'s town', (tester) async {
+      final pending = harness.liveDelivery(status: DeliveryStatus.pending)
+        ..pickupPlace = 'Meki';
+      await pumpWith(tester, rows: [pending]);
+      expect(find.text('Next: pickup in Meki'), findsOneWidget);
+    });
   });
 
   testWidgets('no trip: a quiet line and the recent routes as chips',

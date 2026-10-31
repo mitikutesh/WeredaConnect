@@ -4,14 +4,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
+import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
+import 'package:wereda_connect/features/live_trip/domain/models/delivery_track.dart';
+import 'package:wereda_connect/features/live_trip/domain/repositories/base_track_repository.dart';
 import 'package:wereda_connect/features/live_trip/domain/trip_plan.dart';
 import 'package:wereda_connect/features/live_trip/presentation/check_in_engine_of.dart';
+import 'package:wereda_connect/features/live_trip/presentation/live_trip_data.dart';
+import 'package:wereda_connect/features/live_trip/presentation/live_trip_text.dart';
 import 'package:wereda_connect/features/live_trip/presentation/screens/trip_mode_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
@@ -40,11 +46,15 @@ class TruckerHeroCard extends StatefulWidget {
   /// Defaults to the app's check-in engine; null when there is none.
   final CheckInEngine? engine;
 
+  /// The towns for the next stop's name; the bundled list when null.
+  final List<Place>? places;
+
   const TruckerHeroCard({
     required this.userId,
     super.key,
     this.onRefresh,
     this.engine,
+    this.places,
   });
 
   @override
@@ -54,6 +64,11 @@ class TruckerHeroCard extends StatefulWidget {
 class _TruckerHeroCardState extends State<TruckerHeroCard> {
   Trip? _trip;
   TripStop? _next;
+
+  /// The next drop-off's track (its town and the server's arrival window),
+  /// read only when the next stop is a drop-off; null offline.
+  DeliveryTrack? _nextTrack;
+  List<Place> _places = const [];
   List<({String from, String to})> _recentRoutes = [];
   bool _loading = true;
   CheckInEngine? _engine;
@@ -109,9 +124,17 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
       if (!mounted) return;
       final next = trip == null ? null : await _nextStop(trip);
       if (!mounted) return;
+      final nextTrack = next?.kind == TripStopKind.dropoff
+          ? await _trackOf(next!.delivery.deliveryId)
+          : null;
+      final places = widget.places ??
+          (next == null || _places.isNotEmpty ? _places : await loadPlaces());
+      if (!mounted) return;
       setState(() {
         _trip = trip;
         _next = next;
+        _nextTrack = nextTrack;
+        _places = places;
         _recentRoutes = routes;
         _loading = false;
       });
@@ -147,6 +170,57 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
       debugPrint('[TruckerHeroCard] deliveries unreadable: $e');
       return null;
     }
+  }
+
+  /// "Next: drop-off in Dukem, about 12:35" (Trucker · Home board): the
+  /// stop's town, from the listing's place for a pickup and the drop-off's
+  /// track for a drop-off, with the server's arrival when it has one; the
+  /// party's name when no town is known.
+  String _nextLine(
+    BuildContext context,
+    AppLocalizations l10n,
+    ClockFormat clock,
+    TripStop next,
+  ) {
+    switch (next.kind) {
+      case TripStopKind.pickup:
+        final place = next.delivery.pickupPlace?.trim() ?? '';
+        return place.isNotEmpty
+            ? l10n.homeNextPickupIn(place)
+            : l10n.homeNextPickup(
+                partyDisplayName(next.delivery.farmerName, l10n),
+              );
+      case TripStopKind.dropoff:
+        final track = _nextTrack;
+        final place = placeNameNear(
+          _places,
+          track?.dropoff,
+          Localizations.localeOf(context).languageCode,
+        );
+        final eta = track?.eta;
+        if (place == null) {
+          return l10n.homeNextDropoff(
+            partyDisplayName(next.delivery.buyerName, l10n),
+          );
+        }
+        return eta == null
+            ? l10n.homeNextDropoffIn(place)
+            : l10n.homeNextDropoffAbout(place, clock.time(eta.from));
+    }
+  }
+
+  /// The track of the trucker's own delivery [deliveryId] (the server
+  /// answers its trucker too); null without a repository or a stored answer.
+  Future<DeliveryTrack?> _trackOf(String deliveryId) async {
+    final BaseTrackRepository repository;
+    try {
+      repository = context.read<BaseTrackRepository>();
+    } on ProviderNotFoundException {
+      return null;
+    }
+    final result =
+        await repository.fetchTrack(deliveryId, userId: widget.userId);
+    return result.track;
   }
 
   Future<void> _open(Widget screen) async {
@@ -224,14 +298,7 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
     if (trip.status == TripStatus.delivered) {
       line = l10n.postNextTrip;
     } else if (next != null) {
-      line = switch (next.kind) {
-        TripStopKind.pickup => l10n.homeNextPickup(
-            partyDisplayName(next.delivery.farmerName, l10n),
-          ),
-        TripStopKind.dropoff => l10n.homeNextDropoff(
-            partyDisplayName(next.delivery.buyerName, l10n),
-          ),
-      };
+      line = _nextLine(context, l10n, clock, next);
     } else if (trip.status == TripStatus.matched) {
       line = l10n.homeTripMatchedLine;
     } else {

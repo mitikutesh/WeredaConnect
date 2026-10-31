@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import 'package:wereda_connect/core/utils/contact_in_text.dart';
 import 'package:wereda_connect/core/utils/phone_utils.dart';
@@ -62,7 +61,8 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
   void initState() {
     super.initState();
     _phoneController = TextEditingController(
-      text: widget.phone.isEmpty ? '' : widget.phone,
+      // Grouped as the field groups what is typed ("+251 911 234 567").
+      text: widget.phone.isEmpty ? '' : groupPhoneDigits(widget.phone),
     );
     _nameController = TextEditingController(text: widget.name);
     _weredaController = TextEditingController(text: widget.woreda);
@@ -185,9 +185,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                   helperMaxLines: 2,
                 ),
                 keyboardType: TextInputType.phone,
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[+\d]')),
-                ],
+                inputFormatters: [EthiopianPhoneInputFormatter()],
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return l10n.fieldRequired;

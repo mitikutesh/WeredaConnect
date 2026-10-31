@@ -4399,6 +4399,21 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String homeNextDropoffAbout(String place, String time) {
+    return 'ቀጣይ፦ ማውረጃ በ$place፣ በግምት $time';
+  }
+
+  @override
+  String homeNextDropoffIn(String place) {
+    return 'ቀጣይ፦ ማውረጃ በ$place';
+  }
+
+  @override
+  String homeNextPickupIn(String place) {
+    return 'ቀጣይ፦ መጫኛ በ$place';
+  }
+
+  @override
   String homeNextPickup(String name) {
     return 'ቀጣይ፦ መጫኛ በ$name';
   }

@@ -4567,6 +4567,21 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String homeNextDropoffAbout(String place, String time) {
+    return 'Itti aanee: buusuu $place keessatti, gara $time';
+  }
+
+  @override
+  String homeNextDropoffIn(String place) {
+    return 'Itti aanee: buusuu $place keessatti';
+  }
+
+  @override
+  String homeNextPickupIn(String place) {
+    return 'Itti aanee: fe\'umsa $place keessatti';
+  }
+
+  @override
   String homeNextPickup(String name) {
     return 'Itti aanee: fe\'umsa $name biratti';
   }
