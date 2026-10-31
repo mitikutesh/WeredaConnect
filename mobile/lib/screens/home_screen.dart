@@ -500,6 +500,8 @@ class _SyncChip extends StatelessWidget {
     final executor = context.read<SyncExecutor>();
     showModalBottomSheet<void>(
       context: context,
+      // Over the shell's bar and create button, not under them.
+      useRootNavigator: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
