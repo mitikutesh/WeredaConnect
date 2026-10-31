@@ -157,18 +157,17 @@ Also from that check: days read as the boards write them ("Thu 30 Oct", a date f
 
 Checked after these changes in the running web build (dev API) at 390 and 1280 px for the three roles: every tab, Welcome, Trip detail, Create trip, Crop detail, Create intent, order detail, Delivery detail (pending, self-pickup, trucker), QR show and scan, both dispute screens and Match results; the live trip and Join boards in the same build. Initiate payment cannot be opened on the web (its pay button needs the phone's database), so it was rendered from a widget test with the app's fonts at 390 and 1280 px in en and am.
 
+The Register personal picker now reads "Meki · Oromia" with a chevron, and Verify on Register OTP is active from the first digit (a short code asks for the rest and sends nothing).
+
+Not differences, for the record: the app has no Transport segment on Market, as the board has none (buyers reach every trucker's trip from Home's Find Trips, `/trips` and the crop detail's suggested transport). Delivery detail has no board; its foot carries no amount because the delivery row has none (the order detail and Payment show it). Payments has no board; it shows no held and released total because the history loads a page at a time, so a total of the loaded rows would be wrong (Home and Profile show the escrow total from every order).
+
 Still different after this pass:
 
 | Board | Why |
 |---|---|
-| No Messages, bell or Profile icons in the home header row | Neither Messages nor Profile has a tab on the bar, so Home keeps quiet icons for them. |
-| Transport segment on Market | The board has none; buyers reach every trucker's trip from Home (Find Trips), `/trips` and the crop detail's suggested transport. |
+| Home header with only the bell (Farmer and Buyer home); none on Trucker home | Home also shows small Messages and Profile icons: the bottom bar has no Messages or Profile tab, so on a phone they are the only way there. |
 | "Sorted by how well transport fits your place" (Market footnote) | Nothing sorts by match yet; the footnote says every listing shows and transport is matched for the buyer's place. |
 | Compact label-less cards in the web deliveries list | The list keeps the stage labels and the phone cards. |
-| Place picker with "Meki · Oromia" and a chevron (Register personal) | The shared place selector keeps its search icon. |
-| Verify active with three digits typed (Register OTP) | Verify stays off until all six digits are in. |
 | Booking rows on Trip detail with each order's farm and drop-off places | A booking carries no places of its own, so the row shows the trip's route. |
 | Trucker rating on the crop detail's suggested transport | Trips carry no trucker rating. |
 | Grouped thousands in a typed quantity (Place order) | The field shows the digits as typed; the price summary under it groups the amounts. |
-| Amount at the foot of Delivery detail (no board) | The delivery row carries no amount; the order detail and Payment show it. |
-| A held and released total on Payments (no board) | The history loads a page at a time, so a total of the loaded rows would be wrong; Home and Profile show the escrow total from every order. |
