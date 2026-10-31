@@ -28,11 +28,19 @@ class LabeledField extends StatelessWidget {
     required this.label,
     required this.field,
     this.labelHeight,
+    this.mergeSemantics = true,
     super.key,
   });
 
   final String label;
   final Widget field;
+
+  /// False for a field with a suggestion list (a place search): on some
+  /// Flutter versions the list's overlay counts as the field's semantic
+  /// child, and a merge would fold every suggestion into the field's node,
+  /// so a screen reader could not pick one. The label is then read on its
+  /// own, just before the field.
+  final bool mergeSemantics;
 
   /// The height the label takes, so two fields side by side line up when
   /// only one label wraps; null lets the label size itself.
@@ -52,32 +60,35 @@ class LabeledField extends StatelessWidget {
     color: AppTheme.mutedSteel,
   );
 
-  LabeledField withLabelHeight(double height) =>
-      LabeledField(label: label, field: field, labelHeight: height);
+  LabeledField withLabelHeight(double height) => LabeledField(
+        label: label,
+        field: field,
+        labelHeight: height,
+        mergeSemantics: mergeSemantics,
+      );
 
   @override
   Widget build(BuildContext context) {
     final text = Text(label, style: labelStyle);
-    return MergeSemantics(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (labelHeight == null)
-            text
-          else
-            SizedBox(
-              height: labelHeight,
-              child: Align(
-                alignment: AlignmentDirectional.bottomStart,
-                child: text,
-              ),
+    final column = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (labelHeight == null)
+          text
+        else
+          SizedBox(
+            height: labelHeight,
+            child: Align(
+              alignment: AlignmentDirectional.bottomStart,
+              child: text,
             ),
-          const SizedBox(height: 6),
-          field,
-        ],
-      ),
+          ),
+        const SizedBox(height: 6),
+        field,
+      ],
     );
+    return mergeSemantics ? MergeSemantics(child: column) : column;
   }
 }
 

@@ -452,6 +452,8 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
               verticalDirection: VerticalDirection.up,
               children: <Widget>[
                 LabeledField(
+                  // The suggestions stay their own nodes (see LabeledField).
+                  mergeSemantics: false,
                   label: l10n.fromWoreda,
                   // Full width: the swap button sits over the right end of
                   // both fields, as on the board.
@@ -477,6 +479,8 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                 ),
                 const SizedBox(height: 12),
                 LabeledField(
+                  // The suggestions stay their own nodes (see LabeledField).
+                  mergeSemantics: false,
                   label: l10n.toWoreda,
                   field: PlaceSelector(
                     key: const Key('create_trip_to'),

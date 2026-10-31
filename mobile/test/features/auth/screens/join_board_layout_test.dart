@@ -189,7 +189,12 @@ void main() {
 
       expect(find.text('Step 2 of 3'), findsOneWidget);
       expect(find.text('Continue'), findsNothing);
-      final verify = find.widgetWithText(FilledButton, 'Verify with Fayda');
+      // FilledButton.icon is a private subclass on some Flutter versions,
+      // so match by `is` rather than the exact type.
+      final verify = find.ancestor(
+        of: find.text('Verify with Fayda'),
+        matching: find.byWidgetPredicate((w) => w is FilledButton),
+      );
       expect(verify, findsOneWidget);
       expect(find.text('Needs internet for this step.'), findsOneWidget);
       expect(

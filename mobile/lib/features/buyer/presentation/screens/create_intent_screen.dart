@@ -270,6 +270,8 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
 
                         // Delivery woreda input
                         LabeledField(
+                          // The suggestions stay their own nodes (see LabeledField).
+                          mergeSemantics: false,
                           label: l10n.deliverTo,
                           field: PlaceSelector(
                             controller: _woredaController,

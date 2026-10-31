@@ -206,6 +206,8 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
 
             // Woreda: the place search, with the board's helper under it.
             LabeledField(
+              // The suggestions stay their own nodes (see LabeledField).
+              mergeSemantics: false,
               label: l10n.wereda,
               field: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

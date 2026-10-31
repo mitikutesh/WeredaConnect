@@ -339,6 +339,8 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
         // Location: the place, then the board's card with the farm drawn
         // from the GPS fix (else the picked place) and the GPS state.
         LabeledField(
+          // The suggestions stay their own nodes (see LabeledField).
+          mergeSemantics: false,
           label: l10n.location,
           field: PlaceSelector(
             key: const Key('create_listing_location'),
