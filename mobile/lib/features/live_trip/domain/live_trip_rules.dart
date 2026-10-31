@@ -123,6 +123,20 @@ double trailDistanceKm(DeliveryTrack track) {
   return total;
 }
 
+/// The share of the way driven, 0 at pickup to 1 at the drop-off (the thin
+/// bar of the web deliveries board's list card): the kilometres along the
+/// check-ins over those plus the kilometres left, the server's
+/// [DeliveryTrack.remainingKm] or else the straight line to the drop-off.
+/// Null when neither distance left is known.
+double? tripProgressShare(DeliveryTrack track) {
+  final remaining = track.remainingKm ?? distanceToDropoffKm(track);
+  if (remaining == null) return null;
+  final driven = trailDistanceKm(track);
+  final total = driven + remaining;
+  if (total <= 0) return null;
+  return (driven / total).clamp(0.0, 1.0);
+}
+
 /// Whether the truck is arriving (spec section 6.2 and the Arriving board):
 /// within [arrivingWithinKm] of the drop-off by the track, or the buyer got
 /// the `truck_nearby` inbox entry ([nearbyNotified]). Never before pickup or

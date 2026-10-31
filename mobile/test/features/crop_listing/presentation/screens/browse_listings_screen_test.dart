@@ -420,6 +420,101 @@ void main() {
       expect(find.text('No trip yet'), findsOneWidget);
     });
 
+    // Market board: "Every farmer's listing, sorted by the best match for
+    // Merkato."
+    testWidgets('buyer listings sort by the best transport match, none lost',
+        (tester) async {
+      // Tall enough for the four cards and the footnote under them.
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'buyer-001',
+          tokens: _testTokens,
+          role: UserRole.buyer,
+          woreda: 'Addis Ababa',
+        ),
+      );
+      final tripBloc = MockTripListingBloc();
+      final trips = MockTripListingRepository();
+      when(() => tripBloc.repository).thenReturn(trips);
+      when(() => tripBloc.state).thenReturn(const TripListingInitial());
+      when(() => tripBloc.stream).thenAnswer((_) => const Stream.empty());
+      final today = DateTime.now().toUtc();
+      Trip trip(String id, String from, {int inDays = 1}) => Trip()
+        ..tripId = id
+        ..truckerId = 't1'
+        ..fromWoreda = from
+        ..toWoreda = 'Addis Ababa'
+        ..departureDate = today.add(Duration(days: inDays))
+        ..capacity = 50
+        ..remainingQuintals = 18
+        ..pricePerQuintal = 150
+        ..status = TripStatus.open
+        ..matchedListings = <String>[]
+        ..createdAt = today
+        ..updatedAt = today
+        ..version = 1;
+      when(
+        () => trips.getOpenTrips(
+          fromWoreda: any(named: 'fromWoreda'),
+          toWoreda: any(named: 'toWoreda'),
+        ),
+      ).thenAnswer(
+        // Meki: this week. Bichena: a later trip. Koka: none.
+        (_) async => [trip('m1', 'Meki'), trip('b1', 'Bichena', inDays: 12)],
+      );
+      loaded([
+        _listing(id: 'koka-1', farmerName: 'Kebede')..locationName = 'Koka',
+        _listing(id: 'bichena', farmerName: 'Tolosa')..locationName = 'Bichena',
+        _listing(id: 'koka-2', farmerName: 'Hawi')..locationName = 'Koka',
+        _listing(id: 'meki', farmerName: 'Almaz')..locationName = 'Meki',
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(tripBloc: tripBloc));
+      await tester.pumpAndSettle();
+
+      // Every listing stays (the buyer sees them all); the best transport
+      // first, and the two Koka ones keep their order.
+      expect(find.byType(ListingCard), findsNWidgets(4));
+      final tops = [
+        'Almaz, Meki',
+        'Tolosa, Bichena',
+        'Kebede, Koka',
+        'Hawi, Koka',
+      ].map((text) => tester.getTopLeft(find.text(text)).dy).toList();
+      expect(tops, orderedEquals([...tops]..sort()));
+      expect(
+        find.text(
+          "Every farmer's listing, sorted by the best match for Addis Ababa.",
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a buyer without a place reads the transport match footnote',
+        (tester) async {
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'buyer-001',
+          tokens: _testTokens,
+          role: UserRole.buyer,
+        ),
+      );
+      loaded([_listing()]);
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          "Every farmer's listing, sorted by the best transport match.",
+        ),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('a farmer reads no trips for the cards', (tester) async {
       final tripBloc = MockTripListingBloc();
       final trips = MockTripListingRepository();

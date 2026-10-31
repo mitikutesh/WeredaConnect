@@ -406,8 +406,9 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
   }
 
   /// The deliveries under their stage labels, or the loading, error and
-  /// empty states. [split] is the desktop list column: a tap there selects
-  /// the delivery for the pane when it has one.
+  /// empty states. [split] is the desktop list column of the web board: the
+  /// same stage order with no labels and the compact cards, and a tap there
+  /// selects the delivery for the pane when it has one.
   Widget _list(
     BuildContext context,
     AppLocalizations l10n,
@@ -480,6 +481,7 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
           delivery: delivery,
           currentUserId: userId,
           selected: isSelected,
+          compact: split,
           onTap: split
               ? () => setState(() => _selectedId = delivery.deliveryId)
               : () => _openLiveTrip(delivery, userId),
@@ -491,6 +493,7 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
         delivery: delivery,
         currentUserId: userId,
         selected: isSelected,
+        compact: split,
         onTap: hasPane
             ? () => setState(() => _selectedId = delivery.deliveryId)
             : () => _openDeliveryDetail(delivery, userId),
@@ -500,7 +503,8 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
     final items = <Widget>[
       for (final (label, stage) in stages)
         if (stage.isNotEmpty) ...[
-          FwSectionLabel(label, padding: const EdgeInsets.only(top: 6)),
+          if (!split)
+            FwSectionLabel(label, padding: const EdgeInsets.only(top: 6)),
           for (final delivery in stage) card(delivery),
         ],
     ];

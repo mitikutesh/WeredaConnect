@@ -4373,6 +4373,22 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String get delivArrivingCaption => 'በመድረስ ላይ';
+
+  @override
+  String delivWaitingForPickupOn(String date) {
+    return 'መነሻን በመጠበቅ ላይ $date';
+  }
+
+  @override
+  String get delivMapStartsAtPickup => 'ካርታው በመነሻ ይጀምራል';
+
+  @override
+  String delivReportProblemUntil(String time) {
+    return 'እስከ $time ችግር ያሳውቁ';
+  }
+
+  @override
   String get savedOnPhoneFirstNote => 'መጀመሪያ በስልክዎ ይቀመጣል፣ ኔትወርክ ሲኖር ይላካል።';
 
   @override
@@ -4716,11 +4732,12 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String marketFootnote(String place) {
-    return 'የሁሉም ገበሬዎች ዝርዝር። ትራንስፖርት ለ$place ተመጣጥኗል።';
+    return 'የሁሉም ገበሬዎች ዝርዝር፣ ለ$place በተሻለ ተዛማጅነት ተደርድሯል።';
   }
 
   @override
-  String get marketFootnoteNoPlace => 'የሁሉም ገበሬዎች ዝርዝር።';
+  String get marketFootnoteNoPlace =>
+      'የሁሉም ገበሬዎች ዝርዝር፣ በተሻለ የትራንስፖርት ተዛማጅነት ተደርድሯል።';
 
   @override
   String marketQuintalsLeft(String quantity) {

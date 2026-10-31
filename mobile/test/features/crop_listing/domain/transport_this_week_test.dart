@@ -100,4 +100,70 @@ void main() {
       isEmpty,
     );
   });
+
+  // Market board: "Every farmer's listing, sorted by the best match for
+  // Merkato."
+  group('transportMatchRank', () {
+    final trips = [
+      trip('meki-this-week'),
+      trip('koka-later', from: 'Koka', inDays: 12),
+      trip('bichena-elsewhere', from: 'Bichena', to: 'Adama'),
+    ];
+
+    test('a trip this week to the buyer first, any other open trip next', () {
+      expect(transportMatchRank(listing(), trips, 'Addis Ababa', now), 0);
+      expect(
+        transportMatchRank(listing(from: 'Koka'), trips, 'Addis Ababa', now),
+        1,
+      );
+      expect(
+        transportMatchRank(listing(from: 'Bichena'), trips, 'Addis Ababa', now),
+        1,
+      );
+      expect(
+        transportMatchRank(listing(from: 'Dessie'), trips, 'Addis Ababa', now),
+        2,
+      );
+    });
+
+    test('without a buyer place any destination this week ranks first', () {
+      expect(
+        transportMatchRank(listing(from: 'Bichena'), trips, null, now),
+        0,
+      );
+    });
+
+    test('past, full or started trips and a listing without a place rank last',
+        () {
+      final useless = [
+        trip('yesterday', from: 'Koka', inDays: -1),
+        trip('full', from: 'Koka', remaining: 0),
+        trip('started', from: 'Koka', status: TripStatus.inTransit),
+      ];
+      expect(
+        transportMatchRank(listing(from: 'Koka'), useless, 'Addis Ababa', now),
+        2,
+      );
+      expect(transportMatchRank(listing(from: ''), trips, null, now), 2);
+    });
+
+    test('the sort keeps every listing, best first, the order inside a rank',
+        () {
+      final given = [
+        listing(from: 'Dessie')..listingId = 'a',
+        listing(from: 'Koka')..listingId = 'b',
+        listing()..listingId = 'c',
+        listing(from: 'Dessie')..listingId = 'd',
+        listing()..listingId = 'e',
+        listing(from: 'Bichena')..listingId = 'f',
+      ];
+      final sorted = sortedByTransportMatch(given, trips, 'Addis Ababa', now);
+      expect(
+        sorted.map((l) => l.listingId),
+        ['c', 'e', 'b', 'f', 'a', 'd'],
+      );
+      // Unchanged input: the screen keeps the server's list as it was.
+      expect(given.map((l) => l.listingId), ['a', 'b', 'c', 'd', 'e', 'f']);
+    });
+  });
 }

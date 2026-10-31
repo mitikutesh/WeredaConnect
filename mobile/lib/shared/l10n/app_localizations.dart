@@ -7883,6 +7883,30 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{1 in the check window} other{{count} in the check window}}'**
   String delivSummaryCheckWindow(int count);
 
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) list card: small word under the arrival window on the right, lowercase
+  ///
+  /// In en, this message translates to:
+  /// **'arriving'**
+  String get delivArrivingCaption;
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) list card of a delivery not picked up yet; {date} is a short date like Thu 30 Oct; followed by the map note
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for pickup {date}'**
+  String delivWaitingForPickupOn(String date);
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) list card: short note after the pickup day, lowercase, the live map begins once the truck scans the farmer's QR
+  ///
+  /// In en, this message translates to:
+  /// **'map starts at pickup'**
+  String get delivMapStartsAtPickup;
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) list card of a delivered delivery, after 'Delivered Mon'; lowercase; {time} is a weekday and time like Wed 16:10
+  ///
+  /// In en, this message translates to:
+  /// **'report a problem until {time}'**
+  String delivReportProblemUntil(String time);
+
   /// Fieldway design alignment (specs/design-canvas). Create crop listing and create trip: offline save note under Save
   ///
   /// In en, this message translates to:
@@ -8387,16 +8411,16 @@ abstract class AppLocalizations {
   /// **'No trip yet'**
   String get marketNoTripYet;
 
-  /// Fieldway design alignment (specs/design-canvas). Find Crops: line under the list; the buyer sees every listing and the transport lines are for their drop-off place
+  /// Fieldway design alignment (specs/design-canvas). Find Crops: line under the list; the buyer sees every listing, those a trip this week can carry to their drop-off place first
   ///
   /// In en, this message translates to:
-  /// **'Every farmer\'s listing. Transport is matched for {place}.'**
+  /// **'Every farmer\'s listing, sorted by the best match for {place}.'**
   String marketFootnote(String place);
 
-  /// Fieldway design alignment (specs/design-canvas). Find Crops: line under the list when the buyer's profile has no place
+  /// Fieldway design alignment (specs/design-canvas). Find Crops: line under the list when the buyer's profile has no place; the listings with a trip this week come first
   ///
   /// In en, this message translates to:
-  /// **'Every farmer\'s listing.'**
+  /// **'Every farmer\'s listing, sorted by the best transport match.'**
   String get marketFootnoteNoPlace;
 
   /// Fieldway design alignment (specs/design-canvas). Find Crops card title after the crop: what the listing still has; a number

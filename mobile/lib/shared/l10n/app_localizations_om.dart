@@ -4540,6 +4540,22 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String get delivArrivingCaption => 'ga\'aa jira';
+
+  @override
+  String delivWaitingForPickupOn(String date) {
+    return 'Fe\'umsa eeggachaa $date';
+  }
+
+  @override
+  String get delivMapStartsAtPickup => 'kaartaan fe\'umsa irraa jalqaba';
+
+  @override
+  String delivReportProblemUntil(String time) {
+    return 'hanga $time rakkoo gabaasaa';
+  }
+
+  @override
   String get savedOnPhoneFirstNote =>
       'Duraan bilbila keessan irratti olkaa\'ama, yeroo neetworkiin jiru ni ergama.';
 
@@ -4890,11 +4906,12 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String marketFootnote(String place) {
-    return 'Tarree qonnaan bultoota hundaa. Geejjibni ${place}f walsimsiifame.';
+    return 'Tarree qonnaan bultoota hundaa, walsimannaa ${place}f hunda caaluun tartiibeffame.';
   }
 
   @override
-  String get marketFootnoteNoPlace => 'Tarree qonnaan bultoota hundaa.';
+  String get marketFootnoteNoPlace =>
+      'Tarree qonnaan bultoota hundaa, walsimannaa geejjibaa hunda caaluun tartiibeffame.';
 
   @override
   String marketQuintalsLeft(String quantity) {
