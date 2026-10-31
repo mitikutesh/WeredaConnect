@@ -53,6 +53,7 @@ import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/services/place_normalizer.dart';
+import 'package:wereda_connect/shared/widgets/account_menu.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/notification_bell.dart';
 
@@ -303,8 +304,9 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 /// The Farmer · Home board's header (the buyer's too): the place line, the
-/// greeting, the bell in a square, then the Synced chip. Messages and
-/// Profile open from the bell's sheet (neither has a bar tab).
+/// greeting, the bell in a square and the account button, then the Synced
+/// chip. The account button opens Messages, Payments, Profile and Settings
+/// (none has a bar tab).
 class _LightHomeHeader extends StatelessWidget {
   final String userName;
   final String userId;
@@ -334,11 +336,13 @@ class _LightHomeHeader extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
             eyebrowWidget: woreda.isEmpty ? null : _PlaceLine(woreda: woreda),
             title: l10n.welcomeBackUser(userName),
-            trailing: NotificationBell(
-              userId: userId,
-              l10n: l10n,
-              isOnline: isOnline,
-              square: true,
+            trailing: HeaderActions(
+              bell: NotificationBell(
+                userId: userId,
+                l10n: l10n,
+                isOnline: isOnline,
+                square: true,
+              ),
             ),
           ),
           Padding(
@@ -357,8 +361,8 @@ class _LightHomeHeader extends StatelessWidget {
 
 /// The Trucker · Home board's dark header: the greeting, "Today" with the
 /// Synced chip, and the trip card ([TruckerHeroCard]). The board draws no
-/// icons here; the bell (with Messages and Profile in its sheet) is on the
-/// trucker's other tabs.
+/// bell here (it is on the trucker's other tabs); the account button after
+/// the chip opens Messages, Orders, Profile and Settings.
 class _TruckerHomeHeader extends StatelessWidget {
   final String userName;
   final String userId;
@@ -419,6 +423,10 @@ class _TruckerHomeHeader extends StatelessWidget {
                   ),
                 ),
                 _SyncChip(isOnline: isOnline, dark: true),
+                if (!SidebarScope.of(context)) ...[
+                  const SizedBox(width: 10),
+                  const AccountButton(dark: true),
+                ],
               ],
             ),
             const SizedBox(height: 16),

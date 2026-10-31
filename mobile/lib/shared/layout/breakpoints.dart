@@ -47,3 +47,18 @@ class Breakpoints {
 }
 
 enum WindowClass { mobile, tablet, desktop }
+
+/// Marks content shown beside the web sidebar or rail, which lists
+/// Messages, Payments (Orders for the trucker), Profile and Settings. A
+/// header leaves its own account button out under it. The device app never
+/// draws a sidebar, at any width.
+class SidebarScope extends InheritedWidget {
+  const SidebarScope({required super.child, super.key});
+
+  /// Whether [context] sits beside a sidebar.
+  static bool of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<SidebarScope>() != null;
+
+  @override
+  bool updateShouldNotify(SidebarScope oldWidget) => false;
+}

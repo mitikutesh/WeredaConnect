@@ -99,7 +99,8 @@ List<RoleTab> tabsForRole(UserRole role) {
 }
 
 /// Destinations that didn't earn a bar slot for [role] but stay reachable
-/// from the web sidebar (desktop/tablet has room; mobile pushes instead).
+/// from the web sidebar (desktop/tablet has room) and, without a sidebar,
+/// from the header's account button (account_menu.dart).
 List<RoleTab> sidebarExtrasForRole(UserRole role) {
   return switch (role) {
     UserRole.farmer => const [RoleTab.messages, RoleTab.payments],

@@ -17,7 +17,7 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
-import 'package:wereda_connect/shared/widgets/notification_bell.dart';
+import 'package:wereda_connect/shared/widgets/account_menu.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 
 /// Which deliveries the segmented switch shows (Buyer · Deliveries board):
@@ -382,7 +382,7 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
   // ── Shared pieces ───────────────────────────────────────────────────
 
   Widget _profileButton(BuildContext context, AppLocalizations l10n) {
-    return const HeaderBell();
+    return const HeaderActions();
   }
 
   Widget _segmented(List<Delivery> all, AppLocalizations l10n) {

@@ -31,6 +31,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/account_menu.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/listing_card.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
@@ -401,11 +402,21 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                         ),
                       if (widget.ownerMode)
                         // MyCrops board: "Almaz Bekele · Meki" over the
-                        // title, the Farmer pill on the right.
+                        // title, the Farmer pill on the right, then the
+                        // account button where no sidebar lists Profile.
                         FwPageHeader(
                           eyebrow: _ownerLine() ?? l10n.yourCropListings,
                           title: l10n.myCrops,
-                          trailing: _RolePill(label: l10n.farmer),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _RolePill(label: l10n.farmer),
+                              if (!SidebarScope.of(context)) ...[
+                                const SizedBox(width: 8),
+                                const AccountButton(),
+                              ],
+                            ],
+                          ),
                         )
                       else
                         FwPageHeader(

@@ -223,8 +223,9 @@ class AdaptiveShell extends StatelessWidget {
                 : null,
             role: role,
           ),
-          // Content
-          Expanded(child: child),
+          // Content: the sidebar lists the account pages, so headers leave
+          // out their account button.
+          Expanded(child: SidebarScope(child: child)),
         ],
       ),
     );

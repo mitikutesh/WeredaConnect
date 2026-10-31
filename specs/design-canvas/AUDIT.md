@@ -92,6 +92,7 @@ The app fills these from the order, trip, delivery, listing or track; the templa
 | Timeline, Photos and Messages tabs (Admin trip evidence) | Only the Trip trail tab is built; the other evidence tabs belong to FRD-14. |
 | Farmer wins · release 29,500 ETB / Buyer wins · refund 30,900 ETB | The buttons do not promise an amount: what moves depends on the disposition the admin picks next (return the goods, delivered anyway, settle now). The frozen card shows the split instead. |
 | Ethiopian / International (Clock in Settings) | The app also offers Auto, which follows the language: the board's "Follows the language until the person picks one". |
+| The bell alone at the top right of each phone tab (every phone board) | A round account button follows the bell (on Trucker home, the Synced chip) wherever no web sidebar is drawn: the phone app and a browser under 600 px. It opens what the sidebar lists beside the bar's tabs (Messages with its unread count, Payments or the trucker's Orders), then Profile and Settings. Users missed them in the bell's sheet (2026-10-31), so the sheet now holds notifications only. |
 
 ## Built in PR #255 after this audit
 
@@ -163,7 +164,7 @@ The Register personal picker now reads "Meki · Oromia" with a chevron, and Veri
 
 Not differences, for the record: the app has no Transport segment on Market, as the board has none (buyers reach every trucker's trip from Home's Find Trips, `/trips` and the crop detail's suggested transport). Delivery detail has no board; its foot carries no amount because the delivery row has none (the order detail and Payment show it). Payments has no board; it shows no held and released total because the history loads a page at a time, so a total of the loaded rows would be wrong (Home and Profile show the escrow total from every order).
 
-Still different after this pass: none. Home's headers now draw only what the boards draw (the bell and the Synced chip; the greeting, Today and the chip on Trucker home). Messages, with its unread count, and Profile open from the top of the bell's sheet on every tab with the bell, as the phone bar has no tab for them; the desktop sidebar lists them too. On a phone the Synced chip opens what waits to sync. The Find Crops pill reads "Transport Thu · 18 q room" and Crop detail's suggested transport "18 quintals room", the boards' words. The privacy rules of the earlier passes stay as specified (other stops never named, no sack count).
+Still different after this pass: none. Home's headers now draw only what the boards draw (the bell and the Synced chip; the greeting, Today and the chip on Trucker home). Messages, with its unread count, and Profile open from the top of the bell's sheet on every tab with the bell, as the phone bar has no tab for them; the desktop sidebar lists them too. (Since 2026-10-31 they open from the account button after the bell; see "Real differences kept on purpose".) On a phone the Synced chip opens what waits to sync. The Find Crops pill reads "Transport Thu · 18 q room" and Crop detail's suggested transport "18 quintals room", the boards' words. The privacy rules of the earlier passes stay as specified (other stops never named, no sack count).
 
 ## Board by board on the final build (2026-10-31)
 
