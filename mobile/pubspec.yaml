@@ -20,7 +20,7 @@ dependencies:
   isar_flutter_libs: ^3.1.0
   path_provider: ^2.1.6
   flutter_secure_storage: ^9.0.0
-  shared_preferences: ^2.5.5
+  shared_preferences: ^2.5.6
 
   # Networking & Sync
   dio: ^5.11.1
@@ -57,7 +57,7 @@ dependencies:
   qr_flutter: ^4.1.0
   mobile_scanner: ^7.4.2
   geolocator: ^14.0.1
-  image_picker: ^1.2.3
+  image_picker: ^1.2.4
   flutter_image_compress: ^2.5.1
 
   # Audio Recording & Playback
@@ -66,7 +66,7 @@ dependencies:
   audio_session: ^0.2.4
 
   # Fayda OIDC deep link + browser launch
-  url_launcher: ^6.3.2
+  url_launcher: ^6.3.3
   app_links: ^6.0.0
 
   # Device authentication (biometric or PIN/pattern fallback): QR delivery
@@ -79,7 +79,7 @@ dependencies:
   firebase_messaging: ^15.1.3
 
   # Web platform
-  web: ^1.1.0
+  web: ^1.1.2
 
 dev_dependencies:
   flutter_test:
