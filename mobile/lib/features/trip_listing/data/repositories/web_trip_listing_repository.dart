@@ -3,6 +3,7 @@ import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/features/trip_listing/data/trip_destination.dart';
 import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 
 /// Web-only trip listing repository.
@@ -46,6 +47,7 @@ class WebTripListingRepository extends BaseTripListingRepository {
       'status': 'open',
       if (vehiclePlate != null) 'vehiclePlate': vehiclePlate,
       if (vehicleDescription != null) 'vehicleDescription': vehicleDescription,
+      ...tripDestinationFields(toPlaceId),
     };
 
     final response = await _api.post<Map<String, dynamic>>(

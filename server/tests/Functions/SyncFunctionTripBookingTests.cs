@@ -141,6 +141,36 @@ public class SyncFunctionTripBookingTests
         _tripWrite.Should().BeNull();
     }
 
+    // trip-listing-api 2.1.0: the destination point belongs to the route. A booked trip may get the
+    // one an older client never sent, but not a different one.
+    [Fact]
+    public async Task BookedTrip_GetsAMissingDestinationPoint()
+    {
+        var result = await UpdateTripAsync(new Dictionary<string, object>
+        {
+            { "destinationLatitude", 9.6 }, { "destinationLongitude", 41.85 }, { "version", 3 }
+        });
+
+        result.GetProperty("status").GetString().Should().Be("success", result.GetRawText());
+    }
+
+    [Fact]
+    public async Task BookedTrip_MovingTheDestinationPoint_IsRefused()
+    {
+        _trip["destinationLatitude"] = new AttributeValue { N = "9.6" };
+        _trip["destinationLongitude"] = new AttributeValue { N = "41.85" };
+
+        var result = await UpdateTripAsync(new Dictionary<string, object>
+        {
+            { "destinationLatitude", 8.55 }, { "destinationLongitude", 39.27 }, { "version", 3 }
+        });
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should().StartWith("TRIP_HAS_BOOKINGS")
+            .And.Contain("destinationLatitude");
+        _tripWrite.Should().BeNull();
+    }
+
     [Fact]
     public async Task BookedTrip_UnchangedEcho_IsAccepted()
     {

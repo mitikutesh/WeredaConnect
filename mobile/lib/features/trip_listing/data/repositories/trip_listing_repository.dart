@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/core/utils/phone_utils.dart';
+import 'package:wereda_connect/features/trip_listing/data/trip_destination.dart';
 import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 
 /// Validation error thrown when trip data fails client-side checks.
@@ -199,6 +200,7 @@ class TripListingRepository extends BaseTripListingRepository {
       'status': trip.status.name,
       'matchedListings': <String>[],
       'version': 1,
+      ...tripDestinationFields(toPlaceId),
     };
     if (vehiclePlate != null && vehiclePlate.isNotEmpty) {
       syncData['vehiclePlate'] = vehiclePlate;

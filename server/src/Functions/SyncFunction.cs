@@ -261,7 +261,9 @@ public partial class SyncFunction
     private static readonly HashSet<string> AllowedTripFields = new()
     {
         "truckerId", "truckerName", "truckerPhone", "vehiclePlate", "vehicleDescription",
-        "fromWoreda", "toWoreda", "departureDate", "capacity", "pricePerQuintal", "status", "matchedListings"
+        "fromWoreda", "toWoreda", "departureDate", "capacity", "pricePerQuintal", "status", "matchedListings",
+        // trip-listing-api 2.1.0: the destination's point, the live track's drop-off (TripTrack.PlannedDropoff).
+        "destinationLatitude", "destinationLongitude"
     };
 
     /// <summary>
@@ -3547,6 +3549,29 @@ public partial class SyncFunction
             && from?.ToString() == to?.ToString())
         {
             errors.Add("fromWoreda and toWoreda must be different.");
+        }
+
+        // trip-listing-api 2.1.0: the destination point, optional, both or neither, inside Ethiopia's
+        // box (the same bounds as a location_ping).
+        var hasDestLat = data.TryGetValue("destinationLatitude", out var destLatObj);
+        var hasDestLng = data.TryGetValue("destinationLongitude", out var destLngObj);
+        if (hasDestLat != hasDestLng)
+        {
+            errors.Add("destinationLatitude and destinationLongitude must be sent together.");
+        }
+        else if (hasDestLat)
+        {
+            if (!double.TryParse(destLatObj?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var destLat)
+                || destLat < 3 || destLat > 15)
+            {
+                errors.Add("destinationLatitude must be a number between 3 and 15.");
+            }
+
+            if (!double.TryParse(destLngObj?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var destLng)
+                || destLng < 32.5 || destLng > 48.5)
+            {
+                errors.Add("destinationLongitude must be a number between 32.5 and 48.5.");
+            }
         }
 
         // departureDate: required on create, valid ISO 8601, future and max 30 days ahead

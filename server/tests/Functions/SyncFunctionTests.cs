@@ -1341,6 +1341,46 @@ public partial class SyncFunctionTests
         Assert.Contains("fromWoreda and toWoreda must be different", response.Body);
     }
 
+    // trip-listing-api 2.1.0: the destination point, the live track's drop-off (TripTrack.PlannedDropoff),
+    // is stored as numbers when the trucker picked a place with coordinates.
+    [Fact]
+    public async Task TripCreate_DestinationPoint_IsStoredAsNumbers()
+    {
+        var op = MakeTripCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "destinationLatitude", 9.0054 },
+            { "destinationLongitude", 38.7636 }
+        });
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
+            r.Item.ContainsKey("destinationLatitude") && r.Item["destinationLatitude"].N == "9.0054"
+            && r.Item.ContainsKey("destinationLongitude") && r.Item["destinationLongitude"].N == "38.7636"));
+    }
+
+    [Theory]
+    [InlineData(9.0, null, "must be sent together")]
+    [InlineData(51.5, 38.7, "destinationLatitude must be a number between 3 and 15")]
+    [InlineData(9.0, -0.1, "destinationLongitude must be a number between 32.5 and 48.5")]
+    public async Task TripCreate_BadDestinationPoint_IsRefused(double lat, double? lng, string expected)
+    {
+        var overrides = new Dictionary<string, object> { { "destinationLatitude", lat } };
+        if (lng is { } longitude)
+        {
+            overrides["destinationLongitude"] = longitude;
+        }
+
+        var op = MakeTripCreateOp(dataOverrides: overrides);
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("TRIP_VALIDATION", response.Body);
+        Assert.Contains(expected, response.Body);
+        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+    }
+
     [Fact]
     public async Task TripCreate_ForcesStatusOpen()
     {

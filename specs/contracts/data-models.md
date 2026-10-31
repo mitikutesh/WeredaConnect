@@ -1,6 +1,6 @@
 # Data Models Contract
 
-**Version**: 1.2.0
+**Version**: 1.3.0
 **Last Updated**: 2026-10-26
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
@@ -93,6 +93,7 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `truckerId` | String | Yes | User ID of trucker | Links to User.userId |
 | `fromWoreda` | String | Yes | Origin district | Ethiopian woreda name |
 | `toWoreda` | String | Yes | Destination district | Typically rural → urban route |
+| `destinationLatitude`, `destinationLongitude` | Double? | No | The picked destination's point (trip-listing-api 2.1.0) | The live track's drop-off point |
 | `departureDate` | DateTime | Yes | Scheduled departure (UTC) | Truckers plan 1-3 days ahead |
 | `capacity` | double | Yes | Available capacity (quintals) | Typical truck: 100-200 quintals |
 | `pricePerQuintal` | double | Yes | Transport price (ETB/quintal) | Market rate varies by distance |
@@ -421,6 +422,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.0.2 | 2026-09-25 | Delivery gains `orderId` (server DTO, Isar schema, web mirror) so clients can tie a delivery to its order (SIM-14) | @Server |
 | 1.1.0 | 2026-10-26 | Order entity table added (every `OrderDto` field plus the ESC-15 commitment fields: `fulfillment`, `pickupDate`, `farmerResponse`, `truckerResponse`, their deadlines and reminders, `transportFailure`, `declineReason`, `cancelledBy`, `faultParty`); Trip status casing fixed to the wire values (`open`, `matched`, `inTransit`, `delivered`, `cancelled`) and the booking fields `bookedQuintals`, `remainingQuintals`, `bookedOrderIds`, `acceptedOrderIds` added; relationships gain Order (`order-lifecycle.md` 2.0.0, `trip-listing-api.md` 2.0.0) | @Server |
 | 1.2.0 | 2026-10-31 | Order gains the server-only `pickupPlace` and `dropoffPlace`, stamped at create (order-lifecycle 2.2.0); Isar schema and web mirror | @Server |
+| 1.3.0 | 2026-10-31 | Trip gains `destinationLatitude` and `destinationLongitude` (trip-listing-api 2.1.0), sent on create from the picked place | @Server |
 
 ---
 

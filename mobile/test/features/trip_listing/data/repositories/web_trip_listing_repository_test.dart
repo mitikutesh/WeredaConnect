@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -5,6 +7,7 @@ import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/web_trip_listing_repository.dart';
+import 'package:wereda_connect/shared/services/place_repository.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
 
@@ -175,6 +178,46 @@ void main() {
     );
     final op = (sentBody!['operations'] as List).first as Map<String, dynamic>;
     expect(op['entityId'], trip.tripId);
+  });
+
+  // trip-listing-api 2.1.0: the picked destination's point goes with the
+  // create, so the live track has a drop-off point.
+  test('createTrip sends the picked destination point', () async {
+    PlaceRepository.instance.loadFromStringForTest(
+      File('test/fixtures/woredas_sample.json').readAsStringSync(),
+    );
+    final api = _MockApiClient();
+    Map<String, dynamic>? sentBody;
+    when(
+      () => api.post<Map<String, dynamic>>(
+        '/sync',
+        data: any<dynamic>(named: 'data'),
+      ),
+    ).thenAnswer((invocation) async {
+      sentBody = invocation.namedArguments[#data] as Map<String, dynamic>;
+      return {
+        'results': [
+          {'status': 'success'},
+        ],
+      };
+    });
+
+    await WebTripListingRepository(api: api).createTrip(
+      truckerId: 'trucker-1',
+      truckerName: 'Trucker',
+      truckerPhone: '+251900100002',
+      fromWoreda: 'Bishoftu',
+      toWoreda: 'Adama',
+      departureDate: DateTime.utc(2026, 11, 2),
+      capacity: 50,
+      pricePerQuintal: 200,
+      toPlaceId: 'gn-adama',
+    );
+
+    final op = (sentBody!['operations'] as List).first as Map<String, dynamic>;
+    final data = op['data'] as Map<String, dynamic>;
+    expect(data['destinationLatitude'], 8.54);
+    expect(data['destinationLongitude'], 39.27);
   });
 
   // ESC-12: cancel, start and deliver used to ignore the /sync result, so a

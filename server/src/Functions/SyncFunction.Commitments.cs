@@ -675,6 +675,27 @@ public partial class SyncFunction
             }
         }
 
+        // trip-listing-api 2.1.0: the destination point belongs to the route. A booked trip may get
+        // one it never had (an older client did not send it), but never a different one.
+        foreach (var field in new[] { "destinationLatitude", "destinationLongitude" })
+        {
+            if (!data.TryGetValue(field, out var sentPoint)
+                || !existing.TryGetValue(field, out var storedPoint)
+                || string.IsNullOrEmpty(storedPoint.N ?? storedPoint.S))
+            {
+                continue;
+            }
+
+            var same = double.TryParse(sentPoint?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var sentValue)
+                && double.TryParse(storedPoint.N ?? storedPoint.S, NumberStyles.Any, CultureInfo.InvariantCulture, out var storedValue)
+                && Math.Abs(sentValue - storedValue) < 1e-9;
+            if (!same)
+            {
+                return ("TRIP_HAS_BOOKINGS",
+                    $"TRIP_HAS_BOOKINGS: {field} cannot change while orders are booked on this trip ({booked.ToString("0.##", CultureInfo.InvariantCulture)} quintals).");
+            }
+        }
+
         if (data.TryGetValue("capacity", out var capacityObj)
             && double.TryParse(capacityObj?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var capacity)
             && capacity < booked - MoneyTolerance)

@@ -12,6 +12,7 @@ import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/trip_listing_repository.dart';
+import 'package:wereda_connect/shared/services/place_repository.dart';
 
 void main() {
   group('TripListingRepository', () {
@@ -120,6 +121,30 @@ void main() {
       final pending = await syncQueue.getPendingOperations();
       expect(pending.first.entityType, 'trip');
       expect(pending.first.action, 'create');
+    });
+
+    // trip-listing-api 2.1.0: the queued create carries the picked
+    // destination's point (the live track's drop-off).
+    test('createTrip queues the picked destination point', () async {
+      PlaceRepository.instance.loadFromStringForTest(
+        File('test/fixtures/woredas_sample.json').readAsStringSync(),
+      );
+      await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Adama',
+        departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+        toPlaceId: 'gn-adama',
+      );
+
+      final pending = await syncQueue.getPendingOperations();
+      final data = jsonDecode(pending.first.data) as Map<String, dynamic>;
+      expect(data['destinationLatitude'], 8.54);
+      expect(data['destinationLongitude'], 39.27);
     });
 
     test('getTripsByTrucker returns only that trucker trips', () async {
