@@ -101,7 +101,7 @@ void main() {
     expect(find.text('WAITING FOR PICKUP'), findsOneWidget);
     expect(find.byType(OnTheRoadCard), findsOneWidget);
     expect(find.text('Wheat · 2,000 kg'), findsOneWidget);
-    expect(find.text('Checked in 28 min ago'), findsOneWidget);
+    expect(find.textContaining(_checkedIn28), findsOneWidget);
     final eta = tracks.track!.eta!;
     final l10n = lookupAppLocalizations(const Locale('en'));
     expect(
@@ -367,7 +367,7 @@ void main() {
     expect(
       find.descendant(
         of: onRoad,
-        matching: find.text('Checked in 28 min ago'),
+        matching: find.textContaining(_checkedIn28),
       ),
       findsOneWidget,
     );
@@ -416,3 +416,7 @@ void main() {
     expect(tracks.fetches, 0);
   });
 }
+
+/// recentTrack puts the check-in 28 minutes before the minute the test set
+/// up in; a slow run can cross into the next minute before the card draws.
+final _checkedIn28 = RegExp(r'^Checked in 2[89] min ago$');
