@@ -93,8 +93,7 @@ void main() {
   });
 
   // Register personal board: "Meki · Oromia" with a chevron, no glass.
-  testWidgets('the picker look shows the region and a chevron',
-      (tester) async {
+  testWidgets('the picker look shows the region and a chevron', (tester) async {
     final controller = TextEditingController();
     Place? selected;
     await tester.pumpWidget(

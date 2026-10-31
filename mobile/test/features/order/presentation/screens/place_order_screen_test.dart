@@ -138,8 +138,7 @@ void main() {
 
   // A listing with fractional stock (2.555 q = 255.5 kg): the field shows
   // the fraction and the stepper stops at the stock, never above it.
-  testWidgets('fractional stock is never rounded above itself',
-      (tester) async {
+  testWidgets('fractional stock is never rounded above itself', (tester) async {
     await open(tester, quintals: 2.555);
 
     expect(find.text('255.5'), findsOneWidget);

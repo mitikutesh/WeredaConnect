@@ -350,10 +350,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                       key: const Key('otp_verify_button'),
                       // Active from the first digit, as on the board; a short
                       // code asks for the rest instead of sending.
-                      onPressed:
-                          (_codeController.text.isNotEmpty && !isLoading)
-                              ? _onVerifyTap
-                              : null,
+                      onPressed: (_codeController.text.isNotEmpty && !isLoading)
+                          ? _onVerifyTap
+                          : null,
                       child: isLoading
                           ? const SizedBox(
                               width: 20,

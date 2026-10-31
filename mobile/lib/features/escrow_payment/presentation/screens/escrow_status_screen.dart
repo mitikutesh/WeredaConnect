@@ -276,7 +276,8 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
     final clock = clockFormatOf(context);
     final staleMinutes =
         DateTime.now().toUtc().difference(payment.updatedAt).inMinutes;
-    String etb(double? amount) => l10n.etbCurrency(formatEtbAmount(amount ?? 0));
+    String etb(double? amount) =>
+        l10n.etbCurrency(formatEtbAmount(amount ?? 0));
 
     return RefreshIndicator(
       onRefresh: () async {
