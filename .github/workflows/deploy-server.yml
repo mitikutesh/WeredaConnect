@@ -10,6 +10,11 @@ name: Deploy Server (.NET AOT + CDK)
 # (slow/flaky). So we cross-compile the real bootstrap on the runner (the same
 # fast method as the aot-validation job) and hand it to CDK via
 # LAMBDA_BOOTSTRAP_PATH, which the construct copies in verbatim.
+#
+# The cross-compile links against an old-glibc arm64 sysroot, not the runner's
+# glibc. Lambda provided.al2023 ships glibc 2.34; linked on ubuntu-24.04 (2.39),
+# ImageSharp's fmod/fmodf bound to GLIBC_2.38 and every function died at init
+# (2026-10-31). A guard step refuses any bootstrap that needs more than 2.34.
 
 on:
   push:
@@ -59,11 +64,6 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install ARM64 cross-compilation tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang zlib1g-dev gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-
       - name: Run server unit tests (gate)
         working-directory: server
         run: |
@@ -71,14 +71,26 @@ jobs:
           dotnet build --no-restore --configuration Release
           dotnet test --no-build --configuration Release --filter "Category!=Integration"
 
-      - name: Cross-compile Native AOT bootstrap (linux-arm64)
+      # Same build as the aot-validation job in server-tests.yml; keep the two in step.
+      # Microsoft's cross-build image brings clang, lld and an arm64 rootfs with an
+      # old glibc at /crossrootfs/arm64. It has no .NET SDK, so the runner's SDK is
+      # mounted in. Runs as the runner's uid so later steps can write the output.
+      - name: Cross-compile Native AOT bootstrap (linux-arm64, old-glibc sysroot)
         working-directory: server
         env:
-          COMPlus_CrossCompiling: '1'
-          OBJCOPY: aarch64-linux-gnu-objcopy
+          AOT_CROSS_IMAGE: mcr.microsoft.com/dotnet-buildtools/prereqs:azurelinux-3.0-net10.0-cross-arm64
         run: |
-          dotnet publish WeredaConnect.Server.csproj \
-            -c Release /p:PublishAot=true /p:RuntimeIdentifier=linux-arm64 /p:StripSymbols=false
+          mkdir -p "$HOME/.nuget/packages"
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE/server" \
+            -v "$DOTNET_ROOT:/opt/dotnet:ro" -e DOTNET_ROOT=/opt/dotnet \
+            -v "$HOME/.nuget/packages:$HOME/.nuget/packages" -e NUGET_PACKAGES="$HOME/.nuget/packages" \
+            -e HOME=/tmp -e DOTNET_CLI_HOME=/tmp -e DOTNET_NOLOGO=1 \
+            -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -e DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
+            "$AOT_CROSS_IMAGE" \
+            /opt/dotnet/dotnet publish WeredaConnect.Server.csproj \
+              -c Release /p:PublishAot=true /p:RuntimeIdentifier=linux-arm64 /p:StripSymbols=false \
+              /p:SysRoot=/crossrootfs/arm64 /p:LinkerFlavor=lld
           PUB="bin/Release/net10.0/linux-arm64/publish"
           # The native binary may be named `bootstrap` or `WeredaConnect.Server`
           # depending on the publish path — normalise to `bootstrap`.
@@ -88,6 +100,25 @@ jobs:
           chmod +x "$PUB/bootstrap"
           file "$PUB/bootstrap"
           ls -la "$PUB/bootstrap"
+
+      # Fails before anything is deployed. A bootstrap that needs a newer glibc than
+      # Lambda's starts nowhere: every function answers Runtime.ExitError at init.
+      - name: Check the bootstrap needs at most glibc 2.34 (Lambda provided.al2023)
+        working-directory: server
+        run: |
+          BIN="bin/Release/net10.0/linux-arm64/publish/bootstrap"
+          max="$(readelf -W --version-info "$BIN" | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)+' \
+            | sed 's/^GLIBC_//' | sort -uV | tail -1)"
+          if [ -z "$max" ]; then
+            echo "::error::could not read the glibc symbol versions of $BIN"
+            exit 1
+          fi
+          echo "Highest glibc symbol version the bootstrap needs: $max"
+          if [ "$(printf '%s\n' "$max" 2.34 | sort -V | tail -1)" != "2.34" ]; then
+            echo "::error::the bootstrap needs glibc $max but Lambda provided.al2023 has 2.34"
+            readelf -W --dyn-syms "$BIN" | grep -E 'GLIBC_2\.(3[5-9]|[4-9][0-9])' || true
+            exit 1
+          fi
 
       - name: Set AWS region
         id: region

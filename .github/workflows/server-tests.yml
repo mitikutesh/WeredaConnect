@@ -144,21 +144,74 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Install cross-compilation tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang zlib1g-dev gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-
       - name: Restore dependencies
         working-directory: ./server
         run: dotnet restore
 
-      - name: Validate AOT compatibility
+      # The same build as deploy-server.yml (keep the two in step): Microsoft's
+      # cross-build image links against an old-glibc arm64 sysroot, because Lambda
+      # provided.al2023 has glibc 2.34 and the runner has 2.39 (fmod@GLIBC_2.38 took
+      # every dev function down on 2026-10-31). The runner's SDK is mounted in.
+      - name: Validate AOT compatibility (linux-arm64, old-glibc sysroot)
         working-directory: ./server
         env:
-          COMPlus_CrossCompiling: 1
-          OBJCOPY: aarch64-linux-gnu-objcopy
-        run: dotnet publish WeredaConnect.Server.csproj -c Release /p:PublishAot=true /p:RuntimeIdentifier=linux-arm64 /p:StripSymbols=false
+          AOT_CROSS_IMAGE: mcr.microsoft.com/dotnet-buildtools/prereqs:azurelinux-3.0-net10.0-cross-arm64
+        run: |
+          mkdir -p "$HOME/.nuget/packages"
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE/server" \
+            -v "$DOTNET_ROOT:/opt/dotnet:ro" -e DOTNET_ROOT=/opt/dotnet \
+            -v "$HOME/.nuget/packages:$HOME/.nuget/packages" -e NUGET_PACKAGES="$HOME/.nuget/packages" \
+            -e HOME=/tmp -e DOTNET_CLI_HOME=/tmp -e DOTNET_NOLOGO=1 \
+            -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -e DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
+            "$AOT_CROSS_IMAGE" \
+            /opt/dotnet/dotnet publish WeredaConnect.Server.csproj \
+              -c Release /p:PublishAot=true /p:RuntimeIdentifier=linux-arm64 /p:StripSymbols=false \
+              /p:SysRoot=/crossrootfs/arm64 /p:LinkerFlavor=lld
+          PUB="bin/Release/net10.0/linux-arm64/publish"
+          if [[ ! -f "$PUB/bootstrap" && -f "$PUB/WeredaConnect.Server" ]]; then
+            cp "$PUB/WeredaConnect.Server" "$PUB/bootstrap"
+          fi
+          chmod +x "$PUB/bootstrap"
+          file "$PUB/bootstrap"
+
+      - name: Check the bootstrap needs at most glibc 2.34 (Lambda provided.al2023)
+        working-directory: ./server
+        run: |
+          BIN="bin/Release/net10.0/linux-arm64/publish/bootstrap"
+          max="$(readelf -W --version-info "$BIN" | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)+' \
+            | sed 's/^GLIBC_//' | sort -uV | tail -1)"
+          if [ -z "$max" ]; then
+            echo "::error::could not read the glibc symbol versions of $BIN"
+            exit 1
+          fi
+          echo "Highest glibc symbol version the bootstrap needs: $max"
+          if [ "$(printf '%s\n' "$max" 2.34 | sort -V | tail -1)" != "2.34" ]; then
+            echo "::error::the bootstrap needs glibc $max but Lambda provided.al2023 has 2.34"
+            readelf -W --dyn-syms "$BIN" | grep -E 'GLIBC_2\.(3[5-9]|[4-9][0-9])' || true
+            exit 1
+          fi
+
+      # Starts the bootstrap the way Lambda does (the provided.al2023 image and its
+      # runtime interface emulator, arm64 under QEMU, Lambda's globalization env) and
+      # invokes the health check. Catches anything that stops it starting on Lambda's OS.
+      - name: Boot the bootstrap in the Lambda provided.al2023 image
+        working-directory: ./server
+        run: |
+          PUB="$PWD/bin/Release/net10.0/linux-arm64/publish"
+          docker run -d --name al2023-boot --platform linux/arm64 -p 9000:8080 \
+            -v "$PUB:/var/runtime:ro" -e FUNCTION_HANDLER=HealthCheckFunction \
+            -e DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
+            public.ecr.aws/lambda/provided:al2023 bootstrap
+          out="$(curl -s --retry 15 --retry-connrefused --retry-delay 2 -m 120 \
+            http://localhost:9000/2015-03-31/functions/function/invocations -d '{}')" || true
+          echo "health check answered: $out"
+          docker logs al2023-boot 2>&1 | tail -30
+          docker rm -f al2023-boot >/dev/null
+          if ! grep -qiE '"statusCode": ?200' <<<"$out"; then
+            echo "::error::the bootstrap did not start in the Lambda provided.al2023 image"
+            exit 1
+          fi
 
       - name: Check binary size
         working-directory: ./server
