@@ -365,6 +365,8 @@ public class OrderFunctionTests
         item["tripId"] = "trip-001";
         item["truckerId"] = "trucker-001";
         item["truckerName"] = "Bekele";
+        item["pickupPlace"] = "Meki";
+        item["dropoffPlace"] = "Merkato";
         item["transportCost"] = "1200";
         item["paymentMethod"] = "cbe_transfer";
         item["cbeTransactionId"] = "CBE123456";
@@ -382,6 +384,8 @@ public class OrderFunctionTests
         Assert.Equal("trip-001", dto.TripId);
         Assert.Equal("trucker-001", dto.TruckerId);
         Assert.Equal("Bekele", dto.TruckerName);
+        Assert.Equal("Meki", dto.PickupPlace);
+        Assert.Equal("Merkato", dto.DropoffPlace);
         Assert.Equal(1200, dto.TransportCost);
         Assert.Equal("cbe_transfer", dto.PaymentMethod);
         Assert.Equal("CBE123456", dto.CbeTransactionId);
@@ -397,6 +401,8 @@ public class OrderFunctionTests
 
         Assert.Null(dto.TripId);
         Assert.Null(dto.TruckerId);
+        Assert.Null(dto.PickupPlace);
+        Assert.Null(dto.DropoffPlace);
         Assert.Null(dto.TransportCost);
         Assert.Null(dto.PaymentMethod);
         Assert.Null(dto.CbeTransactionId);

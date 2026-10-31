@@ -2,40 +2,44 @@ import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/core/models/user.dart';
 
-/// WeredaConnect design system — "Highland Teal".
+/// WeredaConnect design system: "Fieldway" (the design canvas boards in
+/// specs/design-canvas, canvas K6DUM33R6apPwa2jmdsLax).
 ///
-/// Token rules (see specs design brief, 2026-07-06):
-/// - Primary: deep teal (#1A6B5C) — advancing actions, active nav, links
-/// - Money: deep terracotta (#A64B1A) — ONLY money-moving buttons and the
-///   create FAB; nothing else may use it, so its meaning stays legible
-/// - AccentSoft: terracotta (#D4804A) — large icons/illustration only;
-///   fails 4.5:1 with white text, so never use it behind text
+/// Token rules:
+/// - Primary: field green (#1E5B3E): advancing actions, active nav, links
+/// - Ink: soil dark (#15201A) for text and the dark create button, on a
+///   chalk ground (#F5F4EE) with whisper borders (#E3E1D8)
+/// - Money: harvest brown (#8A5410): amounts, money links and the
+///   trucker's accents; gold (#D9922B) only for fills (load bars, the
+///   trucker's create button), never behind small text
 /// - Status: closed 5-token vocabulary (+ neutral), always paired with an
-///   icon and a label — color is never the only signal
-/// - Role accents: one decorative hue per signed-in role for nav chrome
-///   only ([roleAccent]) — NOT a per-role theme; everything else above
-///   is shared by all roles
+///   icon and a label, color is never the only signal
+/// - Role accents: nav chrome only ([roleAccent], [roleAccentTint]): green
+///   for farmers and buyers, brown on gold for truckers, as on the boards
 /// - Dark theme tokens are defined here from day one; `themeMode` stays
 ///   pinned to light until the raw `Colors.*` sweep makes screens dark-safe
 class AppTheme {
   AppTheme._();
 
   // ── Brand colors ──────────────────────────────────────────────────────
-  static const Color primary = Color(0xFF1A6B5C);
-  static const Color primaryLight = Color(0xFF2D9B89);
-  static const Color primaryDeep = Color(0xFF14524A);
-  static const Color money = Color(0xFFA64B1A);
-  static const Color accentSoft = Color(0xFFD4804A);
-  static const Color accentSoftLight = Color(0xFFE09A6C);
-  static const Color backgroundCream = Color(0xFFF5F3F0);
+  static const Color primary = Color(0xFF1E5B3E);
+  static const Color primaryLight = Color(0xFF3C7A5A);
+  static const Color primaryDeep = Color(0xFF15402B);
+  static const Color money = Color(0xFF8A5410);
+  static const Color accentSoft = Color(0xFFD9922B);
+  static const Color accentSoftLight = Color(0xFFFAEED8);
+  static const Color backgroundCream = Color(0xFFF5F4EE);
   static const Color surfaceWhite = Color(0xFFFFFFFF);
-  static const Color textDark = Color(0xFF1E293B);
+  static const Color textDark = Color(0xFF15201A);
+
+  /// The Fieldway boards' Latin face (bundled, see pubspec.yaml).
+  static const String fontFamily = 'Manrope';
 
   /// Bundled Ethiopic-script font, appended to every text style (theme text
   /// and chip labels) so Amharic never waits on a system fallback font.
   static const List<String> ethiopicFontFallback = ['NotoSansEthiopic'];
-  static const Color textMuted = Color(0xFF526071);
-  static const Color borderLight = Color(0xFFE2E8F0);
+  static const Color textMuted = Color(0xFF5E6862);
+  static const Color borderLight = Color(0xFFE3E1D8);
 
   // ── Fieldway Design Canvas tokens (specs/features/live-trip.md) ───────
   static const Color fieldGreen = Color(0xFF1E5B3E);
@@ -46,41 +50,64 @@ class AppTheme {
   static const Color mutedSteel = Color(0xFF5E6862);
   static const Color unselectedNav = Color(0xFF3F4843);
 
-  // ── Role identity accents (decorative only — no status meaning) ──────
-  // A single hue cue per signed-in role, used on nav chrome (sidebar logo
-  // tile, selected nav item) so users always know which role they're
-  // acting as. This is NOT a per-role theme: ColorScheme, buttons, the
-  // money FAB, and the status vocabulary stay shared across roles.
-  // Farmer reuses the primary teal — already its implicit identity.
-  // Hues sit clear of money terracotta and all five status tokens
-  // (sky ≠ info royal-blue #1D4ED8; plum ≠ transit violet #6D28D9).
-  static const Color roleAccentTrucker = Color(0xFF0369A1); // deep sky
-  static const Color roleAccentBuyer = Color(0xFFA21CAF); // plum
+  /// Secondary ink on cards (board #4A544E) and the action-needed card's
+  /// cream ground and dark brown ink.
+  static const Color inkSecondary = Color(0xFF4A544E);
+  static const Color actionCream = Color(0xFFFAEED8);
+  static const Color actionInk = Color(0xFF6B400B);
 
-  // Dark counterparts — computed ≥3:1 for icon use on darkSurface AND on
-  // the always-dark sidebar (primaryDeep #14524A): sky 7.47/4.20,
-  // plum 6.50/3.65, teal 7.62/4.28.
-  static const Color darkRoleAccentTrucker = Color(0xFF38BDF8);
-  static const Color darkRoleAccentBuyer = Color(0xFFE879F9);
+  /// The segmented switch track and a neutral pill.
+  static const Color segmentTrack = Color(0xFFECEAE2);
 
-  /// Decorative accent for [role] on light grounds (≥5.9:1 on white).
+  /// The buyer's drop-off blue and its tint (pins, avatars, info notes).
+  static const Color dropoffBlue = Color(0xFF2E4C7D);
+  static const Color dropoffBlueTint = Color(0xFFE6ECF5);
+
+  /// The trucker home's dark header and the card set into it.
+  static const Color soilCard = Color(0xFF22302A);
+  static const Color soilMuted = Color(0xFFB9C2BD);
+  static const Color soilTrack = Color(0xFF33433B);
+  static const Color soilGreen = Color(0xFF8FC5A4);
+
+  // ── Role identity accents (nav chrome only, no status meaning) ───────
+  // The boards' selected nav item: farmers and buyers get field green on a
+  // green tint, truckers harvest brown on a gold tint. Buttons, cards and
+  // the status vocabulary stay shared by every role.
+  static const Color roleAccentTrucker = money;
+  static const Color roleAccentTruckerTint = accentSoftLight;
+
+  static const Color darkRoleAccentTrucker = Color(0xFFE9B866);
+
+  /// Accent for [role]'s selected nav item on light grounds.
   static Color roleAccent(UserRole role) {
     return switch (role) {
-      UserRole.farmer => primary,
+      UserRole.farmer || UserRole.buyer => primary,
       UserRole.trucker => roleAccentTrucker,
-      UserRole.buyer => roleAccentBuyer,
     };
   }
 
-  /// Decorative accent for [role] on dark grounds (darkSurface and the
-  /// dark-teal sidebar).
-  static Color darkRoleAccent(UserRole role) {
+  /// The pill behind [role]'s selected nav icon.
+  static Color roleAccentTint(UserRole role) {
     return switch (role) {
-      UserRole.farmer => darkPrimary,
-      UserRole.trucker => darkRoleAccentTrucker,
-      UserRole.buyer => darkRoleAccentBuyer,
+      UserRole.farmer || UserRole.buyer => fieldGreenTint,
+      UserRole.trucker => roleAccentTruckerTint,
     };
   }
+
+  /// Accent for [role] on dark grounds.
+  static Color darkRoleAccent(UserRole role) {
+    return switch (role) {
+      UserRole.farmer || UserRole.buyer => darkPrimary,
+      UserRole.trucker => darkRoleAccentTrucker,
+    };
+  }
+
+  /// The role's create button: soil dark for farmers and buyers, gold with
+  /// dark ink for truckers (every Home board).
+  static Color createButtonBackground(UserRole role) =>
+      role == UserRole.trucker ? accentSoft : soilDark;
+  static Color createButtonForeground(UserRole role) =>
+      role == UserRole.trucker ? soilDark : Colors.white;
 
   // ── Legacy aliases — do not use in new code (removed by the token sweep)
   static const Color primaryGreen = primary;
@@ -90,25 +117,25 @@ class AppTheme {
   static const Color accentGoldLight = accentSoftLight;
 
   // ── Status colors (inline text/icons on light surfaces) ──────────────
-  static const Color statusSuccess = Color(0xFF15803D);
-  static const Color statusWarning = Color(0xFFB45309);
-  static const Color statusError = Color(0xFFDC2626);
-  static const Color statusInfo = Color(0xFF1D4ED8);
-  static const Color statusTransit = Color(0xFF6D28D9);
+  static const Color statusSuccess = Color(0xFF2B6E49);
+  static const Color statusWarning = Color(0xFF9A5B0F);
+  static const Color statusError = Color(0xFFB3261E);
+  static const Color statusInfo = dropoffBlue;
+  static const Color statusTransit = Color(0xFFA8640F);
 
   // ── Status container pairs (chip background / foreground) ────────────
-  static const Color statusSuccessContainer = Color(0xFFDCFCE7);
-  static const Color onStatusSuccessContainer = Color(0xFF14532D);
-  static const Color statusWarningContainer = Color(0xFFFEF3C7);
-  static const Color onStatusWarningContainer = Color(0xFF92400E);
-  static const Color statusErrorContainer = Color(0xFFFEE2E2);
-  static const Color onStatusErrorContainer = Color(0xFF991B1B);
-  static const Color statusInfoContainer = Color(0xFFDBEAFE);
-  static const Color onStatusInfoContainer = Color(0xFF1E40AF);
-  static const Color statusTransitContainer = Color(0xFFEDE9FE);
-  static const Color onStatusTransitContainer = Color(0xFF5B21B6);
-  static const Color statusNeutralContainer = Color(0xFFF1F5F9);
-  static const Color onStatusNeutralContainer = Color(0xFF334155);
+  static const Color statusSuccessContainer = fieldGreenTint;
+  static const Color onStatusSuccessContainer = primaryDeep;
+  static const Color statusWarningContainer = actionCream;
+  static const Color onStatusWarningContainer = actionInk;
+  static const Color statusErrorContainer = Color(0xFFF9E3E0);
+  static const Color onStatusErrorContainer = Color(0xFF7A1C14);
+  static const Color statusInfoContainer = dropoffBlueTint;
+  static const Color onStatusInfoContainer = Color(0xFF1F3557);
+  static const Color statusTransitContainer = actionCream;
+  static const Color onStatusTransitContainer = money;
+  static const Color statusNeutralContainer = segmentTrack;
+  static const Color onStatusNeutralContainer = unselectedNav;
 
   // ── Dark theme tokens ─────────────────────────────────────────────────
   static const Color darkBackground = Color(0xFF0E1513);
@@ -116,8 +143,8 @@ class AppTheme {
   static const Color darkBorder = Color(0xFF2C3B36);
   static const Color darkTextPrimary = Color(0xFFECF1EF);
   static const Color darkTextMuted = Color(0xFF9BA8A3);
-  static const Color darkPrimary = Color(0xFF5FC4AE);
-  static const Color darkOnPrimary = Color(0xFF06302A);
+  static const Color darkPrimary = Color(0xFF7CC59A);
+  static const Color darkOnPrimary = Color(0xFF0B2A1B);
   static const Color darkStatusSuccess = Color(0xFF4ADE80);
   static const Color darkStatusWarning = Color(0xFFFBBF24);
   static const Color darkStatusError = Color(0xFFF87171);
@@ -130,12 +157,12 @@ class AppTheme {
       brightness: Brightness.light,
       primary: primary,
       onPrimary: Colors.white,
-      primaryContainer: Color(0xFFD1EDE8),
+      primaryContainer: fieldGreenTint,
       onPrimaryContainer: primaryDeep,
-      secondary: accentSoft,
+      secondary: money,
       onSecondary: Colors.white,
-      secondaryContainer: Color(0xFFF6E3D4),
-      onSecondaryContainer: Color(0xFF7A3814),
+      secondaryContainer: accentSoftLight,
+      onSecondaryContainer: actionInk,
       tertiary: statusInfo,
       onTertiary: Colors.white,
       error: statusError,
@@ -146,11 +173,11 @@ class AppTheme {
       onSurface: textDark,
       onSurfaceVariant: textMuted,
       outline: borderLight,
-      outlineVariant: Color(0xFFF1F5F9),
+      outlineVariant: segmentTrack,
       shadow: Color(0x1A000000),
       inverseSurface: textDark,
       onInverseSurface: Colors.white,
-      inversePrimary: Color(0xFF7DCDB9),
+      inversePrimary: darkPrimary,
       surfaceContainerHighest: backgroundCream,
     );
 
@@ -178,7 +205,7 @@ class AppTheme {
       primary: darkPrimary,
       onPrimary: darkOnPrimary,
       primaryContainer: primaryDeep,
-      onPrimaryContainer: Color(0xFFD1EDE8),
+      onPrimaryContainer: fieldGreenTint,
       secondary: accentSoftLight,
       onSecondary: Color(0xFF3A2415),
       secondaryContainer: Color(0xFF3A2415),
@@ -231,11 +258,11 @@ class AppTheme {
       useMaterial3: true,
       colorScheme: colorScheme,
       scaffoldBackgroundColor: scaffoldBackground,
-      // Bundled families: Latin in Noto Sans, Ethiopic glyphs fall back
-      // to Noto Sans Ethiopic — one consistent face on every device.
-      fontFamily: 'NotoSans',
+      // Bundled families: Latin in Manrope, Ethiopic glyphs fall back to
+      // Noto Sans Ethiopic, one consistent face on every device.
+      fontFamily: fontFamily,
       textTheme: _textTheme(text: text, muted: muted).apply(
-        fontFamily: 'NotoSans',
+        fontFamily: fontFamily,
         fontFamilyFallback: ethiopicFontFallback,
       ),
 
@@ -251,7 +278,7 @@ class AppTheme {
           fontSize: 20,
           fontWeight: FontWeight.w800,
           color: appBarForeground,
-          fontFamily: 'NotoSans',
+          fontFamily: fontFamily,
           fontFamilyFallback: ethiopicFontFallback,
         ),
       ),
@@ -261,24 +288,27 @@ class AppTheme {
         color: surface,
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(18),
           side: BorderSide(color: border),
         ),
         margin: EdgeInsets.zero,
       ),
 
       // ── Buttons ───────────────────────────────────────────────────
+      // The boards' primary button: 56 tall, radius 16, bold label.
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: colorScheme.primary,
           foregroundColor: colorScheme.onPrimary,
-          minimumSize: const Size.fromHeight(48),
+          minimumSize: const Size.fromHeight(52),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
           ),
           textStyle: const TextStyle(
+            fontFamily: fontFamily,
+            fontFamilyFallback: ethiopicFontFallback,
             fontSize: 16,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w700,
           ),
         ),
       ),
@@ -286,33 +316,62 @@ class AppTheme {
         style: ElevatedButton.styleFrom(
           backgroundColor: colorScheme.primary,
           foregroundColor: colorScheme.onPrimary,
-          minimumSize: const Size.fromHeight(48),
+          elevation: 0,
+          minimumSize: const Size.fromHeight(52),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
           ),
           textStyle: const TextStyle(
+            fontFamily: fontFamily,
+            fontFamilyFallback: ethiopicFontFallback,
             fontSize: 16,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w700,
           ),
         ),
       ),
+      // The boards' secondary button: white, whisper border, dark ink.
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: colorScheme.primary,
-          minimumSize: const Size.fromHeight(48),
+          foregroundColor: text,
+          backgroundColor: surface,
+          minimumSize: const Size.fromHeight(52),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
           ),
-          side: BorderSide(color: colorScheme.primary),
+          side: BorderSide(color: border),
+          textStyle: const TextStyle(
+            fontFamily: fontFamily,
+            fontFamilyFallback: ethiopicFontFallback,
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ),
-      // Money color: the FAB is the role's create verb; together with
-      // money-moving buttons it is the only place terracotta may appear.
-      floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        backgroundColor: money,
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: colorScheme.primary,
+          textStyle: const TextStyle(
+            fontFamily: fontFamily,
+            fontFamilyFallback: ethiopicFontFallback,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      // The role's create button ([createButtonBackground] per role).
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: soilDark,
         foregroundColor: Colors.white,
         elevation: 4,
-        shape: CircleBorder(),
+        extendedTextStyle: const TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w800,
+          fontFamily: fontFamily,
+          fontFamilyFallback: ethiopicFontFallback,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
       ),
 
       // ── Inputs ────────────────────────────────────────────────────
@@ -320,24 +379,30 @@ class AppTheme {
         filled: true,
         fillColor: surface,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: border),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: border),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: colorScheme.primary, width: 2),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: colorScheme.error),
         ),
         contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 16,
+          horizontal: 14,
+          vertical: 14,
+        ),
+        hintStyle: TextStyle(
+          color: muted,
+          fontWeight: FontWeight.w500,
+          fontFamily: fontFamily,
+          fontFamilyFallback: ethiopicFontFallback,
         ),
       ),
 
@@ -345,25 +410,26 @@ class AppTheme {
       chipTheme: ChipThemeData(
         backgroundColor: surface,
         selectedColor: colorScheme.primary,
+        checkmarkColor: colorScheme.onPrimary,
         // Chip labels do not inherit the text theme's font, so without the
         // Ethiopic fallback an Amharic label falls to a late-loading system
         // font on web and the chip is sized to placeholder glyphs (SIM-22).
         labelStyle: TextStyle(
           fontSize: 13,
-          fontWeight: FontWeight.w500,
+          fontWeight: FontWeight.w600,
           color: text,
-          fontFamily: 'NotoSans',
+          fontFamily: fontFamily,
           fontFamilyFallback: ethiopicFontFallback,
         ),
         secondaryLabelStyle: TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w500,
           color: colorScheme.onPrimary,
-          fontFamily: 'NotoSans',
+          fontFamily: fontFamily,
           fontFamilyFallback: ethiopicFontFallback,
         ),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(999),
           side: BorderSide(color: border),
         ),
         showCheckmark: false,
@@ -373,7 +439,7 @@ class AppTheme {
       // ── Bottom Navigation ─────────────────────────────────────────
       bottomAppBarTheme: BottomAppBarThemeData(
         color: surface,
-        elevation: 8,
+        elevation: 0,
         surfaceTintColor: Colors.transparent,
       ),
 
@@ -387,11 +453,31 @@ class AppTheme {
       // ── SnackBar ──────────────────────────────────────────────────
       snackBarTheme: SnackBarThemeData(
         backgroundColor: snackBarBackground,
-        contentTextStyle: TextStyle(color: snackBarForeground),
+        contentTextStyle: TextStyle(
+          color: snackBarForeground,
+          fontFamily: fontFamily,
+          fontFamilyFallback: ethiopicFontFallback,
+        ),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(14),
         ),
         behavior: SnackBarBehavior.floating,
+      ),
+
+      // ── Dialog ────────────────────────────────────────────────────
+      dialogTheme: DialogThemeData(
+        backgroundColor: surface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+        ),
+        titleTextStyle: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w800,
+          color: text,
+          fontFamily: fontFamily,
+          fontFamilyFallback: ethiopicFontFallback,
+        ),
       ),
     );
   }

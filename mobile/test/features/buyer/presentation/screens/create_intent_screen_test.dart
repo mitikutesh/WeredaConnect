@@ -79,7 +79,7 @@ void main() {
     await pump(tester);
 
     for (final crop in ['Teff', 'Wheat', 'Sesame']) {
-      final chip = find.widgetWithText(FilterChip, crop);
+      final chip = find.byKey(Key('create_intent_crop_${crop.toLowerCase()}'));
       expect(chip, findsOneWidget);
       expect(tester.getBottomRight(chip).dx, lessThanOrEqualTo(390));
     }
@@ -100,7 +100,7 @@ void main() {
       (tester) async {
     await pump(tester);
 
-    await tester.tap(find.widgetWithText(FilterChip, 'Teff'));
+    await tester.tap(find.byKey(const Key('create_intent_crop_teff')));
     await tester.pump();
     final findMatches = find.text('Find Matches');
     await tester.ensureVisible(findMatches);

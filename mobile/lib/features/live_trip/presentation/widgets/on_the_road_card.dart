@@ -8,7 +8,9 @@ import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
 import 'package:wereda_connect/features/live_trip/domain/live_trip_rules.dart';
+import 'package:wereda_connect/features/live_trip/domain/models/delivery_track.dart';
 import 'package:wereda_connect/features/live_trip/domain/track_freshness.dart';
 import 'package:wereda_connect/features/live_trip/presentation/live_trip_data.dart';
 import 'package:wereda_connect/features/live_trip/presentation/live_trip_text.dart';
@@ -18,20 +20,28 @@ import 'package:wereda_connect/features/live_trip/presentation/widgets/track_bui
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
 /// A delivery on the road as a card (LT-11): for the buyer the "On the road
 /// now" card of the deliveries tab (crop, farmer and driver, the route
 /// ribbon, how current the check-in is, the arrival window); for the farmer
-/// "Your wheat is on the road" (buyer, arrival window, age). Never for the
-/// trucker, and never on trip rows, browse screens or crop listings: live
-/// location stays behind the delivery's track.
+/// "Your wheat is on the road" (the Farmer home board: the ribbon, then the
+/// buyer with the arrival window and the age of the last check-in). Never
+/// for the trucker, and never on trip rows, browse screens or crop listings:
+/// live location stays behind the delivery's track.
+///
+/// [compact] is the web deliveries board's list card beside the live trip
+/// pane: the title and the parties with the arrival window and "arriving"
+/// on the right, a thin bar for the share of the way driven, then the
+/// check-in chip; no crop tile and no route ribbon.
 class OnTheRoadCard extends StatefulWidget {
   const OnTheRoadCard({
     required this.delivery,
     required this.currentUserId,
     this.onTap,
     this.selected = false,
+    this.compact = false,
     this.places,
     this.clock,
     super.key,
@@ -45,6 +55,9 @@ class OnTheRoadCard extends StatefulWidget {
 
   /// Highlighted (the delivery shown beside the list on a wide screen).
   final bool selected;
+
+  /// The web board's list card (see the class note).
+  final bool compact;
   final List<Place>? places;
   final DateTime Function()? clock;
 
@@ -91,37 +104,78 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
     final delivery = widget.delivery;
     final order = _order;
     final track = view.track;
-    final crop = order == null ? null : CropType.labelFor(order.cropType, l10n);
+    // The row carries its crop and kg (delivery-verification-api 1.21.0);
+    // older rows take them from the order read.
+    final cropKey = delivery.cropType ?? order?.cropType;
+    final crop = cropKey == null || cropKey.isEmpty
+        ? null
+        : CropType.labelFor(cropKey, l10n);
+    final quantity = delivery.quantity ?? order?.quantity;
     final eta = track?.eta;
     final band = track == null ? null : trackFreshness(track, view.now);
     final farmer = viewer == LiveTripViewer.farmer;
+    final farmerName = partyDisplayName(delivery.farmerName, l10n);
+    final pickupPlace = delivery.pickupPlace;
 
     final title = farmer
         ? (crop == null
             ? l10n.liveTripFarmerTitleNoCrop
             : l10n.liveTripFarmerTitle(crop))
-        : order == null
-            ? l10n.liveTripFrom(partyDisplayName(delivery.farmerName, l10n))
-            : '$crop · ${l10n.quantityKg(birrText(order.quantity))}';
+        : crop == null
+            ? l10n.liveTripFrom(farmerName)
+            : quantity == null
+                ? crop
+                : '$crop · ${l10n.quantityKg(birrText(quantity))}';
+    // "From Almaz Bekele, Meki · Dawit Tesfaye" (the deliveries board).
     final subtitle = farmer
         ? partyDisplayName(delivery.buyerName, l10n)
-        : '${l10n.liveTripFrom(partyDisplayName(delivery.farmerName, l10n))}'
+        : '${l10n.liveTripFrom(pickupPlace == null || pickupPlace.isEmpty ? farmerName : '$farmerName, $pickupPlace')}'
             ' · ${partyDisplayName(delivery.truckerName, l10n)}';
+    // The buyer's card carries no status pill (the board); a late truck
+    // still says so.
+    final showStatus = farmer || band == TrackFreshness.late;
+
+    final shell = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(18),
+      side: BorderSide(
+        color: widget.selected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+        width: widget.selected ? 2.0 : 1.0,
+      ),
+    );
+    final onTap = widget.onTap ??
+        () => openLiveTrip(context, delivery, widget.currentUserId);
+
+    if (widget.compact) {
+      return Material(
+        color: AppTheme.surfaceWhite,
+        shape: shell,
+        child: InkWell(
+          key: Key('on_the_road_${delivery.deliveryId}'),
+          borderRadius: BorderRadius.circular(18),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: _compactBody(
+              l10n,
+              clock,
+              title: title,
+              subtitle: subtitle,
+              eta: eta,
+              track: track,
+              now: view.now,
+            ),
+          ),
+        ),
+      );
+    }
 
     return Material(
       color: AppTheme.surfaceWhite,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-        side: BorderSide(
-          color: widget.selected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
-          width: widget.selected ? 2.0 : 1.0,
-        ),
-      ),
+      shape: shell,
       child: InkWell(
         key: Key('on_the_road_${delivery.deliveryId}'),
         borderRadius: BorderRadius.circular(18),
-        onTap: widget.onTap ??
-            () => openLiveTrip(context, delivery, widget.currentUserId),
+        onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -129,8 +183,10 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.local_shipping, color: AppTheme.primary),
-                  const SizedBox(width: 10),
+                  if (!farmer) ...[
+                    DeliveryCropTile(cropKey: cropKey, status: delivery.status),
+                    const SizedBox(width: 12),
+                  ],
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -139,79 +195,215 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
                           title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleSmall
-                              ?.copyWith(fontWeight: FontWeight.w700),
+                          style: farmer
+                              ? const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.2,
+                                  color: AppTheme.soilDark,
+                                )
+                              : FwText.cardTitle,
                         ),
-                        Text(
-                          subtitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: AppTheme.textMuted),
-                        ),
+                        if (!farmer) ...[
+                          const SizedBox(height: 3),
+                          Text(
+                            subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: FwText.body,
+                          ),
+                        ],
                       ],
                     ),
                   ),
-                  StatusChip(
-                    label: l10n.liveTripStatusOnTheRoad,
-                    kind: band == TrackFreshness.late
-                        ? StatusKind.warning
-                        : StatusKind.transit,
-                  ),
-                ],
-              ),
-              if (!farmer) ...[
-                const SizedBox(height: 14),
-                RouteRibbon(
-                  stops: ribbonStopsOf(
-                    context,
-                    delivery: delivery,
-                    track: track,
-                    places: _places,
-                    dropoffLabel: l10n.liveTripYou,
-                  ),
-                  reached: 1,
-                ),
-              ],
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: track == null
-                        ? const SizedBox.shrink()
-                        : CheckInChip(
-                            track: track,
-                            now: view.now,
-                            places: _places,
-                            compact: true,
-                          ),
-                  ),
-                  if (eta != null) ...[
+                  if (showStatus) ...[
                     const SizedBox(width: 8),
-                    // Amharic and Oromo windows run long (with the small
-                    // 24-hour range): they wrap instead of overflowing.
-                    Flexible(
-                      child: ClockText(
-                        farmer
-                            ? _sentence(
-                                clock.window(eta.from, eta.to),
-                                l10n.liveTripArrives,
-                              )
-                            : clock.window(eta.from, eta.to),
-                        textAlign: TextAlign.end,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.primaryDeep,
-                        ),
-                      ),
+                    StatusChip(
+                      label: l10n.liveTripStatusOnTheRoad,
+                      kind: band == TrackFreshness.late
+                          ? StatusKind.warning
+                          : StatusKind.transit,
                     ),
                   ],
                 ],
               ),
+              const SizedBox(height: 14),
+              RouteRibbon(
+                stops: ribbonStopsOf(
+                  context,
+                  delivery: delivery,
+                  track: track,
+                  places: _places,
+                  // The farmer's goods go to the buyer; the buyer reads "You".
+                  dropoffLabel:
+                      farmer ? l10n.liveTripDropoff : l10n.liveTripYou,
+                ),
+                reached: 1,
+              ),
+              const SizedBox(height: 12),
+              if (farmer)
+                // "Selam Traders · Arrives 13:20-14:00", the check-in age right.
+                Row(
+                  children: [
+                    Expanded(
+                      child: ClockText(
+                        eta == null
+                            ? ClockLabel.text(subtitle)
+                            : _sentence(
+                                clock.window(eta.from, eta.to),
+                                l10n.liveTripArrives,
+                              ).prefixed('$subtitle · '),
+                        maxLines: 2,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: AppTheme.mutedSteel,
+                        ),
+                      ),
+                    ),
+                    if (track != null) ...[
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: CheckInChip(
+                          track: track,
+                          now: view.now,
+                          places: _places,
+                          compact: true,
+                        ),
+                      ),
+                    ],
+                  ],
+                )
+              else
+                Row(
+                  children: [
+                    // Two thirds for the freshness chip, so "Checked in 28
+                    // min ago" stays whole in the web list's 320 px card.
+                    Expanded(
+                      flex: 2,
+                      child: track == null
+                          ? const SizedBox.shrink()
+                          : CheckInChip(
+                              track: track,
+                              now: view.now,
+                              places: _places,
+                              compact: true,
+                            ),
+                    ),
+                    if (eta != null) ...[
+                      const SizedBox(width: 8),
+                      // Amharic and Oromo windows run long (with the small
+                      // 24-hour range): they wrap instead of overflowing.
+                      Flexible(
+                        child: ClockText(
+                          clock.window(eta.from, eta.to),
+                          textAlign: TextAlign.end,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.primaryDeep,
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(width: 4),
+                    const Icon(
+                      Icons.chevron_right,
+                      size: 20,
+                      color: AppTheme.mutedSteel,
+                    ),
+                  ],
+                ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  /// The web board's list card: "Wheat · 2,000 kg" over the parties, the
+  /// window with "arriving" under it on the right, the bar, the chip.
+  Widget _compactBody(
+    AppLocalizations l10n,
+    ClockFormat clock, {
+    required String title,
+    required String subtitle,
+    required TrackEta? eta,
+    required DeliveryTrack? track,
+    required DateTime now,
+  }) {
+    final share = track == null ? null : tripProgressShare(track);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: FwText.cardTitle.copyWith(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: FwText.body.copyWith(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            if (eta != null) ...[
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  ClockText(
+                    clock.window(eta.from, eta.to),
+                    textAlign: TextAlign.end,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.soilDark,
+                    ),
+                  ),
+                  Text(
+                    l10n.delivArrivingCaption,
+                    style: FwText.body.copyWith(fontSize: 11),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+        if (share != null) ...[
+          const SizedBox(height: 10),
+          TripProgressBar(
+            key: Key('trip_progress_${widget.delivery.deliveryId}'),
+            share: share,
+          ),
+        ],
+        if (track != null) ...[
+          const SizedBox(height: 10),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: CheckInChip(
+              track: track,
+              now: now,
+              places: _places,
+              compact: true,
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -229,26 +421,26 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
   }
 }
 
-/// Under a buyer's delivery that waits for pickup: the map starts there.
-class WaitingForPickupNote extends StatelessWidget {
-  const WaitingForPickupNote({super.key});
+/// The thin bar of the web deliveries board's list card: [share] of the way
+/// driven in field green on the segment track, 6 px, pill ends.
+class TripProgressBar extends StatelessWidget {
+  const TripProgressBar({required this.share, super.key});
+
+  /// 0 at pickup to 1 at the drop-off.
+  final double share;
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-      child: Row(
-        children: [
-          const Icon(Icons.map_outlined, size: 16, color: AppTheme.textMuted),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              l10n.liveTripMapStartsAtPickup,
-              style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
-            ),
-          ),
-        ],
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: SizedBox(
+        height: 6,
+        child: LinearProgressIndicator(
+          value: share.clamp(0.0, 1.0),
+          minHeight: 6,
+          backgroundColor: AppTheme.segmentTrack,
+          valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.fieldGreen),
+        ),
       ),
     );
   }

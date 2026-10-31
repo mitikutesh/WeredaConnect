@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
-/// Large ETB-formatted amount display for accessibility.
-///
-/// Formats amounts with thousands separator (e.g., "ETB 15,000.00").
-/// Supports two sizes for list items (default) and detail screens (large).
+/// An ETB amount the way the boards write money: grouped thousands, the
+/// unit after the number ("15,000 ETB"), decimals only when there are some.
+/// Two sizes: list rows (default, 16/800) and detail screens ([large],
+/// 24/800).
 class AmountDisplay extends StatelessWidget {
   final double amount;
   final TextStyle? style;
@@ -21,24 +22,18 @@ class AmountDisplay extends StatelessWidget {
     super.key,
   });
 
-  static final _formatter = NumberFormat('#,##0.00', 'en_US');
-
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final formatted = _formatter.format(amount);
-
-    final defaultStyle = large
-        ? theme.textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: color ?? theme.colorScheme.onSurface,
-          )
-        : theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: color ?? theme.colorScheme.onSurface,
-          );
-
     final l10n = AppLocalizations.of(context)!;
-    return Text(l10n.escrowEtbAmount(formatted), style: style ?? defaultStyle);
+    final defaultStyle = TextStyle(
+      fontSize: large ? 24 : 16,
+      fontWeight: FontWeight.w800,
+      letterSpacing: large ? -0.5 : -0.2,
+      color: color ?? AppTheme.soilDark,
+    );
+    return Text(
+      l10n.etbCurrency(formatEtbAmount(amount)),
+      style: style ?? defaultStyle,
+    );
   }
 }

@@ -11,8 +11,9 @@ class Breakpoints {
   static const double mobile = 600;
   static const double tablet = 1024;
 
-  /// Sidebar width when expanded (desktop).
-  static const double sidebarExpanded = 260;
+  /// Sidebar width when expanded (desktop): close to the Web board's 205,
+  /// with room for the longer Amharic and Afaan Oromoo labels.
+  static const double sidebarExpanded = 220;
 
   /// Sidebar width when collapsed (tablet rail).
   static const double sidebarCollapsed = 72;

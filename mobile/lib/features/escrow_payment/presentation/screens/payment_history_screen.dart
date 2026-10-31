@@ -12,7 +12,6 @@ import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error_l10n.dart';
-
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/escrow_status_screen.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/amount_display.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
@@ -21,14 +20,18 @@ import 'package:wereda_connect/features/escrow_payment/presentation/widgets/pend
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
 
-/// Filterable list of user's escrow transactions with pending intents.
+/// Filterable list of the user's escrow transactions with pending intents,
+/// in the Fieldway list language: the escrow summary card (held, released),
+/// the Market's pill chips as the status filter, uppercase section labels
+/// and one white card per payment.
 ///
 /// Features:
-/// - Status filter chips (All / Escrowed / Released / Disputed / Refunded)
+/// - Status filter (All / Escrowed / Released / Completed / Disputed / Refunded)
 /// - Pending intents section with cancel button
 /// - Pull-to-refresh
-/// - Debug seed button for mock data
 class PaymentHistoryScreen extends StatefulWidget {
   /// When true, skips Scaffold/AppBar for use as embedded tab content.
   final bool embedded;
@@ -47,6 +50,9 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
   /// zero payouts. Mirrors OrdersTabScreen's `_userRole` plumbing.
   String? _roleFilter;
 
+  /// The last unfiltered page of payments: the summary card sums these, so
+  /// a status filter narrows the rows but not the totals.
+
   @override
   void initState() {
     super.initState();
@@ -63,7 +69,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       );
       // ...then pull from the server so a fresh device (empty local cache) isn't
       // stuck on an empty history. refreshHistory falls back to the cache offline.
-      // On web there is NO local cache — LoadPaymentHistory already hits the server
+      // On web there is NO local cache: LoadPaymentHistory already hits the server
       // (getHistory delegates to refreshHistory), so a second refresh here would be
       // a duplicate network call; skip it on web.
       if (!kIsWeb) {
@@ -87,7 +93,6 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
 
     final content = BlocListener<EscrowBloc, EscrowState>(
@@ -109,96 +114,16 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
           }
         }
       },
-      child: Column(
-        children: [
-          // Status filter chips
-          _buildFilterChips(l10n),
-          const SizedBox(height: 8),
-          // Content
-          Expanded(
-            child: BlocBuilder<EscrowBloc, EscrowState>(
-              builder: (context, state) {
-                if (state is EscrowLoading) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                if (state is EscrowError) {
-                  final l10n = AppLocalizations.of(context)!;
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 32),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(
-                            Icons.error_outline,
-                            size: 56,
-                            color: AppTheme.statusError,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            localizeEscrowError(
-                              l10n,
-                              state.code,
-                              state.message,
-                            ),
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.textDark,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 20),
-                          SizedBox(
-                            width: 200,
-                            child: FilledButton(
-                              onPressed: () {
-                                final authState =
-                                    context.read<AuthBloc>().state;
-                                if (authState is AuthAuthenticated) {
-                                  context.read<EscrowBloc>().add(
-                                        LoadPaymentHistory(
-                                          userId: authState.userId,
-                                          statusFilter: _statusFilter,
-                                          roleFilter: _roleFilter,
-                                        ),
-                                      );
-                                }
-                              },
-                              child: Text(l10n.retry),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-
-                if (state is! PaymentHistoryLoaded) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                final hasContent = state.payments.isNotEmpty ||
-                    state.pendingIntents.isNotEmpty;
-
-                if (!hasContent) {
-                  return _EmptyState(
-                    hasFilter: _statusFilter != null,
-                    theme: theme,
-                  );
-                }
-
-                return _HistoryContent(
-                  state: state,
-                  statusFilter: _statusFilter,
-                  roleFilter: _roleFilter,
-                  onCancelIntent: _showCancelConfirmation,
-                );
-              },
-            ),
-          ),
-        ],
+      child: BlocBuilder<EscrowBloc, EscrowState>(
+        builder: (context, state) {
+          return Column(
+            children: [
+              _buildFilterChips(l10n),
+              const SizedBox(height: 4),
+              Expanded(child: _buildBody(context, l10n, state)),
+            ],
+          );
+        },
       ),
     );
 
@@ -206,64 +131,98 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
 
     return Scaffold(
       appBar: AppBar(title: Text(l10n.escrowPaymentHistory)),
-      body: content,
+      body: Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: FwContentWidth(child: content),
+      ),
     );
   }
 
-  Widget _buildFilterChips(AppLocalizations l10n) {
-    final isMobile = Breakpoints.isMobile(context);
-    final listHPad = isMobile ? 16.0 : 24.0;
+  Widget _buildBody(
+    BuildContext context,
+    AppLocalizations l10n,
+    EscrowState state,
+  ) {
+    if (state is EscrowLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-    final chips = <({String? status, String label})>[
-      (status: null, label: l10n.escrowFilterAll),
-      (status: 'escrowed', label: l10n.escrowStatusEscrowed),
-      (status: 'released', label: l10n.escrowStatusReleased),
-      // A released payout settles to `completed`; without this chip a farmer
-      // could never filter to their actually-settled payouts.
-      (status: 'completed', label: l10n.escrowStatusCompleted),
-      (status: 'disputed', label: l10n.escrowStatusDisputed),
-      (status: 'refunded', label: l10n.escrowStatusRefunded),
-    ];
-
-    if (isMobile) {
-      return SizedBox(
-        height: 50,
-        child: ListView(
-          scrollDirection: Axis.horizontal,
-          padding: EdgeInsets.symmetric(horizontal: listHPad, vertical: 8),
-          children: chips.map((c) {
-            return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: _FilterChip(
-                label: c.label,
-                selected: _statusFilter == c.status,
-                onSelected: () => _applyStatusFilter(c.status),
+    if (state is EscrowError) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.error_outline,
+                size: 56,
+                color: AppTheme.statusError,
               ),
-            );
-          }).toList(),
+              const SizedBox(height: 16),
+              Text(
+                localizeEscrowError(l10n, state.code, state.message),
+                style: FwText.cardTitle,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: 200,
+                child: FilledButton(
+                  onPressed: () {
+                    final authState = context.read<AuthBloc>().state;
+                    if (authState is AuthAuthenticated) {
+                      context.read<EscrowBloc>().add(
+                            LoadPaymentHistory(
+                              userId: authState.userId,
+                              statusFilter: _statusFilter,
+                              roleFilter: _roleFilter,
+                            ),
+                          );
+                    }
+                  },
+                  child: Text(l10n.retry),
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
 
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: listHPad, vertical: 8),
-      child: Row(
-        children: chips.asMap().entries.map((entry) {
-          final c = entry.value;
-          final isLast = entry.key == chips.length - 1;
-          return Expanded(
-            child: Padding(
-              padding: EdgeInsets.only(right: isLast ? 0 : 10),
-              child: _FilterChip(
-                label: c.label,
-                selected: _statusFilter == c.status,
-                onSelected: () => _applyStatusFilter(c.status),
-                expand: true,
-              ),
-            ),
-          );
-        }).toList(),
-      ),
+    if (state is! PaymentHistoryLoaded) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final hasContent =
+        state.payments.isNotEmpty || state.pendingIntents.isNotEmpty;
+
+    if (!hasContent) {
+      return _EmptyState(hasFilter: _statusFilter != null);
+    }
+
+    return _HistoryContent(
+      state: state,
+      statusFilter: _statusFilter,
+      roleFilter: _roleFilter,
+      onCancelIntent: _showCancelConfirmation,
+    );
+  }
+
+  Widget _buildFilterChips(AppLocalizations l10n) {
+    return FwFilterPillRow<String?>(
+      options: [
+        FwFilterOption(value: null, label: l10n.escrowFilterAll),
+        FwFilterOption(value: 'escrowed', label: l10n.escrowStatusEscrowed),
+        FwFilterOption(value: 'released', label: l10n.escrowStatusReleased),
+        // A released payout settles to `completed`; without this chip a farmer
+        // could never filter to their actually-settled payouts.
+        FwFilterOption(value: 'completed', label: l10n.escrowStatusCompleted),
+        FwFilterOption(value: 'disputed', label: l10n.escrowStatusDisputed),
+        FwFilterOption(value: 'refunded', label: l10n.escrowStatusRefunded),
+      ],
+      selected: _statusFilter,
+      onSelected: _applyStatusFilter,
     );
   }
 
@@ -330,7 +289,6 @@ class _HistoryContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
 
     return RefreshIndicator(
@@ -351,15 +309,9 @@ class _HistoryContent extends StatelessWidget {
         children: [
           // Pending intents section
           if (state.pendingIntents.isNotEmpty) ...[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-              child: Text(
-                l10n.escrowPendingSection(state.pendingIntents.length),
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                ),
-              ),
+            FwSectionLabel(
+              l10n.escrowPendingSection(state.pendingIntents.length),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 5),
             ),
             for (final intent in state.pendingIntents)
               PendingIntentCard(
@@ -370,15 +322,9 @@ class _HistoryContent extends StatelessWidget {
           ],
           // History section
           if (state.payments.isNotEmpty) ...[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-              child: Text(
-                l10n.escrowHistorySection,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                ),
-              ),
+            FwSectionLabel(
+              l10n.escrowHistorySection,
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 5),
             ),
             for (final payment in state.payments)
               _PaymentCard(
@@ -386,7 +332,7 @@ class _HistoryContent extends StatelessWidget {
                 viewerRole: roleFilter,
                 // Open the detail under its OWN scoped EscrowBloc (reusing the
                 // same repository) so its load lifecycle can't poison this
-                // still-mounted list — the shared-bloc trap that otherwise
+                // still-mounted list: the shared-bloc trap that otherwise
                 // left the history stuck on a spinner/error on return. Reload
                 // (preserving filters) when the detail route pops.
                 onTap: () async {
@@ -416,6 +362,10 @@ class _HistoryContent extends StatelessWidget {
                   }
                 },
               ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+              child: Text(l10n.listsPaymentsNote, style: FwText.body),
+            ),
           ],
         ],
       ),
@@ -425,12 +375,8 @@ class _HistoryContent extends StatelessWidget {
 
 class _EmptyState extends StatelessWidget {
   final bool hasFilter;
-  final ThemeData theme;
 
-  const _EmptyState({
-    required this.hasFilter,
-    required this.theme,
-  });
+  const _EmptyState({required this.hasFilter});
 
   @override
   Widget build(BuildContext context) {
@@ -443,15 +389,14 @@ class _EmptyState extends StatelessWidget {
             hasFilter
                 ? Icons.filter_alt_off
                 : Icons.account_balance_wallet_outlined,
-            size: 64,
-            color: theme.colorScheme.outline,
+            size: 56,
+            color: AppTheme.mutedSteel,
           ),
           const SizedBox(height: 16),
           Text(
             hasFilter ? l10n.escrowNoMatchingPayments : l10n.escrowNoPayments,
-            style: theme.textTheme.bodyLarge?.copyWith(
-              color: theme.colorScheme.outline,
-            ),
+            style: FwText.cardTitle,
+            textAlign: TextAlign.center,
           ),
         ],
       ),
@@ -459,45 +404,8 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-class _FilterChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onSelected;
-  final bool expand;
-
-  const _FilterChip({
-    required this.label,
-    required this.selected,
-    required this.onSelected,
-    this.expand = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return FilterChip(
-      label: expand
-          ? SizedBox(
-              width: double.infinity,
-              // A chip that shares a row must never clip a long Amharic label
-              // mid-glyph; ellipsize instead.
-              child: Text(
-                label,
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            )
-          : Text(label),
-      selected: selected,
-      labelStyle: TextStyle(
-        color: selected ? Colors.white : AppTheme.textDark,
-      ),
-      onSelected: (_) => onSelected(),
-      showCheckmark: false,
-    );
-  }
-}
-
+/// One escrow row: the amount this party takes home, the delivery or order
+/// it backs with its day, the payout day for a payee, and the status pill.
 class _PaymentCard extends StatelessWidget {
   final Payment payment;
 
@@ -540,46 +448,39 @@ class _PaymentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
     final payoutAt = _payoutAt;
 
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: InkWell(
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+      child: FwCard(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    AmountDisplay(
-                      amount: payment.payoutFor(viewerRole ?? 'buyer'),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _subtitle(AppLocalizations.of(context)!),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color:
-                            theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                      ),
-                    ),
-                    if (payoutAt != null) ...[
-                      const SizedBox(height: 4),
-                      PayoutExpectedText(payoutAt: payoutAt),
-                    ],
-                  ],
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: AmountDisplay(
+                    amount: payment.payoutFor(viewerRole ?? 'buyer'),
+                  ),
                 ),
-              ),
-              EscrowStatusBadge(
-                status: payment.status,
-                refundPending: payment.isRefundPending,
-              ),
+                const SizedBox(width: 10),
+                EscrowStatusBadge(
+                  status: payment.status,
+                  refundPending: payment.isRefundPending,
+                ),
+              ],
+            ),
+            const SizedBox(height: 3),
+            Text(_subtitle(l10n), style: FwText.body),
+            if (payoutAt != null) ...[
+              const SizedBox(height: 4),
+              PayoutExpectedText(payoutAt: payoutAt),
             ],
-          ),
+          ],
         ),
       ),
     );

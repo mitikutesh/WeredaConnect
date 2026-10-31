@@ -10,8 +10,12 @@ import 'package:wereda_connect/features/delivery_verification/presentation/deliv
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
-/// Raise a dispute within 48 hours of delivery confirmation.
+/// Raise a dispute within 48 hours of delivery confirmation (a sibling of
+/// the create boards: the delivery named in the header, the time left in a
+/// note, the reason under its section label, Submit pinned at the foot).
 ///
 /// Shows delivery info, time remaining, reason input,
 /// and confirmation dialog before submitting.
@@ -95,10 +99,11 @@ class _DisputeScreenState extends State<DisputeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
     final clock = clockFormatOf(context);
     final remaining = _timeRemaining;
+    final confirmedAt = widget.delivery.confirmedAt;
+    final shortId = widget.delivery.deliveryId.substring(0, 8);
 
     return BlocListener<DeliveryBloc, DeliveryState>(
       listener: (context, state) {
@@ -127,163 +132,108 @@ class _DisputeScreenState extends State<DisputeScreen> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: Text(AppLocalizations.of(context)!.deliveryRaiseDispute),
-          elevation: 0,
-        ),
         body: SafeArea(
+          bottom: false,
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Delivery info
-                  Text(
-                    l10n.deliveryIdLabel(
-                      widget.delivery.deliveryId.substring(0, 8),
+            child: FwContentWidth(
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    FwDetailHeader(
+                      title: l10n.deliveryRaiseDispute,
+                      subtitle: confirmedAt == null
+                          ? l10n.deliveryIdLabel(shortId)
+                          : '${l10n.deliveryIdLabel(shortId)} · '
+                              '${l10n.deliveryConfirmedAtLabel(clock.dateTime(confirmedAt))}',
                     ),
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  if (widget.delivery.confirmedAt != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      l10n.deliveryConfirmedAtLabel(
-                        clock.dateTime(widget.delivery.confirmedAt!),
-                      ),
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color:
-                            theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // How long the window stays open, or that it closed.
+                          if (_isExpired)
+                            FwNoteBox(
+                              icon: Icons.timer_off,
+                              background: AppTheme.statusErrorContainer,
+                              foreground: AppTheme.onStatusErrorContainer,
+                              child: Text(l10n.deliveryDisputeExpired),
+                            )
+                          else
+                            FwNoteBox.cream(
+                              icon: Icons.timer,
+                              child: Text(
+                                '${l10n.deliveryDisputeTimeRemaining}: '
+                                '${remaining.inHours}h ${remaining.inMinutes.remainder(60)}m',
+                              ),
+                            ),
+                          const SizedBox(height: 20),
+
+                          FwSectionLabel(
+                            l10n.deliveryDisputeReason,
+                            padding: const EdgeInsets.only(bottom: 8),
+                          ),
+                          TextFormField(
+                            controller: _reasonController,
+                            enabled: !_isExpired,
+                            maxLength: DeliveryConstants.maxDisputeReasonLength,
+                            maxLines: 4,
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return l10n.deliveryReasonRequired;
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 4),
+
+                          Text(
+                            l10n.deliveryDisputeWarning,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              height: 1.5,
+                              color: AppTheme.mutedSteel,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
-                  const SizedBox(height: 16),
-
-                  // Time remaining
-                  if (_isExpired)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppTheme.statusError.withValues(alpha: 0.05),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: AppTheme.statusError.withValues(alpha: 0.2),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.timer_off,
-                            color: AppTheme.statusError,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              l10n.deliveryDisputeExpired,
-                              style: const TextStyle(
-                                color: AppTheme.statusError,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  else
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppTheme.statusWarning.withValues(alpha: 0.05),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: AppTheme.statusWarning.withValues(alpha: 0.2),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.timer,
-                            color: AppTheme.statusWarning,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              '${l10n.deliveryDisputeTimeRemaining}: ${remaining.inHours}h ${remaining.inMinutes.remainder(60)}m',
-                              style: const TextStyle(
-                                color: AppTheme.onStatusWarningContainer,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  const SizedBox(height: 24),
-
-                  // Reason input
-                  TextFormField(
-                    controller: _reasonController,
-                    enabled: !_isExpired,
-                    maxLength: DeliveryConstants.maxDisputeReasonLength,
-                    maxLines: 4,
-                    decoration: InputDecoration(
-                      labelText: l10n.deliveryDisputeReason,
-                      border: const OutlineInputBorder(),
-                      alignLabelWithHint: true,
-                    ),
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return l10n.deliveryReasonRequired;
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Warning text
-                  Text(
-                    l10n.deliveryDisputeWarning,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Submit button
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed:
-                          _isExpired || _isSubmitting ? null : _submitDispute,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppTheme.statusError,
-                        minimumSize: const Size.fromHeight(48),
-                      ),
-                      child: _isSubmitting
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Colors.white,
-                                ),
-                              ),
-                            )
-                          : Text(l10n.deliveryDisputeSubmit),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
+        ),
+        bottomNavigationBar: FwBottomActions(
+          children: [
+            FilledButton(
+              onPressed: _isExpired || _isSubmitting ? null : _submitDispute,
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.statusError,
+                minimumSize: const Size.fromHeight(56),
+                textStyle: const TextStyle(
+                  fontFamily: AppTheme.fontFamily,
+                  fontFamilyFallback: AppTheme.ethiopicFontFallback,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              child: _isSubmitting
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Colors.white,
+                        ),
+                      ),
+                    )
+                  : Text(l10n.deliveryDisputeSubmit),
+            ),
+          ],
         ),
       ),
     );

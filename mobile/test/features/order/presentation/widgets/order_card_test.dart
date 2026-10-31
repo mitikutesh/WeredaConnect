@@ -114,4 +114,19 @@ void main() {
       expect(find.text(l10n.rejectOrder), findsNothing);
     });
   });
+
+  group('OrderCard money and quantity (Fieldway boards)', () {
+    testWidgets('amount is grouped with the unit after, quantity in kg',
+        (tester) async {
+      await _pumpCard(tester, status: OrderStatus.funded, isFarmerView: false);
+      final l10n = l10nOf(tester);
+
+      expect(find.text('5,000 ETB'), findsOneWidget);
+      expect(find.text('${l10n.cropTypeWheat} · 100 kg'), findsOneWidget);
+      // The other party stands alone on its line (the date moved under the
+      // amount), so a deleted party still reads "Farmer: Deleted user".
+      expect(find.text('${l10n.farmer}: Farmer'), findsOneWidget);
+      expect(find.text(l10n.statusFunded), findsOneWidget);
+    });
+  });
 }

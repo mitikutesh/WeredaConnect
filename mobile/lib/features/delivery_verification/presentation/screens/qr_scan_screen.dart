@@ -16,11 +16,15 @@ import 'package:wereda_connect/features/delivery_verification/presentation/deliv
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/photo_evidence_widget.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
 /// QR scan screen for pickup and delivery verification.
 ///
-/// Two phases: Scanning (camera preview) and Verified (GPS + photo + confirm).
-/// Uses offline HMAC-SHA256 verification — no internet needed.
+/// Two phases: Scanning (the camera in a rounded panel on the soil dark
+/// page, as the Trip detail board's header) and Verified (GPS + photo on
+/// the chalk page, Confirm pinned at the foot). Uses offline HMAC-SHA256
+/// verification, no internet needed.
 ///
 /// Confirming a DELIVERY (buyer delivery confirm and buyer self-pickup
 /// confirm) releases the farmer's escrow, so it first asks the device to
@@ -193,13 +197,18 @@ class _QrScanScreenState extends State<QrScanScreen> {
     _scannerController?.start();
   }
 
+  bool get _isPickup => widget.verificationType == VerificationType.pickup;
+
+  String _title(AppLocalizations l10n) =>
+      _isPickup ? l10n.deliveryConfirmPickup : l10n.deliveryConfirmDelivery;
+
+  String _deliveryLabel(AppLocalizations l10n) =>
+      l10n.deliveryIdLabel(widget.delivery.deliveryId.substring(0, 8));
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final isPickup = widget.verificationType == VerificationType.pickup;
-    final title = isPickup
-        ? '${l10n.deliveryScanQr} (${l10n.deliveryConfirmPickup})'
-        : '${l10n.deliveryScanQr} (${l10n.deliveryConfirmDelivery})';
+    final scanning = _phase == _ScanPhase.scanning;
 
     return BlocListener<DeliveryBloc, DeliveryState>(
       listener: (context, state) {
@@ -221,138 +230,141 @@ class _QrScanScreenState extends State<QrScanScreen> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: Text(title),
-          elevation: 0,
-          actions: [
-            if (_phase == _ScanPhase.scanning)
-              IconButton(
-                icon: const Icon(Icons.flash_on),
-                onPressed: () => _scannerController?.toggleTorch(),
-                tooltip: l10n.deliveryToggleFlash,
-              ),
-          ],
-        ),
+        // The camera sits on the soil dark page; the result pages are chalk.
+        backgroundColor: scanning ? AppTheme.soilDark : null,
         body: SafeArea(
+          bottom: scanning,
           child: switch (_phase) {
-            _ScanPhase.scanning => _buildScanningPhase(),
-            _ScanPhase.verified => _buildVerifiedPhase(),
-            _ScanPhase.invalid => _buildInvalidPhase(),
+            _ScanPhase.scanning => _buildScanningPhase(l10n),
+            _ScanPhase.verified => _buildVerifiedPhase(l10n),
+            _ScanPhase.invalid => _buildInvalidPhase(l10n),
           },
         ),
+        bottomNavigationBar: switch (_phase) {
+          _ScanPhase.scanning => null,
+          _ScanPhase.verified => FwBottomActions(
+              children: [
+                FilledButton(
+                  onPressed: _isConfirming ? null : _confirm,
+                  style: _primaryStyle,
+                  child: _isConfirming
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : Text(_title(l10n)),
+                ),
+              ],
+            ),
+          _ScanPhase.invalid => FwBottomActions(
+              children: [
+                FilledButton.icon(
+                  onPressed: _resetScanner,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(l10n.deliveryTryAgain),
+                  style: _primaryStyle,
+                ),
+              ],
+            ),
+        },
       ),
     );
   }
 
-  Widget _buildScanningPhase() {
-    return Stack(
-      children: [
-        MobileScanner(
-          controller: _scannerController,
-          onDetect: _onBarcodeDetected,
-        ),
-        // Scan frame overlay
-        Center(
-          child: Container(
-            width: 250,
-            height: 250,
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.white, width: 2),
-              borderRadius: BorderRadius.circular(16),
-            ),
-          ),
-        ),
-        // Instruction text
-        Positioned(
-          bottom: 80,
-          left: 24,
-          right: 24,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.7),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              AppLocalizations.of(context)!.deliveryQrPointCamera,
-              style: const TextStyle(color: Colors.white, fontSize: 16),
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+  static final ButtonStyle _primaryStyle = FilledButton.styleFrom(
+    minimumSize: const Size.fromHeight(56),
+    textStyle: const TextStyle(
+      fontFamily: AppTheme.fontFamily,
+      fontFamilyFallback: AppTheme.ethiopicFontFallback,
+      fontSize: 16,
+      fontWeight: FontWeight.w800,
+    ),
+  );
 
-  Widget _buildVerifiedPhase() {
-    final theme = Theme.of(context);
-    final l10n = AppLocalizations.of(context)!;
-    final isPickup = widget.verificationType == VerificationType.pickup;
-    final photoType = isPickup ? PhotoType.pickup : PhotoType.dropoff;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+  /// The camera in a rounded panel under the dark header, the scan frame
+  /// over it and the instruction at its foot.
+  Widget _buildScanningPhase(AppLocalizations l10n) {
+    return FwContentWidth(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Green checkmark
-          const Icon(
-            Icons.check_circle,
-            color: AppTheme.statusSuccess,
-            size: 64,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            l10n.deliveryQrVerified,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: AppTheme.statusSuccess,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            l10n.deliveryIdLabel(
-              widget.delivery.deliveryId.substring(0, 8),
-            ),
-            style: theme.textTheme.bodyLarge,
-          ),
-          const SizedBox(height: 24),
-
-          // GPS section
-          _buildGpsSection(theme),
-          const SizedBox(height: 24),
-
-          // Photo section
-          PhotoEvidenceWidget(
-            photoRef: _photoRef,
-            photoType: photoType,
-            deliveryId: widget.delivery.deliveryId,
-            onCapture: _capturePhoto,
-          ),
-          const SizedBox(height: 32),
-
-          // Confirm button
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: _isConfirming ? null : _confirm,
-              style: FilledButton.styleFrom(
-                backgroundColor: AppTheme.statusSuccess,
-                minimumSize: const Size.fromHeight(48),
+          _DarkHeader(
+            title: _title(l10n),
+            subtitle: l10n.deliveryScanQr,
+            trailing: Semantics(
+              button: true,
+              label: l10n.deliveryToggleFlash,
+              child: Material(
+                color: AppTheme.soilCard,
+                borderRadius: BorderRadius.circular(14),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () => _scannerController?.toggleTorch(),
+                  child: const SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: Icon(Icons.flash_on, size: 20, color: Colors.white),
+                  ),
+                ),
               ),
-              child: _isConfirming
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
-                  : Text(
-                      isPickup
-                          ? l10n.deliveryConfirmPickup
-                          : l10n.deliveryConfirmDelivery,
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    MobileScanner(
+                      controller: _scannerController,
+                      onDetect: _onBarcodeDetected,
                     ),
+                    // Scan frame overlay
+                    Center(
+                      child: Container(
+                        width: 250,
+                        height: 250,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.white, width: 2),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+                    // Instruction text
+                    Positioned(
+                      bottom: 20,
+                      left: 20,
+                      right: 20,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.7),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          l10n.deliveryQrPointCamera,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ],
@@ -360,88 +372,158 @@ class _QrScanScreenState extends State<QrScanScreen> {
     );
   }
 
-  Widget _buildGpsSection(ThemeData theme) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.location_on, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                AppLocalizations.of(context)!.deliveryGpsCaptured,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (_isCapturingGps)
-            Row(
-              children: [
-                const SizedBox(
-                  height: 16,
-                  width: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                const SizedBox(width: 8),
-                Text(AppLocalizations.of(context)!.deliveryGpsCapturing),
-              ],
-            )
-          else if (_gpsResult != null && _gpsResult!.isAvailable)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${_gpsResult!.latitude!.toStringAsFixed(4)}, ${_gpsResult!.longitude!.toStringAsFixed(4)}',
-                  style: theme.textTheme.bodyMedium,
-                ),
-                Text(
-                  AppLocalizations.of(context)!.deliveryGpsAccuracy(
-                    _gpsResult!.accuracy!.toStringAsFixed(0),
-                  ),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                  ),
-                ),
-              ],
-            )
-          else
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppTheme.statusWarning.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
+  /// The code passed: the GPS fix and the photo to add, Confirm at the foot.
+  Widget _buildVerifiedPhase(AppLocalizations l10n) {
+    final photoType = _isPickup ? PhotoType.pickup : PhotoType.dropoff;
+
+    return SingleChildScrollView(
+      child: FwContentWidth(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            FwDetailHeader(
+              title: _title(l10n),
+              subtitle: _deliveryLabel(l10n),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Icon(
-                    Icons.warning_amber,
-                    color: AppTheme.statusWarning,
-                    size: 20,
+                  FwCard(
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: AppTheme.fieldGreenTint,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Icon(
+                            Icons.check_circle,
+                            size: 24,
+                            color: AppTheme.fieldGreen,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            l10n.deliveryQrVerified,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.fieldGreen,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      AppLocalizations.of(context)!.deliveryGpsUnavailable,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: AppTheme.onStatusWarningContainer,
-                      ),
+                  const SizedBox(height: 16),
+
+                  // GPS section
+                  FwSectionLabel(
+                    l10n.deliveryGpsCaptured,
+                    padding: const EdgeInsets.only(bottom: 8),
+                  ),
+                  FwCard(child: _buildGpsContent(l10n)),
+                  const SizedBox(height: 16),
+
+                  // Photo section
+                  FwCard(
+                    child: PhotoEvidenceWidget(
+                      photoRef: _photoRef,
+                      photoType: photoType,
+                      deliveryId: widget.delivery.deliveryId,
+                      onCapture: _capturePhoto,
                     ),
                   ),
                 ],
               ),
             ),
-        ],
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildGpsContent(AppLocalizations l10n) {
+    if (_isCapturingGps) {
+      return Row(
+        children: [
+          const SizedBox(
+            height: 16,
+            width: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            l10n.deliveryGpsCapturing,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.mutedSteel,
+            ),
+          ),
+        ],
+      );
+    }
+    final gps = _gpsResult;
+    if (gps != null && gps.isAvailable) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 2),
+            child:
+                Icon(Icons.location_on, size: 18, color: AppTheme.fieldGreen),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${gps.latitude!.toStringAsFixed(4)}, ${gps.longitude!.toStringAsFixed(4)}',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.soilDark,
+                  ),
+                ),
+                Text(
+                  l10n.deliveryGpsAccuracy(gps.accuracy!.toStringAsFixed(0)),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.mutedSteel,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+    return Row(
+      children: [
+        const Icon(
+          Icons.warning_amber,
+          size: 18,
+          color: AppTheme.actionInk,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            l10n.deliveryGpsUnavailable,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.actionInk,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -457,43 +539,113 @@ class _QrScanScreenState extends State<QrScanScreen> {
     };
   }
 
-  Widget _buildInvalidPhase() {
-    final theme = Theme.of(context);
-    final l10n = AppLocalizations.of(context)!;
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
+  /// The code failed: why, with Try Again at the foot.
+  Widget _buildInvalidPhase(AppLocalizations l10n) {
+    return SingleChildScrollView(
+      child: FwContentWidth(
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Icon(
-              Icons.cancel,
-              color: AppTheme.statusError,
-              size: 64,
+            FwDetailHeader(
+              title: _title(l10n),
+              subtitle: _deliveryLabel(l10n),
             ),
-            const SizedBox(height: 16),
-            Text(
-              l10n.deliveryQrFailed,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: AppTheme.statusError,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+              child: FwCard(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: AppTheme.statusErrorContainer,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: const Icon(
+                        Icons.cancel,
+                        size: 28,
+                        color: AppTheme.statusError,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      l10n.deliveryQrFailed,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.statusError,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _localizeQrError(l10n),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        height: 1.5,
+                        color: AppTheme.mutedSteel,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _localizeQrError(l10n),
-              style: theme.textTheme.bodyLarge,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 32),
-            FilledButton.icon(
-              onPressed: _resetScanner,
-              icon: const Icon(Icons.refresh),
-              label: Text(l10n.deliveryTryAgain),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The Trip detail board's dark header, with the back square on the soil
+/// card colour, the title in white and a trailing square (the torch).
+class _DarkHeader extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final Widget trailing;
+
+  const _DarkHeader({
+    required this.title,
+    required this.subtitle,
+    required this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+      child: Row(
+        children: [
+          const FwBackButton(dark: true),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppTheme.soilMuted,
+                  ),
+                ),
+                Semantics(
+                  header: true,
+                  child: Text(
+                    title,
+                    style:
+                        FwDetailHeader.titleStyle.copyWith(color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          trailing,
+        ],
       ),
     );
   }

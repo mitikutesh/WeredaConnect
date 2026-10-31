@@ -22,6 +22,7 @@ Widget _harness({
   ValueChanged<Place?>? onSelected,
   ValueChanged<String>? onChanged,
   Locale locale = const Locale('en'),
+  bool pickerLook = false,
 }) {
   return MaterialApp(
     // The app's delegates: Afan Oromo has no built-in Material strings.
@@ -41,6 +42,7 @@ Widget _harness({
         debounce: const Duration(milliseconds: 10),
         onPlaceSelected: onSelected,
         onChanged: onChanged,
+        pickerLook: pickerLook,
       ),
     ),
   );
@@ -88,6 +90,29 @@ void main() {
     expect(controller.text, 'Adama'); // canonical en, not the id
     expect(selected?.id, 'gn-adama');
     expect(find.text('አዳማ'), findsNothing); // overlay dismissed
+  });
+
+  // Register personal board: "Meki · Oromia" with a chevron, no glass.
+  testWidgets('the picker look shows the region and a chevron', (tester) async {
+    final controller = TextEditingController();
+    Place? selected;
+    await tester.pumpWidget(
+      _harness(
+        controller: controller,
+        repo: _loadRepo(),
+        onSelected: (p) => selected = p,
+        pickerLook: true,
+      ),
+    );
+
+    await _type(tester, 'Adam');
+    await tester.tap(find.text('አዳማ'));
+    await tester.pumpAndSettle();
+
+    expect(controller.text, 'Adama · ${selected!.region}');
+    expect(selected?.en, 'Adama');
+    expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
+    expect(find.byIcon(Icons.search), findsNothing);
   });
 
   testWidgets('reports raw text via onChanged while typing', (tester) async {

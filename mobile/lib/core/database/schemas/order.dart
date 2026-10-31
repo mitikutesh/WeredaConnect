@@ -138,6 +138,10 @@ class Order {
   /// `expired`, `cancelled` or `failed_capacity`. Server-written.
   String? truckerResponse;
 
+  /// ESC-15: the trip's departure on a trip order, stamped at funding (UTC).
+  /// Null before funding and on a self-pickup order.
+  DateTime? pickupDate;
+
   /// ESC-15: when the farmer's and the trucker's answers are due (UTC).
   DateTime? farmerDeadlineAt;
   DateTime? truckerDeadlineAt;
@@ -154,6 +158,15 @@ class Order {
 
   /// ESC-15: who ended the order: `buyer`, `farmer`, `trucker` or `system`.
   String? cancelledBy;
+
+  /// The listing's place name at create (order-lifecycle 2.2.0): where the
+  /// goods are collected. Server-written; null on an older order or when the
+  /// listing had none (the trip's route stands in).
+  String? pickupPlace;
+
+  /// The buyer's registered woreda at create (order-lifecycle 2.2.0): where
+  /// the goods go. Server-written; null on an older order.
+  String? dropoffPlace;
 }
 
 /// Status of an order in its lifecycle

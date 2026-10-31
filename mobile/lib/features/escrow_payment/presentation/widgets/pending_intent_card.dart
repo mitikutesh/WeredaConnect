@@ -4,11 +4,11 @@ import 'package:wereda_connect/core/models/payment_intent.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/amount_display.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
-/// Card showing a queued payment intent with cancel button.
-///
-/// Displayed in the pending section of PaymentHistoryScreen for intents
-/// waiting to sync when connectivity is restored.
+/// A queued payment intent, waiting to sync when connectivity returns, as a
+/// white card with a sync tile, the amount, the delivery and a Cancel action.
+/// Shown in the pending section of PaymentHistoryScreen.
 class PendingIntentCard extends StatelessWidget {
   final PaymentIntent intent;
   final VoidCallback? onCancel;
@@ -21,31 +21,31 @@ class PendingIntentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
+    final deliveryId = intent.deliveryId.length > 8
+        ? intent.deliveryId.substring(0, 8)
+        : intent.deliveryId;
 
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+      child: FwCard(
+        padding: const EdgeInsets.all(14),
         child: Row(
           children: [
-            // Sync icon
             Container(
-              width: 40,
-              height: 40,
+              width: 42,
+              height: 42,
               decoration: BoxDecoration(
-                color: AppTheme.statusWarning.withAlpha(25),
-                shape: BoxShape.circle,
+                color: AppTheme.actionCream,
+                borderRadius: BorderRadius.circular(12),
               ),
               child: const Icon(
                 Icons.sync,
-                color: AppTheme.statusWarning,
+                color: AppTheme.money,
                 size: 20,
               ),
             ),
             const SizedBox(width: 12),
-            // Details
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -53,15 +53,15 @@ class PendingIntentCard extends StatelessWidget {
                   AmountDisplay(amount: intent.amount),
                   const SizedBox(height: 2),
                   Text(
-                    '${AppLocalizations.of(context)!.escrowDeliveryShort(intent.deliveryId.length > 8 ? intent.deliveryId.substring(0, 8) : intent.deliveryId)} · ${AppLocalizations.of(context)!.escrowQueuedStatus}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                    ),
+                    '${l10n.escrowDeliveryShort(deliveryId)} · ${l10n.escrowQueuedStatus}',
+                    style: FwText.body,
                   ),
                   if (intent.lastError != null)
                     Text(
                       intent.lastError!,
-                      style: theme.textTheme.bodySmall?.copyWith(
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
                         color: AppTheme.statusError,
                       ),
                       maxLines: 1,
@@ -70,7 +70,6 @@ class PendingIntentCard extends StatelessWidget {
                 ],
               ),
             ),
-            // Cancel button
             if (intent.status == IntentStatus.pendingSync && onCancel != null)
               TextButton(
                 onPressed: onCancel,
@@ -78,7 +77,7 @@ class PendingIntentCard extends StatelessWidget {
                   foregroundColor: AppTheme.statusError,
                   minimumSize: const Size(48, 48),
                 ),
-                child: Text(AppLocalizations.of(context)!.escrowCancelIntent),
+                child: Text(l10n.escrowCancelIntent),
               ),
           ],
         ),

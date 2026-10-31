@@ -13,14 +13,18 @@ import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/navigation/role_nav_bar.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Adaptive shell that switches between sidebar, rail, and bottom navigation.
 ///
-/// - Desktop (>1024px): Full sidebar (260px) with labels, user profile
-/// - Tablet (600–1024px): Collapsed NavigationRail (72px) with icons
-/// - Mobile (<600px): BottomNavigationBar
+/// - Desktop (>1024px): Full sidebar (260px) with labels, the role's create
+///   button and the user card (Web · Buyer deliveries board)
+/// - Tablet (600–1024px): Collapsed rail (72px) with icons; the create
+///   button floats over the content as on the phone
+/// - Mobile (<600px): the same [RoleNavBar] and floating [RoleCreateButton]
+///   the device shell draws, so the browser matches the phone boards
 ///
 /// Navigation is **role-shaped** and comes from [tabsForRole] — the same
 /// single source of truth the mobile shell uses, so both platforms always
@@ -81,6 +85,15 @@ class AdaptiveShell extends StatelessWidget {
     return -1;
   }
 
+  /// Whether the location is a tab's own page, not a page under it: the
+  /// bar highlights Orders on `/orders/{id}`, but that is a detail screen
+  /// (no create button, no bar, as on the boards).
+  bool _onTabRoot(BuildContext context, List<_NavDestination> dests) {
+    final location = GoRouterState.of(context).matchedLocation;
+    final path = location.isEmpty ? '/' : location;
+    return dests.any((d) => d.route == path);
+  }
+
   void _onDestinationSelected(
     BuildContext context,
     int index,
@@ -117,52 +130,21 @@ class AdaptiveShell extends StatelessWidget {
 
   Widget _fab(
     BuildContext context,
-    AppLocalizations l10n,
     UserRole role, {
     required bool onTabRoot,
+    bool expanded = false,
   }) {
     return ValueListenableBuilder<int>(
       valueListenable: pushedRoutes?.count ?? _noPushedRoutes,
       builder: (context, pushed, _) {
         if (!onTabRoot || pushed > 0) return const SizedBox.shrink();
-        return SizedBox(
-          height: 44,
-          child: FloatingActionButton.extended(
-            heroTag: 'role_fab',
-            elevation: 0,
-            highlightElevation: 0,
-            onPressed: () => _onFabPressed(context, role),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-            backgroundColor: role == UserRole.trucker
-                ? const Color(0xFFD9922B)
-                : AppTheme.soilDark,
-            foregroundColor: role == UserRole.trucker
-                ? const Color(0xFF15201A)
-                : Colors.white,
-            icon: const Icon(Icons.add, size: 18),
-            label: Text(
-              _fabTooltip(l10n, role),
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: role == UserRole.trucker
-                    ? FontWeight.w800
-                    : FontWeight.w700,
-              ),
-            ),
-          ),
+        return RoleCreateButton(
+          role: role,
+          expanded: expanded,
+          onPressed: () => _onFabPressed(context, role),
         );
       },
     );
-  }
-
-  String _fabTooltip(AppLocalizations l10n, UserRole role) {
-    return switch (role) {
-      UserRole.farmer => l10n.sellCrops,
-      UserRole.trucker => l10n.postTrip,
-      UserRole.buyer => l10n.newBuyingIntent,
-    };
   }
 
   // ── Build ────────────────────────────────────────────────────────────
@@ -176,54 +158,53 @@ class AdaptiveShell extends StatelessWidget {
     final role =
         authState is AuthAuthenticated ? authState.role : UserRole.farmer;
 
-    // Role identity accent — decorative only; picks the variant with
-    // ≥3:1 icon contrast for the ground it sits on.
-    final isDarkTheme = Theme.of(context).brightness == Brightness.dark;
-    final navAccent =
-        isDarkTheme ? AppTheme.darkRoleAccent(role) : AppTheme.roleAccent(role);
-    // The sidebar ground is the dark teal rail in both themes.
-    final sidebarAccent = AppTheme.darkRoleAccent(role);
-
     if (windowClass == WindowClass.mobile) {
       final dests = _destinations(l10n, role, includeSidebarExtras: false);
       final selectedIndex = _currentIndex(context, dests);
+      final onTabRoot = _onTabRoot(context, dests);
+      // A detail page under a tab (`/orders/{id}`) and a pushed screen are
+      // full pages on the boards: no bar under them, no create button over
+      // their own pinned actions.
+      final detailRoute = selectedIndex >= 0 && !onTabRoot;
 
-      // BottomNavigationBar requires currentIndex in [0, items.length).
-      // Clamp to 0 when on non-nav routes (settings, profile) to avoid crash.
-      final clampedIndex = selectedIndex < 0 ? 0 : selectedIndex;
-
-      return Scaffold(
-        body: child,
-        floatingActionButton:
-            _fab(context, l10n, role, onTabRoot: selectedIndex >= 0),
-        bottomNavigationBar: BottomNavigationBar(
-          currentIndex: clampedIndex,
-          onTap: (i) => _onDestinationSelected(context, i, dests),
-          type: BottomNavigationBarType.fixed,
-          selectedItemColor: selectedIndex < 0 ? AppTheme.textMuted : navAccent,
-          unselectedItemColor: AppTheme.textMuted,
-          items: dests
-              .map(
-                (d) => BottomNavigationBarItem(
-                  icon: Icon(d.icon),
-                  activeIcon: Icon(d.selectedIcon),
-                  label: d.label,
-                ),
-              )
-              .toList(),
-        ),
+      return ValueListenableBuilder<int>(
+        valueListenable: pushedRoutes?.count ?? _noPushedRoutes,
+        builder: (context, pushed, _) {
+          final fullPage = detailRoute || pushed > 0;
+          return Scaffold(
+            body: child,
+            floatingActionButton: _fab(context, role, onTabRoot: onTabRoot),
+            floatingActionButtonLocation:
+                FloatingActionButtonLocation.centerFloat,
+            bottomNavigationBar: fullPage
+                ? null
+                : RoleNavBar(
+                    role: role,
+                    tabs: [for (final d in dests) d.tab],
+                    // Profile and settings sit outside the bar: nothing
+                    // selected.
+                    currentIndex: selectedIndex < 0 ? null : selectedIndex,
+                    onSelected: (i) =>
+                        _onDestinationSelected(context, i, dests),
+                  ),
+          );
+        },
       );
     }
 
-    // Tablet / Desktop — sidebar with 5 items
+    // Tablet / Desktop: sidebar with the bar's tabs plus the extras
     final isDesktop = windowClass == WindowClass.desktop;
     final dests = _destinations(l10n, role, includeSidebarExtras: true);
     final selectedIndex = _currentIndex(context, dests);
-
-    final desktopFab = _fab(context, l10n, role, onTabRoot: selectedIndex >= 0);
+    final onTabRoot = _onTabRoot(context, dests);
 
     return Scaffold(
       backgroundColor: AppTheme.chalkBackground,
+      // The rail has no room for the labelled button: it floats over the
+      // content as on the phone.
+      floatingActionButton:
+          isDesktop ? null : _fab(context, role, onTabRoot: onTabRoot),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       body: Row(
         children: [
           // Sidebar / Rail
@@ -231,12 +212,15 @@ class AdaptiveShell extends StatelessWidget {
             expanded: isDesktop,
             selectedIndex: selectedIndex,
             destinations: dests,
-            accent: sidebarAccent,
+            accent: AppTheme.roleAccent(role),
+            accentTint: AppTheme.roleAccentTint(role),
             currentLocation: GoRouterState.of(context).matchedLocation,
             onSelected: (i) => _onDestinationSelected(context, i, dests),
             onProfileTap: () => context.go('/profile'),
             onSettingsTap: () => context.go('/settings'),
-            actionButton: desktopFab,
+            actionButton: isDesktop
+                ? _fab(context, role, onTabRoot: onTabRoot, expanded: true)
+                : null,
             role: role,
           ),
           // Content
@@ -306,6 +290,7 @@ class _Sidebar extends StatelessWidget {
   final int selectedIndex;
   final List<_NavDestination> destinations;
   final Color accent;
+  final Color accentTint;
   final String currentLocation;
   final ValueChanged<int> onSelected;
   final VoidCallback onProfileTap;
@@ -318,6 +303,7 @@ class _Sidebar extends StatelessWidget {
     required this.selectedIndex,
     required this.destinations,
     required this.accent,
+    required this.accentTint,
     required this.currentLocation,
     required this.onSelected,
     required this.onProfileTap,
@@ -344,7 +330,7 @@ class _Sidebar extends StatelessWidget {
       child: Column(
         children: [
           // App branding
-          _SidebarHeader(expanded: expanded, accent: accent),
+          _SidebarHeader(expanded: expanded),
           const SizedBox(height: 12),
           // Navigation items
           Expanded(
@@ -357,6 +343,7 @@ class _Sidebar extends StatelessWidget {
                     selected: selectedIndex == i,
                     expanded: expanded,
                     accent: accent,
+                    accentTint: accentTint,
                     onTap: () => onSelected(i),
                   ),
                 if (expanded && actionButton != null) ...[
@@ -384,9 +371,8 @@ class _Sidebar extends StatelessWidget {
 
 class _SidebarHeader extends StatelessWidget {
   final bool expanded;
-  final Color accent;
 
-  const _SidebarHeader({required this.expanded, required this.accent});
+  const _SidebarHeader({required this.expanded});
 
   @override
   Widget build(BuildContext context) {
@@ -399,27 +385,30 @@ class _SidebarHeader extends StatelessWidget {
       ),
       child: Row(
         children: [
+          // The Web board's 36 px mark and 16 px name, which fit the
+          // 220 px sidebar.
           Container(
-            width: 40,
-            height: 40,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
               color: AppTheme.fieldGreen,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(11),
             ),
+            // The boards' mark: a route between two places.
             child: const Icon(
-              Icons.agriculture,
+              Icons.route,
               color: Colors.white,
-              size: 22,
+              size: 20,
             ),
           ),
           if (expanded) ...[
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: Text(
                 AppLocalizations.of(context)!.appName,
                 style: const TextStyle(
                   color: AppTheme.soilDark,
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: FontWeight.w800,
                   letterSpacing: -0.4,
                 ),
@@ -439,6 +428,7 @@ class _SidebarItem extends StatefulWidget {
   final bool selected;
   final bool expanded;
   final Color accent;
+  final Color accentTint;
   final VoidCallback onTap;
 
   const _SidebarItem({
@@ -446,6 +436,7 @@ class _SidebarItem extends StatefulWidget {
     required this.selected,
     required this.expanded,
     required this.accent,
+    required this.accentTint,
     required this.onTap,
   });
 
@@ -480,14 +471,12 @@ class _SidebarItemState extends State<_SidebarItem> {
   @override
   Widget build(BuildContext context) {
     final bgColor = widget.selected
-        ? AppTheme.fieldGreenTint
+        ? widget.accentTint
         : _hovered
             ? const Color(0xFFF3F1EB)
             : Colors.transparent;
-    final iconColor =
-        widget.selected ? AppTheme.fieldGreen : AppTheme.unselectedNav;
-    final textColor =
-        widget.selected ? AppTheme.fieldGreen : AppTheme.unselectedNav;
+    final iconColor = widget.selected ? widget.accent : AppTheme.unselectedNav;
+    final textColor = widget.selected ? widget.accent : AppTheme.unselectedNav;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
@@ -516,14 +505,20 @@ class _SidebarItemState extends State<_SidebarItem> {
                       children: [
                         _icon(iconColor, 20),
                         const SizedBox(width: 12),
-                        Text(
-                          widget.item.label,
-                          style: TextStyle(
-                            color: textColor,
-                            fontSize: 14,
-                            fontWeight: widget.selected
-                                ? FontWeight.w700
-                                : FontWeight.w600,
+                        // A long Amharic or Afaan Oromoo label ends in an
+                        // ellipsis instead of pushing out of the sidebar.
+                        Expanded(
+                          child: Text(
+                            widget.item.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: textColor,
+                              fontSize: 14,
+                              fontWeight: widget.selected
+                                  ? FontWeight.w700
+                                  : FontWeight.w600,
+                            ),
                           ),
                         ),
                       ],

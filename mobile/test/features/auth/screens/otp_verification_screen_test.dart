@@ -58,7 +58,10 @@ void main() {
     await tester.pump();
 
     expect(
-      find.text('We sent a 6-digit code by SMS to +251911234567.'),
+      find.text(
+        'We sent a 6-digit code by SMS to '
+        '+251\u00A0911\u00A0234\u00A0567.',
+      ),
       findsOneWidget,
     );
   });
@@ -151,6 +154,27 @@ void main() {
     final resend = tester.getCenter(find.byKey(const Key('otp_resend_button')));
     final verify = tester.getCenter(find.byKey(const Key('otp_verify_button')));
     expect(resend.dy, lessThan(verify.dy));
+  });
+
+  // Register OTP board: Verify is active with three digits typed; a short
+  // code asks for the rest and sends nothing.
+  testWidgets('Verify is active from the first digit and asks for the rest',
+      (tester) async {
+    await tester.pumpWidget(app());
+    await tester.pump();
+    FilledButton button() => tester.widget<FilledButton>(
+          find.byKey(const Key('otp_verify_button')),
+        );
+    expect(button().onPressed, isNull);
+
+    await tester.enterText(find.byKey(const Key('otp_code_field')), '481');
+    await tester.pump();
+    expect(button().onPressed, isNotNull);
+
+    await tester.tap(find.byKey(const Key('otp_verify_button')));
+    await tester.pump();
+    expect(find.text('Please enter 6-digit code'), findsOneWidget);
+    verifyNever(() => bloc.add(any(that: isA<AuthVerifyOtpRequested>())));
   });
 
   testWidgets('ignores non-digits', (tester) async {

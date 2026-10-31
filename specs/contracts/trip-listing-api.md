@@ -1,7 +1,7 @@
 # Trip Listing API Contract
 
 ## Version
-2.0.0
+2.1.0
 
 ## Parties
 - **Mobile** (client) — truckers creating and browsing trip listings
@@ -46,6 +46,8 @@ The Trip Listing API enables transport providers (truckers) to post available tr
         "truckerPhone": "+251912345678",
         "fromWoreda": "Bishoftu",
         "toWoreda": "Addis Ababa",
+        "destinationLatitude": 9.0054,
+        "destinationLongitude": 38.7636,
         "departureDate": "2026-02-18T06:00:00Z",
         "capacity": 150.0,
         "pricePerQuintal": 120.0,
@@ -277,6 +279,7 @@ Invalid transitions return `422 Unprocessable Entity`:
    - Required, 1-100 characters
    - Allow Amharic, Afan Oromo, English characters
    - fromWoreda and toWoreda must be different
+   - **destinationLatitude / destinationLongitude** (2.1.0): optional numbers, sent together, latitude 3 to 15 and longitude 32.5 to 48.5 (the `location_ping` box), else `TRIP_VALIDATION`. The point of the destination the trucker picked in Create trip; the live track's drop-off point (`live-trip-api.md`, `TripTrack.PlannedDropoff`) and so the buyer's arrival window come from it. Once the trip is booked a stored point is frozen like the route (`TRIP_HAS_BOOKINGS`), but a booked trip without one may still get it.
 2. **Departure Date**:
    - Must be an ISO 8601 date and time, for example `2026-02-18T06:00:00.000Z`, `2026-02-18T09:00:00+03:00` or `2026-02-18T06:00:00.000` (seconds and a fraction of up to 7 digits optional; a value without a zone is read as UTC, as mobile builds before 2026-06-18 sent it), on create and whenever an update sends it (1.3.0). A blank value or any other shape (`10/15/2026`, a bare date) is `TRIP_VALIDATION: departureDate must be a valid ISO 8601 date.` and nothing is written. It is the sort key of the browse index, so a lenient parse would let such a value sort ahead of every real date
    - Stored in one form, UTC with milliseconds (`2026-02-18T06:00:00.000Z`, what mobile and web send with `toUtc().toIso8601String()`), whatever zone the client used (1.3.0). Responses return that form, so an offset cannot move a trip within the browse order
@@ -499,9 +502,10 @@ Common route patterns:
 | 1.5.0 | 2026-10-23 | No phone number in trip text (FUP-49): a `vehicleDescription`, `vehiclePlate`, `fromWoreda` or `toWoreda` that holds an Ethiopian mobile number is refused with `TRIP_CONTACT_IN_TEXT` on create and on an update that changes it (an unchanged echo is accepted), nothing written; permanent on clients; the trip form runs the same check first; detector as `crop-listing-api.md` 1.4.0; `vehiclePlate` and `vehicleDescription` added to the TripDto table |
 | 1.6.0 | 2026-10-23 | Account under review (FRD-04, rule 11): a create from a trucker at risk tier CRITICAL is refused with `FRAUD_ACCOUNT_HELD` after the field rules and before the write, nothing written; permanent on clients (already handled since `sync-protocol.md` 1.18.0); updates and deletes not gated |
 | 2.0.0 | 2026-10-26 | Bookings (ESC-15, `order-lifecycle.md` 2.0.0, behind `COMMITMENTS_ENABLED`): `TripDto` gains `bookedQuintals` and `remainingQuintals` (null on old rows, read as `capacity`), the row also `bookedOrderIds` and `acceptedOrderIds`; capacity is reserved per order at funding (atomic on `remainingQuintals`), verified at the trucker's accept and released when the order leaves the trip; order create refuses a trip departing in under 24 hours and a quantity above `remainingQuintals` (`TRIP_CAPACITY_EXCEEDED`), and `payment_submitted` a trip no longer open or matched, too small, or departing in under 12 hours (`ORDER_VALIDATION: This trip is no longer available; place a new order.`); `matched` means fully booked and is set by the system (a client `status: matched` is refused), `open → inTransit` is allowed with bookings; once booked `departureDate`, `pricePerQuintal`, `fromWoreda` and `toWoreda` are frozen and `capacity` may not drop below `bookedQuintals` (`TRIP_HAS_BOOKINGS`); cancelling (update or delete) is refused with `TRIP_HAS_BOOKINGS` while an order on the trip is `pickup_confirmed` or `in_transit`, otherwise funded and accepted orders move to `awaiting_transport` (`trip_cancelled`) with their pending deliveries cancelled and unpaid orders left alone; browse unchanged |
+| 2.1.0 | 2026-10-31 | Create and update accept `destinationLatitude` and `destinationLongitude` (both or neither, inside Ethiopia's box). No client sent a destination point before, so no trip had one and the live track had no drop-off point: the buyer's arrival window and the trucker's "about 12:35" never showed. Mobile and web send the point of the place picked in Create trip. A booked trip's stored point is frozen with the route; a missing one may be added |
 
 ---
 
-**Last Updated**: 2026-10-26
-**Version**: 2.0.0
+**Last Updated**: 2026-10-31
+**Version**: 2.1.0
 **Status**: Draft (Phase R4.1)

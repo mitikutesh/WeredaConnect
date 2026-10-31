@@ -47,12 +47,18 @@ class Order {
   String? fulfillment;
   String? farmerResponse;
   String? truckerResponse;
+  DateTime? pickupDate;
   DateTime? farmerDeadlineAt;
   DateTime? truckerDeadlineAt;
   DateTime? buyerChoiceDeadlineAt;
   String? transportFailure;
   String? declineReason;
   String? cancelledBy;
+
+  /// The order's own places (order-lifecycle 2.2.0, server-written; see the
+  /// Isar schema): the farm and the buyer's drop-off.
+  String? pickupPlace;
+  String? dropoffPlace;
 }
 
 /// Status of an order in its lifecycle.

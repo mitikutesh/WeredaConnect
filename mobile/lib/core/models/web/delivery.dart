@@ -21,6 +21,13 @@ class Delivery {
 
   /// The order this delivery fulfils (SIM-14); null only from a server predating the field.
   String? orderId;
+
+  /// Server-stamped from the order, listing and trip on create (1.21.0);
+  /// null on older deliveries.
+  String? cropType;
+  double? quantity;
+  String? pickupPlace;
+  DateTime? pickupPlannedAt;
   LatLng? gpsPickup;
   LatLng? gpsDropoff;
   String? pickupPhotoRef;

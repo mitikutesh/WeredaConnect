@@ -4,6 +4,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/features/live_trip/presentation/screens/farmer_trip_screen.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/on_the_road_card.dart';
 
 import '../../live_trip_harness.dart';
@@ -54,7 +55,7 @@ void main() {
     ]);
     expect(find.byType(OnTheRoadCard), findsOneWidget);
     expect(find.text('Your Wheat is on the road'), findsOneWidget);
-    expect(find.text('Selam Traders'), findsOneWidget);
+    expect(find.textContaining('Selam Traders'), findsOneWidget);
     expect(find.textContaining('Checked in '), findsOneWidget);
     expect(find.textContaining('Arrives '), findsOneWidget);
     verify(
@@ -99,5 +100,47 @@ void main() {
     await settleReads(tester);
     expect(find.text('On the road'), findsNothing);
     expect(tracks.fetches, 0);
+  });
+
+  Future<void> pumpBuyerCard(WidgetTester tester, Delivery delivery) async {
+    await tester.pumpWidget(
+      liveTripApp(
+        deps: deps,
+        tracks: tracks,
+        home: Scaffold(
+          body: OnTheRoadCard(delivery: delivery, currentUserId: buyerId),
+        ),
+      ),
+    );
+    await settleReads(tester);
+  }
+
+  testWidgets(
+      'buyer: the board\'s card, crop and kg from the row, the pickup place '
+      'in the From line, no status pill', (tester) async {
+    await pumpBuyerCard(
+      tester,
+      liveDelivery()
+        ..cropType = 'teff'
+        ..quantity = 1500
+        ..pickupPlace = 'Meki',
+    );
+
+    // The row wins over the order read (the order says 2,000 kg of wheat).
+    expect(find.text('Teff · 1,500 kg'), findsOneWidget);
+    expect(
+      find.text('From Almaz Bekele, Meki · Dawit Tesfaye'),
+      findsOneWidget,
+    );
+    expect(find.byType(DeliveryCropTile), findsOneWidget);
+    expect(find.text('On the road'), findsNothing);
+  });
+
+  testWidgets('buyer: an older row without cargo reads it from the order',
+      (tester) async {
+    await pumpBuyerCard(tester, liveDelivery());
+
+    expect(find.text('Wheat · 2,000 kg'), findsOneWidget);
+    expect(find.text('From Almaz Bekele · Dawit Tesfaye'), findsOneWidget);
   });
 }

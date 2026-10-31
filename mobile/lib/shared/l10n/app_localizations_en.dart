@@ -563,6 +563,27 @@ class AppLocalizationsEn extends AppLocalizations {
   String get myTrips => 'My Trips';
 
   @override
+  String listsTripBooked(String booked, String capacity) {
+    return '$booked of $capacity quintals booked';
+  }
+
+  @override
+  String get listsRouteFrom => 'From';
+
+  @override
+  String get listsRouteTo => 'To';
+
+  @override
+  String get listsMyTripsPrivacyNote =>
+      'Only you see your trips here. Buyers find them in the Market.';
+
+  @override
+  String get listsAllTripsNote => 'Every open trip from every trucker.';
+
+  @override
+  String get listsKeepTrip => 'Keep trip';
+
+  @override
   String get tripDetails => 'Trip Details';
 
   @override
@@ -684,6 +705,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deliveryDetails => 'Delivery Details';
+
+  @override
+  String get restDeliveryTimeline => 'Delivery Timeline';
 
   @override
   String get deliveryScanQrCode => 'Scan QR Code';
@@ -878,6 +902,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deliveryAddPhoto => 'Add Photo';
+
+  @override
+  String get restNoPhoto => 'No photo';
 
   @override
   String get deliveryMarkInTransit => 'Mark In Transit';
@@ -1222,6 +1249,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String escrowEtbAmount(String amount) {
     return 'ETB $amount';
   }
+
+  @override
+  String get profileSectionAccount => 'Account';
+
+  @override
+  String get profileSectionMoney => 'Money';
+
+  @override
+  String get profileSectionApp => 'App';
+
+  @override
+  String get profileSettingsLanguageTime => 'Language and time';
+
+  @override
+  String get profileSettingsData => 'Data';
 
   @override
   String get profileRestartApp => 'Please restart the app';
@@ -2024,6 +2066,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get trackBuyerPayments => 'Track your payments & escrow';
 
   @override
+  String get listsPaymentsNote =>
+      'Each row is one escrow. Tap it for the timeline.';
+
+  @override
   String get noDeliveries => 'No deliveries yet';
 
   @override
@@ -2344,6 +2390,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String restMatchesFor(String crop) {
+    return 'Matches for $crop';
+  }
+
+  @override
   String get noMatchesYet => 'No matches yet';
 
   @override
@@ -2426,7 +2477,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get enterDeliveryWoredaError => 'Enter your delivery woreda';
 
   @override
-  String get maxPriceOptionalHint => 'Optional — leave empty to see all prices';
+  String get maxPriceOptionalHint =>
+      'Price is optional. Leave it empty to see all prices.';
 
   @override
   String get anyPrice => 'Any price';
@@ -3852,6 +3904,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get tripModeNotSharing => 'This trip does not share its location.';
 
   @override
+  String get tripBookingsLoadFailed =>
+      'Could not load the bookings of this trip.';
+
+  @override
   String get tripModeLoadFailed => 'Could not load the stops of this trip.';
 
   @override
@@ -4132,6 +4188,26 @@ class AppLocalizationsEn extends AppLocalizations {
   String get liveTripLogLatest => 'latest';
 
   @override
+  String get liveTripCheckInsTitle => 'Check-ins';
+
+  @override
+  String get liveTripAboutEveryHour => 'about every hour';
+
+  @override
+  String get liveTripLogNext => 'next';
+
+  @override
+  String get liveTripLogThen => 'then';
+
+  @override
+  String liveTripLogSentLateUntil(String time) {
+    return 'Sent late, no network until $time';
+  }
+
+  @override
+  String get liveTripExpectedToday => 'expected today';
+
+  @override
   String get liveTripLogSentLate => 'Sent late, no network';
 
   @override
@@ -4289,6 +4365,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'After pickup you will see the truck on a map in Deliveries.';
 
   @override
+  String orderTripOn(String day) {
+    return '$day trip';
+  }
+
+  @override
   String liveTripFrom(String name) {
     return 'From $name';
   }
@@ -4345,6 +4426,12 @@ class AppLocalizationsEn extends AppLocalizations {
       'Next you verify with Fayda, then add your details. Farmers skip the role details step.';
 
   @override
+  String get joinFaydaNeedsInternet => 'Needs internet for this step.';
+
+  @override
+  String get joinWeredaHelper => 'Search places and towns, works offline';
+
+  @override
   String get fromFayda => 'From Fayda';
 
   @override
@@ -4365,7 +4452,69 @@ class AppLocalizationsEn extends AppLocalizations {
       'Your money is held safely. The farmer is asked first, then the trucker.';
 
   @override
-  String get deliveriesSearchHint => 'Farmer, buyer or driver';
+  String get deliveriesSearchHint => 'Crop, farmer or driver';
+
+  @override
+  String get delivSegmentActive => 'Active';
+
+  @override
+  String delivPickupOn(String date) {
+    return 'pickup $date';
+  }
+
+  @override
+  String delivDeliveredOn(String date) {
+    return 'Delivered $date';
+  }
+
+  @override
+  String delivSummaryOnTheRoad(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count on the road',
+      one: '1 on the road',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String delivSummaryWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count waiting for pickup',
+      one: '1 waiting for pickup',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String delivSummaryCheckWindow(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count in the check window',
+      one: '1 in the check window',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get delivArrivingCaption => 'arriving';
+
+  @override
+  String delivWaitingForPickupOn(String date) {
+    return 'Waiting for pickup $date';
+  }
+
+  @override
+  String get delivMapStartsAtPickup => 'map starts at pickup';
+
+  @override
+  String delivReportProblemUntil(String time) {
+    return 'report a problem until $time';
+  }
 
   @override
   String get savedOnPhoneFirstNote =>
@@ -4377,6 +4526,84 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get homeToday => 'Today';
+
+  @override
+  String homeDueToday(String time) {
+    return 'Due today $time';
+  }
+
+  @override
+  String homeActionMore(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count more',
+      one: '1 more',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String homeNextDropoffAbout(String place, String time) {
+    return 'Next: drop-off in $place, about $time';
+  }
+
+  @override
+  String homeNextDropoffIn(String place) {
+    return 'Next: drop-off in $place';
+  }
+
+  @override
+  String homeNextPickupIn(String place) {
+    return 'Next: pickup in $place';
+  }
+
+  @override
+  String homeNextPickup(String name) {
+    return 'Next: pickup at $name';
+  }
+
+  @override
+  String homeNextDropoff(String name) {
+    return 'Next: drop-off at $name';
+  }
+
+  @override
+  String get homeTripNoneHint => 'Post a trip and buyers can book space on it.';
+
+  @override
+  String get homeTripMatchedLine => 'Scan each farmer\'s QR at pickup';
+
+  @override
+  String homeTileActiveReserved(int active, int reserved) {
+    return '$active active, $reserved reserved';
+  }
+
+  @override
+  String get homeTileWaitingForYou => 'waiting for you';
+
+  @override
+  String get homeTileHeldForYou => 'held for you';
+
+  @override
+  String get homeTileHeldInEscrow => 'held in escrow';
+
+  @override
+  String get homeTileInTransit => 'in transit';
+
+  @override
+  String get homeTileInProgress => 'in progress';
+
+  @override
+  String get homeTileAvailableNow => 'available now';
+
+  @override
+  String get homeTileBrowseAllTrips => 'all trucks heading out';
+
+  @override
+  String homeRecentLine(String event) {
+    return 'Recent: $event';
+  }
 
   @override
   String tripPricePerQuintalValue(String price) {
@@ -4460,8 +4687,170 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get cropsListedToday => 'listed today';
+
+  @override
+  String get cropsDrafts => 'Drafts';
+
+  @override
+  String get detailYourPay => 'your pay';
+
+  @override
+  String get detailBookingWaitingFarmer => 'Waiting for the farmer';
+
+  @override
+  String get detailBookingAskedNext => 'you are asked next';
+
+  @override
+  String get detailBookingAcceptedContactOpen => 'contact open';
+
+  @override
+  String detailBookedOf(String booked, String capacity) {
+    return '$booked of $capacity quintals';
+  }
+
+  @override
+  String detailLeft(String left) {
+    return '$left left';
+  }
+
+  @override
+  String get detailCropHere => 'crop here';
+
+  @override
+  String detailFarmerAcceptedAnswerBy(String time) {
+    return 'The farmer accepted. Please answer by $time.';
+  }
+
+  @override
+  String get detailBooked => 'Booked';
+
+  @override
+  String detailQuintalsLeft(String quintals) {
+    return '$quintals quintals left';
+  }
+
+  @override
+  String detailKmToYou(int km) {
+    return 'About $km km to you';
+  }
+
+  @override
+  String detailForQuantity(String quantity) {
+    return 'For $quantity';
+  }
+
+  @override
+  String get detailEtbPerQuintalShort => 'ETB/q';
+
+  @override
+  String detailFitsTrip(String quintals) {
+    return 'fits this trip ($quintals quintals left)';
+  }
+
+  @override
+  String detailExceedsTrip(String quintals) {
+    return 'more than this trip has room for ($quintals quintals left)';
+  }
+
+  @override
+  String get detailChange => 'Change';
+
+  @override
+  String get detailLess => 'Less';
+
+  @override
+  String get detailMore => 'More';
+
+  @override
+  String get detailGpsPickFromList =>
+      'No GPS? Pick your wereda from the list instead.';
+
+  @override
+  String get detailNoPhoneNumbersNote =>
+      'No phone numbers: contact opens after payment is held in escrow.';
+
+  @override
+  String get detailYourFarm => 'Your farm';
+
+  @override
+  String get detailNewOrderTitle => 'New order';
+
+  @override
+  String detailFromYourListing(String what) {
+    return '$what from your listing';
+  }
+
+  @override
+  String get detailPaidIntoEscrow => 'Paid into escrow';
+
+  @override
+  String get detailPickupLabel => 'Pickup';
+
+  @override
+  String detailTruckOf(String name) {
+    return '$name\'s truck';
+  }
+
+  @override
+  String get detailBuyerCollects => 'The buyer collects it';
+
+  @override
+  String get detailHeldInEscrow => 'Held in escrow';
+
+  @override
+  String detailPartyPaid(String party) {
+    return '$party paid';
+  }
+
+  @override
+  String detailPartyRole(String name, String role) {
+    return '$name, $role';
+  }
+
+  @override
+  String get detailYou => 'You';
+
+  @override
+  String detailTimelineThen(String steps) {
+    return 'Then $steps. Tap a step to read what it means.';
+  }
+
+  @override
+  String get detailTimelineTapStep => 'Tap a step to read what it means.';
+
+  @override
+  String detailListAnd(String head, String last) {
+    return '$head and $last';
+  }
+
+  @override
+  String get detailContactOpensWhenTruckerAccepts =>
+      'Contact opens when the trucker accepts';
+
+  @override
+  String detailMessageParty(String name) {
+    return 'Message $name';
+  }
+
+  @override
+  String detailCallParty(String name) {
+    return 'Call $name';
+  }
+
+  @override
   String liveTripLogStopAhead(int minutes) {
     return 'About $minutes min, then on to you';
+  }
+
+  @override
+  String marketQuintalsRoom(String quintals) {
+    return '$quintals q room';
+  }
+
+  @override
+  String detailQuintalsRoom(String quintals) {
+    return '$quintals quintals room';
   }
 
   @override
@@ -4482,6 +4871,23 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get marketNoTripYet => 'No trip yet';
+
+  @override
+  String marketFootnote(String place) {
+    return 'Every farmer\'s listing, sorted by the best match for $place.';
+  }
+
+  @override
+  String get marketFootnoteNoPlace =>
+      'Every farmer\'s listing, sorted by the best transport match.';
+
+  @override
+  String marketQuintalsLeft(String quantity) {
+    return '$quantity quintals left';
+  }
+
+  @override
+  String get marketSearchToggle => 'Search and price filters';
 
   @override
   String liveTripEscrowAmount(String amount) {

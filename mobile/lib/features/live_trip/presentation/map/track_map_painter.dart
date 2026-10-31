@@ -28,7 +28,7 @@ class TrackMapStyle {
     this.pin = AppTheme.primaryDeep,
     this.otherStop = const Color(0xFF94A3B8),
     this.labelStyle = const TextStyle(
-      fontFamily: 'NotoSans',
+      fontFamily: AppTheme.fontFamily,
       fontFamilyFallback: AppTheme.ethiopicFontFallback,
       fontSize: 11,
       fontWeight: FontWeight.w600,

@@ -594,6 +594,10 @@ public class DeliveryFunction
             QrToken = includeQrToken ? GetString(item, "qrToken") : "",
             Status = GetString(item, "status"),
             DeliveryType = GetStringOrNull(item, "deliveryType"),
+            CropType = GetStringOrNull(item, "cropType"),
+            Quantity = GetDoubleOrNull(item, "quantity"),
+            PickupPlace = GetStringOrNull(item, "pickupPlace"),
+            PickupPlannedAt = GetStringOrNull(item, "pickupPlannedAt"),
             GpsPickup = GetLatLng(item, "gpsPickup"),
             GpsDropoff = GetLatLng(item, "gpsDropoff"),
             PickupPhotoRef = GetStringOrNull(item, "pickupPhotoRef"),
@@ -668,6 +672,30 @@ public class DeliveryFunction
             int i => i,
             string s => int.TryParse(s, out var result) ? result : 0,
             _ => 0
+        };
+    }
+
+    /// <summary>
+    /// Get an optional number from the item dictionary (DynamoDB numbers arrive as strings,
+    /// test data and FromItem may hand over a number). Null when absent or unreadable.
+    /// </summary>
+    private static double? GetDoubleOrNull(Dictionary<string, object> item, string key)
+    {
+        if (!item.TryGetValue(key, out var value) || value == null)
+        {
+            return null;
+        }
+
+        return value switch
+        {
+            double d => d,
+            float f => f,
+            decimal m => (double)m,
+            int i => i,
+            long l => l,
+            string s => double.TryParse(s, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var r) ? r : null,
+            _ => null
         };
     }
 

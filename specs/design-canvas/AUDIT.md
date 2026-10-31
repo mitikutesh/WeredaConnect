@@ -12,6 +12,8 @@ Audit of the 35 boards in this folder (identical to the live canvas K6DUM33R6apP
 
 Final phrase run: 85 unmatched phrases (78 unique), all resolved below. Welcome, the five Join boards, Create trip, Payment, Buyer order detail and Share consent have none.
 
+6. **Structure, at every width (2026-10-30).** Steps 1 to 5 still let most screens keep their old structure: a phrase matches whatever layout it sits in, and the shots were taken at phone width only. Windows from 600 px (tablet rail, desktop sidebar) ran separate older layouts, the web shell drew a stock bottom bar, and the theme was still the old teal with Noto Sans. This pass compared every board by structure (which sections, in what order, what each card shows, header, switches, labels, sizes) in the running web build at 390 px and 1280 px for the farmer, trucker and buyer, and rebuilt the screens to match. See "Structure pass" at the end.
+
 ## Unmatched phrases
 
 ### Sample data (names, places, crops, quantities, times, amounts)
@@ -83,12 +85,9 @@ The app fills these from the order, trip, delivery, listing or track; the templa
 | QR scanned 08:05 · GPS 0.8 km from the farm · 20 sacks | No sack count is recorded (LT-11 as built). |
 | 10:55 · near Mojo (Offline and pause header) | Trip mode's header shows the trip (day, orders, load, route), not the phone's current town. |
 | 28 min ago · next one due by about 12:45 | The buyer's trip log shows the age of the latest check-in; the next one's time is shown to the trucker in trip mode ("next by"). |
-| Recent: pickup scanned at Koka 09:40 (Trucker home) | The home's Recent Activity list shows the latest events in its own format. |
-| Active · 2 / Delivered · 1 / All (Buyer · Deliveries) | The tab keeps its status chips (they filter on the server); the All list is grouped under the board's stage headings instead. |
+| Recent: pickup scanned at Koka 09:40 (Trucker home) | Home shows one Recent line in the board's shape; its text is the latest event from the app's activity feed. |
 | Overnight, until 06:00 (Offline and pause, at 10:55) | The app offers the overnight pause only from 12:00 Ethiopia time: the longest pause the engine sends ends at 06:00. |
-| 87 km done / 47 km to go / 4 h 05 as three cards (Buyer trip log) | The trip log keeps its one stats card, the same one the delivered summary uses. |
 | Rate Farmer and Rate Trucker side by side (Buyer delivered) | The rating buttons are the shared ratings section the order detail also shows, one under the other. |
-| Teff · 1,500 kg / Chickpea · 800 kg on the waiting and delivered cards (Buyer · Live deliveries) | Only a delivery on the road reads its order for the crop line (one read per truck on the road, kept small for 3G); waiting and delivered ones keep the delivery card (number, parties, status). |
 | Koka, Mojo, Bishoftu in the check-ins table and on the map (Admin trip evidence) | The admin app has no town list, so places show as coordinates and the map labels each point with its time. |
 | Timeline, Photos and Messages tabs (Admin trip evidence) | Only the Trip trail tab is built; the other evidence tabs belong to FRD-14. |
 | Farmer wins · release 29,500 ETB / Buyer wins · refund 30,900 ETB | The buttons do not promise an amount: what moves depends on the disposition the admin picks next (return the goods, delivered anyway, settle now). The frozen card shows the split instead. |
@@ -127,3 +126,70 @@ Login language switch; registration step counter; Create trip as one page (Repea
 - Buyer · Live deliveries (web): from 560 px wide, the live trip's check-ins sit in their own card beside the details under the map, with who sees the truck.
 - Admin trip evidence: the parties as chips under the title, the frozen amount in its own card with the split (crop, trucker, commission), Decide in the trail's right column, each map point labelled with its time and a stop off the stop list ringed.
 - Confirm your phone: the title on the page only.
+
+## Live trip boards after the Fieldway theme (structure pass)
+
+The live trip screens were shot again in the web build (phone width and 1280 px, am and om included) after the theme moved to Manrope and field green, and brought to the boards' structure, not only their colours:
+
+- Buyer · Live trip and Truck arriving: no app bar; the back button and the crop pill float over the map, the sheet (radius 28) opens with the arrival window beside the status pill, the steps colour the current one gold, the escrow line is plain with a lock, the driver card is a chalk tile with the tinted avatar and the white Message and green Call squares, "Trip log and order" is a row with a top border. Arriving: the green Arriving pill, the checklist in a chalk box, Scan driver's QR beside a Call square.
+- Buyer · Delivered: the back button and the blue "Sharing ended at delivery" pill head the page, the drop-off proof sits inside the summary card, the escrow steps carry "then" beside the payout, the ratings sit in a "How did it go?" card.
+- Buyer · Trip log: the back button beside the title, three stat cards (the first filled green), one Check-ins card with a connected timeline ("Bishoftu · latest", "next" and "then" in the time column, "Sent late, no network until 12:22"), one price card with the unit price on the crop row, the help card with Message Dawit and Message Almaz side by side, the privacy line plain.
+- Farmer · Order on the road: the Farmer pill in the header row, the map in a card with the check-in chip and "Arrives" under it, the payment steps as dots with "expected today", the contact card with blue and gold avatars, the order link as a bordered row.
+- Trucker · Trip mode, Offline and pause, Share location: the back button beside the trip title on the dark header, the offline card in the header, the stops as a coloured timeline with the next stop gold and a dashed line beyond, a Call square on the next stop, the pay in birr ("4,500 ETB"); the pause choices with "back at" on the same line.
+
+Entries of the "kept" table that changed with it: the trip log now has the board's three stat cards; the Message buttons sit side by side with first names. Still kept: the Delivered rating buttons one under the other (the shared ratings section), "Who has agreed" as the shared commitment section, no photo on the pickup proof, "Show QR" said as "Open delivery", "Pause for 30 minutes" said as "Pause sharing", the transport row without "20 quintals × 150 ETB" (the order carries the cost, not the trip's unit price).
+
+## Structure pass (2026-10-30)
+
+The web app still did not look like the canvas after PRs #254 to #257 (Trucker Home showed a light centred header, six tiles, "No active trip" and a Recent list where the board has the dark header with the trip card, one Action needed card, three tiles and one Recent line). Causes, and what this pass changed:
+
+- **Wide windows ran other layouts.** From 600 px the tabs drew separate tablet and desktop compositions that no pass had touched. They are gone: every tab body is the phone board's column, centred at 720 px from 600 px wide (`FwContentWidth`). The one web board, Buyer · Live deliveries, keeps its list beside the live trip pane, in the board's proportions (a 340 px list; at 1280 px the pane shows the details and the check-ins side by side).
+- **The web shell and the theme were older.** The web shell drew a stock bottom bar with plum and sky role colours and an end-aligned button, and `AppTheme` was still the teal theme with Noto Sans. `AppTheme` now carries the Fieldway tokens (field green, ink on chalk, whisper borders, money brown, gold), Manrope (static 400 to 800 from the OFL release) with the Ethiopic fallback, and button, input, card, chip, snackbar and dialog themes in the board sizes. Web and phone share one bottom bar (`RoleNavBar`) with the gold or dark create button centred over it; the desktop sidebar follows the Web board.
+- **Screens kept their structure.** Rebuilt to their boards: Home for the farmer and trucker (the buyer on the farmer's pattern), My Crops, Market (Find Crops with Browse and My Requests), Deliveries for all three roles (Active, Delivered and All, stage labels, crop-titled cards), Welcome (now the login board), the five Join boards, the live trip boards (section above), and the detail and create boards: Trip detail, Create trip, Create listing, Crop detail, Place order, Telebirr payment, the buyer's order detail, the farmer's order request and Create intent, each with the square back button, one column at every width and its main action pinned at the foot. Screens without a board (My Trips, Orders, Payments, Profile, Settings, Data usage, Messages, Delete account, Forgot and Reset password, Delivery detail, Create delivery, Show and Scan QR, both Raise Dispute screens, Initiate payment, Match results) use the same header, section labels, switches, white cards and pinned actions; Delivery detail follows the buyer's order detail (four step timeline, role's next step at the foot). The bell sits at the top right of every tab, as on the boards.
+
+Backend: delivery-verification-api 1.21.0 stamps the order's crop and kg, the listing's place and the trip's departure day on each new delivery row, from reads the create already makes, so the deliveries cards read "Teff · 1,500 kg" and "Kebede Alemu, Bichena · pickup Thu 30 Oct" without one order read per row. Rows created before it keep the delivery number as their title.
+
+The trip's day on orders: the server has stamped `pickupDate` (the trip's departure) on every trip order at funding since `order-lifecycle.md` 2.0.0, and the app now reads it, so the buyer's order header, the farmer's pickup row and the trucker's Action needed card name the trip's day as on the boards ("From Almaz Bekele · Thu, Oct 30 trip"). An order funded before 2.0.0, or not yet funded, has none and leaves the day out. A trip order's timeline shows the boards' Live trip step after Accepted.
+
+Button labels: a screen's own `styleFrom(textStyle: ...)` replaces the theme's button text style instead of merging with it, so 41 action buttons drew their label in the platform face without the Ethiopic fallback. Each now names Manrope and the fallback, and `chip_font_fallback_test.dart` fails on any override that does not.
+
+Also from that check: days read as the boards write them ("Thu 30 Oct", a date field "Thu 30 Oct 2026") through `board_day.dart`; crop tiles take the boards' colours per crop (`cropTileColors`: wheat, barley and sesame cream, teff, sorghum and coffee sand, the pulses olive, maize green) and every tile draws the boards' sprout (`FwSprout`, the canvas's own path); phone fields group the digits as they are typed ("0911 234 567"); the trucker home card reads "Next: drop-off in Dukem, about 12:35" from the drop-off's own track (the server answers its trucker too) and "Next: pickup in Meki" from the listing's place, with the party's name only while offline with no stored track; the driver's truck and plate may take two lines in the Web pane. Match results draws each match as the Market listing card; Create trip's From and To run full width under the swap button; the intent's price hint and the OTP's grouped phone ("+251 911 234 567") read as on their boards; and at 1280 px the Web deliveries pane has the board's proportions (a 220 px sidebar with the board's 36 px mark, a 336 px list, two columns of about 320 px with the smaller driver avatar and the short sent-late pill).
+
+Checked after these changes in the running web build (dev API) at 390 and 1280 px for the three roles: every tab, Welcome, Trip detail, Create trip, Crop detail, Create intent, order detail, Delivery detail (pending, self-pickup, trucker), QR show and scan, both dispute screens and Match results; the live trip and Join boards in the same build. Initiate payment cannot be opened on the web (its pay button needs the phone's database), so it was rendered from a widget test with the app's fonts at 390 and 1280 px in en and am.
+
+Closed in the same pass: Trip detail's booking rows name each order's own places ("Almaz Bekele, Meki → Selam Traders, Merkato"), which order create now stamps from the listing and the buyer's profile it already reads (order-lifecycle 2.2.0; an older order shows the trip's route); the suggested transport on Crop detail and Place order ends with the trucker's real rating when they have one; the Place order quantity groups thousands as it is typed; the Web deliveries list has the board's compact cards without stage labels (phone width keeps its labels and cards, as on the phone board); and Find Crops lists first what a trip this week can carry to the buyer's place, then what some open trip leaves from, then the rest, every listing kept, under the board's footnote ("sorted by the best match for Merkato").
+
+The Register personal picker now reads "Meki · Oromia" with a chevron, and Verify on Register OTP is active from the first digit (a short code asks for the rest and sends nothing).
+
+Not differences, for the record: the app has no Transport segment on Market, as the board has none (buyers reach every trucker's trip from Home's Find Trips, `/trips` and the crop detail's suggested transport). Delivery detail has no board; its foot carries no amount because the delivery row has none (the order detail and Payment show it). Payments has no board; it shows no held and released total because the history loads a page at a time, so a total of the loaded rows would be wrong (Home and Profile show the escrow total from every order).
+
+Still different after this pass: none. Home's headers now draw only what the boards draw (the bell and the Synced chip; the greeting, Today and the chip on Trucker home). Messages, with its unread count, and Profile open from the top of the bell's sheet on every tab with the bell, as the phone bar has no tab for them; the desktop sidebar lists them too. On a phone the Synced chip opens what waits to sync. The Find Crops pill reads "Transport Thu · 18 q room" and Crop detail's suggested transport "18 quintals room", the boards' words. The privacy rules of the earlier passes stay as specified (other stops never named, no sack count).
+
+## Board by board on the final build (2026-10-31)
+
+Every board of the canvas (this folder is its archived copy; the live artifact sits in another organization and could not be opened from the session) was set beside the app on the final build of PR #259, at 390 px and, for the web board, 1280 px. "Live" is the web build against the dev API with its real data; "faked" is the same build with the screen's reads answered by sample data (live dev data has no such state); "render" is a widget test with the app's theme and fonts, for a screen the web build cannot open.
+
+| Board | Checked | Result |
+|---|---|---|
+| Welcome | live | matches |
+| Register role, Fayda, role details, personal, OTP | live (fake Fayda portal) | match; the place picker reads "Meki · Oromia" with a chevron, the phone groups as typed, Verify is active from the first digit |
+| Farmer home | live | matches (bell only; the on-the-road card shows when a load is in transit) |
+| Trucker home | live (a real trip put on the road on dev) and faked | matches: dark header, trip card with In Transit and the load, one Action needed card, three tiles, one Recent line, centred Post Trip; the next stop reads "Next: drop-off in Addis Ababa, about 05:25" (faked) and, live, names the drop-off from the order until the trip has a destination point (trip-listing-api 2.1.0, needs the deploy) |
+| My Crops | live | matches (sprout tiles in the crop's colours) |
+| Market | live and faked | matches: listings with a trip this week first, "11 trips this week" and "Transport Mon · 18 q room" pills, the board's footnote |
+| Crop detail | live | matches (suggested transport as radio cards, cost card, Place Order + Transport) |
+| Place order | live | matches ("1,500" grouped, "= 15 quintals", the trucker card when a trip is picked) |
+| Payment (Telebirr) | live (order write answered) | the board's Telebirr screen follows the app's payment method step (CBE or Telebirr, no board) |
+| Create listing | live | matches; the app adds Record Audio Note under the description (no board), and the headless browser has no GPS |
+| Create trip | live | matches (full width From and To under the swap button) |
+| Create intent | live | matches |
+| Trip detail | live | matches; booking rows name each order's places once the order has them (order-lifecycle 2.2.0, needs the deploy) |
+| Buyer order detail, Farmer order request | live | match ("From … · Sun 1 Nov trip", the Live trip step, "Sun 1 Nov · …'s truck") |
+| Buyer deliveries | live (the real trip on the road) | matches: Active · count, ON THE ROAD NOW, "Teff · 100 kg", the ribbon, "Checked in just now" |
+| Buyer live trip, Arriving, Delivered, Trip log, live trip am and om | faked | match; live, the arrival window waits for a trip with a destination point (trip-listing-api 2.1.0) |
+| Farmer journey | faked | matches |
+| Trucker trip mode, Offline and pause | faked | match |
+| Trucker share consent | render | matches; the fourth row gives the app's measured data use ("about 170 KB a day") where the board says "about 3 KB a day" |
+| Buyer · Live deliveries (web) | live and faked, 1280 px | matches: compact cards without stage labels, the map, details and check-ins side by side |
+| Admin trip evidence (web) | unchanged in this PR | checked in #257 |
+| Ethiopian clock, How it works (system) | the live trip boards in am and om, Settings | the clock rules hold; "tap any time to see the other clock" stays not built (see "Not built") |

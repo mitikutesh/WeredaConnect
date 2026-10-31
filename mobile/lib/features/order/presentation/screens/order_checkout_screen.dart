@@ -4,11 +4,12 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 import 'package:url_launcher/link.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
+import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
@@ -18,9 +19,12 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart'
 import 'package:wereda_connect/features/order/presentation/bloc/order_checkout_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/order_checkout_l10n.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/payment_cards.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
 /// The live Telebirr checkout of a `payment_submitted` order (ESC-44).
 ///
@@ -293,173 +297,213 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
     final l10n = AppLocalizations.of(context)!;
     return BlocProvider<OrderCheckoutBloc>.value(
       value: _bloc,
-      child: Scaffold(
-        appBar: AppBar(title: Text(l10n.orderCheckoutTitle)),
-        body: BlocConsumer<OrderCheckoutBloc, OrderCheckoutState>(
-          listener: _onState,
-          builder: (context, state) => SafeArea(
+      child: BlocConsumer<OrderCheckoutBloc, OrderCheckoutState>(
+        listener: _onState,
+        builder: (context, state) => Scaffold(
+          body: SafeArea(
+            bottom: false,
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _AmountCard(
-                    amount: state is CheckoutAwaitingPayment
-                        ? state.amount
-                        : (widget.order.orderTotal ?? widget.order.totalPrice),
-                  ),
-                  const SizedBox(height: 14),
-                  // Telebirr payment board: how the payment asks the buyer
-                  // to confirm it is them, before it asks.
-                  if (state is! CheckoutPaid) ...[
-                    _ConfirmItsYouCard(l10n: l10n),
-                    const SizedBox(height: 24),
-                  ],
-                  ..._body(context, state, l10n),
-                  if (_capReached && state.polls) ...[
-                    const SizedBox(height: 16),
-                    Text(l10n.orderCheckoutStillWaiting),
-                    const SizedBox(height: 8),
-                    OutlinedButton(
-                      onPressed: () => _trigger(refreshNow: true),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(48),
+              child: FwContentWidth(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // The board closes the payment with an X, not Back.
+                    FwDetailHeader(
+                      title: l10n.orderCheckoutTitle,
+                      onBack: () => Navigator.of(context).pop(),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          PaymentAmountCard(
+                            amount: state is CheckoutAwaitingPayment
+                                ? state.amount
+                                : (widget.order.orderTotal ??
+                                    widget.order.totalPrice),
+                            detail: paymentAmountDetail(widget.order, l10n),
+                          ),
+                          const SizedBox(height: 14),
+                          // Telebirr payment board: how the payment asks the
+                          // buyer to confirm it is them, before it asks.
+                          if (state is! CheckoutPaid) ...[
+                            const ConfirmItsYouCard(),
+                            const SizedBox(height: 14),
+                          ],
+                          _statusCard(context, state, l10n),
+                        ],
                       ),
-                      child: Text(l10n.orderCheckoutCheckAgain),
                     ),
                   ],
-                  const SizedBox(height: 12),
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    style: TextButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
-                    ),
-                    child: Text(
-                      state is CheckoutPaid || state is CheckoutStopped
-                          ? l10n.done
-                          : l10n.payLater,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
+          ),
+          bottomNavigationBar: FwBottomActions(
+            children: [
+              if (state is CheckoutAwaitingPayment) ...[
+                _OpenTelebirrButton(
+                  url: state.toPayUrl,
+                  isWeb: _isWeb,
+                  label: l10n.escrowOpenPaymentAgain,
+                  onOpen: () => _openAgain(state.toPayUrl),
+                ),
+                const SizedBox(height: 6),
+              ],
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: TextButton.styleFrom(
+                  minimumSize: const Size.fromHeight(44),
+                  foregroundColor: AppTheme.unselectedNav,
+                ),
+                child: Text(
+                  state is CheckoutPaid || state is CheckoutStopped
+                      ? l10n.done
+                      : l10n.payLater,
+                ),
+              ),
+              if (state is! CheckoutPaid) FwActionNote(l10n.escrowErrorOffline),
+            ],
           ),
         ),
       ),
     );
   }
 
-  List<Widget> _body(
+  /// The step the payment is at, as the board's status card: the line, what
+  /// to know under it, and the card's own actions.
+  Widget _statusCard(
     BuildContext context,
     OrderCheckoutState state,
     AppLocalizations l10n,
   ) {
+    final checkAgain = OutlinedButton(
+      onPressed: () => _trigger(refreshNow: true),
+      style: paymentCardButtonStyle(),
+      child: Text(l10n.orderCheckoutCheckAgain),
+    );
+    final actionStyle = FilledButton.styleFrom(
+      minimumSize: const Size.fromHeight(44),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      textStyle: const TextStyle(
+        fontFamily: AppTheme.fontFamily,
+        fontFamilyFallback: AppTheme.ethiopicFontFallback,
+        fontSize: 14,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+    final stillWaiting = _capReached && state.polls
+        ? Text(l10n.orderCheckoutStillWaiting, style: _noteStyle)
+        : null;
     return switch (state) {
-      CheckoutChecking() => [
-          _Status(text: l10n.orderCheckoutCheckingPayment, busy: true),
-        ],
-      CheckoutOpening() => [
-          _Status(text: l10n.escrowPaymentOpening, busy: true),
-        ],
-      CheckoutWaitingToSend() => [
-          _Status(text: l10n.orderCheckoutWaitingToSend, busy: true),
-          if (state.stepUpPending) ...[
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: () => _confirmItsYou(withFayda: state.stepUpWithFayda),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
+      CheckoutChecking() => PaymentStatusCard(
+          text: l10n.orderCheckoutCheckingPayment,
+          busy: true,
+          children: [if (stillWaiting != null) stillWaiting, checkAgain],
+        ),
+      CheckoutOpening() => PaymentStatusCard(
+          text: l10n.escrowPaymentOpening,
+          busy: true,
+          children: [if (stillWaiting != null) stillWaiting, checkAgain],
+        ),
+      CheckoutWaitingToSend() => PaymentStatusCard(
+          text: l10n.orderCheckoutWaitingToSend,
+          busy: true,
+          children: [
+            if (stillWaiting != null) stillWaiting,
+            if (state.stepUpPending)
+              FilledButton(
+                onPressed: () =>
+                    _confirmItsYou(withFayda: state.stepUpWithFayda),
+                style: actionStyle,
+                child: Text(l10n.stepUpTitle),
               ),
-              child: Text(l10n.stepUpTitle),
-            ),
+            checkAgain,
           ],
-        ],
-      CheckoutAwaitingPayment() => [
-          _Status(text: l10n.escrowAwaitingPayment, busy: true),
-          const SizedBox(height: 12),
-          ClockText(
-            clockFormatOf(context).deadline(
-              state.payableUntil,
-              sentence: l10n.orderCheckoutOpenUntil,
+        ),
+      CheckoutAwaitingPayment() => PaymentStatusCard(
+          text: l10n.escrowAwaitingPayment,
+          busy: true,
+          children: [
+            ClockText(
+              clockFormatOf(context).deadline(
+                state.payableUntil,
+                sentence: l10n.orderCheckoutOpenUntil,
+              ),
+              style: _noteStyle,
             ),
-          ),
-          if (state.offline) ...[
-            const SizedBox(height: 8),
-            Text(
-              l10n.escrowErrorOffline,
-              style: const TextStyle(color: AppTheme.statusError),
-            ),
+            if (state.offline)
+              Text(
+                l10n.escrowErrorOffline,
+                style: const TextStyle(color: AppTheme.statusError),
+              ),
+            if (stillWaiting != null) stillWaiting,
+            checkAgain,
           ],
-          const SizedBox(height: 16),
-          _OpenTelebirrButton(
-            url: state.toPayUrl,
-            isWeb: _isWeb,
-            label: l10n.escrowOpenPaymentAgain,
-            onOpen: () => _openAgain(state.toPayUrl),
-          ),
-        ],
-      CheckoutConfirmingAutomatically() => [
-          _Status(text: l10n.orderCheckoutConfirmedAutomatically, busy: true),
-        ],
-      CheckoutWindowClosed() => [
-          _Status(text: l10n.orderCheckoutWindowClosed),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: _requestOpen,
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-            ),
-            child: Text(l10n.orderCheckoutStartNew),
-          ),
-        ],
-      CheckoutProblem() => [
-          _Status(
-            text: localizeCheckoutIssue(l10n, state.issue),
-            busy: true,
-            error: true,
-          ),
-          if (state.canRetry) ...[
-            const SizedBox(height: 16),
-            OutlinedButton(
+        ),
+      CheckoutConfirmingAutomatically() => PaymentStatusCard(
+          text: l10n.orderCheckoutConfirmedAutomatically,
+          busy: true,
+          children: [if (stillWaiting != null) stillWaiting, checkAgain],
+        ),
+      CheckoutWindowClosed() => PaymentStatusCard(
+          text: l10n.orderCheckoutWindowClosed,
+          children: [
+            FilledButton(
               onPressed: _requestOpen,
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
-              ),
-              child: Text(l10n.retry),
+              style: actionStyle,
+              child: Text(l10n.orderCheckoutStartNew),
             ),
           ],
-        ],
-      CheckoutPaid() => [
-          _Status(text: l10n.escrowPaymentConfirmed, done: true),
-        ],
-      CheckoutStopped() => [
-          _Status(
-            text: localizeCheckoutIssue(l10n, state.issue),
-            error: true,
-          ),
-          if (state.issue == CheckoutIssue.paymentFailed) ...[
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: _payAgain,
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
+        ),
+      CheckoutProblem() => PaymentStatusCard(
+          text: localizeCheckoutIssue(l10n, state.issue),
+          busy: true,
+          error: true,
+          children: [
+            if (stillWaiting != null) stillWaiting,
+            if (state.canRetry)
+              OutlinedButton(
+                onPressed: _requestOpen,
+                style: paymentCardButtonStyle(),
+                child: Text(l10n.retry),
               ),
-              child: Text(l10n.payAgain),
-            ),
           ],
-          if (state.issue == CheckoutIssue.notSent) ...[
-            const SizedBox(height: 16),
-            OutlinedButton(
-              onPressed: () => _trigger(refreshNow: true),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
+        ),
+      CheckoutPaid() => PaymentStatusCard(
+          text: l10n.escrowPaymentConfirmed,
+          done: true,
+        ),
+      CheckoutStopped() => PaymentStatusCard(
+          text: localizeCheckoutIssue(l10n, state.issue),
+          error: true,
+          children: [
+            if (state.issue == CheckoutIssue.paymentFailed)
+              FilledButton(
+                onPressed: _payAgain,
+                style: actionStyle,
+                child: Text(l10n.payAgain),
               ),
-              child: Text(l10n.orderCheckoutCheckAgain),
-            ),
+            if (state.issue == CheckoutIssue.notSent) checkAgain,
           ],
-        ],
+        ),
     };
   }
+
+  static const TextStyle _noteStyle = TextStyle(
+    fontSize: 13,
+    height: 1.4,
+    color: AppTheme.mutedSteel,
+  );
+}
+
+/// The line under the amount: the crop and weight with where the money
+/// sits ("Wheat 1,500 kg · held in escrow until you confirm delivery").
+String paymentAmountDetail(Order order, AppLocalizations l10n) {
+  final crop = CropType.labelFor(order.cropType, l10n);
+  final kg = l10n.quantityKg(wholeNumber(order.quantity));
+  return '$crop $kg · ${l10n.checkoutHeldInEscrowNote.toLowerCase()}';
 }
 
 /// Opens the Telebirr page. Android: a button that launches it. Web: a real
@@ -482,197 +526,31 @@ class _OpenTelebirrButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final style = FilledButton.styleFrom(
-      minimumSize: const Size.fromHeight(48),
+      backgroundColor: AppTheme.soilDark,
+      minimumSize: const Size.fromHeight(56),
+      textStyle: const TextStyle(
+        fontFamily: AppTheme.fontFamily,
+        fontFamilyFallback: AppTheme.ethiopicFontFallback,
+        fontSize: 16,
+        fontWeight: FontWeight.w800,
+      ),
     );
     final uri = Uri.tryParse(url);
     if (isWeb && uri != null) {
       return Link(
         uri: uri,
         target: LinkTarget.blank,
-        builder: (context, followLink) => FilledButton.icon(
+        builder: (context, followLink) => FilledButton(
           onPressed: followLink,
           style: style,
-          icon: const Icon(Icons.open_in_new, size: 18),
-          label: Text(label),
+          child: Text(label),
         ),
       );
     }
-    return FilledButton.icon(
+    return FilledButton(
       onPressed: onOpen,
       style: style,
-      icon: const Icon(Icons.open_in_new, size: 18),
-      label: Text(label),
-    );
-  }
-}
-
-class _AmountCard extends StatelessWidget {
-  final double amount;
-
-  const _AmountCard({required this.amount});
-
-  /// "68,400" as on the Telebirr payment board; cents only when there are.
-  static final _amountFormat = NumberFormat('#,##0.##', 'en_US');
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
-      decoration: BoxDecoration(
-        color: AppTheme.fieldGreen,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            l10n.paymentAmount,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFFCFE3D6),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            l10n.etbCurrency(_amountFormat.format(amount)),
-            style: const TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.5,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            l10n.checkoutHeldInEscrowNote,
-            style: const TextStyle(
-              fontSize: 13,
-              color: Color(0xFFCFE3D6),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The current step, announced to screen readers as it changes.
-class _Status extends StatelessWidget {
-  final String text;
-  final bool busy;
-  final bool error;
-  final bool done;
-
-  const _Status({
-    required this.text,
-    this.busy = false,
-    this.error = false,
-    this.done = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final Widget leading;
-    if (busy) {
-      leading = const SizedBox(
-        height: 20,
-        width: 20,
-        child: CircularProgressIndicator(strokeWidth: 2),
-      );
-    } else if (done) {
-      leading = const Icon(Icons.check_circle, color: AppTheme.statusSuccess);
-    } else {
-      leading = Icon(
-        error ? Icons.error_outline : Icons.info_outline,
-        color: error ? AppTheme.statusError : theme.colorScheme.primary,
-      );
-    }
-    return Semantics(
-      liveRegion: true,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            leading,
-            const SizedBox(width: 16),
-            Expanded(
-              child: Text(text, style: theme.textTheme.bodyMedium),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// "Confirm it's you": payments over 10,000 ETB need Fayda, smaller ones the
-/// password (AUTH_041 / AUTH_040).
-class _ConfirmItsYouCard extends StatelessWidget {
-  final AppLocalizations l10n;
-
-  const _ConfirmItsYouCard({required this.l10n});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      key: const Key('checkout_confirm_its_you'),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppTheme.whisperBorder),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: AppTheme.fieldGreenTint,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(
-              Icons.verified_user_outlined,
-              size: 20,
-              color: AppTheme.fieldGreen,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  l10n.stepUpTitle,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.soilDark,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  l10n.checkoutConfirmItsYouNote,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    height: 1.4,
-                    color: AppTheme.mutedSteel,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+      child: Text(label),
     );
   }
 }

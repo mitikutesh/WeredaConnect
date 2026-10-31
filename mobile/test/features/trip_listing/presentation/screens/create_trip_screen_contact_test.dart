@@ -101,11 +101,17 @@ void main() {
     String to = 'Addis Ababa',
   }) async {
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'From (Origin)'),
+      find.descendant(
+        of: find.byKey(const Key('create_trip_from')),
+        matching: find.byType(TextFormField),
+      ),
       from,
     );
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'To (Destination)'),
+      find.descendant(
+        of: find.byKey(const Key('create_trip_to')),
+        matching: find.byType(TextFormField),
+      ),
       to,
     );
     await tester.tap(find.text('Select departure date'));

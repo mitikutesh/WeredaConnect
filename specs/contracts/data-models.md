@@ -1,6 +1,6 @@
 # Data Models Contract
 
-**Version**: 1.1.0
+**Version**: 1.3.0
 **Last Updated**: 2026-10-26
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
@@ -93,6 +93,7 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `truckerId` | String | Yes | User ID of trucker | Links to User.userId |
 | `fromWoreda` | String | Yes | Origin district | Ethiopian woreda name |
 | `toWoreda` | String | Yes | Destination district | Typically rural → urban route |
+| `destinationLatitude`, `destinationLongitude` | Double? | No | The picked destination's point (trip-listing-api 2.1.0) | The live track's drop-off point |
 | `departureDate` | DateTime | Yes | Scheduled departure (UTC) | Truckers plan 1-3 days ahead |
 | `capacity` | double | Yes | Available capacity (quintals) | Typical truck: 100-200 quintals |
 | `pricePerQuintal` | double | Yes | Transport price (ETB/quintal) | Market rate varies by distance |
@@ -141,6 +142,10 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `tripId` | String | Yes | Associated trip ID | Links to Trip.tripId |
 | `orderId` | String? | No | The order this delivery fulfils | Links to Order.orderId; required on create since delivery-verification-api 1.2.0, exposed on list/detail and stored locally since 1.4.2 (SIM-14); null only for pre-1.2.0 deliveries |
 | `listingId` | String | Yes | Associated crop listing ID | Links to CropListing.listingId |
+| `cropType` | String? | No | The order's crop key, server-stamped on create | Titles the deliveries list card ("Teff · 1,500 kg") without an order read; null on deliveries created before delivery-verification-api 1.21.0 |
+| `quantity` | double? | No | The order's quantity in kg, server-stamped with `cropType` | Same fallback as `cropType` |
+| `pickupPlace` | String? | No | The listing's place name at create time | "Kebede Alemu, Bichena" on the waiting card; null when the listing has none |
+| `pickupPlannedAt` | DateTime? | No | The trip's departure date at create time (UTC) | "pickup Thu 30 Oct" on the waiting card; null on a self-pickup |
 | `qrToken` | String | Yes | QR code verification token | Scanned at pickup/dropoff |
 | `gpsPickup` | LatLng? | No | GPS at pickup location | Null until trucker confirms pickup |
 | `gpsDropoff` | LatLng? | No | GPS at dropoff location | Null until trucker confirms delivery |
@@ -290,6 +295,8 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `buyerPhone`, `farmerPhone`, `truckerPhone` | String? | No | E.164, only to a party of an order whose contact is open (the trucker's only once the trucker accepted, order-lifecycle 2.0.0) | server, at read time |
 | `fulfillment` | String? | No | `trucker` or `self_pickup` (order-lifecycle 2.0.0) | server, at funding |
 | `pickupDate` | String? | No | The trip's departure (trip orders, 2.0.0) | server, at funding |
+| `pickupPlace` | String? | No | The listing's place name (order-lifecycle 2.2.0) | server, at create |
+| `dropoffPlace` | String? | No | The buyer's registered woreda (order-lifecycle 2.2.0) | server, at create |
 | `farmerResponse` | String? | No | `pending`, `accepted`, `declined`, `expired` (2.0.0) | server |
 | `farmerRespondedAt`, `farmerDeadlineAt` | String? | No | The farmer's answer and its deadline (2.0.0) | server |
 | `truckerResponse` | String? | No | `none`, `not_asked`, `pending`, `accepted`, `declined`, `expired`, `cancelled`, `failed_capacity` (2.0.0) | server |
@@ -414,6 +421,8 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.0.1 | 2026-09-25 | Documented the order quantity unit: kilograms on the wire vs quintal stock and capacity (SIM-07) | @Server |
 | 1.0.2 | 2026-09-25 | Delivery gains `orderId` (server DTO, Isar schema, web mirror) so clients can tie a delivery to its order (SIM-14) | @Server |
 | 1.1.0 | 2026-10-26 | Order entity table added (every `OrderDto` field plus the ESC-15 commitment fields: `fulfillment`, `pickupDate`, `farmerResponse`, `truckerResponse`, their deadlines and reminders, `transportFailure`, `declineReason`, `cancelledBy`, `faultParty`); Trip status casing fixed to the wire values (`open`, `matched`, `inTransit`, `delivered`, `cancelled`) and the booking fields `bookedQuintals`, `remainingQuintals`, `bookedOrderIds`, `acceptedOrderIds` added; relationships gain Order (`order-lifecycle.md` 2.0.0, `trip-listing-api.md` 2.0.0) | @Server |
+| 1.2.0 | 2026-10-31 | Order gains the server-only `pickupPlace` and `dropoffPlace`, stamped at create (order-lifecycle 2.2.0); Isar schema and web mirror | @Server |
+| 1.3.0 | 2026-10-31 | Trip gains `destinationLatitude` and `destinationLongitude` (trip-listing-api 2.1.0), sent on create from the picked place | @Server |
 
 ---
 

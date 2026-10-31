@@ -1341,6 +1341,46 @@ public partial class SyncFunctionTests
         Assert.Contains("fromWoreda and toWoreda must be different", response.Body);
     }
 
+    // trip-listing-api 2.1.0: the destination point, the live track's drop-off (TripTrack.PlannedDropoff),
+    // is stored as numbers when the trucker picked a place with coordinates.
+    [Fact]
+    public async Task TripCreate_DestinationPoint_IsStoredAsNumbers()
+    {
+        var op = MakeTripCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "destinationLatitude", 9.0054 },
+            { "destinationLongitude", 38.7636 }
+        });
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
+            r.Item.ContainsKey("destinationLatitude") && r.Item["destinationLatitude"].N == "9.0054"
+            && r.Item.ContainsKey("destinationLongitude") && r.Item["destinationLongitude"].N == "38.7636"));
+    }
+
+    [Theory]
+    [InlineData(9.0, null, "must be sent together")]
+    [InlineData(51.5, 38.7, "destinationLatitude must be a number between 3 and 15")]
+    [InlineData(9.0, -0.1, "destinationLongitude must be a number between 32.5 and 48.5")]
+    public async Task TripCreate_BadDestinationPoint_IsRefused(double lat, double? lng, string expected)
+    {
+        var overrides = new Dictionary<string, object> { { "destinationLatitude", lat } };
+        if (lng is { } longitude)
+        {
+            overrides["destinationLongitude"] = longitude;
+        }
+
+        var op = MakeTripCreateOp(dataOverrides: overrides);
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("TRIP_VALIDATION", response.Body);
+        Assert.Contains(expected, response.Body);
+        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+    }
+
     [Fact]
     public async Task TripCreate_ForcesStatusOpen()
     {
@@ -2986,6 +3026,87 @@ public partial class SyncFunctionTests
     }
 
     [Fact]
+    public async Task DeliveryCreate_StampsCargoFromOrderListingAndTrip()
+    {
+        // delivery-verification-api 1.21.0: the list cards title each delivery by crop and
+        // quantity and name the pickup place and day off the row itself, so the create copies
+        // them from the order, the listing and the trip it already reads.
+        SetupTruckOrder();
+        _mockOrderRepo.GetByIdAsync(TestOrderId).Returns(new Dictionary<string, object>
+        {
+            { "orderId", TestOrderId }, { "buyerId", TestBuyerId }, { "farmerId", TestFarmerId },
+            { "listingId", TestListingId }, { "tripId", TestTripId }, { "truckerId", TestTruckerId },
+            { "cropType", "wheat" }, { "quantity", "2000" },
+            { "status", "accepted" }, { "version", "1" }
+        });
+        _mockCropRepo.GetByIdAsync(TestListingId).Returns(new Dictionary<string, object>
+        {
+            { "cropId", TestListingId }, { "farmerId", TestFarmerId },
+            { "locationName", "Meki" }, { "status", "available" }, { "version", "1" }
+        });
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r =>
+                r.TableName == "test-trips-table" && r.ExpressionAttributeValues[":id"].S == TestTripId))
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    new()
+                    {
+                        { "tripId", new AttributeValue { S = TestTripId } },
+                        { "truckerId", new AttributeValue { S = TestTruckerId } },
+                        { "departureDate", new AttributeValue { S = "2026-10-30T06:00:00Z" } },
+                        { "status", new AttributeValue { S = "open" } }
+                    }
+                }
+            });
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await ReceivedDeliveryWrite(item =>
+            item["cropType"].S == "wheat"
+            && item["quantity"].N == "2000"
+            && item["pickupPlace"].S == "Meki"
+            && item["pickupPlannedAt"].S == "2026-10-30T06:00:00Z");
+        // The creator's echo carries the same fields.
+        Assert.Contains("\"cropType\":\"wheat\"", response.Body);
+        Assert.Contains("\"pickupPlace\":\"Meki\"", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_OrderWithoutCargo_WritesNoCargoFields()
+    {
+        // An order row without crop or quantity (older data) leaves the fields off the row
+        // instead of writing empty values; the clients fall back to the delivery number.
+        SetupTruckOrder();
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await ReceivedDeliveryWrite(item =>
+            !item.ContainsKey("cropType") && !item.ContainsKey("quantity")
+            && !item.ContainsKey("pickupPlace") && !item.ContainsKey("pickupPlannedAt"));
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_ClientCargoFields_AreRefused()
+    {
+        // The cargo fields are the server's: a client that sends them hits the whitelist.
+        SetupTruckOrder();
+        var op = MakeDeliveryCreateOp();
+        op.Data!["cropType"] = "teff";
+        op.Data["quantity"] = 5;
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
+
+        Assert.Contains("Unknown fields", response.Body);
+        await DidNotWriteDelivery();
+    }
+
+    [Fact]
     public async Task DeliveryCreate_FarmerIdMismatchListingOwner_ReturnsError()
     {
         // Listing owner is TestFarmerId (from default mock), but delivery says different farmer
@@ -3126,15 +3247,22 @@ public partial class SyncFunctionTests
         string cropType = "teff",
         double quantityQuintals = 10,
         double pricePerKg = 45.5,
-        string status = "available")
+        string status = "available",
+        string? locationName = null)
     {
-        _mockCropRepo.GetByIdAsync(listingId).Returns(new Dictionary<string, object>
+        var listing = new Dictionary<string, object>
         {
             { "cropId", listingId }, { "listingId", listingId }, { "farmerId", farmerId },
             { "farmerName", "Abebe Kebede" }, { "cropType", cropType },
             { "quantity", quantityQuintals }, { "pricePerKg", pricePerKg },
             { "status", status }, { "version", "1" }
-        });
+        };
+        if (locationName != null)
+        {
+            listing["locationName"] = locationName;
+        }
+
+        _mockCropRepo.GetByIdAsync(listingId).Returns(listing);
     }
 
     private Dictionary<string, object>? _createdOrder;
@@ -3334,6 +3462,68 @@ public partial class SyncFunctionTests
         Assert.Equal(0.0, (double)_createdOrder!["transportCost"]);
         Assert.Equal(2275.0 + 2275.0 * (double)_createdOrder["commissionRate"],
             (double)_createdOrder["orderTotal"], 6);
+    }
+
+    [Fact]
+    public async Task OrderCreate_Places_AreStampedFromListingAndBuyerProfile_NotClient()
+    {
+        // order-lifecycle 2.2.0: the trip bookings row reads "farmer, farm place → buyer,
+        // drop-off place", so the create stamps the listing's locationName and the buyer's
+        // registered woreda from the reads it already makes; a client's values are dropped.
+        SetupListing(locationName: "Meki");
+        SetupOrderCreateSucceeds();
+        _mockUserRepo.GetUserByIdAsync("buyer-001").Returns(new UserDto
+        {
+            UserId = "buyer-001",
+            PhoneNumber = "+251933333333",
+            DisplayName = "Selam Traders",
+            Role = "buyer",
+            Woreda = "Merkato",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-16T10:00:00Z",
+            UpdatedAt = "2026-02-16T10:00:00Z",
+            Version = 1
+        });
+
+        var op = MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "pickupPlace", "Spoofed Farm" }, { "dropoffPlace", "Spoofed Warehouse" }
+        });
+
+        var body = await CreateOrderAsBuyer(op);
+
+        Assert.Contains("success", body);
+        Assert.NotNull(_createdOrder);
+        Assert.Equal("Meki", _createdOrder!["pickupPlace"]);
+        Assert.Equal("Merkato", _createdOrder["dropoffPlace"]);
+    }
+
+    [Fact]
+    public async Task OrderCreate_Places_MissingSourcesLeaveTheFieldsOff()
+    {
+        // A listing without a place name and a profile without a woreda stamp nothing, so a
+        // client reading the row falls back to the trip's route.
+        SetupListing();
+        SetupOrderCreateSucceeds();
+        _mockUserRepo.GetUserByIdAsync("buyer-001").Returns(new UserDto
+        {
+            UserId = "buyer-001",
+            PhoneNumber = "+251933333333",
+            DisplayName = "Selam Traders",
+            Role = "buyer",
+            Woreda = " ",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-16T10:00:00Z",
+            UpdatedAt = "2026-02-16T10:00:00Z",
+            Version = 1
+        });
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp());
+
+        Assert.Contains("success", body);
+        Assert.NotNull(_createdOrder);
+        Assert.False(_createdOrder!.ContainsKey("pickupPlace"));
+        Assert.False(_createdOrder.ContainsKey("dropoffPlace"));
     }
 
     [Fact]

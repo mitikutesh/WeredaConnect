@@ -71,6 +71,36 @@ void main() {
     await settleReads(tester);
   }
 
+  // Web board: beside the details the check-ins are one line each, newest
+  // first, the late one tagged with the short pill and a pause's range
+  // kept whole.
+  testWidgets('the compact list: short sent-late pill, unwrapped range',
+      (tester) async {
+    tester.view.physicalSize = const Size(330, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      liveTripApp(
+        deps: deps,
+        tracks: FakeTrackRepository(),
+        home: Scaffold(
+          body: TripCheckInList(
+            track: logTrack(),
+            places: corridorPlaces,
+            compact: true,
+          ),
+        ),
+      ),
+    );
+    await settleReads(tester);
+
+    expect(find.text('Sent late, no network'), findsOneWidget);
+    expect(find.textContaining('no network until'), findsNothing);
+    final range = find.textContaining('-');
+    expect(range, findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('check-ins with times, towns and tags', (tester) async {
     await pumpLog(tester);
     expect(find.text('08:05'), findsOneWidget);
@@ -81,9 +111,10 @@ void main() {
     );
     expect(find.text('Hourly check-in'), findsNWidgets(2));
     expect(find.text('11:42'), findsOneWidget);
-    expect(find.text('Mojo'), findsOneWidget);
-    expect(find.text('latest'), findsOneWidget);
-    expect(find.text('Sent late, no network'), findsOneWidget);
+    // The latest check-in carries its tag in the title (the board).
+    expect(find.text('Mojo · latest'), findsOneWidget);
+    // The late check-in says until when the phone had no network.
+    expect(find.text('Sent late, no network until 12:22'), findsOneWidget);
     expect(find.text('10:30-11:00'), findsOneWidget);
     expect(find.text('Sharing paused'), findsOneWidget);
   });
@@ -107,9 +138,9 @@ void main() {
 
   testWidgets('ahead, proof, prices, help and privacy', (tester) async {
     await pumpLog(tester);
-    expect(find.text('13:20-14:00'), findsOneWidget);
+    expect(find.textContaining('13:20-14:00'), findsOneWidget);
     expect(
-      find.text("Your drop-off: you scan the driver's QR here"),
+      find.textContaining("Your drop-off: you scan the driver's QR here"),
       findsOneWidget,
     );
     expect(find.text('QR scanned 08:05 · GPS recorded'), findsOneWidget);
@@ -128,8 +159,10 @@ void main() {
       find.textContaining('A picked-up order can no longer be cancelled.'),
       findsOneWidget,
     );
-    expect(find.text('Message Dawit Tesfaye'), findsOneWidget);
-    expect(find.text('Message Almaz Bekele'), findsOneWidget);
+    // The two buttons sit side by side, each with the first name (the
+    // board).
+    expect(find.text('Message Dawit'), findsOneWidget);
+    expect(find.text('Message Almaz'), findsOneWidget);
     expect(
       find.textContaining('Only you and Almaz Bekele see where this truck is'),
       findsOneWidget,
@@ -140,6 +173,6 @@ void main() {
     await pumpLog(tester, locale: const Locale('om'));
     expect(find.text('2:05 ganama'), findsOneWidget);
     expect(find.text('5:42 ganama'), findsOneWidget);
-    expect(find.text('7:20-8:00 waaree booda'), findsOneWidget);
+    expect(find.textContaining('7:20-8:00 waaree booda'), findsOneWidget);
   });
 }

@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';
@@ -14,8 +14,13 @@ import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_
 import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error_l10n.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
-/// Screen for raising a dispute on an escrowed payment.
+/// Screen for raising a dispute on an escrowed payment (a sibling of the
+/// create boards: the payment named in the header, the time left in a
+/// note, the reasons in a card under their section label, Submit pinned
+/// at the foot).
 ///
 /// Features:
 /// - 48-hour countdown timer
@@ -77,8 +82,6 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
   Timer? _countdownTimer;
   Duration _remaining = Duration.zero;
 
-  static final _formatter = NumberFormat('#,##0.00', 'en_US');
-
   static const _reasonKeys = [
     'damaged_goods',
     'wrong_quantity',
@@ -135,8 +138,10 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
+    final shortId = widget.deliveryId.length > 8
+        ? widget.deliveryId.substring(0, 8)
+        : widget.deliveryId;
 
     return BlocListener<EscrowBloc, EscrowState>(
       listener: (context, state) {
@@ -170,143 +175,151 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(title: Text(l10n.escrowRaiseDispute)),
         body: SafeArea(
+          bottom: false,
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Payment reference
-                Text(
-                  l10n.escrowPaymentAmount(_formatter.format(widget.amount)),
-                  style: theme.textTheme.titleMedium,
-                ),
-                Text(
-                  l10n.escrowDeliveryNumber(
-                    widget.deliveryId.length > 8
-                        ? widget.deliveryId.substring(0, 8)
-                        : widget.deliveryId,
+            child: FwContentWidth(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Payment reference
+                  FwDetailHeader(
+                    title: l10n.escrowRaiseDispute,
+                    subtitle:
+                        '${l10n.etbCurrency(formatEtbAmount(widget.amount))} · '
+                        '${l10n.escrowDeliveryNumber(shortId)}',
                   ),
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // Countdown or expired banner
-                if (widget.disputeWindowEndsAt != null) ...[
-                  if (_isExpired)
-                    _ExpiredBanner()
-                  else
-                    _CountdownBanner(remaining: _remaining),
-                  const SizedBox(height: 24),
-                ],
-
-                // Reason selection
-                Text(
-                  l10n.escrowDisputeReasonLabel,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                IgnorePointer(
-                  ignoring: _isExpired,
-                  child: RadioGroup<String>(
-                    groupValue: _selectedReason ?? '',
-                    onChanged: (value) =>
-                        setState(() => _selectedReason = value),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        for (final key in _reasonKeys)
-                          RadioListTile<String>(
-                            value: key,
-                            title: Text(_reasonLabel(key, l10n)),
-                            contentPadding: EdgeInsets.zero,
-                            dense: true,
-                            visualDensity: const VisualDensity(vertical: -2),
+                        // Countdown or expired note
+                        if (widget.disputeWindowEndsAt != null) ...[
+                          if (_isExpired)
+                            FwNoteBox(
+                              icon: Icons.cancel,
+                              background: AppTheme.statusErrorContainer,
+                              foreground: AppTheme.onStatusErrorContainer,
+                              child: Text(l10n.escrowDisputeWindowExpired),
+                            )
+                          else
+                            FwNoteBox.cream(
+                              icon: Icons.timer,
+                              child: Text(
+                                l10n.escrowDisputeTimeRemaining(
+                                  _remaining.inHours,
+                                  _remaining.inMinutes.remainder(60),
+                                ),
+                              ),
+                            ),
+                          const SizedBox(height: 20),
+                        ],
+
+                        // Reason selection
+                        FwSectionLabel(
+                          l10n.escrowDisputeReasonLabel,
+                          padding: const EdgeInsets.only(bottom: 8),
+                        ),
+                        IgnorePointer(
+                          ignoring: _isExpired,
+                          child: FwCard(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 6,
+                            ),
+                            child: RadioGroup<String>(
+                              groupValue: _selectedReason ?? '',
+                              onChanged: (value) =>
+                                  setState(() => _selectedReason = value),
+                              child: Column(
+                                children: [
+                                  for (final key in _reasonKeys)
+                                    RadioListTile<String>(
+                                      value: key,
+                                      title: Text(
+                                        _reasonLabel(key, l10n),
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppTheme.soilDark,
+                                        ),
+                                      ),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                      ),
+                                      dense: true,
+                                      visualDensity:
+                                          const VisualDensity(vertical: -2),
+                                    ),
+                                ],
+                              ),
+                            ),
                           ),
+                        ),
+                        const SizedBox(height: 20),
+
+                        // Description (optional)
+                        FwSectionLabel(
+                          l10n.escrowDisputeDescriptionLabel,
+                          padding: const EdgeInsets.only(bottom: 8),
+                        ),
+                        TextFormField(
+                          controller: _descriptionController,
+                          enabled: !_isExpired,
+                          maxLines: 4,
+                          maxLength: 1000,
+                          decoration: InputDecoration(
+                            hintText: l10n.escrowDisputeDescriptionHint,
+                          ),
+                        ),
                       ],
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
-
-                // Description (optional)
-                Text(
-                  l10n.escrowDisputeDescriptionLabel,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _descriptionController,
-                  enabled: !_isExpired,
-                  maxLines: 4,
-                  maxLength: 1000,
-                  decoration: InputDecoration(
-                    hintText: l10n.escrowDisputeDescriptionHint,
-                    border: const OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // Submit button
-                BlocBuilder<EscrowBloc, EscrowState>(
-                  builder: (context, state) {
-                    final isLoading = state is EscrowLoading;
-                    return FilledButton.icon(
-                      onPressed: _canSubmit && !isLoading
-                          ? () => _showConfirmation(context)
-                          : null,
-                      icon: isLoading
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Colors.white,
-                                ),
-                              ),
-                            )
-                          : const Icon(Icons.warning_amber),
-                      label: Text(l10n.escrowDisputeSubmit),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppTheme.onStatusWarningContainer,
-                        minimumSize: const Size.fromHeight(56),
-                        textStyle: const TextStyle(fontSize: 18),
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Info footer
-                Row(
-                  children: [
-                    Icon(
-                      Icons.info_outline,
-                      size: 14,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        l10n.escrowDisputeReviewInfo,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.5),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                ],
+              ),
             ),
           ),
+        ),
+        // Submit, pinned at the foot
+        bottomNavigationBar: BlocBuilder<EscrowBloc, EscrowState>(
+          builder: (context, state) {
+            final isLoading = state is EscrowLoading;
+            return FwBottomActions(
+              children: [
+                FilledButton.icon(
+                  onPressed: _canSubmit && !isLoading
+                      ? () => _showConfirmation(context)
+                      : null,
+                  icon: isLoading
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        )
+                      : const Icon(Icons.warning_amber),
+                  label: Text(l10n.escrowDisputeSubmit),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.onStatusWarningContainer,
+                    minimumSize: const Size.fromHeight(56),
+                    textStyle: const TextStyle(
+                      fontFamily: AppTheme.fontFamily,
+                      fontFamilyFallback: AppTheme.ethiopicFontFallback,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                FwActionNote(l10n.escrowDisputeReviewInfo),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -351,70 +364,6 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
           ],
         );
       },
-    );
-  }
-}
-
-class _ExpiredBanner extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppTheme.statusError.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.statusError.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.cancel, color: AppTheme.statusError),
-          const SizedBox(width: 12),
-          Text(
-            l10n.escrowDisputeWindowExpired,
-            style: const TextStyle(
-              color: AppTheme.onStatusErrorContainer,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CountdownBanner extends StatelessWidget {
-  final Duration remaining;
-
-  const _CountdownBanner({required this.remaining});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppTheme.statusWarning.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-        border:
-            Border.all(color: AppTheme.statusWarning.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.timer, color: AppTheme.statusWarning),
-          const SizedBox(width: 12),
-          Text(
-            l10n.escrowDisputeTimeRemaining(
-              remaining.inHours,
-              remaining.inMinutes.remainder(60),
-            ),
-            style: const TextStyle(
-              color: AppTheme.onStatusWarningContainer,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

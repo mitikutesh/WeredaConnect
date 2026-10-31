@@ -28,11 +28,19 @@ class LabeledField extends StatelessWidget {
     required this.label,
     required this.field,
     this.labelHeight,
+    this.mergeSemantics = true,
     super.key,
   });
 
   final String label;
   final Widget field;
+
+  /// False for a field with a suggestion list (a place search): on some
+  /// Flutter versions the list's overlay counts as the field's semantic
+  /// child, and a merge would fold every suggestion into the field's node,
+  /// so a screen reader could not pick one. The label is then read on its
+  /// own, just before the field.
+  final bool mergeSemantics;
 
   /// The height the label takes, so two fields side by side line up when
   /// only one label wraps; null lets the label size itself.
@@ -44,32 +52,43 @@ class LabeledField extends StatelessWidget {
     color: AppTheme.unselectedNav,
   );
 
-  LabeledField withLabelHeight(double height) =>
-      LabeledField(label: label, field: field, labelHeight: height);
+  /// The small muted line the boards put under a field ("Buyers can book
+  /// until 24 h before you leave.").
+  static const helperStyle = TextStyle(
+    fontSize: 12,
+    fontWeight: FontWeight.w500,
+    color: AppTheme.mutedSteel,
+  );
+
+  LabeledField withLabelHeight(double height) => LabeledField(
+        label: label,
+        field: field,
+        labelHeight: height,
+        mergeSemantics: mergeSemantics,
+      );
 
   @override
   Widget build(BuildContext context) {
     final text = Text(label, style: labelStyle);
-    return MergeSemantics(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (labelHeight == null)
-            text
-          else
-            SizedBox(
-              height: labelHeight,
-              child: Align(
-                alignment: AlignmentDirectional.bottomStart,
-                child: text,
-              ),
+    final column = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (labelHeight == null)
+          text
+        else
+          SizedBox(
+            height: labelHeight,
+            child: Align(
+              alignment: AlignmentDirectional.bottomStart,
+              child: text,
             ),
-          const SizedBox(height: 6),
-          field,
-        ],
-      ),
+          ),
+        const SizedBox(height: 6),
+        field,
+      ],
     );
+    return mergeSemantics ? MergeSemantics(child: column) : column;
   }
 }
 
@@ -98,8 +117,12 @@ class LabeledFieldPair extends StatelessWidget {
         }
         const gap = 10.0;
         final columnWidth = (constraints.maxWidth - gap) / 2;
+        // Measure with the page's font (Manrope), not the painter's default,
+        // or a label that wraps on the page measures as one line here.
+        final labelStyle =
+            DefaultTextStyle.of(context).style.merge(LabeledField.labelStyle);
         double heightOf(String label) => (TextPainter(
-              text: TextSpan(text: label, style: LabeledField.labelStyle),
+              text: TextSpan(text: label, style: labelStyle),
               textDirection: Directionality.of(context),
               textScaler: MediaQuery.textScalerOf(context),
             )..layout(maxWidth: columnWidth))
@@ -115,6 +138,77 @@ class LabeledFieldPair extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+/// A date picked from a sheet, drawn like the boards' fields: the chosen day
+/// (or the placeholder, muted) and a calendar glyph at the end, 48 tall.
+class DateFieldButton extends StatelessWidget {
+  const DateFieldButton({
+    required this.text,
+    required this.onTap,
+    this.placeholder = false,
+    this.onClear,
+    super.key,
+  });
+
+  final String text;
+  final VoidCallback onTap;
+
+  /// Whether [text] is the prompt rather than a picked day.
+  final bool placeholder;
+
+  /// Shown as a small clear glyph before the calendar when set.
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      child: Material(
+        color: AppTheme.surfaceWhite,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: AppTheme.whisperBorder),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 48),
+            padding: const EdgeInsetsDirectional.only(start: 14, end: 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    text,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color:
+                          placeholder ? AppTheme.mutedSteel : AppTheme.soilDark,
+                    ),
+                  ),
+                ),
+                if (onClear != null)
+                  IconButton(
+                    onPressed: onClear,
+                    tooltip:
+                        MaterialLocalizations.of(context).deleteButtonTooltip,
+                    icon: const Icon(Icons.close, size: 18),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                const Icon(
+                  Icons.calendar_today_outlined,
+                  size: 18,
+                  color: AppTheme.mutedSteel,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

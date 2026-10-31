@@ -262,6 +262,7 @@ void main() {
       'fulfillment': 'trucker',
       'farmerResponse': 'accepted',
       'truckerResponse': 'pending',
+      'pickupDate': '2026-10-30T03:00:00Z',
       'farmerDeadlineAt': '2026-10-28T08:00:00.0000000Z',
       'truckerDeadlineAt': '2026-10-29T08:00:00Z',
       'buyerChoiceDeadlineAt': null,
@@ -272,6 +273,7 @@ void main() {
     expect(order.fulfillment, 'trucker');
     expect(order.farmerResponse, 'accepted');
     expect(order.truckerResponse, 'pending');
+    expect(order.pickupDate, DateTime.utc(2026, 10, 30, 3));
     expect(order.farmerDeadlineAt, DateTime.utc(2026, 10, 28, 8));
     expect(order.farmerDeadlineAt!.isUtc, isTrue);
     expect(order.truckerDeadlineAt, DateTime.utc(2026, 10, 29, 8));

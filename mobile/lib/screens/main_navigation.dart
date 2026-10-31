@@ -23,6 +23,7 @@ import 'package:wereda_connect/screens/market_screen.dart';
 import 'package:wereda_connect/screens/orders_tab_screen.dart';
 import 'package:wereda_connect/screens/payments_tab_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/navigation/role_nav_bar.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
@@ -202,32 +203,9 @@ class _MainNavigationState extends State<MainNavigation> {
             body: screens[_currentIndex],
             // The role's one create verb, labeled — an icon-only "+"
             // assumes app-convention literacy; a verb assumes nothing.
-            floatingActionButton: FloatingActionButton.extended(
+            floatingActionButton: RoleCreateButton(
+              role: role,
               onPressed: () => _onFabPressed(context, role),
-              backgroundColor: role == UserRole.trucker
-                  ? const Color(0xFFD9922B)
-                  : const Color(0xFF15201A),
-              foregroundColor: role == UserRole.trucker
-                  ? const Color(0xFF15201A)
-                  : Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              elevation: 4,
-              icon: const Icon(Icons.add, size: 20),
-              label: Text(
-                switch (role) {
-                  UserRole.farmer => l10n.sellCrops,
-                  UserRole.trucker => l10n.postTrip,
-                  UserRole.buyer => l10n.newBuyingIntent,
-                },
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: role == UserRole.trucker
-                      ? FontWeight.w800
-                      : FontWeight.w700,
-                ),
-              ),
             ),
             // Floats above the bar: docked, the label is far wider than a
             // notch gap and covered the second and third tabs (LT-01).
@@ -235,114 +213,15 @@ class _MainNavigationState extends State<MainNavigation> {
             // never hides their last item.
             floatingActionButtonLocation:
                 FloatingActionButtonLocation.centerFloat,
-            bottomNavigationBar: BottomAppBar(
-              elevation: 0,
-              color: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-              child: Row(
-                children: [
-                  for (var i = 0; i < tabs.length; i++)
-                    Expanded(
-                      child: _NavItem(
-                        icon: tabs[i].icon,
-                        activeIcon: tabs[i].activeIcon,
-                        label: tabs[i].label(l10n),
-                        index: i,
-                        currentIndex: _currentIndex,
-                        role: role,
-                        onTap: () => setState(() => _currentIndex = i),
-                      ),
-                    ),
-                ],
-              ),
+            bottomNavigationBar: RoleNavBar(
+              role: role,
+              tabs: tabs,
+              currentIndex: _currentIndex,
+              onSelected: (i) => setState(() => _currentIndex = i),
             ),
           ),
         );
       },
-    );
-  }
-}
-
-class _NavItem extends StatelessWidget {
-  final IconData icon;
-  final IconData activeIcon;
-  final String label;
-  final int index;
-  final int currentIndex;
-  final UserRole role;
-  final VoidCallback onTap;
-
-  const _NavItem({
-    required this.icon,
-    required this.activeIcon,
-    required this.label,
-    required this.index,
-    required this.currentIndex,
-    required this.role,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isActive = index == currentIndex;
-    final activePillColor = role == UserRole.trucker
-        ? const Color(0xFFFAEED8)
-        : const Color(0xFFE3EEE6);
-    final activeFgColor = role == UserRole.trucker
-        ? const Color(0xFF8A5410)
-        : AppTheme.fieldGreen;
-    const inactiveFgColor = Color(0xFF5E6862);
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            isActive
-                ? Container(
-                    width: 56,
-                    height: 30,
-                    decoration: BoxDecoration(
-                      color: activePillColor,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Icon(
-                      activeIcon,
-                      color: activeFgColor,
-                      size: 20,
-                    ),
-                  )
-                : SizedBox(
-                    height: 30,
-                    child: Center(
-                      child: Icon(
-                        icon,
-                        color: inactiveFgColor,
-                        size: 20,
-                      ),
-                    ),
-                  ),
-            const SizedBox(height: 2),
-            // Each tab gets a quarter of the bar; a long am/om label shrinks
-            // a little rather than lose its end to an ellipsis.
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                label,
-                maxLines: 1,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
-                  color: isActive ? activeFgColor : inactiveFgColor,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

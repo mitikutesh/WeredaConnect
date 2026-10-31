@@ -5,6 +5,7 @@ import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/place.dart';
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/live_trip/domain/live_trip_rules.dart';
@@ -19,11 +20,13 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/contact_actions_sheet.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
 /// Why the shown map may not be current, as a note over it: offline (with
-/// the saved map's time), the server could not read it, or the trip is not
-/// known. Nothing when the last read brought a new answer.
+/// the saved map's time, the boards' dark status box), the server could not
+/// read it, or the trip is not known. Nothing when the last read brought a
+/// new answer.
 List<Widget> trackReadNotice(BuildContext context, TrackView view) {
   final l10n = AppLocalizations.of(context)!;
   final clock = clockFormatOf(context);
@@ -42,16 +45,122 @@ List<Widget> trackReadNotice(BuildContext context, TrackView view) {
     null => null,
   };
   if (text == null) return const [];
+  final offline = view.failure == TrackFailure.offline;
   return [
     LiveTripNote(
-      icon: view.failure == TrackFailure.offline
-          ? Icons.cloud_off
-          : Icons.info_outline,
+      icon: offline ? Icons.cloud_off : Icons.info_outline,
       text: text,
       kind: StatusKind.warning,
+      background: offline ? AppTheme.soilDark : null,
+      foreground: offline ? Colors.white : null,
     ),
     const SizedBox(height: 12),
   ];
+}
+
+/// The boards' back button: a white square with an arrow, over a map or at
+/// the start of a header row. Pops the route.
+class LiveTripBackButton extends StatelessWidget {
+  const LiveTripBackButton({
+    this.background = AppTheme.surfaceWhite,
+    this.foreground = AppTheme.soilDark,
+    this.border,
+    super.key,
+  });
+
+  final Color background;
+  final Color foreground;
+
+  /// The edge; the whisper border by default, none on a dark header.
+  final Color? border;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return LiveTripSquareAction(
+      key: const Key('live_trip_back'),
+      icon: Icons.arrow_back_ios_new,
+      semanticLabel: l10n.back,
+      background: background,
+      foreground: foreground,
+      border: border ?? AppTheme.whisperBorder,
+      onTap: () => Navigator.of(context).maybePop(),
+    );
+  }
+}
+
+/// A small status pill with a dot or an icon before the label (the
+/// Foundations board's freshness chips, the Arriving and Farmer pills):
+/// 28 tall, radius 8, bold 12.
+class DotPill extends StatelessWidget {
+  const DotPill({
+    required this.label,
+    this.background = AppTheme.chalkBackground,
+    this.foreground = AppTheme.soilDark,
+    this.dotColor,
+    this.icon,
+    this.border,
+    this.height = 28,
+    this.radius = 8,
+    this.fontSize = 12,
+    super.key,
+  });
+
+  final String label;
+  final Color background;
+  final Color foreground;
+
+  /// An 8 px dot before the label; nothing when null and [icon] is null.
+  final Color? dotColor;
+  final IconData? icon;
+  final Color? border;
+  final double height;
+  final double radius;
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: height,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(radius),
+        border: border == null ? null : Border.all(color: border!),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: foreground),
+            const SizedBox(width: 6),
+          ] else if (dotColor != null) ...[
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: dotColor,
+              ),
+            ),
+            const SizedBox(width: 7),
+          ],
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.w700,
+                color: foreground,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// The last check-in in one line and how current it is (the freshness chip
@@ -79,23 +188,18 @@ class CheckInChip extends StatelessWidget {
     if (band == null) return const SizedBox.shrink();
     final l10n = AppLocalizations.of(context)!;
     final text = checkInChipText(context, track, now, places, band);
+    // The Foundations board's freshness colours: fresh on a green tint, the
+    // hourly rhythm white, late on cream, paused and scans only on grey,
+    // ended on the drop-off blue tint.
     final (background, foreground) = switch (band) {
-      TrackFreshness.late => (
-          AppTheme.statusWarningContainer,
-          AppTheme.onStatusWarningContainer
-        ),
+      TrackFreshness.late => (AppTheme.actionCream, AppTheme.actionInk),
       TrackFreshness.paused || TrackFreshness.scansOnly => (
-          AppTheme.statusNeutralContainer,
-          AppTheme.onStatusNeutralContainer
+          AppTheme.segmentTrack,
+          AppTheme.unselectedNav
         ),
-      TrackFreshness.ended => (
-          AppTheme.statusSuccessContainer,
-          AppTheme.onStatusSuccessContainer
-        ),
-      TrackFreshness.fresh || TrackFreshness.normal => (
-          AppTheme.surfaceWhite,
-          AppTheme.textDark
-        ),
+      TrackFreshness.ended => (AppTheme.dropoffBlueTint, AppTheme.dropoffBlue),
+      TrackFreshness.fresh => (AppTheme.fieldGreenTint, AppTheme.fieldGreen),
+      TrackFreshness.normal => (AppTheme.surfaceWhite, AppTheme.soilDark),
     };
     final icon = switch (band) {
       TrackFreshness.late => Icons.signal_cellular_connected_no_internet_0_bar,
@@ -104,48 +208,45 @@ class CheckInChip extends StatelessWidget {
       TrackFreshness.ended => Icons.check_circle_outline,
       TrackFreshness.fresh || TrackFreshness.normal => Icons.local_shipping,
     };
+    final rhythm =
+        band == TrackFreshness.fresh || band == TrackFreshness.normal;
     if (compact) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: foreground),
-          const SizedBox(width: 4),
-          Flexible(
-            child: Text(
-              text.compact,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: band == TrackFreshness.fresh ||
-                        band == TrackFreshness.normal
-                    ? AppTheme.textMuted
-                    : foreground,
-              ),
-            ),
-          ),
-        ],
+      // The list card's pill: a dot for the rhythm, the band's icon else.
+      return DotPill(
+        label: text.compact,
+        background: rhythm ? AppTheme.chalkBackground : background,
+        foreground: foreground,
+        border: rhythm ? AppTheme.whisperBorder : null,
+        dotColor: rhythm
+            ? (band == TrackFreshness.fresh
+                ? AppTheme.fieldGreen
+                : AppTheme.mutedSteel)
+            : null,
+        icon: rhythm ? null : icon,
+        height: 26,
       );
     }
     return Semantics(
       container: true,
       label: l10n.liveTripTitle,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         decoration: BoxDecoration(
           color: background,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: foreground.withValues(alpha: 0.18)),
+          borderRadius: BorderRadius.circular(12),
           boxShadow: const [
-            BoxShadow(color: Color(0x1A000000), blurRadius: 4),
+            BoxShadow(
+              color: Color(0x1F15201A),
+              blurRadius: 14,
+              offset: Offset(0, 4),
+            ),
           ],
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, size: 16, color: foreground),
-            const SizedBox(width: 6),
+            const SizedBox(width: 7),
             Flexible(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -156,8 +257,8 @@ class CheckInChip extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
                       color: foreground,
                     ),
                   ),
@@ -167,8 +268,9 @@ class CheckInChip extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 12,
-                        color: foreground.withValues(alpha: 0.8),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: foreground.withValues(alpha: 0.85),
                       ),
                     ),
                 ],
@@ -261,6 +363,9 @@ class LiveTripMap extends StatelessWidget {
     required this.places,
     this.height = 260,
     this.borderRadius = 16,
+    this.showChip = true,
+    this.chipTop = 12,
+    this.overlay = const [],
     super.key,
   });
 
@@ -269,6 +374,17 @@ class LiveTripMap extends StatelessWidget {
   final List<Place> places;
   final double height;
   final double borderRadius;
+
+  /// The check-in chip over the map; off when the screen shows it under
+  /// the map instead (the farmer's card).
+  final bool showChip;
+
+  /// Where the chip starts, so it clears the controls floating over the map.
+  final double chipTop;
+
+  /// Widgets drawn over the map (the boards' floating back button and crop
+  /// pill), positioned by the caller.
+  final List<Widget> overlay;
 
   @override
   Widget build(BuildContext context) {
@@ -293,15 +409,17 @@ class LiveTripMap extends StatelessWidget {
                     : l10n.liveTripMapSemantics(place),
               ),
             ),
-            Positioned(
-              left: 12,
-              top: 12,
-              right: 12,
-              child: Align(
-                alignment: Alignment.topLeft,
-                child: CheckInChip(track: track, now: now, places: places),
+            if (showChip)
+              Positioned(
+                left: 12,
+                top: chipTop,
+                right: 12,
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: CheckInChip(track: track, now: now, places: places),
+                ),
               ),
-            ),
+            ...overlay,
           ],
         ),
       ),
@@ -471,26 +589,30 @@ class TripProgress extends StatelessWidget {
       l10n.liveTripStatusOnTheRoad,
       l10n.deliveryStatusDelivered,
     ];
+    // The boards: done steps green, the current one gold with brown text,
+    // the ones ahead on the whisper border colour.
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (var i = 0; i < steps.length; i++)
           Expanded(
             child: Padding(
-              padding: EdgeInsets.only(right: i < steps.length - 1 ? 4 : 0),
+              padding: EdgeInsets.only(right: i < steps.length - 1 ? 6 : 0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
                     height: 4,
                     decoration: BoxDecoration(
-                      color: i <= reached
-                          ? AppTheme.primary
-                          : AppTheme.borderLight,
-                      borderRadius: BorderRadius.circular(2),
+                      color: i < reached
+                          ? AppTheme.fieldGreen
+                          : i == reached
+                              ? AppTheme.accentSoft
+                              : AppTheme.whisperBorder,
+                      borderRadius: BorderRadius.circular(999),
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 8),
                   Text(
                     steps[i],
                     maxLines: 2,
@@ -498,9 +620,12 @@ class TripProgress extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight:
-                          i == reached ? FontWeight.w700 : FontWeight.w500,
-                      color:
-                          i <= reached ? AppTheme.textDark : AppTheme.textMuted,
+                          i <= reached ? FontWeight.w700 : FontWeight.w600,
+                      color: i == reached
+                          ? AppTheme.money
+                          : i < reached
+                              ? AppTheme.soilDark
+                              : AppTheme.mutedSteel,
                     ),
                   ),
                 ],
@@ -512,12 +637,17 @@ class TripProgress extends StatelessWidget {
   }
 }
 
-/// A short note in a tinted box: the escrow line, late, paused, offline.
+/// A short note: late, paused and offline in a tinted box (radius 14, the
+/// boards), or [plain] as an icon and a line of text without a box (the
+/// escrow line, the scan note).
 class LiveTripNote extends StatelessWidget {
   const LiveTripNote({
     required this.icon,
     required this.text,
     this.kind = StatusKind.info,
+    this.plain = false,
+    this.background,
+    this.foreground,
     super.key,
   });
 
@@ -525,28 +655,53 @@ class LiveTripNote extends StatelessWidget {
   final ClockLabel text;
   final StatusKind kind;
 
+  /// No box: the icon in the kind's colour, the text in the secondary ink.
+  final bool plain;
+
+  /// Override the kind's colours (the offline note is dark with white text).
+  final Color? background;
+  final Color? foreground;
+
   @override
   Widget build(BuildContext context) {
+    final iconColor = foreground ??
+        (plain
+            ? (kind == StatusKind.success
+                ? AppTheme.fieldGreen
+                : kind.foreground)
+            : kind.foreground);
+    final textColor =
+        foreground ?? (plain ? AppTheme.unselectedNav : kind.foreground);
+    final row = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 1),
+          child: Icon(icon, size: 18, color: iconColor),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: ClockText(
+            text,
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.45,
+              fontWeight: plain ? FontWeight.w500 : FontWeight.w600,
+              color: textColor,
+            ),
+          ),
+        ),
+      ],
+    );
+    if (plain) return row;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: kind.background,
-        borderRadius: BorderRadius.circular(10),
+        color: background ?? kind.background,
+        borderRadius: BorderRadius.circular(14),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 18, color: kind.foreground),
-          const SizedBox(width: 8),
-          Expanded(
-            child: ClockText(
-              text,
-              style: TextStyle(fontSize: 13, color: kind.foreground),
-            ),
-          ),
-        ],
-      ),
+      child: row,
     );
   }
 }
@@ -559,6 +714,7 @@ class ArrivalWindowBlock extends StatelessWidget {
     required this.track,
     required this.now,
     this.prefix,
+    this.compact = false,
     super.key,
   });
 
@@ -568,11 +724,14 @@ class ArrivalWindowBlock extends StatelessWidget {
   /// Wraps the window in a sentence (the farmer's "Arrives {time}").
   final String Function(String time)? prefix;
 
+  /// One small muted line (the farmer's card, beside the check-in chip):
+  /// the sentence only, no label and no distance.
+  final bool compact;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final clock = clockFormatOf(context);
-    final theme = Theme.of(context);
     final eta = track.eta;
     final note = track.dropoffNote?.trim() ?? '';
     final band = trackFreshness(track, now);
@@ -582,14 +741,32 @@ class ArrivalWindowBlock extends StatelessWidget {
         : remaining == null
             ? null
             : l10n.liveTripKmToGo(kmText(remaining));
+    const small = TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.w500,
+      color: AppTheme.mutedSteel,
+    );
     if (eta == null) {
       return Text(
         l10n.liveTripNoEta,
-        style: theme.textTheme.bodyMedium?.copyWith(color: AppTheme.textMuted),
+        style: compact
+            ? small
+            : const TextStyle(fontSize: 14, color: AppTheme.mutedSteel),
       );
     }
     final window = clock.window(eta.from, eta.to);
     final sentence = prefix;
+    final label = sentence == null
+        ? window
+        : ClockLabel(
+            before: _before(sentence),
+            time: window.time,
+            time24: window.time24,
+            after: _after(sentence),
+          );
+    if (compact) return ClockText(label, style: small);
+    // The boards' arrival block: a 13 px label, the window at 30 px, the
+    // distance at 12 px.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -598,29 +775,29 @@ class ArrivalWindowBlock extends StatelessWidget {
             note.isEmpty
                 ? l10n.liveTripArrivalWindow
                 : l10n.liveTripArrivingAt(note),
-            style:
-                theme.textTheme.bodySmall?.copyWith(color: AppTheme.textMuted),
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: AppTheme.mutedSteel,
+            ),
           ),
-        ClockText(
-          sentence == null
-              ? window
-              : ClockLabel(
-                  before: _before(sentence),
-                  time: window.time,
-                  time24: window.time24,
-                  after: _after(sentence),
-                ),
-          style: theme.textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.w700,
-            color: AppTheme.textDark,
+        // One line: a narrow pane shrinks the window instead of breaking
+        // the range in two.
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: AlignmentDirectional.centerStart,
+          child: ClockText(
+            label,
+            style: const TextStyle(
+              fontSize: 30,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.9,
+              height: 1.2,
+              color: AppTheme.soilDark,
+            ),
           ),
         ),
-        if (sub != null)
-          Text(
-            sub,
-            style:
-                theme.textTheme.bodySmall?.copyWith(color: AppTheme.textMuted),
-          ),
+        if (sub != null) Text(sub, style: small),
       ],
     );
   }
@@ -653,6 +830,83 @@ bool canContactParty(Order? order, String viewerId, String partyId) {
   return true;
 }
 
+/// The Message and Call sheet for [partyId] of [order] (the shared contact
+/// actions sheet, with the party's phone from the order).
+void showPartyContact(
+  BuildContext context, {
+  required Order order,
+  required String partyId,
+  required String name,
+  required String roleLabel,
+}) {
+  final l10n = AppLocalizations.of(context)!;
+  final display = partyDisplayName(name, l10n);
+  final navigator = Navigator.of(context);
+  showContactActionsSheet(
+    context,
+    name: display.isEmpty ? roleLabel : display,
+    roleLabel: roleLabel,
+    phone: orderPartyPhone(order, partyId),
+    onMessage: () => navigator.push(
+      MaterialPageRoute<void>(
+        builder: (_) => ConversationScreen(
+          contextType: 'order',
+          contextId: order.orderId,
+          counterpartId: partyId,
+          counterpartName: name,
+        ),
+      ),
+    ),
+  );
+}
+
+/// A square button with a filled ground (the boards' green Call button, the
+/// arriving board's call beside Scan): [size] by [size], radius 14 (16 at 56).
+class LiveTripSquareAction extends StatelessWidget {
+  const LiveTripSquareAction({
+    required this.icon,
+    required this.semanticLabel,
+    required this.onTap,
+    this.background = AppTheme.fieldGreen,
+    this.foreground = Colors.white,
+    this.border,
+    this.size = 44,
+    super.key,
+  });
+
+  final IconData icon;
+  final String semanticLabel;
+  final VoidCallback onTap;
+  final Color background;
+  final Color foreground;
+  final Color? border;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      child: Material(
+        color: background,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(size >= 56 ? 16 : 14),
+          side: border == null ? BorderSide.none : BorderSide(color: border!),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Icon(icon, size: 20, color: foreground),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Opens the order chat with [partyId].
 void openOrderChat(
   BuildContext context, {
@@ -672,10 +926,38 @@ void openOrderChat(
   );
 }
 
+/// The avatar colours of a party by role (the boards): the farmer on the
+/// green tint, the trucker brown on cream, the buyer on the drop-off blue
+/// tint.
+({Color background, Color foreground}) partyAvatarColors(UserRole? role) =>
+    switch (role) {
+      UserRole.trucker => (
+          background: AppTheme.actionCream,
+          foreground: AppTheme.money
+        ),
+      UserRole.buyer => (
+          background: AppTheme.dropoffBlueTint,
+          foreground: AppTheme.dropoffBlue
+        ),
+      UserRole.farmer || null => (
+          background: AppTheme.fieldGreenTint,
+          foreground: AppTheme.fieldGreen
+        ),
+    };
+
+/// The initials of a display name, two letters at most.
+String partyInitials(String display) => display
+    .split(RegExp(r'\s+'))
+    .where((w) => w.isNotEmpty)
+    .take(2)
+    .map((w) => w.characters.first.toUpperCase())
+    .join();
+
 /// A party of the order with Message and Call (the driver card and the
-/// contact rows). The buttons show only once the order's contact is open
-/// (ESC-48), and for the trucker only once committed, as on the order
-/// screen.
+/// contact rows of the boards: a tinted avatar, the name, a white square
+/// Message button and a green square Call button). The buttons show only
+/// once the order's contact is open (ESC-48), and for the trucker only once
+/// committed, as on the order screen.
 class PartyContactTile extends StatelessWidget {
   const PartyContactTile({
     required this.name,
@@ -684,6 +966,8 @@ class PartyContactTile extends StatelessWidget {
     required this.viewerId,
     this.order,
     this.subtitle,
+    this.role,
+    this.avatarSize = 46,
     super.key,
   });
 
@@ -697,49 +981,40 @@ class PartyContactTile extends StatelessWidget {
   final Order? order;
   final String? subtitle;
 
+  /// The party's role, for the avatar colours.
+  final UserRole? role;
+  final double avatarSize;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
     final display = partyDisplayName(name, l10n);
-    final initials = display
-        .split(RegExp(r'\s+'))
-        .where((w) => w.isNotEmpty)
-        .take(2)
-        .map((w) => w.characters.first.toUpperCase())
-        .join();
+    final colors = partyAvatarColors(role);
     final contact = canContactParty(order, viewerId, partyId);
-    void open() {
-      final o = order!;
-      final navigator = Navigator.of(context);
-      showContactActionsSheet(
-        context,
-        name: display.isEmpty ? roleLabel : display,
-        roleLabel: roleLabel,
-        phone: orderPartyPhone(o, partyId),
-        onMessage: () => navigator.push(
-          MaterialPageRoute<void>(
-            builder: (_) => ConversationScreen(
-              contextType: 'order',
-              contextId: o.orderId,
-              counterpartId: partyId,
-              counterpartName: name,
-            ),
-          ),
-        ),
-      );
-    }
+    void open() => showPartyContact(
+          context,
+          order: order!,
+          partyId: partyId,
+          name: name,
+          roleLabel: roleLabel,
+        );
 
     return Row(
       children: [
-        CircleAvatar(
-          radius: 20,
-          backgroundColor: AppTheme.primary.withValues(alpha: 0.12),
+        Container(
+          width: avatarSize,
+          height: avatarSize,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: colors.background,
+          ),
           child: Text(
-            initials,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              color: AppTheme.primaryDeep,
+            partyInitials(display),
+            style: TextStyle(
+              fontSize: avatarSize >= 44 ? 16 : 13,
+              fontWeight: FontWeight.w800,
+              color: colors.foreground,
             ),
           ),
         ),
@@ -752,30 +1027,43 @@ class PartyContactTile extends StatelessWidget {
                 display,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyLarge
-                    ?.copyWith(fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  fontSize: avatarSize >= 44 ? 15 : 14,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.soilDark,
+                ),
               ),
+              // Two lines, so a truck and its plate ("Isuzu FSR 5 t ·
+              // 3-AA-12345") stay whole in the web pane's narrow column.
               Text(
                 subtitle ?? roleLabel,
-                maxLines: 1,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: AppTheme.textMuted),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: AppTheme.mutedSteel,
+                ),
               ),
             ],
           ),
         ),
         if (contact) ...[
-          IconButton.outlined(
-            tooltip: l10n.sendMessage,
-            onPressed: open,
-            icon: const Icon(Icons.chat_outlined),
+          const SizedBox(width: 8),
+          FwSquareButton(
+            semanticLabel: l10n.sendMessage,
+            onTap: open,
+            child: const Icon(
+              Icons.chat_bubble_outline,
+              size: 20,
+              color: AppTheme.soilDark,
+            ),
           ),
           const SizedBox(width: 8),
-          IconButton.outlined(
-            tooltip: l10n.call,
-            onPressed: open,
-            icon: const Icon(Icons.phone_outlined),
+          LiveTripSquareAction(
+            icon: Icons.phone_outlined,
+            semanticLabel: l10n.call,
+            onTap: open,
           ),
         ],
       ],
@@ -783,34 +1071,87 @@ class PartyContactTile extends StatelessWidget {
   }
 }
 
-/// Three figures side by side (distance, time, check-ins).
+/// Three figures side by side (distance, time, check-ins): plain columns,
+/// or as [cards] (the trip log board: the first one filled green).
 class LiveTripStats extends StatelessWidget {
-  const LiveTripStats({required this.stats, super.key});
+  const LiveTripStats({required this.stats, this.cards = false, super.key});
 
   final List<({String value, String label})> stats;
+  final bool cards;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    Widget figure(
+      ({String value, String label}) stat, {
+      required Color valueColor,
+      required Color labelColor,
+      double valueSize = 18,
+    }) =>
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(
+                stat.value,
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: valueSize,
+                  fontWeight: FontWeight.w800,
+                  color: valueColor,
+                ),
+              ),
+            ),
+            Text(
+              stat.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: labelColor,
+              ),
+            ),
+          ],
+        );
+    if (!cards) {
+      return Row(
+        children: [
+          for (final stat in stats)
+            Expanded(
+              child: figure(
+                stat,
+                valueColor: AppTheme.soilDark,
+                labelColor: AppTheme.mutedSteel,
+              ),
+            ),
+        ],
+      );
+    }
     return Row(
       children: [
-        for (final stat in stats)
+        for (final (i, stat) in stats.indexed) ...[
+          if (i > 0) const SizedBox(width: 8),
           Expanded(
-            child: Column(
-              children: [
-                Text(
-                  stat.value,
-                  style: theme.textTheme.titleLarge
-                      ?.copyWith(fontWeight: FontWeight.w700),
-                ),
-                Text(
-                  stat.label,
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: AppTheme.textMuted),
-                ),
-              ],
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: i == 0 ? AppTheme.fieldGreen : AppTheme.surfaceWhite,
+                borderRadius: BorderRadius.circular(16),
+                border:
+                    i == 0 ? null : Border.all(color: AppTheme.whisperBorder),
+              ),
+              child: figure(
+                stat,
+                valueSize: 20,
+                valueColor: i == 0 ? Colors.white : AppTheme.soilDark,
+                labelColor:
+                    i == 0 ? const Color(0xFFCFE3D6) : AppTheme.mutedSteel,
+              ),
             ),
           ),
+        ],
       ],
     );
   }

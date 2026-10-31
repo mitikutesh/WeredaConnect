@@ -83,11 +83,15 @@ void main() {
       final l10n = lookup('en');
 
       expect(find.text(l10n.pauseSheetTitle), findsOneWidget);
-      expect(find.text(l10n.pauseSheet15), findsOneWidget);
-      expect(find.text(l10n.pauseSheet30), findsOneWidget);
-      expect(find.text(l10n.pauseSheet60), findsOneWidget);
+      // Each choice says on its own line when sharing comes back (the
+      // board), the overnight one in its label.
+      expect(find.textContaining(l10n.pauseSheet15), findsOneWidget);
+      expect(
+        find.text('${l10n.pauseSheet30} · ${l10n.pauseSheetBackAt('22:30')}'),
+        findsOneWidget,
+      );
+      expect(find.textContaining(l10n.pauseSheet60), findsOneWidget);
       expect(find.text(l10n.pauseSheetOvernight('06:00')), findsOneWidget);
-      expect(find.text(l10n.pauseSheetBackAt('22:30')), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('pause_confirm')));
       await tester.pumpAndSettle();
@@ -126,7 +130,10 @@ void main() {
         find.text(l10n.pauseSheetOvernight('ከጠዋቱ 12:00')),
         findsOneWidget,
       );
-      expect(find.text(l10n.pauseSheetBackAt('ከምሽቱ 4:30')), findsOneWidget);
+      expect(
+        find.textContaining(l10n.pauseSheetBackAt('ከምሽቱ 4:30')),
+        findsOneWidget,
+      );
     });
 
     testWidgets('Afaan Oromo: the resume times on the Ethiopian clock',
@@ -138,7 +145,10 @@ void main() {
         find.text(l10n.pauseSheetOvernight('12:00 ganama')),
         findsOneWidget,
       );
-      expect(find.text(l10n.pauseSheetBackAt('4:30 galgala')), findsOneWidget);
+      expect(
+        find.textContaining(l10n.pauseSheetBackAt('4:30 galgala')),
+        findsOneWidget,
+      );
     });
   });
 }

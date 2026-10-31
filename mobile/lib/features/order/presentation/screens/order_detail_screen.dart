@@ -10,7 +10,8 @@ import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
-import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
+import 'package:wereda_connect/core/utils/board_day.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -44,12 +45,15 @@ import 'package:wereda_connect/shared/widgets/status_chip.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/contact_actions_sheet.dart';
 import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
-/// Full order detail screen with status timeline and role-based actions.
+/// Full order detail screen (the Buyer · Order detail and Farmer · Answer a
+/// new order boards): the order named in the header with its status, who
+/// has agreed, the timeline, the contact card, the role's actions, and the
+/// answer the viewer owes pinned at the foot.
 ///
-/// Loads order by ID via [LoadOrderById] event. Shows price breakdown,
-/// a Stepper-based status timeline, and contextual action buttons
-/// based on the user's role and the order's current status.
+/// Loads order by ID via [LoadOrderById] event.
 class OrderDetailScreen extends StatefulWidget {
   final String orderId;
 
@@ -151,9 +155,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
-      // The order's own header names it (the boards' light header); the
-      // bar keeps only Back.
-      appBar: AppBar(),
+      // The order's own header names it (the boards' light header) with
+      // Back beside it; the body is a Scaffold of its own so the answer the
+      // viewer owes can sit pinned at the foot.
       body: BlocConsumer<OrderBloc, OrderState>(
         listener: (context, state) {
           if (state is PaymentSubmitted) {
@@ -187,9 +191,6 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           }
         },
         builder: (context, state) {
-          if (state is OrderLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
           if (state is SingleOrderLoaded) {
             return _OrderDetailBody(
               order: state.order,
@@ -197,10 +198,29 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
               holdChecked: _holdChecked,
             );
           }
-          if (state is OrderError) {
-            return Center(child: Text(localizeErrorCode(state.code, l10n)));
-          }
-          return const SizedBox.shrink();
+          return SafeArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const FwDetailHeader(),
+                Expanded(
+                  child: Center(
+                    child: state is OrderError
+                        ? Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text(
+                              localizeErrorCode(state.code, l10n),
+                              textAlign: TextAlign.center,
+                            ),
+                          )
+                        : state is OrderLoading
+                            ? const CircularProgressIndicator()
+                            : const SizedBox.shrink(),
+                  ),
+                ),
+              ],
+            ),
+          );
         },
       ),
     );
@@ -249,159 +269,187 @@ class _OrderDetailBody extends StatelessWidget {
       );
     }
 
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // FRD-06: the money is frozen until an admin decides.
-            if (underReview) ...[
-              const EscrowStatusBadge(status: PaymentStatus.held, large: true),
-              const SizedBox(height: 24),
-            ],
+    final isFarmer = userId == order.farmerId;
+    final isBuyer = userId == order.buyerId;
+    final isTrucker = !isFarmer && !isBuyer && userId == order.truckerId;
+    final farmerAnswering =
+        userRole == UserRole.farmer && canFarmerRespond(order, userId);
+    final answerDeadline = commitmentDeadlineFor(order, userId);
+    // LT-11: before pickup the buyer and the farmer of a trucked order learn
+    // where the map will be.
+    final mapNote = !isTrucker &&
+        orderHasTrip(order) &&
+        (order.status == OrderStatus.funded ||
+            order.status == OrderStatus.accepted);
 
-            // What, with whom, and the viewer's money (Buyer · Order detail
-            // and Farmer · Answer a new order boards).
-            _OrderSummaryHero(order: order, userId: userId),
-            const SizedBox(height: 16),
-
-            // ── Order info card ─────────────────────────────────
-            Card(
-              margin: EdgeInsets.zero,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    _InfoRow(
-                      label: l10n.farmer,
-                      value: partyDisplayName(order.farmerName, l10n),
-                    ),
-                    const Divider(height: 16),
-                    _InfoRow(
-                      label: l10n.buyer,
-                      value: partyDisplayName(order.buyerName, l10n),
-                    ),
-                    const Divider(height: 16),
-                    _InfoRow(
-                      label: CropType.labelFor(order.cropType, l10n),
-                      value: l10n.quantityKg(
-                        order.quantity.toStringAsFixed(0),
-                      ),
-                    ),
-                    const Divider(height: 16),
-                    _InfoRow(
-                      label: l10n.statusCreated,
-                      value: clock.dateTime(order.createdAt),
-                    ),
-                    // ESC-06: when the crops must be collected by, for all
-                    // three parties of an accepted order.
-                    if (order.status == OrderStatus.accepted &&
-                        order.pickupDeadlineAt != null) ...[
-                      const Divider(height: 16),
-                      _InfoRow(
-                        label: l10n.orderPickupDeadline,
-                        clock: clock.deadline(
-                          order.pickupDeadlineAt!,
-                          date: DateFormat.yMMMd(),
-                        ),
-                      ),
-                    ],
-                  ],
+    return Scaffold(
+      body: SafeArea(
+        bottom: false,
+        child: SingleChildScrollView(
+          child: FwContentWidth(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // What, with whom and the status (Buyer · Order detail and
+                // Farmer · Answer a new order boards).
+                _OrderHeader(
+                  order: order,
+                  userId: userId,
+                  farmerAnswering: farmerAnswering,
                 ),
-              ),
-            ),
-            const SizedBox(height: 24),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // FRD-06: the money is frozen until an admin decides.
+                      if (underReview) ...[
+                        const EscrowStatusBadge(
+                          status: PaymentStatus.held,
+                          large: true,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
 
-            // ── Who has agreed (ESC-15) ──────────────────────────
-            OrderCommitmentSection(order: order, userId: userId),
+                      // The answer the viewer owes (the farmer's on a new
+                      // order, the trucker's on a transport request), by when.
+                      if (answerDeadline != null &&
+                          order.status == OrderStatus.funded) ...[
+                        FwNoteBox.cream(
+                          icon: Icons.schedule,
+                          child: ClockText(
+                            clock.deadline(
+                              answerDeadline,
+                              date: DateFormat.MMMd(),
+                              sentence: l10n.commitmentAnswerBy,
+                            ),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
 
-            // ── Price breakdown ──────────────────────────────────
-            Text(
-              l10n.priceBreakdown,
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              margin: EdgeInsets.zero,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    _PriceRow(
-                      label: l10n.cropCost,
-                      amount: order.cropCost ?? order.totalPrice,
-                      l10n: l10n,
-                    ),
-                    if (order.transportCost != null &&
-                        order.transportCost! > 0) ...[
-                      const Divider(height: 16),
-                      _PriceRow(
-                        label: l10n.transportCost,
-                        amount: order.transportCost!,
+                      // The farmer's money and the order's facts; the
+                      // trucker's pay. The buyer's total closes the page.
+                      if (isFarmer) ...[
+                        _FarmerReceiveCard(order: order),
+                        const SizedBox(height: 12),
+                      ] else if (isTrucker) ...[
+                        _TruckerPayCard(order: order),
+                        const SizedBox(height: 12),
+                      ],
+
+                      // ESC-06: when the crops must be collected by, for all
+                      // three parties of an accepted order.
+                      if (order.status == OrderStatus.accepted &&
+                          order.pickupDeadlineAt != null) ...[
+                        FwNoteBox.cream(
+                          icon: Icons.schedule,
+                          child: Row(
+                            children: [
+                              Text(l10n.orderPickupDeadline),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: ClockText(
+                                  clock.deadline(
+                                    order.pickupDeadlineAt!,
+                                    date: DateFormat.yMMMd(),
+                                  ),
+                                  textAlign: TextAlign.end,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      // ── Who has agreed (ESC-15) ──────────────────────
+                      OrderCommitmentSection(
+                        order: order,
+                        userId: userId,
+                        hideViewerDeadline: answerDeadline != null,
+                      ),
+
+                      // Farmer · Answer a new order: what accepting and
+                      // rejecting do, above the pinned buttons.
+                      if (farmerAnswering) ...[
+                        Text(
+                          l10n.farmerAnswerNote,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            height: 1.5,
+                            color: AppTheme.mutedSteel,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      // ── Status timeline ──────────────────────────────
+                      _StatusTimeline(
+                        status: order.status,
+                        tripOrder: orderHasTrip(order),
                         l10n: l10n,
                       ),
+                      const SizedBox(height: 12),
+
+                      // ── Contact (ESC-48) ─────────────────────────────
+                      _OrderContactSection(order: order, userId: userId),
+
+                      if (mapNote) ...[
+                        FwNoteBox.cream(
+                          key: const Key('order_live_trip_hint'),
+                          icon: Icons.place_outlined,
+                          child: Text(l10n.liveTripAfterPickupHint),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      // ── Role-based actions ───────────────────────────
+                      ..._buildActions(
+                        context,
+                        order: order,
+                        userId: userId,
+                        userRole: userRole,
+                        l10n: l10n,
+                      ),
+
+                      // The buyer's money: held in escrow, or the total.
+                      if (isBuyer) _BuyerTotalRow(order: order),
                     ],
-                    const Divider(height: 16),
-                    _PriceRow(
-                      label: l10n.platformCommission,
-                      amount: order.commissionAmount ?? 0,
-                      l10n: l10n,
-                    ),
-                    const Divider(height: 16),
-                    _PriceRow(
-                      label: l10n.orderTotal,
-                      amount: order.orderTotal ?? order.totalPrice,
-                      l10n: l10n,
-                      isBold: true,
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
-            const SizedBox(height: 24),
-
-            // ── Status timeline ──────────────────────────────────
-            Text(
-              l10n.orderTimeline,
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            _StatusTimeline(status: order.status, l10n: l10n),
-            const SizedBox(height: 24),
-
-            // ── Contact (ESC-48) ─────────────────────────────────
-            _OrderContactSection(order: order, userId: userId),
-
-            // ── Role-based actions ───────────────────────────────
-            ..._buildActions(
-              context,
-              order: order,
-              userId: userId,
-              userRole: userRole,
-              l10n: l10n,
-            ),
-          ],
+          ),
         ),
+      ),
+      bottomNavigationBar: _answerActions(
+        context,
+        order: order,
+        userId: userId,
+        userRole: userRole,
+        l10n: l10n,
       ),
     );
   }
 
-  List<Widget> _buildActions(
+  /// The answer the viewer owes, pinned at the foot: the buyer pays (Pay
+  /// Now on created and pending_payment, Pay again on payment_failed,
+  /// Continue payment on payment_submitted: the live Telebirr checkout,
+  /// ESC-44), the farmer accepts or rejects a new order, the trucker
+  /// accepts or declines the transport request once the farmer accepted
+  /// (ESC-15). Farmers and truckers never see the payment actions.
+  Widget? _answerActions(
     BuildContext context, {
     required Order order,
     required String userId,
     required UserRole userRole,
     required AppLocalizations l10n,
   }) {
-    final widgets = <Widget>[];
-
-    // The order's buyer pays: Pay Now (created, pending_payment), Pay again
-    // (payment_failed), Continue payment (payment_submitted: the live
-    // Telebirr checkout, ESC-44; with mock payments it finds the order
-    // funded). Farmers and truckers never see these.
     final isOrderBuyer = userRole == UserRole.buyer && order.buyerId == userId;
     final payLabel = switch (order.status) {
       OrderStatus.created || OrderStatus.pendingPayment => l10n.payNow,
@@ -410,10 +458,9 @@ class _OrderDetailBody extends StatelessWidget {
       _ => null,
     };
     if (isOrderBuyer && payLabel != null) {
-      widgets.add(
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton(
+      return FwBottomActions(
+        children: [
+          FilledButton(
             onPressed: () async {
               final orderBloc = context.read<OrderBloc>();
               await Navigator.push(
@@ -429,117 +476,110 @@ class _OrderDetailBody extends StatelessWidget {
                 orderBloc.add(LoadOrderById(orderId: order.orderId));
               }
             },
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-            ),
+            style: _primaryStyle,
             child: Text(payLabel),
           ),
-        ),
+        ],
       );
-      widgets.add(const SizedBox(height: 12));
     }
 
-    // Farmer + funded and not answered yet → Accept / Reject (ESC-15: a
+    // Farmer + funded and not answered yet → Reject / Accept (ESC-15: a
     // farmer who accepted a trip order waits for the trucker). Under review
     // the server refuses the accept (FRD-03), so only Reject is offered;
     // Accept stays disabled until the hold check has answered.
     if (userRole == UserRole.farmer && canFarmerRespond(order, userId)) {
-      widgets.add(
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Text(
-            l10n.farmerAnswerNote,
-            style: const TextStyle(
-              fontSize: 13,
-              height: 1.4,
-              color: AppTheme.mutedSteel,
+      return FwBottomActions(
+        children: [
+          _AnswerRow(
+            decline: OutlinedButton(
+              onPressed: () => _rejectAsFarmer(context, order, userId),
+              style: _secondaryStyle,
+              child: Text(l10n.rejectOrder),
             ),
-          ),
-        ),
-      );
-      widgets.add(
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: () => _rejectAsFarmer(context, order, userId),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.statusError,
-                  side: const BorderSide(color: AppTheme.statusError),
-                  minimumSize: const Size.fromHeight(48),
-                ),
-                child: Text(l10n.rejectOrder),
-              ),
-            ),
-            if (!underReview) ...[
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton(
-                  onPressed: holdChecked
-                      ? () {
-                          context.read<OrderBloc>().add(
-                                AcceptOrder(
-                                  orderId: order.orderId,
-                                  farmerId: userId,
-                                ),
-                              );
-                        }
-                      : null,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
+            accept: underReview
+                ? null
+                : FilledButton(
+                    onPressed: holdChecked
+                        ? () {
+                            context.read<OrderBloc>().add(
+                                  AcceptOrder(
+                                    orderId: order.orderId,
+                                    farmerId: userId,
+                                  ),
+                                );
+                          }
+                        : null,
+                    style: _primaryStyle,
+                    child: Text(l10n.acceptOrder),
                   ),
-                  child: Text(l10n.acceptOrder),
-                ),
-              ),
-            ],
-          ],
-        ),
+          ),
+        ],
       );
-      widgets.add(const SizedBox(height: 12));
     }
 
     // ESC-15: the trucker answers the transport request once the farmer
     // accepted. Like the farmer's, the accept waits for the hold check and is
     // not offered while the money is under review.
     if (canTruckerRespond(order, userId)) {
-      widgets.add(
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: () => _declineTransport(context, order, userId),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.statusError,
-                  side: const BorderSide(color: AppTheme.statusError),
-                  minimumSize: const Size.fromHeight(48),
-                ),
-                child: Text(l10n.truckerDeclineRequest),
-              ),
+      return FwBottomActions(
+        children: [
+          _AnswerRow(
+            decline: OutlinedButton(
+              onPressed: () => _declineTransport(context, order, userId),
+              style: _secondaryStyle,
+              child: Text(l10n.truckerDeclineRequest),
             ),
-            if (!underReview) ...[
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton(
-                  onPressed: holdChecked
-                      ? () => context.read<OrderBloc>().add(
-                            TruckerAcceptOrder(
-                              orderId: order.orderId,
-                              truckerId: userId,
-                            ),
-                          )
-                      : null,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
+            accept: underReview
+                ? null
+                : FilledButton(
+                    onPressed: holdChecked
+                        ? () => context.read<OrderBloc>().add(
+                              TruckerAcceptOrder(
+                                orderId: order.orderId,
+                                truckerId: userId,
+                              ),
+                            )
+                        : null,
+                    style: _primaryStyle,
+                    child: Text(l10n.truckerAcceptRequest),
                   ),
-                  child: Text(l10n.truckerAcceptRequest),
-                ),
-              ),
-            ],
-          ],
-        ),
+          ),
+        ],
       );
-      widgets.add(const SizedBox(height: 12));
     }
+    return null;
+  }
+
+  static final ButtonStyle _primaryStyle = FilledButton.styleFrom(
+    minimumSize: const Size.fromHeight(56),
+    textStyle: const TextStyle(
+      fontFamily: AppTheme.fontFamily,
+      fontFamilyFallback: AppTheme.ethiopicFontFallback,
+      fontSize: 16,
+      fontWeight: FontWeight.w800,
+    ),
+  );
+
+  static final ButtonStyle _secondaryStyle = OutlinedButton.styleFrom(
+    minimumSize: const Size.fromHeight(56),
+    textStyle: const TextStyle(
+      fontFamily: AppTheme.fontFamily,
+      fontFamilyFallback: AppTheme.ethiopicFontFallback,
+      fontSize: 16,
+      fontWeight: FontWeight.w800,
+    ),
+  );
+
+  /// The actions that sit in the page below the cards: the delivery
+  /// (create, open, QR, live trip), rating, and the cancels.
+  List<Widget> _buildActions(
+    BuildContext context, {
+    required Order order,
+    required String userId,
+    required UserRole userRole,
+    required AppLocalizations l10n,
+  }) {
+    final widgets = <Widget>[];
 
     // The order's delivery, for every party: the create action while none
     // exists, then "Open delivery" (and the farmer's pickup QR) once it does.
@@ -918,14 +958,47 @@ String? _cancelDialogBody(Order order, String userId, AppLocalizations l10n) {
 /// finds; any other failure shows the error. The shared [DeliveryBloc] is
 /// only listened to while this widget's own create is in flight, so other
 /// screens' delivery states never show here.
-/// The order at a glance: crop and quantity, the other party, the status
-/// and the viewer's own amount (the farmer's crop money, the buyer's total,
-/// the trucker's transport pay), with whether it is held in escrow.
-class _OrderSummaryHero extends StatelessWidget {
+/// Reject and Accept (or Decline and Accept transport) side by side at the
+/// foot, as on the Farmer · Answer a new order board; Reject alone while the
+/// money is under review.
+class _AnswerRow extends StatelessWidget {
+  final Widget decline;
+  final Widget? accept;
+
+  const _AnswerRow({required this.decline, required this.accept});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(child: decline),
+        if (accept != null) ...[
+          const SizedBox(width: 10),
+          Expanded(child: accept!),
+        ],
+      ],
+    );
+  }
+}
+
+/// The page header: Back, what the order is (crop and weight) with whom it
+/// is with, and the status pill. A farmer answering a new order reads "New
+/// order" with the crop under it and no pill, as on the board.
+/// "Thu, Oct 30": the trip's day on the Ethiopian calendar day, as the trip
+/// cards write it, with no-break spaces so a wrap never splits it.
+String _tripDay(DateTime at) =>
+    boardDayInEthiopia(at).replaceAll(' ', '\u00A0');
+
+class _OrderHeader extends StatelessWidget {
   final Order order;
   final String userId;
+  final bool farmerAnswering;
 
-  const _OrderSummaryHero({required this.order, required this.userId});
+  const _OrderHeader({
+    required this.order,
+    required this.userId,
+    required this.farmerAnswering,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -934,119 +1007,281 @@ class _OrderSummaryHero extends StatelessWidget {
     final isTrucker = !isFarmer && userId == order.truckerId;
     final farmer = partyDisplayName(order.farmerName, l10n);
     final buyer = partyDisplayName(order.buyerName, l10n);
+    final what = '${CropType.labelFor(order.cropType, l10n)} · '
+        '${l10n.quantityKg(wholeNumber(order.quantity))}';
 
-    final (String subtitle, String amountLabel, double amount) = isFarmer
-        ? (
-            '${l10n.buyer}: $buyer',
-            l10n.orderYouReceive,
-            order.cropCost ?? order.totalPrice,
-          )
-        : isTrucker
-            ? (
-                '$farmer → $buyer',
-                l10n.orderYourTransportPay,
-                order.transportCost ?? 0,
-              )
-            : (
-                l10n.liveTripFrom(farmer),
-                l10n.orderTotal,
-                order.orderTotal ?? order.totalPrice,
-              );
-    final held = escrowHeldOrderStatuses.contains(order.status);
+    final String title;
+    final String subtitle;
+    if (farmerAnswering) {
+      title = l10n.detailNewOrderTitle;
+      subtitle = l10n.detailFromYourListing(what);
+    } else if (isFarmer) {
+      title = what;
+      subtitle = '${l10n.buyer}: $buyer';
+    } else if (isTrucker) {
+      title = what;
+      subtitle = '$farmer → $buyer';
+    } else {
+      title = what;
+      final pickup = order.pickupDate;
+      subtitle = pickup == null
+          ? l10n.liveTripFrom(farmer)
+          : '${l10n.liveTripFrom(farmer)} · '
+              '${l10n.orderTripOn(_tripDay(pickup))}';
+    }
 
-    return Column(
+    return FwDetailHeader(
       key: const Key('order_summary_hero'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Text(
-                '${CropType.labelFor(order.cropType, l10n)} · '
-                '${l10n.quantityKg(order.quantity.toStringAsFixed(0))}',
-                style: const TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.4,
-                  color: AppTheme.soilDark,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            StatusChip(
+      title: title,
+      subtitle: subtitle,
+      trailing: farmerAnswering
+          ? null
+          : StatusChip(
               label: orderStatusLabel(order.status, l10n),
               kind: orderStatusKind(order.status),
             ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: const TextStyle(fontSize: 13, color: AppTheme.mutedSteel),
-        ),
-        const SizedBox(height: 16),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFE6E2D6)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    );
+  }
+}
+
+/// Farmer · Answer a new order: what the farmer receives, the weight times
+/// the price with the money's state, then the buyer and the pickup.
+class _FarmerReceiveCard extends StatelessWidget {
+  final Order order;
+
+  const _FarmerReceiveCard({required this.order});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final held = escrowHeldOrderStatuses.contains(order.status);
+    final trucker = order.truckerName?.trim() ?? '';
+    final truck = trucker.isNotEmpty
+        ? l10n.detailTruckOf(partyDisplayName(trucker, l10n))
+        : l10n.trucker;
+    final day = order.pickupDate;
+    final pickup = orderHasTrip(order)
+        ? (day == null ? truck : '${_tripDay(day)} · $truck')
+        : l10n.detailBuyerCollects;
+    return FwCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Expanded(
-                    child: Text(
-                      amountLabel,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.mutedSteel,
-                      ),
-                    ),
+              Expanded(
+                child: Text(
+                  l10n.orderYouReceive,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppTheme.mutedSteel,
                   ),
-                  Text(
-                    l10n.etbCurrency(amount.toStringAsFixed(0)),
-                    style: const TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.5,
-                      color: AppTheme.soilDark,
-                    ),
-                  ),
-                ],
+                ),
               ),
-              if (held) ...[
-                const SizedBox(height: 8),
+              Text(
+                l10n.etbCurrency(
+                  formatEtbAmount(order.cropCost ?? order.totalPrice),
+                ),
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.5,
+                  color: AppTheme.soilDark,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${l10n.quantityKg(wholeNumber(order.quantity))} × '
+                  '${l10n.etbCurrency(formatEtbAmount(order.pricePerUnit))}',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: AppTheme.unselectedNav,
+                  ),
+                ),
+              ),
+              if (held)
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     const Icon(
                       Icons.lock_outline,
                       size: 14,
                       color: AppTheme.fieldGreen,
                     ),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 6),
                     Text(
-                      l10n.escrowStatusEscrowed,
+                      l10n.detailPaidIntoEscrow,
                       style: const TextStyle(
-                        fontSize: 13,
+                        fontSize: 14,
                         fontWeight: FontWeight.w700,
                         color: AppTheme.fieldGreen,
                       ),
                     ),
                   ],
                 ),
-              ],
             ],
+          ),
+          const SizedBox(height: 12),
+          const Divider(color: AppTheme.segmentTrack),
+          const SizedBox(height: 12),
+          _FactRow(
+            label: l10n.buyer,
+            value: partyDisplayName(order.buyerName, l10n),
+          ),
+          const SizedBox(height: 8),
+          _FactRow(label: l10n.detailPickupLabel, value: pickup),
+        ],
+      ),
+    );
+  }
+}
+
+/// A label left, its value bold right.
+class _FactRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _FactRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 14, color: AppTheme.mutedSteel),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            value,
+            textAlign: TextAlign.end,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.soilDark,
+            ),
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The trucker's transport pay for this order, held with the rest.
+class _TruckerPayCard extends StatelessWidget {
+  final Order order;
+
+  const _TruckerPayCard({required this.order});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final held = escrowHeldOrderStatuses.contains(order.status);
+    return FwCard(
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l10n.orderYourTransportPay,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppTheme.mutedSteel,
+                  ),
+                ),
+                if (held) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.lock_outline,
+                        size: 14,
+                        color: AppTheme.fieldGreen,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        l10n.detailPaidIntoEscrow,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.fieldGreen,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Text(
+            l10n.etbCurrency(formatEtbAmount(order.transportCost ?? 0)),
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.5,
+              color: AppTheme.soilDark,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Buyer · Order detail: the money at the foot of the page, "Held in
+/// escrow" while it is, else the order's total.
+class _BuyerTotalRow extends StatelessWidget {
+  final Order order;
+
+  const _BuyerTotalRow({required this.order});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final held = escrowHeldOrderStatuses.contains(order.status);
+    return FwCard(
+      key: const Key('order_buyer_total'),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(
+        children: [
+          Icon(
+            held ? Icons.lock_outline : Icons.receipt_long_outlined,
+            size: 18,
+            color: AppTheme.unselectedNav,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              held ? l10n.detailHeldInEscrow : l10n.orderTotal,
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppTheme.unselectedNav,
+              ),
+            ),
+          ),
+          Text(
+            l10n.etbCurrency(
+              formatEtbAmount(order.orderTotal ?? order.totalPrice),
+            ),
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.soilDark,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1252,15 +1487,6 @@ class _OrderDeliveryActionsState extends State<_OrderDeliveryActions> {
       );
     }
 
-    // LT-11: before pickup the buyer and the farmer of a trucked order learn
-    // where the map will be.
-    final order = widget.order;
-    final waiting = delivery == null
-        ? order.status == OrderStatus.accepted && orderHasTrip(order)
-        : isWaitingForPickup(delivery);
-    final party = widget.userId.isNotEmpty &&
-        (widget.userId == order.buyerId || widget.userId == order.farmerId);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1268,88 +1494,98 @@ class _OrderDeliveryActionsState extends State<_OrderDeliveryActions> {
           button,
           const SizedBox(height: 12),
         ],
-        if (waiting && party) ...[
-          Row(
-            key: const Key('order_live_trip_hint'),
-            children: [
-              const Icon(
-                Icons.map_outlined,
-                size: 18,
-                color: AppTheme.textMuted,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  l10n.liveTripAfterPickupHint,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-        ],
       ],
     );
   }
 }
 
-/// Status timeline using Stepper widget.
+/// Order Timeline as the board draws it: a card with four steps as short
+/// bars (done in green, the current one in gold, the rest grey) and the
+/// steps still to come named under them. Tapping a step says what it means.
 class _StatusTimeline extends StatelessWidget {
   final OrderStatus status;
   final AppLocalizations l10n;
 
-  const _StatusTimeline({required this.status, required this.l10n});
+  /// A trucker carries the crop: the board's Live trip step follows
+  /// Accepted (a self-pickup order has no truck to follow).
+  final bool tripOrder;
+
+  const _StatusTimeline({
+    required this.status,
+    required this.l10n,
+    this.tripOrder = false,
+  });
+
+  /// How many steps the card shows at once.
+  static const int _window = 4;
 
   @override
   Widget build(BuildContext context) {
     final steps = _timelineSteps;
     final currentIndex = steps.indexWhere((s) => s.status == status);
+    // Keep the current step in view with one step ahead of it.
+    var start = 0;
+    if (steps.length > _window && currentIndex >= _window - 1) {
+      start = (currentIndex - (_window - 2)).clamp(0, steps.length - _window);
+    }
+    final shown = steps.skip(start).take(_window).toList();
+    final later = steps.skip(start + shown.length).map((s) => s.label).toList();
 
-    return Stepper(
-      currentStep: currentIndex >= 0 ? currentIndex : 0,
-      physics: const NeverScrollableScrollPhysics(),
-      controlsBuilder: (_, __) => const SizedBox.shrink(),
-      steps: steps.map((step) {
-        final stepIndex = steps.indexOf(step);
-        final isActive = currentIndex >= 0 && stepIndex <= currentIndex;
-        final isCurrent = stepIndex == currentIndex;
-
-        return Step(
-          title: Row(
-            mainAxisSize: MainAxisSize.min,
+    return FwCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Semantics(
+            header: true,
+            child: Text(l10n.orderTimeline, style: _cardTitle),
+          ),
+          const SizedBox(height: 10),
+          Row(
             children: [
-              Flexible(
-                child: Text(
-                  step.label,
-                  style: TextStyle(
-                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+              for (final step in shown) ...[
+                Expanded(
+                  child: _TimelineStepTile(
+                    step: step,
+                    done:
+                        currentIndex >= 0 && steps.indexOf(step) < currentIndex,
+                    current: steps.indexOf(step) == currentIndex,
                   ),
                 ),
-              ),
-              const SizedBox(width: 6),
-              // What this step means: hover on web/desktop, tap on touch.
-              Tooltip(
-                message: step.info,
-                triggerMode: TooltipTriggerMode.tap,
-                showDuration: const Duration(seconds: 8),
-                margin: const EdgeInsets.symmetric(horizontal: 24),
-                child: Icon(
-                  Icons.info_outline,
-                  size: 16,
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.45),
-                ),
-              ),
+                if (step != shown.last) const SizedBox(width: 6),
+              ],
             ],
           ),
-          content: const SizedBox.shrink(),
-          isActive: isActive,
-          state: isActive ? StepState.complete : StepState.indexed,
-        );
-      }).toList(),
+          if (later.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              l10n.detailTimelineThen(_joinNames(later)),
+              style: const TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                color: AppTheme.mutedSteel,
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 10),
+            Text(
+              l10n.detailTimelineTapStep,
+              style: const TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                color: AppTheme.mutedSteel,
+              ),
+            ),
+          ],
+        ],
+      ),
     );
+  }
+
+  /// "A, B and C" in the page's language's own joiner.
+  String _joinNames(List<String> names) {
+    if (names.length == 1) return names.single;
+    final head = names.sublist(0, names.length - 1).join(', ');
+    return l10n.detailListAnd(head, names.last);
   }
 
   List<_TimelineStep> get _timelineSteps {
@@ -1462,25 +1698,29 @@ class _StatusTimeline extends StatelessWidget {
       ];
     }
 
-    // Happy path. Includes pendingPayment and disbursing so an order in either
-    // state highlights the right step instead of collapsing to step 0 (the
-    // Stepper falls back to index 0 when the status isn't in this list).
+    // Happy path. The payment steps between Created and Funded only show
+    // while the order is in one of them, so a paid order reads Created,
+    // Funded, Accepted... as on the board; disbursing likewise.
+    final paying = status == OrderStatus.pendingPayment ||
+        status == OrderStatus.paymentSubmitted;
     return [
       _TimelineStep(
         OrderStatus.created,
         l10n.statusCreated,
         l10n.statusCreatedInfo,
       ),
-      _TimelineStep(
-        OrderStatus.pendingPayment,
-        l10n.statusPendingPayment,
-        l10n.statusPendingPaymentInfo,
-      ),
-      _TimelineStep(
-        OrderStatus.paymentSubmitted,
-        l10n.statusPaymentSubmitted,
-        l10n.statusPaymentSubmittedInfo,
-      ),
+      if (paying) ...[
+        _TimelineStep(
+          OrderStatus.pendingPayment,
+          l10n.statusPendingPayment,
+          l10n.statusPendingPaymentInfo,
+        ),
+        _TimelineStep(
+          OrderStatus.paymentSubmitted,
+          l10n.statusPaymentSubmitted,
+          l10n.statusPaymentSubmittedInfo,
+        ),
+      ],
       _TimelineStep(
         OrderStatus.funded,
         l10n.statusFunded,
@@ -1491,6 +1731,13 @@ class _StatusTimeline extends StatelessWidget {
         l10n.orderAccepted,
         l10n.orderAcceptedInfo,
       ),
+      // No status of its own: done once the pickup is confirmed.
+      if (tripOrder)
+        _TimelineStep(
+          null,
+          l10n.liveTripTitle,
+          l10n.liveTripAfterPickupHint,
+        ),
       _TimelineStep(
         OrderStatus.pickupConfirmed,
         l10n.statusPickupConfirmed,
@@ -1506,11 +1753,12 @@ class _StatusTimeline extends StatelessWidget {
         l10n.statusDelivered,
         l10n.statusDeliveredInfo,
       ),
-      _TimelineStep(
-        OrderStatus.disbursing,
-        l10n.statusDisbursing,
-        l10n.statusDisbursingInfo,
-      ),
+      if (status == OrderStatus.disbursing)
+        _TimelineStep(
+          OrderStatus.disbursing,
+          l10n.statusDisbursing,
+          l10n.statusDisbursingInfo,
+        ),
       _TimelineStep(
         OrderStatus.settled,
         l10n.statusSettled,
@@ -1520,11 +1768,81 @@ class _StatusTimeline extends StatelessWidget {
   }
 }
 
+const TextStyle _cardTitle = TextStyle(
+  fontSize: 15,
+  fontWeight: FontWeight.w800,
+  color: AppTheme.soilDark,
+);
+
+/// One step of the timeline: a 4 px bar over its name. What the step means
+/// shows on hover (web, desktop) or tap (touch).
+class _TimelineStepTile extends StatelessWidget {
+  final _TimelineStep step;
+  final bool done;
+  final bool current;
+
+  const _TimelineStepTile({
+    required this.step,
+    required this.done,
+    required this.current,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bar = done
+        ? AppTheme.fieldGreen
+        : current
+            ? AppTheme.accentSoft
+            : AppTheme.whisperBorder;
+    final ink = current
+        ? AppTheme.money
+        : done
+            ? AppTheme.soilDark
+            : AppTheme.mutedSteel;
+    return Tooltip(
+      message: step.info,
+      triggerMode: TooltipTriggerMode.tap,
+      showDuration: const Duration(seconds: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 24),
+      child: Semantics(
+        button: true,
+        selected: current,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 4,
+              decoration: BoxDecoration(
+                color: bar,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              step.label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: done || current ? FontWeight.w700 : FontWeight.w600,
+                color: ink,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// ESC-48: the parties of an order reach each other here, and only here, once
 /// the farmer accepted the paid order and until the money goes back
-/// (order-lifecycle.md 1.18.0). Each counterparty gets Call and Copy (when the
-/// server sent the number) and Message (an order thread). Before that, a note
-/// says when contact opens; after a cancel, reject or refund nothing shows.
+/// (order-lifecycle.md 1.18.0). The board's contact card: one row per
+/// counterparty with their initials, name and role, Message and Call (the
+/// sheet offers Call and Copy when the server sent the number, and Message,
+/// an order thread). A trucker not yet committed is a locked row saying when
+/// contact opens. Before any contact opens, a note says when it will; after
+/// a cancel, reject or refund nothing shows.
 class _OrderContactSection extends StatelessWidget {
   final Order order;
   final String userId;
@@ -1534,7 +1852,6 @@ class _OrderContactSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
 
     // ESC-15: the trucker joins the contact only once committed to the
     // transport, and leaves it after declining or dropping out.
@@ -1551,7 +1868,7 @@ class _OrderContactSection extends StatelessWidget {
         return const SizedBox.shrink();
       }
       return Padding(
-        padding: const EdgeInsets.only(bottom: 24),
+        padding: const EdgeInsets.only(bottom: 12),
         child: ContactLockedNote(
           text: order.status == OrderStatus.funded
               ? l10n.contactAfterAcceptNote
@@ -1561,73 +1878,252 @@ class _OrderContactSection extends StatelessWidget {
     }
 
     final truckerId = order.truckerId ?? '';
-    final parties = <({String id, String name, String role, String label})>[
+    final parties = <({String id, String name, String role, Key key})>[
       if (order.buyerId != userId)
         (
           id: order.buyerId,
           name: order.buyerName,
           role: l10n.buyer,
-          label: l10n.contactBuyer,
+          key: const Key('order_contact_buyer'),
         ),
       if (order.farmerId != userId)
         (
           id: order.farmerId,
           name: order.farmerName,
           role: l10n.farmer,
-          label: l10n.contactFarmer,
+          key: const Key('order_contact_farmer'),
         ),
       if (truckerId.isNotEmpty && truckerId != userId && truckerCommitted)
         (
           id: truckerId,
           name: order.truckerName ?? '',
           role: l10n.trucker,
-          label: l10n.contactTrucker,
+          key: const Key('order_contact_trucker'),
         ),
     ];
-    if (parties.isEmpty) return const SizedBox.shrink();
+    // The trucker asked but not yet answered: contact opens when they do.
+    final truckerPending = truckerId.isNotEmpty &&
+        truckerId != userId &&
+        !truckerCommitted &&
+        truckerResponseOf(order) == CommitmentResponse.pending;
+    if (parties.isEmpty && !truckerPending) return const SizedBox.shrink();
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            l10n.contact,
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          for (final party in parties) ...[
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: () {
-                final navigator = Navigator.of(context);
-                final name = party.name.isNotEmpty
+      padding: const EdgeInsets.only(bottom: 12),
+      child: FwCard(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Column(
+          children: [
+            for (final party in parties)
+              _ContactRow(
+                key: party.key,
+                name: party.name.isNotEmpty
                     ? partyDisplayName(party.name, l10n)
-                    : party.role;
-                showContactActionsSheet(
-                  context,
-                  name: name,
-                  roleLabel: party.role,
-                  phone: orderPartyPhone(order, party.id),
-                  onMessage: () => navigator.push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => ConversationScreen(
-                        contextType: 'order',
-                        contextId: order.orderId,
-                        counterpartId: party.id,
-                        counterpartName: party.name,
+                    : party.role,
+                role: party.role,
+                divider: party != parties.last || truckerPending,
+                onOpen: () =>
+                    _openSheet(context, party.id, party.name, party.role),
+                onMessage: () => _message(context, party.id, party.name),
+              ),
+            if (truckerPending)
+              _LockedContactRow(
+                title: l10n.trucker,
+                note: l10n.detailContactOpensWhenTruckerAccepts,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openSheet(BuildContext context, String id, String name, String role) {
+    final l10n = AppLocalizations.of(context)!;
+    showContactActionsSheet(
+      context,
+      name: name.isNotEmpty ? partyDisplayName(name, l10n) : role,
+      roleLabel: role,
+      phone: orderPartyPhone(order, id),
+      onMessage: () => _message(context, id, name),
+    );
+  }
+
+  void _message(BuildContext context, String id, String name) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ConversationScreen(
+          contextType: 'order',
+          contextId: order.orderId,
+          counterpartId: id,
+          counterpartName: name,
+        ),
+      ),
+    );
+  }
+}
+
+/// A counterparty on the contact card: initials, name and role, Message and
+/// Call squares. Tapping the row opens the contact sheet (Call, Copy,
+/// Message), as does Call; Message opens the thread.
+class _ContactRow extends StatelessWidget {
+  final String name;
+  final String role;
+  final bool divider;
+  final VoidCallback onOpen;
+  final VoidCallback onMessage;
+
+  const _ContactRow({
+    required this.name,
+    required this.role,
+    required this.divider,
+    required this.onOpen,
+    required this.onMessage,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final initials = name
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .take(2)
+        .map((part) => part.characters.first.toUpperCase())
+        .join();
+    return Container(
+      constraints: const BoxConstraints(minHeight: 60),
+      decoration: divider
+          ? const BoxDecoration(
+              border: Border(bottom: BorderSide(color: AppTheme.segmentTrack)),
+            )
+          : null,
+      child: Row(
+        children: [
+          Expanded(
+            child: InkWell(
+              onTap: onOpen,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 19,
+                      backgroundColor: AppTheme.fieldGreenTint,
+                      child: Text(
+                        initials,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.fieldGreen,
+                        ),
                       ),
                     ),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.chat_outlined),
-              label: Text(party.label),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.soilDark,
+                            ),
+                          ),
+                          Text(
+                            role,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.mutedSteel,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ],
+          ),
+          const SizedBox(width: 8),
+          FwSquareButton(
+            semanticLabel: l10n.detailMessageParty(name),
+            onTap: onMessage,
+            child: const Icon(
+              Icons.chat_bubble_outline,
+              size: 18,
+              color: AppTheme.soilDark,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Semantics(
+            button: true,
+            label: l10n.detailCallParty(name),
+            child: Material(
+              color: AppTheme.fieldGreen,
+              borderRadius: BorderRadius.circular(14),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: onOpen,
+                child: const SizedBox(
+                  width: 44,
+                  height: 44,
+                  child:
+                      Icon(Icons.call_outlined, size: 18, color: Colors.white),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The trucker's row while contact is not open yet.
+class _LockedContactRow extends StatelessWidget {
+  final String title;
+  final String note;
+
+  const _LockedContactRow({required this.title, required this.note});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 60),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          const CircleAvatar(
+            radius: 19,
+            backgroundColor: AppTheme.segmentTrack,
+            child:
+                Icon(Icons.lock_outline, size: 16, color: AppTheme.mutedSteel),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.soilDark,
+                  ),
+                ),
+                Text(
+                  note,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.mutedSteel,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -1635,7 +2131,9 @@ class _OrderContactSection extends StatelessWidget {
 }
 
 class _TimelineStep {
-  final OrderStatus status;
+  /// Null for a step with no order status of its own (Live trip): never the
+  /// current step.
+  final OrderStatus? status;
   final String label;
 
   /// Plain-language explanation of what the step means, shown in a tooltip.
@@ -1652,97 +2150,9 @@ class _TransportFailureNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        border: Border.all(color: AppTheme.statusWarning),
-        borderRadius: BorderRadius.circular(8),
-        color: AppTheme.statusWarningContainer,
-      ),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.warning_amber,
-            color: AppTheme.onStatusWarningContainer,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(color: AppTheme.onStatusWarningContainer),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  final String label;
-  final String value;
-
-  /// A deadline value, shown with its small 24-hour time (LT-03); replaces
-  /// [value].
-  final ClockLabel? clock;
-
-  const _InfoRow({required this.label, this.value = '', this.clock});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-          ),
-        ),
-        Flexible(
-          child: ClockText(
-            clock ?? ClockLabel.text(value),
-            style: theme.textTheme.bodyMedium
-                ?.copyWith(fontWeight: FontWeight.w500),
-            textAlign: TextAlign.end,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _PriceRow extends StatelessWidget {
-  final String label;
-  final double amount;
-  final AppLocalizations l10n;
-  final bool isBold;
-
-  const _PriceRow({
-    required this.label,
-    required this.amount,
-    required this.l10n,
-    this.isBold = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final style = isBold
-        ? theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)
-        : theme.textTheme.bodyMedium;
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: style),
-        Text(
-          l10n.etbCurrency(amount.toStringAsFixed(2)),
-          style: style,
-        ),
-      ],
+    return FwNoteBox.cream(
+      icon: Icons.warning_amber,
+      child: Text(text),
     );
   }
 }

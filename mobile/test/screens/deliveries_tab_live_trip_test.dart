@@ -13,6 +13,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
 import 'package:wereda_connect/features/live_trip/presentation/screens/live_trip_screen.dart';
+import 'package:wereda_connect/features/live_trip/presentation/widgets/live_trip_parts.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/on_the_road_card.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/track_map.dart';
 import 'package:wereda_connect/screens/deliveries_tab_screen.dart';
@@ -96,10 +97,11 @@ void main() {
       userId: buyerId,
       deliveries: [waiting, onTheRoad],
     );
-    expect(find.text('On the road now'), findsOneWidget);
+    expect(find.text('ON THE ROAD NOW'), findsOneWidget);
+    expect(find.text('WAITING FOR PICKUP'), findsOneWidget);
     expect(find.byType(OnTheRoadCard), findsOneWidget);
     expect(find.text('Wheat · 2,000 kg'), findsOneWidget);
-    expect(find.text('Checked in 28 min ago'), findsOneWidget);
+    expect(find.textContaining(_checkedIn28), findsOneWidget);
     final eta = tracks.track!.eta!;
     final l10n = lookupAppLocalizations(const Locale('en'));
     expect(
@@ -116,6 +118,10 @@ void main() {
     expect(tracks.readers, [buyerId]);
     // The list shows no map; the map is on the live trip screen.
     expect(find.byType(TrackMap), findsNothing);
+    // The phone card keeps its route ribbon: the compact card is the web
+    // board's.
+    expect(find.byType(RouteRibbon), findsOneWidget);
+    expect(find.byType(TripProgressBar), findsNothing);
   });
 
   testWidgets('buyer: a heading per stage, in the order a delivery lives',
@@ -131,12 +137,84 @@ void main() {
       ],
     );
     // A delivered card's chip says "Delivered" too, below its heading.
-    final headings = ['On the road now', 'Waiting for pickup', 'Delivered']
+    // The switch starts on Active: the delivered one waits behind it.
+    expect(find.text('DELIVERED'), findsNothing);
+    await tester.tap(find.text('All'));
+    await settleReads(tester);
+    final headings = ['ON THE ROAD NOW', 'WAITING FOR PICKUP', 'DELIVERED']
         .map((text) => tester.getTopLeft(find.text(text).first).dy)
         .toList();
     expect(headings, orderedEquals([...headings]..sort()));
-    expect(find.text('Disputed'), findsNothing);
-    expect(find.text('Cancelled'), findsNothing);
+    expect(find.text('DISPUTED'), findsNothing);
+    expect(find.text('CANCELLED'), findsNothing);
+  });
+
+  testWidgets('buyer: Active / Delivered / All count and filter the list',
+      (tester) async {
+    final now = DateTime.now().toUtc();
+    await pumpTab(
+      tester,
+      role: UserRole.buyer,
+      userId: buyerId,
+      deliveries: [
+        // Settled: past its 48 h check window.
+        liveDelivery(
+          id: 'delivery-103',
+          status: DeliveryStatus.delivered,
+          confirmedAt: now.subtract(const Duration(hours: 72)),
+        ),
+        // Delivered, the money still waits out the window: still listed
+        // under Active, counted under Delivered (the board's "Active · 2").
+        liveDelivery(
+          id: 'delivery-105',
+          status: DeliveryStatus.delivered,
+          confirmedAt: now.subtract(const Duration(hours: 2)),
+        ),
+        waiting,
+        onTheRoad,
+      ],
+    );
+    expect(find.text('Active · 2'), findsOneWidget);
+    expect(find.text('Delivered · 2'), findsOneWidget);
+    expect(find.byKey(const ValueKey('delivery-delivery-105')), findsOneWidget);
+    expect(find.byKey(const ValueKey('delivery-delivery-103')), findsNothing);
+    // Buyer · Deliveries board, delivered card: the report window and the
+    // money still held.
+    expect(find.text('DELIVERED'), findsOneWidget);
+    expect(find.textContaining('Report a problem until'), findsOneWidget);
+    expect(find.text('Release pending'), findsOneWidget);
+
+    await tester.tap(find.text('Delivered · 2'));
+    await settleReads(tester);
+    expect(find.byKey(const ValueKey('delivery-delivery-103')), findsOneWidget);
+    expect(find.byKey(const ValueKey('delivery-delivery-105')), findsOneWidget);
+    expect(find.byType(OnTheRoadCard), findsNothing);
+    // The settled one says when it was delivered; the segment label is
+    // "Delivered · 2".
+    expect(find.textContaining(RegExp(r'· Delivered [A-Z]')), findsOneWidget);
+  });
+
+  testWidgets('a delivery row with its crop titles the card by crop and kg',
+      (tester) async {
+    // delivery-verification-api 1.21.0: no order read for the waiting card.
+    final teff =
+        liveDelivery(id: 'delivery-104', status: DeliveryStatus.pending)
+          ..cropType = 'teff'
+          ..quantity = 1500
+          ..pickupPlace = 'Bichena'
+          ..pickupPlannedAt = DateTime.utc(2026, 10, 30, 6);
+    await pumpTab(
+      tester,
+      role: UserRole.buyer,
+      userId: buyerId,
+      deliveries: [teff],
+    );
+    expect(find.text('Teff · 1,500 kg'), findsOneWidget);
+    expect(
+      find.text('Almaz Bekele, Bichena · pickup Fri 30 Oct'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Delivery #'), findsNothing);
   });
 
   testWidgets('buyer: a card opens the live trip', (tester) async {
@@ -174,7 +252,7 @@ void main() {
     expect(tracks.readers, [farmerId]);
   });
 
-  testWidgets('trucker: the list is unchanged, no live trip, no read',
+  testWidgets('trucker: the same stages, no live trip, no read',
       (tester) async {
     await pumpTab(
       tester,
@@ -182,8 +260,10 @@ void main() {
       userId: truckerId,
       deliveries: [onTheRoad, waiting],
     );
-    expect(find.text('On the road now'), findsNothing);
-    expect(find.text('Waiting for pickup'), findsNothing);
+    // The same stages as the buyer's, as plain cards: no live trip card, no
+    // map, no track read.
+    expect(find.text('ON THE ROAD NOW'), findsOneWidget);
+    expect(find.text('WAITING FOR PICKUP'), findsOneWidget);
     expect(find.byType(OnTheRoadCard), findsNothing);
     expect(find.byType(DeliveryCard), findsNWidgets(2));
     expect(find.byType(TrackMap), findsNothing);
@@ -216,6 +296,114 @@ void main() {
     expect(find.byType(LiveTripScreen), findsNothing);
   });
 
+  // Web board at 1280 px: the 220 px sidebar leaves the tab 1060 px, and
+  // the pane puts the check-ins beside the details, each column as wide as
+  // the board's (about 330 px) so the driver's name is not cut.
+  testWidgets('desktop: the pane keeps the board\'s two columns at 1280 px',
+      (tester) async {
+    await pumpTab(
+      tester,
+      role: UserRole.buyer,
+      userId: buyerId,
+      deliveries: [onTheRoad],
+      size: const Size(1060, 1000),
+    );
+    final card = find.byKey(const Key('live_trip_check_ins_card'));
+    expect(card, findsOneWidget);
+    expect(tester.getSize(card).width, greaterThanOrEqualTo(320));
+    final details = find.byType(ArrivalWindowBlock);
+    expect(
+      tester.getTopLeft(card).dx,
+      greaterThan(tester.getTopLeft(details).dx),
+    );
+    expect(
+      tester.getTopLeft(card).dy,
+      lessThan(tester.getTopLeft(details).dy + 40),
+    );
+  });
+
+  // Web board (web/LiveDeliveries.dc.html): the list beside the pane has
+  // no stage labels and compact cards, in the same stage order.
+  testWidgets('desktop: compact cards with no stage labels beside the pane',
+      (tester) async {
+    final now = DateTime.now().toUtc();
+    final teff =
+        liveDelivery(id: 'delivery-104', status: DeliveryStatus.pending)
+          ..cropType = 'teff'
+          ..quantity = 1500
+          ..pickupPlace = 'Bichena'
+          ..pickupPlannedAt = DateTime.utc(2026, 10, 30, 6);
+    final chickpea = liveDelivery(
+      id: 'delivery-105',
+      status: DeliveryStatus.delivered,
+      confirmedAt: now.subtract(const Duration(hours: 2)),
+    )
+      ..cropType = 'chickpea'
+      ..quantity = 800;
+    await pumpTab(
+      tester,
+      role: UserRole.buyer,
+      userId: buyerId,
+      deliveries: [chickpea, teff, onTheRoad],
+      size: const Size(1400, 1000),
+    );
+    expect(find.text('ON THE ROAD NOW'), findsNothing);
+    expect(find.text('WAITING FOR PICKUP'), findsNothing);
+    expect(find.text('DELIVERED'), findsNothing);
+
+    // On the road: the title and parties, the window with "arriving", the
+    // bar and the check-in chip; no ribbon.
+    final onRoad = find.byType(OnTheRoadCard);
+    expect(onRoad, findsOneWidget);
+    expect(
+      find.descendant(of: onRoad, matching: find.text('Wheat · 2,000 kg')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: onRoad, matching: find.text('arriving')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('trip_progress_delivery-101')), findsOneWidget);
+    expect(
+      find.descendant(
+        of: onRoad,
+        matching: find.textContaining(_checkedIn28),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: onRoad, matching: find.byType(RouteRibbon)),
+      findsNothing,
+    );
+
+    // Waiting: one line with the pickup day and the map note.
+    expect(find.text('Teff · 1,500 kg'), findsOneWidget);
+    expect(
+      find.text('Waiting for pickup Fri 30 Oct · map starts at pickup'),
+      findsOneWidget,
+    );
+    expect(
+      find.text("The map appears when the driver scans the farmer's QR."),
+      findsNothing,
+    );
+
+    // Delivered in the check window: the day, the report deadline, the pill.
+    expect(find.text('Chickpea · 800 kg'), findsOneWidget);
+    expect(
+      find.textContaining(
+        RegExp(r'^Delivered [A-Z][a-z]{2} · report a problem until '),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Release pending'), findsOneWidget);
+
+    // The stage order holds without the labels.
+    final tops = ['Wheat · 2,000 kg', 'Teff · 1,500 kg', 'Chickpea · 800 kg']
+        .map((text) => tester.getTopLeft(find.text(text).first).dy)
+        .toList();
+    expect(tops, orderedEquals([...tops]..sort()));
+  });
+
   testWidgets('desktop trucker: no pane', (tester) async {
     await pumpTab(
       tester,
@@ -228,3 +416,7 @@ void main() {
     expect(tracks.fetches, 0);
   });
 }
+
+/// recentTrack puts the check-in 28 minutes before the minute the test set
+/// up in; a slow run can cross into the next minute before the card draws.
+final _checkedIn28 = RegExp(r'^Checked in 2[89] min ago$');

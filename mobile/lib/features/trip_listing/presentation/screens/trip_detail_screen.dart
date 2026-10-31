@@ -1,29 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
-import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
-import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
-import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_bookings_section.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
-import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
-import 'package:wereda_connect/shared/widgets/status_chip.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
+import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
-/// Screen showing full details of a single trip.
-///
-/// Displays route, departure date, capacity, price, trucker info,
-/// status badge, and a cancel button for the trip owner.
-/// Follows the same pattern as crop listing detail views.
+/// One trip, as the Trucker · Trip and bookings board draws it: the dark
+/// header names the trip (day, price, route) and shows how much of the
+/// truck is booked; the owner then sees the booked orders with the one to
+/// answer first, the pickup reminder, and Start trip or Cancel trip pinned
+/// at the foot. A buyer browsing the trip sees the trucker's name and when
+/// contact opens instead (ESC-48).
 class TripDetailScreen extends StatelessWidget {
   final Trip trip;
 
@@ -32,8 +34,9 @@ class TripDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final dateFormat = DateFormat.yMMMd();
+    final authState = context.read<AuthBloc>().state;
+    final isOwner =
+        authState is AuthAuthenticated && authState.userId == trip.truckerId;
 
     return BlocListener<TripListingBloc, TripListingState>(
       listener: (context, state) {
@@ -63,325 +66,223 @@ class TripDetailScreen extends StatelessWidget {
         }
       },
       child: Scaffold(
-        // The dark header below names the trip (Trucker · Trip detail
-        // board); the bar keeps only Back, on the header's color.
-        appBar: AppBar(
-          elevation: 0,
-          backgroundColor: _RouteHeader.background,
-          foregroundColor: Colors.white,
-        ),
-        body: SafeArea(
-          child: Column(
-            children: [
-              const OfflineBanner(),
-              Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _RouteHeader(trip: trip),
-                      Padding(
-                        padding: const EdgeInsets.all(24.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Status badge
-                            _TripDetailStatusBadge(status: trip.status),
-                            const SizedBox(height: 24),
-
-                            // Trip info cards
-                            _InfoRow(
-                              icon: Icons.calendar_today,
-                              label: l10n.departureDate,
-                              value: dateFormat
-                                  .format(dayInEthiopia(trip.departureDate)),
-                            ),
-                            const SizedBox(height: 12),
-                            _InfoRow(
-                              icon: Icons.local_shipping,
-                              label: l10n.capacity,
-                              value: trip.remainingQuintals == null
-                                  ? '${trip.capacity} ${l10n.quintals}'
-                                  : '${trip.capacity} ${l10n.quintals} · '
-                                      '${l10n.tripRemainingCapacity(formatQuintals(tripRoomLeft(trip)))}',
-                            ),
-                            const SizedBox(height: 12),
-                            _InfoRow(
-                              icon: Icons.payments,
-                              label: l10n.pricePerQuintal,
-                              value: l10n.etbCurrency(
-                                trip.pricePerQuintal.toStringAsFixed(2),
-                              ),
-                            ),
-                            const SizedBox(height: 24),
-
-                            // Trucker contact section
-                            Text(
-                              l10n.truckerContact,
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            _InfoRow(
-                              icon: Icons.person,
-                              label: l10n.truckerName,
-                              value: trip.truckerName,
-                            ),
-                            // ESC-48: only the trip's own trucker sees the phone
-                            // here. A buyer reaches the trucker from the order once
-                            // the farmer accepted it, never before any order.
-                            Builder(
-                              builder: (context) {
-                                final authState =
-                                    context.read<AuthBloc>().state;
-                                final me = authState is AuthAuthenticated
-                                    ? authState.userId
-                                    : '';
-                                if (me.isNotEmpty && me == trip.truckerId) {
-                                  return Padding(
-                                    padding: const EdgeInsets.only(top: 12),
-                                    child: _InfoRow(
-                                      icon: Icons.phone,
-                                      label: l10n.truckerPhone,
-                                      value: trip.truckerPhone,
-                                    ),
-                                  );
-                                }
-                                return Padding(
-                                  padding: const EdgeInsets.only(top: 16),
-                                  child: ContactLockedNote(
-                                    text: l10n.contactAfterEscrowNote,
-                                  ),
-                                );
-                              },
-                            ),
-                            const SizedBox(height: 32),
-
-                            // ESC-15: the orders booked on the trucker's own trip.
-                            Builder(
-                              builder: (context) {
-                                final authState =
-                                    context.read<AuthBloc>().state;
-                                final isOwner =
-                                    authState is AuthAuthenticated &&
-                                        authState.userId == trip.truckerId;
-                                if (!isOwner) return const SizedBox.shrink();
-                                final beforePickup =
-                                    trip.status == TripStatus.open ||
-                                        trip.status == TripStatus.matched;
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 32),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      TripBookingsSection(trip: trip),
-                                      if (beforePickup &&
-                                          tripHasBookings(trip)) ...[
-                                        const SizedBox(height: 12),
-                                        _TripNote(
-                                          text: l10n.tripScanAtPickupNote,
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-
-                            // Contextual action buttons based on trip status
-                            BlocBuilder<TripListingBloc, TripListingState>(
-                              builder: (context, state) {
-                                // Owner-only actions: hide Start/Mark Delivered/Cancel
-                                // for non-owners (e.g. Buyers browsing all open trips).
-                                final authState =
-                                    context.read<AuthBloc>().state;
-                                final isOwner =
-                                    authState is AuthAuthenticated &&
-                                        authState.userId == trip.truckerId;
-                                if (!isOwner) {
-                                  return const SizedBox.shrink();
-                                }
-                                final isLoading = state is TripListingLoading;
-                                // ESC-15: a trip stays open while it has room, so
-                                // one with bookings may start too (matched = full).
-                                final canStart =
-                                    trip.status == TripStatus.matched ||
-                                        (trip.status == TripStatus.open &&
-                                            tripHasBookings(trip));
-                                return Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    // Start Trip (matched trips, or open with bookings)
-                                    if (canStart)
-                                      SizedBox(
-                                        width: double.infinity,
-                                        child: ElevatedButton.icon(
-                                          onPressed: isLoading
-                                              ? null
-                                              : () =>
-                                                  _showStartTripConfirmation(
-                                                    context,
-                                                    l10n,
-                                                  ),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor:
-                                                AppTheme.statusSuccess,
-                                            foregroundColor: Colors.white,
-                                            padding: const EdgeInsets.symmetric(
-                                              vertical: 16,
-                                            ),
-                                            minimumSize:
-                                                const Size.fromHeight(56),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                            ),
-                                          ),
-                                          icon: isLoading
-                                              ? const SizedBox(
-                                                  height: 20,
-                                                  width: 20,
-                                                  child:
-                                                      CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                    valueColor:
-                                                        AlwaysStoppedAnimation<
-                                                            Color>(
-                                                      Colors.white,
-                                                    ),
-                                                  ),
-                                                )
-                                              : const Icon(Icons.play_arrow),
-                                          label: Text(
-                                            l10n.startTrip,
-                                            style:
-                                                const TextStyle(fontSize: 16),
-                                          ),
-                                        ),
-                                      ),
-                                    // Mark Delivered (inTransit trips)
-                                    if (trip.status == TripStatus.inTransit)
-                                      SizedBox(
-                                        width: double.infinity,
-                                        child: ElevatedButton.icon(
-                                          onPressed: isLoading
-                                              ? null
-                                              : () =>
-                                                  _showMarkDeliveredConfirmation(
-                                                    context,
-                                                    l10n,
-                                                  ),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor:
-                                                AppTheme.statusSuccess,
-                                            foregroundColor: Colors.white,
-                                            padding: const EdgeInsets.symmetric(
-                                              vertical: 16,
-                                            ),
-                                            minimumSize:
-                                                const Size.fromHeight(56),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                            ),
-                                          ),
-                                          icon: isLoading
-                                              ? const SizedBox(
-                                                  height: 20,
-                                                  width: 20,
-                                                  child:
-                                                      CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                    valueColor:
-                                                        AlwaysStoppedAnimation<
-                                                            Color>(
-                                                      Colors.white,
-                                                    ),
-                                                  ),
-                                                )
-                                              : const Icon(
-                                                  Icons.check_circle_outline,
-                                                ),
-                                          label: Text(
-                                            l10n.markDelivered,
-                                            style:
-                                                const TextStyle(fontSize: 16),
-                                          ),
-                                        ),
-                                      ),
-                                    // Cancel button (open/matched trips)
-                                    if (trip.status == TripStatus.open ||
-                                        trip.status == TripStatus.matched) ...[
-                                      if (canStart) const SizedBox(height: 12),
-                                      SizedBox(
-                                        width: double.infinity,
-                                        child: OutlinedButton(
-                                          onPressed: isLoading
-                                              ? null
-                                              : () => _showCancelConfirmation(
-                                                    context,
-                                                    l10n,
-                                                  ),
-                                          style: OutlinedButton.styleFrom(
-                                            backgroundColor: Colors.white,
-                                            foregroundColor: AppTheme.soilDark,
-                                            side: const BorderSide(
-                                              color: AppTheme.whisperBorder,
-                                            ),
-                                            minimumSize:
-                                                const Size.fromHeight(52),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                            ),
-                                          ),
-                                          child: isLoading
-                                              ? const SizedBox(
-                                                  height: 20,
-                                                  width: 20,
-                                                  child:
-                                                      CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                  ),
-                                                )
-                                              : Text(
-                                                  l10n.cancelTrip,
-                                                  style: const TextStyle(
-                                                    fontSize: 15,
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
-                                                ),
-                                        ),
-                                      ),
-                                      if (tripHasBookings(trip)) ...[
-                                        const SizedBox(height: 8),
-                                        _TripNote(
-                                          text: l10n.tripCancelBookedNote,
-                                        ),
-                                      ],
-                                    ],
-                                  ],
-                                );
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+        body: Column(
+          children: [
+            _RouteHeader(trip: trip),
+            const OfflineBanner(),
+            Expanded(
+              child: SingleChildScrollView(
+                child: FwContentWidth(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                    child: isOwner
+                        ? _OwnerBody(trip: trip)
+                        : _VisitorBody(trip: trip),
                   ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        bottomNavigationBar: isOwner ? _OwnerActions(trip: trip) : null,
+      ),
+    );
+  }
+}
+
+/// The owner's page: the booked orders and, before pickup, what to do with
+/// each farmer's QR on the day.
+class _OwnerBody extends StatelessWidget {
+  final Trip trip;
+
+  const _OwnerBody({required this.trip});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final beforePickup =
+        trip.status == TripStatus.open || trip.status == TripStatus.matched;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TripBookingsSection(trip: trip),
+        if (beforePickup && tripHasBookings(trip))
+          FwNoteBox(
+            icon: Icons.qr_code_scanner,
+            child: Text(l10n.tripScanAtPickupNote),
+          ),
+      ],
+    );
+  }
+}
+
+/// A buyer's view of someone else's trip: who drives, and that the phone
+/// opens on the order once the farmer accepted it (ESC-48), never before.
+class _VisitorBody extends StatelessWidget {
+  final Trip trip;
+
+  const _VisitorBody({required this.trip});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        FwCard(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: const BoxDecoration(
+                  color: AppTheme.actionCream,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.local_shipping_outlined,
+                  color: AppTheme.money,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      trip.truckerName,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.soilDark,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      l10n.trucker,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.mutedSteel,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
         ),
-      ),
+        const SizedBox(height: 12),
+        ContactLockedNote(text: l10n.contactAfterEscrowNote),
+      ],
+    );
+  }
+}
+
+/// The owner's actions pinned at the foot: Start trip once orders are
+/// booked, Mark delivered on the road, Cancel trip before pickup with what
+/// a cancel does to the booked orders.
+class _OwnerActions extends StatelessWidget {
+  final Trip trip;
+
+  const _OwnerActions({required this.trip});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    // ESC-15: a trip stays open while it has room, so one with bookings may
+    // start too (matched = full).
+    final canStart = trip.status == TripStatus.matched ||
+        (trip.status == TripStatus.open && tripHasBookings(trip));
+    final canDeliver = trip.status == TripStatus.inTransit;
+    final canCancel =
+        trip.status == TripStatus.open || trip.status == TripStatus.matched;
+    if (!canStart && !canDeliver && !canCancel) {
+      return const SizedBox.shrink();
+    }
+    return BlocBuilder<TripListingBloc, TripListingState>(
+      builder: (context, state) {
+        final isLoading = state is TripListingLoading;
+        return FwBottomActions(
+          children: [
+            if (canStart)
+              _PrimaryAction(
+                label: l10n.startTrip,
+                icon: Icons.play_arrow,
+                busy: isLoading,
+                onPressed: () => _confirm(
+                  context,
+                  title: l10n.startTrip,
+                  body: l10n.startTripConfirmation,
+                  confirmLabel: l10n.startTrip,
+                  confirmColor: AppTheme.statusSuccess,
+                  eventFactory: (truckerId) =>
+                      StartTrip(tripId: trip.tripId, truckerId: truckerId),
+                ),
+              ),
+            if (canDeliver)
+              _PrimaryAction(
+                label: l10n.markDelivered,
+                icon: Icons.check_circle_outline,
+                busy: isLoading,
+                onPressed: () => _confirm(
+                  context,
+                  title: l10n.markDelivered,
+                  body: l10n.markDeliveredConfirmation,
+                  confirmLabel: l10n.markDelivered,
+                  confirmColor: AppTheme.statusSuccess,
+                  eventFactory: (truckerId) => MarkTripDelivered(
+                    tripId: trip.tripId,
+                    truckerId: truckerId,
+                  ),
+                ),
+              ),
+            if (canCancel) ...[
+              if (canStart) const SizedBox(height: 8),
+              OutlinedButton(
+                onPressed: isLoading
+                    ? null
+                    : () => _confirm(
+                          context,
+                          title: l10n.cancelTrip,
+                          body: l10n.cancelTripConfirmation,
+                          confirmLabel: l10n.cancelTrip,
+                          confirmColor: AppTheme.statusError,
+                          eventFactory: (truckerId) => CancelTrip(
+                            tripId: trip.tripId,
+                            truckerId: truckerId,
+                          ),
+                        ),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  textStyle: const TextStyle(
+                    fontFamily: AppTheme.fontFamily,
+                    fontFamilyFallback: AppTheme.ethiopicFontFallback,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                child: isLoading && !canStart && !canDeliver
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(l10n.cancelTrip),
+              ),
+              if (tripHasBookings(trip))
+                FwActionNote(l10n.tripCancelBookedNote),
+            ],
+          ],
+        );
+      },
     );
   }
 
-  void _showTripConfirmation(
+  void _confirm(
     BuildContext context, {
     required String title,
     required String body,
@@ -419,75 +320,47 @@ class TripDetailScreen extends StatelessWidget {
       },
     );
   }
-
-  void _showStartTripConfirmation(
-    BuildContext context,
-    AppLocalizations l10n,
-  ) {
-    _showTripConfirmation(
-      context,
-      title: l10n.startTrip,
-      body: l10n.startTripConfirmation,
-      confirmLabel: l10n.startTrip,
-      confirmColor: AppTheme.statusSuccess,
-      eventFactory: (truckerId) =>
-          StartTrip(tripId: trip.tripId, truckerId: truckerId),
-    );
-  }
-
-  void _showMarkDeliveredConfirmation(
-    BuildContext context,
-    AppLocalizations l10n,
-  ) {
-    _showTripConfirmation(
-      context,
-      title: l10n.markDelivered,
-      body: l10n.markDeliveredConfirmation,
-      confirmLabel: l10n.markDelivered,
-      confirmColor: AppTheme.statusSuccess,
-      eventFactory: (truckerId) =>
-          MarkTripDelivered(tripId: trip.tripId, truckerId: truckerId),
-    );
-  }
-
-  void _showCancelConfirmation(BuildContext context, AppLocalizations l10n) {
-    _showTripConfirmation(
-      context,
-      title: l10n.cancelTrip,
-      body: l10n.cancelTripConfirmation,
-      confirmLabel: l10n.cancelTrip,
-      confirmColor: AppTheme.statusError,
-      eventFactory: (truckerId) =>
-          CancelTrip(tripId: trip.tripId, truckerId: truckerId),
-    );
-  }
 }
 
-/// A short muted line explaining what a booking means for the trip
-/// (Trucker · Trip and bookings board).
-class _TripNote extends StatelessWidget {
-  final String text;
+/// The board's primary button (56 tall, radius 16) with a spinner while the
+/// trip's change is on its way.
+class _PrimaryAction extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool busy;
+  final VoidCallback onPressed;
 
-  const _TripNote({required this.text});
+  const _PrimaryAction({
+    required this.label,
+    required this.icon,
+    required this.busy,
+    required this.onPressed,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: const TextStyle(
-        fontSize: 13,
-        height: 1.4,
-        color: AppTheme.mutedSteel,
-      ),
+    return FilledButton.icon(
+      onPressed: busy ? null : onPressed,
+      style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+      icon: busy
+          ? const SizedBox(
+              height: 20,
+              width: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            )
+          : Icon(icon),
+      label: Text(label),
     );
   }
 }
 
-/// The trip's dark header (Fieldway: TripDetail.dc.html): day and price,
-/// the route, and how much of the truck is booked with what a booking keeps.
+/// The trip's dark header (Fieldway: TripDetail.dc.html): Back beside the
+/// day and price and the route, the status when the trip is no longer open,
+/// and how much of the truck is booked with what a booking keeps.
 class _RouteHeader extends StatelessWidget {
-  static const background = Color(0xFF15201A);
-
   final Trip trip;
 
   const _RouteHeader({required this.trip});
@@ -495,40 +368,72 @@ class _RouteHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final day = DateFormat.MMMEd().format(dayInEthiopia(trip.departureDate));
+    final day = boardDayInEthiopia(trip.departureDate);
     final price = l10n.tripPricePerQuintalValue(
       trip.pricePerQuintal.toStringAsFixed(0),
     );
+    final topInset = MediaQuery.paddingOf(context).top;
     return Container(
-      padding: const EdgeInsets.fromLTRB(24, 0, 24, 22),
-      color: background,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '$day · $price',
-            style: const TextStyle(fontSize: 13, color: Color(0xFFB9C2BD)),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${trip.fromWoreda} → ${trip.toWoreda}',
-            style: const TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.5,
-              color: Colors.white,
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(20, topInset + 12, 20, 22),
+      color: AppTheme.soilDark,
+      child: FwContentWidth(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const FwBackButton(dark: true),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$day · $price',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppTheme.soilMuted,
+                        ),
+                      ),
+                      Semantics(
+                        header: true,
+                        child: Text(
+                          '${trip.fromWoreda} → ${trip.toWoreda}',
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.6,
+                            height: 1.15,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (trip.status != TripStatus.open) ...[
+                  const SizedBox(width: 12),
+                  StatusChip(
+                    label: tripStatusLabel(trip.status, l10n),
+                    kind: tripStatusKind(trip.status),
+                  ),
+                ],
+              ],
             ),
-          ),
-          if (tripHasBookings(trip) && trip.capacity > 0) ...[
-            const SizedBox(height: 16),
-            _BookedBox(trip: trip),
+            if (trip.capacity > 0) ...[
+              const SizedBox(height: 16),
+              _BookedBox(trip: trip),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
 }
 
+/// How much of the truck is booked: the quintals out of the capacity, the
+/// load bar, and the terms a booking fixes once there is one.
 class _BookedBox extends StatelessWidget {
   final Trip trip;
 
@@ -538,14 +443,17 @@ class _BookedBox extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final capacity = trip.capacity;
-    final booked = (capacity - tripRoomLeft(trip)).clamp(0, capacity);
-    final space = '${formatQuintals(capacity)} ${l10n.quintals} · '
-        '${l10n.tripRemainingCapacity(formatQuintals(tripRoomLeft(trip)))}';
+    final left = tripRoomLeft(trip);
+    final booked = (capacity - left).clamp(0, capacity).toDouble();
+    final space = '${l10n.detailBookedOf(
+      formatQuintals(booked),
+      formatQuintals(capacity),
+    )} · ${l10n.detailLeft(formatQuintals(left))}';
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF22302A),
-        borderRadius: BorderRadius.circular(14),
+        color: AppTheme.soilCard,
+        borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -554,109 +462,44 @@ class _BookedBox extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  l10n.tripSpaceTitle,
+                  l10n.detailBooked,
                   style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFFB9C2BD),
+                    fontSize: 13,
+                    color: AppTheme.soilMuted,
                   ),
                 ),
               ),
               Text(
                 space,
                 style: const TextStyle(
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: FontWeight.w700,
                   color: Colors.white,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           ClipRRect(
             borderRadius: BorderRadius.circular(999),
             child: LinearProgressIndicator(
               value: booked / capacity,
-              minHeight: 6,
-              backgroundColor: const Color(0xFF3A4A42),
+              minHeight: 8,
+              backgroundColor: AppTheme.soilTrack,
               valueColor: const AlwaysStoppedAnimation<Color>(
-                Color(0xFFD9922B),
+                AppTheme.accentSoft,
               ),
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            l10n.tripBookedTermsNote,
-            style: const TextStyle(fontSize: 12, color: Color(0xFFB9C2BD)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Status badge for the detail screen (larger than card version).
-///
-/// Uses the shared status vocabulary — same kind mapping as the trip card,
-/// so the detail screen can never show a different color for the same state.
-class _TripDetailStatusBadge extends StatelessWidget {
-  final TripStatus status;
-
-  const _TripDetailStatusBadge({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-
-    return StatusChip(
-      label: tripStatusLabel(status, l10n),
-      kind: tripStatusKind(status),
-      large: true,
-    );
-  }
-}
-
-/// Reusable row showing icon + label + value.
-class _InfoRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _InfoRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Row(
-      children: [
-        Icon(
-          icon,
-          size: 20,
-          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-        ),
-        const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+          if (tripHasBookings(trip)) ...[
+            const SizedBox(height: 10),
             Text(
-              label,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-              ),
-            ),
-            Text(
-              value,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                fontWeight: FontWeight.w500,
-              ),
+              l10n.tripBookedTermsNote,
+              style: const TextStyle(fontSize: 12, color: AppTheme.soilMuted),
             ),
           ],
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

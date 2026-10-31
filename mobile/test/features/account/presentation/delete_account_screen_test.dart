@@ -131,7 +131,8 @@ void main() {
     await pump(tester);
 
     expect(find.text('Delete account'), findsOneWidget);
-    expect(find.text('What is deleted'), findsOneWidget);
+    // The headings are the boards' uppercase section labels.
+    expect(find.text('WHAT IS DELETED'), findsOneWidget);
     expect(find.text('Your profile, name and phone number'), findsOneWidget);
     expect(find.text('The link to your Fayda ID'), findsOneWidget);
     expect(
@@ -139,7 +140,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Your messages'), findsOneWidget);
-    expect(find.text('What is kept, without your name'), findsOneWidget);
+    expect(find.text('WHAT IS KEPT, WITHOUT YOUR NAME'), findsOneWidget);
     expect(find.text('Orders, deliveries and payment records'), findsOneWidget);
     expect(find.text('Delete my account'), findsOneWidget);
   });

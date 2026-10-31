@@ -139,9 +139,9 @@ void main() {
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('15,000.00'), findsWidgets);
-      expect(find.textContaining('375.00'), findsOneWidget);
-      expect(find.textContaining('14,625.00'), findsOneWidget);
+      expect(find.textContaining('15,000 ETB'), findsWidgets);
+      expect(find.textContaining('375 ETB'), findsOneWidget);
+      expect(find.textContaining('14,625 ETB'), findsOneWidget);
     });
 
     testWidgets('shows the trucker leg when the order had a trucker split',
@@ -157,8 +157,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Trucker Receives'), findsOneWidget);
-      expect(find.textContaining('1,000.00'), findsOneWidget);
-      expect(find.textContaining('14,625.00'), findsOneWidget);
+      expect(find.textContaining('1,000 ETB'), findsOneWidget);
+      expect(find.textContaining('14,625 ETB'), findsOneWidget);
     });
 
     testWidgets('hides the trucker leg without a trucker split',

@@ -20,7 +20,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
-import 'package:wereda_connect/shared/widgets/green_header.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -115,38 +115,67 @@ void main() {
       expect(find.text('My Requests'), findsOneWidget);
     });
 
-    testWidgets('the tabs are a segmented switch (Market board)',
+    testWidgets('the tabs are the board segmented switch (Market board)',
         (tester) async {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      final tabBar = tester.widget<TabBar>(find.byType(TabBar));
-      expect(tabBar.indicator, isA<BoxDecoration>());
-      expect(tabBar.indicatorSize, TabBarIndicatorSize.tab);
-      expect(tabBar.dividerColor, Colors.transparent);
+      expect(find.byType(FwSegmented<int>), findsOneWidget);
+      expect(find.byType(TabBar), findsNothing);
+      // Both bodies stay alive behind the switch, the hidden one off stage.
+      expect(find.byType(Offstage), findsWidgets);
     });
 
     testWidgets(
-        'only one GreenHeader in the tree — embedded BrowseListingsScreen '
-        'does not render its own header', (tester) async {
+        'one page header: the embedded BrowseListingsScreen does not add '
+        'its own', (tester) async {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      // FindCropsScreen owns exactly one GreenHeader.
-      // BrowseListingsScreen(showHeader: false) must not add a second one.
-      expect(find.byType(GreenHeader), findsOneWidget);
+      expect(find.byType(FwPageHeader), findsOneWidget);
+      expect(find.text('Find Crops'), findsOneWidget);
     });
 
-    testWidgets('TabBarView uses NeverScrollableScrollPhysics', (tester) async {
+    testWidgets(
+        'search and price filters stay behind the header button (board)',
+        (tester) async {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      expect(
-        find.byWidgetPredicate(
-          (w) => w is TabBarView && w.physics is NeverScrollableScrollPhysics,
-        ),
-        findsOneWidget,
-      );
+      expect(find.text('Search crops, farmers...'), findsNothing);
+      expect(find.text('Min'), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pumpAndSettle();
+      expect(find.text('Search crops, farmers...'), findsOneWidget);
+      expect(find.text('Min'), findsOneWidget);
+      expect(find.text('Max'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.search).first);
+      await tester.pumpAndSettle();
+      expect(find.text('Search crops, farmers...'), findsNothing);
+    });
+
+    testWidgets('My Requests counts the active intents', (tester) async {
+      final intent = BuyerIntent()
+        ..intentId = 'intent-001'
+        ..buyerId = 'buyer-001'
+        ..cropType = 'wheat'
+        ..quantityNeeded = 100
+        ..maxPricePerKg = 30
+        ..deliveryWoreda = 'Adama'
+        ..status = BuyerIntentStatus.active
+        ..createdAt = DateTime.utc(2026)
+        ..updatedAt = DateTime.utc(2026)
+        ..version = 1;
+      final state = ActiveIntentsLoaded(intents: [intent]);
+      when(() => buyerIntentBloc.state).thenReturn(state);
+      when(() => buyerIntentBloc.stream).thenAnswer((_) => Stream.value(state));
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(find.text('My Requests · 1'), findsOneWidget);
     });
 
     testWidgets('My Requests tab shows loading indicator when loading',
@@ -208,7 +237,7 @@ void main() {
 
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
-      await tester.tap(find.text('My Requests'));
+      await tester.tap(find.text('My Requests · 1'));
       await tester.pumpAndSettle();
 
       final list = tester.widget<ListView>(

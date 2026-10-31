@@ -5,6 +5,7 @@ import 'package:wereda_connect/features/buyer/domain/new_matches.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 /// Compact card for displaying a buyer intent on the home screen.
 ///
@@ -47,18 +48,16 @@ class IntentCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              // Crop icon
+              // The boards' crop tile: the sprout in the crop's colours.
               Container(
-                width: 40,
-                height: 40,
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
-                  color: AppTheme.primaryGreen.withAlpha(20),
-                  borderRadius: BorderRadius.circular(10),
+                  color: cropTileColors(intent.cropType).background,
+                  borderRadius: BorderRadius.circular(14),
                 ),
-                child: Icon(
-                  cropType.icon,
-                  size: 22,
-                  color: AppTheme.primaryGreen,
+                child: FwSprout(
+                  color: cropTileColors(intent.cropType).foreground,
                 ),
               ),
               const SizedBox(width: 12),

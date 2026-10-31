@@ -15,24 +15,27 @@ import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
 import 'package:wereda_connect/features/buyer/domain/services/matching_service.dart'
     if (dart.library.html) 'package:wereda_connect/features/buyer/domain/services/matching_service_web.dart';
+import 'package:wereda_connect/core/models/place.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/buyer/presentation/widgets/suggested_trip_card.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/create_delivery_screen.dart';
 import 'package:wereda_connect/features/order/presentation/screens/place_order_screen.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
-import 'package:wereda_connect/features/rating/presentation/widgets/star_rating.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/route_preview_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
-import 'package:wereda_connect/shared/widgets/clock_text.dart';
-import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
-/// Full detail view for a single crop listing.
-///
-/// Displays crop info (type, quantity, price, location, description, date)
-/// and role-based action buttons (trucker → Create Delivery, buyer → Place
-/// Order; contact opens on the order, ESC-48). Follows the same SafeArea + SingleChildScrollView layout used by
-/// [DeliveryDetailScreen] and [CreateCropListingScreen].
+/// Full detail view for a single crop listing (the Buyer · Crop detail and
+/// transport board): the crop and price large, the farmer, where it is (with
+/// the buyer's place on the same drawing), the description, the suggested
+/// transport with the price for the quantity needed, and the role's action
+/// pinned at the foot (trucker → Create Delivery, buyer → Place Order;
+/// contact opens on the order, ESC-48).
 class CropListingDetailScreen extends StatefulWidget {
   final CropListing listing;
   final String currentUserId;
@@ -65,6 +68,22 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
   Trip? _selectedTrip;
   bool _tripsLoading = false;
 
+  /// Each suggested trucker's aggregate (`GET /ratings?rateeId=`), fetched
+  /// once per screen (3G data); null when it cannot be read.
+  final Map<String, Future<RatingSummary?>> _truckerRatings = {};
+
+  Future<RatingSummary?> _truckerRatingFor(String truckerId) =>
+      _truckerRatings.putIfAbsent(truckerId, () async {
+        try {
+          return await context
+              .read<RatingBloc>()
+              .repository
+              .getRatingSummary(truckerId);
+        } on Object {
+          return null;
+        }
+      });
+
   @override
   void initState() {
     super.initState();
@@ -72,6 +91,11 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
         widget.deliveryWoreda != null) {
       _loadSuggestedTrips();
     }
+    // The location drawing needs the place list for the buyer's place and
+    // the towns on the way.
+    PlaceRepository.instance.ensureLoaded().then((_) {
+      if (mounted) setState(() {});
+    }).ignore();
   }
 
   Future<void> _loadSuggestedTrips() async {
@@ -172,87 +196,121 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
 
   double get _total => _pricing.orderTotal;
 
+  /// The buyer's place, resolved from the delivery wereda for the drawing.
+  Place? get _buyerPlace {
+    final name = widget.deliveryWoreda;
+    if (name == null || name.trim().isEmpty) return null;
+    if (!PlaceRepository.instance.isLoaded) return null;
+    return PlaceRepository.instance.findByDisplayName(name.trim());
+  }
+
+  /// The crop's place: the listing's own position under its place name.
+  Place? get _listingPlace {
+    final listing = widget.listing;
+    if (listing.location.latitude == 0 && listing.location.longitude == 0) {
+      return null;
+    }
+    return Place(
+      id: listing.placeId ?? 'listing-${listing.listingId}',
+      en: listing.locationName,
+      lat: listing.location.latitude,
+      lng: listing.location.longitude,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
     final cropType = CropType.fromKey(widget.listing.cropType);
+    final isBuyer = widget.currentUserRole == UserRole.buyer;
+    final showTransport = isBuyer && widget.deliveryWoreda != null;
 
     return Scaffold(
-      appBar: AppBar(
-        // The board has only the back button above the crop's own title.
-        elevation: 0,
-      ),
       body: SafeArea(
+        bottom: false,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header section: crop icon + name + status chip
-              _HeaderSection(
-                cropType: cropType,
-                listing: widget.listing,
+          child: FwContentWidth(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Back and the status, then the crop large with the price.
+                  Row(
+                    children: [
+                      const FwBackButton(),
+                      const Spacer(),
+                      _StatusChip(status: widget.listing.status),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  _HeaderSection(cropType: cropType, listing: widget.listing),
+                  const SizedBox(height: 14),
+
+                  // Who sells it (Crop detail board): name and rating.
+                  if (widget.listing.farmerName.isNotEmpty) ...[
+                    _FarmerCard(listing: widget.listing),
+                    const SizedBox(height: 14),
+                  ],
+
+                  // Where it is: the crop and the buyer on one drawing when
+                  // both places are known, else the place name.
+                  _LocationSection(
+                    listing: widget.listing,
+                    from: _listingPlace,
+                    to: isBuyer ? _buyerPlace : null,
+                    deliverTo: widget.deliveryWoreda,
+                  ),
+
+                  if (widget.listing.description.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Text(l10n.description, style: _sectionTitle),
+                    const SizedBox(height: 6),
+                    Text(
+                      widget.listing.description,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        height: 1.5,
+                        color: AppTheme.unselectedNav,
+                      ),
+                    ),
+                  ],
+
+                  // Suggested transport section (buyer with delivery woreda)
+                  if (showTransport) ...[
+                    const SizedBox(height: 14),
+                    ..._buildTransportSection(context, l10n),
+                  ],
+
+                  if (isBuyer) ...[
+                    const SizedBox(height: 14),
+                    // ESC-48: no contact before the money is held. The buyer
+                    // reaches the farmer from the order once accepted.
+                    Text(
+                      l10n.contactAfterEscrowNote,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppTheme.mutedSteel,
+                      ),
+                    ),
+                  ],
+                ],
               ),
-              const SizedBox(height: 24),
-
-              // Who sells it (Crop detail board): name and rating.
-              if (widget.listing.farmerName.isNotEmpty) ...[
-                _FarmerCard(listing: widget.listing),
-                const SizedBox(height: 12),
-              ],
-
-              // Details card
-              _DetailsCard(
-                listing: widget.listing,
-                cropType: cropType,
-              ),
-
-              // Suggested transport section (buyer with delivery woreda)
-              if (widget.currentUserRole == UserRole.buyer &&
-                  widget.deliveryWoreda != null) ...[
-                const SizedBox(height: 24),
-                ..._buildTransportSection(context, l10n, theme),
-              ],
-
-              const SizedBox(height: 32),
-
-              // Role-based action buttons
-              ..._buildActionButtons(context, theme),
-            ],
+            ),
           ),
         ),
       ),
+      bottomNavigationBar: _bottomActions(context, l10n),
     );
   }
 
   List<Widget> _buildTransportSection(
     BuildContext context,
     AppLocalizations l10n,
-    ThemeData theme,
   ) {
     return [
-      // Section title
-      Row(
-        children: [
-          const Icon(Icons.local_shipping, size: 20),
-          const SizedBox(width: 8),
-          Text(
-            l10n.suggestedTransport,
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.bold),
-          ),
-        ],
-      ),
-      const SizedBox(height: 4),
-      Text(
-        '${widget.listing.locationName} → ${widget.deliveryWoreda}',
-        style: TextStyle(
-          fontSize: 13,
-          color: theme.colorScheme.onSurface.withAlpha(153),
-        ),
-      ),
-      const SizedBox(height: 12),
+      Text(l10n.suggestedTransport, style: _sectionTitle),
+      const SizedBox(height: 10),
 
       // Trip cards or loading/empty state
       if (_tripsLoading)
@@ -263,89 +321,95 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
           ),
         )
       else if (_suggestedTrips == null || _suggestedTrips!.isEmpty)
-        Card(
-          margin: EdgeInsets.zero,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Center(
-              child: Text(
-                l10n.noTripsYet,
-                style: TextStyle(
-                  color: theme.colorScheme.onSurface.withAlpha(153),
-                ),
-              ),
+        FwCard(
+          child: Center(
+            child: Text(
+              l10n.noTripsYet,
+              style: const TextStyle(color: AppTheme.mutedSteel),
             ),
           ),
         )
       else
         ...(_suggestedTrips!.take(3).map(
-              (trip) => SuggestedTripCard(
-                trip: trip,
-                isSelected: _selectedTrip?.tripId == trip.tripId,
-                onSelect: () {
-                  setState(() {
-                    _selectedTrip =
-                        _selectedTrip?.tripId == trip.tripId ? null : trip;
-                  });
-                },
+              (trip) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                // The trucker's real rating ends the route line, as on the
+                // board; nothing while it loads, offline or unrated.
+                child: FutureBuilder<RatingSummary?>(
+                  future: _truckerRatingFor(trip.truckerId),
+                  builder: (context, snapshot) {
+                    final summary = snapshot.data;
+                    return SuggestedTripCard(
+                      trip: trip,
+                      isSelected: _selectedTrip?.tripId == trip.tripId,
+                      rating: summary != null && summary.count > 0
+                          ? summary.average
+                          : null,
+                      onSelect: () {
+                        setState(() {
+                          _selectedTrip = _selectedTrip?.tripId == trip.tripId
+                              ? null
+                              : trip;
+                        });
+                      },
+                    );
+                  },
+                ),
               ),
             )),
 
-      // Price breakdown
-      const SizedBox(height: 16),
-      Card(
-        margin: EdgeInsets.zero,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              _PriceBreakdownRow(
-                label: l10n.cropCostLabel,
-                amount: _cropCost,
-                l10n: l10n,
+      // Price for the quantity the buyer needs (Crop detail board).
+      const SizedBox(height: 4),
+      FwCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              l10n.detailForQuantity(
+                l10n.quantityKg(wholeNumber(_quantity * 100)),
               ),
-              if (_selectedTrip != null) ...[
-                const Divider(height: 16),
-                _PriceBreakdownRow(
-                  label: l10n.transportCostLabel,
-                  amount: _transportCost,
-                  l10n: l10n,
-                ),
-              ],
-              const Divider(height: 16),
-              _PriceBreakdownRow(
-                label: l10n.commissionLabel,
-                amount: _commission,
-                l10n: l10n,
-              ),
-              const Divider(height: 16),
-              _PriceBreakdownRow(
-                label: l10n.totalLabel,
-                amount: _total,
-                l10n: l10n,
-                isBold: true,
+              style: _sectionTitle,
+            ),
+            const SizedBox(height: 11),
+            FwMoneyRow(
+              label: l10n.cropCostLabel,
+              amount: l10n.etbCurrency(formatEtbAmount(_cropCost)),
+            ),
+            if (_selectedTrip != null) ...[
+              const SizedBox(height: 9),
+              FwMoneyRow(
+                label: l10n.transportCostLabel,
+                amount: l10n.etbCurrency(formatEtbAmount(_transportCost)),
               ),
             ],
-          ),
+            const SizedBox(height: 9),
+            FwMoneyRow(
+              label: l10n.commissionLabel,
+              amount: l10n.etbCurrency(formatEtbAmount(_commission)),
+            ),
+            const SizedBox(height: 9),
+            FwMoneyRow(
+              label: l10n.totalLabel,
+              amount: l10n.etbCurrency(formatEtbAmount(_total)),
+              total: true,
+            ),
+          ],
         ),
       ),
     ];
   }
 
-  List<Widget> _buildActionButtons(BuildContext context, ThemeData theme) {
-    final widgets = <Widget>[];
-
+  /// The role's actions pinned at the foot: the trucker creates a delivery,
+  /// the buyer places the order (with the chosen transport, or without).
+  /// The owner has none for now (editing is future work).
+  Widget? _bottomActions(BuildContext context, AppLocalizations l10n) {
     switch (widget.currentUserRole) {
       case UserRole.farmer:
-        // Owner sees no actions for now (editing is future work)
-        break;
-
+        return null;
       case UserRole.trucker:
-        final l10n = AppLocalizations.of(context)!;
-        widgets.add(
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
+        return FwBottomActions(
+          children: [
+            FilledButton.icon(
               onPressed: () {
                 Navigator.push(
                   context,
@@ -357,64 +421,56 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
               },
               icon: const Icon(Icons.local_shipping),
               label: Text(l10n.createDelivery),
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(56),
               ),
             ),
-          ),
+          ],
         );
-
       case UserRole.buyer:
-        final l10n = AppLocalizations.of(context)!;
-
-        // If transport section is showing, use transport-aware buttons
-        if (widget.deliveryWoreda != null && _selectedTrip != null) {
-          widgets.add(
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () => _openPlaceOrder(trip: _selectedTrip),
-                icon: const Icon(Icons.shopping_cart),
-                label: Text(l10n.placeOrderWithTransport),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
+        final withTransport =
+            widget.deliveryWoreda != null && _selectedTrip != null;
+        return FwBottomActions(
+          children: [
+            FilledButton(
+              key: const Key('crop_detail_place_order'),
+              onPressed: () => _openPlaceOrder(trip: _selectedTrip),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(56),
+                textStyle: const TextStyle(
+                  fontFamily: AppTheme.fontFamily,
+                  fontFamilyFallback: AppTheme.ethiopicFontFallback,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
+              child: Text(
+                withTransport ? l10n.placeOrderWithTransport : l10n.placeOrder,
+              ),
             ),
-          );
-          widgets.add(const SizedBox(height: 12));
-        }
-
-        // Standard Place Order button
-        widgets.add(
-          SizedBox(
-            width: double.infinity,
-            child: widget.deliveryWoreda != null && _selectedTrip != null
-                ? OutlinedButton.icon(
-                    onPressed: () => _openPlaceOrder(),
-                    icon: const Icon(Icons.shopping_cart_outlined),
-                    label: Text(l10n.placeOrderNoTransport),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
-                    ),
-                  )
-                : FilledButton.icon(
-                    onPressed: () => _openPlaceOrder(trip: _selectedTrip),
-                    icon: const Icon(Icons.shopping_cart),
-                    label: Text(l10n.placeOrder),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
-                    ),
+            if (withTransport) ...[
+              const SizedBox(height: 8),
+              OutlinedButton(
+                key: const Key('crop_detail_place_order_no_transport'),
+                onPressed: () => _openPlaceOrder(),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
                   ),
-          ),
+                  textStyle: const TextStyle(
+                    fontFamily: AppTheme.fontFamily,
+                    fontFamilyFallback: AppTheme.ethiopicFontFallback,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                child: Text(l10n.placeOrderNoTransport),
+              ),
+            ],
+          ],
         );
-        widgets.add(const SizedBox(height: 12));
-        // ESC-48: no contact before the money is held. The buyer reaches the
-        // farmer from the order once the farmer accepted it.
-        widgets.add(ContactLockedNote(text: l10n.contactAfterEscrowNote));
     }
-
-    return widgets;
   }
 
   Future<String> _lookupFarmerName(String farmerId) async {
@@ -432,117 +488,75 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
   }
 }
 
-/// Price breakdown row for the transport section.
-class _PriceBreakdownRow extends StatelessWidget {
-  final String label;
-  final double amount;
-  final AppLocalizations l10n;
-  final bool isBold;
+const TextStyle _sectionTitle = TextStyle(
+  fontSize: 15,
+  fontWeight: FontWeight.w800,
+  color: AppTheme.soilDark,
+);
 
-  const _PriceBreakdownRow({
-    required this.label,
-    required this.amount,
-    required this.l10n,
-    this.isBold = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final style = isBold
-        ? theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)
-        : theme.textTheme.bodyMedium;
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: style),
-        Text(l10n.etbCurrency(amount.toStringAsFixed(0)), style: style),
-      ],
-    );
-  }
-}
-
-/// Header section with large crop icon, crop type name, and status chip.
+/// The crop large with how much is left and when it was listed, and the
+/// price large on the right (Buyer · Crop detail board).
 class _HeaderSection extends StatelessWidget {
   final CropType cropType;
   final CropListing listing;
 
   const _HeaderSection({required this.cropType, required this.listing});
 
-  /// Buyer · Crop detail board: the status, then the crop large with how
-  /// much is left and when it was listed, and the price large on the right.
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final listed = l10n.myCropsListedOn(
       DateFormat.MMMd().format(dayInEthiopia(listing.createdAt)),
     );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        Align(
-          alignment: AlignmentDirectional.centerEnd,
-          child: _StatusChip(status: listing.status),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: AppTheme.fieldGreenTint,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(cropType.icon, color: AppTheme.fieldGreen, size: 26),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    cropType.displayName(l10n),
-                    style: const TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.5,
-                      color: AppTheme.soilDark,
-                    ),
-                  ),
-                  Text(
-                    '${formatQuintals(listing.quantity)} ${l10n.quintals}'
-                    ' · $listed',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppTheme.mutedSteel,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  listing.pricePerKg.toStringAsFixed(0),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Semantics(
+                header: true,
+                child: Text(
+                  cropType.displayName(l10n),
                   style: const TextStyle(
-                    fontSize: 28,
+                    fontSize: 30,
                     fontWeight: FontWeight.w800,
+                    letterSpacing: -0.9,
+                    height: 1.1,
                     color: AppTheme.soilDark,
                   ),
                 ),
-                Text(
-                  l10n.etbPerKg,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppTheme.mutedSteel,
-                  ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '${l10n.detailQuintalsLeft(formatQuintals(listing.quantity))}'
+                ' · $listed',
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: AppTheme.mutedSteel,
                 ),
-              ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              formatEtbAmount(listing.pricePerKg),
+              style: const TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.9,
+                height: 1.1,
+                color: AppTheme.soilDark,
+              ),
+            ),
+            Text(
+              l10n.etbPerKg,
+              style: const TextStyle(fontSize: 12, color: AppTheme.mutedSteel),
             ),
           ],
         ),
@@ -551,7 +565,7 @@ class _HeaderSection extends StatelessWidget {
   }
 }
 
-/// Status chip matching the pattern from [CropListingCard].
+/// The listing's status as the board's small pill.
 class _StatusChip extends StatelessWidget {
   final ListingStatus status;
 
@@ -560,101 +574,101 @@ class _StatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final (color, label) = switch (status) {
+    final (background, foreground, label) = switch (status) {
       ListingStatus.active => (
-          AppTheme.statusSuccess,
-          l10n.listingStatusActive
+          AppTheme.fieldGreenTint,
+          AppTheme.fieldGreen,
+          l10n.listingStatusActive,
         ),
       ListingStatus.reserved => (
-          AppTheme.statusWarning,
-          l10n.listingStatusReserved
+          AppTheme.actionCream,
+          AppTheme.actionInk,
+          l10n.listingStatusReserved,
         ),
-      ListingStatus.draft => (AppTheme.textMuted, l10n.listingStatusDraft),
-      ListingStatus.sold => (AppTheme.statusInfo, l10n.listingStatusSold),
+      ListingStatus.draft => (
+          AppTheme.segmentTrack,
+          AppTheme.unselectedNav,
+          l10n.listingStatusDraft,
+        ),
+      ListingStatus.sold => (
+          AppTheme.dropoffBlueTint,
+          AppTheme.dropoffBlue,
+          l10n.listingStatusSold,
+        ),
       ListingStatus.expired => (
-          AppTheme.statusError,
-          l10n.listingStatusExpired
+          AppTheme.statusErrorContainer,
+          AppTheme.onStatusErrorContainer,
+          l10n.listingStatusExpired,
         ),
     };
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
+    return FwPill(label: label, background: background, foreground: foreground);
   }
 }
 
-/// Card containing listing detail rows.
-class _DetailsCard extends StatelessWidget {
+/// Where the crop is. With the buyer's place known too, the board's drawing
+/// of both ends ("Meki · crop here", "Merkato · you") and the distance;
+/// else the place name on a card.
+class _LocationSection extends StatelessWidget {
   final CropListing listing;
-  final CropType cropType;
+  final Place? from;
+  final Place? to;
+  final String? deliverTo;
 
-  const _DetailsCard({
+  const _LocationSection({
     required this.listing,
-    required this.cropType,
+    required this.from,
+    required this.to,
+    required this.deliverTo,
   });
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            _DetailRow(
-              icon: Icons.scale,
-              label: l10n.detailQuantity,
-              value: '${listing.quantity} ${l10n.quintals}',
-            ),
-            const Divider(height: 24),
-            _DetailRow(
-              icon: Icons.payments,
-              label: l10n.detailPrice,
-              value:
-                  '${listing.pricePerKg.toStringAsFixed(2)} ${l10n.etbPerKg}',
-              valueStyle: theme.textTheme.bodyLarge?.copyWith(
-                color: theme.colorScheme.primary,
+    final from = this.from;
+    final to = this.to;
+    final km = routeDistanceKm(from, to);
+    if (from != null && to != null && km != null) {
+      final languageCode = Localizations.localeOf(context).languageCode;
+      return RoutePreviewCard(
+        from: from,
+        to: to,
+        places: PlaceRepository.instance.places,
+        fromLabel: '${listing.locationName} · ${l10n.detailCropHere}',
+        toLabel: '${to.displayName(languageCode)} · '
+            '${l10n.detailYou.toLowerCase()}',
+        footer: l10n.detailKmToYou(km),
+        height: 140,
+      );
+    }
+    return FwCard(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.location_on_outlined,
+            size: 20,
+            color: AppTheme.mutedSteel,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              listing.locationName,
+              style: const TextStyle(
+                fontSize: 14,
                 fontWeight: FontWeight.w600,
+                color: AppTheme.soilDark,
               ),
             ),
-            const Divider(height: 24),
-            _DetailRow(
-              icon: Icons.location_on,
-              label: l10n.location,
-              value: listing.locationName,
-            ),
-            if (listing.description.isNotEmpty) ...[
-              const Divider(height: 24),
-              _DetailRow(
-                icon: Icons.description,
-                label: l10n.description,
-                value: listing.description,
+          ),
+          if (deliverTo != null && deliverTo!.isNotEmpty)
+            Text(
+              '→ $deliverTo',
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppTheme.mutedSteel,
               ),
-            ],
-            const Divider(height: 24),
-            _DetailRow(
-              icon: Icons.access_time,
-              label: l10n.detailCreated,
-              value: clockFormatOf(context).dateTime(listing.createdAt),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -694,14 +708,14 @@ class _FarmerCardState extends State<_FarmerCard> {
       builder: (context, snapshot) {
         final summary = snapshot.data;
         final rated = summary != null && summary.count > 0;
-        return Card(
-          margin: EdgeInsets.zero,
+        return FwCard(
+          padding: const EdgeInsets.all(14),
           child: Padding(
-            padding: const EdgeInsets.all(14),
+            padding: EdgeInsets.zero,
             child: Row(
               children: [
                 CircleAvatar(
-                  radius: 20,
+                  radius: 22,
                   backgroundColor: const Color(0xFFE3EEE6),
                   child: Text(
                     initials,
@@ -742,66 +756,31 @@ class _FarmerCardState extends State<_FarmerCard> {
                 ),
                 if (rated) ...[
                   const SizedBox(width: 8),
-                  StarRating(rating: summary.average, size: 14),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.star_rounded,
+                        size: 16,
+                        color: AppTheme.money,
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        summary.average.toStringAsFixed(1),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.money,
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ],
             ),
           ),
         );
       },
-    );
-  }
-}
-
-/// A single detail row with icon, label, and value.
-class _DetailRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  final TextStyle? valueStyle;
-
-  const _DetailRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.valueStyle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(
-          icon,
-          size: 20,
-          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                value,
-                style: valueStyle ??
-                    theme.textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.w500,
-                    ),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }

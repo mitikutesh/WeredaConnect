@@ -17,6 +17,7 @@ import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escr
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/pending_intent_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
 
 class MockEscrowBloc extends Mock implements EscrowBloc {}
 
@@ -149,8 +150,8 @@ void main() {
 
       // The farmer (setUp role) sees their own crop leg, never the buyer's
       // held total (SIM-15).
-      expect(find.textContaining('14,625.00'), findsWidgets);
-      expect(find.textContaining('15,000.00'), findsNothing);
+      expect(find.textContaining('14,625 ETB'), findsWidgets);
+      expect(find.textContaining('15,000 ETB'), findsNothing);
 
       // LT-01: the list ends clear of the floating create button.
       final list = tester.widget<ListView>(
@@ -245,8 +246,9 @@ void main() {
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('15,000.00'), findsOneWidget);
-      expect(find.textContaining('14,625.00'), findsNothing);
+      // The row carries the buyer's held total.
+      expect(find.textContaining('15,000 ETB'), findsWidgets);
+      expect(find.textContaining('14,625 ETB'), findsNothing);
     });
 
     testWidgets('trucker sees only the transport leg of each payment',
@@ -276,9 +278,9 @@ void main() {
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('1,000.00'), findsOneWidget);
-      expect(find.textContaining('16,000.00'), findsNothing);
-      expect(find.textContaining('14,625.00'), findsNothing);
+      expect(find.textContaining('1,000 ETB'), findsWidgets);
+      expect(find.textContaining('16,000 ETB'), findsNothing);
+      expect(find.textContaining('14,625 ETB'), findsNothing);
     });
 
     testWidgets('shows pending intents section', (WidgetTester tester) async {
@@ -304,8 +306,8 @@ void main() {
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
 
-      // Role chips: All, As Buyer, As Farmer
-      expect(find.byType(FilterChip), findsWidgets);
+      // Status pills: All, Escrowed, Released, Completed, Disputed, Refunded
+      expect(find.byType(FwFilterPill), findsWidgets);
     });
 
     testWidgets('shows error state', (WidgetTester tester) async {
@@ -357,10 +359,10 @@ void main() {
       // Find and tap the "Escrowed" chip (from status filter row)
       // The status filter chips include: All, Escrowed, Released, Completed,
       // Disputed, Refunded
-      final allChips = find.byType(FilterChip);
+      final allChips = find.byType(FwFilterPill);
       expect(allChips, findsWidgets);
 
-      // Count chips — status filter: All, Escrowed, Released, Completed,
+      // Count chips, status filter: All, Escrowed, Released, Completed,
       // Disputed, Refunded = 6
       final chipCount = tester.widgetList(allChips).length;
       expect(chipCount, 6);

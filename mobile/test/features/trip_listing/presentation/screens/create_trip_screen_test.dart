@@ -118,6 +118,24 @@ void main() {
       );
     });
 
+    // The route marker sits in a fixed slot: unsized, it stretched over the
+    // whole empty field and hid the input and its hint.
+    testWidgets('empty From and To keep their input and hint beside the marker',
+        (tester) async {
+      useTallPhone(tester);
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      for (final key in const ['create_trip_from', 'create_trip_to']) {
+        final field = find.descendant(
+          of: find.byKey(Key(key)),
+          matching: find.byType(EditableText),
+        );
+        expect(tester.getSize(field).width, greaterThan(150));
+      }
+      expect(find.text('Search woreda or town'), findsNWidgets(2));
+    });
+
     // The board's grid: two fields per row, labels above. A screen reader
     // hears each label as its field's, and a label that wraps (Afaan Oromoo)
     // keeps the pair lined up.
@@ -244,11 +262,17 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'From (Origin)'),
+        find.descendant(
+          of: find.byKey(const Key('create_trip_from')),
+          matching: find.byType(TextFormField),
+        ),
         'Meki',
       );
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'To (Destination)'),
+        find.descendant(
+          of: find.byKey(const Key('create_trip_to')),
+          matching: find.byType(TextFormField),
+        ),
         'Addis Ababa',
       );
       await tester.tap(find.text('Select departure date'));
@@ -288,11 +312,17 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'From (Origin)'),
+        find.descendant(
+          of: find.byKey(const Key('create_trip_from')),
+          matching: find.byType(TextFormField),
+        ),
         'Bishoftu',
       );
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'To (Destination)'),
+        find.descendant(
+          of: find.byKey(const Key('create_trip_to')),
+          matching: find.byType(TextFormField),
+        ),
         'Bishoftu',
       );
 
@@ -310,8 +340,14 @@ void main() {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      final from = find.widgetWithText(TextFormField, 'From (Origin)');
-      final to = find.widgetWithText(TextFormField, 'To (Destination)');
+      final from = find.descendant(
+        of: find.byKey(const Key('create_trip_from')),
+        matching: find.byType(TextFormField),
+      );
+      final to = find.descendant(
+        of: find.byKey(const Key('create_trip_to')),
+        matching: find.byType(TextFormField),
+      );
       await tester.enterText(from, 'Meki');
       await tester.enterText(to, 'Addis Ababa');
       await tester.tap(find.byKey(const Key('create_trip_swap')));
@@ -338,8 +374,14 @@ void main() {
       await tester.tap(find.text('Repeat Last Trip · Meki → Addis Ababa'));
       await tester.pumpAndSettle();
 
-      final from = find.widgetWithText(TextFormField, 'From (Origin)');
-      final to = find.widgetWithText(TextFormField, 'To (Destination)');
+      final from = find.descendant(
+        of: find.byKey(const Key('create_trip_from')),
+        matching: find.byType(TextFormField),
+      );
+      final to = find.descendant(
+        of: find.byKey(const Key('create_trip_to')),
+        matching: find.byType(TextFormField),
+      );
       expect(tester.widget<TextFormField>(from).controller!.text, 'Meki');
       expect(tester.widget<TextFormField>(to).controller!.text, 'Addis Ababa');
     });

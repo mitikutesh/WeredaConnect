@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -111,6 +113,98 @@ void main() {
     expect(find.textContaining('Other Trip'), findsNothing);
     expect(find.textContaining('Ended Farmer'), findsNothing);
     expect(find.text(en.actionAnswerTransport), findsOneWidget);
+  });
+
+  // Trip detail board: "Almaz Bekele, Meki → Selam Traders, Merkato", the
+  // order's own places (order-lifecycle 2.2.0), else the trip's route.
+  testWidgets('a booking names its own places, else the trip\'s route',
+      (tester) async {
+    final bloc = MockOrderBloc();
+    final repo = MockOrderRepository();
+    when(() => bloc.repository).thenReturn(repo);
+    when(() => bloc.stream).thenAnswer((_) => const Stream.empty());
+    when(() => repo.getOrdersByUser('trucker-1', role: 'trucker')).thenAnswer(
+      (_) async => [
+        _order('placed', OrderStatus.funded, farmerName: 'Almaz')
+          ..pickupPlace = 'Meki'
+          ..dropoffPlace = 'Merkato',
+        _order(
+          'older',
+          OrderStatus.accepted,
+          trucker: 'accepted',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      _app(TripBookingsSection(trip: _trip()), bloc: bloc),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Almaz, Meki → Buyer, Merkato'), findsOneWidget);
+    expect(find.text('Chaltu, Adama → Buyer, Bishoftu'), findsOneWidget);
+  });
+
+  // A failed read is not "no bookings": a request may wait among them.
+  testWidgets('a failed read says so and retries', (tester) async {
+    final bloc = MockOrderBloc();
+    final repo = MockOrderRepository();
+    when(() => bloc.repository).thenReturn(repo);
+    when(() => bloc.stream).thenAnswer((_) => const Stream.empty());
+    var calls = 0;
+    when(() => repo.getOrdersByUser('trucker-1', role: 'trucker'))
+        .thenAnswer((_) async {
+      calls++;
+      if (calls == 1) throw Exception('offline');
+      return [_order('asked', OrderStatus.funded, farmerName: 'Asked')];
+    });
+
+    await tester.pumpWidget(
+      _app(TripBookingsSection(trip: _trip()), bloc: bloc),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(en.tripBookingsLoadFailed), findsOneWidget);
+    expect(find.text(en.tripNoBookings), findsNothing);
+
+    await tester.tap(find.byKey(const Key('trip_bookings_retry')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Asked'), findsOneWidget);
+  });
+
+  testWidgets('one answer at a time: the other request waits', (tester) async {
+    final bloc = MockOrderBloc();
+    final repo = MockOrderRepository();
+    when(() => bloc.repository).thenReturn(repo);
+    when(() => bloc.stream).thenAnswer((_) => const Stream.empty());
+    when(() => repo.getOrdersByUser('trucker-1', role: 'trucker')).thenAnswer(
+      (_) async => [
+        _order('a', OrderStatus.funded, farmerName: 'First'),
+        _order('b', OrderStatus.funded, farmerName: 'Second'),
+      ],
+    );
+    final pending = Completer<void>();
+    when(
+      () => repo.respondAsTrucker(
+        any(),
+        any(),
+        accept: any(named: 'accept'),
+        declineReason: any(named: 'declineReason'),
+      ),
+    ).thenAnswer((_) => pending.future);
+
+    await tester.pumpWidget(
+      _app(TripBookingsSection(trip: _trip()), bloc: bloc),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('booking_accept_a')));
+    await tester.pump();
+
+    final other = tester.widget<FilledButton>(
+      find.byKey(const Key('booking_accept_b')),
+    );
+    expect(other.onPressed, isNull);
+    pending.complete();
+    await tester.pumpAndSettle();
   });
 
   testWidgets('says when nothing is booked', (tester) async {

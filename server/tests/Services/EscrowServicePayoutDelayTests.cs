@@ -123,6 +123,11 @@ public class EscrowServicePayoutDelayTests
     private Dictionary<string, object> PendingLeg(string releaseNotBefore, bool truckerVerified = true)
     {
         var row = Escrow(releaseNotBefore);
+        // Confirmed relative to now: the policy caps releaseNotBefore at the confirmation plus
+        // MaxDelayHours, so the fixture's fixed 2026-10-23 made "now + 5 h" fall past the cap (and
+        // the leg pay) from 2026-10-30 on.
+        row["deliveryConfirmedAt"] = DateTime.UtcNow.AddHours(-3).ToString("o");
+        row["disputeWindowEndsAt"] = DateTime.UtcNow.AddHours(45).ToString("o");
         row["status"] = "released";
         row["releasedAt"] = DateTime.UtcNow.AddHours(-2).ToString("o");
         row[TruckerPayoutFields.Pending] = true;

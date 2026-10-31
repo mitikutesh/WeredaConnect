@@ -13,15 +13,21 @@ import 'package:wereda_connect/features/delivery_verification/data/services/gps_
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/utils/contact_in_text.dart';
-import 'package:wereda_connect/shared/widgets/labeled_field.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/route_preview_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/services/place_repository.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
+import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 import 'package:wereda_connect/shared/widgets/voice_note_widget.dart';
-import 'package:wereda_connect/shared/theme/app_theme.dart';
 
-/// Screen for creating a new crop listing.
+/// Screen for creating a new crop listing (the Farmer · Create crop listing
+/// board): the crop as three text tiles per row, quantity and price side by
+/// side, the location with the farm drawn from the GPS fix, the description
+/// and the voice note, and Save pinned at the foot.
 ///
-/// Form-based UI following register_screen.dart patterns:
 /// - Large touch targets (48dp min)
 /// - Localized labels and validation
 /// - BlocListener for state transitions
@@ -65,6 +71,15 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
     super.initState();
     _gpsCaptureService = widget.gpsCaptureService ?? GpsCaptureService();
     _captureGps();
+    // The location card draws the towns around the farm from the place list.
+    PlaceRepository.instance.ensureLoaded().then((_) {
+      if (mounted) setState(() {});
+    }).ignore();
+    _locationController.addListener(_onLocationTyped);
+  }
+
+  void _onLocationTyped() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _captureGps() async {
@@ -79,6 +94,7 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
 
   @override
   void dispose() {
+    _locationController.removeListener(_onLocationTyped);
     _quantityController.dispose();
     _priceController.dispose();
     _locationController.dispose();
@@ -143,7 +159,6 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
 
     return BlocListener<CropListingBloc, CropListingState>(
       listener: (context, state) {
@@ -183,317 +198,309 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: Text(l10n.createListing),
-          elevation: 0,
-          actions: [
-            Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Center(
-                child: Container(
-                  height: 30,
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE3EEE6),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.eco,
-                        size: 14,
-                        color: AppTheme.fieldGreen,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        l10n.farmer,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.fieldGreen,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+        // The board's header: the square Back beside the title, on the page.
         body: SafeArea(
+          bottom: false,
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
-            child: Form(
-              key: _formKey,
-              child: BlocBuilder<CropListingBloc, CropListingState>(
-                builder: (context, state) {
-                  // Drive the Save button from THIS screen's own submission,
-                  // not the shared bloc's CropListingLoading: the still-mounted
-                  // "My Crops" list re-dispatches LoadCropListings on
-                  // CropListingCreated, which would otherwise push the shared
-                  // bloc back into Loading and re-gray this button around the pop.
-                  final isLoading = _isSubmitting;
-
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Crop type selection
-                      Text(
-                        l10n.selectCropType,
-                        style: theme.textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 12),
-                      _CropTypeGrid(
-                        selectedCropType: _selectedCropType,
-                        onSelected: (type) {
-                          setState(() {
-                            _selectedCropType = type;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Quantity and price side by side, labels above
-                      // (Farmer · Create crop listing board).
-                      LabeledFieldPair(
-                        first: LabeledField(
-                          label: l10n.quantityInQuintals,
-                          field: TextFormField(
-                            key: const Key('create_listing_quantity'),
-                            controller: _quantityController,
-                            decoration: labeledFieldDecoration(
-                              suffixText: l10n.quintals,
-                            ),
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            inputFormatters: [
-                              FilteringTextInputFormatter.allow(
-                                RegExp(r'^\d+\.?\d{0,2}'),
-                              ),
-                            ],
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return l10n.quantityRequired;
-                              }
-                              final quantity = double.tryParse(value);
-                              if (quantity == null || quantity <= 0) {
-                                return l10n.quantityRequired;
-                              }
-                              return null;
-                            },
-                          ),
-                        ),
-                        second: LabeledField(
-                          label: l10n.priceInBirr,
-                          field: TextFormField(
-                            key: const Key('create_listing_price'),
-                            controller: _priceController,
-                            decoration: labeledFieldDecoration(
-                              suffixText: l10n.etbPerKg,
-                            ),
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            inputFormatters: [
-                              FilteringTextInputFormatter.allow(
-                                RegExp(r'^\d+\.?\d{0,2}'),
-                              ),
-                            ],
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return l10n.priceRequired;
-                              }
-                              final price = double.tryParse(value);
-                              if (price == null || price <= 0) {
-                                return l10n.priceRequired;
-                              }
-                              return null;
-                            },
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Location input
-                      PlaceSelector(
-                        controller: _locationController,
-                        labelText: l10n.location,
-                        hintText: l10n.wereda,
-                        prefixIcon: Icons.location_on,
-                        onPlaceSelected: (place) =>
-                            setState(() => _selectedLocationPlace = place),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return l10n.locationRequired;
-                          }
-                          // FUP-49: buyers read it before any order.
-                          if (containsPhoneNumber(value)) {
-                            return l10n.errorContactInText;
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 8),
-
-                      // GPS status indicator
-                      _GpsStatusIndicator(
-                        gpsResult: _gpsResult,
-                        isCapturing: _gpsCapturing,
-                        onRetry: _captureGps,
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Description input
-                      TextFormField(
-                        controller: _descriptionController,
-                        decoration: InputDecoration(
-                          labelText: l10n.description,
-                          prefixIcon: const Icon(Icons.description),
-                          errorMaxLines: 3,
-                          border: const OutlineInputBorder(),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 20,
-                          ),
-                        ),
-                        maxLines: 3,
-                        keyboardType: TextInputType.multiline,
-                        validator: (value) => containsPhoneNumber(value)
-                            ? l10n.errorContactInText
-                            : null,
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Audio voice note
-                      Builder(
-                        builder: (context) {
-                          final authState = context.read<AuthBloc>().state;
-                          final userId = authState is AuthAuthenticated
-                              ? authState.userId
-                              : '';
-                          return VoiceNoteWidget(
-                            audioFilePath: _audioNoteRef,
-                            userId: userId,
-                            entityId: _listingId,
-                            onRecorded: (path) {
-                              setState(() => _audioNoteRef = path);
-                            },
-                            onDeleted: () {
-                              setState(() => _audioNoteRef = null);
-                            },
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Total calculation preview card
-                      Builder(
-                        builder: (context) {
-                          final q =
-                              double.tryParse(_quantityController.text) ?? 0;
-                          final p = double.tryParse(_priceController.text) ?? 0;
-                          final total = q * 100 * p;
-                          if (total <= 0) return const SizedBox.shrink();
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 20),
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(18),
-                              border: Border.all(color: AppTheme.whisperBorder),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  l10n.totalListingValue,
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppTheme.mutedSteel,
-                                  ),
-                                ),
-                                Text(
-                                  l10n.etbCurrency(total.toStringAsFixed(0)),
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w800,
-                                    color: AppTheme.fieldGreen,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                      // Save button (Fieldway 56px primary)
-                      SizedBox(
-                        height: 56,
-                        child: ElevatedButton(
-                          onPressed: isLoading ? null : _handleSave,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.fieldGreen,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                          child: isLoading
-                              ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white,
-                                    ),
-                                  ),
-                                )
-                              : Text(
-                                  l10n.save,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        l10n.savedOnPhoneFirstNote,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.mutedSteel,
-                        ),
-                      ),
-                    ],
-                  );
-                },
+            child: FwContentWidth(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  FwDetailHeader(title: l10n.createListing),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                    child: Form(
+                      key: _formKey,
+                      child: _buildForm(context, l10n),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
         ),
+        // Save pinned at the foot, as on the board. Driven by THIS screen's
+        // own submission, not the shared bloc's CropListingLoading: the
+        // still-mounted "My Crops" list re-dispatches LoadCropListings on
+        // CropListingCreated, which would otherwise re-gray this button
+        // around the pop.
+        bottomNavigationBar: FwBottomActions(
+          children: [
+            FilledButton(
+              onPressed: _isSubmitting ? null : _handleSave,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(56),
+                textStyle: const TextStyle(
+                  fontFamily: AppTheme.fontFamily,
+                  fontFamilyFallback: AppTheme.ethiopicFontFallback,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              child: _isSubmitting
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Colors.white,
+                        ),
+                      ),
+                    )
+                  : Text(l10n.save),
+            ),
+            FwActionNote(l10n.savedOnPhoneFirstNote),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildForm(BuildContext context, AppLocalizations l10n) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Crop type selection
+        Text(l10n.selectCropType, style: LabeledField.labelStyle),
+        const SizedBox(height: 10),
+        _CropTypeGrid(
+          selectedCropType: _selectedCropType,
+          onSelected: (type) {
+            setState(() {
+              _selectedCropType = type;
+            });
+          },
+        ),
+        const SizedBox(height: 18),
+
+        // Quantity and price side by side, labels above
+        // (Farmer · Create crop listing board).
+        LabeledFieldPair(
+          first: LabeledField(
+            label: l10n.quantityInQuintals,
+            field: TextFormField(
+              key: const Key('create_listing_quantity'),
+              controller: _quantityController,
+              decoration: labeledFieldDecoration(
+                suffixText: l10n.quintals,
+              ),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(
+                  RegExp(r'^\d+\.?\d{0,2}'),
+                ),
+              ],
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return l10n.quantityRequired;
+                }
+                final quantity = double.tryParse(value);
+                if (quantity == null || quantity <= 0) {
+                  return l10n.quantityRequired;
+                }
+                return null;
+              },
+            ),
+          ),
+          second: LabeledField(
+            label: l10n.priceInBirr,
+            field: TextFormField(
+              key: const Key('create_listing_price'),
+              controller: _priceController,
+              decoration: labeledFieldDecoration(
+                suffixText: l10n.etbPerKg,
+              ),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(
+                  RegExp(r'^\d+\.?\d{0,2}'),
+                ),
+              ],
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return l10n.priceRequired;
+                }
+                final price = double.tryParse(value);
+                if (price == null || price <= 0) {
+                  return l10n.priceRequired;
+                }
+                return null;
+              },
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+
+        // Location: the place, then the board's card with the farm drawn
+        // from the GPS fix (else the picked place) and the GPS state.
+        LabeledField(
+          // The suggestions stay their own nodes (see LabeledField).
+          mergeSemantics: false,
+          label: l10n.location,
+          field: PlaceSelector(
+            key: const Key('create_listing_location'),
+            controller: _locationController,
+            labelAbove: true,
+            showSearchIcon: false,
+            hintText: l10n.wereda,
+            onPlaceSelected: (place) =>
+                setState(() => _selectedLocationPlace = place),
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return l10n.locationRequired;
+              }
+              // FUP-49: buyers read it before any order.
+              if (containsPhoneNumber(value)) {
+                return l10n.errorContactInText;
+              }
+              return null;
+            },
+          ),
+        ),
+        const SizedBox(height: 8),
+        _LocationCard(
+          gpsResult: _gpsResult,
+          isCapturing: _gpsCapturing,
+          place: _selectedLocationPlace,
+          locationName: _locationController.text.trim(),
+          onRetry: _captureGps,
+        ),
+        const SizedBox(height: 18),
+
+        // Description input
+        LabeledField(
+          label: l10n.description,
+          field: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextFormField(
+                key: const Key('create_listing_description'),
+                controller: _descriptionController,
+                decoration: labeledFieldDecoration(),
+                maxLines: 3,
+                keyboardType: TextInputType.multiline,
+                validator: (value) =>
+                    containsPhoneNumber(value) ? l10n.errorContactInText : null,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                l10n.detailNoPhoneNumbersNote,
+                style: LabeledField.helperStyle,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Audio voice note
+        Builder(
+          builder: (context) {
+            final authState = context.read<AuthBloc>().state;
+            final userId =
+                authState is AuthAuthenticated ? authState.userId : '';
+            return VoiceNoteWidget(
+              audioFilePath: _audioNoteRef,
+              userId: userId,
+              entityId: _listingId,
+              onRecorded: (path) {
+                setState(() => _audioNoteRef = path);
+              },
+              onDeleted: () {
+                setState(() => _audioNoteRef = null);
+              },
+            );
+          },
+        ),
+      ],
     );
   }
 }
 
-/// GPS status indicator widget.
-///
-/// Shows capturing spinner, green "GPS Captured", or orange "GPS unavailable"
-/// with retry button.
+/// The board's location card: the farm on a small drawing with the towns
+/// around it, and the GPS state in the foot (captured as a green chip,
+/// capturing, or unavailable with a retry). Without any position yet it is
+/// the GPS state alone, with the hint to pick the wereda from the list.
+class _LocationCard extends StatelessWidget {
+  final GpsCaptureResult? gpsResult;
+  final bool isCapturing;
+  final Place? place;
+  final String locationName;
+  final VoidCallback onRetry;
+
+  const _LocationCard({
+    required this.gpsResult,
+    required this.isCapturing,
+    required this.place,
+    required this.locationName,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final gps = gpsResult != null && gpsResult!.isAvailable ? gpsResult : null;
+    final lat = gps?.latitude ?? place?.lat;
+    final lng = gps?.longitude ?? place?.lng;
+    final status = _GpsStatusIndicator(
+      gpsResult: gpsResult,
+      isCapturing: isCapturing,
+      onRetry: onRetry,
+      placeName: locationName.isNotEmpty
+          ? locationName
+          : place?.displayName(Localizations.localeOf(context).languageCode),
+    );
+    final hint = gps == null && !isCapturing
+        ? Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              l10n.detailGpsPickFromList,
+              style: LabeledField.helperStyle,
+            ),
+          )
+        : null;
+    if (lat == null || lng == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [status, if (hint != null) hint],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        PlacePreviewCard(
+          lat: lat,
+          lng: lng,
+          label: l10n.detailYourFarm,
+          places: PlaceRepository.instance.isLoaded
+              ? PlaceRepository.instance.places
+              : const [],
+          excludeId: gps == null ? place?.id : null,
+          footer: status,
+        ),
+        if (hint != null) hint,
+      ],
+    );
+  }
+}
+
+/// GPS status: capturing, the board's green "GPS Captured · place" chip, or
+/// "GPS unavailable" in cream with a retry.
 class _GpsStatusIndicator extends StatelessWidget {
   final GpsCaptureResult? gpsResult;
   final bool isCapturing;
   final VoidCallback onRetry;
+  final String? placeName;
 
   const _GpsStatusIndicator({
     required this.gpsResult,
     required this.isCapturing,
     required this.onRetry,
+    this.placeName,
   });
 
   @override
@@ -509,54 +516,42 @@ class _GpsStatusIndicator extends StatelessWidget {
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
           const SizedBox(width: 8),
-          Text(
-            l10n.deliveryGpsCapturing,
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+          Text(l10n.deliveryGpsCapturing, style: LabeledField.helperStyle),
         ],
       );
     }
 
     if (gpsResult != null && gpsResult!.isAvailable) {
-      return Row(
-        children: [
-          const Icon(
-            Icons.check_circle,
-            size: 16,
-            color: AppTheme.statusSuccess,
-          ),
-          const SizedBox(width: 8),
-          Text(
-            l10n.deliveryGpsCaptured,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AppTheme.statusSuccess,
-                ),
-          ),
-        ],
+      final name = placeName;
+      return Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: FwPill(
+          icon: Icons.check,
+          label: name == null || name.isEmpty
+              ? l10n.deliveryGpsCaptured
+              : '${l10n.deliveryGpsCaptured} · $name',
+          background: AppTheme.fieldGreenTint,
+          foreground: AppTheme.fieldGreen,
+        ),
       );
     }
 
     return Row(
       children: [
-        const Icon(
-          Icons.warning_amber,
-          size: 16,
-          color: AppTheme.onStatusWarningContainer,
+        FwPill(
+          icon: Icons.warning_amber_rounded,
+          label: l10n.deliveryGpsUnavailable,
+          foreground: AppTheme.actionInk,
         ),
-        const SizedBox(width: 8),
-        Text(
-          l10n.deliveryGpsUnavailable,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppTheme.onStatusWarningContainer,
-              ),
-        ),
-        const SizedBox(width: 8),
-        GestureDetector(
-          onTap: onRetry,
-          child: const Icon(
+        const SizedBox(width: 4),
+        IconButton(
+          onPressed: onRetry,
+          tooltip: l10n.retry,
+          visualDensity: VisualDensity.compact,
+          icon: const Icon(
             Icons.refresh,
-            size: 16,
-            color: AppTheme.onStatusWarningContainer,
+            size: 18,
+            color: AppTheme.actionInk,
           ),
         ),
       ],
@@ -564,7 +559,8 @@ class _GpsStatusIndicator extends StatelessWidget {
   }
 }
 
-/// Grid of crop type selection cards with icons.
+/// The board's crop picker: three text tiles per row (46 tall, radius 14),
+/// the chosen one filled green with a check.
 class _CropTypeGrid extends StatelessWidget {
   final CropType? selectedCropType;
   final ValueChanged<CropType> onSelected;
@@ -577,59 +573,68 @@ class _CropTypeGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: CropType.values.map((type) {
-        final isSelected = selectedCropType == type;
-        return InkWell(
-          onTap: () => onSelected(type),
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            width: 100,
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: isSelected
-                    ? theme.colorScheme.primary
-                    : AppTheme.borderLight,
-                width: isSelected ? 2 : 1,
-              ),
-              borderRadius: BorderRadius.circular(12),
-              color: isSelected
-                  ? theme.colorScheme.primary.withValues(alpha: 0.1)
-                  : Colors.transparent,
-            ),
-            child: Column(
-              children: [
-                Icon(
-                  type.icon,
-                  size: 32,
-                  color: isSelected
-                      ? theme.colorScheme.primary
-                      : AppTheme.textMuted,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = 8.0;
+        final width = (constraints.maxWidth - 2 * gap) / 3;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: CropType.values.map((type) {
+            final isSelected = selectedCropType == type;
+            return Semantics(
+              key: Key('create_listing_crop_${type.name}'),
+              button: true,
+              selected: isSelected,
+              child: Material(
+                color: isSelected ? AppTheme.fieldGreen : AppTheme.surfaceWhite,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  side: isSelected
+                      ? BorderSide.none
+                      : const BorderSide(color: AppTheme.whisperBorder),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  type.displayName(l10n),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: isSelected
-                        ? theme.colorScheme.primary
-                        : AppTheme.textMuted,
-                    fontWeight:
-                        isSelected ? FontWeight.bold : FontWeight.normal,
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () => onSelected(type),
+                  child: SizedBox(
+                    width: width,
+                    height: 46,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (isSelected) ...[
+                          const Icon(
+                            Icons.check,
+                            size: 14,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+                        Flexible(
+                          child: Text(
+                            type.displayName(l10n),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: isSelected
+                                  ? FontWeight.w800
+                                  : FontWeight.w600,
+                              color:
+                                  isSelected ? Colors.white : AppTheme.soilDark,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  textAlign: TextAlign.center,
-                  overflow: TextOverflow.ellipsis,
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          }).toList(),
         );
-      }).toList(),
+      },
     );
   }
 }

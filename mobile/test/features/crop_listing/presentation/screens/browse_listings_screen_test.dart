@@ -27,7 +27,7 @@ import 'package:wereda_connect/features/rating/domain/repositories/base_rating_r
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
-import 'package:wereda_connect/shared/widgets/green_header.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/listing_card.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
@@ -256,7 +256,7 @@ void main() {
 
         await tester.pumpWidget(buildTestWidget());
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Teff').last);
+        await tester.tap(find.byType(ListingCard).first);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
 
@@ -274,6 +274,16 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text(privacyNote), findsOneWidget);
+    });
+
+    testWidgets('a price per kg of 1000 or more groups its thousands',
+        (tester) async {
+      loaded([_listing()..pricePerKg = 1250]);
+
+      await tester.pumpWidget(buildTestWidget(ownerMode: true));
+      await tester.pumpAndSettle();
+
+      expect(find.text('1,250'), findsOneWidget);
     });
 
     // MyCrops board: "32 of 60 quintals ordered". Paid orders took their
@@ -340,7 +350,7 @@ void main() {
       );
       loaded([
         _listing(id: 'a', farmerId: 'farmer-001', farmerName: 'Almaz Bekele')
-          ..createdAt = DateTime.utc(2026, 10, 26, 9),
+          ..createdAt = DateTime.utc(2026, 1, 26, 9),
       ]);
 
       await tester.pumpWidget(buildTestWidget(ownerMode: true));
@@ -348,7 +358,9 @@ void main() {
 
       expect(find.text('My Crops'), findsOneWidget);
       expect(find.text('Almaz Bekele · Meki'), findsOneWidget);
-      expect(find.text('Bishoftu · listed Oct 26'), findsOneWidget);
+      expect(find.text('Bishoftu · listed Jan 26'), findsOneWidget);
+      // The board's "Farmer" pill beside the title.
+      expect(find.text('Farmer'), findsOneWidget);
       expect(find.textContaining('Almaz Bekele, Bishoftu'), findsNothing);
     });
 
@@ -401,10 +413,106 @@ void main() {
       await tester.pumpWidget(buildTestWidget(tripBloc: tripBloc));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Transport '), findsOneWidget);
-      expect(find.textContaining('18 quintals free'), findsOneWidget);
+      // The pill, not the footnote's "Transport is matched for ...".
+      expect(find.textContaining(RegExp(r'^Transport ')), findsOneWidget);
+      expect(find.textContaining('18 q room'), findsOneWidget);
       expect(find.text('2 trips this week'), findsOneWidget);
       expect(find.text('No trip yet'), findsOneWidget);
+    });
+
+    // Market board: "Every farmer's listing, sorted by the best match for
+    // Merkato."
+    testWidgets('buyer listings sort by the best transport match, none lost',
+        (tester) async {
+      // Tall enough for the four cards and the footnote under them.
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'buyer-001',
+          tokens: _testTokens,
+          role: UserRole.buyer,
+          woreda: 'Addis Ababa',
+        ),
+      );
+      final tripBloc = MockTripListingBloc();
+      final trips = MockTripListingRepository();
+      when(() => tripBloc.repository).thenReturn(trips);
+      when(() => tripBloc.state).thenReturn(const TripListingInitial());
+      when(() => tripBloc.stream).thenAnswer((_) => const Stream.empty());
+      final today = DateTime.now().toUtc();
+      Trip trip(String id, String from, {int inDays = 1}) => Trip()
+        ..tripId = id
+        ..truckerId = 't1'
+        ..fromWoreda = from
+        ..toWoreda = 'Addis Ababa'
+        ..departureDate = today.add(Duration(days: inDays))
+        ..capacity = 50
+        ..remainingQuintals = 18
+        ..pricePerQuintal = 150
+        ..status = TripStatus.open
+        ..matchedListings = <String>[]
+        ..createdAt = today
+        ..updatedAt = today
+        ..version = 1;
+      when(
+        () => trips.getOpenTrips(
+          fromWoreda: any(named: 'fromWoreda'),
+          toWoreda: any(named: 'toWoreda'),
+        ),
+      ).thenAnswer(
+        // Meki: this week. Bichena: a later trip. Koka: none.
+        (_) async => [trip('m1', 'Meki'), trip('b1', 'Bichena', inDays: 12)],
+      );
+      loaded([
+        _listing(id: 'koka-1', farmerName: 'Kebede')..locationName = 'Koka',
+        _listing(id: 'bichena', farmerName: 'Tolosa')..locationName = 'Bichena',
+        _listing(id: 'koka-2', farmerName: 'Hawi')..locationName = 'Koka',
+        _listing(id: 'meki', farmerName: 'Almaz')..locationName = 'Meki',
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(tripBloc: tripBloc));
+      await tester.pumpAndSettle();
+
+      // Every listing stays (the buyer sees them all); the best transport
+      // first, and the two Koka ones keep their order.
+      expect(find.byType(ListingCard), findsNWidgets(4));
+      final tops = [
+        'Almaz, Meki',
+        'Tolosa, Bichena',
+        'Kebede, Koka',
+        'Hawi, Koka',
+      ].map((text) => tester.getTopLeft(find.text(text)).dy).toList();
+      expect(tops, orderedEquals([...tops]..sort()));
+      expect(
+        find.text(
+          "Every farmer's listing, sorted by the best match for Addis Ababa.",
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a buyer without a place reads the transport match footnote',
+        (tester) async {
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'buyer-001',
+          tokens: _testTokens,
+          role: UserRole.buyer,
+        ),
+      );
+      loaded([_listing()]);
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          "Every farmer's listing, sorted by the best transport match.",
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('a farmer reads no trips for the cards', (tester) async {
@@ -507,8 +615,21 @@ void main() {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      expect(find.widgetWithText(ListingCard, 'Teff'), findsOneWidget);
-      expect(find.widgetWithText(ListingCard, 'teff'), findsNothing);
+      // Market board: "Teff · 10 quintals left".
+      expect(
+        find.descendant(
+          of: find.byType(ListingCard),
+          matching: find.text('Teff · 10 quintals left'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(ListingCard),
+          matching: find.textContaining('teff'),
+        ),
+        findsNothing,
+      );
     });
 
     testWidgets('Amharic shows the Amharic crop name on the card',
@@ -521,9 +642,22 @@ void main() {
       await tester.pumpWidget(buildTestWidget(locale: const Locale('am')));
       await tester.pumpAndSettle();
 
-      expect(find.widgetWithText(ListingCard, am.cropTypeTeff), findsOneWidget);
-      expect(find.widgetWithText(ListingCard, 'teff'), findsNothing);
-      expect(find.widgetWithText(ListingCard, 'Teff'), findsNothing);
+      final inCard = find.byType(ListingCard);
+      expect(
+        find.descendant(
+          of: inCard,
+          matching: find.textContaining(am.cropTypeTeff),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: inCard, matching: find.textContaining('teff')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: inCard, matching: find.textContaining('Teff')),
+        findsNothing,
+      );
     });
   });
 
@@ -537,13 +671,14 @@ void main() {
       );
     });
 
-    testWidgets('hides GreenHeader when showHeader is false', (tester) async {
+    testWidgets('hides the page header when showHeader is false',
+        (tester) async {
       await tester.pumpWidget(
         buildTestWidget(showHeader: false, embedded: true),
       );
       await tester.pumpAndSettle();
 
-      expect(find.byType(GreenHeader), findsNothing);
+      expect(find.byType(FwPageHeader), findsNothing);
     });
 
     testWidgets('shows compact search bar when showHeader is false',
@@ -558,12 +693,17 @@ void main() {
       expect(find.text('Search crops, farmers...'), findsOneWidget);
     });
 
-    testWidgets('shows GreenHeader by default (showHeader: true)',
+    testWidgets('shows the page header by default (showHeader: true)',
         (tester) async {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      expect(find.byType(GreenHeader), findsOneWidget);
+      expect(find.byType(FwPageHeader), findsOneWidget);
+      // The search box waits behind the header's button (Market board).
+      expect(find.text('Search crops, farmers...'), findsNothing);
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pumpAndSettle();
+      expect(find.text('Search crops, farmers...'), findsOneWidget);
     });
 
     testWidgets(
@@ -583,7 +723,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // No header and no compact bar in ownerMode
-      expect(find.byType(GreenHeader), findsNothing);
+      expect(find.byType(FwPageHeader), findsNothing);
       expect(find.text('Search crops, farmers...'), findsNothing);
     });
   });
@@ -608,6 +748,12 @@ void main() {
       when(() => cropListingBloc.stream).thenAnswer((_) => Stream.value(state));
     }
 
+    /// Opens the search box and price range behind the header's button.
+    Future<void> openFilters(WidgetTester tester) async {
+      await tester.tap(find.byIcon(Icons.search).first);
+      await tester.pumpAndSettle();
+    }
+
     /// Types into the search box and lets the 300 ms debounce fire.
     Future<void> search(WidgetTester tester, String text) async {
       await tester.enterText(find.byType(TextField).first, text);
@@ -619,6 +765,7 @@ void main() {
       emptyLoaded();
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
+      await openFilters(tester);
 
       await search(tester, 'Abebe');
 
@@ -649,6 +796,7 @@ void main() {
       emptyLoaded();
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
+      await openFilters(tester);
 
       await search(tester, 'Abebe');
       await tester.pumpAndSettle();
@@ -665,6 +813,7 @@ void main() {
       emptyLoaded();
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
+      await openFilters(tester);
       await search(tester, 'Abebe');
       await tester.pumpAndSettle();
       clearInteractions(cropListingBloc);
@@ -690,9 +839,10 @@ void main() {
       expect(find.text(l10n.clearFilters), findsNothing);
     });
 
-    // MyCrops board: the farmer filters their own listings by status, with
-    // counts, on the phone (no reload).
-    testWidgets('owner mode: status chips count and filter the listings',
+    // MyCrops board: the farmer filters their own listings with the
+    // Active / Reserved / Sold / Drafts switch, with counts, on the phone
+    // (no reload).
+    testWidgets('owner mode: the status switch counts and filters the listings',
         (tester) async {
       when(() => authBloc.state).thenReturn(
         const AuthAuthenticated(
@@ -712,13 +862,16 @@ void main() {
       await tester.pumpWidget(buildTestWidget(ownerMode: true));
       await tester.pumpAndSettle();
 
-      expect(find.text('All · 2'), findsOneWidget);
+      expect(find.byType(FwSegmented<ListingStatus>), findsOneWidget);
       expect(find.text('Active · 1'), findsOneWidget);
       expect(find.text('Reserved · 1'), findsOneWidget);
       expect(find.text('Sold'), findsOneWidget);
-      // No crop chips in My Crops.
-      expect(find.text('Teff'), findsWidgets); // the card title only
-      expect(find.byKey(const ValueKey('status-chip-all')), findsOneWidget);
+      expect(find.text('Drafts'), findsOneWidget);
+      expect(find.text('Expired'), findsNothing);
+      // Active is the first segment: only the active listing shows, and no
+      // crop chips in My Crops.
+      expect(find.text('Teff'), findsOneWidget); // the card title only
+      expect(find.text('Wheat'), findsNothing);
 
       await tester.tap(find.text('Reserved · 1'));
       await tester.pumpAndSettle();
@@ -731,10 +884,10 @@ void main() {
       await tester.tap(find.text('Sold'));
       await tester.pumpAndSettle();
       expect(find.text(l10n.noListingsMatchFilters), findsOneWidget);
+      expect(find.text(l10n.clearFilters), findsNothing);
 
-      await tester.tap(find.text(l10n.clearFilters));
+      await tester.tap(find.text('Active · 1'));
       await tester.pumpAndSettle();
-      expect(find.text('Wheat'), findsOneWidget);
       expect(find.text('Teff'), findsOneWidget);
     });
 
@@ -744,6 +897,7 @@ void main() {
       when(() => cropListingBloc.stream).thenAnswer((_) => Stream.value(state));
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
+      await openFilters(tester);
       await search(tester, 'abebe');
       clearInteractions(cropListingBloc);
 

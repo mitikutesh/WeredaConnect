@@ -261,7 +261,9 @@ public partial class SyncFunction
     private static readonly HashSet<string> AllowedTripFields = new()
     {
         "truckerId", "truckerName", "truckerPhone", "vehiclePlate", "vehicleDescription",
-        "fromWoreda", "toWoreda", "departureDate", "capacity", "pricePerQuintal", "status", "matchedListings"
+        "fromWoreda", "toWoreda", "departureDate", "capacity", "pricePerQuintal", "status", "matchedListings",
+        // trip-listing-api 2.1.0: the destination's point, the live track's drop-off (TripTrack.PlannedDropoff).
+        "destinationLatitude", "destinationLongitude"
     };
 
     /// <summary>
@@ -325,7 +327,10 @@ public partial class SyncFunction
         // ESC-45: the webhook holds an order whose verified payment is still pending in its inbox.
         PaymentHoldFields.HoldUntil,
         // ESC-47: when the order last entered pending_payment; the auto-cancel counts from it.
-        "pendingPaymentAt"
+        "pendingPaymentAt",
+        // Fieldway trip bookings (order-lifecycle 2.2.0): the farm and the drop-off place of the
+        // order, stamped at create from the listing and the buyer's profile.
+        "pickupPlace", "dropoffPlace"
     };
 
     /// <summary>
@@ -455,6 +460,42 @@ public partial class SyncFunction
     {
         item.Remove("qrNonce");
         return item;
+    }
+
+    /// <summary>
+    /// Copies the order's crop type and quantity (kg), the listing's place name and the
+    /// trip's departure date onto a new delivery row (delivery-verification-api 1.21.0), so
+    /// list cards need no order read. A missing source leaves its field off the row.
+    /// </summary>
+    private static void StampDeliveryCargo(
+        Dictionary<string, AttributeValue> item,
+        Dictionary<string, object> order,
+        Dictionary<string, object>? listing,
+        Dictionary<string, AttributeValue>? trip)
+    {
+        var cropType = order.GetValueOrDefault("cropType")?.ToString();
+        if (!string.IsNullOrWhiteSpace(cropType))
+        {
+            item["cropType"] = new AttributeValue { S = cropType };
+        }
+
+        var quantity = ParseDouble(order, "quantity");
+        if (quantity > 0)
+        {
+            item["quantity"] = new AttributeValue { N = quantity.ToString(CultureInfo.InvariantCulture) };
+        }
+
+        var place = listing?.GetValueOrDefault("locationName")?.ToString();
+        if (!string.IsNullOrWhiteSpace(place))
+        {
+            item["pickupPlace"] = new AttributeValue { S = place };
+        }
+
+        if (trip != null && trip.TryGetValue("departureDate", out var departure)
+            && !string.IsNullOrWhiteSpace(departure.S))
+        {
+            item["pickupPlannedAt"] = new AttributeValue { S = departure.S };
+        }
     }
 
     /// <summary>
@@ -3510,6 +3551,29 @@ public partial class SyncFunction
             errors.Add("fromWoreda and toWoreda must be different.");
         }
 
+        // trip-listing-api 2.1.0: the destination point, optional, both or neither, inside Ethiopia's
+        // box (the same bounds as a location_ping).
+        var hasDestLat = data.TryGetValue("destinationLatitude", out var destLatObj);
+        var hasDestLng = data.TryGetValue("destinationLongitude", out var destLngObj);
+        if (hasDestLat != hasDestLng)
+        {
+            errors.Add("destinationLatitude and destinationLongitude must be sent together.");
+        }
+        else if (hasDestLat)
+        {
+            if (!double.TryParse(destLatObj?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var destLat)
+                || destLat < 3 || destLat > 15)
+            {
+                errors.Add("destinationLatitude must be a number between 3 and 15.");
+            }
+
+            if (!double.TryParse(destLngObj?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var destLng)
+                || destLng < 32.5 || destLng > 48.5)
+            {
+                errors.Add("destinationLongitude must be a number between 32.5 and 48.5.");
+            }
+        }
+
         // departureDate: required on create, valid ISO 8601, future and max 30 days ahead
         // on create and whenever an update changes it
         if (isCreate || data.ContainsKey("departureDate"))
@@ -3933,6 +3997,11 @@ public partial class SyncFunction
                         }, FraudDetectionService.RoleForbiddenSignal, operation, "delivery", authenticatedUserId, context);
                     }
 
+                    // The listing and (trucker flow) the trip read below are kept: the row
+                    // takes its pickup place and planned pickup from them.
+                    Dictionary<string, object>? createListing = null;
+                    Dictionary<string, AttributeValue>? createTrip = null;
+
                     // SEC-VULN-002: Validate farmerId matches listing owner
                     if (operation.Data.TryGetValue("listingId", out var lidVal))
                     {
@@ -3977,6 +4046,8 @@ public partial class SyncFunction
                                     Message = "DELIVERY_PARTICIPANT_MISMATCH: farmerId does not match listing owner."
                                 };
                             }
+
+                            createListing = listing;
                         }
                     }
 
@@ -4249,7 +4320,7 @@ public partial class SyncFunction
                             };
                         }
 
-                        var createTrip = await GetTripItemAsync(coTripId);
+                        createTrip = await GetTripItemAsync(coTripId);
                         if (createTrip == null)
                         {
                             return new SyncOperationResult
@@ -4428,6 +4499,12 @@ public partial class SyncFunction
 
                     // Force status to "pending" for create
                     item["status"] = new AttributeValue { S = "pending" };
+
+                    // The deliveries list titles each card by crop and quantity and names
+                    // the pickup place and day without one order read per row (3G): the
+                    // row carries them from the order, listing and trip read above. They
+                    // are not client fields (the whitelist refuses them).
+                    StampDeliveryCargo(item, createOrder, createListing, createTrip);
 
                     // Participant index key: the buyer is the party that must receive
                     // status updates (pull-based), so ParticipantIndex is keyed on buyerId.
@@ -7836,8 +7913,10 @@ public partial class SyncFunction
     /// FUP-99: the order's buyerName is shown to the farmer before escrow, so it is stamped
     /// from the buyer's profile (display name, else the Fayda legal name), never kept from
     /// the client. This inherits the FUP-52 phone screen applied to the profile fields.
-    /// Orders carry no buyerPhone, so only the name is set. Returns null when stamped, else
-    /// a validation message. Mirrors <see cref="StampOwnerContactAsync"/> for listings.
+    /// Orders carry no buyerPhone, so only the name is set, plus the buyer's registered
+    /// woreda as the order's drop-off place (order-lifecycle 2.2.0) from the same read.
+    /// Returns null when stamped, else a validation message. Mirrors
+    /// <see cref="StampOwnerContactAsync"/> for listings.
     /// </summary>
     private async Task<string?> StampOrderBuyerNameAsync(
         Dictionary<string, object> data, string buyerId, ILambdaContext context)
@@ -7863,6 +7942,11 @@ public partial class SyncFunction
         }
 
         data["buyerName"] = name.Trim();
+        if (!string.IsNullOrWhiteSpace(buyer.Woreda))
+        {
+            data["dropoffPlace"] = buyer.Woreda.Trim();
+        }
+
         return null;
     }
 
@@ -8182,6 +8266,14 @@ public partial class SyncFunction
         if (listing.TryGetValue("farmerName", out var lfn) && !string.IsNullOrWhiteSpace(lfn?.ToString()))
         {
             data["farmerName"] = lfn.ToString()!;
+        }
+
+        // The farm's place for the trip bookings row (order-lifecycle 2.2.0), from the read this
+        // bind already makes; a listing without one leaves the field off the row.
+        var pickupPlace = listing.GetValueOrDefault("locationName")?.ToString();
+        if (!string.IsNullOrWhiteSpace(pickupPlace))
+        {
+            data["pickupPlace"] = pickupPlace.Trim();
         }
 
         return null;

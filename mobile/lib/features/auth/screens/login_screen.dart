@@ -1,33 +1,36 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:wereda_connect/core/auth/presentation/auth_error_l10n.dart';
+import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/screens/forgot_password_screen.dart';
 import 'package:wereda_connect/features/auth/screens/otp_verification_screen.dart';
 import 'package:wereda_connect/features/auth/screens/register_screen.dart';
-import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
-import 'package:wereda_connect/features/onboarding/bloc/onboarding_event.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
-import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
-import 'package:wereda_connect/core/utils/phone_utils.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/join_chrome.dart';
+import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 import 'package:wereda_connect/shared/widgets/language_segmented_picker.dart';
 
-/// Login screen with Ethiopian phone input and offline mode support.
+/// The Join board "Welcome and login" (specs/design-canvas/android/Welcome):
+/// wordmark and Offline Ready pill, the welcome title and the three role
+/// pills, then a white card with the language switch, the phone and
+/// password fields and Login; Register and the escrow line sit at the foot.
+///
+/// One composition at every width: on a wide window the phone column is
+/// centred on the chalk ground instead of a separate desktop layout.
 ///
 /// Features:
 /// - Language switch (English, Amharic, Afaan Oromoo) inside the form card,
-///   on every layout, so the user picks a language before logging in
+///   so the user picks a language before logging in
 /// - Ethiopian phone number input (accepts +251, 00251, or 0 prefix)
 /// - Password input with visibility toggle
-/// - Offline mode indicator
-/// - Large touch targets (48dp minimum per Material Design)
 /// - Localized error messages (Amharic/Oromo/English)
 ///
 /// Ethiopian context:
@@ -121,11 +124,30 @@ class _LoginScreenState extends State<LoginScreen> {
         );
   }
 
+  void _openForgotPassword() {
+    final phone = _phoneController.text.trim();
+    if (kIsWeb) {
+      final query =
+          phone.isNotEmpty ? '?phone=${Uri.encodeComponent(phone)}' : '';
+      GoRouter.of(context).go('/forgot-password$query');
+    } else {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ForgotPasswordScreen(initialPhoneNumber: phone),
+        ),
+      );
+    }
+  }
+
+  void _openRegister() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const RegisterScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final windowClass = Breakpoints.of(context);
 
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
@@ -135,8 +157,8 @@ class _LoginScreenState extends State<LoginScreen> {
             _otpScreenOpen = false;
             Navigator.of(context).pop();
           }
-          // Pop self if pushed on top of AuthGate (e.g. from WelcomeScreen).
-          // AuthGate will then show MainNavigation.
+          // Pop self if pushed on top of AuthGate. AuthGate will then show
+          // MainNavigation.
           if (Navigator.of(context).canPop()) {
             Navigator.of(context).pop();
           }
@@ -160,82 +182,40 @@ class _LoginScreenState extends State<LoginScreen> {
       },
       child: Scaffold(
         backgroundColor: AppTheme.chalkBackground,
-        // Show AppBar only on mobile (non-web) — desktop/tablet use inline controls
-        appBar: windowClass == WindowClass.mobile && !kIsWeb
-            ? AppBar(
-                leading: IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: () => _navigateBack(context, l10n),
-                  tooltip: l10n.backToHome,
-                ),
-                title: Text(l10n.login),
-                elevation: 0,
-              )
-            : null,
         body: SafeArea(
-          child: switch (windowClass) {
-            WindowClass.desktop => _buildDesktopLayout(context, l10n, theme),
-            WindowClass.tablet => _buildTabletLayout(context, l10n, theme),
-            WindowClass.mobile => _buildMobileLayout(context, l10n, theme),
-          },
-        ),
-      ),
-    );
-  }
-
-  void _navigateBack(BuildContext context, AppLocalizations l10n) {
-    // Cancel any in-flight login before navigating away
-    if (context.read<AuthBloc>().state is AuthLoading) {
-      context.read<AuthBloc>().add(const AuthCancelRequested());
-    }
-    if (Navigator.of(context).canPop()) {
-      // Pushed as a route (e.g. from WelcomeScreen) — pop back
-      Navigator.of(context).pop();
-    } else {
-      // Rendered inline by AuthGate — tell AuthGate to show WelcomeScreen
-      context.read<OnboardingBloc>().add(const ShowWelcomeScreen());
-    }
-  }
-
-  // ── Desktop: split-screen with hero panel left, form right ──────────
-
-  Widget _buildDesktopLayout(
-    BuildContext context,
-    AppLocalizations l10n,
-    ThemeData theme,
-  ) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 440),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 36),
-          child: _buildLoginForm(context, l10n, theme),
-        ),
-      ),
-    );
-  }
-
-  // ── Tablet: centered card layout ────────────────────────────────────
-
-  Widget _buildTabletLayout(
-    BuildContext context,
-    AppLocalizations l10n,
-    ThemeData theme,
-  ) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(32.0),
-          child: Card(
-            elevation: 4,
-            shadowColor: Colors.black26,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(36.0),
-              child: _buildLoginForm(context, l10n, theme),
+          child: FwContentWidth(
+            maxWidth: 480,
+            child: JoinPage(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
+              body: _buildLoginForm(context, l10n),
+              footer: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(
+                    height: 48,
+                    child: OutlinedButton(
+                      onPressed: _openRegister,
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
+                        side: const BorderSide(color: Color(0xFFD6D3C8)),
+                      ),
+                      child: Text(
+                        l10n.loginNoAccountRegister,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    '${l10n.loginEscrowFooter} · ${l10n.telebirrPayment}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.mutedSteel,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -243,49 +223,39 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // ── Mobile: original layout (no AppBar back button on web) ──────────
-
-  Widget _buildMobileLayout(
-    BuildContext context,
-    AppLocalizations l10n,
-    ThemeData theme,
-  ) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-          child: _buildLoginForm(context, l10n, theme),
-        ),
-      ),
-    );
-  }
-
-  // ── Shared login form (used by all layouts) ─────────────────────────
-
   static Widget _roleBadge(String label, Color bg, Color fg) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      height: 30,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-          color: fg,
-        ),
+      // A min-width row: the pill hugs its label inside the Wrap.
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: fg,
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildLoginForm(
-    BuildContext context,
-    AppLocalizations l10n,
-    ThemeData theme,
-  ) {
+  /// The board's input: a bold label above a 48 tall field, no icon inside.
+  InputDecoration _fieldDecoration() => labeledFieldDecoration().copyWith(
+        errorMaxLines: 10,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      );
+
+  Widget _buildLoginForm(BuildContext context, AppLocalizations l10n) {
     return Form(
       key: _formKey,
       child: Builder(
@@ -295,115 +265,94 @@ class _LoginScreenState extends State<LoginScreen> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Top branding & offline badge
+              // Wordmark and the Offline Ready pill.
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: AppTheme.fieldGreen,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.route,
-                          color: Colors.white,
-                          size: 22,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        l10n.appName,
-                        style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.3,
-                          color: AppTheme.soilDark,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Container(
-                    height: 30,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    decoration: BoxDecoration(
-                      color: AppTheme.fieldGreenTint,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
+                  Flexible(
                     child: Row(
-                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(
-                          Icons.check,
-                          size: 14,
-                          color: AppTheme.fieldGreen,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          l10n.offlineReady,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
                             color: AppTheme.fieldGreen,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.route,
+                            color: Colors.white,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Flexible(
+                          child: Text(
+                            l10n.appName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.3,
+                              color: AppTheme.soilDark,
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  JoinStatusPill(label: l10n.offlineReady),
                 ],
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 28),
 
-              // Title and subtitle matching Welcome.dc.html
-              Text(
-                l10n.welcomeMessage,
-                style: const TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.w800,
-                  color: AppTheme.soilDark,
-                  letterSpacing: -0.9,
-                  height: 1.1,
+              // Title, tagline and the role pills.
+              Semantics(
+                header: true,
+                child: Text(
+                  l10n.welcomeMessage,
+                  style: const TextStyle(
+                    fontSize: 30,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.soilDark,
+                    letterSpacing: -0.9,
+                    height: 1.1,
+                  ),
                 ),
               ),
               const SizedBox(height: 10),
-              Text(
-                l10n.aboutTagline,
-                style: const TextStyle(
-                  fontSize: 15,
-                  color: AppTheme.mutedSteel,
-                ),
-              ),
+              Text(l10n.aboutTagline, style: joinSubtitleStyle),
               const SizedBox(height: 12),
               Wrap(
                 spacing: 8,
+                runSpacing: 8,
                 children: [
                   _roleBadge(
                     l10n.farmer,
-                    const Color(0xFFE3EEE6),
+                    AppTheme.fieldGreenTint,
                     AppTheme.fieldGreen,
                   ),
                   _roleBadge(
                     l10n.trucker,
-                    const Color(0xFFFAEED8),
-                    const Color(0xFF8A5410),
+                    AppTheme.actionCream,
+                    AppTheme.money,
                   ),
                   _roleBadge(
                     l10n.buyer,
-                    const Color(0xFFE6ECF5),
-                    const Color(0xFF2E4C7D),
+                    AppTheme.dropoffBlueTint,
+                    AppTheme.dropoffBlue,
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
 
-              // White Card for inputs
+              // The white form card.
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: AppTheme.surfaceWhite,
                   borderRadius: BorderRadius.circular(24),
                   border: Border.all(color: AppTheme.whisperBorder),
                 ),
@@ -412,195 +361,116 @@ class _LoginScreenState extends State<LoginScreen> {
                   children: [
                     // Language first: the user may not read English yet.
                     const LanguageSegmentedPicker(),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
 
-                    // Phone number input
-                    TextFormField(
-                      controller: _phoneController,
-                      autovalidateMode: _autovalidateMode,
-                      decoration: InputDecoration(
-                        labelText: l10n.phoneNumber,
-                        prefixIcon: const Icon(Icons.phone_outlined),
-                        hintText: l10n.ethiopianPhoneExample,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide:
-                              const BorderSide(color: Color(0xFFD6D3C8)),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide:
-                              const BorderSide(color: Color(0xFFD6D3C8)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(
-                            color: AppTheme.fieldGreen,
-                            width: 2,
-                          ),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 16,
-                        ),
-                        errorMaxLines: 10,
-                      ),
-                      keyboardType: TextInputType.phone,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[+\d]')),
-                      ],
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return l10n.phoneNumberRequired;
-                        }
-                        if (!isValidEthiopianPhone(value)) {
-                          return l10n.invalidPhoneFormat;
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Password input
-                    TextFormField(
-                      controller: _passwordController,
-                      autovalidateMode: _autovalidateMode,
-                      decoration: InputDecoration(
-                        labelText: l10n.password,
-                        prefixIcon: const Icon(Icons.lock_outline),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscurePassword
-                                ? Icons.visibility_off
-                                : Icons.visibility,
-                          ),
-                          onPressed: () {
-                            setState(() {
-                              _obscurePassword = !_obscurePassword;
-                            });
-                          },
-                          iconSize: 22,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide:
-                              const BorderSide(color: Color(0xFFD6D3C8)),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide:
-                              const BorderSide(color: Color(0xFFD6D3C8)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(
-                            color: AppTheme.fieldGreen,
-                            width: 2,
-                          ),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 16,
-                        ),
-                        errorMaxLines: 10,
-                      ),
-                      obscureText: _obscurePassword,
-                      maxLength: 128,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return l10n.fieldRequired;
-                        }
-                        return null;
-                      },
-                    ),
-
-                    // Forgot password link
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: () {
-                          final phone = _phoneController.text.trim();
-                          if (kIsWeb) {
-                            final query = phone.isNotEmpty
-                                ? '?phone=${Uri.encodeComponent(phone)}'
-                                : '';
-                            GoRouter.of(context).go('/forgot-password$query');
-                          } else {
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => ForgotPasswordScreen(
-                                  initialPhoneNumber: phone,
-                                ),
-                              ),
-                            );
+                    LabeledField(
+                      label: l10n.phoneNumber,
+                      field: TextFormField(
+                        controller: _phoneController,
+                        autovalidateMode: _autovalidateMode,
+                        decoration: _fieldDecoration(),
+                        keyboardType: TextInputType.phone,
+                        inputFormatters: [EthiopianPhoneInputFormatter()],
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return l10n.phoneNumberRequired;
                           }
+                          if (!isValidEthiopianPhone(value)) {
+                            return l10n.invalidPhoneFormat;
+                          }
+                          return null;
                         },
+                      ),
+                    ),
+                    // The board's example line under the field: its own
+                    // text, outside the field's semantics and not a helper,
+                    // so a corrected field drops its error at once.
+                    const SizedBox(height: 6),
+                    Text(
+                      l10n.ethiopianPhoneExample,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: AppTheme.mutedSteel,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    LabeledField(
+                      label: l10n.password,
+                      field: TextFormField(
+                        controller: _passwordController,
+                        autovalidateMode: _autovalidateMode,
+                        decoration: _fieldDecoration().copyWith(
+                          counterText: '',
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePassword
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _obscurePassword = !_obscurePassword;
+                              });
+                            },
+                            iconSize: 22,
+                          ),
+                        ),
+                        obscureText: _obscurePassword,
+                        maxLength: 128,
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return l10n.fieldRequired;
+                          }
+                          return null;
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+
+                    // Forgot password link, right aligned as on the board.
+                    Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      child: TextButton(
+                        onPressed: _openForgotPassword,
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size(0, 32),
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
                         child: Text(
                           l10n.forgotPassword,
                           style: const TextStyle(
-                            color: AppTheme.fieldGreen,
+                            fontSize: 13,
                             fontWeight: FontWeight.w700,
+                            color: AppTheme.fieldGreen,
+                            decoration: TextDecoration.underline,
+                            decorationColor: AppTheme.fieldGreen,
                           ),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
 
                     // Error banner if any
                     if (_errorMessage != null)
                       KeyedSubtree(
                         key: ValueKey<int>(_errorSerial),
-                        child: Semantics(
-                          key: const Key('login_error_banner'),
-                          container: true,
-                          liveRegion: true,
-                          child: Container(
-                            padding: const EdgeInsets.all(12),
-                            margin: const EdgeInsets.only(bottom: 16),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFDF2F2),
-                              border: Border.all(
-                                color: const Color(0xFFF8B4B4),
-                              ),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.error_outline,
-                                  color: AppTheme.statusError,
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    _errorMessage!,
-                                    style: const TextStyle(
-                                      color: AppTheme.statusError,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: JoinErrorBanner(
+                            key: const Key('login_error_banner'),
+                            message: _errorMessage!,
                           ),
                         ),
                       ),
 
-                    // Login button
+                    // Login button (the theme's primary: 52 tall, radius 16).
                     SizedBox(
                       height: 52,
                       child: ElevatedButton(
                         onPressed: isLoading ? null : _handleLogin,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.fieldGreen,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          elevation: 0,
-                        ),
                         child: isLoading
                             ? const SizedBox(
                                 height: 20,
@@ -612,58 +482,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                 ),
                               )
-                            : Text(
-                                l10n.login,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
+                            : Text(l10n.login),
                       ),
                     ),
                   ],
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // Register button
-              SizedBox(
-                height: 48,
-                child: OutlinedButton(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const RegisterScreen(),
-                      ),
-                    );
-                  },
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    side: const BorderSide(color: Color(0xFFD6D3C8)),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                  child: Text(
-                    l10n.loginNoAccountRegister,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.soilDark,
-                    ),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 14),
-              Text(
-                '${l10n.loginEscrowFooter} · ${l10n.telebirrPayment}',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: AppTheme.mutedSteel,
                 ),
               ),
             ],

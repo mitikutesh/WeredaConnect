@@ -1126,6 +1126,42 @@ abstract class AppLocalizations {
   /// **'My Trips'**
   String get myTrips;
 
+  /// Trip card load bar: paid quintals out of the truck's capacity
+  ///
+  /// In en, this message translates to:
+  /// **'{booked} of {capacity} quintals booked'**
+  String listsTripBooked(String booked, String capacity);
+
+  /// Short hint of the origin field in the trips route filter
+  ///
+  /// In en, this message translates to:
+  /// **'From'**
+  String get listsRouteFrom;
+
+  /// Short hint of the destination field in the trips route filter
+  ///
+  /// In en, this message translates to:
+  /// **'To'**
+  String get listsRouteTo;
+
+  /// Note under the trucker's own trips (sibling of the My Crops board note)
+  ///
+  /// In en, this message translates to:
+  /// **'Only you see your trips here. Buyers find them in the Market.'**
+  String get listsMyTripsPrivacyNote;
+
+  /// Footer under the buyer's trip list
+  ///
+  /// In en, this message translates to:
+  /// **'Every open trip from every trucker.'**
+  String get listsAllTripsNote;
+
+  /// Dismiss button of the cancel-trip confirmation in the trips list
+  ///
+  /// In en, this message translates to:
+  /// **'Keep trip'**
+  String get listsKeepTrip;
+
   /// Title for trip details screen
   ///
   /// In en, this message translates to:
@@ -1365,6 +1401,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Delivery Details'**
   String get deliveryDetails;
+
+  /// Fieldway design alignment (specs/design-canvas). Delivery detail: title of the card with the delivery's four steps as bars
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery Timeline'**
+  String get restDeliveryTimeline;
 
   /// Title for the QR scan screen
   ///
@@ -1737,6 +1779,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Add Photo'**
   String get deliveryAddPhoto;
+
+  /// Fieldway design alignment (specs/design-canvas). Delivery detail: the read-only photo tile of a leg that has no photo
+  ///
+  /// In en, this message translates to:
+  /// **'No photo'**
+  String get restNoPhoto;
 
   /// Button to mark delivery as in transit
   ///
@@ -2337,6 +2385,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'ETB {amount}'**
   String escrowEtbAmount(String amount);
+
+  /// Fieldway design alignment (specs/design-canvas). Profile: section label over Fayda, app lock and documents, shown in capitals
+  ///
+  /// In en, this message translates to:
+  /// **'Account'**
+  String get profileSectionAccount;
+
+  /// Fieldway design alignment (specs/design-canvas). Profile: section label over the wallet and escrow history rows, shown in capitals
+  ///
+  /// In en, this message translates to:
+  /// **'Money'**
+  String get profileSectionMoney;
+
+  /// Fieldway design alignment (specs/design-canvas). Profile: section label over settings and help, shown in capitals
+  ///
+  /// In en, this message translates to:
+  /// **'App'**
+  String get profileSectionApp;
+
+  /// Fieldway design alignment (specs/design-canvas). Settings: section label over the language and clock rows, shown in capitals
+  ///
+  /// In en, this message translates to:
+  /// **'Language and time'**
+  String get profileSettingsLanguageTime;
+
+  /// Fieldway design alignment (specs/design-canvas). Settings: section label over location sharing, data usage and data saver, shown in capitals
+  ///
+  /// In en, this message translates to:
+  /// **'Data'**
+  String get profileSettingsData;
 
   /// Message shown when user is not authenticated — prompt to restart
   ///
@@ -3784,6 +3862,12 @@ abstract class AppLocalizations {
   /// **'Track your payments & escrow'**
   String get trackBuyerPayments;
 
+  /// Footer under the payments list
+  ///
+  /// In en, this message translates to:
+  /// **'Each row is one escrow. Tap it for the timeline.'**
+  String get listsPaymentsNote;
+
   /// Empty state message when no deliveries exist
   ///
   /// In en, this message translates to:
@@ -4354,6 +4438,12 @@ abstract class AppLocalizations {
   /// **'{count, plural, =0{No matches found} =1{1 match found} other{{count} matches found}}'**
   String matchesFound(int count);
 
+  /// Fieldway design alignment (specs/design-canvas). Match results page title; {crop} is the crop name of the buyer's request
+  ///
+  /// In en, this message translates to:
+  /// **'Matches for {crop}'**
+  String restMatchesFor(String crop);
+
   /// Empty state when no listings match the intent
   ///
   /// In en, this message translates to:
@@ -4495,7 +4585,7 @@ abstract class AppLocalizations {
   /// Helper under the max price field explaining it is optional
   ///
   /// In en, this message translates to:
-  /// **'Optional — leave empty to see all prices'**
+  /// **'Price is optional. Leave it empty to see all prices.'**
   String get maxPriceOptionalHint;
 
   /// Shown instead of a max price when the request has no budget
@@ -6880,6 +6970,12 @@ abstract class AppLocalizations {
   /// **'This trip does not share its location.'**
   String get tripModeNotSharing;
 
+  /// Fieldway structure pass. Trip detail, trucker: the booked orders could not be read (offline, server error); a Retry button follows
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load the bookings of this trip.'**
+  String get tripBookingsLoadFailed;
+
   /// Trip mode: the deliveries of the trip could not be read
   ///
   /// In en, this message translates to:
@@ -7324,6 +7420,42 @@ abstract class AppLocalizations {
   /// **'latest'**
   String get liveTripLogLatest;
 
+  /// Buyer trip log and the wide live trip (Fieldway boards): the title of the check-ins card; "about every hour" sits beside it
+  ///
+  /// In en, this message translates to:
+  /// **'Check-ins'**
+  String get liveTripCheckInsTitle;
+
+  /// Buyer trip log (Fieldway board): how often the truck checks in, beside the Check-ins title
+  ///
+  /// In en, this message translates to:
+  /// **'about every hour'**
+  String get liveTripAboutEveryHour;
+
+  /// Buyer trip log (Fieldway board): in the time column of the stop the truck goes to next
+  ///
+  /// In en, this message translates to:
+  /// **'next'**
+  String get liveTripLogNext;
+
+  /// Buyer trip log and delivered screen (Fieldway boards): in the time column of what comes after the next stop, and beside the payout step after the check window
+  ///
+  /// In en, this message translates to:
+  /// **'then'**
+  String get liveTripLogThen;
+
+  /// Buyer trip log (Fieldway board): tag on a check-in that waited on the phone; {time} is when it reached the server, on the viewer's clock
+  ///
+  /// In en, this message translates to:
+  /// **'Sent late, no network until {time}'**
+  String liveTripLogSentLateUntil(String time);
+
+  /// Farmer order on the road (Fieldway board): beside the Buyer confirms delivery step while the truck arrives today
+  ///
+  /// In en, this message translates to:
+  /// **'expected today'**
+  String get liveTripExpectedToday;
+
   /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log tag: the check-in waited on the phone over 15 minutes before it arrived
   ///
   /// In en, this message translates to:
@@ -7571,6 +7703,12 @@ abstract class AppLocalizations {
   /// **'After pickup you will see the truck on a map in Deliveries.'**
   String get liveTripAfterPickupHint;
 
+  /// Fieldway structure pass (specs/design-canvas). The trip's day on an order: buyer order detail header, trucker home Action needed card ("Thu 30 Oct trip")
+  ///
+  /// In en, this message translates to:
+  /// **'{day} trip'**
+  String orderTripOn(String day);
+
   /// LT-11 live trip (specs/features/live-trip.md section 4). Deliveries card: the farmer the crop comes from
   ///
   /// In en, this message translates to:
@@ -7661,6 +7799,18 @@ abstract class AppLocalizations {
   /// **'Next you verify with Fayda, then add your details. Farmers skip the role details step.'**
   String get registrationRoleNextNote;
 
+  /// Fieldway design alignment (specs/design-canvas). Registration Fayda step: line under the Verify with Fayda button
+  ///
+  /// In en, this message translates to:
+  /// **'Needs internet for this step.'**
+  String get joinFaydaNeedsInternet;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration personal info: helper under the Wereda field
+  ///
+  /// In en, this message translates to:
+  /// **'Search places and towns, works offline'**
+  String get joinWeredaHelper;
+
   /// Fieldway design alignment (specs/design-canvas). Registration personal info: tag on the locked legal name
   ///
   /// In en, this message translates to:
@@ -7697,11 +7847,71 @@ abstract class AppLocalizations {
   /// **'Your money is held safely. The farmer is asked first, then the trucker.'**
   String get placeOrderEscrowNote;
 
-  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen): search box hint; matches the names on a delivery
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen): search box hint; matches the crop and the names on a delivery
   ///
   /// In en, this message translates to:
-  /// **'Farmer, buyer or driver'**
+  /// **'Crop, farmer or driver'**
   String get deliveriesSearchHint;
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries: segmented switch, every delivery not delivered or cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'Active'**
+  String get delivSegmentActive;
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries card waiting for pickup: the trip's departure day after the farmer; {date} is a short date like Thu 30 Oct
+  ///
+  /// In en, this message translates to:
+  /// **'pickup {date}'**
+  String delivPickupOn(String date);
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries card: a delivered delivery outside the buyer's report window; {date} is a short date
+  ///
+  /// In en, this message translates to:
+  /// **'Delivered {date}'**
+  String delivDeliveredOn(String date);
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) summary line under the title: trucks carrying the viewer's crops now
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 on the road} other{{count} on the road}}'**
+  String delivSummaryOnTheRoad(int count);
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) summary line: deliveries not picked up yet
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 waiting for pickup} other{{count} waiting for pickup}}'**
+  String delivSummaryWaiting(int count);
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) summary line: delivered within the last 48 hours, the buyer can still report a problem
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 in the check window} other{{count} in the check window}}'**
+  String delivSummaryCheckWindow(int count);
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) list card: small word under the arrival window on the right, lowercase
+  ///
+  /// In en, this message translates to:
+  /// **'arriving'**
+  String get delivArrivingCaption;
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) list card of a delivery not picked up yet; {date} is a short date like Thu 30 Oct; followed by the map note
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for pickup {date}'**
+  String delivWaitingForPickupOn(String date);
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) list card: short note after the pickup day, lowercase, the live map begins once the truck scans the farmer's QR
+  ///
+  /// In en, this message translates to:
+  /// **'map starts at pickup'**
+  String get delivMapStartsAtPickup;
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) list card of a delivered delivery, after 'Delivered Mon'; lowercase; {time} is a weekday and time like Wed 16:10
+  ///
+  /// In en, this message translates to:
+  /// **'report a problem until {time}'**
+  String delivReportProblemUntil(String time);
 
   /// Fieldway design alignment (specs/design-canvas). Create crop listing and create trip: offline save note under Save
   ///
@@ -7720,6 +7930,114 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Today'**
   String get homeToday;
+
+  /// Fieldway design alignment (specs/design-canvas). Home action card: a deadline that falls today, with the time of day
+  ///
+  /// In en, this message translates to:
+  /// **'Due today {time}'**
+  String homeDueToday(String time);
+
+  /// Fieldway design alignment (specs/design-canvas). Home: link under the one Action needed card to the other orders waiting; opens the Orders list
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 more} other{{count} more}}'**
+  String homeActionMore(int count);
+
+  /// Fieldway structure pass (specs/design-canvas). Trucker home trip card: the next stop is a drop-off near the town {place}, with the arrival the server estimates ("Next: drop-off in Dukem, about 12:35")
+  ///
+  /// In en, this message translates to:
+  /// **'Next: drop-off in {place}, about {time}'**
+  String homeNextDropoffAbout(String place, String time);
+
+  /// Fieldway structure pass. Trucker home trip card: the next drop-off's town, before any arrival estimate
+  ///
+  /// In en, this message translates to:
+  /// **'Next: drop-off in {place}'**
+  String homeNextDropoffIn(String place);
+
+  /// Fieldway structure pass. Trucker home trip card: the next pickup's town (the listing's place)
+  ///
+  /// In en, this message translates to:
+  /// **'Next: pickup in {place}'**
+  String homeNextPickupIn(String place);
+
+  /// Fieldway design alignment (specs/design-canvas). Trucker home trip card: the next stop is a pickup at the farmer {name}
+  ///
+  /// In en, this message translates to:
+  /// **'Next: pickup at {name}'**
+  String homeNextPickup(String name);
+
+  /// Fieldway design alignment (specs/design-canvas). Trucker home trip card: the next stop is a drop-off at the buyer {name}
+  ///
+  /// In en, this message translates to:
+  /// **'Next: drop-off at {name}'**
+  String homeNextDropoff(String name);
+
+  /// Fieldway design alignment (specs/design-canvas). Trucker home trip card when no trip is posted: line under No active trip
+  ///
+  /// In en, this message translates to:
+  /// **'Post a trip and buyers can book space on it.'**
+  String get homeTripNoneHint;
+
+  /// Fieldway design alignment (specs/design-canvas). Trucker home trip card, a booked trip not started: what to do on the trip day
+  ///
+  /// In en, this message translates to:
+  /// **'Scan each farmer\'s QR at pickup'**
+  String get homeTripMatchedLine;
+
+  /// Fieldway design alignment (specs/design-canvas). Farmer home My Crops tile: line under the count
+  ///
+  /// In en, this message translates to:
+  /// **'{active} active, {reserved} reserved'**
+  String homeTileActiveReserved(int active, int reserved);
+
+  /// Fieldway design alignment (specs/design-canvas). Farmer home Pending Orders tile: line under the count
+  ///
+  /// In en, this message translates to:
+  /// **'waiting for you'**
+  String get homeTileWaitingForYou;
+
+  /// Fieldway design alignment (specs/design-canvas). Farmer home Escrow tile: line under the amount (the farmer's crop money in escrow)
+  ///
+  /// In en, this message translates to:
+  /// **'held for you'**
+  String get homeTileHeldForYou;
+
+  /// Fieldway design alignment (specs/design-canvas). Buyer home Escrow tile: line under the amount (the buyer's money in escrow)
+  ///
+  /// In en, this message translates to:
+  /// **'held in escrow'**
+  String get homeTileHeldInEscrow;
+
+  /// Fieldway design alignment (specs/design-canvas). Home Deliveries tile: line under the count of deliveries on the road
+  ///
+  /// In en, this message translates to:
+  /// **'in transit'**
+  String get homeTileInTransit;
+
+  /// Fieldway design alignment (specs/design-canvas). Buyer home Active Orders tile: line under the count
+  ///
+  /// In en, this message translates to:
+  /// **'in progress'**
+  String get homeTileInProgress;
+
+  /// Fieldway design alignment (specs/design-canvas). Buyer home Find Crops tile: line under the count of listings on the market
+  ///
+  /// In en, this message translates to:
+  /// **'available now'**
+  String get homeTileAvailableNow;
+
+  /// Fieldway design alignment (specs/design-canvas). Buyer home Find Trips tile: line under the label (buyers browse every trucker's trips)
+  ///
+  /// In en, this message translates to:
+  /// **'all trucks heading out'**
+  String get homeTileBrowseAllTrips;
+
+  /// Fieldway design alignment (specs/design-canvas). Home: the one-line Recent card; {event} is the latest activity line
+  ///
+  /// In en, this message translates to:
+  /// **'Recent: {event}'**
+  String homeRecentLine(String event);
 
   /// Fieldway design alignment (specs/design-canvas). Trip detail header: the trip's price; {price} is a number
   ///
@@ -7841,11 +8159,257 @@ abstract class AppLocalizations {
   /// **'listed {date}'**
   String myCropsListedOn(String date);
 
+  /// Fieldway design alignment (specs/design-canvas). My Crops card: a listing posted today, in place of "listed {date}"
+  ///
+  /// In en, this message translates to:
+  /// **'listed today'**
+  String get cropsListedToday;
+
+  /// Fieldway design alignment (specs/design-canvas). My Crops: segmented switch label for the farmer's draft listings
+  ///
+  /// In en, this message translates to:
+  /// **'Drafts'**
+  String get cropsDrafts;
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail booking card: under the trucker's transport pay for one booked order
+  ///
+  /// In en, this message translates to:
+  /// **'your pay'**
+  String get detailYourPay;
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail booking card pill, first half: the farmer has not answered the order yet (followed by detailBookingAskedNext after a middle dot)
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for the farmer'**
+  String get detailBookingWaitingFarmer;
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail booking card pill, second half: the trucker is asked after the farmer
+  ///
+  /// In en, this message translates to:
+  /// **'you are asked next'**
+  String get detailBookingAskedNext;
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail booking card pill, after "Accepted" and a middle dot: the parties can reach each other
+  ///
+  /// In en, this message translates to:
+  /// **'contact open'**
+  String get detailBookingAcceptedContactOpen;
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail header: booked quintals out of the capacity (followed by detailLeft after a middle dot); numbers
+  ///
+  /// In en, this message translates to:
+  /// **'{booked} of {capacity} quintals'**
+  String detailBookedOf(String booked, String capacity);
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail header: the quintals of room left; a number
+  ///
+  /// In en, this message translates to:
+  /// **'{left} left'**
+  String detailLeft(String left);
+
+  /// Fieldway design alignment (specs/design-canvas). Crop detail drawing: the label at the crop's place, after the place name and a middle dot
+  ///
+  /// In en, this message translates to:
+  /// **'crop here'**
+  String get detailCropHere;
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail transport request: the farmer said yes and the trucker's deadline; {time} is the deadline on the viewer's clock
+  ///
+  /// In en, this message translates to:
+  /// **'The farmer accepted. Please answer by {time}.'**
+  String detailFarmerAcceptedAnswerBy(String time);
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail header: the label over the load bar
+  ///
+  /// In en, this message translates to:
+  /// **'Booked'**
+  String get detailBooked;
+
+  /// Fieldway design alignment (specs/design-canvas). Crop detail header: the listing's quantity still for sale; a number
+  ///
+  /// In en, this message translates to:
+  /// **'{quintals} quintals left'**
+  String detailQuintalsLeft(String quintals);
+
+  /// Fieldway design alignment (specs/design-canvas). Crop detail drawing: straight-line distance from the crop to the buyer's place
+  ///
+  /// In en, this message translates to:
+  /// **'About {km} km to you'**
+  String detailKmToYou(int km);
+
+  /// Fieldway design alignment (specs/design-canvas). Crop detail price card title: the quantity the price is for, with its unit ("For 1,500 kg")
+  ///
+  /// In en, this message translates to:
+  /// **'For {quantity}'**
+  String detailForQuantity(String quantity);
+
+  /// Fieldway design alignment (specs/design-canvas). Suggested transport card: the unit under the price per quintal, short
+  ///
+  /// In en, this message translates to:
+  /// **'ETB/q'**
+  String get detailEtbPerQuintalShort;
+
+  /// Fieldway design alignment (specs/design-canvas). Place order, under the quantity: the chosen trip has room for it; the room left
+  ///
+  /// In en, this message translates to:
+  /// **'fits this trip ({quintals} quintals left)'**
+  String detailFitsTrip(String quintals);
+
+  /// Fieldway design alignment (specs/design-canvas). Place order, under the quantity: the chosen trip cannot carry it all; the room left
+  ///
+  /// In en, this message translates to:
+  /// **'more than this trip has room for ({quintals} quintals left)'**
+  String detailExceedsTrip(String quintals);
+
+  /// Fieldway design alignment (specs/design-canvas). Place order transport card: link back to pick another trip
+  ///
+  /// In en, this message translates to:
+  /// **'Change'**
+  String get detailChange;
+
+  /// Fieldway design alignment (specs/design-canvas). Place order quantity: screen reader label of the minus button (100 kg less)
+  ///
+  /// In en, this message translates to:
+  /// **'Less'**
+  String get detailLess;
+
+  /// Fieldway design alignment (specs/design-canvas). Place order quantity: screen reader label of the plus button (100 kg more)
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get detailMore;
+
+  /// Fieldway design alignment (specs/design-canvas). Create listing, under the location: what to do when the phone has no GPS fix
+  ///
+  /// In en, this message translates to:
+  /// **'No GPS? Pick your wereda from the list instead.'**
+  String get detailGpsPickFromList;
+
+  /// Fieldway design alignment (specs/design-canvas). Create listing, under the description: why a phone number is refused there
+  ///
+  /// In en, this message translates to:
+  /// **'No phone numbers: contact opens after payment is held in escrow.'**
+  String get detailNoPhoneNumbersNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Create listing location drawing: the label at the farmer's position
+  ///
+  /// In en, this message translates to:
+  /// **'Your farm'**
+  String get detailYourFarm;
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail header, farmer answering: the page title
+  ///
+  /// In en, this message translates to:
+  /// **'New order'**
+  String get detailNewOrderTitle;
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail header, farmer answering: the crop and weight under the title ("Wheat · 1,200 kg from your listing")
+  ///
+  /// In en, this message translates to:
+  /// **'{what} from your listing'**
+  String detailFromYourListing(String what);
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail, farmer and trucker cards: the buyer's money is held
+  ///
+  /// In en, this message translates to:
+  /// **'Paid into escrow'**
+  String get detailPaidIntoEscrow;
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail, farmer card: the row naming who collects the crop
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup'**
+  String get detailPickupLabel;
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail, farmer card pickup row: the trucker's truck
+  ///
+  /// In en, this message translates to:
+  /// **'{name}\'s truck'**
+  String detailTruckOf(String name);
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail, farmer card pickup row: a self-pickup order, no truck
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer collects it'**
+  String get detailBuyerCollects;
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail, buyer: the row at the foot with the money held
+  ///
+  /// In en, this message translates to:
+  /// **'Held in escrow'**
+  String get detailHeldInEscrow;
+
+  /// Fieldway design alignment (specs/design-canvas). Who has agreed, first row: the buyer paid; {party} is "You" or the buyer's name, drawn in bold
+  ///
+  /// In en, this message translates to:
+  /// **'{party} paid'**
+  String detailPartyPaid(String party);
+
+  /// Fieldway design alignment (specs/design-canvas). Who has agreed rows: the party's name and role ("Almaz Bekele, farmer"); the name is drawn in bold
+  ///
+  /// In en, this message translates to:
+  /// **'{name}, {role}'**
+  String detailPartyRole(String name, String role);
+
+  /// Fieldway design alignment (specs/design-canvas). Who has agreed rows: the viewer's own name
+  ///
+  /// In en, this message translates to:
+  /// **'You'**
+  String get detailYou;
+
+  /// Fieldway design alignment (specs/design-canvas). Order timeline card: the steps after the four shown, as a list; then the tap hint
+  ///
+  /// In en, this message translates to:
+  /// **'Then {steps}. Tap a step to read what it means.'**
+  String detailTimelineThen(String steps);
+
+  /// Fieldway design alignment (specs/design-canvas). Order timeline card: the tap hint when every step is shown
+  ///
+  /// In en, this message translates to:
+  /// **'Tap a step to read what it means.'**
+  String get detailTimelineTapStep;
+
+  /// Fieldway design alignment (specs/design-canvas). Joins a list's last item ("A, B and C"); {head} is the comma-joined start
+  ///
+  /// In en, this message translates to:
+  /// **'{head} and {last}'**
+  String detailListAnd(String head, String last);
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail contact card: the trucker's row while they have not answered the transport request
+  ///
+  /// In en, this message translates to:
+  /// **'Contact opens when the trucker accepts'**
+  String get detailContactOpensWhenTruckerAccepts;
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail contact card: screen reader label of the message button
+  ///
+  /// In en, this message translates to:
+  /// **'Message {name}'**
+  String detailMessageParty(String name);
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail contact card: screen reader label of the call button (opens Call and Copy)
+  ///
+  /// In en, this message translates to:
+  /// **'Call {name}'**
+  String detailCallParty(String name);
+
   /// Fieldway design alignment (specs/design-canvas). Trip log, buyer: an unnamed stop before the buyer's drop-off; {minutes} is the estimate at the pace of the arrival window
   ///
   /// In en, this message translates to:
   /// **'About {minutes} min, then on to you'**
   String liveTripLogStopAhead(int minutes);
+
+  /// Fieldway structure pass (specs/design-canvas). Find Crops transport pill: the room left on the trip, short ("Transport Thu · 18 q room"); q is quintals
+  ///
+  /// In en, this message translates to:
+  /// **'{quintals} q room'**
+  String marketQuintalsRoom(String quintals);
+
+  /// Fieldway structure pass. Crop detail suggested transport: the room left on the trip ("Meki → Addis Ababa · 18 quintals room · 4.7")
+  ///
+  /// In en, this message translates to:
+  /// **'{quintals} quintals room'**
+  String detailQuintalsRoom(String quintals);
 
   /// Fieldway design alignment (specs/design-canvas). Find Crops card: the one trip this week that can carry the crop; {day} is a short weekday, followed by the room left
   ///
@@ -7864,6 +8428,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No trip yet'**
   String get marketNoTripYet;
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops: line under the list; the buyer sees every listing, those a trip this week can carry to their drop-off place first
+  ///
+  /// In en, this message translates to:
+  /// **'Every farmer\'s listing, sorted by the best match for {place}.'**
+  String marketFootnote(String place);
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops: line under the list when the buyer's profile has no place; the listings with a trip this week come first
+  ///
+  /// In en, this message translates to:
+  /// **'Every farmer\'s listing, sorted by the best transport match.'**
+  String get marketFootnoteNoPlace;
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops card title after the crop: what the listing still has; a number
+  ///
+  /// In en, this message translates to:
+  /// **'{quantity} quintals left'**
+  String marketQuintalsLeft(String quantity);
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops: the header button that shows or hides the search box and the price range
+  ///
+  /// In en, this message translates to:
+  /// **'Search and price filters'**
+  String get marketSearchToggle;
 
   /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: the order's money still held; {amount} is the sum with ETB
   ///

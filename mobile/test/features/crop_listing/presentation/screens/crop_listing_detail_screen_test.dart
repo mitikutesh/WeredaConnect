@@ -101,8 +101,8 @@ void main() {
       await tester.pumpWidget(_buildScreen(listing: listing));
       await tester.pumpAndSettle();
 
-      // Teff uses Icons.grass
-      expect(find.byIcon(Icons.grass), findsOneWidget);
+      // The crop's name is the page title (no icon tile on the board).
+      expect(find.byIcon(Icons.grass), findsNothing);
       expect(find.text('Teff'), findsWidgets);
     });
 
@@ -130,8 +130,10 @@ void main() {
       await tester.pumpWidget(_buildScreen(listing: listing));
       await tester.pumpAndSettle();
 
-      expect(find.text('50.0 quintals'), findsOneWidget);
-      expect(find.text('Quantity'), findsOneWidget);
+      // Crop detail board: "50 quintals left · listed Feb 20" under the
+      // crop, no separate quantity row.
+      expect(find.textContaining('50 quintals left'), findsOneWidget);
+      expect(find.text('Quantity'), findsNothing);
     });
 
     testWidgets('renders price with ETB/kg', (tester) async {
@@ -140,8 +142,10 @@ void main() {
       await tester.pumpWidget(_buildScreen(listing: listing));
       await tester.pumpAndSettle();
 
-      expect(find.text('85.00 ETB/kg'), findsOneWidget);
-      expect(find.text('Price'), findsOneWidget);
+      // The price large on the right with its unit under it.
+      expect(find.text('85'), findsOneWidget);
+      expect(find.text('ETB/kg'), findsOneWidget);
+      expect(find.text('Price'), findsNothing);
     });
 
     testWidgets('renders location', (tester) async {
@@ -151,21 +155,19 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Bishoftu'), findsOneWidget);
-      expect(find.text('Location'), findsOneWidget);
     });
 
     testWidgets('renders created date', (tester) async {
       final listing = _makeListing();
-      // LT-03: English keeps the 24-hour clock, in Ethiopia time.
+      // The day it was listed sits under the crop ("listed Feb 20").
       final eat = instantInEthiopia(DateTime(2026, 2, 20));
-      final expectedDate =
-          '${DateFormat.yMMMd().format(eat)} ${DateFormat.Hm().format(eat)}';
+      final expectedDate = 'listed ${DateFormat.MMMd().format(eat)}';
 
       await tester.pumpWidget(_buildScreen(listing: listing));
       await tester.pumpAndSettle();
 
-      expect(find.text(expectedDate), findsOneWidget);
-      expect(find.text('Created'), findsOneWidget);
+      expect(find.textContaining(expectedDate), findsOneWidget);
+      expect(find.text('Created'), findsNothing);
     });
 
     testWidgets('hides description row when description is empty',

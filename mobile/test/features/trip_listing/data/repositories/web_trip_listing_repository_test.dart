@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -5,6 +7,7 @@ import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/web_trip_listing_repository.dart';
+import 'package:wereda_connect/shared/services/place_repository.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
 
@@ -49,6 +52,53 @@ void main() {
           .thenThrow(Exception('offline'));
       expect(await repository.getTripById('trip-x'), isNull);
     });
+  });
+
+  // The server answers 20 trips a page: a buyer must see ALL open trips
+  // (role rule), a trucker all of their own, so every page is read.
+  test('open and own trips follow nextToken to the last page', () async {
+    final api = _MockApiClient();
+    Map<String, dynamic> trip(String id) => {
+          'tripId': id,
+          'truckerId': 'trucker-1',
+          'fromWoreda': 'Debre Birhan',
+          'toWoreda': 'Dire Dawa',
+          'departureDate': '2026-11-01T06:00:00.000Z',
+          'capacity': 40,
+          'pricePerQuintal': 92,
+          'status': 'open',
+          'createdAt': '2026-10-28T00:00:00.000Z',
+          'updatedAt': '2026-10-28T00:00:00.000Z',
+          'version': 1,
+        };
+    when(
+      () => api.get<Map<String, dynamic>>(
+        '/trips',
+        queryParameters: any(named: 'queryParameters'),
+      ),
+    ).thenAnswer((inv) async {
+      final params =
+          inv.namedArguments[#queryParameters] as Map<String, dynamic>;
+      return switch (params['nextToken']) {
+        null => {
+            'trips': [trip('p1')],
+            'nextToken': 'page-2',
+          },
+        'page-2' => {
+            'trips': [trip('p2')],
+            'nextToken': 'page-3',
+          },
+        _ => {
+            'trips': [trip('p3')],
+          },
+      };
+    });
+    final repository = WebTripListingRepository(api: api);
+
+    final open = await repository.getOpenTrips();
+    expect(open.map((t) => t.tripId), ['p1', 'p2', 'p3']);
+    final own = await repository.getTripsByTrucker('trucker-1');
+    expect(own.map((t) => t.tripId), ['p1', 'p2', 'p3']);
   });
 
   // Create trip offers the first recent route as "Repeat Last Trip", so the
@@ -128,6 +178,46 @@ void main() {
     );
     final op = (sentBody!['operations'] as List).first as Map<String, dynamic>;
     expect(op['entityId'], trip.tripId);
+  });
+
+  // trip-listing-api 2.1.0: the picked destination's point goes with the
+  // create, so the live track has a drop-off point.
+  test('createTrip sends the picked destination point', () async {
+    PlaceRepository.instance.loadFromStringForTest(
+      File('test/fixtures/woredas_sample.json').readAsStringSync(),
+    );
+    final api = _MockApiClient();
+    Map<String, dynamic>? sentBody;
+    when(
+      () => api.post<Map<String, dynamic>>(
+        '/sync',
+        data: any<dynamic>(named: 'data'),
+      ),
+    ).thenAnswer((invocation) async {
+      sentBody = invocation.namedArguments[#data] as Map<String, dynamic>;
+      return {
+        'results': [
+          {'status': 'success'},
+        ],
+      };
+    });
+
+    await WebTripListingRepository(api: api).createTrip(
+      truckerId: 'trucker-1',
+      truckerName: 'Trucker',
+      truckerPhone: '+251900100002',
+      fromWoreda: 'Bishoftu',
+      toWoreda: 'Adama',
+      departureDate: DateTime.utc(2026, 11, 2),
+      capacity: 50,
+      pricePerQuintal: 200,
+      toPlaceId: 'gn-adama',
+    );
+
+    final op = (sentBody!['operations'] as List).first as Map<String, dynamic>;
+    final data = op['data'] as Map<String, dynamic>;
+    expect(data['destinationLatitude'], 8.54);
+    expect(data['destinationLongitude'], 39.27);
   });
 
   // ESC-12: cancel, start and deliver used to ignore the /sync result, so a

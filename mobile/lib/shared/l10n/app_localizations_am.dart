@@ -545,6 +545,27 @@ class AppLocalizationsAm extends AppLocalizations {
   String get myTrips => 'የእኔ ጉዞዎች';
 
   @override
+  String listsTripBooked(String booked, String capacity) {
+    return 'ከ$capacity ኩንታል $booked ተይዟል';
+  }
+
+  @override
+  String get listsRouteFrom => 'ከ';
+
+  @override
+  String get listsRouteTo => 'ወደ';
+
+  @override
+  String get listsMyTripsPrivacyNote =>
+      'ጉዞዎችዎን እዚህ የሚያዩት እርስዎ ብቻ ነዎት። ገዢዎች በገበያ ውስጥ ያገኟቸዋል።';
+
+  @override
+  String get listsAllTripsNote => 'ከሁሉም አሽከርካሪዎች የመጡ ክፍት ጉዞዎች።';
+
+  @override
+  String get listsKeepTrip => 'ጉዞውን አቆይ';
+
+  @override
   String get tripDetails => 'የጉዞ ዝርዝር';
 
   @override
@@ -664,6 +685,9 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deliveryDetails => 'የማድረሻ ዝርዝሮች';
+
+  @override
+  String get restDeliveryTimeline => 'የማድረሻ የጊዜ መስመር';
 
   @override
   String get deliveryScanQrCode => 'ኪዩአር ኮድ ቃኝ';
@@ -854,6 +878,9 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deliveryAddPhoto => 'ፎቶ ጨምር';
+
+  @override
+  String get restNoPhoto => 'ፎቶ የለም';
 
   @override
   String get deliveryMarkInTransit => 'በመጓጓዝ ላይ ምልክት';
@@ -1180,6 +1207,21 @@ class AppLocalizationsAm extends AppLocalizations {
   String escrowEtbAmount(String amount) {
     return 'ብር $amount';
   }
+
+  @override
+  String get profileSectionAccount => 'አካውንት';
+
+  @override
+  String get profileSectionMoney => 'ገንዘብ';
+
+  @override
+  String get profileSectionApp => 'መተግበሪያ';
+
+  @override
+  String get profileSettingsLanguageTime => 'ቋንቋ እና ሰዓት';
+
+  @override
+  String get profileSettingsData => 'ዳታ';
 
   @override
   String get profileRestartApp => 'እባክዎ ፕሮግራሙን እንደገና ያስነሱ';
@@ -1962,6 +2004,10 @@ class AppLocalizationsAm extends AppLocalizations {
   String get trackBuyerPayments => 'ክፍያዎን እና ኤስክሮ ይከታተሉ';
 
   @override
+  String get listsPaymentsNote =>
+      'እያንዳንዱ ረድፍ አንድ ኢስክሮ ነው። የጊዜ መስመሩን ለማየት ይንኩት።';
+
+  @override
   String get noDeliveries => 'ገና ማድረሻ የለም';
 
   @override
@@ -2272,6 +2318,11 @@ class AppLocalizationsAm extends AppLocalizations {
       zero: 'ተመሳሳይ አልተገኘም',
     );
     return '$_temp0';
+  }
+
+  @override
+  String restMatchesFor(String crop) {
+    return 'ለ$crop ተመሳሳዮች';
   }
 
   @override
@@ -3739,6 +3790,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get tripModeNotSharing => 'ይህ ጉዞ ቦታውን አያጋራም።';
 
   @override
+  String get tripBookingsLoadFailed => 'የዚህን ጉዞ ቦታ ማስያዣዎች መጫን አልተቻለም።';
+
+  @override
   String get tripModeLoadFailed => 'የዚህን ጉዞ ማቆሚያዎች መጫን አልተቻለም።';
 
   @override
@@ -4013,6 +4067,26 @@ class AppLocalizationsAm extends AppLocalizations {
   String get liveTripLogLatest => 'የመጨረሻ';
 
   @override
+  String get liveTripCheckInsTitle => 'ሪፖርቶች';
+
+  @override
+  String get liveTripAboutEveryHour => 'በየሰዓቱ ገደማ';
+
+  @override
+  String get liveTripLogNext => 'ቀጣይ';
+
+  @override
+  String get liveTripLogThen => 'ከዚያ';
+
+  @override
+  String liveTripLogSentLateUntil(String time) {
+    return 'ዘግይቶ ደርሷል፣ እስከ $time ኔትወርክ አልነበረም';
+  }
+
+  @override
+  String get liveTripExpectedToday => 'ዛሬ ይጠበቃል';
+
+  @override
   String get liveTripLogSentLate => 'ዘግይቶ ደርሷል፤ ኔትወርክ አልነበረም';
 
   @override
@@ -4169,6 +4243,11 @@ class AppLocalizationsAm extends AppLocalizations {
       'ከተነሳ በኋላ መኪናውን በማድረሻዎች ውስጥ በካርታ ላይ ያያሉ።';
 
   @override
+  String orderTripOn(String day) {
+    return 'የ$day ጉዞ';
+  }
+
+  @override
   String liveTripFrom(String name) {
     return 'ከ$name';
   }
@@ -4223,6 +4302,12 @@ class AppLocalizationsAm extends AppLocalizations {
       'ቀጥሎ በፋይዳ ያረጋግጣሉ፣ ከዚያ ዝርዝሮችዎን ያክላሉ። ገበሬዎች የሚና ዝርዝሮችን ደረጃ ይዘላሉ።';
 
   @override
+  String get joinFaydaNeedsInternet => 'ለዚህ ደረጃ ኢንተርኔት ያስፈልጋል።';
+
+  @override
+  String get joinWeredaHelper => 'ቦታዎችንና ከተሞችን ይፈልጉ፣ ያለ ኢንተርኔት ይሰራል';
+
+  @override
   String get fromFayda => 'ከፋይዳ';
 
   @override
@@ -4242,7 +4327,69 @@ class AppLocalizationsAm extends AppLocalizations {
       'ገንዘብዎ በደህና ይያዛል። መጀመሪያ ገበሬው፣ ከዚያ ሹፌሩ ይጠየቃሉ።';
 
   @override
-  String get deliveriesSearchHint => 'ገበሬ፣ ገዢ ወይም ሹፌር';
+  String get deliveriesSearchHint => 'ሰብል፣ ገበሬ ወይም ሹፌር';
+
+  @override
+  String get delivSegmentActive => 'ንቁ';
+
+  @override
+  String delivPickupOn(String date) {
+    return 'መነሻ $date';
+  }
+
+  @override
+  String delivDeliveredOn(String date) {
+    return '$date ደርሷል';
+  }
+
+  @override
+  String delivSummaryOnTheRoad(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count በመንገድ ላይ',
+      one: '1 በመንገድ ላይ',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String delivSummaryWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count መነሻን በመጠበቅ ላይ',
+      one: '1 መነሻን በመጠበቅ ላይ',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String delivSummaryCheckWindow(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count በማረጋገጫ ጊዜ ውስጥ',
+      one: '1 በማረጋገጫ ጊዜ ውስጥ',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get delivArrivingCaption => 'በመድረስ ላይ';
+
+  @override
+  String delivWaitingForPickupOn(String date) {
+    return 'መነሻን በመጠበቅ ላይ $date';
+  }
+
+  @override
+  String get delivMapStartsAtPickup => 'ካርታው በመነሻ ይጀምራል';
+
+  @override
+  String delivReportProblemUntil(String time) {
+    return 'እስከ $time ችግር ያሳውቁ';
+  }
 
   @override
   String get savedOnPhoneFirstNote => 'መጀመሪያ በስልክዎ ይቀመጣል፣ ኔትወርክ ሲኖር ይላካል።';
@@ -4253,6 +4400,84 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get homeToday => 'ዛሬ';
+
+  @override
+  String homeDueToday(String time) {
+    return 'እስከ ዛሬ $time';
+  }
+
+  @override
+  String homeActionMore(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ተጨማሪ',
+      one: '1 ተጨማሪ',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String homeNextDropoffAbout(String place, String time) {
+    return 'ቀጣይ፦ ማውረጃ በ$place፣ በግምት $time';
+  }
+
+  @override
+  String homeNextDropoffIn(String place) {
+    return 'ቀጣይ፦ ማውረጃ በ$place';
+  }
+
+  @override
+  String homeNextPickupIn(String place) {
+    return 'ቀጣይ፦ መጫኛ በ$place';
+  }
+
+  @override
+  String homeNextPickup(String name) {
+    return 'ቀጣይ፦ መጫኛ በ$name';
+  }
+
+  @override
+  String homeNextDropoff(String name) {
+    return 'ቀጣይ፦ ማውረጃ በ$name';
+  }
+
+  @override
+  String get homeTripNoneHint => 'ጉዞ ይለጥፉ፣ ገዢዎች በላዩ ቦታ መያዝ ይችላሉ።';
+
+  @override
+  String get homeTripMatchedLine => 'በመጫኛ ቦታ የእያንዳንዱን ገበሬ QR ይቃኙ';
+
+  @override
+  String homeTileActiveReserved(int active, int reserved) {
+    return '$active ንቁ፣ $reserved የተያዘ';
+  }
+
+  @override
+  String get homeTileWaitingForYou => 'እርስዎን ይጠብቃል';
+
+  @override
+  String get homeTileHeldForYou => 'ለእርስዎ ተይዟል';
+
+  @override
+  String get homeTileHeldInEscrow => 'በኢስክሮ ተይዟል';
+
+  @override
+  String get homeTileInTransit => 'በመጓጓዝ ላይ';
+
+  @override
+  String get homeTileInProgress => 'በሂደት ላይ';
+
+  @override
+  String get homeTileAvailableNow => 'አሁን ይገኛል';
+
+  @override
+  String get homeTileBrowseAllTrips => 'ሁሉም የሚነሱ መኪናዎች';
+
+  @override
+  String homeRecentLine(String event) {
+    return 'የቅርብ፦ $event';
+  }
 
   @override
   String tripPricePerQuintalValue(String price) {
@@ -4335,8 +4560,168 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String get cropsListedToday => 'ዛሬ ተዘርዝሯል';
+
+  @override
+  String get cropsDrafts => 'ረቂቆች';
+
+  @override
+  String get detailYourPay => 'የእርስዎ ክፍያ';
+
+  @override
+  String get detailBookingWaitingFarmer => 'ገበሬውን በመጠበቅ ላይ';
+
+  @override
+  String get detailBookingAskedNext => 'ቀጥሎ እርስዎ ይጠየቃሉ';
+
+  @override
+  String get detailBookingAcceptedContactOpen => 'ግንኙነት ተከፍቷል';
+
+  @override
+  String detailBookedOf(String booked, String capacity) {
+    return 'ከ$capacity ኩንታል $booked';
+  }
+
+  @override
+  String detailLeft(String left) {
+    return '$left ቀርቷል';
+  }
+
+  @override
+  String get detailCropHere => 'ሰብሉ እዚህ';
+
+  @override
+  String detailFarmerAcceptedAnswerBy(String time) {
+    return 'ገበሬው ተቀብሏል። እባክዎ እስከ $time ይመልሱ።';
+  }
+
+  @override
+  String get detailBooked => 'ተይዟል';
+
+  @override
+  String detailQuintalsLeft(String quintals) {
+    return '$quintals ኩንታል ቀርቷል';
+  }
+
+  @override
+  String detailKmToYou(int km) {
+    return 'እስከ እርስዎ ወደ $km ኪ.ሜ ገደማ';
+  }
+
+  @override
+  String detailForQuantity(String quantity) {
+    return 'ለ$quantity';
+  }
+
+  @override
+  String get detailEtbPerQuintalShort => 'ብር/ኩ';
+
+  @override
+  String detailFitsTrip(String quintals) {
+    return 'በዚህ ጉዞ ይገባል ($quintals ኩንታል ቀርቷል)';
+  }
+
+  @override
+  String detailExceedsTrip(String quintals) {
+    return 'ከዚህ ጉዞ ቦታ በላይ ነው ($quintals ኩንታል ቀርቷል)';
+  }
+
+  @override
+  String get detailChange => 'ቀይር';
+
+  @override
+  String get detailLess => 'ቀንስ';
+
+  @override
+  String get detailMore => 'ጨምር';
+
+  @override
+  String get detailGpsPickFromList => 'GPS የለም? በምትኩ ወረዳዎን ከዝርዝሩ ይምረጡ።';
+
+  @override
+  String get detailNoPhoneNumbersNote =>
+      'ስልክ ቁጥር የለም፦ ክፍያ በአደራ ከተያዘ በኋላ ግንኙነት ይከፈታል።';
+
+  @override
+  String get detailYourFarm => 'እርሻዎ';
+
+  @override
+  String get detailNewOrderTitle => 'አዲስ ትዕዛዝ';
+
+  @override
+  String detailFromYourListing(String what) {
+    return '$what ከዝርዝርዎ';
+  }
+
+  @override
+  String get detailPaidIntoEscrow => 'በአደራ ተከፍሏል';
+
+  @override
+  String get detailPickupLabel => 'መውሰጃ';
+
+  @override
+  String detailTruckOf(String name) {
+    return 'የ$name መኪና';
+  }
+
+  @override
+  String get detailBuyerCollects => 'ገዢው ራሱ ይወስዳል';
+
+  @override
+  String get detailHeldInEscrow => 'በአደራ ተይዟል';
+
+  @override
+  String detailPartyPaid(String party) {
+    return '$party ከፍሏል';
+  }
+
+  @override
+  String detailPartyRole(String name, String role) {
+    return '$name፣ $role';
+  }
+
+  @override
+  String get detailYou => 'እርስዎ';
+
+  @override
+  String detailTimelineThen(String steps) {
+    return 'ከዚያ $steps። ትርጉሙን ለማንበብ ደረጃ ይንኩ።';
+  }
+
+  @override
+  String get detailTimelineTapStep => 'ትርጉሙን ለማንበብ ደረጃ ይንኩ።';
+
+  @override
+  String detailListAnd(String head, String last) {
+    return '$head እና $last';
+  }
+
+  @override
+  String get detailContactOpensWhenTruckerAccepts => 'አሽከርካሪው ሲቀበል ግንኙነት ይከፈታል';
+
+  @override
+  String detailMessageParty(String name) {
+    return 'ለ$name መልእክት ላክ';
+  }
+
+  @override
+  String detailCallParty(String name) {
+    return 'ለ$name ደውል';
+  }
+
+  @override
   String liveTripLogStopAhead(int minutes) {
     return 'በግምት $minutes ደቂቃ፣ ከዚያ ወደ እርስዎ';
+  }
+
+  @override
+  String marketQuintalsRoom(String quintals) {
+    return '$quintals ኩ. ቦታ';
+  }
+
+  @override
+  String detailQuintalsRoom(String quintals) {
+    return '$quintals ኩንታል ቦታ';
   }
 
   @override
@@ -4357,6 +4742,23 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get marketNoTripYet => 'እስካሁን ጉዞ የለም';
+
+  @override
+  String marketFootnote(String place) {
+    return 'የሁሉም ገበሬዎች ዝርዝር፣ ለ$place በተሻለ ተዛማጅነት ተደርድሯል።';
+  }
+
+  @override
+  String get marketFootnoteNoPlace =>
+      'የሁሉም ገበሬዎች ዝርዝር፣ በተሻለ የትራንስፖርት ተዛማጅነት ተደርድሯል።';
+
+  @override
+  String marketQuintalsLeft(String quantity) {
+    return '$quantity ኩንታል ቀርቷል';
+  }
+
+  @override
+  String get marketSearchToggle => 'ፍለጋ እና የዋጋ ማጣሪያዎች';
 
   @override
   String liveTripEscrowAmount(String amount) {

@@ -545,10 +545,13 @@ void main() {
         'farmer-001',
       );
 
-      expect(inHero(en.orderYouReceive), findsOneWidget);
-      expect(inHero(en.etbCurrency('8000')), findsOneWidget);
-      expect(inHero('${en.buyer}: Buyer Bee'), findsOneWidget);
-      expect(inHero(en.escrowStatusEscrowed), findsOneWidget);
+      // Farmer · Answer a new order: the header names the new order, the
+      // card shows what they receive, the buyer and that the money is in.
+      expect(inHero(en.detailNewOrderTitle), findsOneWidget);
+      expect(find.text(en.orderYouReceive), findsOneWidget);
+      expect(find.text(en.etbCurrency('8,000')), findsOneWidget);
+      expect(find.text('Buyer Bee'), findsOneWidget);
+      expect(find.text(en.detailPaidIntoEscrow), findsOneWidget);
     });
 
     testWidgets('the buyer sees the total and the farmer', (tester) async {
@@ -559,9 +562,48 @@ void main() {
         'buyer-001',
       );
 
-      expect(inHero(en.orderTotal), findsOneWidget);
-      expect(inHero(en.etbCurrency('8725')), findsOneWidget);
+      // Buyer · Order detail: the money held closes the page.
+      expect(find.text(en.detailHeldInEscrow), findsOneWidget);
+      expect(find.text(en.etbCurrency('8,725')), findsOneWidget);
       expect(inHero(en.liveTripFrom('Farmer Fikru')), findsOneWidget);
+    });
+
+    // Boards: "From Almaz Bekele · Thu 30 Oct trip" and "Thu 30 Oct ·
+    // Dawit Tesfaye's truck", from the trip's departure stamped at funding
+    // (03:00 UTC on Friday Oct 30 is the same day in Addis Ababa).
+    Order dated() =>
+        priced(OrderStatus.funded)..pickupDate = DateTime.utc(2026, 10, 30, 3);
+
+    testWidgets('the buyer header names the trip day', (tester) async {
+      await show(tester, dated(), UserRole.buyer, 'buyer-001');
+      expect(
+        inHero(
+          '${en.liveTripFrom('Farmer Fikru')} · '
+          '${en.orderTripOn('Fri\u00A030\u00A0Oct')}',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the farmer pickup row names the trip day', (tester) async {
+      await show(tester, dated(), UserRole.farmer, 'farmer-001');
+      expect(
+        find.text(
+          'Fri\u00A030\u00A0Oct · ${en.detailTruckOf('Trucker Tesfaye')}',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('without a trip day the pickup row names the truck only',
+        (tester) async {
+      await show(
+        tester,
+        priced(OrderStatus.funded),
+        UserRole.farmer,
+        'farmer-001',
+      );
+      expect(find.text(en.detailTruckOf('Trucker Tesfaye')), findsOneWidget);
     });
 
     testWidgets('the trucker sees the transport pay', (tester) async {
@@ -572,8 +614,8 @@ void main() {
         'trucker-001',
       );
 
-      expect(inHero(en.orderYourTransportPay), findsOneWidget);
-      expect(inHero(en.etbCurrency('300')), findsOneWidget);
+      expect(find.text(en.orderYourTransportPay), findsOneWidget);
+      expect(find.text(en.etbCurrency('300')), findsOneWidget);
     });
 
     testWidgets('no escrow line before the money is in', (tester) async {
@@ -584,7 +626,51 @@ void main() {
         'buyer-001',
       );
 
-      expect(inHero(en.escrowStatusEscrowed), findsNothing);
+      expect(find.text(en.detailHeldInEscrow), findsNothing);
+      expect(find.text(en.orderTotal), findsOneWidget);
+    });
+  });
+
+  // Buyer · Order detail board: Created, Funded, Accepted, Live trip, then
+  // Pickup Confirmed, In Transit, Delivered and Settled.
+  group('timeline', () {
+    testWidgets('a trip order shows the Live trip step after Accepted',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.accepted, farmer: 'accepted', trucker: 'accepted'),
+        UserRole.buyer,
+        'buyer-001',
+      );
+      expect(find.text(en.liveTripTitle), findsWidgets);
+      expect(
+        find.text(
+          en.detailTimelineThen(
+            '${en.statusPickupConfirmed}, ${en.statusInTransit}, '
+            '${en.statusDelivered} and ${en.statusSettled}',
+          ),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a self-pickup order has no Live trip step', (tester) async {
+      final order = _order(OrderStatus.accepted, farmer: 'accepted')
+        ..tripId = null
+        ..truckerId = null
+        ..truckerName = null
+        ..fulfillment = 'self_pickup'
+        ..truckerResponse = 'none';
+      await show(tester, order, UserRole.buyer, 'buyer-001');
+      expect(
+        find.text(
+          en.detailTimelineThen(
+            '${en.statusInTransit}, ${en.statusDelivered} and '
+            '${en.statusSettled}',
+          ),
+        ),
+        findsOneWidget,
+      );
     });
   });
 }

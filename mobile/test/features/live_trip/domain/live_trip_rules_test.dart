@@ -130,6 +130,41 @@ void main() {
     );
   });
 
+  group('tripProgressShare', () {
+    test('the trail over the trail plus the straight line left', () {
+      final track = corridorTrack();
+      final driven = trailDistanceKm(track);
+      final left = distanceToDropoffKm(track)!;
+      expect(tripProgressShare(track), closeTo(driven / (driven + left), 1e-9));
+      expect(tripProgressShare(track), inInclusiveRange(0.5, 0.85));
+    });
+
+    test('the server\'s kilometres left win over the straight line', () {
+      final track = recentTrack();
+      final driven = trailDistanceKm(track);
+      expect(tripProgressShare(track), closeTo(driven / (driven + 47.2), 1e-9));
+    });
+
+    test('nothing driven at pickup, no share without a distance left', () {
+      expect(
+        tripProgressShare(corridorTrack(trail: [fix(8.88, 38.79, at(5, 5))])),
+        0,
+      );
+      expect(
+        tripProgressShare(
+          DeliveryTrack(
+            deliveryId: 'del-101',
+            sharing: TrackSharing.live,
+            asOf: asOf,
+            lastFix: corridorTrail.last,
+            trail: corridorTrail,
+          ),
+        ),
+        isNull,
+      );
+    });
+  });
+
   group('tripLogEntries', () {
     test('the first scan is the pickup, a later scan another stop', () {
       final track = corridorTrack(

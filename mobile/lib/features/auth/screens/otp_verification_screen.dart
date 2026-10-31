@@ -6,15 +6,21 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/presentation/auth_error_l10n.dart';
+import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/join_chrome.dart';
+import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 
 /// Confirms the SMS OTP sent after registration (or after a login for an
-/// account whose phone was never confirmed).
+/// account whose phone was never confirmed). The RegisterOtp board: square
+/// back button, phone tile, title, the number in bold, six code boxes, the
+/// expiry and Resend on one line, the note, and Verify at the foot.
 ///
 /// - One 6-digit field; the code is submitted automatically once complete.
 /// - "Resend code" unlocks after [resendCooldown] (or the server's
@@ -121,6 +127,16 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
         );
   }
 
+  void _onVerifyTap() {
+    if (_isComplete) {
+      _submit();
+      return;
+    }
+    setState(
+      () => _errorMessage = AppLocalizations.of(context)!.enterSixDigitCode,
+    );
+  }
+
   void _resend() {
     setState(() => _errorMessage = null);
     context
@@ -160,6 +176,27 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     }
   }
 
+  /// "We sent a 6-digit code by SMS to +251..." with the number in bold, as
+  /// on the board. Plain when the template does not repeat the number.
+  Widget _sentTo(AppLocalizations l10n) {
+    final phone = groupPhoneForDisplay(widget.phoneNumber);
+    final sentence = l10n.otpSentTo(phone);
+    final at = sentence.indexOf(phone);
+    const bold =
+        TextStyle(fontWeight: FontWeight.w700, color: AppTheme.soilDark);
+    if (at < 0) return Text(sentence, style: joinSubtitleStyle);
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(text: sentence.substring(0, at)),
+          TextSpan(text: phone, style: bold),
+          TextSpan(text: sentence.substring(at + phone.length)),
+        ],
+      ),
+      style: joinSubtitleStyle,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -168,68 +205,38 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       listener: _onAuthState,
       child: Scaffold(
         backgroundColor: AppTheme.chalkBackground,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          foregroundColor: AppTheme.textDark,
-          // The page title below names the screen (Register OTP board).
-        ),
-        body: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-              child: BlocBuilder<AuthBloc, AuthState>(
-                builder: (context, state) {
-                  final isLoading = state is AuthLoading;
-                  return Column(
+        body: SafeArea(
+          child: FwContentWidth(
+            maxWidth: 480,
+            child: BlocBuilder<AuthBloc, AuthState>(
+              builder: (context, state) {
+                final isLoading = state is AuthLoading;
+                return JoinPage(
+                  body: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Align(
+                      const Align(
                         alignment: AlignmentDirectional.centerStart,
-                        child: Container(
-                          width: 56,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE3EEE6),
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          child: const Icon(
-                            Icons.sms_outlined,
-                            size: 28,
-                            color: AppTheme.fieldGreen,
-                          ),
-                        ),
+                        child: JoinBackButton(),
                       ),
-                      const SizedBox(height: 16),
-                      Text(
-                        l10n.otpVerificationTitle,
-                        style: const TextStyle(
-                          fontSize: 26,
-                          fontWeight: FontWeight.w800,
-                          color: AppTheme.soilDark,
-                          letterSpacing: -0.4,
-                        ),
+                      const SizedBox(height: 24),
+                      const Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: JoinIconTile(icon: Icons.smartphone),
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        l10n.otpSentTo(widget.phoneNumber),
-                        style: const TextStyle(
-                          fontSize: 15,
-                          color: AppTheme.mutedSteel,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        l10n.enterOtp,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.unselectedNav,
+                      const SizedBox(height: 14),
+                      Semantics(
+                        header: true,
+                        child: Text(
+                          l10n.otpVerificationTitle,
+                          style: joinTitleStyle,
                         ),
                       ),
                       const SizedBox(height: 8),
+                      _sentTo(l10n),
+                      const SizedBox(height: 26),
+                      Text(l10n.enterOtp, style: LabeledField.labelStyle),
+                      const SizedBox(height: 10),
                       // One box per digit over the real field, which keeps
                       // the keyboard, paste and SMS autofill.
                       SizedBox(
@@ -282,7 +289,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                         ),
                       ),
                       if (_errorMessage != null) ...[
-                        const SizedBox(height: 6),
+                        const SizedBox(height: 8),
                         Text(
                           _errorMessage!,
                           style: TextStyle(
@@ -291,7 +298,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                           ),
                         ),
                       ],
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       Row(
                         children: [
                           Expanded(
@@ -304,7 +311,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                                     ),
                                     style: const TextStyle(
                                       fontSize: 13,
-                                      color: AppTheme.textMuted,
+                                      color: AppTheme.mutedSteel,
                                     ),
                                   ),
                           ),
@@ -313,74 +320,53 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                             onPressed: (_secondsLeft <= 0 && !isLoading)
                                 ? _resend
                                 : null,
+                            style: TextButton.styleFrom(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 4),
+                              minimumSize: const Size(0, 36),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              foregroundColor: AppTheme.fieldGreen,
+                              disabledForegroundColor: AppTheme.mutedSteel,
+                            ),
                             child: Text(
                               _secondsLeft > 0
                                   ? l10n.resendOtpIn(_secondsLeft)
                                   : l10n.resendOtp,
                               style: const TextStyle(
+                                fontSize: 13,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 20),
-                      // Canvas info card
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 14,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFE3E1D8)),
-                        ),
-                        child: Text(
-                          l10n.otpFaydaNumberNote,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            height: 1.4,
-                            color: Color(0xFF3F4843),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      SizedBox(
-                        height: 56,
-                        child: FilledButton(
-                          key: const Key('otp_verify_button'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppTheme.fieldGreen,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                          onPressed:
-                              (_isComplete && !isLoading) ? _submit : null,
-                          child: isLoading
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : Text(
-                                  l10n.verifyOtp,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                        ),
-                      ),
+                      const SizedBox(height: 18),
+                      JoinNote.plain(text: l10n.otpFaydaNumberNote),
                     ],
-                  );
-                },
-              ),
+                  ),
+                  footer: SizedBox(
+                    height: 56,
+                    child: FilledButton(
+                      key: const Key('otp_verify_button'),
+                      // Active from the first digit, as on the board; a short
+                      // code asks for the rest instead of sending.
+                      onPressed: (_codeController.text.isNotEmpty && !isLoading)
+                          ? _onVerifyTap
+                          : null,
+                      child: isLoading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(l10n.verifyOtp),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
         ),
@@ -389,8 +375,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   }
 }
 
-/// The code as six boxes (Register OTP board): typed digits, and the next
-/// box to fill outlined while the field has focus.
+/// The code as six boxes (Register OTP board): typed digits and the next
+/// box to fill carry a 2 px green border, the rest a thin grey one.
 class _CodeBoxes extends StatelessWidget {
   const _CodeBoxes({
     required this.code,
@@ -410,29 +396,34 @@ class _CodeBoxes extends StatelessWidget {
         for (var i = 0; i < length; i++) ...[
           if (i > 0) const SizedBox(width: 8),
           Expanded(
-            child: Container(
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceWhite,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  width: 1.5,
-                  color: error
-                      ? Theme.of(context).colorScheme.error
-                      : i < code.length ||
-                              (focused && i == code.length.clamp(0, length - 1))
-                          ? AppTheme.fieldGreen
-                          : AppTheme.whisperBorder,
-                ),
-              ),
-              child: Text(
-                i < code.length ? code[i] : '',
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: AppTheme.soilDark,
-                ),
-              ),
+            child: Builder(
+              builder: (context) {
+                final active = i < code.length ||
+                    (focused && i == code.length.clamp(0, length - 1));
+                return Container(
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceWhite,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      width: error || active ? 2 : 1,
+                      color: error
+                          ? Theme.of(context).colorScheme.error
+                          : active
+                              ? AppTheme.fieldGreen
+                              : const Color(0xFFD6D3C8),
+                    ),
+                  ),
+                  child: Text(
+                    i < code.length ? code[i] : '',
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.soilDark,
+                    ),
+                  ),
+                );
+              },
             ),
           ),
         ],

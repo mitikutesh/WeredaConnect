@@ -19,16 +19,13 @@ import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/models/user.dart';
-import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart'
     if (dart.library.html) 'package:wereda_connect/core/sync/sync_executor_web.dart';
-import 'package:wereda_connect/core/sync/sync_queue.dart'
-    if (dart.library.html) 'package:wereda_connect/core/sync/sync_queue_web.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
-import 'package:wereda_connect/features/messaging/presentation/widgets/messages_badge_button.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_event.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/create_intent_screen.dart';
@@ -42,33 +39,34 @@ import 'package:wereda_connect/features/crop_listing/presentation/screens/create
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
-import 'package:wereda_connect/features/live_trip/presentation/widgets/trip_mode_card.dart';
-import 'package:wereda_connect/features/notifications/domain/base_notification_repository.dart';
-import 'package:wereda_connect/features/notifications/presentation/notification_text.dart';
-import 'package:wereda_connect/features/order/presentation/open_order_detail.dart';
+import 'package:wereda_connect/features/live_trip/presentation/live_trip_data.dart';
+import 'package:wereda_connect/features/live_trip/presentation/live_trip_text.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/on_the_road_card.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/action_needed_list.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
-import 'package:wereda_connect/features/trip_listing/presentation/widgets/trucker_hero_card.dart';
+import 'package:wereda_connect/features/live_trip/presentation/widgets/trucker_hero_card.dart';
 import 'package:wereda_connect/screens/orders_tab_screen.dart';
-import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
-import 'package:wereda_connect/shared/widgets/clock_text.dart';
-import 'package:wereda_connect/shared/widgets/wc_card.dart';
+import 'package:wereda_connect/shared/services/place_normalizer.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/notification_bell.dart';
 
-/// Home screen — compact dashboard matching mockup.
+/// Home screen: the Farmer and Trucker home boards (specs/design-canvas),
+/// the buyer on the farmer's light pattern with buyer content.
 ///
-/// Layout: green header → banner → at a glance (tappable counts and
-/// shortcuts) → role card → recent.
-/// Designed to fit in one screen view.
+/// Layout: header (light with the place and the bell; dark for the trucker
+/// with the trip card inside it) then Action needed, the farmer's goods on
+/// the road, AT A GLANCE tiles, the buyer's active intents and one Recent
+/// line. One composition at every width, centred by [FwContentWidth] on a
+/// wide window.
 ///
 /// Uses a [_refreshKey] counter to force overview/recent widgets to reload
-/// when returning from create screens (FAB or the "Sell Crops" tile).
+/// when returning from create screens (FAB or a tile).
 class HomeScreen extends StatefulWidget {
   final ValueChanged<int>? onNavigateToTab;
   final bool isOnline;
@@ -134,101 +132,111 @@ class _HomeScreenState extends State<HomeScreen> {
     final userId = authState is AuthAuthenticated ? authState.userId : '';
     final woreda =
         authState is AuthAuthenticated ? (authState.woreda ?? '') : '';
+    final wide = !Breakpoints.isMobile(context);
 
-    final windowClass = Breakpoints.of(context);
+    final sections = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ── Action needed: the order waiting for this user (ESC-15) ──
+        _buildActionNeeded(role: role, userId: userId),
 
-    // Mobile: keep the exact current layout
-    if (windowClass == WindowClass.mobile) {
-      return _buildMobileLayout(
-        l10n: l10n,
-        role: role,
-        userName: userName,
-        userId: userId,
-        woreda: woreda,
-      );
-    }
+        // ── Farmer: "Your wheat is on the road" (LT-11) ──────────
+        if (role == UserRole.farmer) _buildFarmerOnTheRoad(userId: userId),
 
-    // Tablet / Desktop: flat header, reorganised content
-    return _buildWideLayout(
-      context: context,
-      l10n: l10n,
-      role: role,
-      userName: userName,
-      userId: userId,
-      woreda: woreda,
-      windowClass: windowClass,
+        // ── At a glance: counts and amounts, every tile tappable ──
+        FwSectionLabel(
+          l10n.atAGlance,
+          padding: const EdgeInsets.only(top: 16, bottom: 10),
+        ),
+        _buildDashboard(role: role, userId: userId, l10n: l10n),
+
+        // ── Buyer: active buying intents ────────────────────────
+        if (role == UserRole.buyer)
+          Padding(
+            padding: const EdgeInsets.only(top: 14),
+            child: _ActiveIntentsSection(
+              key: ValueKey('intents_$_refreshKey'),
+              userId: userId,
+              l10n: l10n,
+              onRefresh: _refreshData,
+            ),
+          ),
+
+        // ── Recent: the latest event, one line ──────────────────
+        Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: _buildRecent(role: role, userId: userId, l10n: l10n),
+        ),
+        const SizedBox(height: Breakpoints.fabClearance),
+      ],
     );
-  }
 
-  // ── Mobile layout ──────────────────────────────────────────────
-  Widget _buildMobileLayout({
-    required AppLocalizations l10n,
-    required UserRole role,
-    required String userName,
-    required String userId,
-    required String woreda,
-  }) {
-    final roleCard = _buildRoleCard(role: role, userId: userId, l10n: l10n);
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    final Widget body;
+    if (role == UserRole.trucker) {
+      // The Trucker · Home board: a dark header holding the trip card, the
+      // chalk page starting under it with rounded top corners. On a wide
+      // window the header is a rounded dark panel at the top of the column.
+      final header = Container(
+        margin: wide ? const EdgeInsets.fromLTRB(20, 16, 20, 0) : null,
+        decoration: BoxDecoration(
+          color: AppTheme.soilDark,
+          borderRadius: wide ? BorderRadius.circular(28) : null,
+        ),
+        child: _TruckerHomeHeader(
+          key: ValueKey('header_$_refreshKey'),
+          userName: userName,
+          userId: userId,
+          isOnline: widget.isOnline,
+          l10n: l10n,
+          onNavigateToTab: widget.onNavigateToTab,
+          onRefresh: _refreshData,
+        ),
+      );
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ── Green header with banner ──────────────────────────────
-          _HomeHeaderWithBanner(
+          header,
+          if (wide)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+              child: sections,
+            )
+          else
+            Container(
+              color: AppTheme.soilDark,
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: AppTheme.chalkBackground,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                ),
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                child: sections,
+              ),
+            ),
+        ],
+      );
+    } else {
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _LightHomeHeader(
             key: ValueKey('header_$_refreshKey'),
             userName: userName,
             userId: userId,
             woreda: woreda,
             isOnline: widget.isOnline,
-            role: role,
             l10n: l10n,
             onNavigateToTab: widget.onNavigateToTab,
-            onRefresh: _refreshData,
           ),
-
-          // ── Action needed: orders waiting for this user (ESC-15) ──
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-            child: _buildActionNeeded(role: role, userId: userId),
-          ),
-
-          // ── Farmer: "Your wheat is on the road" (LT-11) ──────────
-          if (role == UserRole.farmer)
-            _buildFarmerOnTheRoad(
-              userId: userId,
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-            ),
-
-          // ── At a glance: counts + shortcuts, every tile tappable ──
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-            child: _SectionTitle(l10n.atAGlance, fontSize: 16),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-            child: _buildDashboard(role: role, userId: userId, l10n: l10n),
-          ),
-
-          // ── Trucker hero card / buyer active intents ──────────────
-          if (roleCard != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-              child: roleCard,
-            ),
-
-          // ── Recent ───────────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-            child: _SectionTitle(l10n.recentActivity, fontSize: 16),
-          ),
-          Padding(
-            padding:
-                const EdgeInsets.fromLTRB(20, 8, 20, Breakpoints.fabClearance),
-            child: _buildRecent(role: role, userId: userId, l10n: l10n),
+            child: sections,
           ),
         ],
-      ),
-    );
+      );
+    }
+
+    return SingleChildScrollView(child: FwContentWidth(child: body));
   }
 
   Widget _buildActionNeeded({
@@ -240,6 +248,13 @@ class _HomeScreenState extends State<HomeScreen> {
       userId: userId,
       role: role,
       onRefresh: _refreshData,
+      onShowAll: () => _openHomeDest(
+        context,
+        role: role,
+        dest: _HomeDest.orders,
+        onNavigateToTab: widget.onNavigateToTab,
+        onRefresh: _refreshData,
+      ),
     );
   }
 
@@ -260,14 +275,12 @@ class _HomeScreenState extends State<HomeScreen> {
     required UserRole role,
     required String userId,
     required AppLocalizations l10n,
-    int columns = 2,
   }) {
     return _OverviewStats(
       key: ValueKey('overview_$_refreshKey'),
       role: role,
       userId: userId,
       l10n: l10n,
-      columns: columns,
       onNavigateToTab: widget.onNavigateToTab,
       onRefresh: _refreshData,
     );
@@ -287,206 +300,77 @@ class _HomeScreenState extends State<HomeScreen> {
       onRefresh: _refreshData,
     );
   }
-
-  /// The role's companion card: the trucker's current trip (with the way
-  /// into trip mode while a trip is on the road, LT-09) or the buyer's
-  /// active intents. Farmers have none.
-  Widget? _buildRoleCard({
-    required UserRole role,
-    required String userId,
-    required AppLocalizations l10n,
-  }) {
-    return switch (role) {
-      UserRole.trucker => Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const TripModeCard(),
-            TruckerHeroCard(
-              key: ValueKey('hero_$_refreshKey'),
-              userId: userId,
-              onRefresh: _refreshData,
-            ),
-          ],
-        ),
-      UserRole.buyer => _ActiveIntentsSection(
-          key: ValueKey('intents_$_refreshKey'),
-          userId: userId,
-          l10n: l10n,
-          onRefresh: _refreshData,
-        ),
-      UserRole.farmer => null,
-    };
-  }
-
-  // ── Desktop / Tablet layout ────────────────────────────────────
-  Widget _buildWideLayout({
-    required BuildContext context,
-    required AppLocalizations l10n,
-    required UserRole role,
-    required String userName,
-    required String userId,
-    required String woreda,
-    required WindowClass windowClass,
-  }) {
-    final isDesktop = windowClass == WindowClass.desktop;
-    final maxWidth = isDesktop ? 1200.0 : 800.0;
-    final hPadding = isDesktop ? 32.0 : 24.0;
-
-    return SingleChildScrollView(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: maxWidth),
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: hPadding),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ── Flat page header (no green curve) ────────────
-                _DesktopPageHeader(
-                  userName: userName,
-                  userId: userId,
-                  woreda: woreda,
-                  isOnline: widget.isOnline,
-                  l10n: l10n,
-                  onNavigateToTab: widget.onNavigateToTab,
-                ),
-
-                const SizedBox(height: 24),
-
-                // ── Main content ─────────────────────────────────
-                if (isDesktop)
-                  _buildDesktopTwoColumn(
-                    l10n: l10n,
-                    role: role,
-                    userId: userId,
-                  )
-                else
-                  _buildTabletSingleColumn(
-                    l10n: l10n,
-                    role: role,
-                    userId: userId,
-                  ),
-
-                const SizedBox(height: Breakpoints.fabClearance),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── Desktop: full-width dashboard, then recent + role card ─────
-  Widget _buildDesktopTwoColumn({
-    required AppLocalizations l10n,
-    required UserRole role,
-    required String userId,
-  }) {
-    final roleCard = _buildRoleCard(role: role, userId: userId, l10n: l10n);
-    final recent = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _SectionTitle(l10n.recentActivity),
-        const SizedBox(height: 12),
-        _buildRecent(role: role, userId: userId, l10n: l10n),
-      ],
-    );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildActionNeeded(role: role, userId: userId),
-        if (role == UserRole.farmer) _buildFarmerOnTheRoad(userId: userId),
-        const SizedBox(height: 12),
-        _SectionTitle(l10n.atAGlance),
-        const SizedBox(height: 12),
-        _buildDashboard(role: role, userId: userId, l10n: l10n, columns: 3),
-        const SizedBox(height: 24),
-        if (roleCard == null)
-          recent
-        else
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(flex: 3, child: recent),
-              const SizedBox(width: 24),
-              Expanded(flex: 2, child: roleCard),
-            ],
-          ),
-      ],
-    );
-  }
-
-  // ── Tablet: single column ──────────────────────────────────────
-  Widget _buildTabletSingleColumn({
-    required AppLocalizations l10n,
-    required UserRole role,
-    required String userId,
-  }) {
-    final roleCard = _buildRoleCard(role: role, userId: userId, l10n: l10n);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildActionNeeded(role: role, userId: userId),
-        if (role == UserRole.farmer) _buildFarmerOnTheRoad(userId: userId),
-        const SizedBox(height: 12),
-        _SectionTitle(l10n.atAGlance),
-        const SizedBox(height: 12),
-        _buildDashboard(role: role, userId: userId, l10n: l10n, columns: 3),
-        if (roleCard != null) ...[
-          const SizedBox(height: 16),
-          roleCard,
-        ],
-        const SizedBox(height: 20),
-        _SectionTitle(l10n.recentActivity),
-        const SizedBox(height: 12),
-        _buildRecent(role: role, userId: userId, l10n: l10n),
-      ],
-    );
-  }
 }
 
-/// Home section heading.
-class _SectionTitle extends StatelessWidget {
-  final String text;
-  final double fontSize;
-
-  const _SectionTitle(this.text, {this.fontSize = 18});
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: TextStyle(
-        fontSize: fontSize,
-        fontWeight: FontWeight.w600,
-        color: AppTheme.textDark,
-      ),
-    );
-  }
-}
-
-/// Combined green header + gold banner, matching mockup.
-///
-/// The banner overlaps the bottom edge of the green header —
-/// upper half inside green, lower half below, creating a layered look.
-class _HomeHeaderWithBanner extends StatelessWidget {
+/// The Farmer · Home board's header (the buyer's too): the place line, the
+/// greeting, the bell in a square, then the Synced chip. Messages and
+/// Profile open from the bell's sheet (neither has a bar tab).
+class _LightHomeHeader extends StatelessWidget {
   final String userName;
   final String userId;
   final String woreda;
   final bool isOnline;
-  final UserRole role;
   final AppLocalizations l10n;
   final ValueChanged<int>? onNavigateToTab;
-  final VoidCallback? onRefresh;
 
-  const _HomeHeaderWithBanner({
+  const _LightHomeHeader({
     required this.userName,
     required this.userId,
     required this.woreda,
     required this.isOnline,
-    required this.role,
+    required this.l10n,
+    this.onNavigateToTab,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      bottom: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          FwPageHeader(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+            eyebrowWidget: woreda.isEmpty ? null : _PlaceLine(woreda: woreda),
+            title: l10n.welcomeBackUser(userName),
+            trailing: NotificationBell(
+              userId: userId,
+              l10n: l10n,
+              isOnline: isOnline,
+              square: true,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 12, 0),
+            child: Row(
+              children: [
+                _SyncChip(isOnline: isOnline),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The Trucker · Home board's dark header: the greeting, "Today" with the
+/// Synced chip, and the trip card ([TruckerHeroCard]). The board draws no
+/// icons here; the bell (with Messages and Profile in its sheet) is on the
+/// trucker's other tabs.
+class _TruckerHomeHeader extends StatelessWidget {
+  final String userName;
+  final String userId;
+  final bool isOnline;
+  final AppLocalizations l10n;
+  final ValueChanged<int>? onNavigateToTab;
+  final VoidCallback? onRefresh;
+
+  const _TruckerHomeHeader({
+    required this.userName,
+    required this.userId,
+    required this.isOnline,
     required this.l10n,
     this.onNavigateToTab,
     this.onRefresh,
@@ -495,260 +379,187 @@ class _HomeHeaderWithBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // The Farmer · Home and Trucker · Home boards: the place, the greeting
-    // and the Synced chip, on chalk (dark for the trucker); no banner.
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: role == UserRole.trucker
-            ? AppTheme.soilDark
-            : AppTheme.chalkBackground,
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(24),
-          bottomRight: Radius.circular(24),
-        ),
-      ),
-      child: Stack(
-        children: [
-          // Header content (location, name)
-          SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(height: 8),
-                  // Location + notification row
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.location_on,
-                        size: 16,
-                        color: role == UserRole.trucker
-                            ? const Color(0xFFB9C2BD)
-                            : AppTheme.mutedSteel,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        woreda.isNotEmpty ? woreda : l10n.wereda,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: role == UserRole.trucker
-                              ? const Color(0xFFB9C2BD)
-                              : AppTheme.mutedSteel,
-                        ),
-                      ),
-                      const Spacer(),
-                      // Cloud sync status icon (tappable).
-                      if (!kIsWeb) ...[
-                        _SyncStatusIcon(isOnline: isOnline),
-                        const SizedBox(width: 14),
-                      ],
-                      // In-app chat inbox (with unread badge)
-                      MessagesBadgeButton(
-                        color: role == UserRole.trucker
-                            ? Colors.white
-                            : AppTheme.soilDark,
-                      ),
-                      const SizedBox(width: 4),
-                      // Notification bell (functional)
-                      _NotificationIcon(
-                        userId: userId,
-                        l10n: l10n,
-                        isOnline: isOnline,
-                        onNavigateToTab: onNavigateToTab,
-                        iconColor: role == UserRole.trucker
-                            ? Colors.white
-                            : AppTheme.soilDark,
-                        ringColor: role == UserRole.trucker
-                            ? AppTheme.soilDark
-                            : AppTheme.chalkBackground,
-                      ),
-                      const SizedBox(width: 10),
-                      // Profile icon
-                      GestureDetector(
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute<void>(
-                            builder: (_) => const ProfileScreen(),
-                          ),
-                        ),
-                        child: CircleAvatar(
-                          radius: 16,
-                          backgroundColor: role == UserRole.trucker
-                              ? const Color(0xFF22302A)
-                              : const Color(0xFFECEAE2),
-                          child: Icon(
-                            Icons.person,
-                            size: 18,
-                            color: role == UserRole.trucker
-                                ? Colors.white
-                                : AppTheme.soilDark,
-                          ),
-                        ),
-                      ),
-                    ],
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    l10n.welcomeBackUser(userName),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppTheme.soilMuted,
+                    ),
                   ),
-                  const SizedBox(height: 10),
-                  // User greeting matching Fieldway canvas
-                  if (role == UserRole.trucker) ...[
-                    Text(
-                      l10n.welcomeBackUser(userName),
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: Color(0xFFB9C2BD),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: Semantics(
+                    header: true,
+                    child: Text(
                       l10n.homeToday,
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                  ] else ...[
-                    Text(
-                      l10n.welcomeBackUser(userName),
                       style: const TextStyle(
                         fontSize: 26,
                         fontWeight: FontWeight.w800,
-                        color: AppTheme.soilDark,
-                        letterSpacing: -0.5,
+                        letterSpacing: -0.6,
+                        height: 1.15,
+                        color: Colors.white,
                       ),
                     ),
-                  ],
-                  const SizedBox(height: 10),
-                  _SyncChip(isOnline: isOnline),
-                ],
-              ),
+                  ),
+                ),
+                _SyncChip(isOnline: isOnline, dark: true),
+              ],
             ),
-          ),
-        ],
+            const SizedBox(height: 16),
+            TruckerHeroCard(
+              key: ValueKey('hero_$userId'),
+              userId: userId,
+              onRefresh: onRefresh,
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-/// Flat page header for desktop/tablet — replaces the curved green header.
-///
-/// On wide screens the sidebar already provides green branding, so this
-/// header uses a white/surface background with the user name as headline
-/// and location + sync status inline.
-class _DesktopPageHeader extends StatelessWidget {
-  final String userName;
-  final String userId;
+/// The header's place line, "Meki · Oromia": the user's woreda with its
+/// region from the bundled place list; the woreda alone when it is not in
+/// the list.
+class _PlaceLine extends StatefulWidget {
   final String woreda;
-  final bool isOnline;
-  final AppLocalizations l10n;
-  final ValueChanged<int>? onNavigateToTab;
 
-  const _DesktopPageHeader({
-    required this.userName,
-    required this.userId,
-    required this.woreda,
-    required this.isOnline,
-    required this.l10n,
-    this.onNavigateToTab,
-  });
+  const _PlaceLine({required this.woreda});
+
+  @override
+  State<_PlaceLine> createState() => _PlaceLineState();
+}
+
+class _PlaceLineState extends State<_PlaceLine> {
+  late final Future<List<Place>> _places = loadPlaces();
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(0, 28, 0, 20),
-      decoration: const BoxDecoration(
-        color: AppTheme.surfaceWhite,
-        border: Border(
-          bottom: BorderSide(color: AppTheme.borderLight),
-        ),
-      ),
-      child: Column(
-        children: [
-          Text(
-            l10n.welcomeBackUser(userName),
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-              color: AppTheme.textDark,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 6),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.location_on,
-                size: 14,
-                color: AppTheme.textMuted,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                woreda.isNotEmpty ? woreda : l10n.wereda,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: AppTheme.textMuted,
-                ),
-              ),
-              const SizedBox(width: 16),
-              _SyncChip(isOnline: isOnline),
-              const SizedBox(width: 12),
-              // ESC-21: the inbox bell, on web too.
-              _NotificationIcon(
-                userId: userId,
-                l10n: l10n,
-                isOnline: isOnline,
-                onNavigateToTab: onNavigateToTab,
-                iconColor: AppTheme.textDark,
-                ringColor: AppTheme.surfaceWhite,
-              ),
-            ],
-          ),
-        ],
+    final languageCode = Localizations.localeOf(context).languageCode;
+    return FutureBuilder<List<Place>>(
+      future: _places,
+      builder: (context, snapshot) => Text(
+        homePlaceLine(widget.woreda, snapshot.data ?? const [], languageCode),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: FwText.body,
       ),
     );
   }
 }
 
-/// Compact sync status chip for the desktop/tablet flat header.
+/// "Meki · Oromia" for [woreda] when [places] knows it and its region, else
+/// [woreda] as stored. A city that is its own region ("Dire Dawa") shows
+/// once. Names compare through [normalizeWoreda], the rule every woreda
+/// comparison uses.
+@visibleForTesting
+String homePlaceLine(String woreda, List<Place> places, String languageCode) {
+  final key = normalizeWoreda(woreda);
+  if (key.isEmpty) return woreda;
+  for (final place in places) {
+    final known = normalizeWoreda(place.displayEn) == key ||
+        normalizeWoreda(place.en) == key ||
+        place.alts.any((alt) => normalizeWoreda(alt) == key);
+    if (!known) continue;
+    final name = place.displayName(languageCode);
+    if (place.region.isEmpty || normalizeWoreda(place.region) == key) {
+      return name;
+    }
+    return '$name · ${place.region}';
+  }
+  return woreda;
+}
+
+/// The boards' Synced chip: a check on a green tint (soil ground with
+/// pale green on the trucker's dark header); Offline on grey.
 class _SyncChip extends StatelessWidget {
   final bool isOnline;
+  final bool dark;
 
-  const _SyncChip({required this.isOnline});
+  const _SyncChip({required this.isOnline, this.dark = false});
+
+  /// On a phone the chip opens what waits to sync (the queue lives there).
+  void _showSyncStatus(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final executor = context.read<SyncExecutor>();
+    showModalBottomSheet<void>(
+      context: context,
+      // Over the shell's bar and create button, not under them.
+      useRootNavigator: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => SyncStatusSheet(
+        isOnline: isOnline,
+        l10n: l10n,
+        executor: executor,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final label = isOnline ? l10n.synced : l10n.offline;
-    final color = isOnline ? AppTheme.statusSuccess : AppTheme.textMuted;
-    final icon =
-        isOnline ? Icons.cloud_done_outlined : Icons.cloud_off_outlined;
+    final (background, foreground) = dark
+        ? isOnline
+            ? (AppTheme.soilCard, AppTheme.soilGreen)
+            : (AppTheme.soilTrack, AppTheme.soilMuted)
+        : isOnline
+            ? (AppTheme.fieldGreenTint, AppTheme.fieldGreen)
+            : (AppTheme.segmentTrack, AppTheme.mutedSteel);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+    final chip = Container(
+      height: 28,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: color.withAlpha(20),
-        borderRadius: BorderRadius.circular(18),
+        color: background,
+        borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: color),
-          const SizedBox(width: 4),
+          Icon(
+            isOnline ? Icons.check : Icons.cloud_off_outlined,
+            size: 13,
+            color: foreground,
+          ),
+          const SizedBox(width: 6),
           Text(
             label,
             style: TextStyle(
               fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: color,
+              fontWeight: FontWeight.w700,
+              color: foreground,
             ),
           ),
         ],
+      ),
+    );
+    if (kIsWeb) return chip;
+    return Semantics(
+      button: true,
+      child: InkWell(
+        key: const Key('home_sync_chip'),
+        borderRadius: BorderRadius.circular(999),
+        onTap: () => _showSyncStatus(context),
+        child: chip,
       ),
     );
   }
@@ -814,7 +625,8 @@ Future<void> _openHomeDest(
       );
     case _HomeDest.myTrips:
     case _HomeDest.findTrips:
-      await webOrPush('/trips', const BrowseTripsScreen());
+      // My Trips is a trucker tab; a buyer (ALL trips) gets a pushed screen.
+      await tabOrPush(RoleTab.myTrips, const BrowseTripsScreen());
     case _HomeDest.findCrops:
       await webOrPush('/find-crops', const FindCropsScreen());
     case _HomeDest.orders:
@@ -833,144 +645,113 @@ Future<void> _openHomeDest(
   }
 }
 
-/// One Home dashboard tile. Every tile opens its section; a tile with a
-/// [count] also summarises it, one without is a plain shortcut.
-class _DashboardTile extends StatelessWidget {
-  final IconData icon;
+/// One At a Glance tile (the Farmer and Trucker home boards): the label
+/// over a count or an amount, and on the 2 by 2 grid a line under it. The
+/// role's lead tile is filled field green. Every tile opens its section; a
+/// tile without a [value] is a plain shortcut with its [icon].
+class _GlanceTile extends StatelessWidget {
   final String label;
-  final Color color;
-  final int? count;
+  final String? value;
 
-  /// Filled style for the role's primary verb (Sell Crops, Find Crops).
+  /// [value] is an amount ("4,500 ETB"): set smaller than a count.
+  final bool amount;
+  final String? sub;
+  final IconData? icon;
   final bool emphasized;
+
+  /// The trucker's three-across row: tighter padding, radius 16, no sub.
+  final bool compact;
   final VoidCallback onTap;
 
-  const _DashboardTile({
-    required this.icon,
+  const _GlanceTile({
     required this.label,
-    required this.color,
     required this.onTap,
-    this.count,
+    this.value,
+    this.amount = false,
+    this.sub,
+    this.icon,
     this.emphasized = false,
+    this.compact = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final background = emphasized ? color : AppTheme.surfaceWhite;
-    final foreground = emphasized ? Colors.white : AppTheme.textDark;
-    final muted = emphasized ? Colors.white70 : AppTheme.textMuted;
-    final count = this.count;
+    final ink = emphasized ? Colors.white : AppTheme.soilDark;
+    final muted = emphasized ? const Color(0xFFCFE3D6) : AppTheme.mutedSteel;
+    final value = this.value;
+    final sub = this.sub;
+    final valueSize =
+        amount ? (compact ? 16.0 : 20.0) : (compact ? 22.0 : 26.0);
 
-    // The At a Glance boards: a count tile is its label over a big number.
-    if (count != null) {
-      return Material(
-        color: background,
-        borderRadius: BorderRadius.circular(18),
+    return Semantics(
+      button: true,
+      child: Material(
+        color: emphasized ? AppTheme.fieldGreen : AppTheme.surfaceWhite,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(compact ? 16 : 18),
+          side: emphasized
+              ? BorderSide.none
+              : const BorderSide(color: AppTheme.whisperBorder),
+        ),
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(18),
-          child: Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              border:
-                  emphasized ? null : Border.all(color: AppTheme.whisperBorder),
-            ),
+          child: Padding(
+            padding: EdgeInsets.all(compact ? 12 : 14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: emphasized ? Colors.white : AppTheme.mutedSteel,
-                  ),
-                  maxLines: 2,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '$count',
                   style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.5,
-                    color: foreground,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: muted,
                   ),
                 ),
+                if (value != null)
+                  Padding(
+                    padding: EdgeInsets.only(
+                      top: amount ? (compact ? 6 : 4) : 2,
+                      bottom: amount && !compact ? 3 : 0,
+                    ),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Text(
+                        value,
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontSize: valueSize,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.5,
+                          height: 1.2,
+                          color: ink,
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6, bottom: 4),
+                    child:
+                        Icon(icon ?? Icons.arrow_forward, size: 26, color: ink),
+                  ),
+                if (!compact && sub != null)
+                  Text(
+                    sub,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: muted,
+                    ),
+                  ),
               ],
             ),
-          ),
-        ),
-      );
-    }
-
-    return Material(
-      color: background,
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border:
-                emphasized ? null : Border.all(color: AppTheme.whisperBorder),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: emphasized
-                          ? Colors.white.withAlpha(40)
-                          : color.withAlpha(20),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(
-                      icon,
-                      size: 20,
-                      color: emphasized ? Colors.white : color,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (count != null)
-                    Text(
-                      '$count',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: emphasized ? Colors.white : color,
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: foreground,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  Icon(Icons.chevron_right, size: 18, color: muted),
-                ],
-              ),
-            ],
           ),
         ),
       ),
@@ -984,8 +765,13 @@ class _DashboardTile extends StatelessWidget {
 class _DashboardGrid extends StatelessWidget {
   final List<Widget> tiles;
   final int columns;
+  final double gap;
 
-  const _DashboardGrid({required this.tiles, required this.columns});
+  const _DashboardGrid({
+    required this.tiles,
+    required this.columns,
+    this.gap = 10,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1000,13 +786,13 @@ class _DashboardGrid extends StatelessWidget {
       children: [
         for (var r = 0; r < rows.length; r++)
           Padding(
-            padding: EdgeInsets.only(top: r == 0 ? 0 : 10),
+            padding: EdgeInsets.only(top: r == 0 ? 0 : gap),
             child: IntrinsicHeight(
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   for (var c = 0; c < rows[r].length; c++) ...[
-                    if (c > 0) const SizedBox(width: 10),
+                    if (c > 0) SizedBox(width: gap),
                     Expanded(child: rows[r][c]),
                   ],
                 ],
@@ -1124,13 +910,42 @@ class _ActiveIntentsSectionState extends State<_ActiveIntentsSection> {
   }
 }
 
-/// "At a glance" dashboard: the role's counts and shortcuts in one grid,
-/// every tile opening the screen it summarises.
+/// What the At a Glance tiles show for a role: counts, and the money held in
+/// escrow for this user (the farmer's crop share, the trucker's transport
+/// pay, the buyer's full payments), summed on the device from the orders.
+class _HomeStats {
+  final int listings;
+  final int activeListings;
+  final int reservedListings;
+  final int pendingOrders;
+  final int activeOrders;
+
+  /// Deliveries on the road now (picked up or in transit).
+  final int inTransit;
+  final int trips;
+  final int matched;
+  final double escrowEtb;
+
+  const _HomeStats({
+    this.listings = 0,
+    this.activeListings = 0,
+    this.reservedListings = 0,
+    this.pendingOrders = 0,
+    this.activeOrders = 0,
+    this.inTransit = 0,
+    this.trips = 0,
+    this.matched = 0,
+    this.escrowEtb = 0,
+  });
+}
+
+/// "At a glance": the role's tiles in one grid (three across for the
+/// trucker, two by two otherwise), every tile opening the screen it
+/// summarises.
 class _OverviewStats extends StatefulWidget {
   final UserRole role;
   final String userId;
   final AppLocalizations l10n;
-  final int columns;
   final ValueChanged<int>? onNavigateToTab;
   final VoidCallback? onRefresh;
 
@@ -1139,7 +954,6 @@ class _OverviewStats extends StatefulWidget {
     required this.userId,
     required this.l10n,
     super.key,
-    this.columns = 2,
     this.onNavigateToTab,
     this.onRefresh,
   });
@@ -1149,7 +963,7 @@ class _OverviewStats extends StatefulWidget {
 }
 
 class _OverviewStatsState extends State<_OverviewStats> {
-  late Future<Map<String, int>> _statsFuture;
+  late Future<_HomeStats> _statsFuture;
 
   @override
   void initState() {
@@ -1169,35 +983,33 @@ class _OverviewStatsState extends State<_OverviewStats> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<Map<String, int>>(
+    final compact = widget.role == UserRole.trucker;
+    return FutureBuilder<_HomeStats>(
       future: _statsFuture,
       builder: (context, snapshot) {
-        final stats = snapshot.data ?? {};
+        final stats = snapshot.data ?? const _HomeStats();
         return _DashboardGrid(
           tiles: _tilesForRole(widget.role, stats),
-          columns: widget.columns,
+          columns: compact ? 3 : 2,
+          gap: compact ? 8 : 10,
         );
       },
     );
   }
 
-  Future<Map<String, int>> _loadStats(String userId, UserRole role) async {
-    if (userId.isEmpty) return {};
+  Future<_HomeStats> _loadStats(String userId, UserRole role) async {
+    if (userId.isEmpty) return const _HomeStats();
     if (kIsWeb) return _loadWebStats(userId, role);
     return _loadIsarStats(userId, role);
   }
 
-  Future<Map<String, int>> _loadWebStats(
-    String userId,
-    UserRole role,
-  ) async {
+  Future<_HomeStats> _loadWebStats(String userId, UserRole role) async {
     try {
       final api = ApiClient();
       if (!api.isInitialized) {
         debugPrint('[OverviewStats] ApiClient not initialized');
-        return {};
+        return const _HomeStats();
       }
-      final result = <String, int>{};
 
       // Each call is isolated so one failing endpoint doesn't zero-out all stats.
       Future<Map<String, dynamic>> safeGet(
@@ -1216,67 +1028,94 @@ class _OverviewStatsState extends State<_OverviewStats> {
       }
 
       // One GET per resource, with the same path and params the Recent
-      // Activity section and the trucker hero card use, so ApiClient folds
-      // the concurrent identical reads into a single request (SIM-21).
-      if (role == UserRole.farmer) {
-        final cropsFuture = safeGet(
-          '/crops',
-          queryParameters: {'farmerId': userId, 'limit': '50'},
-        );
-        final deliveriesFuture = safeGet(
-          '/deliveries',
-          queryParameters: {'farmerId': userId, 'limit': '50'},
-        );
-        final orderItems =
-            await _fetchOrderPages(safeGet, {'farmerId': userId});
-        result['listings'] = _countApiItems(await cropsFuture, alt: 'crops');
-        result['pendingOrders'] =
-            _countOrdersByStatus(orderItems, const {'funded'});
-        result['payments'] =
-            _countOrdersByStatus(orderItems, escrowHeldOrderStatusNames);
-        result['deliveries'] =
-            _countApiItems(await deliveriesFuture, alt: 'deliveries');
-      } else if (role == UserRole.buyer) {
-        // The server scopes a buyer via mine=true (ParticipantIndex); a
-        // buyerId= filter is not a delivery query parameter.
-        final deliveriesFuture = safeGet(
-          '/deliveries',
-          queryParameters: {'mine': 'true', 'limit': '50'},
-        );
-        final cropsFuture =
-            safeGet('/crops', queryParameters: {'status': 'available'});
-        final orderItems = await _fetchOrderPages(safeGet, {'buyerId': userId});
-        result['deliveries'] =
-            _countApiItems(await deliveriesFuture, alt: 'deliveries');
-        result['activeOrders'] =
-            _countOrdersByStatus(orderItems, activeOrderStatusNames);
-        result['payments'] =
-            _countOrdersByStatus(orderItems, escrowHeldOrderStatusNames);
-        result['listings'] = _countApiItems(await cropsFuture, alt: 'crops');
-      } else if (role == UserRole.trucker) {
-        // One trips read (was three status-filtered ones): the status
-        // counts come from the page. Deliveries are scoped by truckerId
-        // (TruckerIdCreatedAtIndex, SIM-16).
-        final tripsFuture = safeGet(
-          '/trips',
-          queryParameters: {'truckerId': userId, 'limit': '50'},
-        );
-        final deliveriesFuture = safeGet(
-          '/deliveries',
-          queryParameters: {'truckerId': userId, 'limit': '50'},
-        );
-        final trips = _apiItems(await tripsFuture, alt: 'trips');
-        result['trips'] = trips.length;
-        result['inTransit'] = _countByStatus(trips, 'inTransit');
-        result['matched'] = _countByStatus(trips, 'matched');
-        result['deliveries'] =
-            _countApiItems(await deliveriesFuture, alt: 'deliveries');
+      // line and the Action needed card use, so ApiClient folds the
+      // concurrent identical reads into a single request (SIM-21).
+      switch (role) {
+        case UserRole.farmer:
+          final cropsFuture = safeGet(
+            '/crops',
+            queryParameters: {'farmerId': userId, 'limit': '50'},
+          );
+          final deliveriesFuture = safeGet(
+            '/deliveries',
+            queryParameters: {'farmerId': userId, 'limit': '50'},
+          );
+          final orderItems =
+              await _fetchOrderPages(safeGet, {'farmerId': userId});
+          final crops = _apiItems(await cropsFuture, alt: 'crops');
+          return _HomeStats(
+            listings: crops.length,
+            // The API says "available" for an active listing.
+            activeListings: _countByStatus(crops, 'available') +
+                _countByStatus(crops, 'active'),
+            reservedListings: _countByStatus(crops, 'reserved'),
+            pendingOrders: _countOrdersByStatus(orderItems, const {'funded'}),
+            escrowEtb: _sumOrders(
+              orderItems,
+              escrowHeldOrderStatusNames,
+              (o) => farmerEscrowShare(
+                subtotal:
+                    wireDouble(o['quantity']) * wireDouble(o['pricePerUnit']),
+                cropCost: wireDouble(o['cropCost']),
+              ),
+            ),
+            inTransit: _countOnTheRoad(
+              _apiItems(await deliveriesFuture, alt: 'deliveries'),
+            ),
+          );
+        case UserRole.buyer:
+          // The server scopes a buyer via mine=true (ParticipantIndex); a
+          // buyerId= filter is not a delivery query parameter.
+          final deliveriesFuture = safeGet(
+            '/deliveries',
+            queryParameters: {'mine': 'true', 'limit': '50'},
+          );
+          final cropsFuture =
+              safeGet('/crops', queryParameters: {'status': 'available'});
+          final orderItems =
+              await _fetchOrderPages(safeGet, {'buyerId': userId});
+          return _HomeStats(
+            listings: _countApiItems(await cropsFuture, alt: 'crops'),
+            activeOrders:
+                _countOrdersByStatus(orderItems, activeOrderStatusNames),
+            escrowEtb: _sumOrders(
+              orderItems,
+              escrowHeldOrderStatusNames,
+              (o) => orderEscrowValue(
+                subtotal:
+                    wireDouble(o['quantity']) * wireDouble(o['pricePerUnit']),
+                orderTotal: wireDouble(o['orderTotal']),
+              ),
+            ),
+            inTransit: _countOnTheRoad(
+              _apiItems(await deliveriesFuture, alt: 'deliveries'),
+            ),
+          );
+        case UserRole.trucker:
+          // One trips read: the status counts come from the page. The
+          // escrow tile sums the transport pay of the orders assigned to
+          // this trucker (truckerId=, the Action needed card's read).
+          final tripsFuture = safeGet(
+            '/trips',
+            queryParameters: {'truckerId': userId, 'limit': '50'},
+          );
+          final orderItems =
+              await _fetchOrderPages(safeGet, {'truckerId': userId});
+          final trips = _apiItems(await tripsFuture, alt: 'trips');
+          return _HomeStats(
+            trips: trips.length,
+            matched: _countByStatus(trips, 'matched'),
+            escrowEtb: _sumOrders(
+              orderItems,
+              escrowHeldOrderStatusNames,
+              (o) =>
+                  o['truckerId'] == userId ? wireDouble(o['transportCost']) : 0,
+            ),
+          );
       }
-
-      return result;
     } on Object catch (e) {
       debugPrint('[OverviewStats] Web stats failed: $e');
-      return {};
+      return const _HomeStats();
     }
   }
 
@@ -1289,6 +1128,10 @@ class _OverviewStatsState extends State<_OverviewStats> {
   /// Rows whose wire `status` (camelCase for trips) equals [status].
   static int _countByStatus(List<dynamic> items, String status) =>
       items.where((item) => item is Map && item['status'] == status).length;
+
+  /// Deliveries on the road now (camelCase statuses on the wire).
+  static int _countOnTheRoad(List<dynamic> items) =>
+      _countByStatus(items, 'pickedUp') + _countByStatus(items, 'inTransit');
 
   /// Fetch the user's orders following nextToken pagination so counts don't
   /// silently truncate at one page. Bounded at 5 pages (250 orders) to cap
@@ -1320,124 +1163,181 @@ class _OverviewStatsState extends State<_OverviewStats> {
     return items;
   }
 
-  /// Count orders whose wire status (snake_case, order_status_wire.dart)
+  /// The order rows whose wire status (snake_case, order_status_wire.dart)
   /// normalizes to one of [statusNames]. Malformed rows are skipped rather
   /// than zeroing the whole stats load.
+  static Iterable<Map<dynamic, dynamic>> _ordersIn(
+    List<dynamic> items,
+    Set<String> statusNames,
+  ) sync* {
+    for (final item in items) {
+      if (item is! Map) continue;
+      final status = item['status'];
+      if (status is String &&
+          statusNames.contains(orderStatusFromWire(status))) {
+        yield item;
+      }
+    }
+  }
+
   static int _countOrdersByStatus(
     List<dynamic> items,
     Set<String> statusNames,
-  ) {
-    return items.where((item) {
-      if (item is! Map) return false;
-      final status = item['status'];
-      return status is String &&
-          statusNames.contains(orderStatusFromWire(status));
-    }).length;
-  }
+  ) =>
+      _ordersIn(items, statusNames).length;
 
-  Future<Map<String, int>> _loadIsarStats(
-    String userId,
-    UserRole role,
-  ) async {
+  /// ETB over the order rows in [statusNames], [value] of each.
+  static double _sumOrders(
+    List<dynamic> items,
+    Set<String> statusNames,
+    double Function(Map<dynamic, dynamic> order) value,
+  ) =>
+      _ordersIn(items, statusNames).fold(0, (sum, o) => sum + value(o));
+
+  Future<_HomeStats> _loadIsarStats(String userId, UserRole role) async {
     try {
       final isar = IsarService.instance.db;
-      final result = <String, int>{};
+      const onTheRoad = [DeliveryStatus.pickedUp, DeliveryStatus.inTransit];
 
-      if (role == UserRole.farmer) {
-        final futures = await Future.wait<int>([
-          isar.cropListings.filter().farmerIdEqualTo(userId).count(),
-          isar.orders
+      switch (role) {
+        case UserRole.farmer:
+          final listings = await isar.cropListings
+              .filter()
+              .farmerIdEqualTo(userId)
+              .findAll();
+          final held = await isar.orders
               .filter()
               .farmerIdEqualTo(userId)
               .anyOf<OrderStatus, QAfterFilterCondition>(
                 escrowHeldOrderStatuses,
                 (q, s) => q.statusEqualTo(s),
               )
-              .count(),
-          isar.orders
+              .findAll();
+          final pending = await isar.orders
               .filter()
               .farmerIdEqualTo(userId)
               .statusEqualTo(OrderStatus.funded)
-              .count(),
-          isar.deliverys.filter().farmerIdEqualTo(userId).count(),
-        ]);
-        result['listings'] = futures[0];
-        result['payments'] = futures[1];
-        result['pendingOrders'] = futures[2];
-        result['deliveries'] = futures[3];
-      } else if (role == UserRole.buyer) {
-        final futures = await Future.wait<int>([
-          isar.deliverys.filter().buyerIdEqualTo(userId).count(),
-          isar.orders
+              .count();
+          final inTransit = await isar.deliverys
+              .filter()
+              .farmerIdEqualTo(userId)
+              .anyOf<DeliveryStatus, QAfterFilterCondition>(
+                onTheRoad,
+                (q, s) => q.statusEqualTo(s),
+              )
+              .count();
+          return _HomeStats(
+            listings: listings.length,
+            activeListings:
+                listings.where((l) => l.status == ListingStatus.active).length,
+            reservedListings: listings
+                .where((l) => l.status == ListingStatus.reserved)
+                .length,
+            pendingOrders: pending,
+            escrowEtb: held.fold(
+              0,
+              (sum, o) =>
+                  sum +
+                  farmerEscrowShare(
+                    subtotal: o.quantity * o.pricePerUnit,
+                    cropCost: o.cropCost,
+                  ),
+            ),
+            inTransit: inTransit,
+          );
+        case UserRole.buyer:
+          final held = await isar.orders
               .filter()
               .buyerIdEqualTo(userId)
               .anyOf<OrderStatus, QAfterFilterCondition>(
                 escrowHeldOrderStatuses,
                 (q, s) => q.statusEqualTo(s),
               )
-              .count(),
-          isar.orders
+              .findAll();
+          final active = await isar.orders
               .filter()
               .buyerIdEqualTo(userId)
               .anyOf<OrderStatus, QAfterFilterCondition>(
                 activeOrderStatuses,
                 (q, s) => q.statusEqualTo(s),
               )
-              .count(),
-          isar.cropListings
+              .count();
+          final listings = await isar.cropListings
               .filter()
               .statusEqualTo(ListingStatus.active)
-              .count(),
-        ]);
-        result['deliveries'] = futures[0];
-        result['payments'] = futures[1];
-        result['activeOrders'] = futures[2];
-        result['listings'] = futures[3];
-      } else if (role == UserRole.trucker) {
-        final futures = await Future.wait<int>([
-          isar.trips.filter().truckerIdEqualTo(userId).count(),
-          isar.trips
+              .count();
+          final inTransit = await isar.deliverys
               .filter()
-              .truckerIdEqualTo(userId)
-              .statusEqualTo(TripStatus.inTransit)
-              .count(),
-          isar.trips
+              .buyerIdEqualTo(userId)
+              .anyOf<DeliveryStatus, QAfterFilterCondition>(
+                onTheRoad,
+                (q, s) => q.statusEqualTo(s),
+              )
+              .count();
+          return _HomeStats(
+            listings: listings,
+            activeOrders: active,
+            escrowEtb: held.fold(
+              0,
+              (sum, o) =>
+                  sum +
+                  orderEscrowValue(
+                    subtotal: o.quantity * o.pricePerUnit,
+                    orderTotal: o.orderTotal,
+                  ),
+            ),
+            inTransit: inTransit,
+          );
+        case UserRole.trucker:
+          final trips =
+              await isar.trips.filter().truckerIdEqualTo(userId).count();
+          final matched = await isar.trips
               .filter()
               .truckerIdEqualTo(userId)
               .statusEqualTo(TripStatus.matched)
-              .count(),
-          isar.deliverys.filter().truckerIdEqualTo(userId).count(),
-        ]);
-        result['trips'] = futures[0];
-        result['inTransit'] = futures[1];
-        result['matched'] = futures[2];
-        result['deliveries'] = futures[3];
+              .count();
+          final held = await isar.orders
+              .filter()
+              .truckerIdEqualTo(userId)
+              .anyOf<OrderStatus, QAfterFilterCondition>(
+                escrowHeldOrderStatuses,
+                (q, s) => q.statusEqualTo(s),
+              )
+              .findAll();
+          return _HomeStats(
+            trips: trips,
+            matched: matched,
+            escrowEtb: held.fold(0, (sum, o) => sum + (o.transportCost ?? 0)),
+          );
       }
-
-      return result;
     } on Object catch (e) {
       debugPrint('[OverviewStats] Isar stats failed: $e');
-      return {};
+      return const _HomeStats();
     }
   }
 
-  List<Widget> _tilesForRole(UserRole role, Map<String, int> stats) {
+  List<Widget> _tilesForRole(UserRole role, _HomeStats stats) {
     final l10n = widget.l10n;
+    final etb = l10n.etbCurrency(birrText(stats.escrowEtb));
 
     Widget tile(
       _HomeDest dest, {
-      required IconData icon,
       required String label,
-      required Color color,
-      String? stat,
+      String? value,
+      bool amount = false,
+      String? sub,
+      IconData? icon,
       bool emphasized = false,
+      bool compact = false,
     }) {
-      return _DashboardTile(
-        icon: icon,
+      return _GlanceTile(
         label: label,
-        color: color,
-        count: stat == null ? null : stats[stat] ?? 0,
+        value: value,
+        amount: amount,
+        sub: sub,
+        icon: icon,
         emphasized: emphasized,
+        compact: compact,
         onTap: () => _openHomeDest(
           context,
           role: role,
@@ -1450,125 +1350,107 @@ class _OverviewStatsState extends State<_OverviewStats> {
 
     switch (role) {
       case UserRole.farmer:
-        // Farmer · Home board: My Crops leads (Sell Crops is the button
-        // under the list).
+        // Farmer · Home board: My Crops leads, filled; Sell Crops is the
+        // floating button.
         return [
           tile(
             _HomeDest.myCrops,
-            icon: Icons.eco,
             label: l10n.myCrops,
-            color: AppTheme.fieldGreen,
-            stat: 'listings',
+            value: '${stats.listings}',
+            sub: l10n.homeTileActiveReserved(
+              stats.activeListings,
+              stats.reservedListings,
+            ),
             emphasized: true,
           ),
           tile(
             _HomeDest.orders,
-            icon: Icons.receipt_long_outlined,
             label: l10n.pendingOrders,
-            color: AppTheme.accentGold,
-            stat: 'pendingOrders',
+            value: '${stats.pendingOrders}',
+            sub: l10n.homeTileWaitingForYou,
           ),
           tile(
             _HomeDest.payments,
-            icon: Icons.account_balance_wallet_outlined,
             label: l10n.escrow,
-            color: AppTheme.primaryGreen,
-            stat: 'payments',
+            value: etb,
+            amount: true,
+            sub: l10n.homeTileHeldForYou,
           ),
           tile(
             _HomeDest.deliveries,
-            icon: Icons.local_shipping_outlined,
             label: l10n.deliveries,
-            color: AppTheme.statusInfo,
-            stat: 'deliveries',
+            value: '${stats.inTransit}',
+            sub: l10n.homeTileInTransit,
           ),
         ];
       case UserRole.trucker:
+        // Trucker · Home board: three across, the Escrow tile is the
+        // trucker's transport pay held for their orders.
         return [
           tile(
             _HomeDest.myTrips,
-            icon: Icons.route,
             label: l10n.myTrips,
-            color: AppTheme.primaryGreen,
-            stat: 'trips',
+            value: '${stats.trips}',
+            compact: true,
           ),
           tile(
             _HomeDest.myTrips,
-            icon: Icons.local_shipping,
-            label: l10n.inTransit,
-            color: AppTheme.statusTransit,
-            stat: 'inTransit',
-          ),
-          tile(
-            _HomeDest.myTrips,
-            icon: Icons.handshake_outlined,
             label: l10n.matchedLoads,
-            color: AppTheme.accentGold,
-            stat: 'matched',
-          ),
-          tile(
-            _HomeDest.deliveries,
-            icon: Icons.inventory_2_outlined,
-            label: l10n.deliveries,
-            color: AppTheme.statusInfo,
-            stat: 'deliveries',
-          ),
-          tile(
-            _HomeDest.orders,
-            icon: Icons.receipt_long_outlined,
-            label: l10n.myOrders,
-            color: AppTheme.statusInfo,
+            value: '${stats.matched}',
+            compact: true,
           ),
           tile(
             _HomeDest.payments,
-            icon: Icons.account_balance_wallet_outlined,
-            label: l10n.myPayments,
-            color: AppTheme.accentGold,
+            label: l10n.escrow,
+            value: etb,
+            amount: true,
+            compact: true,
           ),
         ];
       case UserRole.buyer:
+        // No buyer board: the farmer's grid with buyer content. Find Crops
+        // leads (the full row); buyers browse ALL crops and ALL trips.
         return [
           tile(
             _HomeDest.findCrops,
-            icon: Icons.search,
             label: l10n.findCrops,
-            color: AppTheme.primaryGreen,
-            stat: 'listings',
+            value: '${stats.listings}',
+            sub: l10n.homeTileAvailableNow,
             emphasized: true,
           ),
           tile(
             _HomeDest.findTrips,
-            icon: Icons.route_outlined,
             label: l10n.findTrips,
-            color: AppTheme.statusTransit,
+            icon: Icons.route_outlined,
+            sub: l10n.homeTileBrowseAllTrips,
           ),
           tile(
             _HomeDest.orders,
-            icon: Icons.receipt_long_outlined,
             label: l10n.activeOrders,
-            color: AppTheme.statusInfo,
-            stat: 'activeOrders',
+            value: '${stats.activeOrders}',
+            sub: l10n.homeTileInProgress,
           ),
           tile(
             _HomeDest.payments,
-            icon: Icons.account_balance_wallet_outlined,
             label: l10n.escrow,
-            color: AppTheme.accentGold,
-            stat: 'payments',
+            value: etb,
+            amount: true,
+            sub: l10n.homeTileHeldInEscrow,
           ),
           tile(
             _HomeDest.deliveries,
-            icon: Icons.inventory_2_outlined,
             label: l10n.deliveries,
-            color: AppTheme.primaryGreen,
-            stat: 'deliveries',
+            value: '${stats.inTransit}',
+            sub: l10n.homeTileInTransit,
           ),
         ];
     }
   }
 }
 
-/// Recent activity feed.
+/// Recent: the latest event of the user's listings, orders, deliveries
+/// and trips as one line (the Trucker · Home board's "Recent: pickup
+/// scanned at Koka 09:40"); nothing when there is none yet.
 class _RecentActivityList extends StatefulWidget {
   final UserRole role;
   final String userId;
@@ -1614,44 +1496,12 @@ class _RecentActivityListState extends State<_RecentActivityList> {
       future: _activityFuture,
       builder: (context, snapshot) {
         final items = snapshot.data ?? [];
-
-        if (items.isEmpty) {
-          return WcCard(
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                child: Column(
-                  children: [
-                    const Icon(
-                      Icons.history,
-                      size: 32,
-                      color: AppTheme.textMuted,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      widget.l10n.noRecentActivity,
-                      style: const TextStyle(
-                        color: AppTheme.textMuted,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }
-
-        return Column(
-          children: items
-              .map(
-                (item) => _ActivityCard(
-                  item: item,
-                  l10n: widget.l10n,
-                  onTap: () => _openItem(item),
-                ),
-              )
-              .toList(),
+        if (items.isEmpty) return const SizedBox.shrink();
+        final item = items.first;
+        return _RecentLineCard(
+          item: item,
+          l10n: widget.l10n,
+          onTap: () => _openItem(item),
         );
       },
     );
@@ -2069,12 +1919,14 @@ class _ActivityItem {
   });
 }
 
-class _ActivityCard extends StatelessWidget {
+/// The one-line Recent card: a mark for the event's kind, "Recent: ..." and
+/// how long ago.
+class _RecentLineCard extends StatelessWidget {
   final _ActivityItem item;
   final AppLocalizations l10n;
   final VoidCallback onTap;
 
-  const _ActivityCard({
+  const _RecentLineCard({
     required this.item,
     required this.l10n,
     required this.onTap,
@@ -2082,10 +1934,10 @@ class _ActivityCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (dotColor, _) = switch (item.type) {
-      _ActivityType.info => (AppTheme.statusInfo, 'info'),
-      _ActivityType.success => (AppTheme.statusSuccess, 'success'),
-      _ActivityType.pending => (AppTheme.accentGold, 'pending'),
+    final (icon, color) = switch (item.type) {
+      _ActivityType.info => (Icons.info_outline, AppTheme.dropoffBlue),
+      _ActivityType.success => (Icons.check, AppTheme.fieldGreen),
+      _ActivityType.pending => (Icons.schedule, AppTheme.statusTransit),
     };
 
     final timeDiff = DateTime.now().difference(item.timestamp);
@@ -2095,37 +1947,31 @@ class _ActivityCard extends StatelessWidget {
             ? l10n.hoursAgo(timeDiff.inHours)
             : l10n.daysAgo(timeDiff.inDays);
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+    return Semantics(
+      button: true,
       child: Material(
         color: AppTheme.surfaceWhite,
-        borderRadius: BorderRadius.circular(18),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: AppTheme.whisperBorder),
+        ),
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
+          key: const Key('home_recent_line'),
           onTap: onTap,
-          borderRadius: BorderRadius.circular(18),
-          child: Container(
+          child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: AppTheme.whisperBorder),
-            ),
             child: Row(
               children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: dotColor,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 12),
+                Icon(icon, size: 18, color: color),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    item.description,
+                    l10n.homeRecentLine(item.description),
                     style: const TextStyle(
-                      fontSize: 14,
-                      color: AppTheme.textDark,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: AppTheme.unselectedNav,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -2136,1056 +1982,17 @@ class _ActivityCard extends StatelessWidget {
                   timeLabel,
                   style: const TextStyle(
                     fontSize: 12,
-                    color: AppTheme.textMuted,
+                    color: AppTheme.mutedSteel,
                   ),
                 ),
-                const SizedBox(width: 4),
+                const SizedBox(width: 2),
                 const Icon(
                   Icons.chevron_right,
                   size: 18,
-                  color: AppTheme.textMuted,
+                  color: AppTheme.mutedSteel,
                 ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Tappable cloud icon that shows sync status and triggers manual sync.
-///
-/// - Online: cloud_done (white)
-/// - Offline: cloud_off (dimmed)
-///
-/// On tap: shows a bottom sheet with sync queue status and retry option.
-/// Live cloud sync icon that reflects real sync state.
-///
-/// States:
-/// - **Offline** (cloud_off): No connectivity detected.
-/// - **Syncing** (animated sync): SyncExecutor is actively processing.
-/// - **All synced** (cloud_done + checkmark): Pending=0, Failed=0.
-/// - **Pending** (cloud_upload): Items waiting to sync.
-/// - **Failed** (cloud_off + error tint): Failed items need attention.
-class _SyncStatusIcon extends StatefulWidget {
-  final bool isOnline;
-
-  const _SyncStatusIcon({required this.isOnline});
-
-  @override
-  State<_SyncStatusIcon> createState() => _SyncStatusIconState();
-}
-
-class _SyncStatusIconState extends State<_SyncStatusIcon>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _spinController;
-  StreamSubscription<SyncBatchResult>? _syncSub;
-
-  int _pendingCount = 0;
-  int _failedCount = 0;
-  bool _isSyncing = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _spinController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 1),
-    );
-    _loadCounts();
-    _listenToSync();
-  }
-
-  void _listenToSync() {
-    final executor = context.read<SyncExecutor>();
-    _isSyncing = executor.isSyncing;
-    if (_isSyncing) _spinController.repeat();
-
-    _syncSub = executor.onSyncResult.listen((_) {
-      _loadCounts();
-    });
-  }
-
-  Future<void> _loadCounts() async {
-    try {
-      final queue = SyncQueue(IsarService.instance.db);
-      final executor = context.read<SyncExecutor>();
-      final pending = await queue.getPendingCount();
-      final failed = await queue.getFailedCount();
-      if (mounted) {
-        setState(() {
-          _pendingCount = pending;
-          _failedCount = failed;
-          _isSyncing = executor.isSyncing;
-          if (_isSyncing) {
-            _spinController.repeat();
-          } else {
-            _spinController.stop();
-            _spinController.reset();
-          }
-        });
-      }
-    } on Object {
-      // Ignore errors reading queue
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant _SyncStatusIcon oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.isOnline != widget.isOnline) {
-      _loadCounts();
-    }
-  }
-
-  @override
-  void dispose() {
-    _syncSub?.cancel();
-    _spinController.dispose();
-    super.dispose();
-  }
-
-  /// Determine the icon, color, and tooltip based on real state.
-  ({IconData icon, Color color}) get _iconState {
-    if (!widget.isOnline) {
-      return (icon: Icons.cloud_off_outlined, color: Colors.white38);
-    }
-    if (_isSyncing) {
-      return (icon: Icons.sync, color: Colors.white);
-    }
-    if (_failedCount > 0) {
-      return (
-        icon: Icons.cloud_off_outlined,
-        color: AppTheme.statusError,
-      );
-    }
-    if (_pendingCount > 0) {
-      return (icon: Icons.cloud_upload_outlined, color: Colors.white70);
-    }
-    // All synced
-    return (icon: Icons.cloud_done_outlined, color: Colors.white);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final state = _iconState;
-
-    return InkWell(
-      onTap: () => _showSyncStatus(context),
-      borderRadius: BorderRadius.circular(20),
-      child: Padding(
-        padding: const EdgeInsets.all(6),
-        child: _isSyncing
-            ? RotationTransition(
-                turns: _spinController,
-                child: Icon(state.icon, size: 22, color: state.color),
-              )
-            : Icon(state.icon, size: 22, color: state.color),
-      ),
-    );
-  }
-
-  Future<void> _showSyncStatus(BuildContext context) async {
-    final l10n = AppLocalizations.of(context)!;
-    final executor = context.read<SyncExecutor>();
-
-    if (!context.mounted) return;
-
-    showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) {
-        return _SyncStatusSheet(
-          isOnline: widget.isOnline,
-          l10n: l10n,
-          executor: executor,
-          onSyncComplete: _loadCounts,
-        );
-      },
-    );
-  }
-}
-
-/// Bottom sheet showing live sync queue status with Sync Now / Retry actions.
-class _SyncStatusSheet extends StatefulWidget {
-  final bool isOnline;
-  final AppLocalizations l10n;
-  final SyncExecutor executor;
-  final VoidCallback? onSyncComplete;
-
-  const _SyncStatusSheet({
-    required this.isOnline,
-    required this.l10n,
-    required this.executor,
-    this.onSyncComplete,
-  });
-
-  @override
-  State<_SyncStatusSheet> createState() => _SyncStatusSheetState();
-}
-
-class _SyncStatusSheetState extends State<_SyncStatusSheet> {
-  int _pendingCount = 0;
-  int _failedCount = 0;
-  bool _isSyncing = false;
-  String? _lastStatusMessage;
-  StreamSubscription<SyncBatchResult>? _syncSub;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadCounts();
-    _isSyncing = widget.executor.isSyncing;
-    _syncSub = widget.executor.onSyncResult.listen(_onSyncResult);
-  }
-
-  @override
-  void dispose() {
-    _syncSub?.cancel();
-    super.dispose();
-  }
-
-  void _onSyncResult(SyncBatchResult result) {
-    if (!mounted) return;
-    _loadCounts();
-    setState(() {
-      _isSyncing = widget.executor.isSyncing;
-      _lastStatusMessage = switch (result.status) {
-        SyncBatchStatus.success => widget.l10n.syncComplete,
-        SyncBatchStatus.partial =>
-          '${result.succeeded} synced, ${result.failed} failed',
-        SyncBatchStatus.empty => widget.l10n.syncComplete,
-        SyncBatchStatus.skipped => null, // another sync in progress, no change
-        SyncBatchStatus.noInternet => widget.l10n.offlineModeIndicator,
-        SyncBatchStatus.networkError => 'Network error',
-        SyncBatchStatus.authError => 'Authentication error',
-        SyncBatchStatus.rateLimited => 'Rate limited — try later',
-        SyncBatchStatus.error => result.errorMessage ?? 'Error',
-        // The account is being deleted: the AuthBloc wipes or the user
-        // finishes the deletion from Profile.
-        SyncBatchStatus.accountDeleted => null,
-      };
-    });
-  }
-
-  Future<void> _loadCounts() async {
-    try {
-      final queue = SyncQueue(IsarService.instance.db);
-      final pending = await queue.getPendingCount();
-      final failed = await queue.getFailedCount();
-      if (mounted) {
-        setState(() {
-          _pendingCount = pending;
-          _failedCount = failed;
-        });
-      }
-    } on Object {
-      // Ignore
-    }
-  }
-
-  Future<void> _syncNow() async {
-    setState(() => _isSyncing = true);
-    try {
-      final result = await widget.executor.syncNow();
-      if (mounted) {
-        _onSyncResult(result);
-        widget.onSyncComplete?.call();
-      }
-    } on Object {
-      // Ensure _isSyncing resets even if executor throws unexpectedly
-      if (mounted) {
-        setState(() => _isSyncing = widget.executor.isSyncing);
-      }
-    }
-  }
-
-  Future<void> _retryFailed() async {
-    final queue = SyncQueue(IsarService.instance.db);
-    final retried = await queue.retryFailed();
-    if (mounted && retried > 0) {
-      await _syncNow();
-    } else if (mounted) {
-      // Refresh counts — failed ops may have been cleared
-      _loadCounts();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = widget.l10n;
-
-    // Determine header status
-    final IconData statusIcon;
-    final Color statusColor;
-    final String statusText;
-
-    if (_isSyncing) {
-      statusIcon = Icons.sync;
-      statusColor = AppTheme.statusInfo;
-      statusText = l10n.syncInProgress;
-    } else if (!widget.isOnline) {
-      statusIcon = Icons.cloud_off;
-      statusColor = AppTheme.textMuted;
-      statusText = l10n.offlineModeIndicator;
-    } else if (_failedCount > 0) {
-      statusIcon = Icons.error_outline;
-      statusColor = AppTheme.statusError;
-      statusText = '$_failedCount ${l10n.syncFailed.toLowerCase()}';
-    } else if (_pendingCount > 0) {
-      statusIcon = Icons.cloud_upload;
-      statusColor = AppTheme.accentGold;
-      statusText = '$_pendingCount ${l10n.syncPending.toLowerCase()}';
-    } else {
-      statusIcon = Icons.cloud_done;
-      statusColor = AppTheme.statusSuccess;
-      statusText = l10n.syncComplete;
-    }
-
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Drag handle
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppTheme.textMuted.withAlpha(60),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 20),
-            // Status icon (animated when syncing)
-            _isSyncing
-                ? TweenAnimationBuilder<double>(
-                    tween: Tween(begin: 0, end: 1),
-                    duration: const Duration(seconds: 1),
-                    builder: (_, value, child) => Transform.rotate(
-                      angle: value * 2 * 3.14159,
-                      child: child,
-                    ),
-                    child: Icon(statusIcon, size: 40, color: statusColor),
-                    onEnd: () {
-                      // Restart if still syncing
-                      if (mounted) setState(() {});
-                    },
-                  )
-                : Icon(statusIcon, size: 40, color: statusColor),
-            const SizedBox(height: 10),
-            Text(
-              statusText,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: statusColor,
-              ),
-            ),
-            if (_lastStatusMessage != null &&
-                _lastStatusMessage != statusText) ...[
-              const SizedBox(height: 4),
-              Text(
-                _lastStatusMessage!,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: AppTheme.textMuted,
-                ),
-              ),
-            ],
-            const SizedBox(height: 20),
-            // Pending operations row
-            _SyncInfoRow(
-              icon: Icons.cloud_upload_outlined,
-              label: l10n.syncPending,
-              value: '$_pendingCount',
-              color:
-                  _pendingCount > 0 ? AppTheme.accentGold : AppTheme.textMuted,
-            ),
-            const SizedBox(height: 10),
-            // Failed operations row
-            _SyncInfoRow(
-              icon: Icons.error_outline,
-              label: l10n.syncFailed,
-              value: '$_failedCount',
-              color:
-                  _failedCount > 0 ? AppTheme.statusError : AppTheme.textMuted,
-            ),
-            const SizedBox(height: 20),
-            // Action buttons
-            if (_failedCount > 0 && widget.isOnline)
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _isSyncing ? null : _retryFailed,
-                  icon: _isSyncing
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.refresh, size: 20),
-                  label: Text(_isSyncing ? l10n.syncInProgress : l10n.retry),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.statusError,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                  ),
-                ),
-              )
-            else if (_pendingCount > 0 && widget.isOnline)
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _isSyncing ? null : _syncNow,
-                  icon: _isSyncing
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.sync, size: 20),
-                  label: Text(
-                    _isSyncing ? l10n.syncInProgress : l10n.syncNow,
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primaryGreen,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                  ),
-                ),
-              ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Single row in the sync status sheet.
-class _SyncInfoRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  final Color color;
-
-  const _SyncInfoRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 20, color: color),
-        const SizedBox(width: 10),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 14,
-            color: AppTheme.textDark,
-          ),
-        ),
-        const Spacer(),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: color.withAlpha(20),
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Text(
-            value,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: color,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Notification bell icon with dynamic red dot indicator.
-///
-/// Lists the user's inbox (ESC-21, `GET /notifications`: every order,
-/// delivery and money event of the user's orders) on mobile and web, and on
-/// mobile the sync queue's failed and pending changes. The dot shows while
-/// an inbox entry is unseen or a sync item is waiting; opening the sheet
-/// marks the inbox seen. Tapping an entry opens its order.
-class _NotificationIcon extends StatefulWidget {
-  final String userId;
-  final AppLocalizations l10n;
-  final bool isOnline;
-  final ValueChanged<int>? onNavigateToTab;
-
-  /// The bell's colour: white on the green mobile header, dark on the flat
-  /// desktop header.
-  final Color iconColor;
-
-  /// The ring around the unread dot, the header's background.
-  final Color ringColor;
-
-  const _NotificationIcon({
-    required this.userId,
-    required this.l10n,
-    required this.isOnline,
-    this.onNavigateToTab,
-    this.iconColor = Colors.white,
-    this.ringColor = AppTheme.primaryGreen,
-  });
-
-  @override
-  State<_NotificationIcon> createState() => _NotificationIconState();
-}
-
-class _NotificationIconState extends State<_NotificationIcon> {
-  List<_NotifItem> _notifications = [];
-  bool _hasUnread = false;
-  late Future<void> _loadFuture;
-  final Set<String> _dismissedKeys = {};
-  StreamSubscription<void>? _inboxChanges;
-
-  /// Web has no push: the bell pulls on a timer while Home is shown (each
-  /// pull is throttled by the repository).
-  Timer? _webRefresh;
-  static const _webRefreshInterval = Duration(minutes: 2);
-
-  @override
-  void initState() {
-    super.initState();
-    _inboxChanges = _inbox()?.changes.listen((_) {
-      if (mounted) _loadNotifications(pull: false);
-    });
-    _loadFuture = _loadNotifications();
-    if (kIsWeb) {
-      _webRefresh = Timer.periodic(_webRefreshInterval, (_) {
-        if (mounted) _loadNotifications();
-      });
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant _NotificationIcon oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.userId != widget.userId) {
-      _loadFuture = _loadNotifications();
-    }
-  }
-
-  @override
-  void dispose() {
-    _inboxChanges?.cancel();
-    _webRefresh?.cancel();
-    super.dispose();
-  }
-
-  /// The inbox, or null when the app provides none (widget tests).
-  BaseNotificationRepository? _inbox() {
-    try {
-      return context.read<BaseNotificationRepository>();
-    } on ProviderNotFoundException {
-      return null;
-    }
-  }
-
-  /// [pull]: read new entries from the server first (best-effort; offline
-  /// the device's entries show).
-  Future<void> _loadNotifications({bool pull = true}) async {
-    final items = <_NotifItem>[];
-    var unread = 0;
-    final userId = widget.userId;
-    // Read before any await: the deadline line uses the viewer's clock.
-    final clock = ClockFormat.resolve(
-      widget.l10n,
-      clockPreferenceOf(context, listen: false),
-    );
-    if (!kIsWeb) {
-      try {
-        final syncQueue = SyncQueue(IsarService.instance.db);
-
-        // Failed sync operations
-        final failedCount = await syncQueue.getFailedCount();
-        if (failedCount > 0) {
-          items.add(
-            _NotifItem(
-              icon: Icons.sync_problem,
-              title: widget.l10n.syncFailed,
-              subtitle: widget.l10n.syncFailureCount(failedCount),
-              color: AppTheme.statusError,
-              time: DateTime.now(),
-              action: _NotifAction.syncStatus,
-              key: 'sync_failed',
-            ),
-          );
-        }
-
-        // Pending sync operations
-        final pendingCount = await syncQueue.getPendingCount();
-        if (pendingCount > 0) {
-          items.add(
-            _NotifItem(
-              icon: Icons.cloud_upload_outlined,
-              title: widget.l10n.syncPending,
-              subtitle: widget.l10n.syncPendingCount(pendingCount),
-              color: AppTheme.accentGold,
-              time: DateTime.now(),
-              action: _NotifAction.syncStatus,
-              key: 'sync_pending',
-            ),
-          );
-        }
-      } on Object {
-        // No local queue: the inbox below still shows.
-      }
-    }
-
-    final inbox = _inbox();
-    if (inbox != null && userId.isNotEmpty) {
-      if (pull) {
-        try {
-          await inbox.pull(userId);
-        } on Object {
-          // Offline or the server failed: show what the device has.
-        }
-      }
-      try {
-        for (final entry in await inbox.recent(userId, limit: 30)) {
-          final text = notificationText(widget.l10n, entry);
-          final style = notificationStyle(entry.type);
-          items.add(
-            _NotifItem(
-              icon: style.icon,
-              title: text.title,
-              subtitle: text.body,
-              detail: notificationDetailLine(widget.l10n, clock, entry),
-              color: style.color,
-              time: entry.createdAt,
-              action: _NotifAction.openOrder,
-              key: 'inbox_${entry.notificationId}',
-              orderId: entry.orderId,
-              unread: !entry.read,
-            ),
-          );
-        }
-        unread = await inbox.unreadCount(userId);
-      } on Object {
-        // Show the sync items alone.
-      }
-    }
-
-    items.sort((a, b) => b.time.compareTo(a.time));
-    if (mounted) {
-      setState(() {
-        _notifications = items;
-        _hasUnread =
-            unread > 0 || items.any((n) => n.action == _NotifAction.syncStatus);
-      });
-    }
-  }
-
-  List<_NotifItem> get _visibleNotifications =>
-      _notifications.where((n) => !_dismissedKeys.contains(n.key)).toList();
-
-  void _dismissNotification(String key) {
-    setState(() => _dismissedKeys.add(key));
-  }
-
-  void _clearAllNotifications() {
-    setState(() {
-      _dismissedKeys.addAll(_notifications.map((n) => n.key));
-    });
-  }
-
-  void _handleNotifTap(BuildContext sheetContext, _NotifItem item) {
-    Navigator.of(sheetContext).pop(); // close sheet
-    switch (item.action) {
-      case _NotifAction.syncStatus:
-        _dismissNotification(item.key);
-        _openSyncStatusSheet();
-      case _NotifAction.openOrder:
-        final orderId = item.orderId;
-        if (orderId != null) openOrderDetail(context, orderId);
-    }
-  }
-
-  void _openSyncStatusSheet() {
-    final l10n = AppLocalizations.of(context)!;
-    final executor = context.read<SyncExecutor>();
-    showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) {
-        return _SyncStatusSheet(
-          isOnline: widget.isOnline,
-          l10n: l10n,
-          executor: executor,
-        );
-      },
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<void>(
-      future: _loadFuture,
-      builder: (context, _) {
-        return InkWell(
-          onTap: () => _showNotifications(context),
-          borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.all(4),
-            child: Stack(
-              children: [
-                Icon(
-                  Icons.notifications_outlined,
-                  size: 24,
-                  color: widget.iconColor,
-                ),
-                if (_hasUnread)
-                  Positioned(
-                    right: 0,
-                    top: 0,
-                    child: Container(
-                      width: 9,
-                      height: 9,
-                      decoration: BoxDecoration(
-                        color: AppTheme.statusError,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: widget.ringColor,
-                          width: 1.5,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  void _showNotifications(BuildContext context) {
-    // Mark as read when opened
-    setState(() => _hasUnread = false);
-    final inbox = _inbox();
-    if (inbox != null && widget.userId.isNotEmpty) {
-      inbox.markAllRead(widget.userId).ignore();
-    }
-
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (sheetContext, setSheetState) {
-            final visible = _visibleNotifications;
-            return DraggableScrollableSheet(
-              expand: false,
-              initialChildSize: 0.4,
-              maxChildSize: 0.7,
-              builder: (context, scrollController) {
-                return Column(
-                  children: [
-                    // Drag handle + title
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 4,
-                            decoration: BoxDecoration(
-                              color: AppTheme.textMuted.withAlpha(60),
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              Text(
-                                widget.l10n.notifications,
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppTheme.textDark,
-                                ),
-                              ),
-                              const Spacer(),
-                              if (visible.isNotEmpty) ...[
-                                GestureDetector(
-                                  onTap: () {
-                                    _clearAllNotifications();
-                                    setSheetState(() {});
-                                    Navigator.of(sheetContext).pop();
-                                  },
-                                  child: Text(
-                                    widget.l10n.clearAll,
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppTheme.statusError,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  '${visible.length}',
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppTheme.textMuted,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Divider(height: 1),
-                    // Notification list
-                    Expanded(
-                      child: visible.isEmpty
-                          ? Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.notifications_none,
-                                    size: 48,
-                                    color: AppTheme.textMuted.withAlpha(80),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    widget.l10n.noNotificationsYet,
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppTheme.textMuted,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    widget.l10n.noNotificationsDescription,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: AppTheme.textMuted.withAlpha(160),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : ListView.separated(
-                              controller: scrollController,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 20,
-                                vertical: 12,
-                              ),
-                              itemCount: visible.length,
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(height: 8),
-                              itemBuilder: (context, index) {
-                                final item = visible[index];
-                                return Dismissible(
-                                  key: ValueKey(item.key),
-                                  direction: DismissDirection.endToStart,
-                                  onDismissed: (_) {
-                                    _dismissNotification(item.key);
-                                    setSheetState(() {});
-                                  },
-                                  background: Container(
-                                    alignment: Alignment.centerRight,
-                                    padding: const EdgeInsets.only(right: 20),
-                                    decoration: BoxDecoration(
-                                      color: AppTheme.statusError,
-                                      borderRadius: BorderRadius.circular(18),
-                                    ),
-                                    child: const Icon(
-                                      Icons.delete_outline,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  child: _NotifCard(
-                                    item: item,
-                                    l10n: widget.l10n,
-                                    onTap: () =>
-                                        _handleNotifTap(sheetContext, item),
-                                  ),
-                                );
-                              },
-                            ),
-                    ),
-                  ],
-                );
-              },
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-enum _NotifAction { syncStatus, openOrder }
-
-class _NotifItem {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-
-  /// Crop, quantity, amount and deadline of an inbox entry.
-  final ClockLabel? detail;
-  final Color color;
-  final DateTime time;
-  final _NotifAction action;
-  final String key;
-
-  /// The order an inbox entry opens; null for sync items and entries
-  /// without an order.
-  final String? orderId;
-
-  /// An inbox entry the user has not seen in the bell yet.
-  final bool unread;
-
-  _NotifItem({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.color,
-    required this.time,
-    required this.action,
-    required this.key,
-    this.detail,
-    this.orderId,
-    this.unread = false,
-  });
-}
-
-class _NotifCard extends StatelessWidget {
-  final _NotifItem item;
-  final AppLocalizations l10n;
-  final VoidCallback? onTap;
-
-  const _NotifCard({required this.item, required this.l10n, this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final timeDiff = DateTime.now().difference(item.time);
-    final timeLabel = timeDiff.inMinutes < 60
-        ? l10n.minutesAgo(timeDiff.inMinutes)
-        : timeDiff.inHours < 24
-            ? l10n.hoursAgo(timeDiff.inHours)
-            : l10n.daysAgo(timeDiff.inDays);
-
-    return Material(
-      color: AppTheme.surfaceWhite,
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: AppTheme.whisperBorder),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: item.color.withAlpha(20),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(item.icon, size: 20, color: item.color),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.title,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight:
-                            item.unread ? FontWeight.w800 : FontWeight.w600,
-                        color: AppTheme.textDark,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      item.subtitle,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppTheme.textMuted,
-                      ),
-                      maxLines: item.action == _NotifAction.openOrder ? 3 : 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (item.detail != null) ...[
-                      const SizedBox(height: 2),
-                      ClockText(
-                        item.detail!,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.textDark,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                timeLabel,
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: AppTheme.textMuted,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Icon(
-                Icons.chevron_right,
-                size: 18,
-                color: AppTheme.textMuted.withAlpha(120),
-              ),
-            ],
           ),
         ),
       ),

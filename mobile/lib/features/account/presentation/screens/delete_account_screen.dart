@@ -13,6 +13,8 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/join_chrome.dart';
 
 /// Profile > "Delete account" (specs/contracts/account-deletion.md), the
 /// same for Farmer, Trucker and Buyer on mobile and web.
@@ -136,93 +138,115 @@ class _DeleteAccountView extends StatelessWidget {
         final failed = state is AccountDeletionFailed ? state : null;
         final retry = failed != null && failed.canRetry;
 
+        // The Fieldway boards' language: page header, the warning as a
+        // red note, the deleted and kept lists as white cards under
+        // uppercase labels, the red button at the end.
         return Scaffold(
-          appBar: AppBar(title: Text(l10n.deleteAccount)),
           body: SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 600),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
+            child: FwContentWidth(
+              maxWidth: 600,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: JoinBackButton(),
+                    ),
+                    const SizedBox(height: 12),
+                    FwPageHeader(
+                      padding: EdgeInsets.zero,
+                      eyebrow: l10n.profile,
+                      title: l10n.deleteAccount,
+                    ),
+                    const SizedBox(height: 16),
+                    JoinNote(
+                      text: l10n.deleteAccountWarning,
+                      background: AppTheme.statusErrorContainer,
+                      foreground: AppTheme.onStatusErrorContainer,
+                      icon: Icons.warning_amber_rounded,
+                    ),
+                    const SizedBox(height: 20),
+                    FwSectionLabel(l10n.deleteAccountDeletedHeading),
+                    const SizedBox(height: 8),
+                    FwCard(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Icon(
-                            Icons.warning_amber_rounded,
-                            color: AppTheme.statusError,
+                          _Bullet(
+                            Icons.remove_circle_outline,
+                            l10n.deleteAccountDeletedProfile,
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              l10n.deleteAccountWarning,
-                              style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.textDark,
-                              ),
-                            ),
+                          _Bullet(
+                            Icons.remove_circle_outline,
+                            l10n.deleteAccountDeletedFayda,
+                          ),
+                          _Bullet(
+                            Icons.remove_circle_outline,
+                            l10n.deleteAccountDeletedListings,
+                          ),
+                          _Bullet(
+                            Icons.remove_circle_outline,
+                            l10n.deleteAccountDeletedMessages,
+                          ),
+                          _Bullet(
+                            Icons.remove_circle_outline,
+                            l10n.deleteAccountDeletedNotifications,
                           ),
                         ],
                       ),
-                      const SizedBox(height: 20),
-                      _Heading(l10n.deleteAccountDeletedHeading),
-                      _Bullet(
-                        Icons.remove_circle_outline,
-                        l10n.deleteAccountDeletedProfile,
+                    ),
+                    const SizedBox(height: 16),
+                    FwSectionLabel(l10n.deleteAccountKeptHeading),
+                    const SizedBox(height: 8),
+                    FwCard(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
                       ),
-                      _Bullet(
-                        Icons.remove_circle_outline,
-                        l10n.deleteAccountDeletedFayda,
-                      ),
-                      _Bullet(
-                        Icons.remove_circle_outline,
-                        l10n.deleteAccountDeletedListings,
-                      ),
-                      _Bullet(
-                        Icons.remove_circle_outline,
-                        l10n.deleteAccountDeletedMessages,
-                      ),
-                      _Bullet(
-                        Icons.remove_circle_outline,
-                        l10n.deleteAccountDeletedNotifications,
-                      ),
-                      const SizedBox(height: 16),
-                      _Heading(l10n.deleteAccountKeptHeading),
-                      _Bullet(
-                        Icons.inventory_2_outlined,
-                        l10n.deleteAccountKeptRecords,
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 32, top: 4),
-                        child: Text(
-                          l10n.deleteAccountKeptReason,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: AppTheme.textMuted,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _Bullet(
+                            Icons.inventory_2_outlined,
+                            l10n.deleteAccountKeptRecords,
                           ),
-                        ),
+                          Padding(
+                            padding: const EdgeInsets.only(left: 32, top: 2),
+                            child: Text(
+                              l10n.deleteAccountKeptReason,
+                              style: FwText.body,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      _Bullet(Icons.wifi, l10n.deleteAccountNeedsInternet),
-                      const SizedBox(height: 20),
-                      if (state is AccountDeletionSubmitting)
-                        _Progress(
-                          state.finishing
-                              ? l10n.deleteAccountFinishing
-                              : l10n.deleteAccountDeleting,
-                        ),
-                      if (state is AccountDeletionBlocked)
-                        _BlockersCard(state: state),
-                      if (failed != null)
-                        _Notice(
-                          key: const Key('delete_account_error'),
-                          text: _failureText(failed.reason, l10n),
-                        ),
-                      const SizedBox(height: 20),
-                      FilledButton.icon(
+                    ),
+                    const SizedBox(height: 16),
+                    _Bullet(Icons.wifi, l10n.deleteAccountNeedsInternet),
+                    const SizedBox(height: 20),
+                    if (state is AccountDeletionSubmitting)
+                      _Progress(
+                        state.finishing
+                            ? l10n.deleteAccountFinishing
+                            : l10n.deleteAccountDeleting,
+                      ),
+                    if (state is AccountDeletionBlocked)
+                      _BlockersCard(state: state),
+                    if (failed != null)
+                      _Notice(
+                        key: const Key('delete_account_error'),
+                        text: _failureText(failed.reason, l10n),
+                      ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      height: 56,
+                      child: FilledButton.icon(
                         key: const Key('delete_account_button'),
                         // Suspended, or another account holds the session:
                         // sending again cannot help.
@@ -233,19 +257,19 @@ class _DeleteAccountView extends StatelessWidget {
                                     .read<AccountDeletionBloc>()
                                     .add(const AccountDeletionRequested())
                                 : () => _confirmAndDelete(context),
-                        icon:
-                            Icon(retry ? Icons.refresh : Icons.delete_forever),
+                        icon: Icon(
+                          retry ? Icons.refresh : Icons.delete_forever,
+                        ),
                         label: Text(
                           retry ? l10n.retry : l10n.deleteAccountButton,
                         ),
                         style: FilledButton.styleFrom(
                           backgroundColor: AppTheme.statusError,
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -312,7 +336,7 @@ class _BlockersCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppTheme.statusErrorContainer,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -351,27 +375,6 @@ class _BlockersCard extends StatelessWidget {
               ),
             ),
         ],
-      ),
-    );
-  }
-}
-
-class _Heading extends StatelessWidget {
-  final String text;
-
-  const _Heading(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        text,
-        style: const TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w700,
-          color: AppTheme.textDark,
-        ),
       ),
     );
   }
@@ -432,16 +435,6 @@ class _Notice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppTheme.statusErrorContainer,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(color: AppTheme.onStatusErrorContainer),
-      ),
-    );
+    return JoinNote.error(text: text);
   }
 }

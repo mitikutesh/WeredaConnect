@@ -49,11 +49,15 @@ class PlaceSelector extends StatefulWidget {
     this.maxResults = 8,
     this.isDense = false,
     this.contentPadding,
+    this.labelAbove = false,
+    this.prefix,
+    this.showSearchIcon = true,
+    this.pickerLook = false,
     super.key,
   });
 
-  /// Caller-owned controller. Holds the canonical English name after a pick, or
-  /// the raw free text otherwise.
+  /// Caller-owned controller. Holds the canonical English name after a pick
+  /// (with " · region" in [pickerLook]), or the raw free text otherwise.
   final TextEditingController controller;
 
   final String? labelText;
@@ -88,6 +92,23 @@ class PlaceSelector extends StatefulWidget {
   /// Overrides the field's content padding. Defaults to a comfortable
   /// H16/V20 (or a compact H12/V10 when [isDense] is true and this is null).
   final EdgeInsetsGeometry? contentPadding;
+
+  /// The Fieldway boards' field: its label sits above it (the caller wraps
+  /// it in a `LabeledField`), so no floating label, a 48 tall box with
+  /// radius 14 and the hint inside.
+  final bool labelAbove;
+
+  /// Replaces [prefixIcon] when set (the boards' origin ring and
+  /// destination dot on Create trip).
+  final Widget? prefix;
+
+  /// The search glass at the end of the field; the boards draw none.
+  final bool showSearchIcon;
+
+  /// The Register personal board's picker: a picked place reads with its
+  /// region ("Meki · Oromia") and the field ends in a chevron instead of the
+  /// search glass. The place itself still reaches [onPlaceSelected].
+  final bool pickerLook;
 
   @override
   State<PlaceSelector> createState() => _PlaceSelectorState();
@@ -165,16 +186,21 @@ class _PlaceSelectorState extends State<PlaceSelector> {
   }
 
   void _handleSelected(Place place) {
-    // RawAutocomplete sets controller.text to displayStringForOption (== en).
+    // RawAutocomplete sets controller.text to displayStringForOption.
     _selectedPlace = place;
     _showNoResultsHint = false;
     widget.onPlaceSelected?.call(place);
     _focusNode.unfocus();
   }
 
+  /// What the field shows for a picked [place].
+  String _display(Place place) => widget.pickerLook && place.region.isNotEmpty
+      ? '${place.en} · ${place.region}'
+      : place.en;
+
   void _handleFieldChanged(String text) {
     // User typed: if it diverges from the picked place, drop the selection.
-    if (_selectedPlace != null && text.trim() != _selectedPlace!.en) {
+    if (_selectedPlace != null && text.trim() != _display(_selectedPlace!)) {
       _selectedPlace = null;
       widget.onPlaceSelected?.call(null);
     }
@@ -187,7 +213,7 @@ class _PlaceSelectorState extends State<PlaceSelector> {
     return RawAutocomplete<Place>(
       textEditingController: widget.controller,
       focusNode: _focusNode,
-      displayStringForOption: (place) => place.en,
+      displayStringForOption: _display,
       optionsBuilder: _optionsBuilder,
       onSelected: _handleSelected,
       fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
@@ -209,25 +235,43 @@ class _PlaceSelectorState extends State<PlaceSelector> {
                 maxLength: widget.maxLength,
                 autovalidateMode: AutovalidateMode.onUserInteraction,
                 decoration: InputDecoration(
-                  labelText: widget.labelText,
+                  labelText: widget.labelAbove ? null : widget.labelText,
                   hintText: widget.hintText ?? l10n.placeSearchHint,
-                  prefixIcon: Icon(widget.prefixIcon),
-                  suffixIcon:
-                      const Icon(Icons.search, color: AppTheme.textMuted),
+                  prefixIcon: widget.prefix ?? Icon(widget.prefixIcon),
+                  prefixIconConstraints: widget.prefix == null
+                      ? null
+                      : const BoxConstraints(minWidth: 40, minHeight: 40),
+                  suffixIcon: widget.pickerLook
+                      ? const Icon(
+                          Icons.keyboard_arrow_down,
+                          color: AppTheme.textMuted,
+                        )
+                      : widget.showSearchIcon
+                          ? const Icon(Icons.search, color: AppTheme.textMuted)
+                          : null,
                   isDense: widget.isDense,
                   // Long validator texts (FUP-49 phone refusal) wrap, not clip.
                   errorMaxLines: 3,
-                  border: widget.isDense ? const OutlineInputBorder() : null,
+                  border: widget.isDense || widget.labelAbove
+                      ? OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        )
+                      : null,
                   contentPadding: widget.contentPadding ??
                       (widget.isDense
                           ? const EdgeInsets.symmetric(
                               horizontal: 12,
                               vertical: 10,
                             )
-                          : const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 20,
-                            )),
+                          : widget.labelAbove
+                              ? const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 14,
+                                )
+                              : const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 20,
+                                )),
                 ),
               ),
               if (_showNoResultsHint && focusNode.hasFocus)

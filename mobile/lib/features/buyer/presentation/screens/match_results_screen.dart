@@ -6,6 +6,7 @@ import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -17,15 +18,21 @@ import 'package:wereda_connect/features/buyer/presentation/widgets/match_result_
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_listing_detail_screen.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
 import 'package:wereda_connect/features/order/presentation/screens/place_order_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_summary_tile.dart';
 
-/// Screen showing match results for a buyer intent.
+/// Screen showing match results for a buyer intent (a sibling of the
+/// detail boards: Back and the title in the page, the request in a summary
+/// card, then the matching listings).
 ///
 /// Displays intent summary, stale-data indicator, and a list of
 /// matching crop listings with trip suggestions.
@@ -66,48 +73,68 @@ class _MatchResultsScreenState extends State<MatchResultsScreen> {
     final cropType = CropType.fromKey(widget.intent.cropType);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text('${cropType.displayName(l10n)} ${l10n.findMatches}'),
-        elevation: 0,
-      ),
-      body: widget.initialMatches != null
-          ? _MatchResultsBody(
-              intent: widget.intent,
-              matches: widget.initialMatches!,
-              isStale: widget.initialIsStale,
-            )
-          : BlocBuilder<BuyerIntentBloc, BuyerIntentState>(
-              // Ignore states meant for other screens (e.g. the
-              // ActiveIntentsLoaded emitted when an order fulfills this
-              // intent) so the results stay on screen instead of a spinner.
-              buildWhen: (previous, current) =>
-                  current is BuyerIntentLoading ||
-                  current is MatchResultsLoaded ||
-                  current is BuyerIntentError,
-              builder: (context, state) {
-                if (state is BuyerIntentLoading) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (state is MatchResultsLoaded) {
-                  return _MatchResultsBody(
-                    intent: state.intent,
-                    matches: state.matches,
-                    isStale: state.isStale,
-                  );
-                }
-                if (state is BuyerIntentError) {
-                  return Center(
-                    child: Text(
-                      localizeErrorCode(
-                        state.code,
-                        AppLocalizations.of(context)!,
+      body: SafeArea(
+        bottom: false,
+        child: FwContentWidth(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              FwDetailHeader(
+                title: l10n.restMatchesFor(cropType.displayName(l10n)),
+              ),
+              Expanded(
+                child: widget.initialMatches != null
+                    ? _MatchResultsBody(
+                        intent: widget.intent,
+                        matches: widget.initialMatches!,
+                        isStale: widget.initialIsStale,
+                      )
+                    : BlocBuilder<BuyerIntentBloc, BuyerIntentState>(
+                        // Ignore states meant for other screens (e.g. the
+                        // ActiveIntentsLoaded emitted when an order fulfills
+                        // this intent) so the results stay on screen instead
+                        // of a spinner.
+                        buildWhen: (previous, current) =>
+                            current is BuyerIntentLoading ||
+                            current is MatchResultsLoaded ||
+                            current is BuyerIntentError,
+                        builder: (context, state) {
+                          if (state is BuyerIntentLoading) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+                          if (state is MatchResultsLoaded) {
+                            return _MatchResultsBody(
+                              intent: state.intent,
+                              matches: state.matches,
+                              isStale: state.isStale,
+                            );
+                          }
+                          if (state is BuyerIntentError) {
+                            return Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Text(
+                                  localizeErrorCode(
+                                    state.code,
+                                    AppLocalizations.of(context)!,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            );
+                          }
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        },
                       ),
-                    ),
-                  );
-                }
-                return const Center(child: CircularProgressIndicator());
-              },
-            ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -117,7 +144,7 @@ class _MatchResultsBody extends StatelessWidget {
   final List<CropMatchResult> matches;
 
   /// True when the marketplace refresh failed and these matches were computed
-  /// against cached data — the body shows a "showing saved results" banner (C1).
+  /// against cached data: the body shows a "showing saved results" note (C1).
   final bool isStale;
 
   const _MatchResultsBody({
@@ -153,198 +180,201 @@ class _MatchResultsBody extends StatelessWidget {
     final userRole =
         authState is AuthAuthenticated ? authState.role : UserRole.buyer;
 
-    return SafeArea(
-      child: Column(
-        children: [
-          if (isStale)
-            Container(
-              width: double.infinity,
-              color: AppTheme.statusWarningContainer,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.cloud_off,
-                    size: 16,
-                    color: AppTheme.textDark,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      l10n.showingCachedResults,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppTheme.textDark,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+    // 0 budget = "no budget set": show "any price", not "≤0".
+    final budget = intent.maxPricePerKg > 0
+        ? '≤${intent.maxPricePerKg.toStringAsFixed(0)} ${l10n.etbPerKg}'
+        : l10n.anyPrice;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (isStale)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+            child: FwInfoNote(
+              icon: Icons.cloud_off,
+              text: l10n.showingCachedResults,
+              background: AppTheme.actionCream,
+              foreground: AppTheme.actionInk,
             ),
-          // Header summary
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            color: AppTheme.primaryGreen.withAlpha(10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          ),
+        // The request this list answers: crop, amount, budget, where to.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+          child: FwCard(
+            padding: const EdgeInsets.all(14),
+            child: Row(
               children: [
-                Text(
-                  // 0 budget = "no budget set" — show "any price", not "≤0".
-                  '${cropType.displayName(l10n)} · ${intent.quantityNeeded.toStringAsFixed(0)} ${l10n.quintals} · ${intent.maxPricePerKg > 0 ? '≤${intent.maxPricePerKg.toStringAsFixed(0)} ${l10n.etbPerKg}' : l10n.anyPrice}',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.textDark,
-                  ),
+                DeliveryCropTile(
+                  cropKey: intent.cropType,
+                  status: DeliveryStatus.pending,
                 ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.arrow_forward,
-                      size: 14,
-                      color: AppTheme.textMuted,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${intent.deliveryWoreda} · ${l10n.matchesFound(matches.length)}',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.textMuted,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${cropType.displayName(l10n)} · '
+                        '${intent.quantityNeeded.toStringAsFixed(0)} ${l10n.quintals} · '
+                        '$budget',
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.soilDark,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  l10n.syncedAgo(_timeSinceSync()),
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppTheme.textMuted,
-                    fontStyle: FontStyle.italic,
+                      const SizedBox(height: 2),
+                      Text(
+                        '${intent.deliveryWoreda} · ${l10n.matchesFound(matches.length)}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.mutedSteel,
+                        ),
+                      ),
+                      Text(
+                        l10n.syncedAgo(_timeSinceSync()),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.mutedSteel,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
+        ),
 
-          // Results list
-          Expanded(
-            child: matches.isEmpty
-                ? _EmptyState()
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: matches.length,
-                    itemBuilder: (context, index) {
-                      final match = matches[index];
-                      final intentBloc = context.read<BuyerIntentBloc>();
-                      return MatchResultCard(
-                        result: match,
-                        intent: intent,
-                        onTap: () {
-                          intentBloc.add(
-                            LogMatchOpened(
-                              intent: intent,
-                              result: match,
-                              rank: index,
-                            ),
-                          );
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              // Carry the BLoC + intent so an order placed
-                              // from the detail screen can fulfill this
-                              // intent too.
-                              builder: (_) => BlocProvider.value(
-                                value: intentBloc,
-                                child: CropListingDetailScreen(
-                                  listing: match.listing,
-                                  currentUserId: userId,
-                                  currentUserRole: userRole,
-                                  deliveryWoreda: intent.deliveryWoreda,
-                                  quantityNeeded: intent.quantityNeeded,
-                                  intent: intent,
-                                ),
+        // Results list
+        Expanded(
+          child: matches.isEmpty
+              ? _EmptyState()
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  itemCount: matches.length,
+                  itemBuilder: (context, index) {
+                    final match = matches[index];
+                    final intentBloc = context.read<BuyerIntentBloc>();
+                    return MatchResultCard(
+                      result: match,
+                      intent: intent,
+                      onTap: () {
+                        intentBloc.add(
+                          LogMatchOpened(
+                            intent: intent,
+                            result: match,
+                            rank: index,
+                          ),
+                        );
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            // Carry the BLoC + intent so an order placed
+                            // from the detail screen can fulfill this
+                            // intent too.
+                            builder: (_) => BlocProvider.value(
+                              value: intentBloc,
+                              child: CropListingDetailScreen(
+                                listing: match.listing,
+                                currentUserId: userId,
+                                currentUserRole: userRole,
+                                deliveryWoreda: intent.deliveryWoreda,
+                                quantityNeeded: intent.quantityNeeded,
+                                intent: intent,
                               ),
                             ),
-                          );
-                        },
-                        // One tap from match to order — the matcher's best
-                        // trip suggestion comes along preselected.
-                        onOrder: () async {
-                          intentBloc.add(
-                            LogMatchOpened(
-                              intent: intent,
-                              result: match,
-                              rank: index,
-                            ),
-                          );
-                          // ESC-15: the trip's trucker is asked to commit,
-                          // so with several trucks the buyer picks one.
-                          final trips = match.suggestedTrips;
-                          final Trip? trip;
-                          if (trips.length > 1) {
-                            trip = await showChooseTripSheet(context, trips);
-                            if (trip == null) return;
-                          } else {
-                            trip = trips.isNotEmpty ? trips.first : null;
-                          }
-                          if (!context.mounted) return;
-                          final farmerName =
-                              await _lookupFarmerName(match.listing);
-                          if (!context.mounted) return;
-                          await Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (_) => BlocProvider.value(
-                                value: intentBloc,
-                                child: PlaceOrderScreen(
-                                  listing: match.listing,
-                                  farmerName: farmerName,
-                                  selectedTrip: trip,
-                                  intent: intent,
-                                ),
+                          ),
+                        );
+                      },
+                      // One tap from match to order: the matcher's best
+                      // trip suggestion comes along preselected.
+                      onOrder: () async {
+                        intentBloc.add(
+                          LogMatchOpened(
+                            intent: intent,
+                            result: match,
+                            rank: index,
+                          ),
+                        );
+                        // ESC-15: the trip's trucker is asked to commit,
+                        // so with several trucks the buyer picks one.
+                        final trips = match.suggestedTrips;
+                        final Trip? trip;
+                        if (trips.length > 1) {
+                          trip = await showChooseTripSheet(context, trips);
+                          if (trip == null) return;
+                        } else {
+                          trip = trips.isNotEmpty ? trips.first : null;
+                        }
+                        if (!context.mounted) return;
+                        final farmerName =
+                            await _lookupFarmerName(match.listing);
+                        if (!context.mounted) return;
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => BlocProvider.value(
+                              value: intentBloc,
+                              child: PlaceOrderScreen(
+                                listing: match.listing,
+                                farmerName: farmerName,
+                                selectedTrip: trip,
+                                intent: intent,
                               ),
                             ),
-                          );
-                        },
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 }
 
+/// No listing matches the request yet: say so and offer the market and
+/// the trips instead.
 class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Icon(
-              Icons.search_off,
-              size: 64,
-              color: AppTheme.textMuted.withAlpha(100),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              l10n.noMatchesYet,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-                color: AppTheme.textMuted,
+            Container(
+              width: 56,
+              height: 56,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppTheme.segmentTrack,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: const Icon(
+                Icons.search_off,
+                size: 28,
+                color: AppTheme.mutedSteel,
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 14),
+            Text(
+              l10n.noMatchesYet,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.soilDark,
+              ),
+            ),
+            const SizedBox(height: 20),
             OutlinedButton(
               onPressed: () {
                 Navigator.push(
@@ -354,6 +384,7 @@ class _EmptyState extends StatelessWidget {
                   ),
                 );
               },
+              style: _secondaryStyle,
               child: Text(l10n.browseAllListings),
             ),
             const SizedBox(height: 8),
@@ -366,6 +397,7 @@ class _EmptyState extends StatelessWidget {
                   ),
                 );
               },
+              style: _secondaryStyle,
               child: Text(l10n.browseAllTrips),
             ),
           ],
@@ -373,4 +405,14 @@ class _EmptyState extends StatelessWidget {
       ),
     );
   }
+
+  static final ButtonStyle _secondaryStyle = OutlinedButton.styleFrom(
+    minimumSize: const Size.fromHeight(52),
+    textStyle: const TextStyle(
+      fontFamily: AppTheme.fontFamily,
+      fontFamilyFallback: AppTheme.ethiopicFontFallback,
+      fontSize: 15,
+      fontWeight: FontWeight.w700,
+    ),
+  );
 }

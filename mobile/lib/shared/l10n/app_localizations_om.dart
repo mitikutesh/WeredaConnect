@@ -566,6 +566,27 @@ class AppLocalizationsOm extends AppLocalizations {
   String get myTrips => 'Imala Koo';
 
   @override
+  String listsTripBooked(String booked, String capacity) {
+    return 'Kuntaala $capacity keessaa $booked qabameera';
+  }
+
+  @override
+  String get listsRouteFrom => 'Irraa';
+
+  @override
+  String get listsRouteTo => 'Gara';
+
+  @override
+  String get listsMyTripsPrivacyNote =>
+      'Imala kee asitti si qofatu arga. Bitattoonni Gabaa keessatti argatu.';
+
+  @override
+  String get listsAllTripsNote => 'Imala banaa konkolaachisaa hunda irraa.';
+
+  @override
+  String get listsKeepTrip => 'Imala tursi';
+
+  @override
   String get tripDetails => 'Bal\'ina Imaltuu';
 
   @override
@@ -687,6 +708,9 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliveryDetails => 'Bal\'insa Geejjibaa';
+
+  @override
+  String get restDeliveryTimeline => 'Sarara Yeroo Geejjibaa';
 
   @override
   String get deliveryScanQrCode => 'Koodii QR Iskaan';
@@ -882,6 +906,9 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliveryAddPhoto => 'Suuraa Ida\'i';
+
+  @override
+  String get restNoPhoto => 'Suuraan hin jiru';
 
   @override
   String get deliveryMarkInTransit => 'Daandii Irra Mallatteessi';
@@ -1227,6 +1254,21 @@ class AppLocalizationsOm extends AppLocalizations {
   String escrowEtbAmount(String amount) {
     return 'Birrii $amount';
   }
+
+  @override
+  String get profileSectionAccount => 'Akkaawuntii';
+
+  @override
+  String get profileSectionMoney => 'Maallaqa';
+
+  @override
+  String get profileSectionApp => 'Appii';
+
+  @override
+  String get profileSettingsLanguageTime => 'Afaan fi yeroo';
+
+  @override
+  String get profileSettingsData => 'Daataa';
 
   @override
   String get profileRestartApp => 'Maaloo app irra deebi\'i bani';
@@ -2034,6 +2076,10 @@ class AppLocalizationsOm extends AppLocalizations {
   String get trackBuyerPayments => 'Kaffaltii fi eesciroo kee hordofi';
 
   @override
+  String get listsPaymentsNote =>
+      'Sararri tokkoon tokkoon eeskiroo tokko. Seenaa isaa ilaaluuf tuqi.';
+
+  @override
   String get noDeliveries => 'Hanga ammaatti geejjibni hin jiru';
 
   @override
@@ -2352,6 +2398,11 @@ class AppLocalizationsOm extends AppLocalizations {
       zero: 'Walsimatu hin argamne',
     );
     return '$_temp0';
+  }
+
+  @override
+  String restMatchesFor(String crop) {
+    return 'Walsimatoota $crop';
   }
 
   @override
@@ -3888,6 +3939,10 @@ class AppLocalizationsOm extends AppLocalizations {
   String get tripModeNotSharing => 'Imalli kun bakka isaa hin qoodu.';
 
   @override
+  String get tripBookingsLoadFailed =>
+      'Qabannaa imala kanaa fe\'uun hin danda\'amne.';
+
+  @override
   String get tripModeLoadFailed =>
       'Dhaabbiiwwan imala kanaa fe\'uun hin danda\'amne.';
 
@@ -4169,6 +4224,26 @@ class AppLocalizationsOm extends AppLocalizations {
   String get liveTripLogLatest => 'isa dhumaa';
 
   @override
+  String get liveTripCheckInsTitle => 'Gabaasota';
+
+  @override
+  String get liveTripAboutEveryHour => 'gara sa\'aatii hundaa';
+
+  @override
+  String get liveTripLogNext => 'itti aanu';
+
+  @override
+  String get liveTripLogThen => 'ergasii';
+
+  @override
+  String liveTripLogSentLateUntil(String time) {
+    return 'Booda ergame, hanga $time neetworkiin hin turre';
+  }
+
+  @override
+  String get liveTripExpectedToday => 'har\'a eegama';
+
+  @override
   String get liveTripLogSentLate => 'Booda ergame, neetworkiin hin turre';
 
   @override
@@ -4329,6 +4404,11 @@ class AppLocalizationsOm extends AppLocalizations {
       'Erga fe\'amee booda konkolaataa kaartaa irratti Geejjibaalee keessatti ni argitu.';
 
   @override
+  String orderTripOn(String day) {
+    return 'Imala $day';
+  }
+
+  @override
   String liveTripFrom(String name) {
     return '$name irraa';
   }
@@ -4386,6 +4466,14 @@ class AppLocalizationsOm extends AppLocalizations {
       'Itti aansuun Fayda\'n mirkaneessitu, achiis odeeffannoo keessan galchitu. Qonnaan bultoonni tarkaanfii odeeffannoo gahee ni darbu.';
 
   @override
+  String get joinFaydaNeedsInternet =>
+      'Tarkaanfii kanaaf interneetiin barbaachisa.';
+
+  @override
+  String get joinWeredaHelper =>
+      'Bakkeewwanii fi magaalota barbaadi, interneetii malee hojjeta';
+
+  @override
   String get fromFayda => 'Fayda irraa';
 
   @override
@@ -4406,7 +4494,70 @@ class AppLocalizationsOm extends AppLocalizations {
       'Maallaqni keessan nageenyaan qabama. Duraan qonnaan bulaan, itti aansee konkolaachisaan ni gaafatama.';
 
   @override
-  String get deliveriesSearchHint => 'Qonnaan bulaa, bitaa ykn konkolaachisaa';
+  String get deliveriesSearchHint =>
+      'Midhaan, qonnaan bulaa ykn konkolaachisaa';
+
+  @override
+  String get delivSegmentActive => 'Ka\'aa Jiru';
+
+  @override
+  String delivPickupOn(String date) {
+    return 'fe\'umsa $date';
+  }
+
+  @override
+  String delivDeliveredOn(String date) {
+    return '$date geejjibame';
+  }
+
+  @override
+  String delivSummaryOnTheRoad(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count karaa irra',
+      one: '1 karaa irra',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String delivSummaryWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count fe\'umsa eeggachaa',
+      one: '1 fe\'umsa eeggachaa',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String delivSummaryCheckWindow(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count yeroo mirkaneessaa keessa',
+      one: '1 yeroo mirkaneessaa keessa',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get delivArrivingCaption => 'ga\'aa jira';
+
+  @override
+  String delivWaitingForPickupOn(String date) {
+    return 'Fe\'umsa eeggachaa $date';
+  }
+
+  @override
+  String get delivMapStartsAtPickup => 'kaartaan fe\'umsa irraa jalqaba';
+
+  @override
+  String delivReportProblemUntil(String time) {
+    return 'hanga $time rakkoo gabaasaa';
+  }
 
   @override
   String get savedOnPhoneFirstNote =>
@@ -4418,6 +4569,86 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get homeToday => 'Har\'a';
+
+  @override
+  String homeDueToday(String time) {
+    return 'Hanga har\'a $time';
+  }
+
+  @override
+  String homeActionMore(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count dabalataa',
+      one: '1 dabalataa',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String homeNextDropoffAbout(String place, String time) {
+    return 'Itti aanee: buusuu $place keessatti, gara $time';
+  }
+
+  @override
+  String homeNextDropoffIn(String place) {
+    return 'Itti aanee: buusuu $place keessatti';
+  }
+
+  @override
+  String homeNextPickupIn(String place) {
+    return 'Itti aanee: fe\'umsa $place keessatti';
+  }
+
+  @override
+  String homeNextPickup(String name) {
+    return 'Itti aanee: fe\'umsa $name biratti';
+  }
+
+  @override
+  String homeNextDropoff(String name) {
+    return 'Itti aanee: buusuu $name biratti';
+  }
+
+  @override
+  String get homeTripNoneHint =>
+      'Imala maxxansaa, bitoonni bakka irratti qabachuu danda\'u.';
+
+  @override
+  String get homeTripMatchedLine =>
+      'Bakka fe\'umsaatti QR qonnaan bulaa hundaa iskaanii godhaa';
+
+  @override
+  String homeTileActiveReserved(int active, int reserved) {
+    return '$active hojiirra, $reserved qabame';
+  }
+
+  @override
+  String get homeTileWaitingForYou => 'isin eegaa jira';
+
+  @override
+  String get homeTileHeldForYou => 'isiniif qabamee jira';
+
+  @override
+  String get homeTileHeldInEscrow => 'eeskiroo keessa qabamee jira';
+
+  @override
+  String get homeTileInTransit => 'geejjibamaa jira';
+
+  @override
+  String get homeTileInProgress => 'adeemsa irra';
+
+  @override
+  String get homeTileAvailableNow => 'amma ni argama';
+
+  @override
+  String get homeTileBrowseAllTrips => 'konkolaattota ka\'an hunda';
+
+  @override
+  String homeRecentLine(String event) {
+    return 'Dhiyoo: $event';
+  }
 
   @override
   String tripPricePerQuintalValue(String price) {
@@ -4502,8 +4733,170 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String get cropsListedToday => 'har\'a galmaa\'e';
+
+  @override
+  String get cropsDrafts => 'Qophiiwwan';
+
+  @override
+  String get detailYourPay => 'kaffaltii keessan';
+
+  @override
+  String get detailBookingWaitingFarmer => 'Qonnaan bulaa eegaa jira';
+
+  @override
+  String get detailBookingAskedNext => 'itti aansee isin gaafatamtu';
+
+  @override
+  String get detailBookingAcceptedContactOpen => 'quunnamtiin banaa dha';
+
+  @override
+  String detailBookedOf(String booked, String capacity) {
+    return 'kuntaala $capacity keessaa $booked';
+  }
+
+  @override
+  String detailLeft(String left) {
+    return '$left hafe';
+  }
+
+  @override
+  String get detailCropHere => 'midhaan asitti';
+
+  @override
+  String detailFarmerAcceptedAnswerBy(String time) {
+    return 'Qonnaan bulaan fudhateera. Maaloo hanga $time deebisaa.';
+  }
+
+  @override
+  String get detailBooked => 'Qabame';
+
+  @override
+  String detailQuintalsLeft(String quintals) {
+    return 'kuntaala $quintals hafe';
+  }
+
+  @override
+  String detailKmToYou(int km) {
+    return 'Gara km $km hanga isinitti';
+  }
+
+  @override
+  String detailForQuantity(String quantity) {
+    return '$quantity tiif';
+  }
+
+  @override
+  String get detailEtbPerQuintalShort => 'ETB/k';
+
+  @override
+  String detailFitsTrip(String quintals) {
+    return 'imala kana keessa gala (kuntaala $quintals hafe)';
+  }
+
+  @override
+  String detailExceedsTrip(String quintals) {
+    return 'iddoo imalli kun qabuu ol ($quintals kuntaala hafe)';
+  }
+
+  @override
+  String get detailChange => 'Jijjiiri';
+
+  @override
+  String get detailLess => 'Hir\'isi';
+
+  @override
+  String get detailMore => 'Dabali';
+
+  @override
+  String get detailGpsPickFromList =>
+      'GPS hin jiru? Bakka isaa aanaa keessan tarree irraa filadhaa.';
+
+  @override
+  String get detailNoPhoneNumbersNote =>
+      'Lakkoofsa bilbilaa hin jiru: kaffaltiin erga qabamee booda quunnamtiin banama.';
+
+  @override
+  String get detailYourFarm => 'Qonna keessan';
+
+  @override
+  String get detailNewOrderTitle => 'Ajaja haaraa';
+
+  @override
+  String detailFromYourListing(String what) {
+    return '$what tarree keessan irraa';
+  }
+
+  @override
+  String get detailPaidIntoEscrow => 'Qabannoo keessatti kaffalame';
+
+  @override
+  String get detailPickupLabel => 'Fe\'umsa';
+
+  @override
+  String detailTruckOf(String name) {
+    return 'konkolaataa $name';
+  }
+
+  @override
+  String get detailBuyerCollects => 'Bitaan ofii fudhata';
+
+  @override
+  String get detailHeldInEscrow => 'Qabannoo keessa jira';
+
+  @override
+  String detailPartyPaid(String party) {
+    return '$party kaffale';
+  }
+
+  @override
+  String detailPartyRole(String name, String role) {
+    return '$name, $role';
+  }
+
+  @override
+  String get detailYou => 'Isin';
+
+  @override
+  String detailTimelineThen(String steps) {
+    return 'Ergasii $steps. Hiika isaa dubbisuuf tarkaanfii tuqi.';
+  }
+
+  @override
+  String get detailTimelineTapStep => 'Hiika isaa dubbisuuf tarkaanfii tuqi.';
+
+  @override
+  String detailListAnd(String head, String last) {
+    return '$head fi $last';
+  }
+
+  @override
+  String get detailContactOpensWhenTruckerAccepts =>
+      'Konkolaachisaan yeroo fudhatu quunnamtiin banama';
+
+  @override
+  String detailMessageParty(String name) {
+    return '${name}f ergaa ergi';
+  }
+
+  @override
+  String detailCallParty(String name) {
+    return '${name}f bilbili';
+  }
+
+  @override
   String liveTripLogStopAhead(int minutes) {
     return 'Gara daqiiqaa $minutes, achiis gara keessanitti';
+  }
+
+  @override
+  String marketQuintalsRoom(String quintals) {
+    return 'bakka kuntaala $quintals';
+  }
+
+  @override
+  String detailQuintalsRoom(String quintals) {
+    return 'bakka kuntaala $quintals';
   }
 
   @override
@@ -4524,6 +4917,23 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get marketNoTripYet => 'Hanga ammaatti imalli hin jiru';
+
+  @override
+  String marketFootnote(String place) {
+    return 'Tarree qonnaan bultoota hundaa, walsimannaa ${place}f hunda caaluun tartiibeffame.';
+  }
+
+  @override
+  String get marketFootnoteNoPlace =>
+      'Tarree qonnaan bultoota hundaa, walsimannaa geejjibaa hunda caaluun tartiibeffame.';
+
+  @override
+  String marketQuintalsLeft(String quantity) {
+    return '$quantity kuntaalli hafe';
+  }
+
+  @override
+  String get marketSearchToggle => 'Barbaacha fi gingilchaa gatii';
 
   @override
   String liveTripEscrowAmount(String amount) {

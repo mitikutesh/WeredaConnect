@@ -1,8 +1,10 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/action_needed_list.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 Order _order(
   String id,
@@ -188,5 +190,35 @@ void main() {
       ).map((i) => i.order.orderId),
       ['sooner', 'later', 'no-stamp-new', 'no-stamp-old'],
     );
+  });
+
+  // Trucker home board: "Wheat · 1,500 kg · Thu 30 Oct trip"; the farmer
+  // and buyer cards name the other party first.
+  group('fact line', () {
+    final en = lookupAppLocalizations(const Locale('en'));
+    final order = _order('o', OrderStatus.funded)
+      ..buyerName = 'Abebe Trading'
+      ..quantity = 1500;
+
+    test('the trucker reads the crop, the weight and the trip day', () {
+      expect(
+        actionNeededFacts(order, UserRole.trucker, en),
+        'Teff · 1,500 kg',
+      );
+      final dated = _order('d', OrderStatus.funded)
+        ..quantity = 1500
+        ..pickupDate = DateTime.utc(2026, 10, 30, 3);
+      expect(
+        actionNeededFacts(dated, UserRole.trucker, en),
+        'Teff · 1,500 kg · ${en.orderTripOn('Fri 30 Oct')}',
+      );
+    });
+
+    test('the farmer reads the buyer first', () {
+      expect(
+        actionNeededFacts(order, UserRole.farmer, en),
+        'Abebe Trading · Teff · 1,500 kg',
+      );
+    });
   });
 }

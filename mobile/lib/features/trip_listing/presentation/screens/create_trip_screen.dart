@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/models/place.dart';
@@ -18,9 +17,12 @@ import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/core/utils/contact_in_text.dart';
 import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
@@ -339,20 +341,28 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: Text(l10n.createTrip),
-          elevation: 0,
-        ),
+        // The board's header: the square Back beside the title, on the page.
         body: SafeArea(
+          bottom: false,
           child: Column(
             children: [
               const OfflineBanner(),
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
-                  child: Form(
-                    key: _formKey,
-                    child: _buildForm(l10n),
+                  child: FwContentWidth(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        FwDetailHeader(title: l10n.createTrip),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                          child: Form(
+                            key: _formKey,
+                            child: _buildForm(l10n),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -361,60 +371,40 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
         ),
         // Pinned action bar: Save is always visible and in the thumb zone,
         // never buried at the end of the scroll.
-        bottomNavigationBar: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: BlocBuilder<TripListingBloc, TripListingState>(
-              builder: (context, state) {
-                final isLoading = state is TripListingLoading;
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(
-                      height: 56,
-                      child: FilledButton(
-                        onPressed: isLoading ? null : _handleSaveTapped,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppTheme.soilDark,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
+        bottomNavigationBar: BlocBuilder<TripListingBloc, TripListingState>(
+          builder: (context, state) {
+            final isLoading = state is TripListingLoading;
+            return FwBottomActions(
+              children: [
+                FilledButton(
+                  onPressed: isLoading ? null : _handleSaveTapped,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.soilDark,
+                    minimumSize: const Size.fromHeight(56),
+                    textStyle: const TextStyle(
+                      fontFamily: AppTheme.fontFamily,
+                      fontFamilyFallback: AppTheme.ethiopicFontFallback,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  child: isLoading
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
                           ),
-                        ),
-                        child: isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.white,
-                                  ),
-                                ),
-                              )
-                            : Text(
-                                l10n.save,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      l10n.savedOnPhoneFirstNote,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppTheme.mutedSteel,
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
+                        )
+                      : Text(l10n.save),
+                ),
+                FwActionNote(l10n.savedOnPhoneFirstNote),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -461,13 +451,18 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               verticalDirection: VerticalDirection.up,
               children: <Widget>[
-                Padding(
-                  // Room for the swap button on the right.
-                  padding: const EdgeInsetsDirectional.only(end: 56),
-                  child: PlaceSelector(
+                LabeledField(
+                  // The suggestions stay their own nodes (see LabeledField).
+                  mergeSemantics: false,
+                  label: l10n.fromWoreda,
+                  // Full width: the swap button sits over the right end of
+                  // both fields, as on the board.
+                  field: PlaceSelector(
+                    key: const Key('create_trip_from'),
                     controller: _fromWoredaController,
-                    labelText: l10n.fromWoreda,
-                    prefixIcon: Icons.trip_origin,
+                    labelAbove: true,
+                    showSearchIcon: false,
+                    prefix: const _RouteEndDot(origin: true),
                     onPlaceSelected: (place) =>
                         setState(() => _fromPlace = place),
                     validator: (value) {
@@ -483,12 +478,16 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Padding(
-                  padding: const EdgeInsetsDirectional.only(end: 56),
-                  child: PlaceSelector(
+                LabeledField(
+                  // The suggestions stay their own nodes (see LabeledField).
+                  mergeSemantics: false,
+                  label: l10n.toWoreda,
+                  field: PlaceSelector(
+                    key: const Key('create_trip_to'),
                     controller: _toWoredaController,
-                    labelText: l10n.toWoreda,
-                    prefixIcon: Icons.place,
+                    labelAbove: true,
+                    showSearchIcon: false,
+                    prefix: const _RouteEndDot(origin: false),
                     onPlaceSelected: (place) =>
                         setState(() => _toPlace = place),
                     validator: (value) {
@@ -509,16 +508,16 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
             ),
             // Centred on the gap between From and To, as on the board.
             PositionedDirectional(
-              end: 0,
-              top: 52,
+              end: 10,
+              top: 62,
               child: Tooltip(
                 message: l10n.createTripSwapRoute,
                 child: OutlinedButton(
                   key: const Key('create_trip_swap'),
                   onPressed: _swapRoute,
                   style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(48, 48),
-                    fixedSize: const Size(48, 48),
+                    minimumSize: const Size(44, 44),
+                    fixedSize: const Size(44, 44),
                     padding: EdgeInsets.zero,
                     backgroundColor: Colors.white,
                     foregroundColor: AppTheme.soilDark,
@@ -527,7 +526,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                       borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  child: const Icon(Icons.swap_vert, size: 22),
+                  child: const Icon(Icons.swap_vert, size: 20),
                 ),
               ),
             ),
@@ -544,30 +543,25 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
           ),
         ],
         const SizedBox(height: 16),
-        InkWell(
-          onTap: _pickDepartureDate,
-          child: InputDecorator(
-            decoration: InputDecoration(
-              labelText: l10n.departureDate,
-              helperText: l10n.createTripBookingCutoffNote,
-              helperMaxLines: 2,
-              prefixIcon: const Icon(Icons.calendar_today),
-              border: const OutlineInputBorder(),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 20,
+        LabeledField(
+          label: l10n.departureDate,
+          field: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              DateFieldButton(
+                key: const Key('create_trip_departure_date'),
+                text: _selectedDepartureDate != null
+                    ? formatBoardDate(_selectedDepartureDate!)
+                    : l10n.selectDepartureDate,
+                placeholder: _selectedDepartureDate == null,
+                onTap: _pickDepartureDate,
               ),
-            ),
-            child: Text(
-              _selectedDepartureDate != null
-                  ? DateFormat.yMMMEd().format(_selectedDepartureDate!)
-                  : l10n.selectDepartureDate,
-              style: TextStyle(
-                color: _selectedDepartureDate != null
-                    ? null
-                    : Theme.of(context).hintColor,
+              const SizedBox(height: 6),
+              Text(
+                l10n.createTripBookingCutoffNote,
+                style: LabeledField.helperStyle,
               ),
-            ),
+            ],
           ),
         ),
         const SizedBox(height: 16),
@@ -656,49 +650,38 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
             style: const TextStyle(fontSize: 13, color: AppTheme.mutedSteel),
           ),
           const SizedBox(height: 12),
-          TextFormField(
-            controller: _truckerNameController,
-            decoration: InputDecoration(
-              labelText: l10n.truckerName,
-              prefixIcon: const Icon(Icons.person),
-              border: const OutlineInputBorder(),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 20,
-              ),
+          LabeledField(
+            label: l10n.truckerName,
+            field: TextFormField(
+              controller: _truckerNameController,
+              decoration: labeledFieldDecoration(),
+              keyboardType: TextInputType.name,
+              textCapitalization: TextCapitalization.words,
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return l10n.truckerNameRequired;
+                }
+                return null;
+              },
             ),
-            keyboardType: TextInputType.name,
-            textCapitalization: TextCapitalization.words,
-            validator: (value) {
-              if (value == null || value.trim().isEmpty) {
-                return l10n.truckerNameRequired;
-              }
-              return null;
-            },
           ),
           const SizedBox(height: 16),
-          TextFormField(
-            controller: _truckerPhoneController,
-            decoration: InputDecoration(
-              labelText: l10n.truckerPhone,
-              prefixIcon: const Icon(Icons.phone),
-              hintText: '09XXXXXXXX',
-              border: const OutlineInputBorder(),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 20,
-              ),
+          LabeledField(
+            label: l10n.truckerPhone,
+            field: TextFormField(
+              controller: _truckerPhoneController,
+              decoration: labeledFieldDecoration(hintText: '09XXXXXXXX'),
+              keyboardType: TextInputType.phone,
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return l10n.invalidPhoneFormat;
+                }
+                if (!isValidEthiopianPhone(value.trim())) {
+                  return l10n.invalidPhoneFormat;
+                }
+                return null;
+              },
             ),
-            keyboardType: TextInputType.phone,
-            validator: (value) {
-              if (value == null || value.trim().isEmpty) {
-                return l10n.invalidPhoneFormat;
-              }
-              if (!isValidEthiopianPhone(value.trim())) {
-                return l10n.invalidPhoneFormat;
-              }
-              return null;
-            },
           ),
         ],
       ].reversed.toList(),
@@ -745,6 +728,37 @@ class _RepeatLastTripButton extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The board's marker inside From and To: a green ring for the origin, a
+/// blue dot for the destination (the colours the route preview uses).
+class _RouteEndDot extends StatelessWidget {
+  const _RouteEndDot({required this.origin});
+
+  final bool origin;
+
+  @override
+  Widget build(BuildContext context) {
+    // A fixed slot: the prefix only gets a minimum width, so an unsized
+    // Center would stretch over the whole field and hide the input.
+    return SizedBox(
+      width: 40,
+      height: 40,
+      child: Center(
+        child: Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: origin ? Colors.white : AppTheme.dropoffBlue,
+            border: origin
+                ? Border.all(color: AppTheme.fieldGreen, width: 3)
+                : null,
           ),
         ),
       ),

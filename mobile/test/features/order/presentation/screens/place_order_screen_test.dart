@@ -110,7 +110,7 @@ void main() {
   testWidgets('a whole 10,000-quintal listing can be ordered', (tester) async {
     await open(tester, quintals: 10000);
 
-    expect(find.text('1000000'), findsOneWidget);
+    expect(find.text('1,000,000'), findsOneWidget);
     expect(find.textContaining('kg available'), findsNothing);
 
     await tester.ensureVisible(find.byType(FilledButton));
@@ -119,6 +119,43 @@ void main() {
 
     expect(created, hasLength(1));
     expect(created.single.quantity, 1000000);
+  });
+
+  // Place order board: "= 15 quintals", no trailing ".0".
+  testWidgets('the quintal line drops a whole number\'s decimal',
+      (tester) async {
+    await open(tester, quintals: 15);
+    expect(find.textContaining('15 quintals'), findsOneWidget);
+    expect(find.textContaining('15.0 quintals'), findsNothing);
+  });
+
+  // Place order board: the typed quantity reads "1,500" kg.
+  testWidgets('the typed quantity is grouped and ordered as a number',
+      (tester) async {
+    await open(tester, quintals: 10000);
+
+    await tester.enterText(find.byType(TextField), '1500');
+    await tester.pump();
+    expect(find.text('1,500'), findsOneWidget);
+
+    await tester.ensureVisible(find.byType(FilledButton));
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    expect(created.single.quantity, 1500);
+  });
+
+  // A listing with fractional stock (2.555 q = 255.5 kg): the field shows
+  // the fraction and the stepper stops at the stock, never above it.
+  testWidgets('fractional stock is never rounded above itself', (tester) async {
+    await open(tester, quintals: 2.555);
+
+    expect(find.text('255.5'), findsOneWidget);
+    await tester.ensureVisible(find.byIcon(Icons.add));
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pump();
+    expect(find.text('255.5'), findsOneWidget);
+    expect(find.textContaining('kg available'), findsNothing);
+    expect(placeOrderButton(tester).onPressed, isNotNull);
   });
 
   testWidgets(
@@ -142,7 +179,7 @@ void main() {
     // 12.34 * 100 is 1233.9999999999998 in floating point.
     await open(tester, quintals: 12.34);
 
-    expect(find.text('1234'), findsOneWidget);
+    expect(find.text('1,234'), findsOneWidget);
     expect(find.textContaining('kg available'), findsNothing);
     expect(placeOrderButton(tester).onPressed, isNotNull);
   });
@@ -160,14 +197,14 @@ void main() {
     );
 
     expect(find.text('500'), findsOneWidget);
-    expect(find.text('17000.00 ETB'), findsOneWidget);
-    expect(find.text('500.00 ETB'), findsOneWidget);
-    expect(find.text('850.00 ETB'), findsOneWidget);
-    expect(find.text('18350.00 ETB'), findsOneWidget);
-    expect(find.text('18375.00 ETB'), findsNothing);
+    expect(find.text('17,000 ETB'), findsOneWidget);
+    expect(find.text('500 ETB'), findsOneWidget);
+    expect(find.text('850 ETB'), findsOneWidget);
+    expect(find.text('18,350 ETB'), findsOneWidget);
+    expect(find.text('18,375 ETB'), findsNothing);
     // ESC-15: the buyer sees which trucker the order will ask, and the room.
-    expect(find.text('Trucker: Abebe'), findsOneWidget);
-    expect(find.textContaining('120 quintals free'), findsOneWidget);
+    expect(find.textContaining('Abebe · '), findsOneWidget);
+    expect(find.textContaining('120 quintals left'), findsOneWidget);
 
     await tester.ensureVisible(find.byType(FilledButton));
     await tester.tap(find.byType(FilledButton));
