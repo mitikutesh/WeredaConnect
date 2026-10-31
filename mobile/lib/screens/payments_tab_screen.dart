@@ -7,7 +7,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
-import 'package:wereda_connect/shared/widgets/notification_bell.dart';
+import 'package:wereda_connect/shared/widgets/account_menu.dart';
 import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 
@@ -43,7 +43,7 @@ class PaymentsTabScreen extends StatelessWidget {
                 isBuyer ? l10n.trackBuyerPayments : l10n.trackPayments,
               ),
               title: l10n.myPayments,
-              trailing: const HeaderBell(),
+              trailing: const HeaderActions(),
             ),
           ),
           const OfflineBanner(),

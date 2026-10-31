@@ -19,7 +19,7 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
-import 'package:wereda_connect/shared/widgets/notification_bell.dart';
+import 'package:wereda_connect/shared/widgets/account_menu.dart';
 import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 
@@ -168,7 +168,7 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
         _isBuyer() ? l10n.trackYourOrders : l10n.manageOrders,
       ),
       title: l10n.orders,
-      trailing: const HeaderBell(),
+      trailing: const HeaderActions(),
     );
     // A tab child draws under the status bar; a pushed screen has SafeArea.
     final top = widget.showBackButton ? 0.0 : MediaQuery.paddingOf(context).top;

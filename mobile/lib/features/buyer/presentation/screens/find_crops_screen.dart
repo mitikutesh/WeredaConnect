@@ -17,7 +17,7 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
-import 'package:wereda_connect/shared/widgets/notification_bell.dart';
+import 'package:wereda_connect/shared/widgets/account_menu.dart';
 
 /// The buyer's Find Crops screen (Fieldway Canvas: Market.dc.html): "Deliver
 /// to" with the place tile, the title, then the Browse / My Requests
@@ -141,7 +141,7 @@ class _FindCropsScreenState extends State<FindCropsScreen> {
                           ),
                           const SizedBox(width: 8),
                         ],
-                        const HeaderBell(),
+                        const HeaderActions(),
                       ],
                     ),
                   ),
