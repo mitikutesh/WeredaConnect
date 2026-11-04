@@ -25,6 +25,7 @@ import 'package:wereda_connect/features/delivery_verification/presentation/scree
 import 'package:wereda_connect/features/order/presentation/screens/place_order_screen.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/route_preview_card.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -77,6 +78,10 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
   Trip? _selectedTrip;
   bool _tripsLoading = false;
 
+  /// B-2: the truck the buyer came from, until its fresh copy is read with
+  /// the suggested trucks ([_confirmPreselectedTrip]).
+  Trip? _pendingTrip;
+
   /// Each suggested trucker's aggregate (`GET /ratings?rateeId=`), fetched
   /// once per screen (3G data); null when it cannot be read.
   final Map<String, Future<RatingSummary?>> _truckerRatings = {};
@@ -108,17 +113,26 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
     }).ignore();
   }
 
-  /// B-2: choose the truck the buyer came from when it can still carry an
-  /// order (open, its day not over, room left); else say why once the
-  /// screen shows, and leave the choice to the suggested trucks.
+  /// B-2: the truck the buyer came from, when it can still carry an order
+  /// (open, its day not over, room left), waits for its fresh copy with the
+  /// suggested trucks; else the buyer is told why once the screen shows and
+  /// chooses from the suggested trucks.
   void _pickPreselectedTrip() {
     final trip = widget.preselectedTrip;
-    if (trip == null || widget.currentUserRole != UserRole.buyer) return;
-    final problem = tripBookingProblem(trip, now: DateTime.now());
-    if (problem == null) {
-      _selectedTrip = trip;
+    if (trip == null ||
+        widget.currentUserRole != UserRole.buyer ||
+        widget.deliveryWoreda == null) {
       return;
     }
+    final problem = tripBookingProblem(trip, now: DateTime.now());
+    if (problem == null) {
+      _pendingTrip = trip;
+    } else {
+      _tellTripProblem(problem);
+    }
+  }
+
+  void _tellTripProblem(TripBookingProblem problem) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -131,14 +145,41 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
     });
   }
 
-  /// The suggested trucks with the chosen one first when matching left it
-  /// out (the buyer came from it), so the choice stays visible.
-  List<Trip> _withSelectedTrip(List<Trip> trips) {
-    final selected = _selectedTrip;
-    if (selected == null || trips.any((t) => t.tripId == selected.tripId)) {
-      return trips;
+  /// B-2: the truck the buyer came from as it is now, never the copy the
+  /// trip detail held: its entry among [suggested], else read again by id
+  /// (the cache the pull just refreshed, the server on web). Its price and
+  /// room drive the transport line and Place Order. When it filled up,
+  /// closed, left or is gone the buyer is told why and none is chosen.
+  Future<Trip?> _confirmPreselectedTrip(List<Trip> suggested) async {
+    final stale = _pendingTrip;
+    if (stale == null) return null;
+    _pendingTrip = null;
+    Trip? fresh;
+    for (final trip in suggested) {
+      if (trip.tripId == stale.tripId) fresh = trip;
     }
-    return [selected, ...trips];
+    fresh ??= await _readTrip(stale.tripId);
+    final problem = fresh == null
+        ? TripBookingProblem.closed
+        : tripBookingProblem(fresh, now: DateTime.now());
+    if (problem != null) {
+      _tellTripProblem(problem);
+      return null;
+    }
+    return fresh;
+  }
+
+  Future<Trip?> _readTrip(String tripId) async {
+    if (!mounted) return null;
+    try {
+      return await context
+          .read<TripListingBloc>()
+          .repository
+          .getTripById(tripId);
+    } on Object catch (e) {
+      debugPrint('[CropListingDetail] trip re-read failed: $e');
+      return null;
+    }
   }
 
   Future<void> _loadSuggestedTrips() async {
@@ -158,33 +199,35 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
       }
     }
 
+    List<Trip> trips;
     try {
       // On web, MatchingService is the web stub (accepts dynamic isar).
       // On mobile, IsarService.instance.db returns the real Isar instance.
       final matchingService = MatchingService(isar: IsarService.instance.db);
-      final trips = await matchingService.findTripsForListing(
+      trips = await matchingService.findTripsForListing(
         widget.listing,
         widget.deliveryWoreda!,
         widget.quantityNeeded ?? widget.listing.quantity,
       );
-      if (mounted) {
-        setState(() {
-          _suggestedTrips = _withSelectedTrip(trips);
-          _tripsLoading = false;
-        });
-      }
     } on Object catch (e) {
       // Suggested trips are secondary info, so degrade to an empty list rather
       // than failing the whole screen — but log it instead of swallowing
       // silently, so a real matching bug is not mistaken for "no trips".
       debugPrint('[CropListingDetail] suggested-trips matching failed: $e');
-      if (mounted) {
-        setState(() {
-          _suggestedTrips = _withSelectedTrip(const []);
-          _tripsLoading = false;
-        });
-      }
+      trips = const [];
     }
+    // B-2: the truck the buyer came from, fresh, first when matching left
+    // it out (another spelling of the place), so the choice stays visible.
+    final chosen = await _confirmPreselectedTrip(trips);
+    if (!mounted) return;
+    setState(() {
+      _suggestedTrips =
+          chosen == null || trips.any((t) => t.tripId == chosen.tripId)
+              ? trips
+              : [chosen, ...trips];
+      if (chosen != null) _selectedTrip = chosen;
+      _tripsLoading = false;
+    });
   }
 
   /// Reads the (mobile-only) marketplace sync if it is provided. Returns null

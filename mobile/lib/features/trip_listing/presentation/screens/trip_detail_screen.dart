@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/models/trip_departure.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -383,6 +384,10 @@ class _RouteHeader extends StatelessWidget {
       trip.pricePerQuintal.toStringAsFixed(0),
     );
     final topInset = MediaQuery.paddingOf(context).top;
+    // L-7: as the My Trips card, an open or matched trip whose day is over.
+    final datePassed =
+        (trip.status == TripStatus.open || trip.status == TripStatus.matched) &&
+            tripHasLeft(trip, DateTime.now());
     return Container(
       width: double.infinity,
       padding: EdgeInsets.fromLTRB(20, topInset + 12, 20, 22),
@@ -422,11 +427,15 @@ class _RouteHeader extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (trip.status != TripStatus.open) ...[
+                if (trip.status != TripStatus.open || datePassed) ...[
                   const SizedBox(width: 12),
                   StatusChip(
-                    label: tripStatusLabel(trip.status, l10n),
-                    kind: tripStatusKind(trip.status),
+                    label: datePassed
+                        ? l10n.tripStatusDatePassed
+                        : tripStatusLabel(trip.status, l10n),
+                    kind: datePassed
+                        ? StatusKind.warning
+                        : tripStatusKind(trip.status),
                   ),
                 ],
               ],

@@ -18,6 +18,9 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart
 import 'package:wereda_connect/features/order/presentation/screens/place_order_screen.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 class _MockAuthBloc extends Mock implements AuthBloc {}
@@ -25,6 +28,10 @@ class _MockAuthBloc extends Mock implements AuthBloc {}
 class _MockOrderBloc extends Mock implements OrderBloc {}
 
 class _MockRatingRepository extends Mock implements BaseRatingRepository {}
+
+class _MockTripListingBloc extends Mock implements TripListingBloc {}
+
+class _MockTripRepository extends Mock implements BaseTripListingRepository {}
 
 class _FakeOrderEvent extends Fake implements OrderEvent {}
 
@@ -36,10 +43,13 @@ const _tokens = AuthTokens(
 
 /// B-2: a listing opened from a buyer's Find crops on this route has that
 /// truck chosen for transport when it can still take the order, and falls
-/// back to choosing a truck, saying why, when it cannot.
+/// back to choosing a truck, saying why, when it cannot. The truck is read
+/// again by id first: the copy the trip detail held may be out of date.
 void main() {
   late _MockAuthBloc authBloc;
   late _MockOrderBloc orderBloc;
+  late _MockTripListingBloc tripBloc;
+  late _MockTripRepository tripRepo;
   late List<CreateOrder> created;
 
   final today = startOfDayInEthiopia(DateTime.now().toUtc());
@@ -49,6 +59,11 @@ void main() {
   setUp(() {
     authBloc = _MockAuthBloc();
     orderBloc = _MockOrderBloc();
+    tripBloc = _MockTripListingBloc();
+    tripRepo = _MockTripRepository();
+    when(() => tripBloc.repository).thenReturn(tripRepo);
+    when(() => tripBloc.state).thenReturn(const TripListingInitial());
+    when(() => tripBloc.stream).thenAnswer((_) => const Stream.empty());
     created = [];
     when(() => authBloc.state).thenReturn(
       const AuthAuthenticated(
@@ -67,22 +82,27 @@ void main() {
     });
   });
 
-  Trip truck({DateTime? departure}) => Trip()
-    ..tripId = 'trip-001'
-    ..truckerId = 'trucker-001'
-    ..truckerName = 'Trucker Tesfaye'
-    ..truckerPhone = ''
-    ..fromWoreda = 'Adama'
-    ..toWoreda = 'Addis Ababa'
-    ..departureDate = departure ?? today.add(const Duration(days: 2))
-    ..capacity = 50
-    ..remainingQuintals = 40
-    ..pricePerQuintal = 100
-    ..status = TripStatus.open
-    ..matchedListings = <String>[]
-    ..createdAt = DateTime.utc(2026, 10, 20)
-    ..updatedAt = DateTime.utc(2026, 10, 20)
-    ..version = 1;
+  Trip truck({
+    DateTime? departure,
+    double remaining = 40,
+    double pricePerQuintal = 100,
+  }) =>
+      Trip()
+        ..tripId = 'trip-001'
+        ..truckerId = 'trucker-001'
+        ..truckerName = 'Trucker Tesfaye'
+        ..truckerPhone = ''
+        ..fromWoreda = 'Adama'
+        ..toWoreda = 'Addis Ababa'
+        ..departureDate = departure ?? today.add(const Duration(days: 2))
+        ..capacity = 50
+        ..remainingQuintals = remaining
+        ..pricePerQuintal = pricePerQuintal
+        ..status = TripStatus.open
+        ..matchedListings = <String>[]
+        ..createdAt = DateTime.utc(2026, 10, 20)
+        ..updatedAt = DateTime.utc(2026, 10, 20)
+        ..version = 1;
 
   final listing = CropListing()
     ..listingId = 'listing-1'
@@ -101,7 +121,16 @@ void main() {
     ..updatedAt = DateTime.utc(2026, 11)
     ..version = 1;
 
-  Widget screen(Trip trip, {UserRole role = UserRole.buyer}) {
+  /// The trip detail's copy is [trip]; a read by id answers [now] (the same
+  /// object unless the test says otherwise), or nothing when [gone].
+  Widget screen(
+    Trip trip, {
+    UserRole role = UserRole.buyer,
+    Trip? now,
+    bool gone = false,
+  }) {
+    when(() => tripRepo.getTripById('trip-001'))
+        .thenAnswer((_) async => gone ? null : now ?? trip);
     final ratings = _MockRatingRepository();
     when(() => ratings.getRatingSummary(any()))
         .thenAnswer((_) async => RatingSummary.empty);
@@ -109,6 +138,7 @@ void main() {
       providers: [
         BlocProvider<AuthBloc>.value(value: authBloc),
         BlocProvider<OrderBloc>.value(value: orderBloc),
+        BlocProvider<TripListingBloc>.value(value: tripBloc),
         BlocProvider<RatingBloc>(
           create: (_) => RatingBloc(repository: ratings),
         ),
@@ -147,6 +177,65 @@ void main() {
     expect(find.text('Place Order + Transport'), findsOneWidget);
     // 20 quintals x 100 ETB.
     expect(find.text('2,000 ETB'), findsOneWidget);
+  });
+
+  testWidgets('the fresh copy is chosen: a new price is what the order pays',
+      (tester) async {
+    tallView(tester);
+    final fresh = truck(pricePerQuintal: 150);
+    await tester.pumpWidget(screen(truck(), now: fresh));
+    await tester.pumpAndSettle();
+
+    expect(card(tester).trip, same(fresh));
+    expect(card(tester).isSelected, isTrue);
+    // 20 quintals x 150 ETB, not the 100 the trip detail showed.
+    expect(find.text('3,000 ETB'), findsOneWidget);
+    expect(find.text('2,000 ETB'), findsNothing);
+
+    await tester.tap(find.text('Place Order + Transport'));
+    await tester.pumpAndSettle();
+    final placeOrder =
+        tester.widget<PlaceOrderScreen>(find.byType(PlaceOrderScreen));
+    expect(placeOrder.selectedTrip, same(fresh));
+  });
+
+  for (final (label, now, message) in [
+    (
+      'filled up',
+      () => truck(remaining: 0),
+      'This truck has no room left for this order. Choose another truck.',
+    ),
+    (
+      'closed',
+      () => truck()..status = TripStatus.cancelled,
+      'That truck is no longer available. Choose again.',
+    ),
+  ]) {
+    testWidgets('a truck that has $label since is dropped, saying why',
+        (tester) async {
+      tallView(tester);
+      await tester.pumpWidget(screen(truck(), now: now()));
+      await tester.pumpAndSettle();
+
+      expect(find.text(message), findsOneWidget);
+      expect(find.byType(SuggestedTripCard), findsNothing);
+      expect(find.text('Place Order + Transport'), findsNothing);
+      expect(find.text('Place Order'), findsOneWidget);
+    });
+  }
+
+  testWidgets('a truck no longer there (cancelled, left the cache) is dropped',
+      (tester) async {
+    tallView(tester);
+    await tester.pumpWidget(screen(truck(), gone: true));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('That truck is no longer available. Choose again.'),
+      findsOneWidget,
+    );
+    expect(find.byType(SuggestedTripCard), findsNothing);
+    expect(find.text('Place Order + Transport'), findsNothing);
   });
 
   testWidgets('a truck whose day is over is not: the buyer is told why',

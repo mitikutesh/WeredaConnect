@@ -17,23 +17,15 @@ import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 /// tapping Place Order + Transport books it. Only for a buyer (the trip
 /// detail decides); a farmer or another trucker gets no action.
 ///
-/// A truck that cannot take an order (no longer open, its day over, full)
-/// says why instead of opening the market. Works offline on the cached
-/// listings.
+/// For a truck that cannot take an order (no longer open, its day over,
+/// full) the button is off and the line under it says why. Works offline on
+/// the cached listings.
 class TripBuyerActions extends StatelessWidget {
   final Trip trip;
 
   const TripBuyerActions({required this.trip, super.key});
 
   void _findCrops(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final problem = tripBookingProblem(trip, now: DateTime.now());
-    if (problem != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tripBookingProblemMessage(problem, l10n))),
-      );
-      return;
-    }
     // A bloc for this page only: its crop chips and searches must not change
     // the Market tab's list behind it.
     final repository = context.read<CropListingBloc>().repository;
@@ -57,11 +49,12 @@ class TripBuyerActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final problem = tripBookingProblem(trip, now: DateTime.now());
     return FwBottomActions(
       children: [
         FilledButton.icon(
           key: const Key('trip_detail_find_crops'),
-          onPressed: () => _findCrops(context),
+          onPressed: problem == null ? () => _findCrops(context) : null,
           icon: const Icon(Icons.eco_outlined),
           label: Text(l10n.tripFindCrops),
           style: FilledButton.styleFrom(
@@ -74,7 +67,11 @@ class TripBuyerActions extends StatelessWidget {
             ),
           ),
         ),
-        FwActionNote(l10n.tripFindCropsNote(trip.fromWoreda)),
+        FwActionNote(
+          problem == null
+              ? l10n.tripFindCropsNote(trip.fromWoreda)
+              : tripBookingProblemMessage(problem, l10n),
+        ),
       ],
     );
   }

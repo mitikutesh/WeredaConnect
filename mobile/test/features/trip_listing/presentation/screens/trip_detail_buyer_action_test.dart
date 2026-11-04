@@ -56,8 +56,9 @@ void main() {
 
   // Today in Ethiopia, the day after and the day before.
   final today = startOfDayInEthiopia(DateTime.now().toUtc());
+  Trip? lastTrip;
 
-  Trip trip({DateTime? departure, double? remaining}) => Trip()
+  Trip trip({DateTime? departure, double? remaining}) => lastTrip = Trip()
     ..tripId = 'trip-001'
     ..truckerId = 'trucker-001'
     ..truckerName = 'Trucker Tesfaye'
@@ -104,6 +105,8 @@ void main() {
     when(() => tripBloc.stream).thenAnswer((_) => const Stream.empty());
     when(() => tripBloc.repository).thenReturn(tripRepo);
     when(() => tripRepo.getOpenTrips()).thenAnswer((_) async => const []);
+    // The listing reads the truck again by id; here it has not changed.
+    when(() => tripRepo.getTripById(any())).thenAnswer((_) async => lastTrip);
     when(() => cropBloc.repository).thenReturn(cropRepo);
     when(() => cropBloc.state).thenReturn(const CropListingInitial());
     when(() => cropBloc.stream).thenAnswer((_) => const Stream.empty());
@@ -207,7 +210,7 @@ void main() {
     });
   });
 
-  group('a truck that cannot take an order says why', () {
+  group('a truck that cannot take an order: the button is off, saying why', () {
     for (final (label, build, message) in [
       (
         'its day is over',
@@ -231,13 +234,67 @@ void main() {
 
         await tester.pumpWidget(screen(build()));
         await tester.pumpAndSettle();
+
+        final button = tester.widget<FilledButton>(
+          find.byKey(const Key('trip_detail_find_crops')),
+        );
+        expect(button.onPressed, isNull);
+        expect(find.text(message), findsOneWidget);
+        expect(
+          find.text('Crops listed in Adama. Order one with this truck.'),
+          findsNothing,
+        );
+
         await tester.tap(find.text(findCrops));
         await tester.pumpAndSettle();
-
-        expect(find.text(message), findsOneWidget);
         expect(find.byType(BrowseListingsScreen), findsNothing);
+        expect(find.byType(SnackBar), findsNothing);
       });
     }
+  });
+
+  // L-7: the header pill reads as the My Trips card for a trip whose day
+  // passed.
+  group('header pill', () {
+    testWidgets("the trucker's own trip whose day passed reads Date passed",
+        (tester) async {
+      tallView(tester);
+      signIn('trucker-001', UserRole.trucker);
+
+      await tester.pumpWidget(
+        screen(trip(departure: today.subtract(const Duration(days: 3)))),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Date passed'), findsOneWidget);
+    });
+
+    testWidgets('a trip still ahead shows no pill while open', (tester) async {
+      tallView(tester);
+      signIn('trucker-001', UserRole.trucker);
+
+      await tester.pumpWidget(screen(trip()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Date passed'), findsNothing);
+      expect(find.text('Open'), findsNothing);
+    });
+
+    testWidgets('a delivered trip keeps its status', (tester) async {
+      tallView(tester);
+      signIn('trucker-001', UserRole.trucker);
+
+      await tester.pumpWidget(
+        screen(
+          trip(departure: today.subtract(const Duration(days: 3)))
+            ..status = TripStatus.delivered,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Date passed'), findsNothing);
+      expect(find.text('Delivered'), findsOneWidget);
+    });
   });
 
   testWidgets(
