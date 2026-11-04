@@ -60,13 +60,6 @@ class FakeInboxEvent extends Fake implements InboxEvent {}
 
 class FakeOrderEvent extends Fake implements OrderEvent {}
 
-/// The Home sync chip (`_SyncChip` in home_screen.dart) is a 28 px tall
-/// tappable pill, below the 48 px minimum; its fix lands with the sync chip
-/// rework. Until then the Home cases check labels and overflow, and the
-/// bar and create button get their own tap target cases. Flip this once
-/// the chip has a 48 dp hit area (FwTapTarget).
-const bool _homeSyncChipHasTapTarget = false;
-
 const _tokens = AuthTokens(
   accessToken: 'a',
   refreshToken: 'r',
@@ -189,9 +182,8 @@ void main() {
     WidgetTester tester,
     Widget home,
     Locale locale,
-    double textScale, {
-    bool tapTargets = true,
-  }) async {
+    double textScale,
+  ) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1.0;
     tester.platformDispatcher.textScaleFactorTestValue = textScale;
@@ -202,9 +194,7 @@ void main() {
     await tester.pumpWidget(app(home, locale));
     await tester.pumpAndSettle();
 
-    if (tapTargets) {
-      await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
-    }
+    await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
     await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
     semantics.dispose();
   }
@@ -219,13 +209,7 @@ void main() {
       for (final role in UserRole.values) {
         testWidgets('${role.name} Home, $variant', (tester) async {
           signIn(role);
-          await check(
-            tester,
-            roleHome(role),
-            locale,
-            scale,
-            tapTargets: _homeSyncChipHasTapTarget,
-          );
+          await check(tester, roleHome(role), locale, scale);
         });
 
         testWidgets('${role.name} bar and create button, $variant',

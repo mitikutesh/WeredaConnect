@@ -538,7 +538,7 @@ class _SyncChip extends StatelessWidget {
             : (AppTheme.segmentTrack, AppTheme.mutedSteel);
 
     final chip = Container(
-      height: 28,
+      constraints: const BoxConstraints(minHeight: 28),
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
         color: background,
@@ -565,13 +565,17 @@ class _SyncChip extends StatelessWidget {
       ),
     );
     if (kIsWeb) return chip;
+    // The 28 tall pill in a 48 dp hit area.
     return Semantics(
       button: true,
-      child: InkWell(
-        key: const Key('home_sync_chip'),
-        borderRadius: BorderRadius.circular(999),
+      child: FwTapTarget(
         onTap: () => _showSyncStatus(context),
-        child: chip,
+        child: InkWell(
+          key: const Key('home_sync_chip'),
+          borderRadius: BorderRadius.circular(999),
+          onTap: () => _showSyncStatus(context),
+          child: chip,
+        ),
       ),
     );
   }
