@@ -190,7 +190,7 @@ void main() {
     final store = SecureDropoffHandoffStore(storage: storage);
 
     await store.keep('t', 'd-1', const KeptHandoff(code: '1'));
-    await store.forgetAll();
+    await store.forgetUser('t');
 
     // The new entry is written; nothing is deleted on a failed listing.
     verify(
@@ -234,22 +234,62 @@ void main() {
     expect(await store.read('t', 'd-3'), isNull);
   });
 
-  test('forgetAll drops every kept handoff and nothing else', () async {
+  test('forgetUser drops that trucker\'s handoffs and nothing else', () async {
     FlutterSecureStorage.setMockInitialValues({
       'device_qr_signing_key': 'key',
     });
     final store = SecureDropoffHandoffStore();
     await store.keep('t-1', 'd-1', const KeptHandoff(code: '1'));
+    await store.keep('t-1', 'd-3', const KeptHandoff(code: '3'));
     await store.keep('t-2', 'd-2', const KeptHandoff(code: '2'));
 
-    await store.forgetAll();
+    await store.forgetUser('t-1');
 
     expect(await store.read('t-1', 'd-1'), isNull);
-    expect(await store.read('t-2', 'd-2'), isNull);
+    expect(await store.read('t-1', 'd-3'), isNull);
+    // Another trucker on the same phone keeps theirs.
+    expect((await store.read('t-2', 'd-2'))?.code, '2');
     expect(
       await const FlutterSecureStorage().read(key: 'device_qr_signing_key'),
       'key',
     );
+  });
+
+  test('entries older than 14 days are dropped when another is kept', () async {
+    // Their nonce has expired on the server: they cannot confirm anything.
+    var now = DateTime.utc(2026, 11, 4, 6);
+    final store = SecureDropoffHandoffStore(now: () => now);
+    await store.keep('t', 'd-old', const KeptHandoff(code: 'old'));
+    now = now.add(const Duration(days: 2));
+    await store.keep('t', 'd-recent', const KeptHandoff(code: 'recent'));
+    await store.keep('u', 'd-other', const KeptHandoff(code: 'other'));
+
+    now = DateTime.utc(2026, 11, 4, 6)
+        .add(SecureDropoffHandoffStore.maxAge)
+        .add(const Duration(minutes: 1));
+    await store.keep('t', 'd-new', const KeptHandoff(code: 'new'));
+
+    expect(await store.read('t', 'd-old'), isNull);
+    expect((await store.read('t', 'd-recent'))?.code, 'recent');
+    expect((await store.read('t', 'd-new'))?.code, 'new');
+    // Only the keeping trucker's entries are trimmed.
+    expect((await store.read('u', 'd-other'))?.code, 'other');
+  });
+
+  test('a "|" in an id never mixes two users\' entries', () async {
+    // Unencoded, user "a" with delivery "b|x" and user "a|b" with delivery
+    // "x" would share one key, and "a"'s prefix would match "a|b"'s keys.
+    final store = SecureDropoffHandoffStore();
+    await store.keep('a', 'b|x', const KeptHandoff(code: 'a'));
+    await store.keep('a|b', 'x', const KeptHandoff(code: 'ab'));
+
+    expect((await store.read('a', 'b|x'))?.code, 'a');
+    expect((await store.read('a|b', 'x'))?.code, 'ab');
+
+    await store.forgetUser('a');
+
+    expect(await store.read('a', 'b|x'), isNull);
+    expect((await store.read('a|b', 'x'))?.code, 'ab');
   });
 
   test('handoffs are needed until the delivery leaves the road for good', () {

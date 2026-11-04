@@ -140,6 +140,22 @@ void main() {
     expect(tracksForgotten, [_trucker]);
   });
 
+  test('a logout keeps another trucker\'s handoffs on the same phone',
+      () async {
+    await handoffs.keep(
+      'trucker-2',
+      'd-2',
+      const KeptHandoff(code: '340404994'),
+    );
+    final bloc = await signedIn();
+
+    bloc.add(const AuthLogoutRequested());
+    await waitFor(bloc, (s) => s is AuthUnauthenticated);
+
+    expect(await handoffs.read(_trucker, 'd-1'), isNull);
+    expect((await handoffs.read('trucker-2', 'd-2'))?.code, '340404994');
+  });
+
   test('a refresh token the server refused keeps them', () async {
     final bloc = await signedIn();
 

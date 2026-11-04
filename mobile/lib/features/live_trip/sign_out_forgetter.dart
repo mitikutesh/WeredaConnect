@@ -2,9 +2,9 @@ import 'package:wereda_connect/features/delivery_verification/data/services/drop
 import 'package:wereda_connect/features/live_trip/data/track_snapshot_store.dart';
 
 /// What the live trip layer drops when a user signs out on purpose or the
-/// account is deleted: the stored live trip snapshots (LT-10) and the
-/// trucker's kept drop-off handoffs (T-3, on web that storage is the
-/// browser's). Passed to the AuthBloc as its `forgetTrackSnapshots`, which it
+/// account is deleted: that user's stored live trip snapshots (LT-10) and
+/// their kept drop-off handoffs (T-3, on web that storage is the browser's).
+/// Another trucker who uses the same phone keeps theirs. Passed to the AuthBloc as its `forgetTrackSnapshots`, which it
 /// calls on an explicit logout and on account deletion only.
 ///
 /// Never on a session that lapsed (the 48 h offline window at start, a
@@ -21,7 +21,7 @@ Future<void> Function(String userId) signOutForgetter(
     try {
       await forgetTracks(userId);
     } finally {
-      await handoffs.forgetAll();
+      await handoffs.forgetUser(userId);
     }
   };
 }

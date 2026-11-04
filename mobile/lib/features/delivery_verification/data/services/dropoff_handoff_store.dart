@@ -46,7 +46,7 @@ class KeptHandoff {
 
 /// Keeps a trucker's [KeptHandoff]s across restarts, per account and
 /// delivery, and drops them once they cannot be needed: the delivery is
-/// done ([forget]) or the user signed out on purpose ([forgetAll]).
+/// done ([forget]) or the user signed out on purpose ([forgetUser]).
 abstract interface class DropoffHandoffStore {
   Future<KeptHandoff?> read(String userId, String deliveryId);
 
@@ -56,9 +56,10 @@ abstract interface class DropoffHandoffStore {
   /// disputed: no buyer scans them any more).
   Future<void> forget(String userId, Iterable<String> deliveryIds);
 
-  /// Drop every kept handoff on this device (an explicit sign out or a
+  /// Drop [userId]'s kept handoffs, and only theirs: another trucker on a
+  /// shared phone keeps their drop-off codes (an explicit sign out or a
   /// deleted account, never a lapsed session: `signOutForgetter`).
-  Future<void> forgetAll();
+  Future<void> forgetUser(String userId);
 }
 
 /// Whether a delivery's handoff can be dropped: it left the road for good.
@@ -75,8 +76,9 @@ bool handoffNoLongerNeeded(DeliveryStatus status) =>
 /// One key per delivery, so keeping one handoff and dropping another never
 /// read and rewrite a shared value: the scan screen, trip mode and the
 /// check-in engine each use their own store, at the same time. Each trucker
-/// keeps the newest [maxDeliveries]. It never logs what it holds: a failure
-/// logs the error's type only.
+/// keeps entries younger than [maxAge] (an older one's nonce has expired on
+/// the server), the newest [maxDeliveries] at most. It never logs what it
+/// holds: a failure logs the error's type only.
 class SecureDropoffHandoffStore implements DropoffHandoffStore {
   SecureDropoffHandoffStore({
     FlutterSecureStorage? storage,
@@ -93,12 +95,20 @@ class SecureDropoffHandoffStore implements DropoffHandoffStore {
   /// A truck carries a handful of orders; older ones are long delivered.
   static const maxDeliveries = 20;
 
+  /// The server takes a QR nonce for 14 days from the farmer's first QR
+  /// (`delivery-verification-api.md`, QR Secret Storage): a handoff kept
+  /// longer can no longer confirm anything.
+  static const maxAge = Duration(days: 14);
+
   static const _keyPrefix = 'dropoff_handoff|';
 
-  static String _userPrefix(String userId) => '$_keyPrefix$userId|';
+  /// The ids are percent-encoded, so neither can hold the `|` separator and
+  /// one user's prefix never matches another user's keys.
+  static String _userPrefix(String userId) =>
+      '$_keyPrefix${Uri.encodeComponent(userId)}|';
 
   static String _key(String userId, String deliveryId) =>
-      '${_userPrefix(userId)}$deliveryId';
+      '${_userPrefix(userId)}${Uri.encodeComponent(deliveryId)}';
 
   @override
   Future<KeptHandoff?> read(String userId, String deliveryId) async {
@@ -130,12 +140,13 @@ class SecureDropoffHandoffStore implements DropoffHandoffStore {
       debugPrint('[Delivery] handoff not kept: ${e.runtimeType}');
       return;
     }
-    await _keepNewest(userId);
+    await _trim(userId);
   }
 
-  /// Drop the trucker's oldest entries past [maxDeliveries]. Only entries it
-  /// read are dropped, so a storage it cannot read loses nothing.
-  Future<void> _keepNewest(String userId) async {
+  /// Drop the trucker's entries older than [maxAge], then the oldest past
+  /// [maxDeliveries]. Only entries it read are dropped, so a storage it
+  /// cannot read loses nothing.
+  Future<void> _trim(String userId) async {
     final Map<String, String> all;
     try {
       all = await _storage.readAll();
@@ -144,18 +155,28 @@ class SecureDropoffHandoffStore implements DropoffHandoffStore {
       return;
     }
     final prefix = _userPrefix(userId);
+    final oldest = _now().subtract(maxAge).millisecondsSinceEpoch;
     final mine = [
       for (final e in all.entries)
         if (e.key.startsWith(prefix)) (key: e.key, at: _keptAt(e.value)),
     ];
-    if (mine.length <= maxDeliveries) return;
-    mine.sort((a, b) => a.at.compareTo(b.at));
-    for (final old in mine.take(mine.length - maxDeliveries)) {
+    final live = <({String key, int at})>[];
+    for (final entry in mine) {
+      if (entry.at < oldest) {
+        await _delete(entry.key);
+      } else {
+        live.add(entry);
+      }
+    }
+    if (live.length <= maxDeliveries) return;
+    live.sort((a, b) => a.at.compareTo(b.at));
+    for (final old in live.take(live.length - maxDeliveries)) {
       await _delete(old.key);
     }
   }
 
-  /// When an entry was kept; an unreadable entry counts as the oldest.
+  /// When an entry was kept; an unreadable entry counts as the oldest (and
+  /// past [maxAge]).
   static int _keptAt(String raw) {
     try {
       final at = (jsonDecode(raw) as Map)['at'];
@@ -173,7 +194,7 @@ class SecureDropoffHandoffStore implements DropoffHandoffStore {
   }
 
   @override
-  Future<void> forgetAll() async {
+  Future<void> forgetUser(String userId) async {
     final Map<String, String> all;
     try {
       all = await _storage.readAll();
@@ -182,7 +203,8 @@ class SecureDropoffHandoffStore implements DropoffHandoffStore {
       return;
     }
     // A copy of the keys: a storage may hand back its own live map.
-    final keys = all.keys.where((k) => k.startsWith(_keyPrefix)).toList();
+    final prefix = _userPrefix(userId);
+    final keys = all.keys.where((k) => k.startsWith(prefix)).toList();
     for (final key in keys) {
       await _delete(key);
     }
@@ -222,5 +244,6 @@ class MemoryDropoffHandoffStore implements DropoffHandoffStore {
   }
 
   @override
-  Future<void> forgetAll() async => _kept.clear();
+  Future<void> forgetUser(String userId) async =>
+      _kept.removeWhere((key, _) => key.startsWith('$userId/'));
 }
