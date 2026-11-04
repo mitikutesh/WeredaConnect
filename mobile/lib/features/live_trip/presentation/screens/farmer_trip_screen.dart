@@ -476,7 +476,11 @@ class _PaymentSteps extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final clock = clockFormatOf(context);
     final o = order;
-    final payout = o == null ? null : (o.cropCost ?? o.totalPrice);
+    // The farmer's own share: the crop cost, else quantity x unit price;
+    // never the order's total, which also holds transport and commission.
+    final share =
+        o == null ? null : (o.cropCost ?? o.quantity * o.pricePerUnit);
+    final payout = share != null && share > 0 ? share : null;
     final pickedUpAt = delivery.pickedUpAt;
     final confirmedAt = delivery.confirmedAt;
     final delivered = delivery.status == DeliveryStatus.delivered ||
