@@ -4648,6 +4648,40 @@ class AppLocalizationsEn extends AppLocalizations {
       'Cancelling hands booked orders back to their buyers, who can cancel for a full refund.';
 
   @override
+  String get tripFindCrops => 'Find crops on this route';
+
+  @override
+  String tripFindCropsNote(String from) {
+    return 'Crops listed in $from. Order one with this truck.';
+  }
+
+  @override
+  String tripCropsTitle(String from) {
+    return 'Crops in $from';
+  }
+
+  @override
+  String tripCropsEmpty(String from) {
+    return 'No crops listed in $from right now';
+  }
+
+  @override
+  String get tripCropsEmptyHint =>
+      'New listings show here as farmers add them.';
+
+  @override
+  String tripCropsFootnote(String from) {
+    return 'Crops listed in $from, where this truck starts. Order one with transport to book this truck.';
+  }
+
+  @override
+  String get tripLeftChooseAnother =>
+      'This truck already left. Choose another truck.';
+
+  @override
+  String get tripStatusDatePassed => 'Date passed';
+
+  @override
   String get orderYouReceive => 'You receive';
 
   @override

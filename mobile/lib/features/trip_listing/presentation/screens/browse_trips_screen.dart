@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_departure.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -269,9 +270,13 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
     );
   }
 
-  Widget _buildList(AppLocalizations l10n, List<Trip> trips) {
-    if (trips.isEmpty) return _buildEmpty(l10n);
+  Widget _buildList(AppLocalizations l10n, List<Trip> loaded) {
+    if (loaded.isEmpty) return _buildEmpty(l10n);
     final isOwner = _isOwnerMode;
+    // L-7: My Trips keeps the trips whose day passed, after the ones still
+    // ahead and marked "Date passed"; buyers are never sent them.
+    final now = DateTime.now();
+    final trips = isOwner ? upcomingTripsFirst(loaded, now) : loaded;
     // The last row is the note the boards end their lists with: who else
     // sees these trips.
     final note = Padding(
@@ -310,6 +315,7 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
               );
             },
             onCancel: isOwner ? () => _confirmCancel(trip) : null,
+            departureDayPassed: isOwner && tripHasLeft(trip, now),
           );
         },
       ),

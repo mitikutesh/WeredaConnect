@@ -4521,6 +4521,39 @@ class AppLocalizationsAm extends AppLocalizations {
       'መሰረዝ የተያዙ ትዕዛዞችን ለገዢዎቻቸው ይመልሳል፤ እነሱም ሙሉ ገንዘባቸው ተመላሽ እንዲሆን መሰረዝ ይችላሉ።';
 
   @override
+  String get tripFindCrops => 'በዚህ መስመር ሰብል ፈልግ';
+
+  @override
+  String tripFindCropsNote(String from) {
+    return 'በ$from የተመዘገቡ ሰብሎች። አንዱን በዚህ የጭነት መኪና ይዘዙ።';
+  }
+
+  @override
+  String tripCropsTitle(String from) {
+    return 'በ$from ያሉ ሰብሎች';
+  }
+
+  @override
+  String tripCropsEmpty(String from) {
+    return 'አሁን በ$from የተመዘገበ ሰብል የለም';
+  }
+
+  @override
+  String get tripCropsEmptyHint => 'ገበሬዎች አዲስ ሰብል ሲመዘግቡ እዚህ ይታያል።';
+
+  @override
+  String tripCropsFootnote(String from) {
+    return 'ይህ የጭነት መኪና በሚነሳበት በ$from የተመዘገቡ ሰብሎች። ይህን መኪና ለመያዝ አንዱን ከትራንስፖርት ጋር ይዘዙ።';
+  }
+
+  @override
+  String get tripLeftChooseAnother =>
+      'ይህ የጭነት መኪና አስቀድሞ ሄዷል። ሌላ የጭነት መኪና ይምረጡ።';
+
+  @override
+  String get tripStatusDatePassed => 'ቀኑ አልፏል';
+
+  @override
   String get orderYouReceive => 'የሚደርስዎ';
 
   @override

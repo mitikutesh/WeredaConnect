@@ -445,6 +445,12 @@ void main() {
           AppErrorCode.responseNotPending,
         ),
         ('ORDER_TRIP_NOT_ELIGIBLE: route', AppErrorCode.tripNotEligible),
+        // L-7: the server's refusal of an order on a truck that left.
+        (
+          'ORDER_TRIP_NOT_ELIGIBLE: This trip has already left; '
+              'choose another trip.',
+          AppErrorCode.tripNotEligible,
+        ),
         (
           'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED: 3',
           AppErrorCode.transportAttemptsExceeded,

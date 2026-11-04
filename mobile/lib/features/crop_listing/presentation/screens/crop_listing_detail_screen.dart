@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/models/trip_departure.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
@@ -25,6 +26,7 @@ import 'package:wereda_connect/features/order/presentation/screens/place_order_s
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/route_preview_card.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -49,6 +51,11 @@ class CropListingDetailScreen extends StatefulWidget {
   /// forwarded to [PlaceOrderScreen] so a covering order fulfills the request.
   final BuyerIntent? intent;
 
+  /// B-2: the truck a buyer came from (Find crops on this route), chosen for
+  /// transport when it can still take the order; otherwise the buyer is told
+  /// why and picks from the suggested trucks as usual.
+  final Trip? preselectedTrip;
+
   const CropListingDetailScreen({
     required this.listing,
     required this.currentUserId,
@@ -56,6 +63,7 @@ class CropListingDetailScreen extends StatefulWidget {
     this.deliveryWoreda,
     this.quantityNeeded,
     this.intent,
+    this.preselectedTrip,
     super.key,
   });
 
@@ -88,6 +96,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _pickPreselectedTrip();
     if (widget.currentUserRole == UserRole.buyer &&
         widget.deliveryWoreda != null) {
       _loadSuggestedTrips();
@@ -97,6 +106,39 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
     PlaceRepository.instance.ensureLoaded().then((_) {
       if (mounted) setState(() {});
     }).ignore();
+  }
+
+  /// B-2: choose the truck the buyer came from when it can still carry an
+  /// order (open, its day not over, room left); else say why once the
+  /// screen shows, and leave the choice to the suggested trucks.
+  void _pickPreselectedTrip() {
+    final trip = widget.preselectedTrip;
+    if (trip == null || widget.currentUserRole != UserRole.buyer) return;
+    final problem = tripBookingProblem(trip, now: DateTime.now());
+    if (problem == null) {
+      _selectedTrip = trip;
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            tripBookingProblemMessage(problem, AppLocalizations.of(context)!),
+          ),
+        ),
+      );
+    });
+  }
+
+  /// The suggested trucks with the chosen one first when matching left it
+  /// out (the buyer came from it), so the choice stays visible.
+  List<Trip> _withSelectedTrip(List<Trip> trips) {
+    final selected = _selectedTrip;
+    if (selected == null || trips.any((t) => t.tripId == selected.tripId)) {
+      return trips;
+    }
+    return [selected, ...trips];
   }
 
   Future<void> _loadSuggestedTrips() async {
@@ -127,7 +169,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
       );
       if (mounted) {
         setState(() {
-          _suggestedTrips = trips;
+          _suggestedTrips = _withSelectedTrip(trips);
           _tripsLoading = false;
         });
       }
@@ -138,7 +180,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
       debugPrint('[CropListingDetail] suggested-trips matching failed: $e');
       if (mounted) {
         setState(() {
-          _suggestedTrips = [];
+          _suggestedTrips = _withSelectedTrip(const []);
           _tripsLoading = false;
         });
       }
@@ -164,9 +206,9 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
     if (!mounted) return;
     final intent = widget.intent;
     final intentBloc = intent != null ? context.read<BuyerIntentBloc>() : null;
-    await Navigator.push(
+    final tripUnavailable = await Navigator.push<bool>(
       context,
-      MaterialPageRoute<void>(
+      MaterialPageRoute<bool>(
         builder: (_) {
           final screen = PlaceOrderScreen(
             listing: widget.listing,
@@ -180,6 +222,15 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
         },
       ),
     );
+    // B-2: Place Order found the truck can no longer go (already told the
+    // buyer why): unselect it and drop it from the suggestions.
+    if (tripUnavailable == true && trip != null && mounted) {
+      setState(() {
+        if (_selectedTrip?.tripId == trip.tripId) _selectedTrip = null;
+        _suggestedTrips =
+            _suggestedTrips?.where((t) => t.tripId != trip.tripId).toList();
+      });
+    }
   }
 
   double get _quantity => widget.quantityNeeded ?? widget.listing.quantity;

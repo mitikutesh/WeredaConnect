@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -11,6 +12,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_bookings_section.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_buyer_actions.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_pickup_scans.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -38,6 +40,9 @@ class TripDetailScreen extends StatelessWidget {
     final authState = context.read<AuthBloc>().state;
     final isOwner =
         authState is AuthAuthenticated && authState.userId == trip.truckerId;
+    // B-2: a buyer may use the trip; a farmer or another trucker only reads.
+    final isBuyer =
+        authState is AuthAuthenticated && authState.role == UserRole.buyer;
 
     return BlocListener<TripListingBloc, TripListingState>(
       listener: (context, state) {
@@ -85,7 +90,9 @@ class TripDetailScreen extends StatelessWidget {
             ),
           ],
         ),
-        bottomNavigationBar: isOwner ? _OwnerActions(trip: trip) : null,
+        bottomNavigationBar: isOwner
+            ? _OwnerActions(trip: trip)
+            : (isBuyer ? TripBuyerActions(trip: trip) : null),
       ),
     );
   }

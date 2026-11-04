@@ -4693,6 +4693,40 @@ class AppLocalizationsOm extends AppLocalizations {
       'Haquun ajajawwan qabaman gara bitoota isaaniitti deebisa; isaanis maallaqa guutuu deebifachuuf haquu danda\'u.';
 
   @override
+  String get tripFindCrops => 'Midhaan karaa kana irratti barbaadi';
+
+  @override
+  String tripFindCropsNote(String from) {
+    return 'Midhaan $from keessatti galmaa\'e. Tokko konkolaataa fe\'aa kanaan ajajaa.';
+  }
+
+  @override
+  String tripCropsTitle(String from) {
+    return 'Midhaan $from keessa jiru';
+  }
+
+  @override
+  String tripCropsEmpty(String from) {
+    return 'Amma $from keessatti midhaan galmaa\'e hin jiru';
+  }
+
+  @override
+  String get tripCropsEmptyHint =>
+      'Qonnaan bultoonni midhaan haaraa yeroo galmeessan asitti mul\'ata.';
+
+  @override
+  String tripCropsFootnote(String from) {
+    return 'Midhaan $from keessatti galmaa\'e, bakka konkolaataan fe\'aa kun itti ka\'u. Konkolaataa kana qabachuuf tokko geejjibaan ajajaa.';
+  }
+
+  @override
+  String get tripLeftChooseAnother =>
+      'Konkolaataan fe\'aa kun duraan ka\'eera. Konkolaataa fe\'aa biraa filadhaa.';
+
+  @override
+  String get tripStatusDatePassed => 'Guyyaan darbeera';
+
+  @override
   String get orderYouReceive => 'Kan isinii gahu';
 
   @override

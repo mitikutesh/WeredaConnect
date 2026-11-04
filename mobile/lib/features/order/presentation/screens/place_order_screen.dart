@@ -8,6 +8,7 @@ import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/models/trip_departure.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/grouped_number_input.dart';
@@ -21,6 +22,7 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
@@ -32,6 +34,11 @@ import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 /// plus, the chosen transport, the price breakdown, the escrow note and
 /// Place Order pinned at the foot. Works fully offline (saved to Isar,
 /// synced later).
+///
+/// B-2: with a [selectedTrip] the order is checked against the truck when
+/// placed. A truck that left or no longer takes orders closes the screen
+/// with `true`, so the listing detail unselects it; one too small for the
+/// quantity keeps the screen open to order less.
 class PlaceOrderScreen extends StatefulWidget {
   final CropListing listing;
   final String farmerName;
@@ -72,7 +79,11 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
     final listingKg = widget.listing.quantity * 100;
     final neededKg =
         widget.intent != null ? widget.intent!.quantityNeeded * 100 : listingKg;
-    final kgQuantity = neededKg < listingKg ? neededKg : listingKg;
+    var kgQuantity = neededKg < listingKg ? neededKg : listingKg;
+    // B-2: and no more than the chosen truck has room for.
+    final trip = widget.selectedTrip;
+    final roomKg = trip == null ? 0.0 : tripRoomLeft(trip) * 100;
+    if (roomKg > 0 && roomKg < kgQuantity) kgQuantity = roomKg;
     // Grouped as the field groups what is typed ("1,500").
     _quantityController =
         TextEditingController(text: formatGroupedNumber(kgQuantity));
@@ -179,6 +190,27 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
 
     final quantity = _quantity;
     if (quantity <= 0 || _exceedsStock) return;
+
+    // B-2: the truck again, at the moment the order is placed: it may have
+    // left, filled up or closed since it was chosen (a cached trip offline).
+    final trip = widget.selectedTrip;
+    if (trip != null) {
+      final problem = tripBookingProblem(
+        trip,
+        now: DateTime.now(),
+        quintals: quantity / 100,
+      );
+      if (problem != null) {
+        final l10n = AppLocalizations.of(context)!;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(tripBookingProblemMessage(problem, l10n))),
+        );
+        if (problem != TripBookingProblem.full) {
+          Navigator.of(context).pop(true);
+        }
+        return;
+      }
+    }
 
     context.read<OrderBloc>().add(
           CreateOrder(

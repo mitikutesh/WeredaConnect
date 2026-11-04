@@ -17,16 +17,22 @@ import 'package:wereda_connect/shared/widgets/status_chip.dart';
 ///
 /// [onCancel] (the trucker's own open or matched trips only) adds a plain
 /// Cancel Trip action inside the card.
+///
+/// [departureDayPassed] (the trucker's own list, L-7) marks an open or
+/// matched trip whose departure day is over: the pill reads "Date passed"
+/// instead of Open, as buyers no longer see it.
 class TripCard extends StatelessWidget {
   final Trip trip;
   final VoidCallback? onTap;
   final VoidCallback? onCancel;
+  final bool departureDayPassed;
 
   const TripCard({
     required this.trip,
     super.key,
     this.onTap,
     this.onCancel,
+    this.departureDayPassed = false,
   });
 
   /// Paid quintals on the trip: the server's count, else the gap between
@@ -47,8 +53,10 @@ class TripCard extends StatelessWidget {
       formatEtbAmount(trip.pricePerQuintal),
     );
     final booked = bookedQuintals(trip);
-    final canCancel = onCancel != null &&
-        (trip.status == TripStatus.open || trip.status == TripStatus.matched);
+    final beforePickup =
+        trip.status == TripStatus.open || trip.status == TripStatus.matched;
+    final canCancel = onCancel != null && beforePickup;
+    final datePassed = departureDayPassed && beforePickup;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
@@ -87,8 +95,12 @@ class TripCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 StatusChip(
-                  label: tripStatusLabel(trip.status, l10n),
-                  kind: tripStatusKind(trip.status),
+                  label: datePassed
+                      ? l10n.tripStatusDatePassed
+                      : tripStatusLabel(trip.status, l10n),
+                  kind: datePassed
+                      ? StatusKind.warning
+                      : tripStatusKind(trip.status),
                 ),
               ],
             ),

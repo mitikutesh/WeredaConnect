@@ -721,6 +721,79 @@ void main() {
       expect(trips, isEmpty);
     });
 
+    // L-7: a cache from before a sync must not offer a truck whose
+    // departure day is over in Ethiopia; the trucker still sees it.
+    group('open trips from the start of today in Ethiopia', () {
+      Trip cached(String id, DateTime departure) => Trip()
+        ..tripId = id
+        ..truckerId = 'trucker-001'
+        ..truckerName = 'Test Trucker'
+        ..truckerPhone = '+251911000000'
+        ..fromWoreda = 'Meki'
+        ..toWoreda = 'Addis Ababa'
+        ..departureDate = departure
+        ..capacity = 40
+        ..pricePerQuintal = 90
+        ..status = TripStatus.open
+        ..matchedListings = <String>[]
+        ..createdAt = DateTime.utc(2026, 10, 28)
+        ..updatedAt = DateTime.utc(2026, 10, 28)
+        ..version = 1;
+
+      // Each trip is stored as Ethiopia midnight of its day (21:00 UTC).
+      setUp(() async {
+        await isar.writeTxn(() async {
+          await isar.trips.putAll([
+            cached('yesterday', DateTime.utc(2026, 11, 2, 21)), // 3 Nov
+            cached('today', DateTime.utc(2026, 11, 3, 21)), // 4 Nov
+            cached('tomorrow', DateTime.utc(2026, 11, 4, 21)), // 5 Nov
+          ]);
+        });
+      });
+
+      TripListingRepository at(DateTime now) => TripListingRepository(
+            isar: isar,
+            syncQueue: syncQueue,
+            clock: () => now,
+          );
+
+      test('drops yesterday, keeps a trip leaving today all day', () async {
+        for (final now in [
+          DateTime.utc(2026, 11, 3, 21, 0, 1), // 00:00:01 in Addis Ababa
+          DateTime.utc(2026, 11, 4, 20, 59, 59), // 23:59:59
+        ]) {
+          final open = await at(now).getOpenTrips();
+          expect(
+            open.map((t) => t.tripId).toSet(),
+            {'today', 'tomorrow'},
+            reason: 'at $now',
+          );
+        }
+      });
+
+      test('from the next Ethiopia midnight today has left too', () async {
+        final open = await at(DateTime.utc(2026, 11, 4, 21)).getOpenTrips();
+        expect(open.map((t) => t.tripId), ['tomorrow']);
+      });
+
+      test('the route filters keep the cutoff', () async {
+        final open = await at(DateTime.utc(2026, 11, 4, 12))
+            .getOpenTrips(fromWoreda: 'Meki', toWoreda: 'Addis Ababa');
+        expect(open.map((t) => t.tripId).toSet(), {'today', 'tomorrow'});
+      });
+
+      test("the trucker's own trips and a read by id keep every departure",
+          () async {
+        final repo = at(DateTime.utc(2026, 11, 4, 21));
+        final own = await repo.getTripsByTrucker('trucker-001');
+        expect(
+          own.map((t) => t.tripId).toSet(),
+          {'yesterday', 'today', 'tomorrow'},
+        );
+        expect((await repo.getTripById('yesterday'))?.tripId, 'yesterday');
+      });
+    });
+
     // --- F-SEC-04: Client-side Validation Tests ---
 
     group('_validateTripData via createTrip', () {

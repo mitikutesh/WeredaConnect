@@ -8099,6 +8099,54 @@ abstract class AppLocalizations {
   /// **'Cancelling hands booked orders back to their buyers, who can cancel for a full refund.'**
   String get tripCancelBookedNote;
 
+  /// B-2. Trip detail, buyer only: the button that opens the crops listed where this truck starts, with this truck chosen for transport
+  ///
+  /// In en, this message translates to:
+  /// **'Find crops on this route'**
+  String get tripFindCrops;
+
+  /// B-2. Trip detail, buyer only: the line under Find crops on this route; {from} is the place the truck starts from
+  ///
+  /// In en, this message translates to:
+  /// **'Crops listed in {from}. Order one with this truck.'**
+  String tripFindCropsNote(String from);
+
+  /// B-2. Market opened from a trip (buyer): the page title; {from} is the place the truck starts from
+  ///
+  /// In en, this message translates to:
+  /// **'Crops in {from}'**
+  String tripCropsTitle(String from);
+
+  /// B-2. Market opened from a trip (buyer): no listing at the truck's starting place; {from} is that place
+  ///
+  /// In en, this message translates to:
+  /// **'No crops listed in {from} right now'**
+  String tripCropsEmpty(String from);
+
+  /// B-2. Market opened from a trip (buyer): the line under the empty message
+  ///
+  /// In en, this message translates to:
+  /// **'New listings show here as farmers add them.'**
+  String get tripCropsEmptyHint;
+
+  /// B-2. Market opened from a trip (buyer): the line under the list; opening a listing has this truck chosen; {from} is the starting place
+  ///
+  /// In en, this message translates to:
+  /// **'Crops listed in {from}, where this truck starts. Order one with transport to book this truck.'**
+  String tripCropsFootnote(String from);
+
+  /// B-2 and L-7. Shown when the buyer picks, or orders with, a truck whose departure day is over in Ethiopia; the phone falls back to choosing another truck
+  ///
+  /// In en, this message translates to:
+  /// **'This truck already left. Choose another truck.'**
+  String get tripLeftChooseAnother;
+
+  /// L-7. My Trips, trucker: the status pill of an open trip whose departure day is over (buyers no longer see it)
+  ///
+  /// In en, this message translates to:
+  /// **'Date passed'**
+  String get tripStatusDatePassed;
+
   /// Fieldway design alignment (specs/design-canvas). Order detail summary, farmer: the crop money they are paid after delivery
   ///
   /// In en, this message translates to:
