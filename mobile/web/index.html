@@ -101,6 +101,8 @@
     @media (prefers-reduced-motion: reduce) {
       #wc-splash .wc-bar::after { animation: none; width: 100%; }
     }
+    #wc-splash.wc-failed .wc-bar { display: none; }
+    #wc-splash.wc-failed p { color: #7A1C14; }
   </style>
 </head>
 <body>
@@ -117,10 +119,36 @@
     <div class="wc-bar" aria-hidden="true"></div>
   </div>
   <script>
-    window.addEventListener('flutter-first-frame', function () {
-      var splash = document.getElementById('wc-splash');
-      if (splash) splash.remove();
-    }, { once: true });
+    (function () {
+      // If the app cannot start (an error before its first frame: a script
+      // that fails to download, CanvasKit, or Dart main throwing), say so
+      // instead of "Loading" forever. The capture phase also sees a
+      // <script> that fails to load, which does not bubble. The first
+      // frame still removes the splash.
+      var failed = {
+        en: 'Could not start. Reload the page.',
+        am: 'መጀመር አልተቻለም። ገጹን እንደገና ይጫኑ።',
+        om: "Jalqabuu hin dandeenye. Fuula irra deebi'aa fe'aa."
+      };
+      function onFailure() {
+        var splash = document.getElementById('wc-splash');
+        if (!splash || splash.classList.contains('wc-failed')) return;
+        splash.classList.add('wc-failed');
+        var lines = splash.querySelectorAll('p[lang]');
+        for (var i = 0; i < lines.length; i++) {
+          lines[i].textContent = failed[lines[i].getAttribute('lang')];
+        }
+      }
+      function onFirstFrame() {
+        window.removeEventListener('error', onFailure, true);
+        window.removeEventListener('unhandledrejection', onFailure);
+        var splash = document.getElementById('wc-splash');
+        if (splash) splash.remove();
+      }
+      window.addEventListener('error', onFailure, true);
+      window.addEventListener('unhandledrejection', onFailure);
+      window.addEventListener('flutter-first-frame', onFirstFrame, { once: true });
+    })();
   </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>

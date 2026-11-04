@@ -27,6 +27,27 @@ void main() {
     );
   });
 
+  test('if the app cannot start, it says so in all three languages', () {
+    // Capture phase: a <script> that fails to load does not bubble.
+    expect(html, contains("addEventListener('error', onFailure, true)"));
+    expect(html, contains("addEventListener('unhandledrejection', onFailure)"));
+    expect(html, contains('Could not start. Reload the page.'));
+    expect(html, contains('መጀመር አልተቻለም። ገጹን እንደገና ይጫኑ።'));
+    expect(
+      html,
+      contains("Jalqabuu hin dandeenye. Fuula irra deebi'aa fe'aa."),
+    );
+    // Errors after the first frame are the app's own business.
+    expect(html, contains("removeEventListener('error', onFailure, true)"));
+    expect(
+      html,
+      contains("removeEventListener('unhandledrejection', onFailure)"),
+    );
+    // Inline only, as the CSP allows: no eval, no inline handlers.
+    expect(html, isNot(contains('eval(')));
+    expect(html, isNot(contains('onerror=')));
+  });
+
   test('it fetches nothing: no external stylesheet, script, font or image', () {
     final attributes = RegExp(r'''(?:src|href)\s*=\s*["']([^"']+)["']''')
         .allMatches(html)
