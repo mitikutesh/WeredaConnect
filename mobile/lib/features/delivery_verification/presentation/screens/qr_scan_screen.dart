@@ -308,6 +308,9 @@ class _QrScanScreenState extends State<QrScanScreen> {
     }
   }
 
+  /// Back to the camera from the result or the typed code. The scanner is
+  /// mounted again and starts the camera itself (auto start); starting it
+  /// here too raced that start ("controller initializing").
   void _resetScanner() {
     setState(() {
       _phase = _ScanPhase.scanning;
@@ -319,7 +322,6 @@ class _QrScanScreenState extends State<QrScanScreen> {
       _typedCode = null;
       _codeError = null;
     });
-    _retryCamera();
   }
 
   bool get _isPickup => widget.verificationType == VerificationType.pickup;

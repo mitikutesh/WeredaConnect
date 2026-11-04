@@ -9,12 +9,88 @@ import 'package:wereda_connect/features/delivery_verification/data/services/drop
 
 class _MockStorage extends Mock implements FlutterSecureStorage {}
 
+/// Secure storage whose every call yields to the event loop before it acts,
+/// so calls from different stores interleave as they do in the app (the
+/// scan screen keeping one handoff while trip mode or the check-in engine
+/// drops another).
+class _InterleavingStorage extends Fake implements FlutterSecureStorage {
+  final Map<String, String> values = {};
+
+  Future<void> _turn() => Future<void>.delayed(Duration.zero);
+
+  @override
+  Future<String?> read({
+    required String key,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    await _turn();
+    return values[key];
+  }
+
+  @override
+  Future<Map<String, String>> readAll({
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    await _turn();
+    return Map.of(values);
+  }
+
+  @override
+  Future<void> write({
+    required String key,
+    required String? value,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    await _turn();
+    if (value == null) {
+      values.remove(key);
+    } else {
+      values[key] = value;
+    }
+  }
+
+  @override
+  Future<void> delete({
+    required String key,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    await _turn();
+    values.remove(key);
+  }
+}
+
 /// T-3: the trucker's phone keeps the pickup handoff for the drop-off QR,
-/// across restarts, per account and delivery, the newest twenty.
+/// across restarts, one entry per account and delivery, the newest twenty.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+
+  /// A clock that moves on a millisecond at each reading.
+  DateTime Function() ticking() {
+    var at = DateTime.utc(2026, 11, 4, 6);
+    return () => at = at.add(const Duration(milliseconds: 1));
+  }
 
   test('keeps the token and the code per trucker and delivery', () async {
     final store = SecureDropoffHandoffStore();
@@ -48,11 +124,13 @@ void main() {
     expect(await store.read('t', 'd-1'), isNull);
   });
 
-  test('keeps the newest twenty deliveries', () async {
-    final store = SecureDropoffHandoffStore();
+  test('keeps the newest twenty deliveries per trucker', () async {
+    final store = SecureDropoffHandoffStore(now: ticking());
     for (var i = 0; i < 22; i++) {
       await store.keep('t', 'd-$i', KeptHandoff(code: '$i'));
     }
+    // Another trucker's entries do not count against this one.
+    await store.keep('u', 'd-0', const KeptHandoff(code: 'u'));
     // Keeping one again makes it the newest.
     await store.keep('t', 'd-2', const KeptHandoff(code: 'again'));
 
@@ -61,6 +139,7 @@ void main() {
     expect((await store.read('t', 'd-2'))?.code, 'again');
     expect((await store.read('t', 'd-3'))?.code, '3');
     expect((await store.read('t', 'd-21'))?.code, '21');
+    expect((await store.read('u', 'd-0'))?.code, 'u');
 
     // One more pushes out the oldest, d-3, not the renewed d-2.
     await store.keep('t', 'd-22', const KeptHandoff(code: '22'));
@@ -69,31 +148,61 @@ void main() {
   });
 
   test('an unreadable entry reads as nothing', () async {
-    FlutterSecureStorage.setMockInitialValues({'dropoff_handoffs_t': '{bad'});
+    FlutterSecureStorage.setMockInitialValues({
+      'dropoff_handoff|t|d-1': '{bad',
+    });
 
     expect(await SecureDropoffHandoffStore().read('t', 'd-1'), isNull);
   });
 
-  test('a storage that cannot be read is not written over', () async {
-    // Writing now would replace the other kept handoffs with this one.
+  test('keep and forget at the same time never undo each other', () async {
+    // The scan screen keeps d-new while trip mode and the check-in engine
+    // drop the done d-old and d-done, each through its own store.
+    for (var round = 0; round < 10; round++) {
+      final storage = _InterleavingStorage();
+      final scan = SecureDropoffHandoffStore(storage: storage);
+      final tripMode = SecureDropoffHandoffStore(storage: storage);
+      final engine = SecureDropoffHandoffStore(storage: storage);
+      await scan.keep('t', 'd-old', const KeptHandoff(code: 'old'));
+      await scan.keep('t', 'd-done', const KeptHandoff(code: 'done'));
+
+      await Future.wait([
+        if (round.isEven)
+          scan.keep('t', 'd-new', const KeptHandoff(code: 'new')),
+        tripMode.forget('t', ['d-old']),
+        engine.forget('t', ['d-done']),
+        if (round.isOdd)
+          scan.keep('t', 'd-new', const KeptHandoff(code: 'new')),
+      ]);
+
+      expect((await scan.read('t', 'd-new'))?.code, 'new', reason: '$round');
+      expect(await scan.read('t', 'd-old'), isNull, reason: '$round');
+      expect(await scan.read('t', 'd-done'), isNull, reason: '$round');
+    }
+  });
+
+  test('a storage that cannot be listed loses nothing', () async {
     final storage = _MockStorage();
-    when(() => storage.read(key: any(named: 'key')))
-        .thenThrow(PlatformException(code: 'keystore'));
+    when(
+      () => storage.write(key: any(named: 'key'), value: any(named: 'value')),
+    ).thenAnswer((_) async {});
+    when(() => storage.readAll()).thenThrow(PlatformException(code: 'store'));
     final store = SecureDropoffHandoffStore(storage: storage);
 
     await store.keep('t', 'd-1', const KeptHandoff(code: '1'));
-    await store.forget('t', ['d-2']);
+    await store.forgetAll();
 
-    verifyNever(
+    // The new entry is written; nothing is deleted on a failed listing.
+    verify(
       () => storage.write(
-        key: any(named: 'key'),
+        key: 'dropoff_handoff|t|d-1',
         value: any(named: 'value'),
       ),
-    );
+    ).called(1);
     verifyNever(() => storage.delete(key: any(named: 'key')));
   });
 
-  test('nothing it holds is logged', () async {
+  test('nothing it holds is logged, only the error type', () async {
     final storage = _MockStorage();
     when(() => storage.read(key: any(named: 'key'))).thenThrow(
       const FormatException('Unexpected character', 'eyJkaWQiOiJzZWNyZXQ'),
@@ -108,7 +217,6 @@ void main() {
       isNull,
     );
 
-    // Only the error's type is logged.
     expect(logs, ['[Delivery] kept handoff unreadable: FormatException']);
     expect(logs.join(), isNot(contains('eyJ')));
   });

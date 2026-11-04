@@ -50,6 +50,7 @@ import 'package:wereda_connect/features/live_trip/data/repositories/track_reposi
 import 'package:wereda_connect/features/live_trip/data/repository_trip_progress_reader.dart';
 import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
 import 'package:wereda_connect/features/live_trip/domain/repositories/base_track_repository.dart';
+import 'package:wereda_connect/features/live_trip/sign_out_forgetter.dart';
 import 'package:wereda_connect/features/notifications/data/notification_repository.dart';
 import 'package:wereda_connect/features/notifications/domain/base_notification_repository.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
@@ -149,8 +150,10 @@ Future<void> runMobile({
   // LT-08: the trucker's check-in engine (where the truck is after pickup).
   // Built before the executor, which tells it when the server ended sharing
   // for a trip or refused a pickup for good.
-  // T-3: the trucker's kept drop-off handoffs, dropped once a delivery is
-  // done and at sign out.
+  // T-3: the trucker's kept drop-off handoffs, dropped as a trip's
+  // deliveries are seen done, and all of them on an explicit logout or a
+  // deleted account (the AuthBloc's signOutForgetter below), never when a
+  // session lapsed.
   final dropoffHandoffs = SecureDropoffHandoffStore();
   final checkInEngine = CheckInEngine(
     pings: LocationPingRepository(
@@ -226,14 +229,11 @@ Future<void> runMobile({
     pushTokenProvider: PushNotificationService.currentToken,
     // A deleted account drops the token on the device too.
     pushTokenDeleter: PushNotificationService.deleteToken,
+    forgetTrackSnapshots: signOutForgetter(dropoffHandoffs),
   )..add(const AuthCheckRequested());
   bindDataUsageToAuth(dataUsageTracker, authBloc);
   // LT-08: only a signed-in trucker shares; a sign out stops the service.
-  CheckInEngineBinding(
-    engine: checkInEngine,
-    authBloc: authBloc,
-    handoffs: dropoffHandoffs,
-  ).attach();
+  CheckInEngineBinding(engine: checkInEngine, authBloc: authBloc).attach();
 
   // SIM-37: when the user changes language in Settings, sync the choice to the
   // server profile so it follows them to other devices. Offline-first: the

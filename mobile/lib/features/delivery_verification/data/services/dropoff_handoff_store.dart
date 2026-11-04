@@ -46,7 +46,7 @@ class KeptHandoff {
 
 /// Keeps a trucker's [KeptHandoff]s across restarts, per account and
 /// delivery, and drops them once they cannot be needed: the delivery is
-/// done ([forget]) or the account signed out ([forgetAll]).
+/// done ([forget]) or the user signed out on purpose ([forgetAll]).
 abstract interface class DropoffHandoffStore {
   Future<KeptHandoff?> read(String userId, String deliveryId);
 
@@ -56,7 +56,8 @@ abstract interface class DropoffHandoffStore {
   /// disputed: no buyer scans them any more).
   Future<void> forget(String userId, Iterable<String> deliveryIds);
 
-  /// Drop every kept handoff on this device (sign out).
+  /// Drop every kept handoff on this device (an explicit sign out or a
+  /// deleted account, never a lapsed session: `signOutForgetter`).
   Future<void> forgetAll();
 }
 
@@ -66,46 +67,44 @@ bool handoffNoLongerNeeded(DeliveryStatus status) =>
     status == DeliveryStatus.cancelled ||
     status == DeliveryStatus.disputed;
 
-/// The app's store: one encrypted entry per trucker in secure storage (the
-/// Android keystore; on web the browser's storage, as the QR signing key),
-/// the newest [maxDeliveries] kept. Never in memory only: the drop-off can be
-/// days after the pickup and the app restarts in between. It never logs what
-/// it holds: a failure logs the error's type only.
+/// The app's store: one encrypted secure-storage entry per trucker and
+/// delivery (the Android keystore; on web the browser's storage, as the QR
+/// signing key). Never in memory only: the drop-off can be days after the
+/// pickup and the app restarts in between.
+///
+/// One key per delivery, so keeping one handoff and dropping another never
+/// read and rewrite a shared value: the scan screen, trip mode and the
+/// check-in engine each use their own store, at the same time. Each trucker
+/// keeps the newest [maxDeliveries]. It never logs what it holds: a failure
+/// logs the error's type only.
 class SecureDropoffHandoffStore implements DropoffHandoffStore {
-  SecureDropoffHandoffStore({FlutterSecureStorage? storage})
-      : _storage = storage ??
+  SecureDropoffHandoffStore({
+    FlutterSecureStorage? storage,
+    DateTime Function()? now,
+  })  : _storage = storage ??
             const FlutterSecureStorage(
               aOptions: AndroidOptions(encryptedSharedPreferences: true),
-            );
+            ),
+        _now = now ?? DateTime.now;
 
   final FlutterSecureStorage _storage;
+  final DateTime Function() _now;
 
   /// A truck carries a handful of orders; older ones are long delivered.
   static const maxDeliveries = 20;
 
-  static const _keyPrefix = 'dropoff_handoffs_';
+  static const _keyPrefix = 'dropoff_handoff|';
 
-  static String _key(String userId) => '$_keyPrefix$userId';
+  static String _userPrefix(String userId) => '$_keyPrefix$userId|';
 
-  /// [userId]'s entries. Throws when the storage cannot be read (the caller
-  /// must then write nothing, or it would wipe the other entries); an entry
-  /// that is not JSON holds nothing usable and reads as empty.
-  Future<Map<String, Object?>> _load(String userId) async {
-    final raw = await _storage.read(key: _key(userId));
-    if (raw == null) return {};
-    Object? decoded;
-    try {
-      decoded = jsonDecode(raw);
-    } on FormatException {
-      decoded = null;
-    }
-    return decoded is Map<String, Object?> ? decoded : {};
-  }
+  static String _key(String userId, String deliveryId) =>
+      '${_userPrefix(userId)}$deliveryId';
 
   @override
   Future<KeptHandoff?> read(String userId, String deliveryId) async {
     try {
-      return KeptHandoff.fromJson((await _load(userId))[deliveryId]);
+      final raw = await _storage.read(key: _key(userId, deliveryId));
+      return raw == null ? null : KeptHandoff.fromJson(jsonDecode(raw));
     } on Object catch (e) {
       debugPrint('[Delivery] kept handoff unreadable: ${e.runtimeType}');
       return null;
@@ -119,65 +118,81 @@ class SecureDropoffHandoffStore implements DropoffHandoffStore {
     KeptHandoff handoff,
   ) async {
     if (handoff.isEmpty) return;
-    final Map<String, Object?> all;
     try {
-      all = await _load(userId);
+      await _storage.write(
+        key: _key(userId, deliveryId),
+        value: jsonEncode({
+          ...handoff.toJson(),
+          'at': _now().millisecondsSinceEpoch,
+        }),
+      );
     } on Object catch (e) {
-      // Writing now would replace the other kept handoffs with this one.
       debugPrint('[Delivery] handoff not kept: ${e.runtimeType}');
       return;
     }
-    // Re-inserted last, so the oldest entries are the first ones.
-    all
-      ..remove(deliveryId)
-      ..[deliveryId] = handoff.toJson();
-    while (all.length > maxDeliveries) {
-      all.remove(all.keys.first);
+    await _keepNewest(userId);
+  }
+
+  /// Drop the trucker's oldest entries past [maxDeliveries]. Only entries it
+  /// read are dropped, so a storage it cannot read loses nothing.
+  Future<void> _keepNewest(String userId) async {
+    final Map<String, String> all;
+    try {
+      all = await _storage.readAll();
+    } on Object catch (e) {
+      debugPrint('[Delivery] kept handoffs not counted: ${e.runtimeType}');
+      return;
     }
-    await _write(userId, all);
+    final prefix = _userPrefix(userId);
+    final mine = [
+      for (final e in all.entries)
+        if (e.key.startsWith(prefix)) (key: e.key, at: _keptAt(e.value)),
+    ];
+    if (mine.length <= maxDeliveries) return;
+    mine.sort((a, b) => a.at.compareTo(b.at));
+    for (final old in mine.take(mine.length - maxDeliveries)) {
+      await _delete(old.key);
+    }
+  }
+
+  /// When an entry was kept; an unreadable entry counts as the oldest.
+  static int _keptAt(String raw) {
+    try {
+      final at = (jsonDecode(raw) as Map)['at'];
+      return at is int ? at : 0;
+    } on Object {
+      return 0;
+    }
   }
 
   @override
   Future<void> forget(String userId, Iterable<String> deliveryIds) async {
-    final ids = deliveryIds.toSet();
-    if (ids.isEmpty) return;
-    final Map<String, Object?> all;
-    try {
-      all = await _load(userId);
-    } on Object catch (e) {
-      debugPrint('[Delivery] kept handoffs not cleared: ${e.runtimeType}');
-      return;
+    for (final id in deliveryIds.toSet()) {
+      await _delete(_key(userId, id));
     }
-    final before = all.length;
-    all.removeWhere((id, _) => ids.contains(id));
-    if (all.length == before) return;
-    await _write(userId, all);
   }
 
   @override
   Future<void> forgetAll() async {
+    final Map<String, String> all;
     try {
-      final keys = (await _storage.readAll())
-          .keys
-          .where((k) => k.startsWith(_keyPrefix))
-          .toList();
-      for (final key in keys) {
-        await _storage.delete(key: key);
-      }
+      all = await _storage.readAll();
     } on Object catch (e) {
       debugPrint('[Delivery] kept handoffs not cleared: ${e.runtimeType}');
+      return;
+    }
+    // A copy of the keys: a storage may hand back its own live map.
+    final keys = all.keys.where((k) => k.startsWith(_keyPrefix)).toList();
+    for (final key in keys) {
+      await _delete(key);
     }
   }
 
-  Future<void> _write(String userId, Map<String, Object?> all) async {
+  Future<void> _delete(String key) async {
     try {
-      if (all.isEmpty) {
-        await _storage.delete(key: _key(userId));
-      } else {
-        await _storage.write(key: _key(userId), value: jsonEncode(all));
-      }
+      await _storage.delete(key: key);
     } on Object catch (e) {
-      debugPrint('[Delivery] kept handoffs not saved: ${e.runtimeType}');
+      debugPrint('[Delivery] kept handoff not cleared: ${e.runtimeType}');
     }
   }
 }

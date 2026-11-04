@@ -22,7 +22,8 @@ CheckInEngine buildWebCheckInEngine({
   required LanguageProvider languageProvider,
 }) {
   // T-3: the trucker's kept drop-off handoffs (browser storage on web),
-  // dropped once a delivery is done and at sign out.
+  // dropped as the trip's deliveries are seen done (an explicit sign out
+  // drops them all, through the AuthBloc's signOutForgetter).
   final handoffs = SecureDropoffHandoffStore();
   final engine = CheckInEngine(
     pings: WebLocationPingRepository(api: api),
@@ -35,7 +36,6 @@ CheckInEngine buildWebCheckInEngine({
     states: PrefsSharingStateStore(),
     notice: () => checkInNoticeFor(languageProvider.locale),
   );
-  CheckInEngineBinding(engine: engine, authBloc: authBloc, handoffs: handoffs)
-      .attach();
+  CheckInEngineBinding(engine: engine, authBloc: authBloc).attach();
   return engine;
 }
