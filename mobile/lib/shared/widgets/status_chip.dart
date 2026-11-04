@@ -119,35 +119,43 @@ class LoadErrorChip extends StatelessWidget {
         color: kind.background,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Row(
-        children: [
-          Icon(Icons.error_outline, size: 16, color: kind.foreground),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              message,
-              style: TextStyle(
-                color: kind.foreground,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
+      // The retry button takes half the row at most: with large text a long
+      // label ("Irra Deebi'ii Yaali" at 200%) wraps and leaves the message
+      // room, instead of pushing the row off the screen.
+      child: LayoutBuilder(
+        builder: (context, constraints) => Row(
+          children: [
+            Icon(Icons.error_outline, size: 16, color: kind.foreground),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(
+                  color: kind.foreground,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
-          ),
-          TextButton(
-            onPressed: onRetry,
-            style: TextButton.styleFrom(
-              foregroundColor: kind.foreground,
-              minimumSize: const Size(48, 40),
-              textStyle: const TextStyle(
-                fontFamily: AppTheme.fontFamily,
-                fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
+            ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: constraints.maxWidth / 2),
+              child: TextButton(
+                onPressed: onRetry,
+                style: TextButton.styleFrom(
+                  foregroundColor: kind.foreground,
+                  minimumSize: const Size(48, 40),
+                  textStyle: const TextStyle(
+                    fontFamily: AppTheme.fontFamily,
+                    fontFamilyFallback: AppTheme.ethiopicFontFallback,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                child: Text(retryLabel, textAlign: TextAlign.center),
               ),
             ),
-            child: Text(retryLabel),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
