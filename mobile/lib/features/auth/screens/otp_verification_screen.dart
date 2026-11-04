@@ -324,7 +324,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                               padding:
                                   const EdgeInsets.symmetric(horizontal: 4),
                               minimumSize: const Size(0, 36),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              // A 36 tall link in a 48 by 48 hit area.
+                              tapTargetSize: MaterialTapTargetSize.padded,
                               foregroundColor: AppTheme.fieldGreen,
                               disabledForegroundColor: AppTheme.mutedSteel,
                             ),
@@ -411,7 +412,7 @@ class _CodeBoxes extends StatelessWidget {
                           ? Theme.of(context).colorScheme.error
                           : active
                               ? AppTheme.fieldGreen
-                              : const Color(0xFFD6D3C8),
+                              : AppTheme.fieldBorder,
                     ),
                   ),
                   child: Text(

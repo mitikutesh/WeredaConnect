@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 /// Pieces the list screens without a board (My Trips, Orders, Payments)
 /// borrow from the boards that have one: the Market's pill chips, the My
 /// Crops load bar and info note, and the "person · place" header eyebrow.
 
 /// One of the Market board's filter pills: white with a whisper border,
-/// filled field green when selected.
+/// filled field green when selected. 40 tall in a 48 tall hit area; a long
+/// label or large text makes it taller rather than clipped.
 class FwFilterPill extends StatelessWidget {
   final String label;
   final bool selected;
@@ -26,29 +28,40 @@ class FwFilterPill extends StatelessWidget {
     return Semantics(
       button: true,
       selected: selected,
-      child: Material(
-        color: selected ? AppTheme.fieldGreen : AppTheme.surfaceWhite,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(999),
-          side: BorderSide(
-            color: selected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+      child: FwTapTarget(
+        onTap: onTap,
+        child: Material(
+          color: selected ? AppTheme.fieldGreen : AppTheme.surfaceWhite,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(999),
+            side: BorderSide(
+              color: selected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+            ),
           ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Container(
-            height: 40,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            alignment: Alignment.center,
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                color: selected ? Colors.white : AppTheme.soilDark,
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 40),
+              child: Center(
+                widthFactor: 1,
+                heightFactor: 1,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 4,
+                  ),
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                      color: selected ? Colors.white : AppTheme.soilDark,
+                    ),
+                  ),
+                ),
               ),
             ),
           ),

@@ -88,6 +88,8 @@ class RoleNavItem extends StatelessWidget {
       selected: selected,
       label: label,
       excludeSemantics: true,
+      // excludeSemantics drops the InkWell's tap action: give it back.
+      onTap: onTap,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
@@ -113,18 +115,19 @@ class RoleNavItem extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 4),
-              // Each tab gets a quarter of the bar; a long am/om label
-              // shrinks a little rather than lose its end to an ellipsis.
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                    color: selected ? accent : inactive,
-                  ),
+              // Each tab gets a quarter of the bar. A long am/om label or
+              // large text takes a second line: shrinking it to fit made
+              // it unreadable and ignored the user's text size.
+              Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.2,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                  color: selected ? accent : inactive,
                 ),
               ),
             ],
@@ -202,6 +205,26 @@ class RoleCreateButton extends StatelessWidget {
           icon: const Icon(Icons.add, size: 20),
           label: label,
         ),
+      );
+    }
+
+    // At 200% zoom or with large text the labelled pill covered a third of
+    // a phone screen: with room for fewer than 20 label-sized letters, only
+    // the plus shows, named by its tooltip.
+    final letter = MediaQuery.textScalerOf(context).scale(15);
+    if (MediaQuery.sizeOf(context).width < letter * 20) {
+      return FloatingActionButton(
+        heroTag: 'role_fab',
+        onPressed: onPressed,
+        tooltip: labelFor(l10n, role),
+        backgroundColor: background,
+        foregroundColor: foreground,
+        elevation: 4,
+        highlightElevation: 6,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Icon(Icons.add, size: 24),
       );
     }
 

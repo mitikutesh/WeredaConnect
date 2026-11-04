@@ -40,35 +40,83 @@ class FwPageHeader extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ));
+    final heading = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (eyebrowWidget != null) ...[
+          eyebrowWidget,
+          const SizedBox(height: 2),
+        ],
+        Semantics(
+          header: true,
+          child: Text(
+            title,
+            style: FwText.pageTitle,
+          ),
+        ),
+      ],
+    );
+    final trailing = this.trailing;
     return Padding(
       padding: padding,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (eyebrowWidget != null) ...[
-                  eyebrowWidget,
-                  const SizedBox(height: 2),
-                ],
-                Semantics(
-                  header: true,
-                  child: Text(
-                    title,
-                    style: FwText.pageTitle,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (trailing != null) ...[
+      child: trailing == null
+          ? Row(children: [Expanded(child: heading)])
+          : FwHeaderRow(heading: heading, trailing: trailing),
+    );
+  }
+}
+
+/// A header's title beside its trailing buttons, or under them when the
+/// row is too narrow for both: at 200% zoom or with large text, a title
+/// squeezed beside the bell and account buttons broke one syllable per
+/// line. The buttons then sit on their own line at the end, above the
+/// title, which gets the full width.
+class FwHeaderRow extends StatelessWidget {
+  final Widget heading;
+  final Widget trailing;
+
+  /// The heading's font size before text scaling: the room it needs is
+  /// counted in letters of this size.
+  final double headingFontSize;
+
+  /// How the heading and the buttons line up side by side.
+  final CrossAxisAlignment crossAxisAlignment;
+
+  const FwHeaderRow({
+    required this.heading,
+    required this.trailing,
+    this.headingFontSize = 26,
+    this.crossAxisAlignment = CrossAxisAlignment.start,
+    super.key,
+  });
+
+  /// Below this many heading-sized letters of width the buttons move up.
+  static const double minWidthInLetters = 9;
+
+  @override
+  Widget build(BuildContext context) {
+    final letter = MediaQuery.textScalerOf(context).scale(headingFontSize);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < letter * minWidthInLetters) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Align(alignment: AlignmentDirectional.centerEnd, child: trailing),
+              const SizedBox(height: 8),
+              heading,
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: crossAxisAlignment,
+          children: [
+            Expanded(child: heading),
             const SizedBox(width: 12),
-            trailing!,
+            trailing,
           ],
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -165,7 +213,9 @@ class FwSegmented<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(4),
+      // The track's top and bottom 4 px belong to each segment's hit area
+      // (48 tall, [_FwSegmentButton]).
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       decoration: BoxDecoration(
         color: AppTheme.segmentTrack,
         borderRadius: BorderRadius.circular(14),
@@ -199,60 +249,74 @@ class _FwSegmentButton<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final count = segment.count;
-    final label = count == null ? segment.label : '${segment.label} · $count';
     return Semantics(
       button: true,
       selected: selected,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(11),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            constraints: const BoxConstraints(minHeight: 40),
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            decoration: BoxDecoration(
-              color: selected ? AppTheme.surfaceWhite : Colors.transparent,
-              borderRadius: BorderRadius.circular(11),
-              boxShadow: selected
-                  ? const [
-                      BoxShadow(
-                        color: Color(0x14000000),
-                        blurRadius: 4,
-                        offset: Offset(0, 1),
-                      ),
-                    ]
-                  : null,
-            ),
-            alignment: Alignment.center,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (segment.icon != null) ...[
-                  Icon(
-                    segment.icon,
-                    size: 16,
-                    color: selected ? AppTheme.fieldGreen : AppTheme.mutedSteel,
-                  ),
-                  const SizedBox(width: 6),
-                ],
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                      color:
-                          selected ? AppTheme.soilDark : AppTheme.inkSecondary,
+      // A 40 tall segment in a 48 tall hit area: the track's padding is
+      // part of the target.
+      child: FwTapTarget(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: _segment(),
+        ),
+      ),
+    );
+  }
+
+  Widget _segment() {
+    final count = segment.count;
+    final label = count == null ? segment.label : '${segment.label} · $count';
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(11),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          constraints: const BoxConstraints(minHeight: 40),
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          decoration: BoxDecoration(
+            color: selected ? AppTheme.surfaceWhite : Colors.transparent,
+            borderRadius: BorderRadius.circular(11),
+            boxShadow: selected
+                ? const [
+                    BoxShadow(
+                      color: Color(0x14000000),
+                      blurRadius: 4,
+                      offset: Offset(0, 1),
                     ),
+                  ]
+                : null,
+          ),
+          alignment: Alignment.center,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (segment.icon != null) ...[
+                Icon(
+                  segment.icon,
+                  size: 16,
+                  color: selected ? AppTheme.fieldGreen : AppTheme.mutedSteel,
+                ),
+                const SizedBox(width: 6),
+              ],
+              // Two lines for a long Afaan Oromoo label or large text
+              // rather than an ellipsis after a few letters.
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                    color: selected ? AppTheme.soilDark : AppTheme.inkSecondary,
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -260,8 +324,42 @@ class _FwSegmentButton<T> extends StatelessWidget {
   }
 }
 
+/// Grows a control's hit area to Material's 48 by 48 minimum without
+/// changing how it looks: [child] sits centred in the larger box and a tap
+/// on the margin reaches [onTap], as a tap on the child does. Put the
+/// control's [Semantics] around it, so screen readers get the larger box.
+class FwTapTarget extends StatelessWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final Size minSize;
+
+  const FwTapTarget({
+    required this.child,
+    required this.onTap,
+    this.minSize = const Size.square(kMinInteractiveDimension),
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      // The child's own semantics (its tap action) speak for it.
+      excludeFromSemantics: true,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          minWidth: minSize.width,
+          minHeight: minSize.height,
+        ),
+        child: Center(widthFactor: 1, heightFactor: 1, child: child),
+      ),
+    );
+  }
+}
+
 /// The boards' square action button (the bell, the place pin): white,
-/// whisper border, 44 by 44, radius 14.
+/// whisper border, 44 by 44, radius 14, in a 48 by 48 hit area.
 class FwSquareButton extends StatelessWidget {
   final Widget child;
   final VoidCallback? onTap;
@@ -281,19 +379,22 @@ class FwSquareButton extends StatelessWidget {
     return Semantics(
       button: onTap != null,
       label: semanticLabel,
-      child: Material(
-        color: background,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: const BorderSide(color: AppTheme.whisperBorder),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: SizedBox(
-            width: 44,
-            height: 44,
-            child: Center(child: child),
+      child: FwTapTarget(
+        onTap: onTap,
+        child: Material(
+          color: background,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: const BorderSide(color: AppTheme.whisperBorder),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: Center(child: child),
+            ),
           ),
         ),
       ),

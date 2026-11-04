@@ -174,18 +174,22 @@ class JoinStatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 30 tall at the default text size; large text makes it taller instead
+    // of clipping.
     return Container(
-      height: 30,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      constraints: const BoxConstraints(minHeight: 30),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      // A Wrap, not a Row: in a narrow column a long label wraps rather
+      // than overflows, and beside other widgets it still hugs its label.
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 6,
         children: [
           Icon(icon, size: 14, color: foreground),
-          const SizedBox(width: 6),
           Text(
             label,
             style: TextStyle(

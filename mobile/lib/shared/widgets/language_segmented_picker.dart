@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 /// Inline language switch: English, Amharic and Afaan Oromoo side by side,
 /// each in its own script (the Join · Welcome and login board).
@@ -32,7 +33,9 @@ class LanguageSegmentedPicker extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Container(
-          padding: const EdgeInsets.all(4),
+          // The track's top and bottom 4 px belong to each segment's 48 tall
+          // hit area ([_Segment]).
+          padding: const EdgeInsets.symmetric(horizontal: 4),
           decoration: BoxDecoration(
             color: AppTheme.segmentTrack,
             borderRadius: BorderRadius.circular(14),
@@ -73,35 +76,49 @@ class _Segment extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tap = selected ? null : onTap;
     return Semantics(
       button: true,
       selected: selected,
       inMutuallyExclusiveGroup: true,
       excludeSemantics: true,
       label: label,
-      child: Material(
-        color: selected ? Colors.white : Colors.transparent,
-        borderRadius: BorderRadius.circular(11),
-        child: InkWell(
-          onTap: selected ? null : onTap,
-          borderRadius: BorderRadius.circular(11),
-          // The board's segment: 40 tall in a 4 px padded track.
-          child: SizedBox(
-            height: 40,
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                      color:
-                          selected ? AppTheme.soilDark : AppTheme.unselectedNav,
-                      fontFamilyFallback: AppTheme.ethiopicFontFallback,
+      // excludeSemantics drops the InkWell's tap action: give it back.
+      onTap: tap,
+      child: FwTapTarget(
+        onTap: tap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Material(
+            color: selected ? Colors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(11),
+            child: InkWell(
+              onTap: tap,
+              borderRadius: BorderRadius.circular(11),
+              // The board's segment: 40 tall in the track. Large text or a
+              // long name wraps to a second line instead of shrinking.
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 40),
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 2,
+                    ),
+                    child: Text(
+                      label,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w600,
+                        color: selected
+                            ? AppTheme.soilDark
+                            : AppTheme.unselectedNav,
+                        fontFamilyFallback: AppTheme.ethiopicFontFallback,
+                      ),
                     ),
                   ),
                 ),

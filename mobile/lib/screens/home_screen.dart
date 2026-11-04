@@ -405,29 +405,33 @@ class _TruckerHomeHeader extends StatelessWidget {
                 ),
               ],
             ),
-            Row(
-              children: [
-                Expanded(
-                  child: Semantics(
-                    header: true,
-                    child: Text(
-                      l10n.homeToday,
-                      style: const TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.6,
-                        height: 1.15,
-                        color: Colors.white,
-                      ),
-                    ),
+            // "Today" beside the chip and the account button, or under them
+            // when the row is too narrow (200% zoom, large text).
+            FwHeaderRow(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              heading: Semantics(
+                header: true,
+                child: Text(
+                  l10n.homeToday,
+                  style: const TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.6,
+                    height: 1.15,
+                    color: Colors.white,
                   ),
                 ),
-                _SyncChip(isOnline: isOnline, dark: true),
-                if (!SidebarScope.of(context)) ...[
-                  const SizedBox(width: 10),
-                  const AccountButton(dark: true),
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _SyncChip(isOnline: isOnline, dark: true),
+                  if (!SidebarScope.of(context)) ...[
+                    const SizedBox(width: 10),
+                    const AccountButton(dark: true),
+                  ],
                 ],
-              ],
+              ),
             ),
             const SizedBox(height: 16),
             TruckerHeroCard(
