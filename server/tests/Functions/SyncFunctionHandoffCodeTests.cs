@@ -497,6 +497,20 @@ public sealed class SyncFunctionHandoffCodeTests
     }
 
     [Fact]
+    public async Task AFarmersNonce_OnARowWithoutAStatus_IsStoredAsForPending()
+    {
+        // The delivery update reads a missing status as pending everywhere else.
+        var item = TruckDelivery("pending");
+        item.Remove("status");
+        SetupDelivery(item);
+
+        var result = await SendNonceAsync(FarmerId, "farmer", ("qrNonce", "fresh-nonce"));
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        await _qrSecrets.Received(1).PutNonceAsync(DeliveryId, "fresh-nonce");
+    }
+
+    [Fact]
     public async Task AFarmersNonce_NeverCarriesOtherFieldsOntoTheDelivery()
     {
         // The nonce exception lets the farmer store the nonce, not write evidence fields.

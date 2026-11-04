@@ -4907,9 +4907,7 @@ public partial class SyncFunction
                         // copy still said pending) must not replace it, nor clear the typed-code
                         // misses: nothing is written, success at the current version.
                         var farmerNonceOnly = isFarmerNoncePersist && authenticatedUserId != existingTruckerId;
-                        var deliveryStatusNow = existing.TryGetValue("status", out var nowStatusAttr)
-                            ? nowStatusAttr.S : null;
-                        if (farmerNonceOnly && deliveryStatusNow != "pending")
+                        if (farmerNonceOnly && currentStatus != "pending")
                         {
                             return new SyncOperationResult
                             {
