@@ -2631,6 +2631,62 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String cropFormTotalLine(String total, String perQuintal) {
+    return 'Total: $total ETB ($perQuintal ETB per quintal)';
+  }
+
+  @override
+  String logoutUnsentChanges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count changes on this phone are not sent yet. Logging out deletes them.',
+      one: '1 change on this phone is not sent yet. Logging out deletes it.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String logoutUnpaidPayments(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count payments waiting to be sent will be cancelled.',
+      one: '1 payment waiting to be sent will be cancelled.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get logoutOfflineNeedsInternet =>
+      'You are offline. Logging in again will need internet.';
+
+  @override
+  String get logoutAnyway => 'Log out anyway';
+
+  @override
+  String get savedOnPhoneWillSend =>
+      'Saved on your phone. It will be sent when you have network.';
+
+  @override
+  String get orderAcceptedSent => 'You accepted the order.';
+
+  @override
+  String get orderRejectedSent =>
+      'You declined the order. The buyer gets the money back.';
+
+  @override
+  String get homeTilesLoadFailed => 'These numbers could not be loaded.';
+
+  @override
+  String get homeActionNeededLoadFailed =>
+      'Could not check for orders that need you.';
+
+  @override
+  String get deliveriesLoadFailed => 'Your deliveries could not be loaded.';
+
+  @override
   String paymentStatusTitle(String status) {
     return '$status payment';
   }

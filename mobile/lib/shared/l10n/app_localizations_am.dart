@@ -2556,6 +2556,58 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String cropFormTotalLine(String total, String perQuintal) {
+    return 'ጠቅላላ: $total ብር (በኩንታል $perQuintal ብር)';
+  }
+
+  @override
+  String logoutUnsentChanges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'በዚህ ስልክ ላይ ያሉ $count ለውጦች ገና አልተላኩም። ከወጡ ይሰረዛሉ።',
+      one: 'በዚህ ስልክ ላይ ያለ 1 ለውጥ ገና አልተላከም። ከወጡ ይሰረዛል።',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String logoutUnpaidPayments(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'ለመላክ የሚጠብቁ $count ክፍያዎች ይሰረዛሉ።',
+      one: 'ለመላክ የሚጠብቅ 1 ክፍያ ይሰረዛል።',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get logoutOfflineNeedsInternet =>
+      'ከመስመር ውጭ ነዎት። እንደገና ለመግባት ኢንተርኔት ያስፈልጋል።';
+
+  @override
+  String get logoutAnyway => 'ቢሆንም ውጣ';
+
+  @override
+  String get savedOnPhoneWillSend => 'በስልክዎ ላይ ተቀምጧል። ኔትወርክ ሲኖር ይላካል።';
+
+  @override
+  String get orderAcceptedSent => 'ትዕዛዙን ተቀብለዋል።';
+
+  @override
+  String get orderRejectedSent => 'ትዕዛዙን ውድቅ አድርገዋል። ገዢው ገንዘቡ ይመለስለታል።';
+
+  @override
+  String get homeTilesLoadFailed => 'እነዚህ ቁጥሮች ሊጫኑ አልቻሉም።';
+
+  @override
+  String get homeActionNeededLoadFailed => 'እርስዎን የሚጠብቁ ትዕዛዞችን ማረጋገጥ አልተቻለም።';
+
+  @override
+  String get deliveriesLoadFailed => 'ማድረሻዎችዎ ሊጫኑ አልቻሉም።';
+
+  @override
   String paymentStatusTitle(String status) {
     return '$status ክፍያ';
   }

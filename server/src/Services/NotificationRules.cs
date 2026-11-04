@@ -101,7 +101,7 @@ public static class NotificationRules
             return NoEvents;
         }
 
-        var events = new EventSet(OrderEntity, orderId, orderId, OrderParams(row));
+        var events = new EventSet(OrderEntity, orderId, orderId, OrderParams(row), PayeeLegs(row));
         var from = old.String("status");
         var to = row.String("status");
 
@@ -345,6 +345,33 @@ public static class NotificationRules
         => Params((NotificationParams.AmountEtb, Money(row.Number("transportCost"))));
 
     /// <summary>
+    /// F-1 (notifications-api.md 1.4.0): every order event tells the farmer and the trucker their
+    /// own leg, never the buyer's total (a farmer read the buyer's total in "Buyer paid ...").
+    /// </summary>
+    private static Dictionary<string, Dictionary<string, string?>> PayeeLegs(StreamImage row)
+        => Legs(row, FarmerLeg(row), TruckerLeg(row));
+
+    /// <summary>The payees' legs by recipient: the farmer's and the trucker's on the row.</summary>
+    private static Dictionary<string, Dictionary<string, string?>> Legs(
+        StreamImage row, Dictionary<string, string?> farmerLeg, Dictionary<string, string?> truckerLeg)
+    {
+        var legs = new Dictionary<string, Dictionary<string, string?>>(StringComparer.Ordinal);
+        var farmer = row.String("farmerId");
+        var trucker = row.String("truckerId");
+        if (farmer.Length > 0)
+        {
+            legs[farmer] = farmerLeg;
+        }
+
+        if (trucker.Length > 0 && trucker != farmer)
+        {
+            legs[trucker] = truckerLeg;
+        }
+
+        return legs;
+    }
+
+    /// <summary>
     /// The trucker's answer as <see cref="OrderCommitment.TruckerResponseOf"/> reads it: the stored
     /// value; for a trip row without it, <c>not_asked</c> while the money waits on the farmer
     /// (<paramref name="status"/> <c>funded</c> or <c>awaiting_transport</c>) and <c>accepted</c> after.
@@ -472,7 +499,9 @@ public static class NotificationRules
         var p = Names(row);
         Put(p, NotificationParams.AmountEtb, Money(row.Number("amount")));
         var orderId = row.String("orderId");
-        var events = new EventSet(EscrowEntity, escrowId, orderId.Length > 0 ? orderId : null, p);
+        // F-1: a payee reads their own leg (a dispute, a hold), never the buyer's total.
+        var events = new EventSet(EscrowEntity, escrowId, orderId.Length > 0 ? orderId : null, p,
+            Legs(row, EscrowLeg(row, "farmerPayout"), EscrowLeg(row, "truckerPayout")));
 
         var from = old.String("status");
         var to = row.String("status");
@@ -673,7 +702,8 @@ public static class NotificationRules
 
     /// <summary>
     /// The events of one record: one per recipient (the first rule to name a party wins), the
-    /// row's params under each event's own, and a deadline only on an action-required type.
+    /// row's params under the recipient's own (a payee's leg) under each event's own, and a
+    /// deadline only on an action-required type.
     /// </summary>
     private sealed class EventSet
     {
@@ -681,15 +711,19 @@ public static class NotificationRules
         private readonly string _entityId;
         private readonly string? _orderId;
         private readonly Dictionary<string, string> _rowParams;
+        private readonly Dictionary<string, Dictionary<string, string?>>? _recipientParams;
         private readonly List<NotificationEvent> _events = new();
         private readonly HashSet<string> _told = new(StringComparer.Ordinal);
 
-        public EventSet(string entity, string entityId, string? orderId, Dictionary<string, string> rowParams)
+        public EventSet(
+            string entity, string entityId, string? orderId, Dictionary<string, string> rowParams,
+            Dictionary<string, Dictionary<string, string?>>? recipientParams = null)
         {
             _entity = entity;
             _entityId = entityId;
             _orderId = orderId;
             _rowParams = rowParams;
+            _recipientParams = recipientParams;
         }
 
         public IReadOnlyList<NotificationEvent> Events => _events;
@@ -704,24 +738,35 @@ public static class NotificationRules
             }
 
             var p = new Dictionary<string, string>(_rowParams, StringComparer.Ordinal);
+            if (_recipientParams != null && _recipientParams.TryGetValue(recipientId, out var own))
+            {
+                Apply(p, own);
+            }
+
             if (extra != null)
             {
-                foreach (var (key, value) in extra)
-                {
-                    if (string.IsNullOrEmpty(value))
-                    {
-                        p.Remove(key);
-                    }
-                    else
-                    {
-                        p[key] = value;
-                    }
-                }
+                Apply(p, extra);
             }
 
             _events.Add(new NotificationEvent(
                 recipientId, type, _entity, _entityId, _orderId, p, push,
                 NotificationTypes.ActionRequired.Contains(type) ? deadlineUtc : null));
+        }
+
+        /// <summary>Puts <paramref name="overrides"/> over <paramref name="p"/>; a null or empty value removes the key.</summary>
+        private static void Apply(Dictionary<string, string> p, Dictionary<string, string?> overrides)
+        {
+            foreach (var (key, value) in overrides)
+            {
+                if (string.IsNullOrEmpty(value))
+                {
+                    p.Remove(key);
+                }
+                else
+                {
+                    p[key] = value;
+                }
+            }
         }
 
         /// <summary>An event whose deadline (param and push time to live) is the row's ISO <paramref name="deadlineField"/>.</summary>

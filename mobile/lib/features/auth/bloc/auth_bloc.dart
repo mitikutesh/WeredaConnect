@@ -29,10 +29,16 @@ import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
+import 'package:wereda_connect/core/sync/sync_queue.dart'
+    if (dart.library.html) 'package:wereda_connect/core/sync/sync_queue_web.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/live_trip/data/track_snapshot_store.dart';
 import 'package:wereda_connect/features/messaging/data/repositories/web_message_repository.dart';
+
+/// What a logout would delete before it reached the server (E-1): the
+/// user's queued [changes] and their unpaid [payments] waiting to be sent.
+typedef LogoutUnsentWork = ({int changes, int payments});
 
 /// BLoC for managing authentication state.
 ///
@@ -164,6 +170,32 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   /// The auth service, for flows that talk to it directly (step-up dialog).
   AuthService get authService => _authService;
+
+  /// What logging [userId] out would delete before it reached the server
+  /// (E-1), for the logout dialog to say: the queued changes the logout's
+  /// own predicate deletes ([SyncQueue.getUnsentCountForUser]) and the
+  /// unpaid payments waiting to be sent that it cancels
+  /// ([_cancelUserPendingIntents]). None on web, which has no queue, and
+  /// without Isar.
+  Future<LogoutUnsentWork> unsentWorkFor(String userId) async {
+    final isar = _isar;
+    if (kIsWeb || isar == null || userId.isEmpty) {
+      return (changes: 0, payments: 0);
+    }
+    final queue = SyncQueue(isar);
+    try {
+      final changes = await queue.getUnsentCountForUser(userId);
+      // Typed: the web build's Isar stub answers dynamic.
+      final int payments = await isar.paymentIntents
+          .filter()
+          .statusEqualTo(IntentStatus.pendingSync)
+          .buyerIdEqualTo(userId)
+          .count();
+      return (changes: changes, payments: payments);
+    } finally {
+      queue.dispose();
+    }
+  }
 
   @override
   Future<void> close() async {
