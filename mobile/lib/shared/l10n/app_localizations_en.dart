@@ -2631,6 +2631,16 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String cropFormTotal(String amount) {
+    return 'Total: $amount ETB';
+  }
+
+  @override
+  String cropFormPerQuintal(String price) {
+    return '= $price ETB per quintal';
+  }
+
+  @override
   String paymentStatusTitle(String status) {
     return '$status payment';
   }

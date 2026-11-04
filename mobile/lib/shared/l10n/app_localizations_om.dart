@@ -2645,6 +2645,16 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String cropFormTotal(String amount) {
+    return 'Waliigala: Birrii $amount';
+  }
+
+  @override
+  String cropFormPerQuintal(String price) {
+    return '= Kuntaala tokkoof Birrii $price';
+  }
+
+  @override
   String paymentStatusTitle(String status) {
     return 'Kaffaltii $status';
   }

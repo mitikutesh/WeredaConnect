@@ -2503,6 +2503,8 @@
       }
     }
   },
+  "cropFormTotal": "ጠቅላላ: {amount} ብር",
+  "cropFormPerQuintal": "= በኩንታል {price} ብር",
   "paymentStatusTitle": "{status} ክፍያ",
   "@paymentStatusTitle": {
     "description": "Payment notification title with status",

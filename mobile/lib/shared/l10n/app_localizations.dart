@@ -4858,6 +4858,18 @@ abstract class AppLocalizations {
   /// **'{count} waiting to sync'**
   String syncPendingCount(int count);
 
+  /// Create crop listing (F-3): live line under the quantity (quintals) and price (ETB per kg): what the whole listing sells for; {amount} is a grouped number
+  ///
+  /// In en, this message translates to:
+  /// **'Total: {amount} ETB'**
+  String cropFormTotal(String amount);
+
+  /// Create crop listing (F-3): after the total, the price per kg as a price per quintal (100 kg); {price} is a grouped number
+  ///
+  /// In en, this message translates to:
+  /// **'= {price} ETB per quintal'**
+  String cropFormPerQuintal(String price);
+
   /// Payment notification title with status. {status} is the localized payment status label, not the enum name
   ///
   /// In en, this message translates to:

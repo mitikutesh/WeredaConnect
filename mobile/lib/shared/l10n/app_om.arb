@@ -2504,6 +2504,8 @@
   "offline": "Oflaayinii",
   "syncFailureCount": "{count} hojiiwwan xiyyeeffannoo barbaadu",
   "syncPendingCount": "{count} walsimsisuuf eeggataa jiru",
+  "cropFormTotal": "Waliigala: Birrii {amount}",
+  "cropFormPerQuintal": "= Kuntaala tokkoof Birrii {price}",
   "paymentStatusTitle": "Kaffaltii {status}",
   "myCrops": "Midhaan Koo",
   "browseAll": "Barbaadi",

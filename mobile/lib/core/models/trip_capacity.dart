@@ -17,6 +17,10 @@ double? quintalsFromWire(Object? value) => switch (value) {
       _ => null,
     };
 
+/// Kilograms in one quintal: listings, requests and trips are quoted in
+/// quintals, crop prices in ETB per kg.
+const double kgPerQuintal = 100;
+
 /// A quintal amount for display, without a needless ".0".
 String formatQuintals(double value) => value == value.roundToDouble()
     ? value.toStringAsFixed(0)

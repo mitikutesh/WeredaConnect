@@ -135,6 +135,42 @@ void main() {
       expect(find.text('Please enter the location'), findsOneWidget);
     });
 
+    // F-3: quantity in quintals, price per kg: the form says the total.
+    testWidgets('shows the total and the price per quintal as typed',
+        (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      final total = find.byKey(const Key('create_listing_total'));
+      expect(total, findsNothing);
+
+      await tester.enterText(
+        find.byKey(const Key('create_listing_quantity')),
+        '12',
+      );
+      await tester.pump();
+      // A quantity alone is no total yet.
+      expect(total, findsNothing);
+
+      await tester.enterText(
+        find.byKey(const Key('create_listing_price')),
+        '42.5',
+      );
+      await tester.pump();
+      // 12 quintals x 100 kg x 42.50 ETB/kg.
+      expect(
+        tester.widget<Text>(total).data,
+        'Total: 51,000 ETB · = 4,250 ETB per quintal',
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('create_listing_quantity')),
+        '0',
+      );
+      await tester.pump();
+      expect(total, findsNothing);
+    });
+
     testWidgets('shows GPS captured indicator when GPS succeeds',
         (tester) async {
       await tester.pumpWidget(buildTestWidget());

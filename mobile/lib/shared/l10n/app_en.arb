@@ -3291,6 +3291,10 @@
     "description": "Subtitle for pending sync notification",
     "placeholders": { "count": { "type": "int" } }
   },
+  "cropFormTotal": "Total: {amount} ETB",
+  "@cropFormTotal": {"description": "Create crop listing (F-3): live line under the quantity (quintals) and price (ETB per kg): what the whole listing sells for; {amount} is a grouped number", "placeholders": {"amount": {"type": "String"}}},
+  "cropFormPerQuintal": "= {price} ETB per quintal",
+  "@cropFormPerQuintal": {"description": "Create crop listing (F-3): after the total, the price per kg as a price per quintal (100 kg); {price} is a grouped number", "placeholders": {"price": {"type": "String"}}},
   "paymentStatusTitle": "{status} payment",
   "@paymentStatusTitle": {
     "description": "Payment notification title with status. {status} is the localized payment status label, not the enum name",
