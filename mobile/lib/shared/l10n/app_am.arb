@@ -2505,6 +2505,10 @@
   },
   "cropFormTotal": "ጠቅላላ: {amount} ብር",
   "cropFormPerQuintal": "= በኩንታል {price} ብር",
+  "logoutUnsentChanges": "{count, plural, =1{በዚህ ስልክ ላይ ያለ 1 ለውጥ ገና አልተላከም። ከወጡ ይሰረዛል።} other{በዚህ ስልክ ላይ ያሉ {count} ለውጦች ገና አልተላኩም። ከወጡ ይሰረዛሉ።}}",
+  "logoutUnpaidPayments": "{count, plural, =1{ለመላክ የሚጠብቅ 1 ክፍያ ይሰረዛል።} other{ለመላክ የሚጠብቁ {count} ክፍያዎች ይሰረዛሉ።}}",
+  "logoutOfflineNeedsInternet": "ከመስመር ውጭ ነዎት። እንደገና ለመግባት ኢንተርኔት ያስፈልጋል።",
+  "logoutAnyway": "ቢሆንም ውጣ",
   "paymentStatusTitle": "{status} ክፍያ",
   "@paymentStatusTitle": {
     "description": "Payment notification title with status",

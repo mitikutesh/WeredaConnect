@@ -2655,6 +2655,37 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String logoutUnsentChanges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Jijjiiramni $count bilbila kana irra jiran ammallee hin ergamne. Yoo baatan ni haqamu.',
+      one:
+          'Jijjiiramni 1 bilbila kana irra jiru ammallee hin ergamne. Yoo baatan ni haqama.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String logoutUnpaidPayments(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Kaffaltiiwwan $count erguuf eeggatan ni haqamu.',
+      one: 'Kaffaltiin 1 erguuf eeggatu ni haqama.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get logoutOfflineNeedsInternet =>
+      'Oflaayinii jirtu. Irra deebitanii seenuuf interneetiin barbaachisa.';
+
+  @override
+  String get logoutAnyway => 'Haa ta\'u malee ba\'i';
+
+  @override
   String paymentStatusTitle(String status) {
     return 'Kaffaltii $status';
   }

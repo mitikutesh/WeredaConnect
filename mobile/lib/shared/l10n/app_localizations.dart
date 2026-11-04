@@ -4870,6 +4870,30 @@ abstract class AppLocalizations {
   /// **'= {price} ETB per quintal'**
   String cropFormPerQuintal(String price);
 
+  /// Logout dialog (E-1): changes made on this phone that are still in the sync queue; logging out deletes them (shared-device protection)
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 change on this phone is not sent yet. Logging out deletes it.} other{{count} changes on this phone are not sent yet. Logging out deletes them.}}'**
+  String logoutUnsentChanges(int count);
+
+  /// Logout dialog (E-1): buyer payments started offline that wait on this phone; logging out cancels them, no money has moved
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 payment waiting to be sent will be cancelled.} other{{count} payments waiting to be sent will be cancelled.}}'**
+  String logoutUnpaidPayments(int count);
+
+  /// Logout dialog (E-1), offline: logout clears the offline login, so signing in again needs a connection
+  ///
+  /// In en, this message translates to:
+  /// **'You are offline. Logging in again will need internet.'**
+  String get logoutOfflineNeedsInternet;
+
+  /// Logout dialog (E-1): the button that logs out although changes are not sent yet
+  ///
+  /// In en, this message translates to:
+  /// **'Log out anyway'**
+  String get logoutAnyway;
+
   /// Payment notification title with status. {status} is the localized payment status label, not the enum name
   ///
   /// In en, this message translates to:

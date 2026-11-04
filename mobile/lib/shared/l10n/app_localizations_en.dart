@@ -2641,6 +2641,36 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String logoutUnsentChanges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count changes on this phone are not sent yet. Logging out deletes them.',
+      one: '1 change on this phone is not sent yet. Logging out deletes it.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String logoutUnpaidPayments(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count payments waiting to be sent will be cancelled.',
+      one: '1 payment waiting to be sent will be cancelled.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get logoutOfflineNeedsInternet =>
+      'You are offline. Logging in again will need internet.';
+
+  @override
+  String get logoutAnyway => 'Log out anyway';
+
+  @override
   String paymentStatusTitle(String status) {
     return '$status payment';
   }

@@ -312,6 +312,43 @@ void main() {
       expect(count, 2); // 1 pending + 1 syncing
     });
 
+    // E-1: what a logout would delete before it reached the server, by the
+    // logout's own `{userId}:` key prefix.
+    test('getUnsentCountForUser counts the user\'s unsent operations only',
+        () async {
+      Future<void> op(String userId, String id, {String type = 'trip'}) =>
+          syncQueue.enqueue(
+            userId: userId,
+            entityType: type,
+            entityId: id,
+            action: 'create',
+            data: '{}',
+            operationId: id,
+          );
+      await op('user-001', 'op-pending');
+      await op('user-001', 'op-syncing');
+      await op('user-001', 'op-failed');
+      await op('user-001', 'op-rejected');
+      await op('user-001', 'op-synced');
+      await op('user-001', 'op-match', type: 'match_event');
+      // A user id that only starts like this one is someone else.
+      await op('user-0012', 'op-lookalike');
+      await op('user-002', 'op-other');
+      await syncQueue.markAsSyncing('op-syncing');
+      for (var i = 0; i < SyncQueue.maxRetries; i++) {
+        await syncQueue.markAsFailed('op-failed');
+      }
+      await syncQueue.markAsRejected('op-rejected');
+      await syncQueue.markAsSynced('op-synced');
+
+      // Pending, on its way, and failed but retried again (getPendingCount
+      // leaves the failed one out).
+      expect(await syncQueue.getUnsentCountForUser('user-001'), 3);
+      expect(await syncQueue.getUnsentCountForUser('user-002'), 1);
+      expect(await syncQueue.getUnsentCountForUser('user-003'), 0);
+      expect(await syncQueue.getUnsentCountForUser(''), 0);
+    });
+
     test('getFailedCount returns count of permanently failed operations',
         () async {
       await syncQueue.enqueue(

@@ -2566,6 +2566,35 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String logoutUnsentChanges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'በዚህ ስልክ ላይ ያሉ $count ለውጦች ገና አልተላኩም። ከወጡ ይሰረዛሉ።',
+      one: 'በዚህ ስልክ ላይ ያለ 1 ለውጥ ገና አልተላከም። ከወጡ ይሰረዛል።',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String logoutUnpaidPayments(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'ለመላክ የሚጠብቁ $count ክፍያዎች ይሰረዛሉ።',
+      one: 'ለመላክ የሚጠብቅ 1 ክፍያ ይሰረዛል።',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get logoutOfflineNeedsInternet =>
+      'ከመስመር ውጭ ነዎት። እንደገና ለመግባት ኢንተርኔት ያስፈልጋል።';
+
+  @override
+  String get logoutAnyway => 'ቢሆንም ውጣ';
+
+  @override
   String paymentStatusTitle(String status) {
     return '$status ክፍያ';
   }

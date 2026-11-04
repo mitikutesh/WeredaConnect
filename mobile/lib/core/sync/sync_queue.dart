@@ -385,6 +385,31 @@ class SyncQueue {
     return pendingCount + syncingCount;
   }
 
+  /// The operations of [userId] a logout would delete before they reached
+  /// the server (E-1). The logout's own predicate (a `{userId}:` idempotency
+  /// key, `AuthBloc._clearUserBusinessData`) over every operation not yet
+  /// synced: waiting, on its way, or failed and retried again. Left out: an
+  /// operation the server refused for good ([isRejected]), which no sync can
+  /// send, and match events, background analytics the user never made.
+  Future<int> getUnsentCountForUser(String userId) async {
+    if (userId.isEmpty) return 0;
+    return _isar.syncOperations
+        .filter()
+        .idempotencyKeyStartsWith('$userId:')
+        .not()
+        .statusEqualTo(SyncStatus.synced)
+        .not()
+        .entityTypeEqualTo('match_event')
+        .group(
+          (q) => q
+              .not()
+              .statusEqualTo(SyncStatus.failed)
+              .or()
+              .retryCountLessThan(maxRetries, include: true),
+        )
+        .count();
+  }
+
   /// Get the count of failed operations: those that ran out of retries and
   /// those the server rejected for good, except rejected order operations,
   /// match events, check-ins and operations flagged reverted

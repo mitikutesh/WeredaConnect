@@ -32,6 +32,10 @@ class SyncQueue {
 
   Future<int> getFailedCount() async => 0;
 
+  /// No queue on web: a write goes straight to the API, so a logout never
+  /// deletes an unsent change (E-1).
+  Future<int> getUnsentCountForUser(String userId) async => 0;
+
   Future<void> markSynced(String operationId) async {}
 
   Future<void> markFailed(String operationId) async {}
@@ -71,6 +75,9 @@ class SyncQueue {
     DateTime? capturedAfter,
   }) async =>
       const [];
+
+  /// Nothing held on web.
+  void dispose() {}
 }
 
 /// Exception thrown when the sync queue is full.
