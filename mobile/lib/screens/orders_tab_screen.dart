@@ -333,8 +333,9 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
             // A cached `held` row is stale once the order moved on.
             underReview: _heldOrderIds.contains(order.orderId) &&
                 orderHoldableStatuses.contains(order.status),
-            // Not twice while an answer from a card runs.
-            acceptEnabled: _heldChecked && state is! OrderLoading,
+            acceptEnabled: _heldChecked,
+            // Neither answer while one from a card runs.
+            actionsEnabled: state is! OrderLoading,
             onTap: () => _openOrderDetail(order.orderId),
             onAccept: isFarmer
                 ? () {

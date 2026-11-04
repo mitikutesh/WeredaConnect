@@ -52,7 +52,7 @@ caller; there is no way to read another user's inbox.
         "buyerName": "Abebe T.",
         "cropType": "teff",
         "quantityKg": "500",
-        "amountEtb": "42500.00",
+        "amountEtb": "40000.00",
         "deadlineAt": "2026-10-27T08:15:02Z"
       },
       "createdAt": "2026-10-26T08:15:02Z"
@@ -113,7 +113,7 @@ envelope as the chat and match pushes. The FCM payload:
 {
   "notification": {
     "title": "New order: 500 kg teff",
-    "body": "Abebe T. paid 42,500 ETB into escrow. Accept by 27 Oct 11:15.",
+    "body": "Buyer Abebe T. paid 40,000 ETB for you, held safely until delivery. Please accept or decline by 27 Oct 11:15.",
     "tag": "order-ord-7f3a"
   },
   "data": {

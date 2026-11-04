@@ -3291,10 +3291,8 @@
     "description": "Subtitle for pending sync notification",
     "placeholders": { "count": { "type": "int" } }
   },
-  "cropFormTotal": "Total: {amount} ETB",
-  "@cropFormTotal": {"description": "Create crop listing (F-3): live line under the quantity (quintals) and price (ETB per kg): what the whole listing sells for; {amount} is a grouped number", "placeholders": {"amount": {"type": "String"}}},
-  "cropFormPerQuintal": "= {price} ETB per quintal",
-  "@cropFormPerQuintal": {"description": "Create crop listing (F-3): after the total, the price per kg as a price per quintal (100 kg); {price} is a grouped number", "placeholders": {"price": {"type": "String"}}},
+  "cropFormTotalLine": "Total: {total} ETB ({perQuintal} ETB per quintal)",
+  "@cropFormTotalLine": {"description": "Create crop listing (F-3): live line under the quantity (quintals) and price (ETB per kg): what the whole listing sells for, then the price per kg as a price per quintal (100 kg); both are grouped numbers", "placeholders": {"total": {"type": "String"}, "perQuintal": {"type": "String"}}},
   "logoutUnsentChanges": "{count, plural, =1{1 change on this phone is not sent yet. Logging out deletes it.} other{{count} changes on this phone are not sent yet. Logging out deletes them.}}",
   "@logoutUnsentChanges": {"description": "Logout dialog (E-1): changes made on this phone that are still in the sync queue; logging out deletes them (shared-device protection)", "placeholders": {"count": {"type": "int"}}},
   "logoutUnpaidPayments": "{count, plural, =1{1 payment waiting to be sent will be cancelled.} other{{count} payments waiting to be sent will be cancelled.}}",

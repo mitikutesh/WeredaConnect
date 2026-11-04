@@ -64,6 +64,11 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
   /// One quintal: what the minus and plus buttons move the quantity by.
   static const double _stepKg = 100;
 
+  /// The order was created: Place Order stays disabled from then on, also
+  /// while the saved-or-sent snackbar reads the connectivity before this
+  /// screen is replaced, so a second tap never creates a second order.
+  bool _placed = false;
+
   @override
   void initState() {
     super.initState();
@@ -175,6 +180,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
   }
 
   void _placeOrder() {
+    if (_placed) return;
     final authState = context.read<AuthBloc>().state;
     if (authState is! AuthAuthenticated) return;
 
@@ -224,6 +230,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
       body: BlocListener<OrderBloc, OrderState>(
         listener: (context, state) async {
           if (state is OrderCreated) {
+            setState(() => _placed = true);
             // E-5: placed (sent), or saved on the phone to send later. Its
             // snackbar goes before the request's.
             await showSavedOrSent(context, sent: l10n.orderPlacedSuccess);
@@ -425,7 +432,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
       // ── Place Order, pinned at the foot ────────────────────────────
       bottomNavigationBar: BlocBuilder<OrderBloc, OrderState>(
         builder: (context, state) {
-          final isLoading = state is OrderLoading;
+          final isLoading = state is OrderLoading || _placed;
           return FwBottomActions(
             children: [
               FilledButton(

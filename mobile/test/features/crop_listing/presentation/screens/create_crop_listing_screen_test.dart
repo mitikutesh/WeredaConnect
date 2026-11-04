@@ -165,7 +165,7 @@ void main() {
       // 12 quintals x 100 kg x 42.50 ETB/kg.
       expect(
         tester.widget<Text>(total).data,
-        'Total: 51,000 ETB · = 4,250 ETB per quintal',
+        'Total: 51,000 ETB (4,250 ETB per quintal)',
       );
 
       await tester.enterText(

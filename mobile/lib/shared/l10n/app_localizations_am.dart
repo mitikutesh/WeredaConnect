@@ -2556,13 +2556,8 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
-  String cropFormTotal(String amount) {
-    return 'ጠቅላላ: $amount ብር';
-  }
-
-  @override
-  String cropFormPerQuintal(String price) {
-    return '= በኩንታል $price ብር';
+  String cropFormTotalLine(String total, String perQuintal) {
+    return 'ጠቅላላ: $total ብር (በኩንታል $perQuintal ብር)';
   }
 
   @override

@@ -279,4 +279,68 @@ void main() {
       expect(find.text(message), findsOneWidget);
     });
   }
+
+  // A second tap while the snackbar reads the connectivity never creates a
+  // second order.
+  testWidgets('Place Order stays disabled once the order is created',
+      (tester) async {
+    final monitor = MockConnectivityMonitor();
+    final connectivity = Completer<bool>();
+    when(() => monitor.isConnected()).thenAnswer((_) => connectivity.future);
+    final states = StreamController<OrderState>.broadcast();
+    addTearDown(states.close);
+    when(() => orderBloc.stream).thenAnswer((_) => states.stream);
+    await tester.pumpWidget(
+      Provider<ConnectivityMonitor>.value(
+        value: monitor,
+        child: MultiBlocProvider(
+          providers: [
+            BlocProvider<OrderBloc>.value(value: orderBloc),
+            BlocProvider<AuthBloc>.value(value: authBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: PlaceOrderScreen(
+              listing: listing(quintals: 10),
+              farmerName: 'Kedir',
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byType(FilledButton));
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    expect(created, hasLength(1));
+
+    final order = Order()
+      ..orderId = 'order-1'
+      ..listingId = 'listing-001'
+      ..buyerId = 'buyer-001'
+      ..farmerId = 'farmer-001'
+      ..buyerName = 'Meron Alemu'
+      ..farmerName = 'Kedir'
+      ..cropType = 'lentils'
+      ..quantity = 1000
+      ..pricePerUnit = 1000
+      ..totalPrice = 1000000
+      ..status = OrderStatus.created
+      ..createdAt = DateTime.utc(2026, 11, 4)
+      ..version = 1;
+    // OrderCreated while the connectivity read has not answered yet.
+    states.add(OrderCreated(order: order));
+    await tester.pump();
+    await tester.pump();
+
+    expect(placeOrderButton(tester).onPressed, isNull);
+    await tester.tap(find.byType(FilledButton), warnIfMissed: false);
+    await tester.pump();
+    expect(created, hasLength(1));
+
+    connectivity.complete(true);
+    await tester.pumpAndSettle();
+  });
 }

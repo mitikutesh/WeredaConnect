@@ -208,23 +208,13 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           if (state is SingleOrderLoaded) _shown = state.order;
           final order = _shown;
           if (order != null && order.orderId == widget.orderId) {
-            final body = _OrderDetailBody(
+            // An action or a reload runs: the order stays, its actions
+            // wait, Back still works.
+            return _OrderDetailBody(
               order: order,
               underReview: _underReview,
               holdChecked: _holdChecked,
-            );
-            if (state is! OrderLoading) return body;
-            // An action or a reload runs: the order stays, taps wait.
-            return Stack(
-              children: [
-                body,
-                const ModalBarrier(
-                  key: Key('order_detail_busy'),
-                  dismissible: false,
-                  color: Color(0x14000000),
-                ),
-                const Center(child: CircularProgressIndicator()),
-              ],
+              busy: state is OrderLoading,
             );
           }
           return SafeArea(
@@ -265,10 +255,16 @@ class _OrderDetailBody extends StatelessWidget {
   /// Whether the hold check has answered; the farmer's Accept waits for it.
   final bool holdChecked;
 
+  /// An action or a reload runs (E-6): a progress line under the header,
+  /// and the actions take no taps until it is done. The header, with
+  /// Back, is never blocked.
+  final bool busy;
+
   const _OrderDetailBody({
     required this.order,
     this.underReview = false,
     this.holdChecked = true,
+    this.busy = false,
   });
 
   @override
@@ -326,6 +322,11 @@ class _OrderDetailBody extends StatelessWidget {
                   userId: userId,
                   farmerAnswering: farmerAnswering,
                 ),
+                if (busy)
+                  const LinearProgressIndicator(
+                    key: Key('order_detail_busy'),
+                    minHeight: 2,
+                  ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
                   child: Column(
@@ -438,13 +439,14 @@ class _OrderDetailBody extends StatelessWidget {
                       ],
 
                       // ── Role-based actions ───────────────────────────
-                      ..._buildActions(
+                      for (final action in _buildActions(
                         context,
                         order: order,
                         userId: userId,
                         userRole: userRole,
                         l10n: l10n,
-                      ),
+                      ))
+                        AbsorbPointer(absorbing: busy, child: action),
 
                       // The buyer's money: held in escrow, or the total.
                       if (isBuyer) _BuyerTotalRow(order: order),
@@ -456,13 +458,16 @@ class _OrderDetailBody extends StatelessWidget {
           ),
         ),
       ),
-      bottomNavigationBar: _answerActions(
+      bottomNavigationBar: switch (_answerActions(
         context,
         order: order,
         userId: userId,
         userRole: userRole,
         l10n: l10n,
-      ),
+      )) {
+        final actions? => AbsorbPointer(absorbing: busy, child: actions),
+        null => null,
+      },
     );
   }
 
@@ -1260,15 +1265,17 @@ class _TruckerPayCard extends StatelessWidget {
               ],
             ),
           ),
-          Text(
-            l10n.etbCurrency(formatEtbAmount(order.transportCost ?? 0)),
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.5,
-              color: AppTheme.soilDark,
+          // No transport cost on the order: no amount, not 0.
+          if (order.transportCost case final transport?)
+            Text(
+              l10n.etbCurrency(formatEtbAmount(transport)),
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.5,
+                color: AppTheme.soilDark,
+              ),
             ),
-          ),
         ],
       ),
     );

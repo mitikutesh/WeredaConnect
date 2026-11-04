@@ -1158,6 +1158,28 @@ void main() {
       );
     });
 
+    testWidgets('while an action runs: no second answer, Back still works',
+        (tester) async {
+      stubAuth(UserRole.farmer, _farmerId);
+      await openDetail(tester, _makeOrder(status: OrderStatus.funded));
+
+      orderStream.add(const OrderLoading());
+      await tester.pump();
+      await tester.pump();
+      expect(find.byKey(const Key('order_detail_busy')), findsOneWidget);
+
+      clearInteractions(orderBloc);
+      await tester.tap(find.text(en.acceptOrder), warnIfMissed: false);
+      await tester.tap(find.text(en.rejectOrder), warnIfMissed: false);
+      await tester.pump();
+      verifyNever(() => orderBloc.add(any(that: isA<AcceptOrder>())));
+      expect(find.text(en.farmerRejectRefundNote), findsNothing);
+
+      await tester.tap(find.byType(FwBackButton).first);
+      await tester.pumpAndSettle();
+      expect(find.byType(OrderDetailScreen), findsNothing);
+    });
+
     for (final (online, accepted, message) in [
       (true, true, en.orderAcceptedSent),
       (true, false, en.orderRejectedSent),

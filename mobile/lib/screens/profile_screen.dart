@@ -1052,7 +1052,7 @@ class _AppLockRowState extends State<_AppLockRow> {
 /// The logout confirmation (E-1). With unsent work: how many changes are
 /// not sent yet and how many payments waiting to be sent will be
 /// cancelled, that logging in again needs internet when offline, then
-/// Cancel, Sync now and Log out anyway. Logout waits while Sync now runs
+/// Cancel, Sync now (with queued changes) and Log out anyway. Logout waits while Sync now runs
 /// (at most [ProfileScreen.logoutSyncTimeout]); the counts are then read
 /// again, and once nothing is left the dialog only asks. Pops true to log
 /// out.
@@ -1127,7 +1127,9 @@ class _LogoutDialogState extends State<_LogoutDialog> {
           onPressed: () => Navigator.of(context).pop(false),
           child: Text(l10n.cancel),
         ),
-        if (_unsent)
+        // Only queued changes: a payment waiting to be sent goes with the
+        // escrow sync on reconnect, which this button does not drive.
+        if (_work.changes > 0)
           TextButton(
             key: const Key('logout_sync_now'),
             onPressed: _syncing ? null : _sync,

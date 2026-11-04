@@ -151,6 +151,15 @@ void main() {
     verify(() => bloc.add(const AuthLogoutRequested())).called(1);
   });
 
+  testWidgets('payments only: no Sync now, which cannot send them',
+      (tester) async {
+    await openDialog(tester, work: const [(changes: 0, payments: 2)]);
+
+    expect(dialogText(en.logoutUnpaidPayments(2)), findsOneWidget);
+    expect(find.byKey(const Key('logout_sync_now')), findsNothing);
+    expect(find.text(en.logoutAnyway), findsOneWidget);
+  });
+
   testWidgets('Cancel keeps the session and the changes', (tester) async {
     await openDialog(tester, work: const [(changes: 1, payments: 0)]);
 

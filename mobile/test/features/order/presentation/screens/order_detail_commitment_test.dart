@@ -637,6 +637,19 @@ void main() {
       expect(find.text(en.etbCurrency('300')), findsOneWidget);
     });
 
+    testWidgets('a trip order without a transport cost shows no 0 ETB',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.accepted)..cropCost = 8500,
+        UserRole.trucker,
+        'trucker-001',
+      );
+
+      expect(find.text(en.orderYourTransportPay), findsOneWidget);
+      expect(find.text(en.etbCurrency('0')), findsNothing);
+    });
+
     testWidgets('no escrow line before the money is in', (tester) async {
       await show(
         tester,

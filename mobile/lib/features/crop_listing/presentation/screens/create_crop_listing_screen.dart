@@ -118,8 +118,10 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
     if (quintals == null || quintals <= 0) return null;
     if (pricePerKg == null || pricePerKg <= 0) return null;
     final perQuintal = pricePerKg * kgPerQuintal;
-    return '${l10n.cropFormTotal(formatEtbAmount(quintals * perQuintal))} · '
-        '${l10n.cropFormPerQuintal(formatEtbAmount(perQuintal))}';
+    return l10n.cropFormTotalLine(
+      formatEtbAmount(quintals * perQuintal),
+      formatEtbAmount(perQuintal),
+    );
   }
 
   Future<void> _captureGps() async {

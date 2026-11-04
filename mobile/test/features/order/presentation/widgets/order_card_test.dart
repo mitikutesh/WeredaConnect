@@ -203,6 +203,22 @@ void main() {
       expect(find.text(l10n.acceptOrder), findsNothing);
     });
 
+    testWidgets('trucker, no transport cost on the order: no amount, not 0',
+        (tester) async {
+      await _pumpCard(
+        tester,
+        status: OrderStatus.funded,
+        isFarmerView: false,
+        isTruckerView: true,
+        order: _order(OrderStatus.funded, cropCost: 5000, orderTotal: 5250),
+      );
+      final l10n = l10nOf(tester);
+
+      expect(find.text('0 ETB'), findsNothing);
+      expect(find.text(l10n.orderYourTransportPay), findsNothing);
+      expect(find.text('5,250 ETB'), findsNothing);
+    });
+
     testWidgets('buyer: the order total with the transport line, unchanged',
         (tester) async {
       await _pumpCard(

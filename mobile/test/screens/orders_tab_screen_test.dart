@@ -226,6 +226,37 @@ void main() {
       );
     });
 
+    testWidgets('Reject waits while an Accept from the card runs',
+        (tester) async {
+      await pumpList(tester);
+      await tester.tap(find.text(en.acceptOrder));
+
+      orderStream.add(const OrderLoading());
+      await tester.pump();
+      await tester.pump();
+
+      OutlinedButton reject() => tester.widget<OutlinedButton>(
+            find.widgetWithText(OutlinedButton, en.rejectOrder),
+          );
+      FilledButton accept() => tester.widget<FilledButton>(
+            find.widgetWithText(FilledButton, en.acceptOrder),
+          );
+      expect(reject().onPressed, isNull);
+      expect(accept().onPressed, isNull);
+
+      // No reason sheet can open, so no second (opposite) answer.
+      verifyNever(() => orderBloc.add(any(that: isA<RejectOrder>())));
+
+      // The accept failed: both answers are offered again.
+      orderStream.add(
+        const OrderError(message: 'offline', code: AppErrorCode.network),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(reject().onPressed, isNotNull);
+      expect(accept().onPressed, isNotNull);
+    });
+
     for (final (online, message) in [
       (true, en.orderAcceptedSent),
       (false, en.savedOnPhoneWillSend),
