@@ -91,6 +91,15 @@ internal static class HandoffCode
         return CheckDigit(code) == 0;
     }
 
+    /// <summary>
+    /// The id of one typed-code attempt in the secret row: the operation id and the first 16 hex
+    /// digits of SHA-256 of the code. A retry of the same operation with the same code is the same
+    /// attempt (counted once); the same operation id with another code is a new attempt, so a
+    /// client cannot reuse one id to guess for free (errors never store the idempotency key).
+    /// </summary>
+    public static string AttemptId(string operationId, string code) =>
+        operationId + ":" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code)))[..16].ToLowerInvariant();
+
     /// <summary>Whether <paramref name="code"/> is the nonce's code, compared in fixed time.</summary>
     public static bool Matches(string code, string nonce, string deliveryId) =>
         CryptographicOperations.FixedTimeEquals(

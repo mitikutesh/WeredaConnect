@@ -96,8 +96,8 @@ public sealed class SyncFunctionHandoffCodeTests
         result.GetProperty("status").GetString().Should().Be("success", result.ToString());
         await _qrSecrets.Received(1).MarkConsumedAsync(DeliveryId, to, OperationId);
         // The attempt was taken before the comparison and given back: a right code is no miss.
-        await _qrSecrets.Received(1).TryTakeCodeAttemptAsync(DeliveryId, to, OperationId, Nonce, 5);
-        await _qrSecrets.Received(1).ReturnCodeAttemptAsync(DeliveryId, to, OperationId);
+        await _qrSecrets.Received(1).TryTakeCodeAttemptAsync(DeliveryId, to, AttemptOf(Code), Nonce, 5);
+        await _qrSecrets.Received(1).ReturnCodeAttemptAsync(DeliveryId, to, AttemptOf(Code));
     }
 
     [Fact]
@@ -111,7 +111,8 @@ public sealed class SyncFunctionHandoffCodeTests
 
         result.GetProperty("status").GetString().Should().Be("error");
         result.GetProperty("message").GetString().Should().StartWith("DELIVERY_CODE_MISMATCH: ");
-        await _qrSecrets.Received(1).TryTakeCodeAttemptAsync(DeliveryId, "pickedUp", OperationId, Nonce, 5);
+        await _qrSecrets.Received(1).TryTakeCodeAttemptAsync(
+            DeliveryId, "pickedUp", AttemptOf(WrongCode), Nonce, 5);
         // A wrong code keeps its attempt.
         await _qrSecrets.DidNotReceive().ReturnCodeAttemptAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
@@ -152,7 +153,7 @@ public sealed class SyncFunctionHandoffCodeTests
         // so only the first gets the last attempt and this one is locked before any comparison.
         SetupDelivery(TruckDelivery("pending"));
         SetupSecret(missesPickedUp: 4);
-        _qrSecrets.TryTakeCodeAttemptAsync(DeliveryId, "pickedUp", OperationId, Nonce, 5)
+        _qrSecrets.TryTakeCodeAttemptAsync(DeliveryId, "pickedUp", AttemptOf(Code), Nonce, 5)
             .Returns(new CodeAttempt(CodeAttemptOutcome.Locked, 5));
 
         var result = await SendAsync("pickedUp", TruckerId, "trucker", ("scannedQrCode", Code));
@@ -166,7 +167,7 @@ public sealed class SyncFunctionHandoffCodeTests
     {
         SetupDelivery(TruckDelivery("pending"));
         SetupSecret();
-        _qrSecrets.TryTakeCodeAttemptAsync(DeliveryId, "pickedUp", OperationId, Nonce, 5)
+        _qrSecrets.TryTakeCodeAttemptAsync(DeliveryId, "pickedUp", AttemptOf(Code), Nonce, 5)
             .Returns(new CodeAttempt(CodeAttemptOutcome.NonceChanged, 0));
 
         var result = await SendAsync("pickedUp", TruckerId, "trucker", ("scannedQrCode", Code));
@@ -374,12 +375,215 @@ public sealed class SyncFunctionHandoffCodeTests
         await AssertNoAttemptTakenAsync();
     }
 
+    // ---- review fixes: one attempt per operation AND code ----
+
+    [Fact]
+    public async Task OneOperationId_SixDifferentWrongCodes_TheSixthIsLocked()
+    {
+        // Errors never store the idempotency key, so a client can resend one operation id with
+        // fresh keys. Each new code under it must still use one of the five tries.
+        SetupDelivery(TruckDelivery("pending"));
+        var store = new InMemoryQrSecrets(Nonce);
+        var answers = new List<string>();
+        for (var i = 1; i <= 6; i++)
+        {
+            var guess = HandoffCode.Derive($"guess-{i}", DeliveryId);
+            var result = await SendWithStoreAsync(store, "pickedUp", TruckerId, "trucker", OperationId,
+                ("scannedQrCode", guess));
+            answers.Add(result.GetProperty("message").GetString()!.Split(':')[0]);
+        }
+
+        answers.Should().Equal(
+            "DELIVERY_CODE_MISMATCH", "DELIVERY_CODE_MISMATCH", "DELIVERY_CODE_MISMATCH",
+            "DELIVERY_CODE_MISMATCH", "DELIVERY_CODE_LOCKED", "DELIVERY_CODE_LOCKED");
+        store.Misses("pickedUp").Should().Be(5);
+
+        // And the right code, sent under the same id, is locked too.
+        var right = await SendWithStoreAsync(store, "pickedUp", TruckerId, "trucker", OperationId,
+            ("scannedQrCode", Code));
+        right.GetProperty("message").GetString().Should().StartWith("DELIVERY_CODE_LOCKED: ");
+    }
+
+    [Fact]
+    public async Task AnExactRetry_SameOperationAndCode_CountsOnce()
+    {
+        SetupDelivery(TruckDelivery("pending"));
+        var store = new InMemoryQrSecrets(Nonce);
+
+        for (var i = 0; i < 4; i++)
+        {
+            var result = await SendWithStoreAsync(store, "pickedUp", TruckerId, "trucker", OperationId,
+                ("scannedQrCode", WrongCode));
+            result.GetProperty("message").GetString().Should().StartWith("DELIVERY_CODE_MISMATCH: ");
+        }
+
+        store.Misses("pickedUp").Should().Be(1);
+        // The right code still gets through, and gives its attempt back.
+        var right = await SendWithStoreAsync(store, "pickedUp", TruckerId, "trucker", "op-code-2",
+            ("scannedQrCode", Code));
+        right.GetProperty("status").GetString().Should().Be("success", right.ToString());
+        store.Misses("pickedUp").Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ALockedDropOff_OfATruckerDelivery_HasItsOwnCode()
+    {
+        // The trucker's code cannot be renewed after pickup: the buyer is sent to the trucker's
+        // drop-off QR or to support, not to the farmer.
+        SetupDelivery(TruckDelivery("pickedUp"));
+        SetupSecret();
+        _qrSecrets.GetAsync(DeliveryId).Returns(new DeliveryQrSecret
+        {
+            DeliveryId = DeliveryId,
+            Nonce = Nonce,
+            IssuedAt = DateTime.UtcNow.AddHours(-1).ToString("o"),
+            CodeMissesDelivered = HandoffCode.MaxMisses
+        });
+
+        var result = await SendAsync("delivered", BuyerId, "buyer", ("scannedQrCode", Code), ("gpsDropoff", Gps));
+
+        result.GetProperty("message").GetString().Should().StartWith("DELIVERY_CODE_LOCKED_DROPOFF: ");
+    }
+
+    [Fact]
+    public async Task ALockedSelfPickup_KeepsThePickupCode_TheFarmerCanRegenerate()
+    {
+        var item = TruckDelivery("pending");
+        item["truckerId"] = new AttributeValue { S = "" };
+        item["deliveryType"] = new AttributeValue { S = "self_pickup" };
+        SetupDelivery(item);
+        _qrSecrets.GetAsync(DeliveryId).Returns(new DeliveryQrSecret
+        {
+            DeliveryId = DeliveryId,
+            Nonce = Nonce,
+            IssuedAt = DateTime.UtcNow.AddHours(-1).ToString("o"),
+            CodeMissesDelivered = HandoffCode.MaxMisses
+        });
+
+        var result = await SendAsync("delivered", BuyerId, "buyer", ("scannedQrCode", Code), ("gpsDropoff", Gps));
+
+        result.GetProperty("message").GetString().Should().StartWith("DELIVERY_CODE_LOCKED: ");
+    }
+
+    // ---- review fixes: the farmer's nonce after pickup ----
+
+    [Theory]
+    [InlineData("pickedUp")]
+    [InlineData("inTransit")]
+    [InlineData("delivered")]
+    public async Task AFarmersNewNonce_AfterPickup_IsANoOp(string status)
+    {
+        // An offline farmer's phone still read pending and opened the QR again: the new nonce must
+        // not void the trucker's drop-off code nor clear the drop-off misses.
+        SetupDelivery(TruckDelivery(status));
+
+        var result = await SendNonceAsync(FarmerId, "farmer", ("qrNonce", "late-farmer-nonce"));
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        result.GetProperty("serverVersion").GetInt32().Should().Be(1);
+        await _qrSecrets.DidNotReceive().PutNonceAsync(Arg.Any<string>(), Arg.Any<string>());
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AFarmersNonce_WhilePending_IsStored()
+    {
+        SetupDelivery(TruckDelivery("pending"));
+
+        var result = await SendNonceAsync(FarmerId, "farmer", ("qrNonce", "fresh-nonce"));
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        await _qrSecrets.Received(1).PutNonceAsync(DeliveryId, "fresh-nonce");
+    }
+
+    [Fact]
+    public async Task AFarmersNonce_NeverCarriesOtherFieldsOntoTheDelivery()
+    {
+        // The nonce exception lets the farmer store the nonce, not write evidence fields.
+        SetupDelivery(TruckDelivery("pending"));
+
+        var result = await SendNonceAsync(FarmerId, "farmer", ("qrNonce", "fresh-nonce"),
+            ("gpsPickup", Gps), ("pickupPhotoRef", "uploads/photos/del-fup42/pickup-1.webp"));
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        await _qrSecrets.Received(1).PutNonceAsync(DeliveryId, "fresh-nonce");
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
     // ---- helpers ----
+
+    /// <summary>A status-less update (the farmer's nonce op).</summary>
+    private Task<JsonElement> SendNonceAsync(string userId, string role, params (string Key, object Value)[] data) =>
+        SendRawAsync(_qrSecrets, userId, role, OperationId, null, data);
+
+    private Task<JsonElement> SendWithStoreAsync(IDeliveryQrSecretRepository store, string status, string userId,
+        string role, string operationId, params (string Key, object Value)[] extra) =>
+        SendRawAsync(store, userId, role, operationId, status, extra);
+
+    /// <summary>
+    /// The secret store's attempt rules in memory, as the conditional write in
+    /// <see cref="DeliveryQrSecretRepository"/> applies them: one set of attempt ids per leg, a new
+    /// id taken only below the cap, a held id taken again, a right code's id given back.
+    /// </summary>
+    private sealed class InMemoryQrSecrets : IDeliveryQrSecretRepository
+    {
+        private readonly string _nonce;
+        private readonly Dictionary<string, HashSet<string>> _attempts = new();
+
+        public InMemoryQrSecrets(string nonce) => _nonce = nonce;
+
+        public int Misses(string leg) => _attempts.TryGetValue(leg, out var set) ? set.Count : 0;
+
+        public Task PutNonceAsync(string deliveryId, string nonce) => Task.CompletedTask;
+
+        public Task<DeliveryQrSecret?> GetAsync(string deliveryId) =>
+            Task.FromResult<DeliveryQrSecret?>(new DeliveryQrSecret
+            {
+                DeliveryId = deliveryId,
+                Nonce = _nonce,
+                IssuedAt = DateTime.UtcNow.AddHours(-1).ToString("o"),
+                CodeMissesPickedUp = Misses("pickedUp"),
+                CodeMissesDelivered = Misses("delivered")
+            });
+
+        public Task<CodeAttempt> TryTakeCodeAttemptAsync(
+            string deliveryId, string targetStatus, string attemptId, string nonce, int maxAttempts)
+        {
+            var set = _attempts.TryGetValue(targetStatus, out var s) ? s : _attempts[targetStatus] = new HashSet<string>();
+            if (nonce != _nonce)
+            {
+                return Task.FromResult(new CodeAttempt(CodeAttemptOutcome.NonceChanged, 0));
+            }
+
+            if (set.Count >= maxAttempts && !set.Contains(attemptId))
+            {
+                return Task.FromResult(new CodeAttempt(CodeAttemptOutcome.Locked, maxAttempts));
+            }
+
+            set.Add(attemptId);
+            return Task.FromResult(new CodeAttempt(CodeAttemptOutcome.Taken, set.Count));
+        }
+
+        public Task ReturnCodeAttemptAsync(string deliveryId, string targetStatus, string attemptId)
+        {
+            if (_attempts.TryGetValue(targetStatus, out var set))
+            {
+                set.Remove(attemptId);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task MarkConsumedAsync(string deliveryId, string targetStatus, string operationId) =>
+            Task.CompletedTask;
+    }
 
     /// <summary>The leg's attempt count once this operation's attempt is taken.</summary>
     private void Attempts(int count) =>
-        _qrSecrets.TryTakeCodeAttemptAsync(DeliveryId, "pickedUp", OperationId, Arg.Any<string>(), 5)
+        _qrSecrets.TryTakeCodeAttemptAsync(DeliveryId, "pickedUp", Arg.Any<string>(), Arg.Any<string>(), 5)
             .Returns(new CodeAttempt(CodeAttemptOutcome.Taken, count));
+
+    private static string AttemptOf(string code) => HandoffCode.AttemptId(OperationId, code);
 
     private async Task AssertNoAttemptTakenAsync() =>
         await _qrSecrets.DidNotReceive().TryTakeCodeAttemptAsync(
@@ -447,15 +651,28 @@ public sealed class SyncFunctionHandoffCodeTests
     private Task<JsonElement> SendAsync(string status, string userId, string role,
         params (string Key, object Value)[] extra) => SendAsync(status, userId, role, qrSecrets: true, extra);
 
-    private async Task<JsonElement> SendAsync(string status, string userId, string role, bool qrSecrets,
-        params (string Key, object Value)[] extra)
+    private Task<JsonElement> SendAsync(string status, string userId, string role, bool qrSecrets,
+        params (string Key, object Value)[] extra) =>
+        SendAsync(status, userId, role, qrSecrets, OperationId, extra);
+
+    private Task<JsonElement> SendAsync(string status, string userId, string role, bool qrSecrets,
+        string operationId, params (string Key, object Value)[] extra) =>
+        SendRawAsync(qrSecrets ? _qrSecrets : null, userId, role, operationId, status, extra);
+
+    private async Task<JsonElement> SendRawAsync(IDeliveryQrSecretRepository? store, string userId, string role,
+        string operationId, string? status, params (string Key, object Value)[] extra)
     {
         var function = new SyncFunction(_syncMeta, _crops, _dynamoDb,
             "test-trips-table", DeliveriesTable, userRepo: Substitute.For<IUserRepository>(),
-            orderRepo: _orders, escrowRepo: _escrow, qrSecretRepo: qrSecrets ? _qrSecrets : null,
+            orderRepo: _orders, escrowRepo: _escrow, qrSecretRepo: store,
             transactionAuditRepo: _audit);
 
-        var data = new Dictionary<string, object> { { "status", status }, { "version", 1 } };
+        var data = new Dictionary<string, object> { { "version", 1 } };
+        if (status != null)
+        {
+            data["status"] = status;
+        }
+
         foreach (var (key, value) in extra)
         {
             data[key] = value;
@@ -471,7 +688,7 @@ public sealed class SyncFunctionHandoffCodeTests
                 {
                     new()
                     {
-                        OperationId = OperationId,
+                        OperationId = operationId,
                         IdempotencyKey = $"{userId}:delivery:{DeliveryId}:update:{Guid.NewGuid():N}",
                         EntityType = "delivery",
                         EntityId = DeliveryId,

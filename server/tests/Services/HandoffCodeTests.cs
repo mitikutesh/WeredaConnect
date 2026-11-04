@@ -94,4 +94,17 @@ public sealed class HandoffCodeTests
         HandoffCode.Matches("757555978", "farmer-nonce-2", "del-fup42").Should().BeFalse();
         HandoffCode.Matches("340404994", "farmer-nonce-1", "del-fup42").Should().BeFalse();
     }
+
+    [Fact]
+    public void AttemptId_IsTheOperationAndAHashOfTheCode()
+    {
+        var a = HandoffCode.AttemptId("op-1", "757555978");
+
+        a.Should().MatchRegex("^op-1:[0-9a-f]{16}$");
+        a.Should().NotContain("757555978");
+        // A retry with the same code is the same attempt; a new code is another one.
+        HandoffCode.AttemptId("op-1", "757555978").Should().Be(a);
+        HandoffCode.AttemptId("op-1", "340404994").Should().NotBe(a);
+        HandoffCode.AttemptId("op-2", "757555978").Should().NotBe(a);
+    }
 }

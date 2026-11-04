@@ -11,9 +11,9 @@ namespace WeredaConnect.Server.Data;
 ///   PK: deliveryId (STRING)
 ///   nonce (STRING), issuedAt (STRING ISO 8601),
 ///   consumedPickedUp / consumedDelivered (STRING operationId, optional),
-///   codeMissesPickedUp / codeMissesDelivered (STRING SET of operationIds that typed a code,
-///   taken before the comparison and removed again for a right one, so it holds the wrong
-///   codes; optional, cleared when the nonce changes),
+///   codeMissesPickedUp / codeMissesDelivered (STRING SET of attempt ids, "{operationId}:{first
+///   16 hex of SHA-256 of the code}", taken before the comparison and removed again for a right
+///   code, so it holds the wrong codes; optional, cleared when the nonce changes),
 ///   TTL: expiresAt (NUMBER — Unix epoch seconds; cleanup only, freshness is code-enforced)
 ///
 /// The secret is NEVER returned to any client — it lives here precisely so it cannot
@@ -92,7 +92,7 @@ public sealed class DeliveryQrSecretRepository : IDeliveryQrSecretRepository
 
     /// <inheritdoc />
     public async Task<CodeAttempt> TryTakeCodeAttemptAsync(
-        string deliveryId, string targetStatus, string operationId, string nonce, int maxAttempts)
+        string deliveryId, string targetStatus, string attemptId, string nonce, int maxAttempts)
     {
         var attr = CodeMissesAttribute(targetStatus);
         if (attr == null)
@@ -103,8 +103,9 @@ public sealed class DeliveryQrSecretRepository : IDeliveryQrSecretRepository
         try
         {
             // ADD to a string set, conditional on the set's size: atomic, so parallel guesses
-            // cannot pass the cap, and the same operation id is only counted once (a retry of
-            // one refused operation is admitted again and never locks the code by itself).
+            // cannot pass the cap. The element names the operation and the code, so a retry of
+            // one refused operation with the same code is admitted again and never locks the
+            // code by itself, while a new code under a reused operation id always counts.
             var response = await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
             {
                 TableName = _tableName,
@@ -122,8 +123,8 @@ public sealed class DeliveryQrSecretRepository : IDeliveryQrSecretRepository
                 },
                 ExpressionAttributeValues = new Dictionary<string, AttributeValue>
                 {
-                    { ":ops", new AttributeValue { SS = new List<string> { operationId } } },
-                    { ":op", new AttributeValue { S = operationId } },
+                    { ":ops", new AttributeValue { SS = new List<string> { attemptId } } },
+                    { ":op", new AttributeValue { S = attemptId } },
                     { ":nonce", new AttributeValue { S = nonce } },
                     { ":max", new AttributeValue { N = maxAttempts.ToString(System.Globalization.CultureInfo.InvariantCulture) } }
                 },
@@ -149,7 +150,7 @@ public sealed class DeliveryQrSecretRepository : IDeliveryQrSecretRepository
     }
 
     /// <inheritdoc />
-    public async Task ReturnCodeAttemptAsync(string deliveryId, string targetStatus, string operationId)
+    public async Task ReturnCodeAttemptAsync(string deliveryId, string targetStatus, string attemptId)
     {
         var attr = CodeMissesAttribute(targetStatus);
         if (attr == null)
@@ -168,7 +169,7 @@ public sealed class DeliveryQrSecretRepository : IDeliveryQrSecretRepository
             ExpressionAttributeNames = new Dictionary<string, string> { { "#m", attr } },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
-                { ":ops", new AttributeValue { SS = new List<string> { operationId } } }
+                { ":ops", new AttributeValue { SS = new List<string> { attemptId } } }
             }
         });
     }

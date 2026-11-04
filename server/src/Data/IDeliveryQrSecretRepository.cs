@@ -25,18 +25,19 @@ public interface IDeliveryQrSecretRepository
 
     /// <summary>
     /// Take one typed-code attempt of <paramref name="targetStatus"/> ("pickedUp" or
-    /// "delivered") for <paramref name="operationId"/> BEFORE the code is compared (T-1). One
-    /// conditional write, so parallel guesses cannot pass the cap: taken while the leg holds
-    /// fewer than <paramref name="maxAttempts"/> operation ids, or when this operation already
-    /// holds one (its retry), and only while the stored nonce is still <paramref name="nonce"/>.
-    /// A taken attempt that turns out wrong stays as a miss; a right one is given back with
-    /// <see cref="ReturnCodeAttemptAsync"/>.
+    /// "delivered") BEFORE the code is compared (T-1). <paramref name="attemptId"/> names the
+    /// operation and the code (<c>HandoffCode.AttemptId</c>). One conditional write, so parallel
+    /// guesses cannot pass the cap: taken while the leg holds fewer than
+    /// <paramref name="maxAttempts"/> attempts, or when this very attempt is already held (a retry
+    /// of the same operation with the same code), and only while the stored nonce is still
+    /// <paramref name="nonce"/>. A taken attempt that turns out wrong stays as a miss; a right one
+    /// is given back with <see cref="ReturnCodeAttemptAsync"/>.
     /// </summary>
     Task<CodeAttempt> TryTakeCodeAttemptAsync(
-        string deliveryId, string targetStatus, string operationId, string nonce, int maxAttempts);
+        string deliveryId, string targetStatus, string attemptId, string nonce, int maxAttempts);
 
     /// <summary>The typed code was right: give its attempt back, so it never counts as a miss.</summary>
-    Task ReturnCodeAttemptAsync(string deliveryId, string targetStatus, string operationId);
+    Task ReturnCodeAttemptAsync(string deliveryId, string targetStatus, string attemptId);
 
     /// <summary>Read the secret record for a delivery, or null if the farmer hasn't synced it yet.</summary>
     Task<DeliveryQrSecret?> GetAsync(string deliveryId);

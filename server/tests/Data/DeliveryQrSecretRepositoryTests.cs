@@ -75,7 +75,7 @@ public class DeliveryQrSecretRepositoryTests
                 }
             });
 
-        var attempt = await _repo.TryTakeCodeAttemptAsync("del-1", leg, "op-3", "nonce-1", 5);
+        var attempt = await _repo.TryTakeCodeAttemptAsync("del-1", leg, "op-3:abc", "nonce-1", 5);
 
         attempt.Should().Be(new CodeAttempt(CodeAttemptOutcome.Taken, 3));
         sent!.UpdateExpression.Should().Be("ADD #m :ops");
@@ -84,8 +84,8 @@ public class DeliveryQrSecretRepositoryTests
         sent.ConditionExpression.Should().Be(
             "#nonce = :nonce AND (attribute_not_exists(#m) OR size(#m) < :max OR contains(#m, :op))");
         sent.ExpressionAttributeNames["#m"].Should().Be(attribute);
-        sent.ExpressionAttributeValues[":ops"].SS.Should().Equal("op-3");
-        sent.ExpressionAttributeValues[":op"].S.Should().Be("op-3");
+        sent.ExpressionAttributeValues[":ops"].SS.Should().Equal("op-3:abc");
+        sent.ExpressionAttributeValues[":op"].S.Should().Be("op-3:abc");
         sent.ExpressionAttributeValues[":nonce"].S.Should().Be("nonce-1");
         sent.ExpressionAttributeValues[":max"].N.Should().Be("5");
         sent.ReturnValues.Should().Be(ReturnValue.UPDATED_NEW);

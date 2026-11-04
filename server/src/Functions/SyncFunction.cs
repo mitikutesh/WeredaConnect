@@ -4901,6 +4901,26 @@ public partial class SyncFunction
                             }, FraudDetectionService.RoleForbiddenSignal, operation, "delivery", authenticatedUserId, context);
                         }
 
+                        // T-1 review: once the delivery left pending, its nonce was used for the
+                        // pickup and is the drop-off's secret too (the trucker's phone shows it
+                        // to the buyer). A farmer's later nonce (a QR reopened on a phone whose
+                        // copy still said pending) must not replace it, nor clear the typed-code
+                        // misses: nothing is written, success at the current version.
+                        var farmerNonceOnly = isFarmerNoncePersist && authenticatedUserId != existingTruckerId;
+                        var deliveryStatusNow = existing.TryGetValue("status", out var nowStatusAttr)
+                            ? nowStatusAttr.S : null;
+                        if (farmerNonceOnly && deliveryStatusNow != "pending")
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "success",
+                                ServerVersion = existing.TryGetValue("version", out var lateNonceVer)
+                                    && int.TryParse(lateNonceVer.N, out var lateNonceVerN) ? lateNonceVerN : 0,
+                                ServerData = ScrubDeliveryForClient(CropRepository.FromItem(existing))
+                            };
+                        }
+
                         // Route the farmer-authored pickup nonce to the SEPARATE secret
                         // store (never onto the delivery item, so it can't leak via any
                         // sync-down/GSI/conflict-echo path). When no table is provisioned
@@ -4922,7 +4942,9 @@ public partial class SyncFunction
                             // write and keep the version. Bumping it made the scanner's
                             // queued confirm (sent at the version it last pulled) conflict,
                             // and server-wins silently undid the pickup or collection.
-                            if (operation.Data.Keys.All(k => k is "version" or "updatedAt"))
+                            // The farmer may store the nonce and nothing else: other fields
+                            // riding along are ignored, never written by the farmer.
+                            if (farmerNonceOnly || operation.Data.Keys.All(k => k is "version" or "updatedAt"))
                             {
                                 return new SyncOperationResult
                                 {
@@ -8110,8 +8132,8 @@ public partial class SyncFunction
     /// the scan; the caller then applies the same freshness and single-use rules as for a scan.
     /// A code that is not nine digits with a valid Damm digit can never match, so it is a validation
     /// error and no miss. Each attempt of a leg is taken in the secret store before the comparison
-    /// (once per operation, atomic, so parallel guesses cannot pass the cap) and a right code gives
-    /// it back; at <see cref="HandoffCode.MaxMisses"/> wrong codes typed codes are locked for that
+    /// (once per operation and code, atomic, so parallel guesses cannot pass the cap and a reused
+    /// operation id with a new code still counts) and a right code gives it back; at <see cref="HandoffCode.MaxMisses"/> wrong codes typed codes are locked for that
     /// leg until the farmer's Regenerate stores a new nonce, while a scanned QR still works.
     /// Without the secret store (legacy rows) nothing can be counted, so typed codes are not taken.
     /// On a delivery that carries money a typed code needs the leg's GPS, as the scan screen always
@@ -8144,9 +8166,19 @@ public partial class SyncFunction
             return Error("DELIVERY_CODE_LOCKED: Typed codes cannot be checked for this delivery. Scan the QR code.");
         }
 
-        const string locked =
-            "DELIVERY_CODE_LOCKED: Too many wrong codes for this delivery. Scan the QR code, or ask the farmer for a new code.";
+        // The trucker's drop-off code cannot be renewed (the farmer's Regenerate only works before
+        // pickup), so a locked drop-off of a trucker delivery has its own code and way out.
+        var lockedDropoff = targetStatus == "delivered"
+            && !string.Equals(
+                existing.TryGetValue("deliveryType", out var lockTypeAttr) ? lockTypeAttr.S : null,
+                SelfPickupDeliveryType, StringComparison.Ordinal);
+        var locked = lockedDropoff
+            ? "DELIVERY_CODE_LOCKED_DROPOFF: Too many wrong codes for this drop-off. Scan the trucker's drop-off QR, or contact support."
+            : "DELIVERY_CODE_LOCKED: Too many wrong codes for this delivery. Scan the QR code, or ask the farmer for a new code.";
         const string mismatch = "DELIVERY_CODE_MISMATCH: The typed code does not match this delivery.";
+        // One attempt per operation AND code: a true retry is free, a new code under the same
+        // operation id (which errors never store) always counts.
+        var attemptId = HandoffCode.AttemptId(operation.OperationId, code);
         Task<SyncOperationResult> Refuse(string message) => RefuseWithSignalAsync(
             Error(message), FraudDetectionService.QrHandoffFailureSignal, operation, "delivery", callerId, context);
 
@@ -8158,7 +8190,7 @@ public partial class SyncFunction
         // The attempt is taken before the comparison, in one conditional write, so guesses sent in
         // parallel cannot get past the cap; a right code gives it back below.
         var attempt = await _qrSecretRepo.TryTakeCodeAttemptAsync(
-            operation.EntityId, targetStatus, operation.OperationId, nonce, HandoffCode.MaxMisses);
+            operation.EntityId, targetStatus, attemptId, nonce, HandoffCode.MaxMisses);
         if (attempt.Outcome == CodeAttemptOutcome.Locked)
         {
             return await Refuse(locked);
@@ -8177,7 +8209,7 @@ public partial class SyncFunction
 
         try
         {
-            await _qrSecretRepo.ReturnCodeAttemptAsync(operation.EntityId, targetStatus, operation.OperationId);
+            await _qrSecretRepo.ReturnCodeAttemptAsync(operation.EntityId, targetStatus, attemptId);
         }
         catch (Exception ex)
         {
@@ -8187,7 +8219,8 @@ public partial class SyncFunction
         }
 
         var gpsField = targetStatus == "pickedUp" ? "gpsPickup" : "gpsDropoff";
-        var hasGps = operation.Data.TryGetValue(gpsField, out var gpsObj)
+        var hasGps = operation.Data != null
+            && operation.Data.TryGetValue(gpsField, out var gpsObj)
             && gpsObj is System.Text.Json.JsonElement gpsJe
             && gpsJe.ValueKind == System.Text.Json.JsonValueKind.Object;
         if (hasGps)
