@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.21.0
+1.22.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -568,7 +568,7 @@ pending → pickedUp      (trucker scans farmer's QR code at pickup)
 pending → cancelled       (any participant cancels before pickup, by update or delete)
 pickedUp → inTransit   (trucker departs from pickup location)
 pickedUp → delivered    (buyer confirms the handoff; marking in transit is optional)
-inTransit → delivered   (buyer scans trucker's QR code at dropoff)
+inTransit → delivered   (buyer scans the trucker's drop-off QR, the farmer's pickup token kept on the trucker's phone, 1.22.0)
 delivered → disputed     (any participant raises a dispute within 48 hours; the escrow is frozen first, 1.10.0)
 ```
 
@@ -1050,13 +1050,62 @@ as a delivery with `deliveryType: "self_pickup"`:
   for this deferral too (accepted: the user tries again and a later retry clears it). A
   delivery with no escrow (cash) passes without a QR, as before.
 - Only the delivery's farmer may set `qrNonce` (SIM-41). A `qrNonce` sent on create, or on
-  an update by anyone else, is silently dropped.
+  an update by anyone else, is silently dropped. Since 1.22.0 the farmer's nonce op stores the
+  nonce and nothing else (other fields riding along are ignored, never written), and once the
+  delivery left `pending` it stores nothing at all and answers `success` at the current version:
+  the nonce then is the drop-off's secret, and a late one (a QR reopened on a phone whose copy
+  still said `pending`) would void the trucker's drop-off QR and clear the drop-off's misses.
+  The farmer's app reads the delivery again before it makes a nonce and makes none after
+  pickup.
 - A farmer update carrying only `qrNonce` (plus `version`/`updatedAt`) stores the secret and
   returns `success` with the delivery's **current** `serverVersion`: nothing on the delivery
   record changes, so it is not written and the version does not move (1.6.0). Bumping it made
   the scanner's queued confirm, sent at the version it last pulled, conflict and get undone.
   Web clients send this op directly when the farmer opens the QR (1.6.0; before, web never
   registered the nonce, so a web-shown QR could not be confirmed).
+- **Typed code (1.22.0, usability audit T-1)**: when a camera or a screen fails, the
+  scanner may send `scannedQrCode` instead of `scannedQrNonce` on the `pickedUp` or
+  `delivered` update (a scanned nonce wins when both are sent; neither is stored on the
+  delivery). The code is nine ASCII digits: the first eight are HMAC-SHA256 with the UTF-8
+  nonce as key over `wc-handoff-code:v1:{deliveryId}`, the first 8 bytes big-endian modulo
+  10^8, left-padded; the ninth is a Damm check digit, so the apps catch a mistyped digit or two
+  swapped neighbours before sending. Shared vectors pin the server and the apps to the same
+  digits. The phone that shows the QR reveals the code only behind "Camera not working?", with
+  a warning never to read it out on the phone. The server derives the code from the stored
+  nonce and compares in fixed time, then applies the same freshness, single-use and deferral
+  rules as a scan (an unsynced nonce on a paid delivery is `deferred`). Errors:
+  `DELIVERY_VALIDATION: scannedQrCode must be 9 digits with a valid check digit.` (no miss
+  counted); `DELIVERY_CODE_MISMATCH:` (a wrong code, counted); `DELIVERY_CODE_LOCKED:` from the
+  fifth wrong code of a leg on, even for the right code, until the farmer's Regenerate stores a
+  new nonce (a scanned QR still works when locked), and for any typed code where the secret
+  store is not provisioned; `DELIVERY_CODE_LOCKED_DROPOFF:` instead for the `delivered` leg of a
+  trucker delivery, whose code nothing can renew (the farmer's Regenerate only works before
+  pickup). Way out of a locked drop-off: the buyer scans the trucker's drop-off QR when the
+  trucker has one; when the trucker typed the code at pickup there is no QR, so the buyer (or the
+  trucker) contacts support, who confirm the handoff with both parties by phone and settle the
+  order's escrow with a `farmer_wins` verdict and the `settle_now` disposition
+  (`escrow-protocol.md` 1.21.0, the farmer and the trucker leg paid), or with `buyer_wins` and
+  `return_to_farmer` when the goods did not arrive; `DELIVERY_CODE_GPS_REQUIRED:` for a typed code without the leg's
+  `gpsPickup` or `gpsDropoff` on a delivery that carries money (an escrow read that fails
+  answers `deferred`, `DELIVERY_NONCE_PENDING`, logged `QR_GATE_UNDECIDED`). Attempts are kept in
+  the secret row as one string set of attempt ids per leg (`codeMissesPickedUp`,
+  `codeMissesDelivered`); an attempt id is `{operationId}:{the first 16 hex digits of SHA-256 of
+  the code}`. Each attempt is taken before the comparison by one `ADD` conditional on the nonce
+  the code is checked against and on the set holding fewer than 5 ids (or this very id), so
+  guesses sent in parallel cannot pass the cap, a retry of the same operation with the same code
+  counts once, and a new code under a reused operation id (errors never store the idempotency
+  key) always counts; a right code removes its id again, so only wrong codes stay counted.
+  Storing a different nonce removes both sets. The secret row is read strongly consistent. Mismatches and locks write the
+  `QR_HANDOFF_FAILURE` signal (`sync-protocol.md` 1.33.0). The `pickedUp` and `delivered`
+  audit entries carry `metadata` `handoff=qr` or `handoff=code` as dispute and fraud evidence.
+- **Drop-off QR (1.22.0, T-3)**: the buyer's `delivered` is checked against the same pickup
+  nonce, and no screen showed it after pickup, so a paid trucker delivery could not be
+  confirmed. The trucker's phone now keeps the farmer's token it scanned at pickup (or the
+  code it typed) in secure storage and shows it as the drop-off QR, with its typed code; the
+  buyer scans or types it. One nonce serves both legs, each consumed once, within the same
+  14-day freshness from the first QR. Trade-off: the trucker holds the pickup secret after
+  pickup (it was on their screen anyway); a separate trucker nonce in the same store is a
+  follow-up. No server change for this part.
 - **Migration**: an on-record `qrNonce` is used only where the secret store is not
   provisioned. Where it is, only the farmer's stored nonce counts (rows written before SIM-41
   could carry a trucker-authored value). It is always scrubbed from echoed `serverData`.
@@ -1090,10 +1139,11 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.17.0 | 2026-10-23 | QR gate money check (FUP-42): with no nonce on record, a `pickedUp` or `delivered` (trucker flow and self-pickup) is money-bearing when the order's escrow `escrow-order-{orderId}` exists (strongly consistent, any status) or the `DeliveryIndex` finds an escrow; before, only the `DeliveryIndex` was asked, so an order escrow whose delivery link failed or lagged let the transition pass with no QR. A failed read answers `deferred` (`DELIVERY_NONCE_PENDING`), writes nothing, never hard-fails, and logs the alarmed `QR_GATE_UNDECIDED` (order escrow problems alarm); web shows its QR-pending text for it. Cash deliveries and the nonce checks are unchanged. No client change (`sync-protocol.md` 1.19.0). |
 | 1.20.0 | 2026-10-28 | Check-in effects (LT-07, `live-trip-api.md` sections 4 and 5): a system `pickedUp → inTransit` when an accepted check-in captured after the pickup is 2 km or more from the pickup point (fresh read, conditional on the status and the version read, the trucker's write, audited with the actor `system` and `source=check_in`, the same order coupling to `in_transit`); the trucker's own `inTransit` on an `inTransit` delivery answers `conflict` with the row instead of `DELIVERY_INVALID_TRANSITION`; the server-only `nearbyNotifiedAt`, `nearbyDistanceKm` and `nearbyMinutes`, stamped once when a check-in is within 5 km of the drop-off point (conditional on `pickedUp` or `inTransit` and no stamp; `version` and `updatedAt` unchanged), which sends the buyer `truck_nearby` (`notifications-api.md` 1.3.0). No client change: the status is known and the extra keys are ignored. |
 | 1.21.0 | 2026-10-30 | Cargo on the row (Fieldway deliveries boards): the create stamps the server-only `cropType` and `quantity` (kg) from the order, `pickupPlace` from the listing's `locationName` and `pickupPlannedAt` from the trip's `departureDate` (none on a self-pickup), all returned on `GET /deliveries`, `GET /deliveries/{id}` and every `/sync` delivery row, so the list cards read "Teff · 1,500 kg" and "Kebede Alemu, Bichena · pickup Thu 30 Oct" without one order read per delivery; a client that sends them hits the field whitelist; deliveries created before 1.21.0 carry none and the clients fall back to the delivery number. |
+| 1.22.0 | 2026-11-04 | Typed handoff code and drop-off QR (usability audit T-1, T-3; see QR Secret Storage): `scannedQrCode` (nine digits, eight derived from the nonce and a Damm check digit) stands in for `scannedQrNonce` on `pickedUp` and `delivered`, compared in fixed time, with the scan's freshness, single-use and deferral rules; per-leg misses in the secret row (string sets of operation ids, cleared by a new nonce), `DELIVERY_CODE_LOCKED` from the fifth wrong code (a scan still works), `DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED_DROPOFF` for a trucker's drop-off (support settles it), `DELIVERY_CODE_GPS_REQUIRED` for a typed code without GPS on a paid delivery, a malformed code is `DELIVERY_VALIDATION`; attempt ids carry a hash of the code, so a reused operation id cannot guess for free; the farmer's nonce op stores only the nonce and nothing once the delivery left `pending`; the secret row is read strongly consistent; `handoff=qr` or `handoff=code` in the transition's audit `metadata`. The trucker's phone keeps the farmer's pickup token and shows it as the drop-off QR the buyer scans (one nonce for both legs). Header drift fixed (the README and footer still said 1.20.0). |
 | 1.19.0 | 2026-10-23 | Payout delay (FRD-13, `escrow-protocol.md` 1.33.0): the `delivered` transition stamps the linked escrow's `releaseNotBefore` in the same write as `deliveryConfirmedAt` and `disputeWindowEndsAt` (the trucker named by the delivery when the escrow has none yet); the automatic release waits for it. The dispute window and the delivery's own fields are unchanged; no client change on deliveries. |
 
 ---
 
-**Last Updated**: 2026-10-28
-**Version**: 1.20.0
+**Last Updated**: 2026-11-04
+**Version**: 1.22.0
 **Status**: Draft (Phase R4.2)

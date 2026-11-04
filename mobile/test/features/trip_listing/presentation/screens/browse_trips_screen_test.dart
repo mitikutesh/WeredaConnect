@@ -108,7 +108,8 @@ void main() {
         ..truckerId = 'trucker-001'
         ..fromWoreda = 'Bishoftu'
         ..toWoreda = 'Addis Ababa'
-        ..departureDate = DateTime(2026, 2, 18)
+        // Ahead, so it reads Open (a passed day reads Date passed, L-7).
+        ..departureDate = DateTime.now().add(const Duration(days: 2))
         ..capacity = 150.0
         ..pricePerQuintal = 120.0
         ..status = TripStatus.open
@@ -166,14 +167,14 @@ void main() {
       );
     });
 
-    Trip openTrip(String id, String from) => Trip()
+    Trip openTrip(String id, String from, {int inDays = 2}) => Trip()
       ..tripId = id
       ..truckerId = 'trucker-$id'
       ..truckerName = 'Trucker $id'
       ..truckerPhone = '+251900100002'
       ..fromWoreda = from
       ..toWoreda = 'Addis Ababa'
-      ..departureDate = DateTime(2026, 2, 18)
+      ..departureDate = DateTime.now().add(Duration(days: inDays))
       ..capacity = 150.0
       ..pricePerQuintal = 120.0
       ..status = TripStatus.open
@@ -184,7 +185,10 @@ void main() {
 
     testWidgets('trucker: My Trips header, own trips, Cancel Trip asks first',
         (tester) async {
-      final trips = [openTrip('t1', 'Meki'), openTrip('t2', 'Ziway')];
+      final trips = [
+        openTrip('t1', 'Meki'),
+        openTrip('t2', 'Ziway', inDays: 3),
+      ];
       when(() => tripListingBloc.state).thenReturn(TripsLoaded(trips: trips));
       when(() => tripListingBloc.stream)
           .thenAnswer((_) => Stream.value(TripsLoaded(trips: trips)));
@@ -240,6 +244,40 @@ void main() {
       expect(find.text('Meki → Addis Ababa'), findsOneWidget);
       expect(find.text('Ziway → Addis Ababa'), findsOneWidget);
       expect(find.text('Cancel Trip'), findsNothing);
+    });
+
+    // L-7: buyers are no longer sent an open trip whose day is over; the
+    // trucker still sees it, marked and after the trips still ahead.
+    testWidgets('trucker: a passed date reads Date passed, after the rest',
+        (tester) async {
+      tester.view.physicalSize = const Size(1000, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final trips = [
+        openTrip('t-past', 'Meki', inDays: -3),
+        openTrip('t-later', 'Ziway', inDays: 5),
+        openTrip('t-soon', 'Adama', inDays: 1),
+      ];
+      when(() => tripListingBloc.state).thenReturn(TripsLoaded(trips: trips));
+      when(() => tripListingBloc.stream)
+          .thenAnswer((_) => Stream.value(TripsLoaded(trips: trips)));
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Date passed'), findsOneWidget);
+      expect(find.text('Open'), findsNWidgets(2));
+      final routes = tester
+          .widgetList<Text>(find.textContaining('→ Addis Ababa'))
+          .map((t) => t.data)
+          .toList();
+      expect(routes, [
+        'Adama → Addis Ababa',
+        'Ziway → Addis Ababa',
+        'Meki → Addis Ababa',
+      ]);
+      // Still the trucker's to cancel.
+      expect(find.text('Cancel Trip'), findsNWidgets(3));
     });
   });
 }

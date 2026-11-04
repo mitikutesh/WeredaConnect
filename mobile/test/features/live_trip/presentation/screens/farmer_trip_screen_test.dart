@@ -74,6 +74,34 @@ void main() {
     expect(tracks.readers, [farmerId]);
   });
 
+  // The payment card is the farmer's own share: the crop cost, else
+  // quantity x unit price, never what the buyer paid in total.
+  testWidgets('without a crop cost the payment is quantity x unit price',
+      (tester) async {
+    deps = LiveTripDeps(
+      order: liveOrder()
+        ..cropCost = null
+        ..totalPrice = 91200,
+    );
+    await pumpFarmer(tester);
+
+    expect(find.text('84,000 ETB'), findsOneWidget);
+    expect(find.text('91,200 ETB'), findsNothing);
+  });
+
+  testWidgets('an order without any price shows no amount', (tester) async {
+    deps = LiveTripDeps(
+      order: liveOrder()
+        ..cropCost = null
+        ..pricePerUnit = 0
+        ..totalPrice = 91200,
+    );
+    await pumpFarmer(tester);
+
+    expect(find.text('Your payment'), findsOneWidget);
+    expect(find.textContaining('91,200'), findsNothing);
+  });
+
   testWidgets('another farmer, the buyer and the trucker get nothing here',
       (tester) async {
     for (final (delivery, userId) in [

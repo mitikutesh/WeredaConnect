@@ -4,6 +4,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/models/trip_departure.dart';
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -11,6 +13,8 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_bookings_section.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_buyer_actions.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_pickup_scans.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -37,6 +41,9 @@ class TripDetailScreen extends StatelessWidget {
     final authState = context.read<AuthBloc>().state;
     final isOwner =
         authState is AuthAuthenticated && authState.userId == trip.truckerId;
+    // B-2: a buyer may use the trip; a farmer or another trucker only reads.
+    final isBuyer =
+        authState is AuthAuthenticated && authState.role == UserRole.buyer;
 
     return BlocListener<TripListingBloc, TripListingState>(
       listener: (context, state) {
@@ -84,14 +91,17 @@ class TripDetailScreen extends StatelessWidget {
             ),
           ],
         ),
-        bottomNavigationBar: isOwner ? _OwnerActions(trip: trip) : null,
+        bottomNavigationBar: isOwner
+            ? _OwnerActions(trip: trip)
+            : (isBuyer ? TripBuyerActions(trip: trip) : null),
       ),
     );
   }
 }
 
-/// The owner's page: the booked orders and, before pickup, what to do with
-/// each farmer's QR on the day.
+/// The owner's page: Scan pickup QR for each pickup still waiting (T-2),
+/// the booked orders and, before pickup, what to do with each farmer's QR on
+/// the day.
 class _OwnerBody extends StatelessWidget {
   final Trip trip;
 
@@ -105,6 +115,7 @@ class _OwnerBody extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        TripPickupScans(trip: trip),
         TripBookingsSection(trip: trip),
         if (beforePickup && tripHasBookings(trip))
           FwNoteBox(
@@ -373,6 +384,10 @@ class _RouteHeader extends StatelessWidget {
       trip.pricePerQuintal.toStringAsFixed(0),
     );
     final topInset = MediaQuery.paddingOf(context).top;
+    // L-7: as the My Trips card, an open or matched trip whose day is over.
+    final datePassed =
+        (trip.status == TripStatus.open || trip.status == TripStatus.matched) &&
+            tripHasLeft(trip, DateTime.now());
     return Container(
       width: double.infinity,
       padding: EdgeInsets.fromLTRB(20, topInset + 12, 20, 22),
@@ -412,11 +427,15 @@ class _RouteHeader extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (trip.status != TripStatus.open) ...[
+                if (trip.status != TripStatus.open || datePassed) ...[
                   const SizedBox(width: 12),
                   StatusChip(
-                    label: tripStatusLabel(trip.status, l10n),
-                    kind: tripStatusKind(trip.status),
+                    label: datePassed
+                        ? l10n.tripStatusDatePassed
+                        : tripStatusLabel(trip.status, l10n),
+                    kind: datePassed
+                        ? StatusKind.warning
+                        : tripStatusKind(trip.status),
                   ),
                 ],
               ],

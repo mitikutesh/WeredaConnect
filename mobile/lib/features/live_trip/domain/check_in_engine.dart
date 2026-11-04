@@ -41,10 +41,15 @@ class CheckInStatus extends Equatable {
     this.nextCheckInAt,
     this.unsent = 0,
     this.backgroundRunning = false,
+    this.stopped = false,
   });
 
   final String? tripId;
   final SharingMode mode;
+
+  /// While [SharingMode.ended]: the driver stopped sharing (T-5), rather
+  /// than the trip being done.
+  final bool stopped;
 
   /// While [SharingMode.paused]: when sharing resumes by itself.
   final DateTime? pausedUntil;
@@ -72,6 +77,7 @@ class CheckInStatus extends Equatable {
         nextCheckInAt,
         unsent,
         backgroundRunning,
+        stopped,
       ];
 }
 
@@ -103,8 +109,9 @@ typedef CheckInTimerFactory = Timer Function(
 /// time is skipped to the next slot, never retried in a loop. [pause] stops
 /// the cadence until a time (at most 18 hours on), [resume] ends it early.
 /// Sharing stops ([SharingMode.ended]) when the phone's copy shows every
-/// delivery of the trip delivered, cancelled or disputed, or when the server
-/// answers `LOCATION_SHARING_ENDED` ([onSharingEnded]).
+/// delivery of the trip delivered, cancelled or disputed or the trip itself
+/// delivered or cancelled, when the server answers `LOCATION_SHARING_ENDED`
+/// ([onSharingEnded]), or when the driver stops it ([stop]).
 ///
 /// On Android the cadence runs in a foreground service with a visible
 /// notification, started from the consent action while the app is in the
@@ -366,11 +373,20 @@ class CheckInEngine implements ScanCheckInSink {
     }
   }
 
-  /// The driver stops sharing for the active trip (it ends there).
+  /// The driver stops sharing for the active trip (T-5): it ends there,
+  /// marked as the driver's choice. A trip that shared records `declined`
+  /// first, so its buyers and farmers see that the truck no longer shares
+  /// instead of a position going stale. Kept per trip: a later scan records
+  /// nothing, [start] refuses it and the consent sheet does not ask again.
   Future<void> stop() => _serial(() async {
         final tripId = _state.activeTripId;
-        if (_userId == null || tripId == null) return;
-        await _end(tripId);
+        final sharing = _state.active;
+        if (_userId == null || tripId == null || sharing == null) return;
+        if (sharing.ended) return;
+        if (sharing.answer == SharingAnswer.shared) {
+          await _recordEvent(tripId, PingKind.declined, _now());
+        }
+        await _end(tripId, stopped: true);
       });
 
   /// Look again: the stop rule, a pause that ran out, a fix that is due.
@@ -477,7 +493,7 @@ class CheckInEngine implements ScanCheckInSink {
       return CheckInResult.notSharing;
     }
     final progress = await _readProgress(tripId);
-    if (progress != null && progress.allDone) {
+    if (progress != null && progress.finished) {
       await _setTrip(
         tripId,
         const TripSharing(answer: SharingAnswer.shared, ended: true),
@@ -578,7 +594,7 @@ class CheckInEngine implements ScanCheckInSink {
     final progress = await _readProgress(tripId);
     if (progress != null) {
       _dropoffs = progress.undeliveredDropoffs;
-      if (progress.allDone) {
+      if (progress.finished) {
         await _end(tripId);
         return;
       }
@@ -753,12 +769,16 @@ class CheckInEngine implements ScanCheckInSink {
     _timer = _timerFactory(delay, () => unawaited(refresh()));
   }
 
-  Future<void> _end(String tripId) async {
+  Future<void> _end(String tripId, {bool stopped = false}) async {
     final sharing =
         _state.trips[tripId] ?? const TripSharing(answer: SharingAnswer.shared);
     _state = _state.withTrip(
       tripId,
-      sharing.copyWith(ended: true, clearPause: true),
+      sharing.copyWith(
+        ended: true,
+        clearPause: true,
+        stopped: stopped || sharing.stopped,
+      ),
     );
     if (_state.activeTripId == tripId) await _halt();
     await _saveState();
@@ -890,6 +910,7 @@ class CheckInEngine implements ScanCheckInSink {
       nextCheckInAt: mode == SharingMode.live ? (_nextDue() ?? _now()) : null,
       unsent: unsent,
       backgroundRunning: _location.isBackgroundRunning,
+      stopped: mode == SharingMode.ended && (_state.active?.stopped ?? false),
     );
     if (next == _status) return;
     _status = next;

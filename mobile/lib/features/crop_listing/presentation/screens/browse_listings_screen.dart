@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,11 +12,13 @@ import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/crop_listing/domain/transport_this_week.dart';
+import 'package:wereda_connect/features/crop_listing/domain/trip_origin.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
@@ -30,6 +33,7 @@ import 'package:wereda_connect/features/trip_listing/domain/repositories/base_tr
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/account_menu.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
@@ -53,17 +57,24 @@ import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 /// embedding inside a screen that already has one (e.g. inside
 /// [FindCropsScreen]). The buyer's search box and price range then follow
 /// [showFilters]; with the header shown, its search button toggles them.
+///
+/// With [originTrip] (B-2, a buyer's Find crops on this route) the list
+/// holds only the listings at the place the truck starts from
+/// ([listingAtTripOrigin]), crops go to the truck's destination, and a
+/// listing opens with the truck chosen for transport.
 class BrowseListingsScreen extends StatefulWidget {
   final bool ownerMode;
   final bool embedded;
   final bool showHeader;
   final bool showFilters;
+  final Trip? originTrip;
 
   const BrowseListingsScreen({
     this.ownerMode = false,
     this.embedded = false,
     this.showHeader = true,
     this.showFilters = true,
+    this.originTrip,
     super.key,
   });
 
@@ -108,6 +119,12 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     _loadListings();
     _loadOrderedQuintals();
     _loadOpenTrips();
+    if (widget.originTrip != null) {
+      // The place list resolves the listings' and the truck's place ids.
+      PlaceRepository.instance.ensureLoaded().then((_) {
+        if (mounted) setState(() {});
+      }).ignore();
+    }
   }
 
   @override
@@ -170,6 +187,36 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     if (auth.role != UserRole.buyer) return null;
     final woreda = auth.woreda?.trim();
     return (woreda == null || woreda.isEmpty) ? null : woreda;
+  }
+
+  /// Where the crops go: the truck's destination when opened from a trip,
+  /// else the buyer's own wereda.
+  String? _deliveryWoredaFor(AuthAuthenticated auth) {
+    final trip = widget.originTrip;
+    if (trip != null && auth.role == UserRole.buyer) return trip.toWoreda;
+    return _buyerDeliveryWoreda(auth);
+  }
+
+  /// B-2: the listings at the truck's starting place, worked out once per
+  /// listings read (and again once the place list has loaded).
+  List<CropListing>? _originFrom;
+  bool _originPlacesLoaded = false;
+  List<CropListing> _originListings = const [];
+
+  List<CropListing> _atTripOrigin(List<CropListing> listings) {
+    final trip = widget.originTrip;
+    if (trip == null) return listings;
+    final places = PlaceRepository.instance;
+    if (!identical(listings, _originFrom) ||
+        places.isLoaded != _originPlacesLoaded) {
+      _originFrom = listings;
+      _originPlacesLoaded = places.isLoaded;
+      _originListings = [
+        for (final listing in listings)
+          if (listingAtTripOrigin(listing, trip, places)) listing,
+      ];
+    }
+    return _originListings;
   }
 
   /// My Crops: quintals ordered per listing id, from the farmer's own paid
@@ -248,8 +295,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     final trips = _openTrips;
     if (trips == null) return null;
     final auth = context.read<AuthBloc>().state;
-    final woreda =
-        auth is AuthAuthenticated ? _buyerDeliveryWoreda(auth) : null;
+    final woreda = auth is AuthAuthenticated ? _deliveryWoredaFor(auth) : null;
     final fitting = _tripsThisWeek(listing, trips, woreda);
     if (fitting.isEmpty) return l10n.marketNoTripYet;
     if (fitting.length > 1) return l10n.marketTripsThisWeek(fitting.length);
@@ -300,8 +346,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     final trips = _openTrips;
     if (trips == null) return false;
     final auth = context.read<AuthBloc>().state;
-    final woreda =
-        auth is AuthAuthenticated ? _buyerDeliveryWoreda(auth) : null;
+    final woreda = auth is AuthAuthenticated ? _deliveryWoredaFor(auth) : null;
     return _tripsThisWeek(listing, trips, woreda).isNotEmpty;
   }
 
@@ -400,7 +445,15 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                             ),
                           ),
                         ),
-                      if (widget.ownerMode)
+                      if (widget.originTrip case final trip?)
+                        // B-2: the truck's route and day over "Crops in
+                        // Bishoftu".
+                        FwPageHeader(
+                          eyebrow: '${trip.fromWoreda} → ${trip.toWoreda} · '
+                              '${boardDayInEthiopia(trip.departureDate)}',
+                          title: l10n.tripCropsTitle(trip.fromWoreda),
+                        )
+                      else if (widget.ownerMode)
                         // MyCrops board: "Almaz Bekele · Meki" over the
                         // title, the Farmer pill on the right, then the
                         // account button where no sidebar lists Profile.
@@ -575,7 +628,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                               for (final l in state.listings)
                                 if (l.status == _selectedStatus) l,
                             ]
-                          : _sortedByTransport(state.listings);
+                          : _sortedByTransport(_atTripOrigin(state.listings));
                       if (widget.ownerMode &&
                           listings.isEmpty &&
                           state.listings.isNotEmpty) {
@@ -595,6 +648,18 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                           onClear: _clearFilters,
                           title: l10n.noListingsMatchFilters,
                           hint: l10n.noListingsMatchFiltersHint,
+                          clearLabel: l10n.clearFilters,
+                        );
+                      }
+
+                      if (listings.isEmpty && widget.originTrip != null) {
+                        // B-2: nothing listed where the truck starts.
+                        return _NoMatch(
+                          onClear: null,
+                          title: l10n.tripCropsEmpty(
+                            widget.originTrip!.fromWoreda,
+                          ),
+                          hint: l10n.tripCropsEmptyHint,
                           clearLabel: l10n.clearFilters,
                         );
                       }
@@ -724,10 +789,15 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                             // the crop goes unless a buying
                                             // request says otherwise, so the
                                             // detail can suggest transport.
-                                            deliveryWoreda:
-                                                _buyerDeliveryWoreda(
+                                            // From a trip: its destination,
+                                            // the trip chosen, at most the
+                                            // quintals it has free.
+                                            deliveryWoreda: _deliveryWoredaFor(
                                               authState,
                                             ),
+                                            preselectedTrip: widget.originTrip,
+                                            quantityNeeded:
+                                                _originQuantity(listing),
                                           ),
                                         ),
                                       );
@@ -812,8 +882,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     final trips = _openTrips;
     if (trips == null) return listings;
     final auth = context.read<AuthBloc>().state;
-    final woreda =
-        auth is AuthAuthenticated ? _buyerDeliveryWoreda(auth) : null;
+    final woreda = auth is AuthAuthenticated ? _deliveryWoredaFor(auth) : null;
     // Resets the caches when the trips or the place changed.
     if (listings.isNotEmpty) _tripsThisWeek(listings.first, trips, woreda);
     if (!identical(listings, _sortedFrom)) {
@@ -828,12 +897,23 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     return _sorted;
   }
 
+  /// B-2: from a trip, what the detail prices and the trip must fit: the
+  /// listing's stock, at most the room the truck has left. Null otherwise.
+  double? _originQuantity(CropListing listing) {
+    final trip = widget.originTrip;
+    if (trip == null) return null;
+    final room = tripRoomLeft(trip);
+    return room > 0 ? math.min(listing.quantity, room) : null;
+  }
+
   /// Market board: "Every farmer's listing, sorted by the best match for
-  /// Merkato." (the buyer's place), or the no-place line.
+  /// Merkato." (the buyer's place), or the no-place line. From a trip: the
+  /// listings are the truck's starting place.
   String _footnote(AppLocalizations l10n) {
+    final trip = widget.originTrip;
+    if (trip != null) return l10n.tripCropsFootnote(trip.fromWoreda);
     final auth = context.read<AuthBloc>().state;
-    final woreda =
-        auth is AuthAuthenticated ? _buyerDeliveryWoreda(auth) : null;
+    final woreda = auth is AuthAuthenticated ? _deliveryWoredaFor(auth) : null;
     return woreda == null
         ? l10n.marketFootnoteNoPlace
         : l10n.marketFootnote(woreda);

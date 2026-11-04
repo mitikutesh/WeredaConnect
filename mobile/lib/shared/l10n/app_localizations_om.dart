@@ -4751,6 +4751,40 @@ class AppLocalizationsOm extends AppLocalizations {
       'Haquun ajajawwan qabaman gara bitoota isaaniitti deebisa; isaanis maallaqa guutuu deebifachuuf haquu danda\'u.';
 
   @override
+  String get tripFindCrops => 'Midhaan karaa kana irratti barbaadi';
+
+  @override
+  String tripFindCropsNote(String from) {
+    return 'Midhaan $from keessatti galmaa\'e. Tokko konkolaataa fe\'aa kanaan ajajaa.';
+  }
+
+  @override
+  String tripCropsTitle(String from) {
+    return 'Midhaan $from keessa jiru';
+  }
+
+  @override
+  String tripCropsEmpty(String from) {
+    return 'Amma $from keessatti midhaan galmaa\'e hin jiru';
+  }
+
+  @override
+  String get tripCropsEmptyHint =>
+      'Qonnaan bultoonni midhaan haaraa yeroo galmeessan asitti mul\'ata.';
+
+  @override
+  String tripCropsFootnote(String from) {
+    return 'Midhaan $from keessatti galmaa\'e, bakka konkolaataan fe\'aa kun itti ka\'u. Konkolaataa kana qabachuuf tokko geejjibaan ajajaa.';
+  }
+
+  @override
+  String get tripLeftChooseAnother =>
+      'Konkolaataan fe\'aa kun duraan ka\'eera. Konkolaataa fe\'aa biraa filadhaa.';
+
+  @override
+  String get tripStatusDatePassed => 'Guyyaan darbeera';
+
+  @override
   String get orderYouReceive => 'Kan isinii gahu';
 
   @override
@@ -5080,4 +5114,161 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get cropPhotoNext => 'Suuraa itti aanu';
+
+  @override
+  String get qrTypeCodeInstead => 'Bakka isaa koodii barreessi';
+
+  @override
+  String get qrTypeCodeTitle => 'Koodii barreessi';
+
+  @override
+  String get qrTypeCodePickupHint =>
+      'Qonnaan bulaan fuula QR isaa irratti \"Kaameeraan hin hojjetuu?\" akka tuqu gaafadhu, achiis lakkoofsota 9 achitti mul\'atan barreessi.';
+
+  @override
+  String get qrTypeCodeDropoffHint =>
+      'Konkolaachisaan QR buusuu banee \"Kaameeraan hin hojjetuu?\" akka tuqu gaafadhu, achiis lakkoofsota 9 achitti mul\'atan barreessi. Yoo midhaan fuula kee dura jiraate qofa barreessi.';
+
+  @override
+  String get qrTypeCodeSelfPickupHint =>
+      'Qonnaan bulaan fuula QR isaa irratti \"Kaameeraan hin hojjetuu?\" akka tuqu gaafadhu, achiis lakkoofsota 9 achitti mul\'atan barreessi. Yoo midhaan fuula kee dura jiraate qofa barreessi.';
+
+  @override
+  String get qrTypeCodeLabel => 'Koodii lakkoofsa 9';
+
+  @override
+  String get qrTypeCodeCheck => 'Koodii mirkaneessi';
+
+  @override
+  String get qrTypeCodeTypo =>
+      'Koodiin kun dogoggora barreeffamaa qaba. Lakkoofsa tokkoon tokkoon mirkaneessiitii irra deebi\'ii barreessi.';
+
+  @override
+  String get qrTypeCodeIncomplete => 'Lakkoofsota 9 hunda barreessi.';
+
+  @override
+  String get deliveryQrReadCheckedOnline =>
+      'Koodiin QR dubbifameera. Yeroo bilbilli kee interneetii irra jiru sarvariin ni mirkaneessa.';
+
+  @override
+  String get deliveryCodeTypedCheckedOnline =>
+      'Koodiin barreeffameera. Yeroo bilbilli kee interneetii irra jiru sarvariin ni mirkaneessa.';
+
+  @override
+  String get qrTypedCodeNeedsGps =>
+      'Koodiin barreeffame bakka kee barbaada. Tajaajila bakkaa bani, achiis \"Bakka irra deebi\'ii yaali\" tuqi.';
+
+  @override
+  String get qrRetryLocation => 'Bakka irra deebi\'ii yaali';
+
+  @override
+  String get qrPickupSavedCheckOnline =>
+      'Fudhachuun olkaa\'ameera. Yeroo bilbilli kee interneetii irra jiru koodiin ni mirkanaa\'a.';
+
+  @override
+  String get qrDeliverySavedCheckOnline =>
+      'Geejjibni olkaa\'ameera. Yeroo bilbilli kee interneetii irra jiru koodiin ni mirkanaa\'a.';
+
+  @override
+  String get qrCameraDeniedTitle => 'Kaameeraan hin hayyamamne';
+
+  @override
+  String get qrCameraDeniedText =>
+      'Qindaa\'ina bilbila keetii keessatti WeredaConnect dhaaf kaameeraa hayyami, achiis \"Irra Deebi\'i Yaali\" tuqi.';
+
+  @override
+  String get qrCameraDeniedTextWeb =>
+      'Qindaa\'ina browser keetii keessatti marsariitii kanaaf kaameeraa hayyami, achiis \"Irra Deebi\'i Yaali\" tuqi.';
+
+  @override
+  String get qrCameraUnavailableTitle => 'Kaameeraan hin hojjetu';
+
+  @override
+  String get qrCameraUnavailableText =>
+      'Appiiwwan biroo kaameeraa fayyadaman cufi, achiis \"Irra Deebi\'i Yaali\" tuqi. Bakka isaa koodii barreessuus ni dandeessa.';
+
+  @override
+  String get qrCameraOpenSettings => 'Qindaa\'ina bani';
+
+  @override
+  String get qrCameraNotWorking => 'Kaameeraan hin hojjetuu?';
+
+  @override
+  String get qrShowCodeTitle => 'Koodii iskaanii godhuu bakka barreeffamu';
+
+  @override
+  String get qrShowCodeWarning =>
+      'Koodii kana nama fuula kee dura jiru qofaaf agarsiisi. Gonkumaa bilbilaan hin dubbisin, ergaadhaanis hin ergin.';
+
+  @override
+  String get deliveryShowDropoffQr => 'QR buusuu agarsiisi';
+
+  @override
+  String get deliveryDropoffQrTitle => 'QR buusuu';
+
+  @override
+  String get deliveryDropoffQrInstruction =>
+      'Yeroo midhaan dabarsitu koodii QR kana bitaaf agarsiisi';
+
+  @override
+  String get deliveryDropoffQrNote =>
+      'Iskaanii fudhachuu keetii irraa bilbila kana irratti kuufame. Interneetii malee hojjata, iskaaniin bitaa immoo geejjiba ni mirkaneessa.';
+
+  @override
+  String get deliveryDropoffCodeOnly =>
+      'Fudhachuu koodii barreeffameen waan mirkaneessiteef QR agarsiifamu hin jiru. Bitaan bakka isaa koodii kana barreessa.';
+
+  @override
+  String get deliveryDropoffQrMissing =>
+      'Bilbilli kun geejjiba kanaaf koodii buusuu hin qabu. Yeroo fudhachuu QR qonnaan bulaa bilbila kanaan iskaanii gootu kuufama.';
+
+  @override
+  String get deliveryErrorCodeMismatch =>
+      'Koodiin barreeffame geejjiba kana waliin wal hin simu, kanaaf hin mirkanoofne. Koodii mirkaneessiitii irra deebi\'ii yaali.';
+
+  @override
+  String get deliveryErrorCodeLocked =>
+      'Geejjiba kanaaf koodiiwwan dogoggoraa baay\'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Bakka isaa koodii QR iskaanii godhi, yookaan qonnaan bulaan koodii haaraa akka agarsiisu gaafadhu.';
+
+  @override
+  String get deliveryErrorCodeGpsRequired =>
+      'Koodiin barreeffame bakka kee barbaada. Tajaajila bakkaa banitii irra deebi\'ii yaali.';
+
+  @override
+  String get tripModeStopSharing => 'Qooduu dhaabi';
+
+  @override
+  String get tripModeStopSharingTitle => 'Imala kanaaf qooduun haa dhaabatu?';
+
+  @override
+  String get tripModeStopSharingBody =>
+      'Bitaan bakka konkolaataa yeroo ammaa ni dhaba, galmeen ofumaan karaa irratti taasifamus ni dhaabata. Iskaaniin QR ammallee fudhachuu fi geejjiba ni mirkaneessa. Imala kanaaf qooduu irra deebi\'anii banuun hin danda\'amu.';
+
+  @override
+  String get tripModeStoppedTitle => 'Qooduun dhaabateera';
+
+  @override
+  String get tripModeStoppedText =>
+      'Imala kanaaf qooduu dhaabdeetta. Iskaaniin QR ammallee fudhachuu fi geejjiba ni mirkaneessa.';
+
+  @override
+  String get tripModeNotSharingYet =>
+      'Bakki kee imala kanaaf ammaaf hin qoodamne. Iskaanii fudhachuu jalqabaa keetiin murteessama.';
+
+  @override
+  String get homeTripLoadFailed =>
+      'Imala kee fe\'uun hin danda\'amne. Walqunnamtii kee mirkaneessiitii irra deebi\'ii yaali.';
+
+  @override
+  String tripScanPickupQrFor(String name) {
+    return 'QR fudhachuu iskaan: $name';
+  }
+
+  @override
+  String get deliveryErrorCodeLockedDropoff =>
+      'Buusuu kanaaf koodiiwwan dogoggoraa baay\'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Konkolaachisaan QR buusuu yoo qabaate iskaanii godhi. Yoo hin qabne, deeggarsa qunnami: isaan si fi konkolaachisaa waliin dabarsuu ni mirkaneessu.';
+
+  @override
+  String get deliveryQrAlreadyPickedUp =>
+      'Geejjibni kun duraan fudhatameera, kanaaf koodiin QR haaraan hin uumamu. Konkolaachisaan koodii yeroo fudhachuu argame bitaaf agarsiisa.';
 }

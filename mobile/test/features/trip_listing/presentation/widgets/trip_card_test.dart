@@ -114,4 +114,39 @@ void main() {
       });
     }
   });
+
+  // L-7: My Trips marks an open trip whose departure day is over.
+  group('departure day passed', () {
+    for (final status in [TripStatus.open, TripStatus.matched]) {
+      testWidgets('a ${status.name} trip reads Date passed', (tester) async {
+        await tester.pumpWidget(
+          wrap(TripCard(trip: trip(status: status), departureDayPassed: true)),
+        );
+
+        expect(find.text('Date passed'), findsOneWidget);
+        expect(find.text('Open'), findsNothing);
+      });
+    }
+
+    for (final status in [
+      TripStatus.inTransit,
+      TripStatus.delivered,
+      TripStatus.cancelled,
+    ]) {
+      testWidgets('a ${status.name} trip keeps its status', (tester) async {
+        await tester.pumpWidget(
+          wrap(TripCard(trip: trip(status: status), departureDayPassed: true)),
+        );
+
+        expect(find.text('Date passed'), findsNothing);
+      });
+    }
+
+    testWidgets('is off by default', (tester) async {
+      await tester.pumpWidget(wrap(TripCard(trip: trip())));
+
+      expect(find.text('Open'), findsOneWidget);
+      expect(find.text('Date passed'), findsNothing);
+    });
+  });
 }

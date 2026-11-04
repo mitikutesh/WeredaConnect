@@ -12,17 +12,13 @@ import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
-import 'package:wereda_connect/features/delivery_verification/data/services/device_signing_key_service.dart';
-import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
-import 'package:wereda_connect/features/delivery_verification/data/services/photo_manager.dart';
-import 'package:wereda_connect/features/delivery_verification/data/services/qr_verification_service.dart';
-import 'package:wereda_connect/features/delivery_verification/data/verification_type.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_handoff_store.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
-import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_detail_screen.dart';
-import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_scan_screen.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/handoff_routes.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
 import 'package:wereda_connect/features/live_trip/data/trip_plan_loader.dart';
 import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
+import 'package:wereda_connect/features/live_trip/domain/sharing_state.dart';
 import 'package:wereda_connect/features/live_trip/domain/trip_plan.dart';
 import 'package:wereda_connect/features/live_trip/presentation/check_in_engine_of.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/live_trip_parts.dart';
@@ -52,16 +48,24 @@ typedef TripStopAction = Future<void> Function(
 /// It reads the check-in engine (the same one on web, where check-ins run
 /// only while the page is visible) and the trip through the app's
 /// repositories. A position never appears here or on any trip row.
+///
+/// [tripId] opens a trip the phone does not share for (T-2: the home card of
+/// a trip with a load on board or a pickup due); without it the screen
+/// follows the engine's trip. A sharing trip can be stopped (T-5).
 class TripModeScreen extends StatefulWidget {
   const TripModeScreen({
     super.key,
+    this.tripId,
     this.engine,
     this.loader,
     this.connectivity,
     this.now,
     this.onScanPickup,
-    this.onOpenDelivery,
+    this.onShowDropoffQr,
   });
+
+  /// The trip to show; defaults to the one the engine shares for.
+  final String? tripId;
 
   /// Defaults to the app's engine.
   final CheckInEngine? engine;
@@ -78,8 +82,8 @@ class TripModeScreen extends StatefulWidget {
   /// Scan the farmer's QR at a pickup. Defaults to the QR scan screen.
   final TripStopAction? onScanPickup;
 
-  /// Open a drop-off's delivery. Defaults to the delivery detail screen.
-  final TripStopAction? onOpenDelivery;
+  /// Show the drop-off QR to the buyer (T-3). Defaults to [openDropoffQr].
+  final TripStopAction? onShowDropoffQr;
 
   @override
   State<TripModeScreen> createState() => _TripModeScreenState();
@@ -113,15 +117,16 @@ class _TripModeScreenState extends State<TripModeScreen> {
           trips: context.read<TripListingBloc>().repository,
           deliveries: context.read<DeliveryBloc>().repository,
           orders: context.read<OrderBloc>().repository,
+          handoffs: SecureDropoffHandoffStore(),
         );
     _status = _engine?.status ?? const CheckInStatus();
     _statusSub = _engine?.statusStream.listen((status) {
       if (!mounted) return;
       setState(() => _status = status);
-      if (status.tripId != _planTripId) _reload();
+      if (_shownTripId != _planTripId) _reload();
     });
     _watchNetwork(widget.connectivity ?? PlatformConnectivitySource());
-    _planTripId = _status.tripId;
+    _planTripId = _shownTripId;
     if (_planTripId != null) {
       _loading = true;
       unawaited(_fetch(_planTripId!));
@@ -151,8 +156,31 @@ class _TripModeScreenState extends State<TripModeScreen> {
     super.dispose();
   }
 
+  /// The trip on screen: the one asked for, else the engine's.
+  String? get _shownTripId => widget.tripId ?? _status.tripId;
+
+  /// The sharing card's state for the trip on screen: the engine's while it
+  /// is that trip's, else what the phone keeps for it (stopped, ended or
+  /// scans only), else not shared yet.
+  CheckInStatus get _shownStatus {
+    final tripId = widget.tripId;
+    if (tripId == null || _status.tripId == tripId) return _status;
+    final sharing = _engine?.sharingFor(tripId);
+    if (sharing != null && sharing.ended) {
+      return CheckInStatus(
+        tripId: tripId,
+        mode: SharingMode.ended,
+        stopped: sharing.stopped,
+      );
+    }
+    if (sharing?.answer == SharingAnswer.declined) {
+      return CheckInStatus(tripId: tripId, mode: SharingMode.declined);
+    }
+    return CheckInStatus(tripId: tripId);
+  }
+
   void _reload() {
-    final tripId = _status.tripId;
+    final tripId = _shownTripId;
     _planTripId = tripId;
     if (tripId == null) {
       setState(() {
@@ -240,7 +268,7 @@ class _TripModeScreenState extends State<TripModeScreen> {
   Future<void> _resume() => _run((engine) => engine.resume());
 
   Future<void> _share() => _run((engine) async {
-        final tripId = _status.tripId;
+        final tripId = _shownTripId;
         if (tripId == null) return;
         final l10n = AppLocalizations.of(context)!;
         final result = await engine.start(tripId);
@@ -252,46 +280,55 @@ class _TripModeScreenState extends State<TripModeScreen> {
         );
       });
 
-  Future<void> _scanPickup(Delivery delivery) async {
-    final open = widget.onScanPickup ?? _openScanScreen;
-    await open(context, delivery);
-    if (mounted) _reload();
-  }
-
-  Future<void> _openDelivery(Delivery delivery) async {
-    final open = widget.onOpenDelivery ?? _openDeliveryScreen;
-    await open(context, delivery);
-    if (mounted) _reload();
-  }
-
-  static Future<void> _openScanScreen(BuildContext context, Delivery d) =>
-      Navigator.of(context).push<void>(
-        MaterialPageRoute(
-          builder: (_) => QrScanScreen(
-            delivery: d,
-            verificationType: VerificationType.pickup,
-            qrService: QrVerificationService(
-              deviceKeyService: DeviceSigningKeyService(),
-            ),
-            gpsService: GpsCaptureService(),
-            photoManager: PhotoManager(),
+  /// Stop sharing (T-5), after the trucker confirmed what it costs.
+  Future<void> _stop() async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.tripModeStopSharingTitle),
+        content: Text(l10n.tripModeStopSharingBody),
+        actions: [
+          TextButton(
+            key: const Key('trip_mode_stop_cancel'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.cancel),
           ),
-        ),
-      );
+          TextButton(
+            key: const Key('trip_mode_stop_confirm'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: TextButton.styleFrom(
+              foregroundColor: AppTheme.statusError,
+            ),
+            child: Text(l10n.tripModeStopSharing),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _run((engine) => engine.stop());
+  }
 
-  static Future<void> _openDeliveryScreen(BuildContext context, Delivery d) =>
-      Navigator.of(context).push<void>(
-        MaterialPageRoute(
-          builder: (_) =>
-              DeliveryDetailScreen(delivery: d, currentUserId: d.truckerId),
-        ),
-      );
+  Future<void> _scanPickup(Delivery delivery) async {
+    final open = widget.onScanPickup ?? openPickupScan;
+    await open(context, delivery);
+    if (mounted) _reload();
+  }
+
+  Future<void> _showDropoffQr(Delivery delivery) async {
+    final open = widget.onShowDropoffQr ??
+        (BuildContext context, Delivery d) =>
+            openDropoffQr(context, d, userId: _engine?.userId ?? '');
+    await open(context, delivery);
+    if (mounted) _reload();
+  }
 
   @override
   Widget build(BuildContext context) {
     final clock = clockFormatOf(context);
     final plan = _plan;
-    final hasTrip = _status.tripId != null;
+    final hasTrip = _shownTripId != null;
+    final status = _shownStatus;
 
     // The Trucker · Trip mode board: the trip and its sharing on a dark
     // header the full width, the stops below on the light page whose top
@@ -315,17 +352,18 @@ class _TripModeScreenState extends State<TripModeScreen> {
                         _TripHeader(plan: plan),
                         const SizedBox(height: 16),
                         _SharingCard(
-                          status: _status,
+                          status: status,
                           clock: clock,
                           busy: _busy,
                           onPause: _pause,
                           onResume: _resume,
                           onCheckIn: () => _checkIn(arrived: false),
                           onShare: _share,
+                          onStop: _stop,
                         ),
                         if (_offline) ...[
                           const SizedBox(height: 16),
-                          _OfflineCheckIns(unsent: _status.unsent),
+                          _OfflineCheckIns(unsent: status.unsent),
                         ],
                       ],
                     ),
@@ -363,13 +401,12 @@ class _TripModeScreenState extends State<TripModeScreen> {
                                   stop: plan.next!,
                                   place: plan.trip?.toWoreda,
                                   viewerId: _engine?.userId ?? '',
-                                  canCheckIn:
-                                      _status.mode == SharingMode.live ||
-                                          _status.mode == SharingMode.paused,
+                                  canCheckIn: status.mode == SharingMode.live ||
+                                      status.mode == SharingMode.paused,
                                   busy: _busy,
                                   onArrived: () => _checkIn(arrived: true),
                                   onScanPickup: _scanPickup,
-                                  onOpenDelivery: _openDelivery,
+                                  onShowDropoffQr: _showDropoffQr,
                                 ),
                                 const SizedBox(height: 14),
                               ],
@@ -483,6 +520,7 @@ class _SharingCard extends StatelessWidget {
     required this.onResume,
     required this.onCheckIn,
     required this.onShare,
+    required this.onStop,
   });
 
   final CheckInStatus status;
@@ -492,6 +530,7 @@ class _SharingCard extends StatelessWidget {
   final VoidCallback onResume;
   final VoidCallback onCheckIn;
   final VoidCallback onShare;
+  final VoidCallback onStop;
 
   static const _onDark = Colors.white;
   static const _onDarkMuted = AppTheme.soilMuted;
@@ -598,6 +637,24 @@ class _SharingCard extends StatelessWidget {
           ),
         );
 
+    // T-5: stop sharing for this trip, under the check-in.
+    final stop = TextButton.icon(
+      key: const Key('trip_mode_stop'),
+      onPressed: busy ? null : onStop,
+      icon: const Icon(Icons.location_off_outlined, size: 18),
+      label: Text(l10n.tripModeStopSharing),
+      style: TextButton.styleFrom(
+        foregroundColor: _onDarkMuted,
+        minimumSize: const Size.fromHeight(44),
+        textStyle: const TextStyle(
+          fontFamily: AppTheme.fontFamily,
+          fontFamilyFallback: AppTheme.ethiopicFontFallback,
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+
     // The live dot with its halo.
     const liveDot = SizedBox(
       width: 22,
@@ -640,6 +697,8 @@ class _SharingCard extends StatelessWidget {
           privacy,
           const SizedBox(height: 12),
           checkIn,
+          const SizedBox(height: 4),
+          stop,
         ],
       SharingMode.paused => [
           header(
@@ -657,6 +716,8 @@ class _SharingCard extends StatelessWidget {
           privacy,
           const SizedBox(height: 12),
           checkIn,
+          const SizedBox(height: 4),
+          stop,
         ],
       SharingMode.declined => [
           header(
@@ -675,9 +736,16 @@ class _SharingCard extends StatelessWidget {
         ],
       SharingMode.ended => [
           header(
-            leading: const Icon(Icons.check_circle, color: _onDarkMuted),
-            title: l10n.tripModeEndedTitle,
-            subtitle: l10n.tripModeEndedText,
+            leading: Icon(
+              status.stopped ? Icons.location_off_outlined : Icons.check_circle,
+              color: _onDarkMuted,
+            ),
+            title: status.stopped
+                ? l10n.tripModeStoppedTitle
+                : l10n.tripModeEndedTitle,
+            subtitle: status.stopped
+                ? l10n.tripModeStoppedText
+                : l10n.tripModeEndedText,
           ),
         ],
       SharingMode.off => [
@@ -685,7 +753,10 @@ class _SharingCard extends StatelessWidget {
             leading:
                 const Icon(Icons.local_shipping_outlined, color: _onDarkMuted),
             title: l10n.tripModeTitle,
-            subtitle: l10n.tripModeNoTrip,
+            // A trip opened from the home card that shares nothing yet.
+            subtitle: status.tripId != null
+                ? l10n.tripModeNotSharingYet
+                : l10n.tripModeNoTrip,
           ),
         ],
     };
@@ -739,8 +810,8 @@ String _stopName(TripStop stop, String? place, AppLocalizations l10n) =>
     };
 
 /// The next stop with I've arrived, and the QR scan at a pickup or the
-/// delivery at a drop-off; a call button for the stop's party once the
-/// order's contact is open (the board's card).
+/// drop-off QR for the buyer (T-3); a call button for the stop's party once
+/// the order's contact is open (the board's card).
 class _NextStopCard extends StatelessWidget {
   const _NextStopCard({
     required this.stop,
@@ -750,7 +821,7 @@ class _NextStopCard extends StatelessWidget {
     required this.busy,
     required this.onArrived,
     required this.onScanPickup,
-    required this.onOpenDelivery,
+    required this.onShowDropoffQr,
   });
 
   final TripStop stop;
@@ -760,7 +831,7 @@ class _NextStopCard extends StatelessWidget {
   final bool busy;
   final VoidCallback onArrived;
   final void Function(Delivery delivery) onScanPickup;
-  final void Function(Delivery delivery) onOpenDelivery;
+  final void Function(Delivery delivery) onShowDropoffQr;
 
   @override
   Widget build(BuildContext context) {
@@ -879,16 +950,16 @@ class _NextStopCard extends StatelessWidget {
               ],
               Expanded(
                 child: FilledButton.icon(
-                  key: Key(pickup ? 'trip_mode_scan' : 'trip_mode_open'),
+                  key: Key(pickup ? 'trip_mode_scan' : 'trip_mode_dropoff_qr'),
                   onPressed: () => pickup
                       ? onScanPickup(stop.delivery)
-                      : onOpenDelivery(stop.delivery),
+                      : onShowDropoffQr(stop.delivery),
                   icon: Icon(
                     pickup ? Icons.qr_code_scanner : Icons.qr_code_2,
                     size: 18,
                   ),
                   label: Text(
-                    pickup ? l10n.deliveryScanQr : l10n.orderOpenDelivery,
+                    pickup ? l10n.deliveryScanQr : l10n.deliveryShowDropoffQr,
                   ),
                   style: FilledButton.styleFrom(
                     backgroundColor: AppTheme.soilDark,

@@ -13,6 +13,8 @@ public interface ITripRepository
 {
     /// <summary>
     /// Query trip listings with optional filters using the StatusDepartureDateIndex GSI.
+    /// For <c>open</c> (the default) only trips departing from the start of today in Ethiopia
+    /// come back (L-7, trip-listing-api.md 2.2.0); the cutoff is in the key condition.
     /// </summary>
     /// <param name="fromWoreda">Filter by origin woreda.</param>
     /// <param name="toWoreda">Filter by destination woreda.</param>

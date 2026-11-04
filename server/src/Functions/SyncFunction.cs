@@ -4901,6 +4901,24 @@ public partial class SyncFunction
                             }, FraudDetectionService.RoleForbiddenSignal, operation, "delivery", authenticatedUserId, context);
                         }
 
+                        // T-1 review: once the delivery left pending, its nonce was used for the
+                        // pickup and is the drop-off's secret too (the trucker's phone shows it
+                        // to the buyer). A farmer's later nonce (a QR reopened on a phone whose
+                        // copy still said pending) must not replace it, nor clear the typed-code
+                        // misses: nothing is written, success at the current version.
+                        var farmerNonceOnly = isFarmerNoncePersist && authenticatedUserId != existingTruckerId;
+                        if (farmerNonceOnly && currentStatus != "pending")
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "success",
+                                ServerVersion = existing.TryGetValue("version", out var lateNonceVer)
+                                    && int.TryParse(lateNonceVer.N, out var lateNonceVerN) ? lateNonceVerN : 0,
+                                ServerData = ScrubDeliveryForClient(CropRepository.FromItem(existing))
+                            };
+                        }
+
                         // Route the farmer-authored pickup nonce to the SEPARATE secret
                         // store (never onto the delivery item, so it can't leak via any
                         // sync-down/GSI/conflict-echo path). When no table is provisioned
@@ -4922,7 +4940,9 @@ public partial class SyncFunction
                             // write and keep the version. Bumping it made the scanner's
                             // queued confirm (sent at the version it last pulled) conflict,
                             // and server-wins silently undid the pickup or collection.
-                            if (operation.Data.Keys.All(k => k is "version" or "updatedAt"))
+                            // The farmer may store the nonce and nothing else: other fields
+                            // riding along are ignored, never written by the farmer.
+                            if (farmerNonceOnly || operation.Data.Keys.All(k => k is "version" or "updatedAt"))
                             {
                                 return new SyncOperationResult
                                 {
@@ -4942,6 +4962,9 @@ public partial class SyncFunction
                     // on-record qrNonce. When set after a successful CAS, this holds the status
                     // whose single-use marker should be recorded (consume-after-commit).
                     string? nonceToConsumeStatus = null;
+                    // T-1: how the handoff was proven ("qr" scanned, "code" typed), recorded with
+                    // the transition's audit entry as dispute and fraud evidence.
+                    string? handoffMethod = null;
                     if (operation.Data.TryGetValue("status", out var statusForNonce))
                     {
                         var nStatus = statusForNonce?.ToString();
@@ -4961,11 +4984,15 @@ public partial class SyncFunction
                             {
                                 var scannedNonce = operation.Data.TryGetValue("scannedQrNonce", out var snObj)
                                     ? snObj?.ToString() : null;
+                                // T-1: the typed fallback. A scanned nonce wins when both are sent.
+                                var typedCode = string.IsNullOrEmpty(scannedNonce)
+                                    && operation.Data.TryGetValue("scannedQrCode", out var scObj)
+                                    ? scObj?.ToString() : null;
 
                                 // FRD-08: QR failures are soft. A code regenerated offline and scanned
                                 // before it synced fails too; the score counts it once per delivery
                                 // however often the queue retries it.
-                                if (string.IsNullOrEmpty(scannedNonce))
+                                if (string.IsNullOrEmpty(scannedNonce) && string.IsNullOrEmpty(typedCode))
                                 {
                                     return await RefuseWithSignalAsync(new SyncOperationResult
                                     {
@@ -4975,7 +5002,19 @@ public partial class SyncFunction
                                     }, FraudDetectionService.QrHandoffFailureSignal, operation, "delivery", authenticatedUserId, context);
                                 }
 
-                                if (!NonceEquals(scannedNonce, effectiveNonce))
+                                if (!string.IsNullOrEmpty(typedCode))
+                                {
+                                    var codeRefusal = await CheckTypedHandoffCodeAsync(
+                                        operation, existing, secret, effectiveNonce, typedCode, nStatus,
+                                        authenticatedUserId, context);
+                                    if (codeRefusal != null)
+                                    {
+                                        return codeRefusal;
+                                    }
+
+                                    handoffMethod = "code";
+                                }
+                                else if (!NonceEquals(scannedNonce!, effectiveNonce))
                                 {
                                     return await RefuseWithSignalAsync(new SyncOperationResult
                                     {
@@ -4983,6 +5022,10 @@ public partial class SyncFunction
                                         Status = "error",
                                         Message = "DELIVERY_NONCE_MISMATCH: Scanned QR nonce does not match generator's nonce."
                                     }, FraudDetectionService.QrHandoffFailureSignal, operation, "delivery", authenticatedUserId, context);
+                                }
+                                else
+                                {
+                                    handoffMethod = "qr";
                                 }
 
                                 // Secret-store path adds freshness + single-use replay protection
@@ -5086,9 +5129,11 @@ public partial class SyncFunction
                     }
 
                     // Field whitelist — reject unknown fields
-                    // FIX-005: scannedQrNonce is allowed in data for validation but not persisted
+                    // FIX-005: scannedQrNonce is allowed in data for validation but not persisted;
+                    // so is its typed fallback scannedQrCode (T-1).
                     var unknownFields = operation.Data.Keys
-                        .Where(k => !AllowedDeliveryFields.Contains(k) && k != "version" && k != "scannedQrNonce")
+                        .Where(k => !AllowedDeliveryFields.Contains(k) && k != "version"
+                            && k != "scannedQrNonce" && k != "scannedQrCode")
                         .ToList();
                     if (unknownFields.Count > 0)
                     {
@@ -5545,7 +5590,8 @@ public partial class SyncFunction
                                 && !string.IsNullOrEmpty(exOid.S)
                                 ? exOid.S : operation.EntityId;
                             await EmitTxAuditAsync(context, deliveryTxId, "delivery", operation.EntityId,
-                                DeliveryActionFor(toStatus), fromStatus, toStatus);
+                                DeliveryActionFor(toStatus), fromStatus, toStatus,
+                                metadata: handoffMethod != null ? $"handoff={handoffMethod}" : null);
                         }
 
                         // SIM-11: the order follows its delivery (pickedUp -> pickup_confirmed,
@@ -6247,6 +6293,7 @@ public partial class SyncFunction
             if (tripError != null)
             {
                 return tripError.StartsWith("TRIP_CAPACITY_EXCEEDED", StringComparison.Ordinal)
+                    || tripError.StartsWith(OrderCommitment.TripNotEligibleCode, StringComparison.Ordinal)
                     ? new SyncOperationResult { OperationId = operation.OperationId, Status = "error", Message = tripError }
                     : OrderValidationError(operation, tripError);
             }
@@ -8077,6 +8124,135 @@ public partial class SyncFunction
         return await _escrowRepo.GetByDeliveryIdAsync(deliveryId) != null;
     }
 
+    /// <summary>
+    /// T-1: a typed handoff code (<c>scannedQrCode</c>) in place of the scanned nonce for a
+    /// <c>pickedUp</c> or <c>delivered</c>. Returns the refusal, or null when the code stands in for
+    /// the scan; the caller then applies the same freshness and single-use rules as for a scan.
+    /// A code that is not nine digits with a valid Damm digit can never match, so it is a validation
+    /// error and no miss. Each attempt of a leg is taken in the secret store before the comparison
+    /// (once per operation and code, atomic, so parallel guesses cannot pass the cap and a reused
+    /// operation id with a new code still counts) and a right code gives it back; at <see cref="HandoffCode.MaxMisses"/> wrong codes typed codes are locked for that
+    /// leg until the farmer's Regenerate stores a new nonce, while a scanned QR still works.
+    /// Without the secret store (legacy rows) nothing can be counted, so typed codes are not taken.
+    /// On a delivery that carries money a typed code needs the leg's GPS, as the scan screen always
+    /// captures it.
+    /// </summary>
+    private async Task<SyncOperationResult?> CheckTypedHandoffCodeAsync(
+        SyncOperationRequest operation,
+        Dictionary<string, AttributeValue> existing,
+        DeliveryQrSecret? secret,
+        string nonce,
+        string code,
+        string targetStatus,
+        string? callerId,
+        ILambdaContext context)
+    {
+        SyncOperationResult Error(string message) => new()
+        {
+            OperationId = operation.OperationId,
+            Status = "error",
+            Message = message
+        };
+
+        if (!HandoffCode.IsWellFormed(code))
+        {
+            return Error("DELIVERY_VALIDATION: scannedQrCode must be 9 digits with a valid check digit.");
+        }
+
+        if (secret == null || _qrSecretRepo == null)
+        {
+            return Error("DELIVERY_CODE_LOCKED: Typed codes cannot be checked for this delivery. Scan the QR code.");
+        }
+
+        // The trucker's drop-off code cannot be renewed (the farmer's Regenerate only works before
+        // pickup), so a locked drop-off of a trucker delivery has its own code and way out.
+        var lockedDropoff = targetStatus == "delivered"
+            && !string.Equals(
+                existing.TryGetValue("deliveryType", out var lockTypeAttr) ? lockTypeAttr.S : null,
+                SelfPickupDeliveryType, StringComparison.Ordinal);
+        var locked = lockedDropoff
+            ? "DELIVERY_CODE_LOCKED_DROPOFF: Too many wrong codes for this drop-off. Scan the trucker's drop-off QR, or contact support."
+            : "DELIVERY_CODE_LOCKED: Too many wrong codes for this delivery. Scan the QR code, or ask the farmer for a new code.";
+        const string mismatch = "DELIVERY_CODE_MISMATCH: The typed code does not match this delivery.";
+        // One attempt per operation AND code: a true retry is free, a new code under the same
+        // operation id (which errors never store) always counts.
+        var attemptId = HandoffCode.AttemptId(operation.OperationId, code);
+        Task<SyncOperationResult> Refuse(string message) => RefuseWithSignalAsync(
+            Error(message), FraudDetectionService.QrHandoffFailureSignal, operation, "delivery", callerId, context);
+
+        if (secret.CodeMissesFor(targetStatus) >= HandoffCode.MaxMisses)
+        {
+            return await Refuse(locked);
+        }
+
+        // The attempt is taken before the comparison, in one conditional write, so guesses sent in
+        // parallel cannot get past the cap; a right code gives it back below.
+        var attempt = await _qrSecretRepo.TryTakeCodeAttemptAsync(
+            operation.EntityId, targetStatus, attemptId, nonce, HandoffCode.MaxMisses);
+        if (attempt.Outcome == CodeAttemptOutcome.Locked)
+        {
+            return await Refuse(locked);
+        }
+
+        if (attempt.Outcome == CodeAttemptOutcome.NonceChanged)
+        {
+            // Regenerated meanwhile: the code was typed for a nonce that is gone.
+            return await Refuse(mismatch);
+        }
+
+        if (!HandoffCode.Matches(code, nonce, operation.EntityId))
+        {
+            return await Refuse(attempt.Count >= HandoffCode.MaxMisses ? locked : mismatch);
+        }
+
+        try
+        {
+            await _qrSecretRepo.ReturnCodeAttemptAsync(operation.EntityId, targetStatus, attemptId);
+        }
+        catch (Exception ex)
+        {
+            // Best effort: a right code left counted costs its leg one try, nothing more.
+            context.Logger.LogWarning(
+                $"Typed code attempt not given back for delivery {MoneyAlarmLog.LogId(operation.EntityId)}: [{ex.GetType().Name}]");
+        }
+
+        var gpsField = targetStatus == "pickedUp" ? "gpsPickup" : "gpsDropoff";
+        var hasGps = operation.Data != null
+            && operation.Data.TryGetValue(gpsField, out var gpsObj)
+            && gpsObj is System.Text.Json.JsonElement gpsJe
+            && gpsJe.ValueKind == System.Text.Json.JsonValueKind.Object;
+        if (hasGps)
+        {
+            return null;
+        }
+
+        bool carriesMoney;
+        try
+        {
+            carriesMoney = await HasDeliveryEscrowAsync(existing, operation.EntityId);
+        }
+        catch (Exception ex)
+        {
+            // As the QR gate (FUP-42): an unknown answer is never cash, nothing is written and the
+            // op stays queued; the same alarmed token.
+            var gateOrderId = existing.TryGetValue("orderId", out var gateOrderAttr) ? gateOrderAttr.S : null;
+            context.Logger.LogError(
+                $"QR_GATE_UNDECIDED deliveryId={MoneyAlarmLog.LogId(operation.EntityId)} "
+                + $"orderId={MoneyAlarmLog.LogId(gateOrderId)} reason={ex.GetType().Name} "
+                + $"detail={MoneyAlarmLog.LogText(ex.Message)}");
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "deferred",
+                Message = "DELIVERY_NONCE_PENDING: The payment check could not be completed. Will retry automatically."
+            };
+        }
+
+        return carriesMoney
+            ? Error("DELIVERY_CODE_GPS_REQUIRED: Location is required to confirm a paid delivery with a typed code.")
+            : null;
+    }
+
     /// <summary>True when the caller's id equals any of the named id fields.</summary>
     private static bool IsParty(Dictionary<string, object> item, string? userId, params string[] idFields)
     {
@@ -8340,6 +8516,15 @@ public partial class SyncFunction
             || !string.Equals(tripTruckerId, truckerId, StringComparison.Ordinal))
         {
             return "truckerId must be the trucker on the trip.";
+        }
+
+        // L-7: a trip whose Ethiopia day is over has left, whatever the flag. A buyer's phone
+        // may still list it from an old cache, offline, and queue an order on it. The trip's
+        // own code, which clients treat as permanent and explain ("choose again").
+        if (TryParseDepartureDateUtc(AttrString(trip, "departureDate"), requireIsoShape: false, out var leftUtc)
+            && TripDeparture.HasDeparted(leftUtc, nowUtc))
+        {
+            return $"{OrderCommitment.TripNotEligibleCode}: This trip has already left; choose another trip.";
         }
 
         // ESC-15/17: the farmer and the trucker each get a window to answer before the truck

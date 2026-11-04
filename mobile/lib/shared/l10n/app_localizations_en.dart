@@ -4704,6 +4704,40 @@ class AppLocalizationsEn extends AppLocalizations {
       'Cancelling hands booked orders back to their buyers, who can cancel for a full refund.';
 
   @override
+  String get tripFindCrops => 'Find crops on this route';
+
+  @override
+  String tripFindCropsNote(String from) {
+    return 'Crops listed in $from. Order one with this truck.';
+  }
+
+  @override
+  String tripCropsTitle(String from) {
+    return 'Crops in $from';
+  }
+
+  @override
+  String tripCropsEmpty(String from) {
+    return 'No crops listed in $from right now';
+  }
+
+  @override
+  String get tripCropsEmptyHint =>
+      'New listings show here as farmers add them.';
+
+  @override
+  String tripCropsFootnote(String from) {
+    return 'Crops listed in $from, where this truck starts. Order one with transport to book this truck.';
+  }
+
+  @override
+  String get tripLeftChooseAnother =>
+      'This truck already left. Choose another truck.';
+
+  @override
+  String get tripStatusDatePassed => 'Date passed';
+
+  @override
   String get orderYouReceive => 'You receive';
 
   @override
@@ -5032,4 +5066,161 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get cropPhotoNext => 'Next photo';
+
+  @override
+  String get qrTypeCodeInstead => 'Type the code instead';
+
+  @override
+  String get qrTypeCodeTitle => 'Type the code';
+
+  @override
+  String get qrTypeCodePickupHint =>
+      'Ask the farmer to tap \"Camera not working?\" on their QR screen, then type the 9 digits shown there.';
+
+  @override
+  String get qrTypeCodeDropoffHint =>
+      'Ask the trucker to open the drop-off QR and tap \"Camera not working?\", then type the 9 digits shown there. Type it only when the crops are in front of you.';
+
+  @override
+  String get qrTypeCodeSelfPickupHint =>
+      'Ask the farmer to tap \"Camera not working?\" on their QR screen, then type the 9 digits shown there. Type it only when the crops are in front of you.';
+
+  @override
+  String get qrTypeCodeLabel => '9-digit code';
+
+  @override
+  String get qrTypeCodeCheck => 'Check code';
+
+  @override
+  String get qrTypeCodeTypo =>
+      'This code has a typo. Check each digit and type it again.';
+
+  @override
+  String get qrTypeCodeIncomplete => 'Type all 9 digits.';
+
+  @override
+  String get deliveryQrReadCheckedOnline =>
+      'QR code read. The server checks it when your phone is online.';
+
+  @override
+  String get deliveryCodeTypedCheckedOnline =>
+      'Code typed. The server checks it when your phone is online.';
+
+  @override
+  String get qrTypedCodeNeedsGps =>
+      'A typed code needs your location. Turn on location, then tap Try location again.';
+
+  @override
+  String get qrRetryLocation => 'Try location again';
+
+  @override
+  String get qrPickupSavedCheckOnline =>
+      'Pickup saved. The code is checked when your phone is online.';
+
+  @override
+  String get qrDeliverySavedCheckOnline =>
+      'Delivery saved. The code is checked when your phone is online.';
+
+  @override
+  String get qrCameraDeniedTitle => 'The camera is not allowed';
+
+  @override
+  String get qrCameraDeniedText =>
+      'Allow the camera for WeredaConnect in your phone\'s settings, then tap Try Again.';
+
+  @override
+  String get qrCameraDeniedTextWeb =>
+      'Allow the camera for this site in your browser\'s settings, then tap Try Again.';
+
+  @override
+  String get qrCameraUnavailableTitle => 'The camera is not working';
+
+  @override
+  String get qrCameraUnavailableText =>
+      'Close other apps that use the camera, then tap Try Again. You can also type the code instead.';
+
+  @override
+  String get qrCameraOpenSettings => 'Open settings';
+
+  @override
+  String get qrCameraNotWorking => 'Camera not working?';
+
+  @override
+  String get qrShowCodeTitle => 'Code to type instead of scanning';
+
+  @override
+  String get qrShowCodeWarning =>
+      'Show this code only to the person in front of you. Never read it out on the phone or send it in a message.';
+
+  @override
+  String get deliveryShowDropoffQr => 'Show drop-off QR';
+
+  @override
+  String get deliveryDropoffQrTitle => 'Drop-off QR';
+
+  @override
+  String get deliveryDropoffQrInstruction =>
+      'Show this QR code to the buyer when you hand over the crops';
+
+  @override
+  String get deliveryDropoffQrNote =>
+      'Kept on this phone from your pickup scan. It works offline, and the buyer\'s scan confirms the delivery.';
+
+  @override
+  String get deliveryDropoffCodeOnly =>
+      'You confirmed the pickup with a typed code, so there is no QR to show. The buyer types this code instead.';
+
+  @override
+  String get deliveryDropoffQrMissing =>
+      'This phone has no drop-off code for this delivery. It is kept when you scan the farmer\'s QR at pickup on this phone.';
+
+  @override
+  String get deliveryErrorCodeMismatch =>
+      'The typed code does not match this delivery, so it was not confirmed. Check the code and try again.';
+
+  @override
+  String get deliveryErrorCodeLocked =>
+      'Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead, or ask the farmer to show a new code.';
+
+  @override
+  String get deliveryErrorCodeGpsRequired =>
+      'A typed code needs your location. Turn on location and try again.';
+
+  @override
+  String get tripModeStopSharing => 'Stop sharing';
+
+  @override
+  String get tripModeStopSharingTitle => 'Stop sharing for this trip?';
+
+  @override
+  String get tripModeStopSharingBody =>
+      'The buyer loses the truck\'s live position, and the automatic in-transit check-ins stop. QR scans still confirm pickup and delivery. Sharing cannot be turned back on for this trip.';
+
+  @override
+  String get tripModeStoppedTitle => 'Sharing stopped';
+
+  @override
+  String get tripModeStoppedText =>
+      'You stopped sharing for this trip. QR scans still confirm pickup and delivery.';
+
+  @override
+  String get tripModeNotSharingYet =>
+      'Your location is not shared for this trip yet. It is set at your first pickup scan.';
+
+  @override
+  String get homeTripLoadFailed =>
+      'Could not load your trip. Check your connection and try again.';
+
+  @override
+  String tripScanPickupQrFor(String name) {
+    return 'Scan pickup QR: $name';
+  }
+
+  @override
+  String get deliveryErrorCodeLockedDropoff =>
+      'Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker\'s drop-off QR if they have one. If not, contact support: they can confirm the handoff with you and the trucker.';
+
+  @override
+  String get deliveryQrAlreadyPickedUp =>
+      'This delivery was already picked up, so no new QR code is made. The trucker shows the buyer the code from the pickup.';
 }

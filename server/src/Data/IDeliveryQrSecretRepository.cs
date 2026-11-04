@@ -18,8 +18,26 @@ public interface IDeliveryQrSecretRepository
     /// <summary>
     /// Store (or refresh) the pickup nonce for a delivery. Idempotent: re-persisting the
     /// same stable nonce is a no-op-ish upsert that preserves any consumption markers.
+    /// A different nonce (the farmer's Regenerate) also clears the typed-code misses of
+    /// both legs: the old code is useless once the nonce changed.
     /// </summary>
     Task PutNonceAsync(string deliveryId, string nonce);
+
+    /// <summary>
+    /// Take one typed-code attempt of <paramref name="targetStatus"/> ("pickedUp" or
+    /// "delivered") BEFORE the code is compared (T-1). <paramref name="attemptId"/> names the
+    /// operation and the code (<c>HandoffCode.AttemptId</c>). One conditional write, so parallel
+    /// guesses cannot pass the cap: taken while the leg holds fewer than
+    /// <paramref name="maxAttempts"/> attempts, or when this very attempt is already held (a retry
+    /// of the same operation with the same code), and only while the stored nonce is still
+    /// <paramref name="nonce"/>. A taken attempt that turns out wrong stays as a miss; a right one
+    /// is given back with <see cref="ReturnCodeAttemptAsync"/>.
+    /// </summary>
+    Task<CodeAttempt> TryTakeCodeAttemptAsync(
+        string deliveryId, string targetStatus, string attemptId, string nonce, int maxAttempts);
+
+    /// <summary>The typed code was right: give its attempt back, so it never counts as a miss.</summary>
+    Task ReturnCodeAttemptAsync(string deliveryId, string targetStatus, string attemptId);
 
     /// <summary>Read the secret record for a delivery, or null if the farmer hasn't synced it yet.</summary>
     Task<DeliveryQrSecret?> GetAsync(string deliveryId);
@@ -31,6 +49,22 @@ public interface IDeliveryQrSecretRepository
     /// </summary>
     Task MarkConsumedAsync(string deliveryId, string targetStatus, string operationId);
 }
+
+/// <summary>How a typed-code attempt went (<see cref="IDeliveryQrSecretRepository.TryTakeCodeAttemptAsync"/>).</summary>
+public enum CodeAttemptOutcome
+{
+    /// <summary>The attempt was taken; <see cref="CodeAttempt.Count"/> holds the leg's attempts with it.</summary>
+    Taken,
+
+    /// <summary>The leg's attempts are used up.</summary>
+    Locked,
+
+    /// <summary>The stored nonce is no longer the one the code was checked against (regenerated meanwhile).</summary>
+    NonceChanged
+}
+
+/// <summary>The outcome of a typed-code attempt and the leg's attempt count after it.</summary>
+public readonly record struct CodeAttempt(CodeAttemptOutcome Outcome, int Count);
 
 /// <summary>Immutable view of a delivery's QR secret record.</summary>
 public sealed record DeliveryQrSecret
@@ -53,5 +87,19 @@ public sealed record DeliveryQrSecret
         "pickedUp" => ConsumedPickedUpOp,
         "delivered" => ConsumedDeliveredOp,
         _ => null
+    };
+
+    /// <summary>Wrong typed codes counted for the "pickedUp" leg since the nonce was stored.</summary>
+    public int CodeMissesPickedUp { get; init; }
+
+    /// <summary>Wrong typed codes counted for the "delivered" leg since the nonce was stored.</summary>
+    public int CodeMissesDelivered { get; init; }
+
+    /// <summary>The wrong typed codes counted for <paramref name="targetStatus"/>.</summary>
+    public int CodeMissesFor(string targetStatus) => targetStatus switch
+    {
+        "pickedUp" => CodeMissesPickedUp,
+        "delivered" => CodeMissesDelivered,
+        _ => 0
     };
 }

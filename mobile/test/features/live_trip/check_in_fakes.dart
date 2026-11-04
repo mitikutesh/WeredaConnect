@@ -123,12 +123,17 @@ class FakeTrips implements TripProgressReader {
   final Map<String, List<TripLeg>> legs = {};
   final Map<String, String> tripOfDelivery = {};
 
+  /// Trips that are delivered or cancelled themselves (T-5).
+  final Set<String> closed = {};
+
   void set(String tripId, List<TripLeg> value) => legs[tripId] = value;
 
   @override
   Future<TripProgress?> read(String tripId, {required String userId}) async {
     final value = legs[tripId];
-    return value == null ? null : TripProgress(value);
+    return value == null
+        ? null
+        : TripProgress(value, tripClosed: closed.contains(tripId));
   }
 
   @override

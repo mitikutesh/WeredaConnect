@@ -305,6 +305,40 @@ void main() {
     });
   });
 
+  // T-1: a typed code the server refused is never sent again (a retry would
+  // only spend more of the five tries); the local pickup is undone and
+  // explained.
+  group('a refused typed handoff code is permanent and reverted', () {
+    for (final message in [
+      'DELIVERY_CODE_MISMATCH: The typed code does not match this delivery.',
+      'DELIVERY_CODE_LOCKED: Too many wrong codes for this delivery. Scan the '
+          'QR code, or ask the farmer for a new code.',
+      'DELIVERY_CODE_LOCKED_DROPOFF: Too many wrong codes for this drop-off. '
+          "Scan the trucker's drop-off QR, or contact support.",
+      'DELIVERY_CODE_GPS_REQUIRED: Location is required to confirm a paid '
+          'delivery with a typed code.',
+    ]) {
+      test(message.split(':').first, () async {
+        await enqueue(
+          'op-1',
+          entityType: 'delivery',
+          entityId: 'del-1',
+          data: '{"status":"pickedUp","scannedQrCode":"757555978","version":1}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        expect(reverts, hasLength(1));
+        expect(reverts.single.$1.entityType, 'delivery');
+        expect(rejections().single.message, message);
+      });
+    }
+  });
+
   // ESC-07: a dispute the server could not freeze the payment for, or one
   // after the 48-hour window, is refused for good; the local dispute is undone
   // and explained. A dispute whose freeze was undecided keeps retrying.

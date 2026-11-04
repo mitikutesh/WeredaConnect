@@ -18,6 +18,10 @@ String localizeDeliveryError(AppLocalizations l10n, String? code) {
     DeliveryErrorCode.qrPending => l10n.deliveryErrorQrPending,
     DeliveryErrorCode.cancelNotAllowed => l10n.deliveryErrorCancelNotAllowed,
     DeliveryErrorCode.disputeRefused => l10n.deliveryErrorDisputeRefused,
+    DeliveryErrorCode.codeMismatch => l10n.deliveryErrorCodeMismatch,
+    DeliveryErrorCode.codeLocked => l10n.deliveryErrorCodeLocked,
+    DeliveryErrorCode.codeLockedDropoff => l10n.deliveryErrorCodeLockedDropoff,
+    DeliveryErrorCode.codeGpsRequired => l10n.deliveryErrorCodeGpsRequired,
     _ => l10n.deliveryErrorGeneric,
   };
 }

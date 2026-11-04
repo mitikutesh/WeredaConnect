@@ -4573,6 +4573,39 @@ class AppLocalizationsAm extends AppLocalizations {
       'መሰረዝ የተያዙ ትዕዛዞችን ለገዢዎቻቸው ይመልሳል፤ እነሱም ሙሉ ገንዘባቸው ተመላሽ እንዲሆን መሰረዝ ይችላሉ።';
 
   @override
+  String get tripFindCrops => 'በዚህ መስመር ሰብል ፈልግ';
+
+  @override
+  String tripFindCropsNote(String from) {
+    return 'በ$from የተመዘገቡ ሰብሎች። አንዱን በዚህ የጭነት መኪና ይዘዙ።';
+  }
+
+  @override
+  String tripCropsTitle(String from) {
+    return 'በ$from ያሉ ሰብሎች';
+  }
+
+  @override
+  String tripCropsEmpty(String from) {
+    return 'አሁን በ$from የተመዘገበ ሰብል የለም';
+  }
+
+  @override
+  String get tripCropsEmptyHint => 'ገበሬዎች አዲስ ሰብል ሲመዘግቡ እዚህ ይታያል።';
+
+  @override
+  String tripCropsFootnote(String from) {
+    return 'ይህ የጭነት መኪና በሚነሳበት በ$from የተመዘገቡ ሰብሎች። ይህን መኪና ለመያዝ አንዱን ከትራንስፖርት ጋር ይዘዙ።';
+  }
+
+  @override
+  String get tripLeftChooseAnother =>
+      'ይህ የጭነት መኪና አስቀድሞ ሄዷል። ሌላ የጭነት መኪና ይምረጡ።';
+
+  @override
+  String get tripStatusDatePassed => 'ቀኑ አልፏል';
+
+  @override
   String get orderYouReceive => 'የሚደርስዎ';
 
   @override
@@ -4898,4 +4931,160 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get cropPhotoNext => 'ቀጣይ ፎቶ';
+
+  @override
+  String get qrTypeCodeInstead => 'በምትኩ ኮዱን ይተይቡ';
+
+  @override
+  String get qrTypeCodeTitle => 'ኮዱን ይተይቡ';
+
+  @override
+  String get qrTypeCodePickupHint =>
+      'ገበሬው በQR ገጹ ላይ \"ካሜራው አይሰራም?\" የሚለውን እንዲነካ ይጠይቁ፣ ከዚያ እዚያ የሚታዩትን 9 አሃዞች ይተይቡ።';
+
+  @override
+  String get qrTypeCodeDropoffHint =>
+      'ሹፌሩ የማውረጃ QR ከፍቶ \"ካሜራው አይሰራም?\" የሚለውን እንዲነካ ይጠይቁ፣ ከዚያ እዚያ የሚታዩትን 9 አሃዞች ይተይቡ። ሰብሉ ፊትዎ ሲደርስ ብቻ ይተይቡት።';
+
+  @override
+  String get qrTypeCodeSelfPickupHint =>
+      'ገበሬው በQR ገጹ ላይ \"ካሜራው አይሰራም?\" የሚለውን እንዲነካ ይጠይቁ፣ ከዚያ እዚያ የሚታዩትን 9 አሃዞች ይተይቡ። ሰብሉ ፊትዎ ሲደርስ ብቻ ይተይቡት።';
+
+  @override
+  String get qrTypeCodeLabel => 'ባለ 9 አሃዝ ኮድ';
+
+  @override
+  String get qrTypeCodeCheck => 'ኮዱን አረጋግጥ';
+
+  @override
+  String get qrTypeCodeTypo =>
+      'ይህ ኮድ የትየባ ስህተት አለበት። እያንዳንዱን አሃዝ አረጋግጠው እንደገና ይተይቡ።';
+
+  @override
+  String get qrTypeCodeIncomplete => '9ኙንም አሃዞች ይተይቡ።';
+
+  @override
+  String get deliveryQrReadCheckedOnline =>
+      'QR ኮዱ ተነቧል። ስልክዎ ከኢንተርኔት ሲገናኝ አገልጋዩ ያረጋግጠዋል።';
+
+  @override
+  String get deliveryCodeTypedCheckedOnline =>
+      'ኮዱ ተተይቧል። ስልክዎ ከኢንተርኔት ሲገናኝ አገልጋዩ ያረጋግጠዋል።';
+
+  @override
+  String get qrTypedCodeNeedsGps =>
+      'የተተየበ ኮድ አካባቢዎን ይፈልጋል። የቦታ አገልግሎትን ያብሩ፣ ከዚያ \"ቦታን እንደገና ሞክር\" የሚለውን ይንኩ።';
+
+  @override
+  String get qrRetryLocation => 'ቦታን እንደገና ሞክር';
+
+  @override
+  String get qrPickupSavedCheckOnline =>
+      'ማንሳቱ ተቀምጧል። ስልክዎ ከኢንተርኔት ሲገናኝ ኮዱ ይረጋገጣል።';
+
+  @override
+  String get qrDeliverySavedCheckOnline =>
+      'ርክክቡ ተቀምጧል። ስልክዎ ከኢንተርኔት ሲገናኝ ኮዱ ይረጋገጣል።';
+
+  @override
+  String get qrCameraDeniedTitle => 'ካሜራው አልተፈቀደም';
+
+  @override
+  String get qrCameraDeniedText =>
+      'በስልክዎ ቅንብሮች ውስጥ ለWeredaConnect ካሜራውን ይፍቀዱ፣ ከዚያ \"እንደገና ሞክር\" የሚለውን ይንኩ።';
+
+  @override
+  String get qrCameraDeniedTextWeb =>
+      'በአሳሽዎ ቅንብሮች ውስጥ ለዚህ ድረ ገጽ ካሜራውን ይፍቀዱ፣ ከዚያ \"እንደገና ሞክር\" የሚለውን ይንኩ።';
+
+  @override
+  String get qrCameraUnavailableTitle => 'ካሜራው አይሰራም';
+
+  @override
+  String get qrCameraUnavailableText =>
+      'ካሜራውን የሚጠቀሙ ሌሎች መተግበሪያዎችን ይዝጉ፣ ከዚያ \"እንደገና ሞክር\" የሚለውን ይንኩ። በምትኩ ኮዱን መተየብም ይችላሉ።';
+
+  @override
+  String get qrCameraOpenSettings => 'ቅንብሮችን ክፈት';
+
+  @override
+  String get qrCameraNotWorking => 'ካሜራው አይሰራም?';
+
+  @override
+  String get qrShowCodeTitle => 'ከመቃኘት ይልቅ የሚተየብ ኮድ';
+
+  @override
+  String get qrShowCodeWarning =>
+      'ይህን ኮድ ፊትዎ ላለው ሰው ብቻ ያሳዩ። በስልክ በፍጹም አያንብቡት፤ በመልዕክትም አይላኩት።';
+
+  @override
+  String get deliveryShowDropoffQr => 'የማውረጃ QR አሳይ';
+
+  @override
+  String get deliveryDropoffQrTitle => 'የማውረጃ QR';
+
+  @override
+  String get deliveryDropoffQrInstruction => 'ሰብሉን ሲያስረክቡ ይህን QR ኮድ ለገዢው ያሳዩ';
+
+  @override
+  String get deliveryDropoffQrNote =>
+      'ከማንሳት ቅኝትዎ በዚህ ስልክ ላይ የተቀመጠ ነው። ያለ ኢንተርኔት ይሰራል፣ የገዢው ቅኝትም ርክክቡን ያረጋግጣል።';
+
+  @override
+  String get deliveryDropoffCodeOnly =>
+      'ማንሳቱን በተተየበ ኮድ ስላረጋገጡ የሚታይ QR የለም። ገዢው በምትኩ ይህን ኮድ ይተይባል።';
+
+  @override
+  String get deliveryDropoffQrMissing =>
+      'ይህ ስልክ ለዚህ ርክክብ የማውረጃ ኮድ የለውም። በማንሳት ጊዜ የገበሬውን QR በዚህ ስልክ ሲቃኙ ይቀመጣል።';
+
+  @override
+  String get deliveryErrorCodeMismatch =>
+      'የተተየበው ኮድ ከዚህ ርክክብ ጋር አይዛመድም፣ ስለዚህ አልተረጋገጠም። ኮዱን አረጋግጠው እንደገና ይሞክሩ።';
+
+  @override
+  String get deliveryErrorCodeLocked =>
+      'ለዚህ ርክክብ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። በምትኩ QR ኮዱን ይቃኙ፣ ወይም ገበሬው አዲስ ኮድ እንዲያሳይ ይጠይቁ።';
+
+  @override
+  String get deliveryErrorCodeGpsRequired =>
+      'የተተየበ ኮድ አካባቢዎን ይፈልጋል። የቦታ አገልግሎትን አብርተው እንደገና ይሞክሩ።';
+
+  @override
+  String get tripModeStopSharing => 'ማጋራት አቁም';
+
+  @override
+  String get tripModeStopSharingTitle => 'ለዚህ ጉዞ ማጋራት ይቁም?';
+
+  @override
+  String get tripModeStopSharingBody =>
+      'ገዢው የመኪናውን የቀጥታ ቦታ አያይም፣ አውቶማቲክ የጉዞ ላይ ምዝገባዎችም ይቆማሉ። የQR ቅኝቶች አሁንም ማንሳትንና ማድረስን ያረጋግጣሉ። ለዚህ ጉዞ ማጋራትን እንደገና ማብራት አይቻልም።';
+
+  @override
+  String get tripModeStoppedTitle => 'ማጋራት ቆሟል';
+
+  @override
+  String get tripModeStoppedText =>
+      'ለዚህ ጉዞ ማጋራትን አቁመዋል። የQR ቅኝቶች አሁንም ማንሳትንና ማድረስን ያረጋግጣሉ።';
+
+  @override
+  String get tripModeNotSharingYet =>
+      'ቦታዎ ለዚህ ጉዞ ገና አልተጋራም። በመጀመሪያው የማንሳት ቅኝትዎ ይወሰናል።';
+
+  @override
+  String get homeTripLoadFailed =>
+      'ጉዞዎን መጫን አልተቻለም። ግንኙነትዎን አረጋግጠው እንደገና ይሞክሩ።';
+
+  @override
+  String tripScanPickupQrFor(String name) {
+    return 'የማንሳት QR ቃኝ: $name';
+  }
+
+  @override
+  String get deliveryErrorCodeLockedDropoff =>
+      'ለዚህ ማውረጃ ብዙ የተሳሳቱ ኮዶች ስለገቡ የተተየቡ ኮዶች ተቆልፈዋል። ሹፌሩ የማውረጃ QR ካለው ይቃኙት። ከሌለው ድጋፍ ሰጪን ያግኙ፤ ርክክቡን ከእርስዎና ከሹፌሩ ጋር ማረጋገጥ ይችላሉ።';
+
+  @override
+  String get deliveryQrAlreadyPickedUp =>
+      'ይህ ርክክብ አስቀድሞ ተነስቷል፣ ስለዚህ አዲስ QR ኮድ አይፈጠርም። ሹፌሩ ከማንሳቱ የተገኘውን ኮድ ለገዢው ያሳያል።';
 }

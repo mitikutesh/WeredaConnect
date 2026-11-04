@@ -26,6 +26,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
+import 'package:wereda_connect/features/live_trip/sign_out_forgetter.dart';
 import 'package:wereda_connect/features/live_trip/web_check_in_engine.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
@@ -45,6 +46,7 @@ import 'package:wereda_connect/features/buyer/data/repositories/web_buyer_intent
 import 'package:wereda_connect/features/buyer/domain/services/web_matching_service.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/web_crop_listing_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/web_delivery_repository.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_handoff_store.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/web_escrow_repository.dart';
 import 'package:wereda_connect/features/live_trip/data/repositories/web_track_repository.dart';
 import 'package:wereda_connect/features/live_trip/domain/repositories/base_track_repository.dart';
@@ -152,7 +154,12 @@ Future<void> _runWeb({
   required SettingsProvider settingsProvider,
 }) async {
   // No Isar, no SyncWorker, no cert pinning, no lifecycle observer on web
-  final authBloc = AuthBloc()..add(const AuthCheckRequested());
+  // T-3: an explicit logout or a deleted account also drops the trucker's
+  // kept drop-off handoffs (browser storage on web); a lapsed session keeps
+  // them.
+  final authBloc = AuthBloc(
+    forgetTrackSnapshots: signOutForgetter(SecureDropoffHandoffStore()),
+  )..add(const AuthCheckRequested());
   // F-37: production-gated test auth seam for e2e (no-op in prod builds).
   registerWebTestAuthSeam(authBloc);
   bindDataUsageToAuth(dataUsageTracker, authBloc);

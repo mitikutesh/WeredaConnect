@@ -1,6 +1,7 @@
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/web_delivery_repository.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_handoff_store.dart';
 import 'package:wereda_connect/features/live_trip/check_in_engine_binding.dart';
 import 'package:wereda_connect/features/live_trip/check_in_notice.dart';
 import 'package:wereda_connect/features/live_trip/data/geolocator_location_source.dart';
@@ -20,12 +21,17 @@ CheckInEngine buildWebCheckInEngine({
   required AuthBloc authBloc,
   required LanguageProvider languageProvider,
 }) {
+  // T-3: the trucker's kept drop-off handoffs (browser storage on web),
+  // dropped as the trip's deliveries are seen done (an explicit sign out
+  // drops them all, through the AuthBloc's signOutForgetter).
+  final handoffs = SecureDropoffHandoffStore();
   final engine = CheckInEngine(
     pings: WebLocationPingRepository(api: api),
     location: GeolocatorLocationSource(supportsBackground: false),
     trips: RepositoryTripProgressReader(
       deliveries: WebDeliveryRepository(api: api),
       trips: WebTripListingRepository(api: api),
+      handoffs: handoffs,
     ),
     states: PrefsSharingStateStore(),
     notice: () => checkInNoticeFor(languageProvider.locale),

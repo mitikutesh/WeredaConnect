@@ -401,7 +401,8 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                         )
                       : Text(l10n.save),
                 ),
-                FwActionNote(l10n.savedOnPhoneFirstNote),
+                // Web posts straight to the API: nothing waits on the device.
+                if (!kIsWeb) FwActionNote(l10n.savedOnPhoneFirstNote),
               ],
             );
           },

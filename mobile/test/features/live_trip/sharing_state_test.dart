@@ -34,6 +34,30 @@ void main() {
     expect((await store.load('trucker-1')).trips, isEmpty);
   });
 
+  test('a stopped trip round trips as stopped and ended (T-5)', () async {
+    final store = PrefsSharingStateStore();
+    final state = const SharingState()
+        .withTrip(
+          'trip-1',
+          const TripSharing(
+            answer: SharingAnswer.shared,
+            ended: true,
+            stopped: true,
+          ),
+        )
+        .withTrip(
+          'trip-2',
+          const TripSharing(answer: SharingAnswer.shared, ended: true),
+        );
+
+    await store.save('trucker-1', state);
+    final back = await store.load('trucker-1');
+
+    expect(back.trips['trip-1']?.stopped, isTrue);
+    expect(back.trips['trip-1']?.ended, isTrue);
+    expect(back.trips['trip-2']?.stopped, isFalse);
+  });
+
   test('the sharing default round trips; ask is the default', () async {
     final store = PrefsSharingStateStore();
     expect(
