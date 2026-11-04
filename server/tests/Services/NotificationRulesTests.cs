@@ -155,7 +155,8 @@ public class NotificationRulesTests
         farmer.Params[P.BuyerName].Should().Be("Abebe T.");
         farmer.Params[P.CropType].Should().Be("teff");
         farmer.Params[P.QuantityKg].Should().Be("500");
-        farmer.Params[P.AmountEtb].Should().Be("42500.00");
+        // F-1: the farmer's own leg (cropCost), never the buyer's total.
+        farmer.Params[P.AmountEtb].Should().Be("40000.00");
     }
 
     [Fact]
@@ -387,6 +388,33 @@ public class NotificationRulesTests
 
         Tells(events, (Farmer, T.OrderCancelled), (Trucker, T.OrderCancelled));
         For(events, Farmer).Params[P.Reason].Should().Be("transport_failed_buyer_cancelled");
+        // F-1: every order event tells a payee their own leg.
+        For(events, Farmer).Params[P.AmountEtb].Should().Be("40000.00");
+        For(events, Trucker).Params[P.AmountEtb].Should().Be("1500.00");
+    }
+
+    [Fact]
+    public void OrderEvents_TellTheBuyerTheTotal_AndThePayeesTheirOwnLeg()
+    {
+        var events = OrderChange(TripOrder("funded"), TripOrder("accepted"));
+
+        Tells(events, (Buyer, T.OrderConfirmed), (Trucker, T.OrderConfirmed));
+        For(events, Buyer).Params[P.AmountEtb].Should().Be("42500.00");
+        For(events, Trucker).Params[P.AmountEtb].Should().Be("1500.00");
+    }
+
+    [Fact]
+    public void ALegacyOrderWithoutCropCost_TellsTheFarmerNoAmount_NeverTheTotal()
+    {
+        var events = OrderChange(
+            TripOrder("payment_submitted", ("cropCost", null)),
+            TripOrder("funded", ("cropCost", null),
+                (OrderCommitment.FarmerResponseField, "pending"),
+                (OrderCommitment.TruckerResponseField, "not_asked"),
+                (OrderCommitment.FarmerDeadlineAtField, Iso(FarmerDeadline))));
+
+        For(events, Farmer).Params.Should().NotContainKey(P.AmountEtb);
+        For(events, Buyer).Params[P.AmountEtb].Should().Be("42500.00");
     }
 
     [Fact]
@@ -904,6 +932,10 @@ public class NotificationRulesTests
 
         Tells(events, (Buyer, T.DisputeResolved), (Farmer, T.DisputeResolved), (Trucker, T.DisputeResolved));
         events.Should().OnlyContain(e => e.Params[P.Resolution] == "farmer_wins" && e.Push);
+        // F-1: the payees read their own leg of the escrow, the buyer the total.
+        For(events, Buyer).Params[P.AmountEtb].Should().Be("42500.00");
+        For(events, Farmer).Params[P.AmountEtb].Should().Be("40000.00");
+        For(events, Trucker).Params[P.AmountEtb].Should().Be("1500.00");
     }
 
     [Fact]

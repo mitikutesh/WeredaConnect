@@ -1,7 +1,7 @@
 # Notifications API Contract
 
 ## Version
-1.3.0
+1.4.0
 
 ## Parties
 - **Mobile** (client): pulls the inbox, renders the entries and the Action-needed cards, receives the Android push, opens the order on tap
@@ -256,7 +256,7 @@ a type carries only the keys its text needs, and a missing key renders as nothin
 | `truckerName` | The trucker's display name (trip orders) |
 | `cropType` | The order's crop type code (`teff`, `wheat`, ...); clients localize it |
 | `quantityKg` | The order quantity in kilograms, digits only |
-| `amountEtb` | The amount moved or held, in ETB with two decimals, digits and a point only; clients format it |
+| `amountEtb` | The amount moved or held, in ETB with two decimals, digits and a point only; clients format it. It is the recipient's own money (1.4.0): the buyer reads the order total (`orderTotal`, the escrow's `amount`), the farmer the crop leg (`cropCost`, the escrow's `farmerPayout`), the trucker the transport leg (`transportCost`, the escrow's `truckerPayout`); a leg the row does not carry is no amount, never the buyer's total |
 | `deadlineAt` | ISO 8601 UTC; when the request closes or the window ends; clients show it in Ethiopia time (the clock per language: section 2) |
 | `pickupDate` | ISO 8601 UTC; the agreed pickup date (the trip's departure on a trip order) |
 | `reason` | A code, never free text: a `transportFailure`, `declineReason`, `cancelReason` or payout-block reason; clients localize it |
@@ -359,6 +359,7 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.4.0 | 2026-11-04 | `amountEtb` is the recipient's own money on every order and escrow event (F-1): the farmer reads the crop leg and the trucker the transport leg, never the buyer's total (the farmer's `order_request` said "Buyer paid" with the buyer's total). A legacy order without `cropCost` gives the farmer no amount. The `order_request` push says the amount is the farmer's ("Buyer {buyer} paid 40,000 ETB for you, held safely until delivery.", the same in am and om). No new param, type or endpoint. |
 | 1.3.0 | 2026-10-28 | `truck_nearby` (LT-07, `live-trip-api.md` section 4): a new type for the buyer when a check-in puts the truck within 5 km of the drop-off, derived from the deliveries table `MODIFY` that stamps `nearbyNotifiedAt` (once per delivery, conditional write); params `truckerName`, `distanceKm` (one decimal) and `minutes` (to the start of the arrival window, rounded to 5, absent at 0); push text in en, am and om with no clock time; push time to live one hour; inbox text names the trucker without the minutes. The deliveries stream's filter also passes that `MODIFY`. |
 | 1.2.0 | 2026-10-28 | Push text deadlines on the Ethiopian clock in `am` and `om` (LT-04, `live-trip.md` section 9): `27 ኦክቶ ከምሽቱ 12:00`, `27 Onk 12:00 galgala`; `en` unchanged (`27 Oct 18:00`). Section 2 states the format per language. No payload, param or endpoint change. |
 | 1.1.0 | 2026-10-27 | Clients (ESC-21 PR 3, app build 3): the bell lists the inbox on mobile and web, a tap opens the order (push from the background or a cold start too), web route `/orders/{orderId}`, inbox text per type in three languages with a detail line, read state on the device, the 200-entry cap and the cursor rules (section 6). No server change. |
