@@ -8,9 +8,9 @@ import 'package:wereda_connect/shared/widgets/fieldway.dart';
 /// back button in the page instead of an app bar, the 22 pt title beside it,
 /// and the action area pinned to the foot of the page.
 
-/// The boards' back button: a 44 by 44 square, radius 14. White with the
-/// whisper border on a chalk page; [dark] draws it on the soil header
-/// (Trip detail) without a border.
+/// The boards' back button: a 44 by 44 square, radius 14, in a 48 by 48
+/// hit area. White with the whisper border on a chalk page; [dark] draws
+/// it on the soil header (Trip detail) without a border.
 class FwBackButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final bool dark;
@@ -42,13 +42,16 @@ class FwBackButton extends StatelessWidget {
     return Semantics(
       button: true,
       label: tooltip,
-      child: Material(
-        color: AppTheme.soilCard,
-        borderRadius: BorderRadius.circular(14),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: SizedBox(width: 44, height: 44, child: Center(child: child)),
+      child: FwTapTarget(
+        onTap: onTap,
+        child: Material(
+          color: AppTheme.soilCard,
+          borderRadius: BorderRadius.circular(14),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: SizedBox(width: 44, height: 44, child: Center(child: child)),
+          ),
         ),
       ),
     );

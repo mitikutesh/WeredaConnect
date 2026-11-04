@@ -460,7 +460,8 @@ void main() {
         'farmer-001',
         locale: const Locale('am'),
       );
-      const time = 'Oct 27 ከጠዋቱ 5:00';
+      // The date in Amharic too, now that dates follow the app language.
+      const time = 'ኦክቶ 27 ከጠዋቱ 5:00';
       expect(
         find.text(withSmall24h(am.commitmentAnswerBy(time), time, '11:00')),
         findsOneWidget,
@@ -476,7 +477,8 @@ void main() {
         'trucker-001',
         locale: const Locale('am'),
       );
-      const time = 'Oct 28 ከጠዋቱ 5:00';
+      // The date in Amharic too, now that dates follow the app language.
+      const time = 'ኦክቶ 28 ከጠዋቱ 5:00';
       expect(
         find.text(withSmall24h(am.commitmentAnswerBy(time), time, '11:00')),
         findsOneWidget,
@@ -513,7 +515,8 @@ void main() {
         'buyer-001',
         locale: const Locale('am'),
       );
-      const time = 'Oct 29 ከጠዋቱ 5:00';
+      // The date in Amharic too, now that dates follow the app language.
+      const time = 'ኦክቶ 29 ከጠዋቱ 5:00';
       expect(
         find.textContaining(
           withSmall24h(am.transportFailedBuyerBody(time), time, '11:00'),

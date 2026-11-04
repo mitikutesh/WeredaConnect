@@ -311,7 +311,8 @@ class _ActionNeededListState extends State<ActionNeededList> {
                     foregroundColor: AppTheme.money,
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     minimumSize: const Size(0, 36),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    // A 36 tall link in a 48 by 48 hit area.
+                    tapTargetSize: MaterialTapTargetSize.padded,
                     textStyle: const TextStyle(
                       fontFamily: AppTheme.fontFamily,
                       fontFamilyFallback: AppTheme.ethiopicFontFallback,

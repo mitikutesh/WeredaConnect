@@ -170,7 +170,8 @@ class DateFieldButton extends StatelessWidget {
         color: AppTheme.surfaceWhite,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
-          side: const BorderSide(color: AppTheme.whisperBorder),
+          // A field's edge, as the text fields beside it.
+          side: const BorderSide(color: AppTheme.fieldBorder),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(

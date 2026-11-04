@@ -171,6 +171,9 @@ void main() {
     await tester.pump();
     expect(button().onPressed, isNotNull);
 
+    // The resend link's 48 dp hit area puts Verify just below a 600 tall
+    // test window: scroll to it, as a user would.
+    await tester.ensureVisible(find.byKey(const Key('otp_verify_button')));
     await tester.tap(find.byKey(const Key('otp_verify_button')));
     await tester.pump();
     expect(find.text('Please enter 6-digit code'), findsOneWidget);

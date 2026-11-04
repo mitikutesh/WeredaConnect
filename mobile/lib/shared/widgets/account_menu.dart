@@ -17,6 +17,7 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/notification_bell.dart';
 
 /// A tab header's trailing actions: the bell, then the [AccountButton]
@@ -106,49 +107,53 @@ class _Avatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The 44 round button in a 48 by 48 hit area.
     return Semantics(
       button: true,
       label: label,
-      child: Material(
-        key: const Key('account_button'),
-        color: dark ? const Color(0xFF22302A) : const Color(0xFFE6ECF5),
-        shape: const CircleBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: SizedBox(
-            width: 44,
-            height: 44,
-            child: Stack(
-              alignment: Alignment.center,
-              clipBehavior: Clip.none,
-              children: [
-                Icon(
-                  Icons.person,
-                  size: 22,
-                  color: dark ? Colors.white : const Color(0xFF2E4C7D),
-                ),
-                if (unread)
-                  Positioned(
-                    right: 9,
-                    top: 9,
-                    child: Container(
-                      key: const Key('account_button_dot'),
-                      width: 10,
-                      height: 10,
-                      decoration: BoxDecoration(
-                        color: AppTheme.accentGold,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: dark
-                              ? const Color(0xFF22302A)
-                              : const Color(0xFFE6ECF5),
-                          width: 2,
+      child: FwTapTarget(
+        onTap: onTap,
+        child: Material(
+          key: const Key('account_button'),
+          color: dark ? const Color(0xFF22302A) : const Color(0xFFE6ECF5),
+          shape: const CircleBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: Stack(
+                alignment: Alignment.center,
+                clipBehavior: Clip.none,
+                children: [
+                  Icon(
+                    Icons.person,
+                    size: 22,
+                    color: dark ? Colors.white : const Color(0xFF2E4C7D),
+                  ),
+                  if (unread)
+                    Positioned(
+                      right: 9,
+                      top: 9,
+                      child: Container(
+                        key: const Key('account_button_dot'),
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: AppTheme.accentGold,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: dark
+                                ? const Color(0xFF22302A)
+                                : const Color(0xFFE6ECF5),
+                            width: 2,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

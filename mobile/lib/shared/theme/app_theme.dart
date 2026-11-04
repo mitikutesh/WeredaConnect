@@ -41,6 +41,12 @@ class AppTheme {
   static const Color textMuted = Color(0xFF5E6862);
   static const Color borderLight = Color(0xFFE3E1D8);
 
+  /// The edge of a control a user must find: enabled input borders, radio
+  /// rings, outlined buttons. 3.8:1 on white and 3.4:1 on chalk, past the
+  /// 3:1 that WCAG asks of a control's boundary. [whisperBorder] stays for
+  /// a card's decorative edge.
+  static const Color fieldBorder = Color(0xFF7D857F);
+
   // ── Fieldway Design Canvas tokens (specs/features/live-trip.md) ───────
   static const Color fieldGreen = Color(0xFF1E5B3E);
   static const Color fieldGreenTint = Color(0xFFE3EEE6);
@@ -188,6 +194,7 @@ class AppTheme {
       scaffoldBackground: chalkBackground,
       surface: surfaceWhite,
       border: borderLight,
+      fieldBorder: fieldBorder,
       text: textDark,
       muted: textMuted,
       appBarBackground: chalkBackground,
@@ -233,6 +240,7 @@ class AppTheme {
       scaffoldBackground: darkBackground,
       surface: darkSurface,
       border: darkBorder,
+      fieldBorder: darkTextMuted,
       text: darkTextPrimary,
       muted: darkTextMuted,
       appBarBackground: darkSurface,
@@ -247,6 +255,7 @@ class AppTheme {
     required Color scaffoldBackground,
     required Color surface,
     required Color border,
+    required Color fieldBorder,
     required Color text,
     required Color muted,
     required Color appBarBackground,
@@ -329,7 +338,7 @@ class AppTheme {
           ),
         ),
       ),
-      // The boards' secondary button: white, whisper border, dark ink.
+      // The boards' secondary button: white, a control border, dark ink.
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: text,
@@ -338,12 +347,19 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
-          side: BorderSide(color: border),
           textStyle: const TextStyle(
             fontFamily: fontFamily,
             fontFamilyFallback: ethiopicFontFallback,
             fontSize: 15,
             fontWeight: FontWeight.w700,
+          ),
+        ).copyWith(
+          // A disabled button keeps the quiet whisper edge.
+          side: WidgetStateProperty.resolveWith(
+            (states) => BorderSide(
+              color:
+                  states.contains(WidgetState.disabled) ? border : fieldBorder,
+            ),
           ),
         ),
       ),
@@ -380,11 +396,11 @@ class AppTheme {
         fillColor: surface,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: border),
+          borderSide: BorderSide(color: fieldBorder),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: border),
+          borderSide: BorderSide(color: fieldBorder),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),

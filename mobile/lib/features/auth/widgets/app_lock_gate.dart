@@ -197,6 +197,8 @@ class _LockScreen extends StatelessWidget {
                 key: const Key('app_lock_unlock_button'),
                 style: FilledButton.styleFrom(
                   backgroundColor: AppTheme.accentGold,
+                  // Dark ink on gold: white was 2.6:1.
+                  foregroundColor: AppTheme.soilDark,
                   minimumSize: const Size(200, 48),
                 ),
                 onPressed: onUnlock,

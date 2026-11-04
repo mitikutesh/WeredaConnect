@@ -197,7 +197,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       onPressed: _openRegister,
                       style: OutlinedButton.styleFrom(
                         minimumSize: const Size.fromHeight(48),
-                        side: const BorderSide(color: Color(0xFFD6D3C8)),
+                        side: const BorderSide(color: AppTheme.fieldBorder),
                       ),
                       child: Text(
                         l10n.loginNoAccountRegister,
@@ -224,26 +224,22 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   static Widget _roleBadge(String label, Color bg, Color fg) {
+    // The pill hugs its label inside the Wrap: 30 tall at the default text
+    // size, taller (never clipped) with large text.
     return Container(
-      height: 30,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      constraints: const BoxConstraints(minHeight: 30),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(999),
       ),
-      // A min-width row: the pill hugs its label inside the Wrap.
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: fg,
-            ),
-          ),
-        ],
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          color: fg,
+        ),
       ),
     );
   }
@@ -265,44 +261,46 @@ class _LoginScreenState extends State<LoginScreen> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Wordmark and the Offline Ready pill.
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              // Wordmark and the Offline Ready pill; with large text the
+              // pill takes the next line instead of pushing out.
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
                 children: [
-                  Flexible(
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: AppTheme.fieldGreen,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(
-                            Icons.route,
-                            color: Colors.white,
-                            size: 22,
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: AppTheme.fieldGreen,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.route,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Flexible(
+                        child: Text(
+                          l10n.appName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.3,
+                            color: AppTheme.soilDark,
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        Flexible(
-                          child: Text(
-                            l10n.appName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: -0.3,
-                              color: AppTheme.soilDark,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
                   JoinStatusPill(label: l10n.offlineReady),
                 ],
               ),
@@ -437,7 +435,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         style: TextButton.styleFrom(
                           minimumSize: const Size(0, 32),
                           padding: const EdgeInsets.symmetric(horizontal: 4),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          // A 32 tall link in a 48 by 48 hit area.
+                          tapTargetSize: MaterialTapTargetSize.padded,
                         ),
                         child: Text(
                           l10n.forgotPassword,

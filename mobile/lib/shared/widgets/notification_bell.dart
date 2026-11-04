@@ -177,7 +177,7 @@ class _NotificationBellState extends State<NotificationBell> {
               icon: Icons.cloud_upload_outlined,
               title: widget.l10n.syncPending,
               subtitle: widget.l10n.syncPendingCount(pendingCount),
-              color: AppTheme.accentGold,
+              color: AppTheme.statusWarning,
               time: DateTime.now(),
               action: _NotifAction.syncStatus,
               key: 'sync_pending',
@@ -782,7 +782,7 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
       statusText = '$_failedCount ${l10n.syncFailed.toLowerCase()}';
     } else if (_pendingCount > 0) {
       statusIcon = Icons.cloud_upload;
-      statusColor = AppTheme.accentGold;
+      statusColor = AppTheme.statusWarning;
       statusText = '$_pendingCount ${l10n.syncPending.toLowerCase()}';
     } else {
       statusIcon = Icons.cloud_done;
@@ -848,8 +848,9 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
               icon: Icons.cloud_upload_outlined,
               label: l10n.syncPending,
               value: '$_pendingCount',
-              color:
-                  _pendingCount > 0 ? AppTheme.accentGold : AppTheme.textMuted,
+              color: _pendingCount > 0
+                  ? AppTheme.statusWarning
+                  : AppTheme.textMuted,
             ),
             const SizedBox(height: 10),
             // Failed operations row

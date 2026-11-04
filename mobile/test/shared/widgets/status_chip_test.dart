@@ -115,4 +115,68 @@ void main() {
       }
     });
   });
+
+  group('LoadErrorChip', () {
+    const omMessage = 'Lakkoofsonni kun fe\'amuu hin dandeenye.';
+    const omRetry = 'Irra Deebi\'ii Yaali';
+
+    Future<void> pumpChip(
+      WidgetTester tester, {
+      required double textScale,
+      String message = omMessage,
+      String retryLabel = omRetry,
+    }) async {
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery(
+            data: MediaQueryData(
+              size: const Size(360, 640),
+              textScaler: TextScaler.linear(textScale),
+            ),
+            child: Scaffold(
+              body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: LoadErrorChip(
+                  message: message,
+                  retryLabel: retryLabel,
+                  onRetry: () {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('a short retry label keeps one line at 100%', (tester) async {
+      await pumpChip(
+        tester,
+        textScale: 1,
+        message: 'These numbers could not be loaded.',
+        retryLabel: 'Retry',
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(tester.getSize(find.text('Retry')).height, lessThan(20));
+    });
+
+    testWidgets('Oromo at 200%: the retry label wraps, nothing overflows',
+        (tester) async {
+      await pumpChip(tester, textScale: 2);
+
+      expect(tester.takeException(), isNull);
+      final row = tester.getSize(find.byType(LoadErrorChip));
+      final button = tester.getSize(find.byType(TextButton));
+      final message = tester.getSize(
+        find.text(omMessage),
+      );
+      expect(button.width, lessThanOrEqualTo(row.width / 2));
+      expect(message.width, greaterThan(100));
+      // The label wrapped rather than pushing the row wider.
+      expect(tester.getSize(find.text(omRetry)).height, greaterThan(26));
+    });
+  });
 }
