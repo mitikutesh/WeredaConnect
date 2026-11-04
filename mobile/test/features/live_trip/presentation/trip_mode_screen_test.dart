@@ -50,12 +50,14 @@ void main() {
     bool failLoad = false,
     String locale = 'en',
     TripStopAction? onScanPickup,
-    TripStopAction? onOpenDelivery,
+    TripStopAction? onShowDropoffQr,
+    String? shownTripId,
   }) async {
     final net = FakeConnectivity(online: online);
     await pumpApp(
       tester,
       TripModeScreen(
+        tripId: shownTripId,
         engine: rig.engine,
         loader: loaderFor(
           deliveries: deliveries ?? oneOnBoard(),
@@ -65,7 +67,7 @@ void main() {
         connectivity: net,
         now: () => rig.clock.now,
         onScanPickup: onScanPickup ?? (_, __) async {},
-        onOpenDelivery: onOpenDelivery ?? (_, __) async {},
+        onShowDropoffQr: onShowDropoffQr ?? (_, __) async {},
       ),
       locale: locale,
     );
@@ -226,8 +228,7 @@ void main() {
       expect(find.byKey(const Key('trip_mode_offline')), findsNothing);
     });
 
-    testWidgets('a pickup opens the QR scan; a drop-off opens the delivery',
-        (tester) async {
+    testWidgets('a pickup opens the QR scan', (tester) async {
       rig = await EngineRig.signedIn();
       await rig.engine.start(tripId);
       final scanned = <String>[];
@@ -252,7 +253,7 @@ void main() {
       await pump(
         tester,
         deliveries: deliveries,
-        onOpenDelivery: (_, d) async => opened.add(d.deliveryId),
+        onShowDropoffQr: (_, d) async => opened.add(d.deliveryId),
       );
       final l10n = lookup('en');
 
@@ -263,7 +264,10 @@ void main() {
       expect(find.text('Hawi Flour Mill, Addis Ababa'), findsOneWidget);
       expect(find.byKey(const Key('trip_mode_arrived')), findsOneWidget);
 
-      await tester.tap(find.byKey(const Key('trip_mode_open')));
+      // T-3: the drop-off shows the QR the buyer scans.
+      expect(find.text(l10n.deliveryShowDropoffQr), findsOneWidget);
+      expect(find.text(l10n.orderOpenDelivery), findsNothing);
+      await tester.tap(find.byKey(const Key('trip_mode_dropoff_qr')));
       await tester.pumpAndSettle();
       expect(opened, ['d-1']);
     });
@@ -354,5 +358,93 @@ void main() {
     expect(find.byKey(const Key('trip_mode_sharing_off')), findsOneWidget);
     expect(find.text(l10n.tripModeNoTrip), findsOneWidget);
     expect(find.text(l10n.tripModeStops), findsNothing);
+  });
+
+  group('Stop sharing (T-5)', () {
+    testWidgets('asks first; Cancel keeps sharing', (tester) async {
+      rig = await EngineRig.signedIn();
+      await rig.engine.start(tripId);
+      await pump(tester);
+      final l10n = lookup('en');
+
+      await tester.ensureVisible(find.byKey(const Key('trip_mode_stop')));
+      await tester.tap(find.byKey(const Key('trip_mode_stop')));
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.tripModeStopSharingTitle), findsOneWidget);
+      expect(find.text(l10n.tripModeStopSharingBody), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('trip_mode_stop_cancel')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('trip_mode_sharing_live')), findsOneWidget);
+      expect(rig.engine.sharingFor(tripId)?.ended, isFalse);
+    });
+
+    testWidgets('confirmed: the engine stops and the card says so',
+        (tester) async {
+      rig = await EngineRig.signedIn();
+      await rig.engine.start(tripId);
+      await pump(tester);
+      final l10n = lookup('en');
+
+      await tester.ensureVisible(find.byKey(const Key('trip_mode_stop')));
+      await tester.tap(find.byKey(const Key('trip_mode_stop')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('trip_mode_stop_confirm')));
+      await tester.pumpAndSettle();
+
+      expect(rig.engine.sharingFor(tripId)?.stopped, isTrue);
+      expect(rig.pings.events.map((e) => e.kind), [PingKind.declined]);
+      expect(find.byKey(const Key('trip_mode_sharing_ended')), findsOneWidget);
+      expect(find.text(l10n.tripModeStoppedText), findsOneWidget);
+      expect(find.text(l10n.tripModeEndedText), findsNothing);
+      expect(find.byKey(const Key('trip_mode_check_in')), findsNothing);
+      expect(find.byKey(const Key('trip_mode_stop')), findsNothing);
+    });
+
+    testWidgets('offered while paused too', (tester) async {
+      rig = await EngineRig.signedIn();
+      await rig.engine.start(tripId);
+      await rig.engine.pause(rig.clock.now.add(const Duration(hours: 1)));
+      await pump(tester);
+
+      expect(find.byKey(const Key('trip_mode_stop')), findsOneWidget);
+    });
+
+    testWidgets('not for scans only or an ended trip', (tester) async {
+      rig = await EngineRig.signedIn();
+      await rig.engine.decline(tripId);
+      await pump(tester);
+
+      expect(find.byKey(const Key('trip_mode_stop')), findsNothing);
+    });
+  });
+
+  group('a trip the phone does not share for (T-2)', () {
+    testWidgets('shows its stops and that nothing is shared yet',
+        (tester) async {
+      rig = await EngineRig.signedIn();
+      await pump(tester, shownTripId: tripId);
+      final l10n = lookup('en');
+
+      expect(find.byKey(const Key('trip_mode_sharing_off')), findsOneWidget);
+      expect(find.text(l10n.tripModeNotSharingYet), findsOneWidget);
+      expect(find.text(l10n.tripModeNoTrip), findsNothing);
+      expect(find.text(l10n.tripModeStops), findsOneWidget);
+      // The pickup can be scanned from here; no check-in without sharing.
+      expect(find.byKey(const Key('trip_mode_scan')), findsOneWidget);
+      expect(find.byKey(const Key('trip_mode_arrived')), findsNothing);
+      expect(find.byKey(const Key('trip_mode_check_in')), findsNothing);
+    });
+
+    testWidgets('a trip stopped earlier still reads as stopped',
+        (tester) async {
+      rig = await EngineRig.signedIn();
+      await rig.engine.start(tripId);
+      await rig.engine.stop();
+      await pump(tester, shownTripId: tripId);
+      final l10n = lookup('en');
+
+      expect(find.text(l10n.tripModeStoppedText), findsOneWidget);
+    });
   });
 }

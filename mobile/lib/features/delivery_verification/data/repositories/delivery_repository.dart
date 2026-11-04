@@ -378,6 +378,7 @@ class DeliveryRepository extends BaseDeliveryRepository {
     LatLng? gpsPickup,
     String? photoRef,
     String? scannedQrNonce,
+    String? scannedQrCode,
   }) async {
     final delivery = await _isar.deliverys
         .filter()
@@ -430,6 +431,9 @@ class DeliveryRepository extends BaseDeliveryRepository {
 
     if (scannedQrNonce != null) {
       syncData['scannedQrNonce'] = scannedQrNonce;
+    } else if (scannedQrCode != null) {
+      // T-1: the typed fallback; the server derives it from the stored nonce.
+      syncData['scannedQrCode'] = scannedQrCode;
     }
 
     await _syncQueue.enqueue(
@@ -450,6 +454,7 @@ class DeliveryRepository extends BaseDeliveryRepository {
     LatLng? gpsDropoff,
     String? photoRef,
     String? scannedQrNonce,
+    String? scannedQrCode,
   }) async {
     final delivery = await _isar.deliverys
         .filter()
@@ -497,6 +502,9 @@ class DeliveryRepository extends BaseDeliveryRepository {
 
     if (scannedQrNonce != null) {
       syncData['scannedQrNonce'] = scannedQrNonce;
+    } else if (scannedQrCode != null) {
+      // T-1: the typed fallback; the server derives it from the stored nonce.
+      syncData['scannedQrCode'] = scannedQrCode;
     }
 
     await _syncQueue.enqueue(

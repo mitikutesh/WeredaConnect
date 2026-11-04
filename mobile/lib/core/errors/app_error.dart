@@ -84,6 +84,13 @@ enum AppErrorCode {
   /// (`DELIVERY_DISPUTE_EXPIRED`); the local dispute was undone.
   deliveryDisputeExpired,
 
+  /// T-1: the server refused a typed handoff code (`DELIVERY_CODE_MISMATCH`,
+  /// `DELIVERY_CODE_LOCKED`, `DELIVERY_CODE_GPS_REQUIRED`); the local pickup
+  /// or delivery was undone.
+  deliveryCodeMismatch,
+  deliveryCodeLocked,
+  deliveryCodeGpsRequired,
+
   /// ESC-06: an accepted order may be cancelled only after a transport
   /// failure (`ORDER_CANCEL_NOT_ALLOWED`, or the local guard); nothing changed.
   orderCancelNotAllowed,
@@ -249,6 +256,9 @@ AppErrorCode mapErrorToCode(Object error) {
         when isDeliveryDisputeExpiredMessage(message) =>
       AppErrorCode.deliveryDisputeExpired,
     SyncRejectedException(:final message)
+        when isDeliveryCodeRejectionMessage(message) =>
+      _deliveryCodeErrorCode(message),
+    SyncRejectedException(:final message)
         when isContactLockedMessage(message) =>
       AppErrorCode.contactLocked,
     SyncRejectedException(:final message)
@@ -317,6 +327,9 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.deliveryCancelNotAllowed => l10n.deliveryErrorCancelNotAllowed,
     AppErrorCode.deliveryDisputeRefused => l10n.deliveryErrorDisputeRefused,
     AppErrorCode.deliveryDisputeExpired => l10n.deliveryErrorDisputeExpired,
+    AppErrorCode.deliveryCodeMismatch => l10n.deliveryErrorCodeMismatch,
+    AppErrorCode.deliveryCodeLocked => l10n.deliveryErrorCodeLocked,
+    AppErrorCode.deliveryCodeGpsRequired => l10n.deliveryErrorCodeGpsRequired,
     AppErrorCode.orderCancelNotAllowed => l10n.errorOrderCancelNotAllowed,
     AppErrorCode.contactLocked => l10n.contactClosedNote,
     AppErrorCode.deadlinePassed => l10n.errorDeadlinePassed,
@@ -418,6 +431,9 @@ AppErrorCode syncRejectionErrorCode({
   if (isDeliveryDisputeExpiredMessage(message)) {
     return AppErrorCode.deliveryDisputeExpired;
   }
+  if (isDeliveryCodeRejectionMessage(message)) {
+    return _deliveryCodeErrorCode(message);
+  }
   if (isContactLockedMessage(message)) {
     return AppErrorCode.contactLocked;
   }
@@ -428,6 +444,14 @@ AppErrorCode syncRejectionErrorCode({
       ? AppErrorCode.orderRefused
       : AppErrorCode.changeNotSaved;
 }
+
+/// The code of a typed handoff code refusal (T-1).
+AppErrorCode _deliveryCodeErrorCode(String message) =>
+    message.startsWith(deliveryCodeLockedCode)
+        ? AppErrorCode.deliveryCodeLocked
+        : message.startsWith(deliveryCodeGpsRequiredCode)
+            ? AppErrorCode.deliveryCodeGpsRequired
+            : AppErrorCode.deliveryCodeMismatch;
 
 /// Convenience: classify and localize in one step from a caught error.
 String localizeError(Object error, AppLocalizations l10n) =>

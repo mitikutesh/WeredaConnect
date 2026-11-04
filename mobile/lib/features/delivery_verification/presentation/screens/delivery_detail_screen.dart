@@ -25,6 +25,7 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/handoff_routes.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/dispute_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_generate_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_scan_screen.dart';
@@ -220,8 +221,9 @@ class DeliveryDetailScreen extends StatelessWidget {
   );
 
   /// The role's next step on this delivery, pinned at the foot of the page
-  /// (Show QR, Confirm Pickup, Mark In Transit, Confirm Delivery, Pay,
-  /// Raise Dispute), with Cancel Delivery under it while that is allowed.
+  /// (Show QR, Confirm Pickup, Mark In Transit, Show drop-off QR, Confirm
+  /// Delivery, Pay, Raise Dispute), with Cancel Delivery under it while that
+  /// is allowed.
   /// Null when the viewer has nothing to do here.
   Widget? _buildBottomActions(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -301,6 +303,22 @@ class DeliveryDetailScreen extends StatelessWidget {
               style: _primaryStyle,
             );
           },
+        ),
+      );
+    }
+
+    // Trucker + pickedUp/inTransit → Show drop-off QR (T-3): the farmer's
+    // token kept from the pickup scan, which the buyer's confirm checks.
+    if (isTrucker &&
+        (delivery.status == DeliveryStatus.pickedUp ||
+            delivery.status == DeliveryStatus.inTransit)) {
+      actions.add(
+        FilledButton.icon(
+          key: const Key('delivery_dropoff_qr'),
+          onPressed: () => openDropoffQr(context, delivery),
+          icon: const Icon(Icons.qr_code_2),
+          label: Text(l10n.deliveryShowDropoffQr),
+          style: _primaryStyle,
         ),
       );
     }

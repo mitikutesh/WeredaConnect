@@ -11,6 +11,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_bookings_section.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_pickup_scans.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -90,8 +91,9 @@ class TripDetailScreen extends StatelessWidget {
   }
 }
 
-/// The owner's page: the booked orders and, before pickup, what to do with
-/// each farmer's QR on the day.
+/// The owner's page: Scan pickup QR for each pickup still waiting (T-2),
+/// the booked orders and, before pickup, what to do with each farmer's QR on
+/// the day.
 class _OwnerBody extends StatelessWidget {
   final Trip trip;
 
@@ -105,6 +107,7 @@ class _OwnerBody extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        TripPickupScans(trip: trip),
         TripBookingsSection(trip: trip),
         if (beforePickup && tripHasBookings(trip))
           FwNoteBox(

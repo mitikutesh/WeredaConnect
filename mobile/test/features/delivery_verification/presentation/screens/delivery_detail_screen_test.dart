@@ -288,6 +288,51 @@ void main() {
       expect(find.text('Confirm Delivery'), findsOneWidget);
     });
 
+    // T-3: the trucker shows the buyer the drop-off QR from pickup on; the
+    // farmer and the buyer never get it.
+    for (final status in [DeliveryStatus.pickedUp, DeliveryStatus.inTransit]) {
+      testWidgets('the trucker gets Show drop-off QR on ${status.name}',
+          (tester) async {
+        await tester.pumpWidget(
+          buildTestWidget(
+            delivery: _makeDelivery(status: status),
+            currentUserId: 'trucker-001',
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('delivery_dropoff_qr')), findsOneWidget);
+        expect(find.text('Show drop-off QR'), findsOneWidget);
+      });
+
+      for (final userId in ['farmer-001', 'buyer-001']) {
+        testWidgets('$userId gets no drop-off QR on ${status.name}',
+            (tester) async {
+          await tester.pumpWidget(
+            buildTestWidget(
+              delivery: _makeDelivery(status: status),
+              currentUserId: userId,
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.byKey(const Key('delivery_dropoff_qr')), findsNothing);
+        });
+      }
+    }
+
+    testWidgets('no drop-off QR before pickup', (tester) async {
+      await tester.pumpWidget(
+        buildTestWidget(
+          delivery: _makeDelivery(),
+          currentUserId: 'trucker-001',
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('delivery_dropoff_qr')), findsNothing);
+    });
+
     // ESC-08: every party may cancel before pickup (the same screen on mobile
     // and web), nobody after.
     for (final userId in ['farmer-001', 'trucker-001', 'buyer-001']) {

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
+import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/models/trip.dart';
@@ -39,8 +40,10 @@ import 'package:wereda_connect/shared/widgets/clock_text.dart';
 /// Reads the trucker's own trip through the trip repository (Isar on mobile,
 /// the API on web) and, for the next stop, the trucker's deliveries through
 /// the delivery repository (the same read the Action needed card makes, so
-/// the web folds them). A tap opens trip mode while the trip is on the road
-/// with sharing, else the trip.
+/// the web folds them). A tap opens trip mode while the phone shares the
+/// trip, a load is on board (picked up or in transit) or a pickup is due
+/// (T-2: departure day today or past), else the trip. A trip that cannot be
+/// read shows an error with Retry, never "No active trip" (T-6).
 class TruckerHeroCard extends StatefulWidget {
   final String userId;
   final VoidCallback? onRefresh;
@@ -73,6 +76,15 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
   List<Place> _places = const [];
   List<({String from, String to})> _recentRoutes = [];
   bool _loading = true;
+
+  /// The trip could not be read (T-6): Retry, not "No active trip".
+  bool _loadFailed = false;
+
+  /// A delivery of the trip is picked up or in transit (T-2).
+  bool _onRoad = false;
+
+  /// A pickup of the trip waits and its departure day has come (T-2).
+  bool _pickupDue = false;
   CheckInEngine? _engine;
   CheckInStatus _status = const CheckInStatus();
   StreamSubscription<CheckInStatus>? _statusSub;
@@ -124,8 +136,30 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
       trip ??= await repo.getMostRelevantTrip(widget.userId);
       final routes = await repo.getRecentRoutes(widget.userId);
       if (!mounted) return;
-      final next = trip == null ? null : await _nextStop(trip);
+      final plan = trip == null ? null : await _readPlan(trip);
       if (!mounted) return;
+      final onRoad = plan != null &&
+          plan.stops.any(
+            (s) =>
+                s.delivery.status == DeliveryStatus.pickedUp ||
+                s.delivery.status == DeliveryStatus.inTransit,
+          );
+      final pickupDue = plan != null &&
+          trip != null &&
+          _departureCame(trip) &&
+          plan.stops.any(
+            (s) =>
+                s.kind == TripStopKind.pickup &&
+                s.delivery.status == DeliveryStatus.pending,
+          );
+      // The next stop shows once the trip is under way.
+      final next = trip != null &&
+              (trip.status == TripStatus.inTransit ||
+                  _sharing(trip) ||
+                  onRoad ||
+                  pickupDue)
+          ? plan?.next
+          : null;
       final nextTrack = next?.kind == TripStopKind.dropoff
           ? await _trackOf(next!.delivery.deliveryId)
           : null;
@@ -138,18 +172,40 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
         _nextTrack = nextTrack;
         _places = places;
         _recentRoutes = routes;
+        _onRoad = onRoad;
+        _pickupDue = pickupDue;
         _loading = false;
+        _loadFailed = false;
       });
-    } on Object {
-      if (mounted) setState(() => _loading = false);
+    } on Object catch (e) {
+      debugPrint('[TruckerHeroCard] trip unreadable: $e');
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadFailed = true;
+        });
+      }
     }
   }
 
-  /// The first stop of [trip] not done yet, from the trucker's deliveries;
-  /// null before the trip is on the road, when the deliveries cannot be
-  /// read, or when every stop is done.
-  Future<TripStop?> _nextStop(Trip trip) async {
-    if (trip.status != TripStatus.inTransit && !_sharing(trip)) return null;
+  void _retry() {
+    setState(() {
+      _loading = true;
+      _loadFailed = false;
+    });
+    _loadData();
+  }
+
+  /// The trip's departure day (in Ethiopia) is today or past.
+  static bool _departureCame(Trip trip) {
+    final departure = DateUtils.dateOnly(dayInEthiopia(trip.departureDate));
+    final today = DateUtils.dateOnly(dayInEthiopia(DateTime.now().toUtc()));
+    return !departure.isAfter(today);
+  }
+
+  /// [trip]'s stops from the trucker's deliveries; null when they cannot be
+  /// read.
+  Future<TripPlan?> _readPlan(Trip trip) async {
     final DeliveryBloc bloc;
     try {
       bloc = context.read<DeliveryBloc>();
@@ -186,7 +242,7 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
             if (d.tripId == trip.tripId && d.truckerId == widget.userId) d,
         ],
         orders: orders,
-      ).next;
+      );
     } on Object catch (e) {
       debugPrint('[TruckerHeroCard] deliveries unreadable: $e');
       return null;
@@ -276,6 +332,8 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
       );
     }
 
+    if (_loadFailed) return _LoadFailedCard(onRetry: _retry);
+
     final trip = _trip;
     if (trip == null || trip.status == TripStatus.cancelled) {
       return _NoTripCard(
@@ -329,8 +387,8 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
       line = price;
     }
 
-    final Widget destination = sharing
-        ? const TripModeScreen()
+    final Widget destination = sharing || _onRoad || _pickupDue
+        ? TripModeScreen(tripId: trip.tripId)
         : trip.status == TripStatus.delivered
             ? CreateTripScreen.fromTrip(trip)
             : TripDetailScreen(trip: trip);
@@ -392,6 +450,41 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
     return DateUtils.isSameDay(departure, today)
         ? l10n.homeToday
         : DateFormat.MMMd().format(departure);
+  }
+}
+
+/// The trip could not be read (T-6): say so with Retry, never "No active
+/// trip" (which offers to post a trip the trucker may already have).
+class _LoadFailedCard extends StatelessWidget {
+  final VoidCallback onRetry;
+
+  const _LoadFailedCard({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return _DarkCard(
+      child: Row(
+        key: const Key('trucker_hero_load_failed'),
+        children: [
+          const Icon(Icons.cloud_off, size: 24, color: AppTheme.soilMuted),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              l10n.homeTripLoadFailed,
+              style: const TextStyle(fontSize: 14, color: Colors.white),
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            key: const Key('trucker_hero_retry'),
+            onPressed: onRetry,
+            style: TextButton.styleFrom(foregroundColor: AppTheme.accentSoft),
+            child: Text(l10n.retry),
+          ),
+        ],
+      ),
+    );
   }
 }
 

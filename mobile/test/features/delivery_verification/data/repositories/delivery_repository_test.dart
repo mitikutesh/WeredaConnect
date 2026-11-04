@@ -260,6 +260,32 @@ void main() {
       expect(pending.last.entityType, 'delivery');
     });
 
+    test('a typed code is queued as scannedQrCode (T-1)', () async {
+      final delivery = await repository.createDelivery(
+        tripId: 'trip-001',
+        orderId: 'order-test-001',
+        listingId: 'listing-001',
+        farmerId: 'farmer-001',
+        farmerName: 'Abebe',
+        truckerId: 'trucker-001',
+        truckerName: 'Dawit',
+        buyerId: 'buyer-001',
+        buyerName: 'Sara',
+        qrToken: 'qr-token',
+      );
+
+      await repository.confirmPickup(
+        deliveryId: delivery.deliveryId,
+        truckerId: 'trucker-001',
+        scannedQrCode: '757555978',
+      );
+
+      final pending = await syncQueue.getPendingOperations();
+      final data = jsonDecode(pending.last.data) as Map<String, dynamic>;
+      expect(data['scannedQrCode'], '757555978');
+      expect(data.containsKey('scannedQrNonce'), isFalse);
+    });
+
     test(
         'confirmPickup sends the PRE-increment version (server CAS; guards escrow '
         'release from silent conflict/revert)', () async {

@@ -127,4 +127,62 @@ void main() {
       await done;
     });
   }
+
+  // T-1: web waits for the server, so a refused typed code reaches the bloc
+  // and gets its own message.
+  for (final (message, code) in [
+    (
+      'DELIVERY_CODE_MISMATCH: The typed code does not match this delivery.',
+      DeliveryErrorCode.codeMismatch,
+    ),
+    (
+      'DELIVERY_CODE_LOCKED: Too many wrong codes for this delivery.',
+      DeliveryErrorCode.codeLocked,
+    ),
+    (
+      'DELIVERY_CODE_GPS_REQUIRED: Location is required.',
+      DeliveryErrorCode.codeGpsRequired,
+    ),
+  ]) {
+    test('a refused typed code emits $code', () async {
+      final repository = _MockRepository();
+      when(
+        () => repository.confirmDelivery(
+          deliveryId: any(named: 'deliveryId'),
+          buyerId: any(named: 'buyerId'),
+          gpsDropoff: any(named: 'gpsDropoff'),
+          photoRef: any(named: 'photoRef'),
+          scannedQrNonce: any(named: 'scannedQrNonce'),
+          scannedQrCode: any(named: 'scannedQrCode'),
+        ),
+      ).thenThrow(SyncRejectedException(message));
+      final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
+
+      final done = expectLater(
+        bloc.stream,
+        emitsThrough(
+          isA<DeliveryError>().having((e) => e.code, 'code', code),
+        ),
+      );
+      bloc.add(
+        const ConfirmDelivery(
+          deliveryId: 'del-1',
+          buyerId: 'buyer-1',
+          scannedQrCode: '757555978',
+        ),
+      );
+      await done;
+      verify(
+        () => repository.confirmDelivery(
+          deliveryId: 'del-1',
+          buyerId: 'buyer-1',
+          gpsDropoff: any(named: 'gpsDropoff'),
+          photoRef: any(named: 'photoRef'),
+          scannedQrNonce: any(named: 'scannedQrNonce'),
+          scannedQrCode: '757555978',
+        ),
+      ).called(1);
+    });
+  }
 }

@@ -21,6 +21,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_event.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.dart';
+import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
@@ -38,6 +39,9 @@ class MockInboxBloc extends Mock implements InboxBloc {}
 class MockSyncExecutor extends Mock implements SyncExecutor {}
 
 class MockTripListingBloc extends Mock implements TripListingBloc {}
+
+class MockTripListingRepository extends Mock
+    implements BaseTripListingRepository {}
 
 class FakeAuthEvent extends Fake implements AuthEvent {}
 
@@ -107,6 +111,14 @@ void main() {
     // Find Crops reads the open trips for its cards' transport line.
     when(() => tripListingBloc.state).thenReturn(const TripListingInitial());
     when(() => tripListingBloc.stream).thenAnswer((_) => const Stream.empty());
+    // The trucker's trip card: no trip yet (a read that fails is an error
+    // card with Retry since T-6, not "No active trip").
+    final tripRepository = MockTripListingRepository();
+    when(() => tripListingBloc.repository).thenReturn(tripRepository);
+    when(() => tripRepository.getMostRelevantTrip(any()))
+        .thenAnswer((_) async => null);
+    when(() => tripRepository.getRecentRoutes(any()))
+        .thenAnswer((_) async => []);
   });
 
   /// Tab indexes the dashboard asked the shell to switch to.

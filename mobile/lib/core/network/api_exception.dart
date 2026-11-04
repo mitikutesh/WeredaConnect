@@ -197,13 +197,35 @@ bool isContactInTextMessage(String? message) =>
     (message.startsWith(cropContactInTextCode) ||
         message.startsWith(tripContactInTextCode));
 
+/// Sync rejection prefixes for a pickup or drop-off confirmed with a typed
+/// handoff code (T-1, sync-protocol.md 1.33.0): the code is not the
+/// delivery's, typed codes are locked for that step after five wrong ones
+/// (a scanned QR still works; the farmer's Regenerate unlocks), or a paid
+/// delivery's typed code came without a location. Nothing was written.
+const String deliveryCodeMismatchCode = 'DELIVERY_CODE_MISMATCH';
+const String deliveryCodeLockedCode = 'DELIVERY_CODE_LOCKED';
+const String deliveryCodeGpsRequiredCode = 'DELIVERY_CODE_GPS_REQUIRED';
+
+/// Whether a /sync per-operation error message refuses a typed handoff code
+/// (`DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED` or
+/// `DELIVERY_CODE_GPS_REQUIRED`). Permanent: resending the same code gets the
+/// same answer, so the client undoes its local pickup or delivery instead of
+/// retrying (and never spends more of the five tries by itself).
+bool isDeliveryCodeRejectionMessage(String? message) =>
+    message != null &&
+    (message.startsWith(deliveryCodeMismatchCode) ||
+        message.startsWith(deliveryCodeLockedCode) ||
+        message.startsWith(deliveryCodeGpsRequiredCode));
+
 /// Whether a /sync per-operation error message refuses a delivery change for
 /// good and the client must put the delivery back from the server: a cancel
-/// after pickup (ESC-08) or a dispute that was refused or too late (ESC-07).
+/// after pickup (ESC-08), a dispute that was refused or too late (ESC-07), or
+/// a typed handoff code that was refused (T-1).
 bool isRevertableDeliveryRejectionMessage(String? message) =>
     isDeliveryCancelRefusalMessage(message) ||
     isDeliveryDisputeRefusalMessage(message) ||
-    isDeliveryDisputeExpiredMessage(message);
+    isDeliveryDisputeExpiredMessage(message) ||
+    isDeliveryCodeRejectionMessage(message);
 
 /// Sync rejection prefix when a farmer's or trucker's response to an order
 /// comes after its deadline (three-party commitments, spec section 8).

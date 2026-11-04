@@ -37,20 +37,25 @@ abstract class BaseDeliveryRepository {
     required String userId,
   });
 
+  /// [scannedQrNonce] from a scan, or [scannedQrCode], the typed fallback
+  /// (T-1, sent as `scannedQrCode` and checked by the server).
   Future<void> confirmPickup({
     required String deliveryId,
     required String truckerId,
     LatLng? gpsPickup,
     String? photoRef,
     String? scannedQrNonce,
+    String? scannedQrCode,
   });
 
+  /// [scannedQrNonce] from a scan, or [scannedQrCode], the typed fallback.
   Future<void> confirmDelivery({
     required String deliveryId,
     required String buyerId,
     LatLng? gpsDropoff,
     String? photoRef,
     String? scannedQrNonce,
+    String? scannedQrCode,
   });
 
   Future<void> markInTransit({

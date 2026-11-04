@@ -16,6 +16,7 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart
 import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
+import 'package:wereda_connect/features/live_trip/presentation/screens/trip_mode_screen.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/trucker_hero_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -230,6 +231,68 @@ void main() {
       await pumpWith(tester, rows: [pending]);
       expect(find.text('Next: pickup in Meki'), findsOneWidget);
     });
+
+    // T-2: trip mode is where the scans are, so the card goes there as soon
+    // as a load is on board or a pickup is due, not only while sharing.
+    testWidgets('a load on board opens trip mode for the trip, not sharing',
+        (tester) async {
+      when(() => repository.getMostRelevantTrip('trucker-001'))
+          .thenAnswer((_) async => trip(status: TripStatus.matched));
+      await pumpWith(
+        tester,
+        rows: [harness.liveDelivery(status: DeliveryStatus.pickedUp)],
+      );
+
+      await tester.tap(find.byKey(const Key('trucker_hero_card')));
+      await tester.pumpAndSettle();
+
+      final screen = tester.widget<TripModeScreen>(find.byType(TripModeScreen));
+      expect(screen.tripId, 'trip-001');
+    });
+
+    testWidgets('a pickup due today opens trip mode', (tester) async {
+      when(() => repository.getMostRelevantTrip('trucker-001')).thenAnswer(
+        (_) async => trip(status: TripStatus.matched)
+          ..departureDate = DateTime.now().toUtc(),
+      );
+      await pumpWith(
+        tester,
+        rows: [harness.liveDelivery(status: DeliveryStatus.pending)],
+      );
+      // The next stop shows once the pickup is due.
+      expect(
+        find.text('Next: pickup at Almaz Bekele'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('trucker_hero_card')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TripModeScreen), findsOneWidget);
+    });
+  });
+
+  // T-6: offline (or a server error) is not "No active trip".
+  testWidgets('a trip that cannot be read offers Retry', (tester) async {
+    var fail = true;
+    when(() => repository.getMostRelevantTrip('trucker-001')).thenAnswer(
+      (_) async => fail ? throw StateError('offline') : trip(),
+    );
+    final l10n = lookupAppLocalizations(const Locale('en'));
+
+    await tester.pumpWidget(buildCard());
+    await tester.pumpAndSettle();
+
+    expect(find.text(l10n.homeTripLoadFailed), findsOneWidget);
+    expect(find.text(l10n.noActiveTrip), findsNothing);
+    expect(find.text(l10n.homeTripNoneHint), findsNothing);
+
+    fail = false;
+    await tester.tap(find.byKey(const Key('trucker_hero_retry')));
+    await tester.pumpAndSettle();
+
+    expect(find.text(l10n.homeTripLoadFailed), findsNothing);
+    expect(find.text('Meki → Addis Ababa'), findsOneWidget);
   });
 
   testWidgets('no trip: a quiet line and the recent routes as chips',

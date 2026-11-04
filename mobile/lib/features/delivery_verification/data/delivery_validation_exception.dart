@@ -48,5 +48,27 @@ class DeliveryErrorCode {
   /// A dispute the server refused because the payment could not be frozen
   /// (ESC-07): queued for an admin payout, being settled or no longer held.
   static const disputeRefused = deliveryDisputeRefusedCode;
+
+  /// A typed handoff code the server refused (T-1): not this delivery's,
+  /// locked after five wrong ones, or sent without a location on a paid
+  /// delivery.
+  static const codeMismatch = deliveryCodeMismatchCode;
+  static const codeLocked = deliveryCodeLockedCode;
+  static const codeGpsRequired = deliveryCodeGpsRequiredCode;
   static const generic = 'DELIVERY_GENERIC';
+}
+
+/// The [DeliveryErrorCode] of a typed handoff code refusal, or null.
+String? deliveryCodeErrorOf(String? message) {
+  if (message == null) return null;
+  if (message.startsWith(deliveryCodeMismatchCode)) {
+    return DeliveryErrorCode.codeMismatch;
+  }
+  if (message.startsWith(deliveryCodeLockedCode)) {
+    return DeliveryErrorCode.codeLocked;
+  }
+  if (message.startsWith(deliveryCodeGpsRequiredCode)) {
+    return DeliveryErrorCode.codeGpsRequired;
+  }
+  return null;
 }

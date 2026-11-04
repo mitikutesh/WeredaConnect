@@ -102,6 +102,10 @@ class ConfirmPickup extends DeliveryEvent {
   final String? photoRef;
   final String? scannedQrNonce;
 
+  /// The typed fallback for the scan (T-1): the farmer's nine-digit code,
+  /// its check digit already checked. Null when the QR was scanned.
+  final String? scannedQrCode;
+
   /// The delivery's trip: a successful scan records a check-in for it when
   /// the trucker shares the trip's location (LT-08).
   final String? tripId;
@@ -112,12 +116,20 @@ class ConfirmPickup extends DeliveryEvent {
     this.gpsPickup,
     this.photoRef,
     this.scannedQrNonce,
+    this.scannedQrCode,
     this.tripId,
   });
 
   @override
-  List<Object?> get props =>
-      [deliveryId, truckerId, gpsPickup, photoRef, scannedQrNonce, tripId];
+  List<Object?> get props => [
+        deliveryId,
+        truckerId,
+        gpsPickup,
+        photoRef,
+        scannedQrNonce,
+        scannedQrCode,
+        tripId,
+      ];
 }
 
 /// Confirm delivery received by buyer.
@@ -127,6 +139,10 @@ class ConfirmDelivery extends DeliveryEvent {
   final LatLng? gpsDropoff;
   final String? photoRef;
   final String? scannedQrNonce;
+
+  /// The typed fallback for the scan (T-1): the nine-digit code the trucker
+  /// (or, at a self-pickup, the farmer) shows. Null when the QR was scanned.
+  final String? scannedQrCode;
 
   /// The delivery's trip, for the drop-off check-in (LT-08). It records only
   /// on the phone that shares the trip's location.
@@ -138,12 +154,20 @@ class ConfirmDelivery extends DeliveryEvent {
     this.gpsDropoff,
     this.photoRef,
     this.scannedQrNonce,
+    this.scannedQrCode,
     this.tripId,
   });
 
   @override
-  List<Object?> get props =>
-      [deliveryId, buyerId, gpsDropoff, photoRef, scannedQrNonce, tripId];
+  List<Object?> get props => [
+        deliveryId,
+        buyerId,
+        gpsDropoff,
+        photoRef,
+        scannedQrNonce,
+        scannedQrCode,
+        tripId,
+      ];
 }
 
 /// Raise a dispute on a delivery.
