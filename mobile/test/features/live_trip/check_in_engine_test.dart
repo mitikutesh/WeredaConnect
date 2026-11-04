@@ -418,6 +418,64 @@ void main() {
       expect(engine.status.mode, SharingMode.ended);
       expect(location.running, isFalse);
     });
+
+    test('when the trip itself is delivered or cancelled (T-5)', () async {
+      trips.closed.add(trip);
+
+      await at(const Duration(minutes: 60));
+
+      expect(engine.status.mode, SharingMode.ended);
+      expect(engine.status.stopped, isFalse);
+      expect(location.running, isFalse);
+      expect(pings.fixes, hasLength(1));
+    });
+
+    test('Stop sharing (T-5): tells the server, ends as the driver chose',
+        () async {
+      await engine.stop();
+
+      expect(pings.events.map((e) => e.kind), [PingKind.declined]);
+      expect(engine.status.mode, SharingMode.ended);
+      expect(engine.status.stopped, isTrue);
+      expect(engine.sharingFor(trip)?.stopped, isTrue);
+      expect(timers.armed, isNull);
+    });
+
+    test('Stop sharing (T-5): nothing starts it again', () async {
+      final asked = <String>[];
+      final sub = engine.consentRequests.listen(asked.add);
+      await engine.stop();
+      final rows = pings.rows.length;
+
+      // A scan records nothing, start refuses, the sheet is not asked.
+      await engine.onScan(trip);
+      expect(await engine.start(trip), CheckInResult.notSharing);
+      expect(await engine.checkInNow(), CheckInResult.notSharing);
+      await at(const Duration(hours: 2));
+      expect(pings.rows, hasLength(rows));
+      expect(asked, isEmpty);
+
+      // Nor a restart of the app: the choice is kept with the trip.
+      await engine.dispose();
+      engine = build();
+      await engine.signIn(trucker);
+      expect(engine.status.mode, SharingMode.ended);
+      expect(engine.status.stopped, isTrue);
+      expect(location.running, isFalse);
+      await sub.cancel();
+    });
+
+    test('Stop sharing while paused tells the server too', () async {
+      await engine.pause(clock.now.add(const Duration(hours: 1)));
+
+      await engine.stop();
+
+      expect(
+        pings.events.map((e) => e.kind),
+        [PingKind.paused, PingKind.declined],
+      );
+      expect(engine.status.stopped, isTrue);
+    });
   });
 
   group('refused pickup', () {

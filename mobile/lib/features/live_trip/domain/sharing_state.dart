@@ -21,6 +21,7 @@ class TripSharing {
     required this.answer,
     this.pausedUntil,
     this.ended = false,
+    this.stopped = false,
   });
 
   final SharingAnswer answer;
@@ -28,20 +29,27 @@ class TripSharing {
   /// While paused: when sharing resumes by itself (UTC).
   final DateTime? pausedUntil;
 
-  /// Sharing stopped for good: every delivery is done, or the server said
-  /// `LOCATION_SHARING_ENDED`.
+  /// Sharing stopped for good: every delivery is done, the trip is
+  /// delivered or cancelled, the server said `LOCATION_SHARING_ENDED`, or
+  /// the driver stopped it ([stopped]).
   final bool ended;
+
+  /// The driver chose Stop sharing (T-5): kept with the trip so nothing
+  /// starts it again.
+  final bool stopped;
 
   TripSharing copyWith({
     SharingAnswer? answer,
     DateTime? pausedUntil,
     bool clearPause = false,
     bool? ended,
+    bool? stopped,
   }) =>
       TripSharing(
         answer: answer ?? this.answer,
         pausedUntil: clearPause ? null : (pausedUntil ?? this.pausedUntil),
         ended: ended ?? this.ended,
+        stopped: stopped ?? this.stopped,
       );
 
   Map<String, Object> toJson() => {
@@ -49,6 +57,7 @@ class TripSharing {
         if (pausedUntil != null)
           'pausedUntil': pausedUntil!.toUtc().toIso8601String(),
         if (ended) 'ended': true,
+        if (stopped) 'stopped': true,
       };
 
   static TripSharing? fromJson(Object? json) {
@@ -60,6 +69,7 @@ class TripSharing {
       answer: answer,
       pausedUntil: DateTime.tryParse('${json['pausedUntil']}')?.toUtc(),
       ended: json['ended'] == true,
+      stopped: json['stopped'] == true,
     );
   }
 }

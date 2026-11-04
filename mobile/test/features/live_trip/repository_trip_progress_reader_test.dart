@@ -101,6 +101,32 @@ void main() {
     expect(progress.anotherOnRoad('d-2'), isFalse);
   });
 
+  test('a trip delivered or cancelled is finished whatever its legs (T-5)',
+      () async {
+    for (final status in [TripStatus.delivered, TripStatus.cancelled]) {
+      when(() => trips.getTripById('trip-1'))
+          .thenAnswer((_) async => _trip()..status = status);
+      final progress = await reader().read('trip-1', userId: 'trucker-1');
+      expect(progress!.tripClosed, isTrue, reason: '$status');
+      expect(progress.allDone, isFalse);
+      expect(progress.finished, isTrue);
+    }
+
+    when(() => trips.getTripById('trip-1')).thenAnswer((_) async => _trip());
+    final open = await reader().read('trip-1', userId: 'trucker-1');
+    expect(open!.finished, isFalse);
+  });
+
+  test('a trip that cannot be read still gives the legs', () async {
+    when(() => trips.getTripById('trip-1')).thenThrow(StateError('offline'));
+
+    final progress = await reader().read('trip-1', userId: 'trucker-1');
+
+    expect(progress!.legs, hasLength(2));
+    expect(progress.tripClosed, isFalse);
+    expect(progress.undeliveredDropoffs, isEmpty);
+  });
+
   test('the destination name is the fallback; no point means none', () async {
     when(() => trips.getTripById('trip-1')).thenAnswer((_) async => _trip());
     final byName = await reader().read('trip-1', userId: 'trucker-1');

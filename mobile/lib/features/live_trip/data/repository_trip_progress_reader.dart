@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
@@ -34,17 +36,28 @@ class RepositoryTripProgressReader implements TripProgressReader {
   Future<TripProgress?> read(String tripId, {required String userId}) async {
     final deliveries =
         await _deliveries.getDeliveriesByTrip(tripId, userId: userId);
-    final dropoff = await _dropoffOf(tripId);
-    return TripProgress([
-      for (final delivery in deliveries)
-        TripLeg(
-          deliveryId: delivery.deliveryId,
-          status: delivery.status,
-          dropoff: dropoff,
-          pickedUpAt: delivery.pickedUpAt?.toUtc(),
-          leftRoadAt: _leftRoadAt(delivery),
-        ),
-    ]);
+    // Read on each call: a trip delivered or cancelled stops sharing (T-5).
+    Trip? trip;
+    try {
+      trip = await _trips.getTripById(tripId);
+    } on Object catch (e) {
+      debugPrint('[LiveTrip] trip unreadable: $e');
+    }
+    final dropoff = await _dropoffOf(tripId, trip);
+    return TripProgress(
+      [
+        for (final delivery in deliveries)
+          TripLeg(
+            deliveryId: delivery.deliveryId,
+            status: delivery.status,
+            dropoff: dropoff,
+            pickedUpAt: delivery.pickedUpAt?.toUtc(),
+            leftRoadAt: _leftRoadAt(delivery),
+          ),
+      ],
+      tripClosed: trip?.status == TripStatus.delivered ||
+          trip?.status == TripStatus.cancelled,
+    );
   }
 
   @override
@@ -67,9 +80,8 @@ class RepositoryTripProgressReader implements TripProgressReader {
         _ => null,
       };
 
-  Future<GeoPoint?> _dropoffOf(String tripId) async {
+  Future<GeoPoint?> _dropoffOf(String tripId, Trip? trip) async {
     if (_dropoffs.containsKey(tripId)) return _dropoffs[tripId];
-    final Trip? trip = await _trips.getTripById(tripId);
     if (trip == null) return null;
     await _places.ensureLoaded();
     final placeId = trip.toPlaceId;
