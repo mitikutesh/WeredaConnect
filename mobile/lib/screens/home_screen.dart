@@ -353,7 +353,8 @@ class _LightHomeHeader extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 10, 12, 0),
             child: Row(
               children: [
-                _SyncChip(isOnline: isOnline),
+                // Flexible: with large text the label wraps, never overflows.
+                Flexible(child: _SyncChip(isOnline: isOnline)),
               ],
             ),
           ),
@@ -412,6 +413,7 @@ class _TruckerHomeHeader extends StatelessWidget {
             Row(
               children: [
                 Expanded(
+                  flex: 3,
                   child: Semantics(
                     header: true,
                     child: Text(
@@ -426,7 +428,14 @@ class _TruckerHomeHeader extends StatelessWidget {
                     ),
                   ),
                 ),
-                _SyncChip(isOnline: isOnline, dark: true),
+                // Flexible: with large text the label wraps, never overflows.
+                Flexible(
+                  flex: 2,
+                  child: Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: _SyncChip(isOnline: isOnline, dark: true),
+                  ),
+                ),
                 if (!SidebarScope.of(context)) ...[
                   const SizedBox(width: 10),
                   const AccountButton(dark: true),
@@ -616,9 +625,10 @@ class _SyncChipState extends State<_SyncChip> {
                     ? (AppTheme.soilCard, AppTheme.soilGreen)
                     : (AppTheme.fieldGreenTint, AppTheme.fieldGreen);
 
+    // At least 28 tall, taller when the text is scaled up.
     final chip = Container(
-      height: 28,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      constraints: const BoxConstraints(minHeight: 28),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(999),
@@ -628,26 +638,36 @@ class _SyncChipState extends State<_SyncChip> {
         children: [
           Icon(icon, size: 13, color: foreground),
           const SizedBox(width: 6),
-          Text(
-            label,
-            key: const Key('home_sync_chip_label'),
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: foreground,
+          Flexible(
+            child: Text(
+              label,
+              key: const Key('home_sync_chip_label'),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: foreground,
+              ),
             ),
           ),
         ],
       ),
     );
     if (kIsWeb) return chip;
+    // One button named by the state ("3 waiting to sync", "Offline",
+    // "Synced"); the chip stays small, the tap area is 48 by 48.
     return Semantics(
       button: true,
-      child: InkWell(
-        key: const Key('home_sync_chip'),
-        borderRadius: BorderRadius.circular(999),
-        onTap: () => _showSyncStatus(context),
-        child: chip,
+      label: label,
+      excludeSemantics: true,
+      onTap: () => _showSyncStatus(context),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+        child: InkWell(
+          key: const Key('home_sync_chip'),
+          borderRadius: BorderRadius.circular(999),
+          onTap: () => _showSyncStatus(context),
+          child: Center(widthFactor: 1, heightFactor: 1, child: chip),
+        ),
       ),
     );
   }

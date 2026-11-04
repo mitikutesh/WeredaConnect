@@ -29,6 +29,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/screens/home_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/widgets/account_menu.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -406,6 +407,49 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(chipLabel(tester), '2 waiting to sync');
+    });
+
+    // The chip grows with the text and is a 48 by 48 dp button named by
+    // its state.
+    for (final role in UserRole.values) {
+      testWidgets('${role.name}: 48 dp tap area and room for 2x text',
+          (tester) async {
+        useTallSurface(tester, width: 390);
+        tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        final semantics = tester.ensureSemantics();
+        await tester.pumpWidget(
+          buildHomeScreen(role, isOnline: true, syncQueue: queue),
+        );
+        await tester.pump();
+        counts.add((pending: 3, failed: 0));
+        await tester.pump();
+        await tester.pump();
+
+        // No overflow anywhere in the header at 2x.
+        expect(tester.takeException(), isNull);
+        final tap = tester.getSize(find.byKey(const Key('home_sync_chip')));
+        expect(tap.width, greaterThanOrEqualTo(48));
+        expect(tap.height, greaterThanOrEqualTo(48));
+        final label = find.byKey(const Key('home_sync_chip_label'));
+        // The text is not clipped by a fixed chip height.
+        expect(tester.getSize(label).height, greaterThan(24));
+        expect(find.bySemanticsLabel('3 waiting to sync'), findsOneWidget);
+        semantics.dispose();
+      });
+    }
+
+    testWidgets('trucker: the chip stays at the right, by the account button',
+        (tester) async {
+      useTallSurface(tester, width: 390);
+      await tester.pumpWidget(
+        buildHomeScreen(UserRole.trucker, isOnline: true, syncQueue: queue),
+      );
+      await tester.pump();
+
+      final chip = tester.getRect(find.byKey(const Key('home_sync_chip')));
+      final account = tester.getRect(find.byType(AccountButton));
+      expect(chip.right, closeTo(account.left - 10, 1));
     });
   });
 
