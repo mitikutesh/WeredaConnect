@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
-import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 /// Inline language switch: English, Amharic and Afaan Oromoo side by side,
 /// each in its own script (the Join · Welcome and login board).
@@ -40,21 +39,26 @@ class LanguageSegmentedPicker extends StatelessWidget {
             color: AppTheme.segmentTrack,
             borderRadius: BorderRadius.circular(14),
           ),
-          child: Row(
-            children: [
-              for (final entry in languageProvider.availableLanguages) ...[
-                if (entry.key != languageProvider.availableLanguages.first.key)
-                  const SizedBox(width: 6),
-                Expanded(
-                  child: _Segment(
-                    key: ValueKey('language-${entry.key.languageCode}'),
-                    label: entry.value,
-                    selected: entry.key == current,
-                    onTap: () => languageProvider.setLocale(entry.key),
+          // Equal heights when one name wraps to a second line.
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final entry in languageProvider.availableLanguages) ...[
+                  if (entry.key !=
+                      languageProvider.availableLanguages.first.key)
+                    const SizedBox(width: 6),
+                  Expanded(
+                    child: _Segment(
+                      key: ValueKey('language-${entry.key.languageCode}'),
+                      label: entry.value,
+                      selected: entry.key == current,
+                      onTap: () => languageProvider.setLocale(entry.key),
+                    ),
                   ),
-                ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ],
@@ -85,8 +89,11 @@ class _Segment extends StatelessWidget {
       label: label,
       // excludeSemantics drops the InkWell's tap action: give it back.
       onTap: tap,
-      child: FwTapTarget(
+      // The track's padding is part of the target: a tap there selects too.
+      child: GestureDetector(
         onTap: tap,
+        behavior: HitTestBehavior.opaque,
+        excludeFromSemantics: true,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: Material(
