@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 /// Inline language switch: English, Amharic and Afaan Oromoo side by side,
 /// each in its own script (the Join · Welcome and login board).
@@ -112,11 +113,8 @@ class _Segment extends StatelessWidget {
                       horizontal: 4,
                       vertical: 2,
                     ),
-                    child: Text(
+                    child: FwWordFitText(
                       label,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight:

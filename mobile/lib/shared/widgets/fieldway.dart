@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -96,6 +97,20 @@ class FwHeaderRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final letter = MediaQuery.textScalerOf(context).scale(headingFontSize);
+    // A screen reader reads the title first, then the buttons, in both
+    // layouts: stacked, the buttons are drawn above the title.
+    final heading = Semantics(
+      container: true,
+      explicitChildNodes: true,
+      sortKey: const OrdinalSortKey(0),
+      child: this.heading,
+    );
+    final trailing = Semantics(
+      container: true,
+      explicitChildNodes: true,
+      sortKey: const OrdinalSortKey(1),
+      child: this.trailing,
+    );
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < letter * minWidthInLetters) {
@@ -178,6 +193,185 @@ class FwSectionLabel extends StatelessWidget {
   }
 }
 
+/// A short label (a tab, a segment, a language) that wraps at spaces and
+/// never inside a word: when its longest word is wider than the room, the
+/// label is laid out at that word's width and scaled down to fit, the only
+/// case where it shrinks. Large text and long Afaan Oromoo words
+/// ("Geejjibaalee") used to break mid-word ("Geejjibaale|e").
+///
+/// Works under [IntrinsicHeight], which a [LayoutBuilder] would not.
+class FwWordFitText extends StatelessWidget {
+  final String text;
+  final TextStyle style;
+  final int maxLines;
+  final TextAlign textAlign;
+
+  const FwWordFitText(
+    this.text, {
+    required this.style,
+    this.maxLines = 2,
+    this.textAlign = TextAlign.center,
+    super.key,
+  });
+
+  /// The width of [text]'s widest word in [context]'s text style and scale.
+  static double longestWordWidth(
+    BuildContext context,
+    String text,
+    TextStyle style,
+  ) {
+    var effective = DefaultTextStyle.of(context).style.merge(style);
+    if (MediaQuery.boldTextOf(context)) {
+      effective = effective.merge(const TextStyle(fontWeight: FontWeight.bold));
+    }
+    final painter = TextPainter(
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    );
+    var widest = 0.0;
+    for (final word in text.split(RegExp(r'\s+'))) {
+      if (word.isEmpty) continue;
+      painter
+        ..text = TextSpan(text: word, style: effective)
+        ..layout();
+      if (painter.width > widest) widest = painter.width;
+    }
+    painter.dispose();
+    return widest.ceilToDouble();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _WordFit(
+      minChildWidth: longestWordWidth(context, text, style),
+      child: Text(
+        text,
+        style: style,
+        maxLines: maxLines,
+        overflow: TextOverflow.ellipsis,
+        textAlign: textAlign,
+      ),
+    );
+  }
+}
+
+class _WordFit extends SingleChildRenderObjectWidget {
+  final double minChildWidth;
+
+  const _WordFit({required this.minChildWidth, required super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderWordFit(minChildWidth);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderWordFit renderObject) {
+    renderObject.minChildWidth = minChildWidth;
+  }
+}
+
+/// Lays its child out at least [minChildWidth] wide and scales it down
+/// when that is wider than the room.
+class _RenderWordFit extends RenderProxyBox {
+  _RenderWordFit(this._minChildWidth);
+
+  double _minChildWidth;
+  double _scale = 1;
+
+  set minChildWidth(double value) {
+    if (value == _minChildWidth) return;
+    _minChildWidth = value;
+    markNeedsLayout();
+  }
+
+  bool _shrinks(double maxWidth) =>
+      maxWidth.isFinite && maxWidth > 0 && _minChildWidth > maxWidth;
+
+  BoxConstraints _childConstraints(BoxConstraints constraints) =>
+      BoxConstraints(maxWidth: _minChildWidth);
+
+  @override
+  double computeMinIntrinsicHeight(double width) => _scaledHeight(
+        width,
+        (w) => child?.getMinIntrinsicHeight(w) ?? 0,
+      );
+
+  @override
+  double computeMaxIntrinsicHeight(double width) => _scaledHeight(
+        width,
+        (w) => child?.getMaxIntrinsicHeight(w) ?? 0,
+      );
+
+  double _scaledHeight(double width, double Function(double) height) {
+    if (!_shrinks(width)) return height(width);
+    return height(_minChildWidth) * width / _minChildWidth;
+  }
+
+  @override
+  Size computeDryLayout(BoxConstraints constraints) {
+    final child = this.child;
+    if (child == null) return constraints.smallest;
+    if (!_shrinks(constraints.maxWidth)) return child.getDryLayout(constraints);
+    final natural = child.getDryLayout(_childConstraints(constraints));
+    final scale = (constraints.maxWidth / natural.width).clamp(0.0, 1.0);
+    return constraints.constrain(natural * scale);
+  }
+
+  @override
+  void performLayout() {
+    final child = this.child;
+    if (child == null) {
+      size = constraints.smallest;
+      return;
+    }
+    if (!_shrinks(constraints.maxWidth)) {
+      _scale = 1;
+      child.layout(constraints, parentUsesSize: true);
+      size = constraints.constrain(child.size);
+      return;
+    }
+    child.layout(_childConstraints(constraints), parentUsesSize: true);
+    _scale = (constraints.maxWidth / child.size.width).clamp(0.0, 1.0);
+    size = constraints.constrain(child.size * _scale);
+  }
+
+  Matrix4 get _transform => Matrix4.diagonal3Values(_scale, _scale, 1);
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    final child = this.child;
+    if (child == null) return;
+    if (_scale == 1) {
+      context.paintChild(child, offset);
+      return;
+    }
+    layer = context.pushTransform(
+      needsCompositing,
+      offset,
+      _transform,
+      (context, offset) => context.paintChild(child, offset),
+      oldLayer: layer as TransformLayer?,
+    );
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
+    final child = this.child;
+    if (child == null) return false;
+    return result.addWithPaintTransform(
+      transform: _transform,
+      position: position,
+      hitTest: (result, position) => child.hitTest(result, position: position),
+    );
+  }
+
+  @override
+  void applyPaintTransform(RenderBox child, Matrix4 transform) {
+    transform.multiply(_transform);
+  }
+}
+
 /// One option of a [FwSegmented] switch.
 class FwSegment<T> {
   final T value;
@@ -220,17 +414,21 @@ class FwSegmented<T> extends StatelessWidget {
         color: AppTheme.segmentTrack,
         borderRadius: BorderRadius.circular(14),
       ),
-      child: Row(
-        children: [
-          for (final segment in segments)
-            Expanded(
-              child: _FwSegmentButton<T>(
-                segment: segment,
-                selected: segment.value == selected,
-                onTap: () => onChanged(segment.value),
+      // Equal heights when one label wraps to a second line.
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final segment in segments)
+              Expanded(
+                child: _FwSegmentButton<T>(
+                  segment: segment,
+                  selected: segment.value == selected,
+                  onTap: () => onChanged(segment.value),
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -253,9 +451,11 @@ class _FwSegmentButton<T> extends StatelessWidget {
       button: true,
       selected: selected,
       // A 40 tall segment in a 48 tall hit area: the track's padding is
-      // part of the target.
-      child: FwTapTarget(
+      // part of the target, and the segment fills the track's height.
+      child: GestureDetector(
         onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        excludeFromSemantics: true,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: _segment(),
@@ -304,11 +504,8 @@ class _FwSegmentButton<T> extends StatelessWidget {
               // Two lines for a long Afaan Oromoo label or large text
               // rather than an ellipsis after a few letters.
               Flexible(
-                child: Text(
+                child: FwWordFitText(
                   label,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w600,

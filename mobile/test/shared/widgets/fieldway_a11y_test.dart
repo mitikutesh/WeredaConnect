@@ -165,8 +165,53 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('FwSegmented: a label on two lines, the others keep its height',
+      (tester) async {
+    window(tester, const Size(390, 844));
+    await tester.pumpWidget(
+      host(
+        // In a Column, as on the screens: no height to stretch into.
+        Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: FwSegmented<String>(
+                segments: const [
+                  FwSegment(value: 'a', label: 'Active'),
+                  FwSegment(value: 'b', label: 'Sold Out'),
+                ],
+                selected: 'a',
+                onChanged: (_) {},
+              ),
+            ),
+          ],
+        ),
+        textScale: 2.0,
+      ),
+    );
+    expect(tester.takeException(), isNull);
+    // "Sold Out" wraps, "Active" does not: both segments still fill the
+    // track's height (they were 74, 74 and 40 tall on Deliveries).
+    final heights = [
+      for (final label in ['Active', 'Sold Out'])
+        tester
+            .getSize(
+              find
+                  .ancestor(
+                    of: find.text(label),
+                    matching: find.byType(Material),
+                  )
+                  .first,
+            )
+            .height,
+    ];
+    expect(heights[1], greaterThan(48));
+    expect(heights[0], heights[1]);
+  });
+
   group('RoleNavBar labels', () {
-    testWidgets('no shrinking: 12 px, two lines, a tap action', (tester) async {
+    testWidgets('12 px, up to two lines, no FittedBox, a tap action',
+        (tester) async {
       window(tester, const Size(360, 800));
       final semantics = tester.ensureSemantics();
       var selected = -1;
@@ -287,6 +332,30 @@ void main() {
         expect(bell.bottom, lessThanOrEqualTo(title.top));
         // Padding 20 on each side: the title spans the content width.
         expect(title.width, greaterThan(size.width - 40 - 1 - 20));
+      });
+    }
+
+    // Stacked, the buttons are drawn above the title; a screen reader
+    // still reads the title first, as on a phone.
+    for (final (name, size, scale) in [
+      ('a phone', const Size(390, 844), 1.0),
+      ('200% zoom', const Size(195, 422), 1.0),
+      ('200% text', const Size(390, 844), 2.0),
+    ]) {
+      testWidgets('$name: the title is read before the buttons',
+          (tester) async {
+        window(tester, size);
+        final semantics = tester.ensureSemantics();
+        await tester.pumpWidget(host(header(), size: size, textScale: scale));
+        final labels = tester.semantics
+            .simulatedAccessibilityTraversal()
+            .map((node) => node.label)
+            .toList();
+        final title = labels.indexOf('Welcome back, Almaz');
+        final bell = labels.indexOf('Notifications');
+        expect(title, isNonNegative, reason: '$labels');
+        expect(bell, greaterThan(title), reason: '$labels');
+        semantics.dispose();
       });
     }
   });

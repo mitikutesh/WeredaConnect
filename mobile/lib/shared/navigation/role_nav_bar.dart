@@ -4,6 +4,7 @@ import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 /// The Fieldway bottom bar (every phone board): white, a whisper rule on
 /// top, the selected tab's icon in the role's tint pill. The device shell
@@ -116,13 +117,10 @@ class RoleNavItem extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               // Each tab gets a quarter of the bar. A long am/om label or
-              // large text takes a second line: shrinking it to fit made
-              // it unreadable and ignored the user's text size.
-              Text(
+              // large text wraps at a space; only a word wider than the
+              // slot shrinks, and never breaks.
+              FwWordFitText(
                 label,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 12,
                   height: 1.2,
