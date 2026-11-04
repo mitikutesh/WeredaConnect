@@ -359,8 +359,9 @@ class _SidebarThenPageState extends State<_SidebarThenPage> {
   }
 }
 
-/// Tab with no item focused (only a page's scope) moves to the sidebar's
-/// first item; any other Tab moves on as usual.
+/// Tab with no item focused on a page (only the page's scope) moves to the
+/// sidebar's first item; any other Tab moves on as usual. A sheet or dialog
+/// on the tab's navigator is not a page: Tab stays in it.
 class _StartAtSidebarAction extends NextFocusAction {
   final FocusNode sidebar;
 
@@ -368,7 +369,11 @@ class _StartAtSidebarAction extends NextFocusAction {
 
   @override
   bool invoke(NextFocusIntent intent) {
-    if (primaryFocus is FocusScopeNode) {
+    final scope = primaryFocus;
+    final scopeContext = scope?.context;
+    if (scope is FocusScopeNode &&
+        scopeContext != null &&
+        ModalRoute.of(scopeContext) is PageRoute) {
       final first = ReadingOrderTraversalPolicy()
           .sortDescendants(sidebar.traversalDescendants, sidebar)
           .firstOrNull;

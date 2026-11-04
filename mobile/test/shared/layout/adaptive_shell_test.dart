@@ -405,6 +405,37 @@ void main() {
       });
     }
 
+    // A sheet on the tab's navigator is not a page: the first Tab stays in
+    // it instead of jumping to the sidebar behind it.
+    testWidgets('a sheet on the tab navigator keeps Tab inside it',
+        (tester) async {
+      window(tester, const Size(1300, 900));
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(buildApp(UserRole.buyer, userName: 'Almaz'));
+      await tester.pumpAndSettle();
+
+      // On the tab's own navigator (the default: not the root one).
+      showModalBottomSheet<void>(
+        context: tester.element(find.text('open detail')),
+        builder: (_) => SizedBox(
+          height: 200,
+          child: Center(
+            child: TextButton(
+              onPressed: () {},
+              child: const Text('sheet action'),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expectFocused(tester, 'sheet action');
+      expectNotFocused(tester, 'Home');
+      semantics.dispose();
+    });
+
     testWidgets('a focused item shows a ring; Enter and Space open it',
         (tester) async {
       window(tester, const Size(1300, 900));
