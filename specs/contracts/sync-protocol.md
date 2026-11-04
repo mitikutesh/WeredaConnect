@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.32.0
+1.33.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -207,6 +207,7 @@ These rules must always hold:
 - Order rejections (every `ORDER_*` code except `ORDER_KYC_REQUIRED`, since 1.10.0) → Mark as permanently rejected and revert the local order (see Permanent order rejections)
 - `DELIVERY_CANCEL_NOT_ALLOWED` (since 1.11.0) → Mark as permanently rejected and revert the local delivery (see Delivery cancel)
 - `DELIVERY_DISPUTE_REFUSED` and `DELIVERY_DISPUTE_EXPIRED` (since 1.12.0) → Mark as permanently rejected and revert the local delivery (see Delivery dispute); `DELIVERY_DISPUTE_RETRY` is transient and retried
+- `DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED` and `DELIVERY_CODE_GPS_REQUIRED` (since 1.33.0) → Mark as permanently rejected and revert the local delivery (see Typed handoff code)
 - `CROP_CONTACT_IN_TEXT` and `TRIP_CONTACT_IN_TEXT` (since 1.23.0) → Mark as permanently rejected, not reverted (see Listing text refusal)
 - `LOCATION_VALIDATION`, `LOCATION_NOT_TRUCKER`, `LOCATION_SHARING_ENDED`, `LOCATION_RATE_LIMITED` and `LOCATION_STALE` (since 1.31.0) → Mark as permanently rejected, not reverted (see Location pings); `LOCATION_NOT_ACTIVE` comes as `deferred`, not as an error
 
@@ -672,6 +673,26 @@ set, copied names `Deleted user`), so browse drops them as it drops any deleted 
 
 ---
 
+## Typed handoff code (1.33.0, usability audit T-1)
+
+When the camera or the screen fails, a pickup (`pickedUp`) or a delivery confirm
+(`delivered`) may carry `scannedQrCode`, the nine-digit code of the QR's nonce, instead of
+`scannedQrNonce` (`delivery-verification-api.md` 1.22.0, QR Secret Storage). The apps check the
+Damm digit before anything is queued, so a typo never reaches the server, and they require a
+GPS fix for a typed code. The code is checked only by the server: the mobile app says "Pickup
+saved. The code is checked when your phone is online." instead of "verified".
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `success` | Synced. | Done. |
+| `DELIVERY_CODE_MISMATCH:` (not this delivery's code), `DELIVERY_CODE_LOCKED:` (five wrong codes for this leg; scan the QR, or the farmer regenerates) and `DELIVERY_CODE_GPS_REQUIRED:` (a paid delivery's typed code without the leg's GPS) | Permanent: mark the operation rejected (never resent, so the queue never spends more of the five tries) and revert the local delivery as for `DELIVERY_CANCEL_NOT_ALLOWED` (re-read `GET /deliveries/{id}`, server wins; else the lowest sent version). Explained in en, am and om, one text per code. | Shows the same message. |
+| `deferred` (`DELIVERY_NONCE_PENDING`) | Re-queued without a retry, as for a scan. | Shows its QR-pending text. |
+| `DELIVERY_VALIDATION: scannedQrCode ...` (not nine digits with a valid check digit) | Unchanged `DELIVERY_*` handling (the apps never send one). | Failure. |
+
+A miss is counted once per operation id, so a resent operation cannot lock the code by itself.
+
+---
+
 ## Fraud signals from refusals (1.27.0, FRD-08)
 
 Some operation refusals now also write a fraud signal on the caller (the authenticated user of the
@@ -685,7 +706,7 @@ logged. Signals feed the caller's risk score (`specs/architecture/fraud-detectio
 | A crop, trip, order or delivery `create` that conflicts with a row the caller does not own and is no party to (the 1.4.0 conflict with no `serverData`) | `IDOR_CREATE_CONFLICT` | 40 |
 | `CROP_UNAUTHORIZED`, `TRIP_UNAUTHORIZED`, `ORDER_UNAUTHORIZED`, `DELIVERY_UNAUTHORIZED`, `INTENT_UNAUTHORIZED`, `RATING_UNAUTHORIZED`, `MESSAGE_UNAUTHORIZED` and `RATING_FORBIDDEN: You can only rate your own orders.`; a role gate met by a token without `custom:role` writes nothing | `ROLE_FORBIDDEN` | 25 |
 | `CROP_VALIDATION`, `TRIP_VALIDATION`, `DELIVERY_VALIDATION` or `ORDER_VALIDATION` for a changed identity or money field (`... is immutable and cannot be changed on update.`), and `ORDER_VALIDATION: orderId does not match the operation entityId.` | `IMMUTABLE_FIELD_CHANGE` | 25 |
-| `DELIVERY_NONCE_MISMATCH`, `DELIVERY_NONCE_REPLAY`, and `DELIVERY_NONCE_MISSING: QR nonce verification required for this transition.` | `QR_HANDOFF_FAILURE` | 5 |
+| `DELIVERY_NONCE_MISMATCH`, `DELIVERY_NONCE_REPLAY`, `DELIVERY_NONCE_MISSING: QR nonce verification required for this transition.`, and since 1.33.0 `DELIVERY_CODE_MISMATCH` and `DELIVERY_CODE_LOCKED` (except the one for a delivery without the secret store) | `QR_HANDOFF_FAILURE` | 5 |
 | The 10th `conflict` on an `update` or `delete` in one batch | `STALE_VERSION_BURST` | 0 |
 
 The caller holds at most one row per signal type per hour, and the score counts these types once
@@ -812,6 +833,7 @@ handling ships with LT-08, and no client sends the entity before it.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.33.0 | 2026-11-04 | Typed handoff code (T-1, `delivery-verification-api.md` 1.22.0): a delivery `pickedUp` or `delivered` update may carry `scannedQrCode` in place of `scannedQrNonce` (allowed in `data`, never stored); new permanent `DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED` and `DELIVERY_CODE_GPS_REQUIRED`, rejected and reverted by the mobile queue and shown by web with their own en, am and om text; mismatches and locks write `QR_HANDOFF_FAILURE`. Trucker clients: Stop sharing in trip mode sends a `declined` `location_ping` before the phone stops (no server change). |
 | 1.32.0 | 2026-10-28 | Location pings, clients (LT-08): mobile queues `location_ping` with the capture time in the idempotency key, fills a batch with pings only after every other operation, sends one probe ping per sync for a trip whose pings are deferred, rejects `LOCATION_*` errors for good without announcing or counting them (`LOCATION_SHARING_ENDED` also stops sharing), coalesces over 24 waiting pings to one `fix` per trip and clock hour plus every event, and drops a trip's waiting pings when its pickup is refused for good; web posts each ping at once with the same rules. No server change |
 | 1.31.0 | 2026-10-28 | Location pings (LT-05, `live-trip-api.md` 1.0.0): new create-only entity `location_ping` (the trucker's check-ins and sharing events after pickup), accepted from the trip's trucker while a delivery on the trip is on the road or left it after `capturedAt` (late offline pings kept); `LOCATION_VALIDATION`, `LOCATION_NOT_TRUCKER`, `LOCATION_SHARING_ENDED`, `LOCATION_RATE_LIMITED` and `LOCATION_STALE` are permanent errors, not reverted; `LOCATION_NOT_ACTIVE` answers `deferred` (no delivery on the road yet, another still pending, or a delivery written earlier in the same batch); a resend of the same `entityId` and `kind` is `success`; clients handle it from LT-08 |
 | 1.30.0 | 2026-10-27 | Order commitments, clients (ESC-22, ESC-23, app build 3): the farmer's answer is sent as `farmerResponse: accept \| decline` on every server (translated with the flag off); the trucker's command only on an order with a `fulfillment` stamp; `ORDER_RESPONSE_NOT_PENDING:` has its own text. No server change. |
@@ -845,5 +867,5 @@ handling ships with LT-08, and no client sends the entity before it.
 
 ---
 
-**Last Updated**: 2026-10-28
-**Version**: 1.31.0
+**Last Updated**: 2026-11-04
+**Version**: 1.33.0
