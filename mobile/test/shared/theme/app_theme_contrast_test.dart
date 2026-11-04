@@ -143,8 +143,13 @@ void main() {
       final input = theme.inputDecorationTheme;
       expect(input.enabledBorder!.borderSide.color, AppTheme.fieldBorder);
       expect(input.border!.borderSide.color, AppTheme.fieldBorder);
-      final side = theme.outlinedButtonTheme.style!.side!.resolve({});
-      expect(side!.color, AppTheme.fieldBorder);
+      final side = theme.outlinedButtonTheme.style!.side!;
+      expect(side.resolve({})!.color, AppTheme.fieldBorder);
+      // A disabled button keeps the quiet edge.
+      expect(
+        side.resolve({WidgetState.disabled})!.color,
+        AppTheme.whisperBorder,
+      );
       // Cards keep the decorative whisper edge.
       final card = theme.cardTheme.shape! as RoundedRectangleBorder;
       expect(card.side.color, AppTheme.whisperBorder);

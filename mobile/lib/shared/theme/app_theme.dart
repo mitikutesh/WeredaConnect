@@ -347,12 +347,19 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
-          side: BorderSide(color: fieldBorder),
           textStyle: const TextStyle(
             fontFamily: fontFamily,
             fontFamilyFallback: ethiopicFontFallback,
             fontSize: 15,
             fontWeight: FontWeight.w700,
+          ),
+        ).copyWith(
+          // A disabled button keeps the quiet whisper edge.
+          side: WidgetStateProperty.resolveWith(
+            (states) => BorderSide(
+              color:
+                  states.contains(WidgetState.disabled) ? border : fieldBorder,
+            ),
           ),
         ),
       ),
