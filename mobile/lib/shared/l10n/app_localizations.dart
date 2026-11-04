@@ -8165,6 +8165,54 @@ abstract class AppLocalizations {
   /// **'Cancelling hands booked orders back to their buyers, who can cancel for a full refund.'**
   String get tripCancelBookedNote;
 
+  /// B-2. Trip detail, buyer only: the button that opens the crops listed where this truck starts, with this truck chosen for transport
+  ///
+  /// In en, this message translates to:
+  /// **'Find crops on this route'**
+  String get tripFindCrops;
+
+  /// B-2. Trip detail, buyer only: the line under Find crops on this route; {from} is the place the truck starts from
+  ///
+  /// In en, this message translates to:
+  /// **'Crops listed in {from}. Order one with this truck.'**
+  String tripFindCropsNote(String from);
+
+  /// B-2. Market opened from a trip (buyer): the page title; {from} is the place the truck starts from
+  ///
+  /// In en, this message translates to:
+  /// **'Crops in {from}'**
+  String tripCropsTitle(String from);
+
+  /// B-2. Market opened from a trip (buyer): no listing at the truck's starting place; {from} is that place
+  ///
+  /// In en, this message translates to:
+  /// **'No crops listed in {from} right now'**
+  String tripCropsEmpty(String from);
+
+  /// B-2. Market opened from a trip (buyer): the line under the empty message
+  ///
+  /// In en, this message translates to:
+  /// **'New listings show here as farmers add them.'**
+  String get tripCropsEmptyHint;
+
+  /// B-2. Market opened from a trip (buyer): the line under the list; opening a listing has this truck chosen; {from} is the starting place
+  ///
+  /// In en, this message translates to:
+  /// **'Crops listed in {from}, where this truck starts. Order one with transport to book this truck.'**
+  String tripCropsFootnote(String from);
+
+  /// B-2 and L-7. Shown when the buyer picks, or orders with, a truck whose departure day is over in Ethiopia; the phone falls back to choosing another truck
+  ///
+  /// In en, this message translates to:
+  /// **'This truck already left. Choose another truck.'**
+  String get tripLeftChooseAnother;
+
+  /// L-7. My Trips, trucker: the status pill of an open trip whose departure day is over (buyers no longer see it)
+  ///
+  /// In en, this message translates to:
+  /// **'Date passed'**
+  String get tripStatusDatePassed;
+
   /// Fieldway design alignment (specs/design-canvas). Order detail summary, farmer: the crop money they are paid after delivery
   ///
   /// In en, this message translates to:
@@ -8656,6 +8704,264 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Next photo'**
   String get cropPhotoNext;
+
+  /// QR scan (T-1): button under the camera, and on the camera error panel, to type the 9-digit handoff code instead of scanning
+  ///
+  /// In en, this message translates to:
+  /// **'Type the code instead'**
+  String get qrTypeCodeInstead;
+
+  /// QR scan (T-1): title of the page where the 9-digit handoff code is typed
+  ///
+  /// In en, this message translates to:
+  /// **'Type the code'**
+  String get qrTypeCodeTitle;
+
+  /// QR scan (T-1), trucker at pickup: where the typed code comes from
+  ///
+  /// In en, this message translates to:
+  /// **'Ask the farmer to tap \"Camera not working?\" on their QR screen, then type the 9 digits shown there.'**
+  String get qrTypeCodePickupHint;
+
+  /// QR scan (T-1), buyer at drop-off: where the typed code comes from, and the warning not to type it before the crops arrived
+  ///
+  /// In en, this message translates to:
+  /// **'Ask the trucker to open the drop-off QR and tap \"Camera not working?\", then type the 9 digits shown there. Type it only when the crops are in front of you.'**
+  String get qrTypeCodeDropoffHint;
+
+  /// QR scan (T-1), buyer collecting at the farm (self-pickup): where the typed code comes from, and the warning
+  ///
+  /// In en, this message translates to:
+  /// **'Ask the farmer to tap \"Camera not working?\" on their QR screen, then type the 9 digits shown there. Type it only when the crops are in front of you.'**
+  String get qrTypeCodeSelfPickupHint;
+
+  /// QR scan (T-1): label of the field for the typed handoff code
+  ///
+  /// In en, this message translates to:
+  /// **'9-digit code'**
+  String get qrTypeCodeLabel;
+
+  /// QR scan (T-1): button that checks the typed code's check digit on the phone
+  ///
+  /// In en, this message translates to:
+  /// **'Check code'**
+  String get qrTypeCodeCheck;
+
+  /// QR scan (T-1): the typed code's check digit is wrong (a mistyped or swapped digit)
+  ///
+  /// In en, this message translates to:
+  /// **'This code has a typo. Check each digit and type it again.'**
+  String get qrTypeCodeTypo;
+
+  /// QR scan (T-1): the typed code has fewer than 9 digits
+  ///
+  /// In en, this message translates to:
+  /// **'Type all 9 digits.'**
+  String get qrTypeCodeIncomplete;
+
+  /// QR scan: after a scan the phone has only read the code; the server checks it once the confirm reaches it (replaces "Verification Passed")
+  ///
+  /// In en, this message translates to:
+  /// **'QR code read. The server checks it when your phone is online.'**
+  String get deliveryQrReadCheckedOnline;
+
+  /// QR scan (T-1): after a typed code passed its check digit; the server checks the code itself
+  ///
+  /// In en, this message translates to:
+  /// **'Code typed. The server checks it when your phone is online.'**
+  String get deliveryCodeTypedCheckedOnline;
+
+  /// QR scan (T-1): no GPS fix, and a typed code cannot be confirmed without one
+  ///
+  /// In en, this message translates to:
+  /// **'A typed code needs your location. Turn on location, then tap Try location again.'**
+  String get qrTypedCodeNeedsGps;
+
+  /// QR scan (T-1): button that asks for a GPS fix again
+  ///
+  /// In en, this message translates to:
+  /// **'Try location again'**
+  String get qrRetryLocation;
+
+  /// QR scan (T-1), mobile: snackbar after a pickup confirmed with a typed code was queued
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup saved. The code is checked when your phone is online.'**
+  String get qrPickupSavedCheckOnline;
+
+  /// QR scan (T-1), mobile: snackbar after a delivery confirmed with a typed code was queued
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery saved. The code is checked when your phone is online.'**
+  String get qrDeliverySavedCheckOnline;
+
+  /// QR scan (T-1): camera error panel title when the camera permission was refused
+  ///
+  /// In en, this message translates to:
+  /// **'The camera is not allowed'**
+  String get qrCameraDeniedTitle;
+
+  /// QR scan (T-1), Android: how to allow the camera
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the camera for WeredaConnect in your phone\'s settings, then tap Try Again.'**
+  String get qrCameraDeniedText;
+
+  /// QR scan (T-1), web: how to allow the camera
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the camera for this site in your browser\'s settings, then tap Try Again.'**
+  String get qrCameraDeniedTextWeb;
+
+  /// QR scan (T-1): camera error panel title when the camera is missing or busy
+  ///
+  /// In en, this message translates to:
+  /// **'The camera is not working'**
+  String get qrCameraUnavailableTitle;
+
+  /// QR scan (T-1): what to do when the camera is missing or busy
+  ///
+  /// In en, this message translates to:
+  /// **'Close other apps that use the camera, then tap Try Again. You can also type the code instead.'**
+  String get qrCameraUnavailableText;
+
+  /// QR scan (T-1), Android: opens the app's page in the phone's settings
+  ///
+  /// In en, this message translates to:
+  /// **'Open settings'**
+  String get qrCameraOpenSettings;
+
+  /// QR screen (T-1): reveals the 9-digit code under the QR
+  ///
+  /// In en, this message translates to:
+  /// **'Camera not working?'**
+  String get qrCameraNotWorking;
+
+  /// QR screen (T-1): heading over the revealed 9-digit code
+  ///
+  /// In en, this message translates to:
+  /// **'Code to type instead of scanning'**
+  String get qrShowCodeTitle;
+
+  /// QR screen (T-1): warning under the revealed 9-digit code
+  ///
+  /// In en, this message translates to:
+  /// **'Show this code only to the person in front of you. Never read it out on the phone or send it in a message.'**
+  String get qrShowCodeWarning;
+
+  /// Trucker (T-3), trip mode and delivery detail: opens the QR the buyer scans at the drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'Show drop-off QR'**
+  String get deliveryShowDropoffQr;
+
+  /// Trucker (T-3): title of the drop-off QR screen
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off QR'**
+  String get deliveryDropoffQrTitle;
+
+  /// Trucker (T-3): instruction on the drop-off QR screen
+  ///
+  /// In en, this message translates to:
+  /// **'Show this QR code to the buyer when you hand over the crops'**
+  String get deliveryDropoffQrInstruction;
+
+  /// Trucker (T-3): note on the drop-off QR screen
+  ///
+  /// In en, this message translates to:
+  /// **'Kept on this phone from your pickup scan. It works offline, and the buyer\'s scan confirms the delivery.'**
+  String get deliveryDropoffQrNote;
+
+  /// Trucker (T-3): drop-off screen when the pickup was confirmed with a typed code
+  ///
+  /// In en, this message translates to:
+  /// **'You confirmed the pickup with a typed code, so there is no QR to show. The buyer types this code instead.'**
+  String get deliveryDropoffCodeOnly;
+
+  /// Trucker (T-3): snackbar when no pickup handoff is kept on this phone
+  ///
+  /// In en, this message translates to:
+  /// **'This phone has no drop-off code for this delivery. It is kept when you scan the farmer\'s QR at pickup on this phone.'**
+  String get deliveryDropoffQrMissing;
+
+  /// Delivery error (T-1, DELIVERY_CODE_MISMATCH): the server refused a typed handoff code
+  ///
+  /// In en, this message translates to:
+  /// **'The typed code does not match this delivery, so it was not confirmed. Check the code and try again.'**
+  String get deliveryErrorCodeMismatch;
+
+  /// Delivery error (T-1, DELIVERY_CODE_LOCKED): five wrong typed codes
+  ///
+  /// In en, this message translates to:
+  /// **'Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead, or ask the farmer to show a new code.'**
+  String get deliveryErrorCodeLocked;
+
+  /// Delivery error (T-1, DELIVERY_CODE_GPS_REQUIRED): a paid delivery's typed code came without GPS
+  ///
+  /// In en, this message translates to:
+  /// **'A typed code needs your location. Turn on location and try again.'**
+  String get deliveryErrorCodeGpsRequired;
+
+  /// Trip mode (T-5): button and confirm action that stop sharing the truck's location for the trip
+  ///
+  /// In en, this message translates to:
+  /// **'Stop sharing'**
+  String get tripModeStopSharing;
+
+  /// Trip mode (T-5): confirm dialog title
+  ///
+  /// In en, this message translates to:
+  /// **'Stop sharing for this trip?'**
+  String get tripModeStopSharingTitle;
+
+  /// Trip mode (T-5): confirm dialog text, what stopping costs
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer loses the truck\'s live position, and the automatic in-transit check-ins stop. QR scans still confirm pickup and delivery. Sharing cannot be turned back on for this trip.'**
+  String get tripModeStopSharingBody;
+
+  /// Trip mode (T-5): sharing card after the trucker stopped sharing
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing stopped'**
+  String get tripModeStoppedTitle;
+
+  /// Trip mode (T-5): sharing card text after the trucker stopped sharing
+  ///
+  /// In en, this message translates to:
+  /// **'You stopped sharing for this trip. QR scans still confirm pickup and delivery.'**
+  String get tripModeStoppedText;
+
+  /// Trip mode (T-2): sharing card of a trip opened from the home card before any sharing answer
+  ///
+  /// In en, this message translates to:
+  /// **'Your location is not shared for this trip yet. It is set at your first pickup scan.'**
+  String get tripModeNotSharingYet;
+
+  /// Trucker home (T-6): trip card when the trip cannot be read, with Retry
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load your trip. Check your connection and try again.'**
+  String get homeTripLoadFailed;
+
+  /// Trip detail, owner (T-2): button per pickup still waiting; name is the farmer
+  ///
+  /// In en, this message translates to:
+  /// **'Scan pickup QR: {name}'**
+  String tripScanPickupQrFor(String name);
+
+  /// Delivery error (T-1, DELIVERY_CODE_LOCKED_DROPOFF): five wrong typed codes at a trucker's drop-off, whose code cannot be renewed; the way out is the trucker's QR or support
+  ///
+  /// In en, this message translates to:
+  /// **'Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker\'s drop-off QR if they have one. If not, contact support: they can confirm the handoff with you and the trucker.'**
+  String get deliveryErrorCodeLockedDropoff;
+
+  /// Farmer QR screen (T-1): the delivery left pending meanwhile, so no new QR (nonce) is made; the trucker shows the pickup code at the drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'This delivery was already picked up, so no new QR code is made. The trucker shows the buyer the code from the pickup.'**
+  String get deliveryQrAlreadyPickedUp;
 }
 
 class _AppLocalizationsDelegate

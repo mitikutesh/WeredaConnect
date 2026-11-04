@@ -1,3 +1,4 @@
+using System.Globalization;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using NSubstitute;
@@ -21,7 +22,8 @@ public class TripRepositoryTests
 
     private static Dictionary<string, AttributeValue> CreateTripDynamoItem(
         string tripId = "trip-001",
-        string status = "open")
+        string status = "open",
+        string departureDate = "2026-02-18T06:00:00Z")
     {
         return new Dictionary<string, AttributeValue>
         {
@@ -31,7 +33,7 @@ public class TripRepositoryTests
             { "truckerPhone", new AttributeValue { S = "+251912345678" } },
             { "fromWoreda", new AttributeValue { S = "Bishoftu" } },
             { "toWoreda", new AttributeValue { S = "Addis Ababa" } },
-            { "departureDate", new AttributeValue { S = "2026-02-18T06:00:00Z" } },
+            { "departureDate", new AttributeValue { S = departureDate } },
             { "capacity", new AttributeValue { N = "150" } },
             { "pricePerQuintal", new AttributeValue { N = "120" } },
             { "status", new AttributeValue { S = status } },
@@ -104,10 +106,136 @@ public class TripRepositoryTests
             Arg.Is<QueryRequest>(r =>
                 r.TableName == TableName &&
                 r.IndexName == "StatusDepartureDateIndex" &&
-                r.KeyConditionExpression == "#status = :status" &&
+                r.KeyConditionExpression == "#status = :status AND #departureDate >= :departureCutoff" &&
                 r.ExpressionAttributeValues[":status"].S == "open" &&
                 r.ScanIndexForward == true),
             Arg.Any<CancellationToken>());
+    }
+
+    // --- L-7: open trips whose Ethiopia day is over are not listed ---
+
+    [Theory]
+    [InlineData("2026-11-04T08:30:00Z", "2026-11-03T21:00:00.000Z")] // 11:30 in Addis Ababa
+    [InlineData("2026-11-04T20:59:59Z", "2026-11-03T21:00:00.000Z")] // 23:59:59: today's trips stay
+    [InlineData("2026-11-04T21:00:00Z", "2026-11-04T21:00:00.000Z")] // midnight: 4 Nov has left
+    public async Task QueryTripsAsync_Open_KeyConditionStartsAtTodayInEthiopia(string now, string cutoff)
+    {
+        var repository = new TripRepository(_mockDynamoDb, TableName, new FixedClock(now));
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [], LastEvaluatedKey = new Dictionary<string, AttributeValue>() });
+
+        await repository.QueryTripsAsync(fromWoreda: "Bishoftu");
+
+        // On the sort key, not in the filter: departed trips are never read.
+        await _mockDynamoDb.Received(1).QueryAsync(
+            Arg.Is<QueryRequest>(r =>
+                r.KeyConditionExpression == "#status = :status AND #departureDate >= :departureCutoff" &&
+                r.ExpressionAttributeNames["#departureDate"] == "departureDate" &&
+                r.ExpressionAttributeValues[":departureCutoff"].S == cutoff &&
+                !r.FilterExpression.Contains("departureDate")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task QueryTripsAsync_Open_KeepsATripLeavingToday()
+    {
+        // A trip for 4 Nov is stored as Ethiopia midnight, 2026-11-03T21:00:00.000Z: the
+        // cutoff at 23:00 in Addis Ababa is that same value, so >= keeps it.
+        var repository = new TripRepository(_mockDynamoDb, TableName, new FixedClock("2026-11-04T20:00:00Z"));
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = [CreateTripDynamoItem(departureDate: "2026-11-03T21:00:00.000Z")],
+                LastEvaluatedKey = new Dictionary<string, AttributeValue>()
+            });
+
+        var (items, _) = await repository.QueryTripsAsync();
+
+        Assert.Single(items);
+        await _mockDynamoDb.Received(1).QueryAsync(
+            Arg.Is<QueryRequest>(r => r.ExpressionAttributeValues[":departureCutoff"].S == "2026-11-03T21:00:00.000Z"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("matched")]
+    [InlineData("inTransit")]
+    [InlineData("delivered")]
+    public async Task QueryTripsAsync_OtherStatuses_KeepEveryDeparture(string status)
+    {
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [], LastEvaluatedKey = new Dictionary<string, AttributeValue>() });
+
+        await _repository.QueryTripsAsync(status: status);
+
+        await _mockDynamoDb.Received(1).QueryAsync(
+            Arg.Is<QueryRequest>(r =>
+                r.KeyConditionExpression == "#status = :status" &&
+                !r.ExpressionAttributeValues.ContainsKey(":departureCutoff")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task QueryTripsAsync_PageTokenFromBeforeMidnight_StartsAtTheTokenAndDropsTheLeft()
+    {
+        // Page 1 was read on 4 Nov; page 2 comes after Ethiopia midnight. DynamoDB refuses a
+        // start key outside the key condition, so the condition starts at the token and the
+        // 4 Nov trips on the page are dropped.
+        var repository = new TripRepository(_mockDynamoDb, TableName, new FixedClock("2026-11-04T21:05:00Z"));
+        var startKey = new Dictionary<string, AttributeValue>
+        {
+            { "status", new AttributeValue { S = "open" } },
+            { "departureDate", new AttributeValue { S = "2026-11-03T21:00:00.000Z" } },
+            { "tripId", new AttributeValue { S = "trip-last" } }
+        };
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items =
+                [
+                    CreateTripDynamoItem("trip-left", departureDate: "2026-11-03T21:00:00.000Z"),
+                    CreateTripDynamoItem("trip-tomorrow", departureDate: "2026-11-05T21:00:00.000Z")
+                ],
+                LastEvaluatedKey = new Dictionary<string, AttributeValue>()
+            });
+
+        var (items, _) = await repository.QueryTripsAsync(exclusiveStartKey: startKey);
+
+        Assert.Single(items);
+        Assert.Equal("trip-tomorrow", items[0]["tripId"]);
+        await _mockDynamoDb.Received(1).QueryAsync(
+            Arg.Is<QueryRequest>(r =>
+                r.ExclusiveStartKey == startKey &&
+                r.ExpressionAttributeValues[":departureCutoff"].S == "2026-11-03T21:00:00.000Z"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task QueryTripsByTruckerAsync_KeepsTheTruckersPastTrips()
+    {
+        // The trucker's own My Trips list shows past trips (labelled on the phone).
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = [CreateTripDynamoItem(departureDate: "2026-07-14T21:00:00.000Z")],
+                LastEvaluatedKey = new Dictionary<string, AttributeValue>()
+            });
+
+        var (items, _) = await _repository.QueryTripsByTruckerAsync("trucker-789", status: "open");
+
+        Assert.Single(items);
+        await _mockDynamoDb.Received(1).QueryAsync(
+            Arg.Is<QueryRequest>(r =>
+                r.KeyConditionExpression == "#truckerId = :truckerId" &&
+                !r.ExpressionAttributeValues.ContainsKey(":departureCutoff")),
+            Arg.Any<CancellationToken>());
+    }
+
+    private sealed class FixedClock(string nowUtc) : TimeProvider
+    {
+        private readonly DateTimeOffset _now = DateTimeOffset.Parse(nowUtc, CultureInfo.InvariantCulture);
+
+        public override DateTimeOffset GetUtcNow() => _now;
     }
 
     [Fact]

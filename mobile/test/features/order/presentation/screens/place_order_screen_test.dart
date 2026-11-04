@@ -73,16 +73,25 @@ void main() {
         ..pricePerKg = pricePerKg
         ..locationName = 'Bahir Dar';
 
-  Trip trip({required double pricePerQuintal}) => Trip()
-    ..tripId = 'trip-001'
-    ..truckerId = 'trucker-001'
-    ..truckerName = 'Abebe'
-    ..fromWoreda = 'Adama'
-    ..toWoreda = 'Bishoftu'
-    ..departureDate = DateTime.utc(2026, 11, 2)
-    ..capacity = 200
-    ..remainingQuintals = 120
-    ..pricePerQuintal = pricePerQuintal;
+  // An open truck leaving in two days: one that can take the order.
+  Trip trip({
+    required double pricePerQuintal,
+    double remaining = 120,
+    DateTime? departure,
+    TripStatus status = TripStatus.open,
+  }) =>
+      Trip()
+        ..tripId = 'trip-001'
+        ..truckerId = 'trucker-001'
+        ..truckerName = 'Abebe'
+        ..fromWoreda = 'Adama'
+        ..toWoreda = 'Bishoftu'
+        ..departureDate =
+            departure ?? DateTime.now().toUtc().add(const Duration(days: 2))
+        ..capacity = 200
+        ..remainingQuintals = remaining
+        ..pricePerQuintal = pricePerQuintal
+        ..status = status;
 
   Future<void> open(
     WidgetTester tester, {
@@ -222,6 +231,142 @@ void main() {
     expect(created.single.tripId, 'trip-001');
     expect(created.single.transportCost, 500);
     expect(created.single.commissionRate, 0.05);
+  });
+
+  // B-2: the chosen truck is checked again when the order is placed.
+  group('the chosen truck at Place Order', () {
+    /// Opens the screen from a page that records what it closed with.
+    Future<List<Object?>> openFromDetail(
+      WidgetTester tester,
+      Trip truck,
+    ) async {
+      final closedWith = <Object?>[];
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<OrderBloc>.value(value: orderBloc),
+            BlocProvider<AuthBloc>.value(value: authBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            // A Scaffold, as the listing detail is: the reason shows there.
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () async => closedWith.add(
+                    await Navigator.of(context).push<bool>(
+                      MaterialPageRoute<bool>(
+                        builder: (_) => PlaceOrderScreen(
+                          listing: listing(quintals: 30),
+                          farmerName: 'Kedir',
+                          selectedTrip: truck,
+                        ),
+                      ),
+                    ),
+                  ),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      return closedWith;
+    }
+
+    Future<void> placeOrder(WidgetTester tester) async {
+      await tester
+          .ensureVisible(find.widgetWithText(FilledButton, 'Place Order'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Place Order'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('starts at no more than the truck has room for',
+        (tester) async {
+      await open(
+        tester,
+        quintals: 30,
+        selectedTrip: trip(pricePerQuintal: 100, remaining: 12),
+      );
+
+      // 30 quintals listed, 12 free on the truck: 1,200 kg.
+      expect(find.text('1,200'), findsOneWidget);
+      expect(
+        find.textContaining('fits this trip (12 quintals left)'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a truck whose day is over: told why, back to choosing',
+        (tester) async {
+      final closedWith = await openFromDetail(
+        tester,
+        trip(
+          pricePerQuintal: 100,
+          departure: DateTime.now().toUtc().subtract(const Duration(days: 2)),
+        ),
+      );
+
+      await placeOrder(tester);
+
+      expect(created, isEmpty);
+      expect(
+        find.text('This truck already left. Choose another truck.'),
+        findsOneWidget,
+      );
+      expect(find.byType(PlaceOrderScreen), findsNothing);
+      expect(closedWith, [true]);
+    });
+
+    testWidgets('a truck no longer open: told why, back to choosing',
+        (tester) async {
+      final closedWith = await openFromDetail(
+        tester,
+        trip(pricePerQuintal: 100, status: TripStatus.cancelled),
+      );
+
+      await placeOrder(tester);
+
+      expect(created, isEmpty);
+      expect(
+        find.text('That truck is no longer available. Choose again.'),
+        findsOneWidget,
+      );
+      expect(closedWith, [true]);
+    });
+
+    testWidgets('more than the truck has room for: told why, order less',
+        (tester) async {
+      final closedWith = await openFromDetail(
+        tester,
+        trip(pricePerQuintal: 100, remaining: 12),
+      );
+      await tester.enterText(find.byType(TextField), '1300');
+      await tester.pump();
+
+      await placeOrder(tester);
+
+      expect(created, isEmpty);
+      expect(
+        find.text(
+          'This truck has no room left for this order. Choose another truck.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byType(PlaceOrderScreen), findsOneWidget);
+      expect(closedWith, isEmpty);
+
+      // 12 quintals fit.
+      await tester.enterText(find.byType(TextField), '1200');
+      await tester.pump();
+      await placeOrder(tester);
+      expect(created.single.quantity, 1200);
+      expect(created.single.tripId, 'trip-001');
+    });
   });
 
   // E-5: placing an order says whether it went out or waits on the phone,

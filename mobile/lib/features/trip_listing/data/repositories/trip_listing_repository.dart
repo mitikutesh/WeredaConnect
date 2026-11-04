@@ -6,6 +6,7 @@ import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_departure.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/features/trip_listing/data/trip_destination.dart';
@@ -34,11 +35,16 @@ class TripListingRepository extends BaseTripListingRepository {
   final SyncQueue _syncQueue;
   static const _uuid = Uuid();
 
+  /// The clock for the open-trips cutoff (L-7); the device clock by default.
+  final DateTime Function() _clock;
+
   TripListingRepository({
     required Isar isar,
     required SyncQueue syncQueue,
+    DateTime Function()? clock,
   })  : _isar = isar,
-        _syncQueue = syncQueue;
+        _syncQueue = syncQueue,
+        _clock = clock ?? DateTime.now;
 
   /// Validate trip data before saving to Isar / enqueueing sync.
   ///
@@ -243,12 +249,23 @@ class TripListingRepository extends BaseTripListingRepository {
   }
 
   /// Get all open trips, optionally filtered by origin and/or destination woreda.
+  ///
+  /// L-7: only trips departing today or later in Ethiopia, as the server
+  /// lists them, so a cache from before a sync never offers a truck that
+  /// already left. A trucker's own trips ([getTripsByTrucker]) and a trip read
+  /// by id keep every departure.
   @override
   Future<List<Trip>> getOpenTrips({
     String? fromWoreda,
     String? toWoreda,
   }) async {
-    var query = _isar.trips.filter().statusEqualTo(TripStatus.open);
+    var query = _isar.trips
+        .filter()
+        .statusEqualTo(TripStatus.open)
+        .departureDateGreaterThan(
+          tripListingCutoff(_clock()),
+          include: true,
+        );
 
     if (fromWoreda != null) {
       query = query.fromWoredaEqualTo(fromWoreda);

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_handoff_store.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 import 'package:wereda_connect/features/live_trip/domain/trip_plan.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
@@ -10,19 +11,23 @@ import 'package:wereda_connect/features/trip_listing/domain/repositories/base_tr
 /// Reads the trucker's trip for trip mode (LT-09) through the app's
 /// repositories: the local Isar copy on mobile, the API on web. Only the
 /// trucker's own trip and deliveries are kept (a trucker sees only their own
-/// trips).
+/// trips). The kept drop-off handoffs of deliveries that are done are dropped
+/// as they are seen ([handoffs]).
 class TripPlanLoader {
   TripPlanLoader({
     required BaseTripListingRepository trips,
     required BaseDeliveryRepository deliveries,
     required BaseOrderRepository orders,
+    DropoffHandoffStore? handoffs,
   })  : _trips = trips,
         _deliveries = deliveries,
-        _orders = orders;
+        _orders = orders,
+        _handoffs = handoffs;
 
   final BaseTripListingRepository _trips;
   final BaseDeliveryRepository _deliveries;
   final BaseOrderRepository _orders;
+  final DropoffHandoffStore? _handoffs;
 
   /// The plan of [tripId] for the trucker [userId]. Throws when the
   /// deliveries cannot be read; a trip or an order that cannot be read is
@@ -41,6 +46,11 @@ class TripPlanLoader {
           in await _deliveries.getDeliveriesByTrip(tripId, userId: userId))
         if (d.truckerId == userId) d,
     ];
+    final done = [
+      for (final d in deliveries)
+        if (handoffNoLongerNeeded(d.status)) d.deliveryId,
+    ];
+    if (done.isNotEmpty) await _handoffs?.forget(userId, done);
 
     final orders = <String, Order>{};
     final orderIds = {

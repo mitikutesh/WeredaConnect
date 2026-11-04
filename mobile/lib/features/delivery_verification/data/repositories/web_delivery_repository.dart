@@ -211,6 +211,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     LatLng? gpsPickup,
     String? photoRef,
     String? scannedQrNonce,
+    String? scannedQrCode,
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
     final data = <String, dynamic>{
@@ -233,7 +234,11 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
         DeliveryConstants.isServerPhotoRef(photoRef, deliveryId)) {
       data['pickupPhotoRef'] = photoRef;
     }
-    if (scannedQrNonce != null) data['scannedQrNonce'] = scannedQrNonce;
+    if (scannedQrNonce != null) {
+      data['scannedQrNonce'] = scannedQrNonce;
+    } else if (scannedQrCode != null) {
+      data['scannedQrCode'] = scannedQrCode;
+    }
 
     final response = await _api.post<Map<String, dynamic>>(
       '/sync',
@@ -263,6 +268,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     LatLng? gpsDropoff,
     String? photoRef,
     String? scannedQrNonce,
+    String? scannedQrCode,
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
     final data = <String, dynamic>{
@@ -281,7 +287,11 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
         DeliveryConstants.isServerPhotoRef(photoRef, deliveryId)) {
       data['dropoffPhotoRef'] = photoRef;
     }
-    if (scannedQrNonce != null) data['scannedQrNonce'] = scannedQrNonce;
+    if (scannedQrNonce != null) {
+      data['scannedQrNonce'] = scannedQrNonce;
+    } else if (scannedQrCode != null) {
+      data['scannedQrCode'] = scannedQrCode;
+    }
 
     final response = await _api.post<Map<String, dynamic>>(
       '/sync',

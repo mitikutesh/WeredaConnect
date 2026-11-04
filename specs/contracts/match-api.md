@@ -1,7 +1,7 @@
 # Buyer Match API Contract
 
 ## Version
-1.1.0
+1.2.0
 
 ## Parties
 - **Mobile** (client) — buyers matching their purchase intents against crop listings
@@ -181,6 +181,16 @@ which scored `Ambo` as a partial match of `Gambo`. Mobile applies the same
 rule when it pairs matched crops with trucker trips, so a trip typed as
 `Adama, Oromia` is suggested for a crop picked as `Ādama`.
 
+### Trips paired with the matches (1.2.0)
+
+`/match` ranks crops only and reads no trips. The apps pair each matched crop with trucker
+trips themselves: the mobile matcher (`MatchingService.findTripsForListing`, on the Isar cache)
+and the web matcher (`WebMatchingService`, on `GET /trips?status=open`) keep only `open` trips
+departing today or later in Ethiopia (Africa/Addis_Ababa), the day rule of FUP-85, with room
+for the quantity. Since `trip-listing-api.md` 2.2.0 the server's open-trips browse uses the
+same cutoff, so the trips the phone caches and the ones the web reads agree, and a trip that
+left is never suggested. No wire change.
+
 ---
 
 ## Query / Performance
@@ -247,9 +257,10 @@ rule when it pairs matched crops with trucker trips, so a trip typed as
 |---------|------|--------|
 | 1.0.0 | 2026-06-19 | Initial contract: GET /match endpoint, MatchDto, shared scoring model, candidate-generation and invariants. |
 | 1.1.0 | 2026-10-06 | Woreda-string geo proxy compares normalised names (region suffix cut, diacritics folded, whole-word partial) on both server and mobile (SIM-52). No wire change. |
+| 1.2.0 | 2026-11-04 | Trips paired with the matches (L-7): the app-side pairing keeps only open trips departing today or later in Ethiopia, the same cutoff `GET /trips` applies since `trip-listing-api.md` 2.2.0. `/match` reads no trips and is unchanged. No wire change. |
 
 ---
 
-**Last Updated**: 2026-10-06
-**Version**: 1.1.0
+**Last Updated**: 2026-11-04
+**Version**: 1.2.0
 **Status**: Draft

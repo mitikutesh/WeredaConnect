@@ -37,7 +37,11 @@ void main() {
 
   setUp(() {
     api = _MockApiClient();
-    repository = WebTripListingRepository(api: api);
+    // Before the trip's day, so the open-trips cutoff (L-7) keeps it.
+    repository = WebTripListingRepository(
+      api: api,
+      clock: () => DateTime.utc(2026, 10, 20),
+    );
   });
 
   void expectPickedDay(DateTime departure) {

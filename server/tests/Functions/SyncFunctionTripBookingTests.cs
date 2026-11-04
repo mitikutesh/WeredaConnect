@@ -8,6 +8,7 @@ using FluentAssertions;
 using NSubstitute;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.Services;
 using Xunit;
@@ -366,6 +367,36 @@ public class SyncFunctionTripBookingTests
         _trip = Trip(DateTime.UtcNow.AddHours(20), booked: 95);
 
         var result = await CreateOrderAsync(quantityKg: 600, enabled: false);
+
+        result.GetProperty("status").GetString().Should().Be("success");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task OrderCreate_TripThatLeftBeforeToday_IsRefusedWhateverTheFlag(bool enabled)
+    {
+        // L-7: a stale offline cache must not book a truck that already left. Yesterday's
+        // Ethiopia midnight, the stored form of a trip picked for yesterday.
+        var yesterday = TripDeparture.StartOfEthiopiaDayUtc(DateTime.UtcNow).AddDays(-1);
+        _trip = Trip(yesterday, booked: 0);
+
+        var result = await CreateOrderAsync(quantityKg: 50, enabled: enabled);
+
+        result.GetProperty("status").GetString().Should().Be("error");
+        result.GetProperty("message").GetString().Should()
+            .StartWith("ORDER_TRIP_NOT_ELIGIBLE: This trip has already left");
+        await _orders.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task OrderCreate_TripLeavingToday_IsNotRefusedAsLeft()
+    {
+        // Trucks run late: a trip for today (stored as today's Ethiopia midnight, already
+        // past by the clock) still takes an order with the flag off.
+        _trip = Trip(TripDeparture.StartOfEthiopiaDayUtc(DateTime.UtcNow), booked: 0);
+
+        var result = await CreateOrderAsync(quantityKg: 50, enabled: false);
 
         result.GetProperty("status").GetString().Should().Be("success");
     }

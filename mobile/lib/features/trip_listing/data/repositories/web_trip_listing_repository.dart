@@ -1,6 +1,7 @@
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/models/trip_departure.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/trip_listing/data/trip_destination.dart';
@@ -13,7 +14,14 @@ class WebTripListingRepository extends BaseTripListingRepository {
   static const _uuid = Uuid();
   final ApiClient _api;
 
-  WebTripListingRepository({required ApiClient api}) : _api = api;
+  /// The clock for the open-trips cutoff (L-7); the device clock by default.
+  final DateTime Function() _clock;
+
+  WebTripListingRepository({
+    required ApiClient api,
+    DateTime Function()? clock,
+  })  : _api = api,
+        _clock = clock ?? DateTime.now;
 
   @override
   Future<Trip> createTrip({
@@ -98,6 +106,11 @@ class WebTripListingRepository extends BaseTripListingRepository {
   Future<List<Trip>> getTripsByTrucker(String truckerId) =>
       _allPages({'truckerId': truckerId});
 
+  /// L-7: the server lists open trips from the start of today in Ethiopia
+  /// (trip-listing-api.md 2.2.0); the same cutoff is applied here so an
+  /// older deployment, or a page read just before Ethiopia midnight, never
+  /// offers a truck that already left. A trucker's own trips and a trip read
+  /// by id keep every departure.
   @override
   Future<List<Trip>> getOpenTrips({
     String? fromWoreda,
@@ -106,7 +119,11 @@ class WebTripListingRepository extends BaseTripListingRepository {
     final params = <String, dynamic>{'status': 'open'};
     if (fromWoreda != null) params['fromWoreda'] = fromWoreda;
     if (toWoreda != null) params['toWoreda'] = toWoreda;
-    return _allPages(params);
+    final now = _clock();
+    return [
+      for (final trip in await _allPages(params))
+        if (!tripHasLeft(trip, now)) trip,
+    ];
   }
 
   /// Every page of `GET /trips` for [params]: the server answers 20 trips a

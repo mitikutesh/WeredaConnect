@@ -380,6 +380,40 @@ void main() {
       expect(sentData().containsKey('dropoffPhotoRef'), isFalse);
     });
 
+    // T-1: a typed code travels as scannedQrCode, never with a nonce.
+    test('confirmPickup sends a typed code as scannedQrCode', () async {
+      await repository.confirmPickup(
+        deliveryId: 'del-1',
+        truckerId: 'trucker-1',
+        scannedQrCode: '757555978',
+      );
+
+      expect(sentData()['scannedQrCode'], '757555978');
+      expect(sentData().containsKey('scannedQrNonce'), isFalse);
+    });
+
+    test('confirmDelivery sends a typed code as scannedQrCode', () async {
+      await repository.confirmDelivery(
+        deliveryId: 'del-1',
+        buyerId: 'buyer-1',
+        scannedQrCode: '757555978',
+      );
+
+      expect(sentData()['scannedQrCode'], '757555978');
+      expect(sentData().containsKey('scannedQrNonce'), isFalse);
+    });
+
+    test('a scanned nonce is sent alone', () async {
+      await repository.confirmPickup(
+        deliveryId: 'del-1',
+        truckerId: 'trucker-1',
+        scannedQrNonce: 'nonce-1',
+      );
+
+      expect(sentData()['scannedQrNonce'], 'nonce-1');
+      expect(sentData().containsKey('scannedQrCode'), isFalse);
+    });
+
     test('confirmDelivery sends a server photo key', () async {
       await repository.confirmDelivery(
         deliveryId: 'del-1',

@@ -173,6 +173,40 @@ void main() {
       );
     });
 
+    // T-1: a typed code refused for good undid the local pickup or delivery.
+    test('a refused typed code has its own reason, mobile and web', () {
+      for (final (message, code) in [
+        (
+          'DELIVERY_CODE_MISMATCH: The typed code does not match.',
+          AppErrorCode.deliveryCodeMismatch,
+        ),
+        (
+          'DELIVERY_CODE_LOCKED: Too many wrong codes.',
+          AppErrorCode.deliveryCodeLocked,
+        ),
+        (
+          'DELIVERY_CODE_LOCKED_DROPOFF: Too many wrong codes for this '
+              'drop-off.',
+          AppErrorCode.deliveryCodeLockedDropoff,
+        ),
+        (
+          'DELIVERY_CODE_GPS_REQUIRED: Location is required.',
+          AppErrorCode.deliveryCodeGpsRequired,
+        ),
+      ]) {
+        expect(
+          syncRejectionErrorCode(
+            entityType: 'delivery',
+            action: 'update',
+            message: message,
+          ),
+          code,
+          reason: message,
+        );
+        expect(mapErrorToCode(SyncRejectedException(message)), code);
+      }
+    });
+
     test('any other refused change was not saved', () {
       for (final (entityType, message) in [
         ('crop_listing', 'FRAUD_VELOCITY_EXCEEDED: slow down'),
@@ -416,6 +450,12 @@ void main() {
           AppErrorCode.responseNotPending,
         ),
         ('ORDER_TRIP_NOT_ELIGIBLE: route', AppErrorCode.tripNotEligible),
+        // L-7: the server's refusal of an order on a truck that left.
+        (
+          'ORDER_TRIP_NOT_ELIGIBLE: This trip has already left; '
+              'choose another trip.',
+          AppErrorCode.tripNotEligible,
+        ),
         (
           'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED: 3',
           AppErrorCode.transportAttemptsExceeded,

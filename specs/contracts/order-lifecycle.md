@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-2.2.0
+2.3.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -128,7 +128,7 @@ risk). A quantity guard at funding time is a candidate follow-up; do not
 
 ## Order Create Validation (server-enforced, 1.2.0)
 
-`POST /sync` with `entityType: order`, `action: create` is bound to the server's own listing and trip records; the client's copy is checked, never trusted (SIM-05). Every failure is `ORDER_VALIDATION` and nothing is written. Client-sent money fields (`cropCost`, `commissionRate`, `commissionAmount`, `orderTotal`) are stripped before validation.
+`POST /sync` with `entityType: order`, `action: create` is bound to the server's own listing and trip records; the client's copy is checked, never trusted (SIM-05). Every failure is `ORDER_VALIDATION` (except `TRIP_CAPACITY_EXCEEDED`, 2.0.0, and `ORDER_TRIP_NOT_ELIGIBLE`, 2.3.0) and nothing is written. Client-sent money fields (`cropCost`, `commissionRate`, `commissionAmount`, `orderTotal`) are stripped before validation.
 
 | Rule | Rejection message |
 |---|---|
@@ -140,6 +140,7 @@ risk). A quantity guard at funding time is a candidate follow-up; do not
 | `quantity` (kg) <= listing `quantity` (quintals) × 100 | `quantity (X kg) exceeds the listing stock (Y kg).` |
 | `tripId` and `truckerId` both present or both absent | `tripId and truckerId must be provided together.` |
 | Trip must exist, be `open` or `matched`, belong to `truckerId`, and have a positive `pricePerQuintal` | `Trip not found.` / `Trip is not open for orders (status: x).` / `truckerId must be the trucker on the trip.` / `Trip has no valid pricePerQuintal.` |
+| Trip must not have left (2.3.0, L-7): its departure day in Ethiopia is not over (`trip-listing-api.md` 2.2.0). Checked after the owner, whatever `COMMITMENTS_ENABLED`; a trip with no readable `departureDate` is not refused here | `ORDER_TRIP_NOT_ELIGIBLE: This trip has already left; choose another trip.` (its own code, not `ORDER_VALIDATION`) |
 | `transportCost`, if sent, == `quantity` / 100 × trip `pricePerQuintal` (within 0.01); without a trip it must be absent or 0 | `transportCost must equal quantity/100 x the trip pricePerQuintal (X ETB).` / `transportCost requires a tripId.` |
 
 The server then overwrites `farmerName` (from the listing) and `truckerName` (from the trip) and computes:
@@ -542,7 +543,8 @@ farmer`, refund) and from `awaiting_transport` (no sign-in, `faultParty: none`).
 ### Trips under an order (`trip-listing-api.md` 2.0.0)
 
 - **Order create** refuses a trip departing in under 24 hours (`ORDER_VALIDATION`) and a quantity
-  above the trip's `remainingQuintals` (`TRIP_CAPACITY_EXCEEDED`); nothing is reserved yet.
+  above the trip's `remainingQuintals` (`TRIP_CAPACITY_EXCEEDED`); nothing is reserved yet. A trip
+  that has left is refused before both, flag on or off, with `ORDER_TRIP_NOT_ELIGIBLE` (2.3.0).
 - **Payment gate**: `payment_submitted` on a trip order is refused when the trip is no longer `open`
   or `matched`, has less room than the order, or departs in under 12 hours: `ORDER_VALIDATION: This
   trip is no longer available; place a new order.` Permanent (the client reverts the order), decided
@@ -729,6 +731,7 @@ its stock. Ratings stay blocked, and contact closes at `dispute_resolved`
 
 ## Changelog
 
+- **2.3.0 (2026-11-04)**: Orders on a trip that left (L-7, `trip-listing-api.md` 2.2.0): an order create naming a trip whose departure day is over in Ethiopia (Africa/Addis_Ababa) is refused with `ORDER_TRIP_NOT_ELIGIBLE: This trip has already left; choose another trip.`, nothing written, whatever `COMMITMENTS_ENABLED` (with the flag on, the 24-hour lead already refused such trips with `ORDER_VALIDATION`; with it off nothing did). The code is the one clients treat as permanent since `sync-protocol.md` 1.10.0, with its own text since 1.17.0 ("That truck is no longer available. Choose again."), so a stale offline cache cannot book a departed truck and no client change is needed (`sync-protocol.md` 1.34.0). The apps also check the chosen truck when the order is placed (open, not left, room for the quantity) and say why offline. Attaching a trip to an order that is already paid is still not built (ESC-19, ESC-20)
 - **2.2.0 (2026-10-31)**: Order places for the trip bookings row (Fieldway Trip detail board: "Almaz Bekele, Meki → Selam Traders, Merkato"): order create stamps the server-only `pickupPlace` (the listing's `locationName`, from the listing read `BindOrderToListing` already makes) and `dropoffPlace` (the buyer's registered woreda, from the profile read `StampOrderBuyerNameAsync` already makes); a client-sent value is dropped. No new reads, no status change. Older orders have neither and the clients fall back to the trip's route. Companion: `data-models.md` 1.2.0.
 - **2.1.0 (2026-10-27)**: Clients for the commitments (ESC-22, ESC-23, app build 3): `awaiting_transport` and `unknown` on mobile and web, the commitment fields parsed, the farmer's answer sent as `farmerResponse`, the trucker's command and drop-out, the cancel rules mirrored, per-party contact, the "Who has agreed" section, Action-needed cards, trip bookings and room left. The `fulfillment` stamp is the client's signal that the server runs the commitments; without it the client keeps the rules from before 2.0.0. `COMMITMENTS_ENABLED` is on in dev, off in staging and production. No server change.
 

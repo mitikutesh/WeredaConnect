@@ -10,6 +10,7 @@ import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_handoff_store.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 import 'package:wereda_connect/features/live_trip/data/trip_plan_loader.dart';
 import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
@@ -183,6 +184,7 @@ TripPlanLoader loaderFor({
   List<Order> orders = const [],
   Trip? trip,
   bool failDeliveries = false,
+  DropoffHandoffStore? handoffs,
 }) {
   final trips = MockTripRepository();
   final deliveryRepo = MockDeliveryRepository();
@@ -204,6 +206,7 @@ TripPlanLoader loaderFor({
     trips: trips,
     deliveries: deliveryRepo,
     orders: orderRepo,
+    handoffs: handoffs,
   );
 }
 

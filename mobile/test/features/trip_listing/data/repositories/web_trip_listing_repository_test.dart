@@ -93,12 +93,86 @@ void main() {
           },
       };
     });
-    final repository = WebTripListingRepository(api: api);
+    // Before the trips' day, so the open-trips cutoff (L-7) keeps them.
+    final repository = WebTripListingRepository(
+      api: api,
+      clock: () => DateTime.utc(2026, 10, 28),
+    );
 
     final open = await repository.getOpenTrips();
     expect(open.map((t) => t.tripId), ['p1', 'p2', 'p3']);
     final own = await repository.getTripsByTrucker('trucker-1');
     expect(own.map((t) => t.tripId), ['p1', 'p2', 'p3']);
+  });
+
+  // L-7: a buyer is never offered a truck whose departure day is over in
+  // Ethiopia, even from a server that still lists it; the trucker's own
+  // list keeps it (shown as "Date passed").
+  group('open trips from the start of today in Ethiopia', () {
+    Map<String, dynamic> trip(String id, String departure) => {
+          'tripId': id,
+          'truckerId': 'trucker-1',
+          'fromWoreda': 'Meki',
+          'toWoreda': 'Addis Ababa',
+          'departureDate': departure,
+          'capacity': 40,
+          'pricePerQuintal': 92,
+          'status': 'open',
+          'createdAt': '2026-10-28T00:00:00.000Z',
+          'updatedAt': '2026-10-28T00:00:00.000Z',
+          'version': 1,
+        };
+    final trips = [
+      trip('yesterday', '2026-11-02T21:00:00.000Z'), // 3 Nov in Addis
+      trip('today', '2026-11-03T21:00:00.000Z'), // 4 Nov
+      trip('tomorrow', '2026-11-04T21:00:00.000Z'), // 5 Nov
+    ];
+
+    late _MockApiClient api;
+    setUp(() {
+      api = _MockApiClient();
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/trips',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer((_) async => {'trips': trips});
+    });
+
+    for (final (label, now) in [
+      ('just after Ethiopia midnight', DateTime.utc(2026, 11, 3, 21, 0, 1)),
+      ('late on the day', DateTime.utc(2026, 11, 4, 20, 59, 59)),
+    ]) {
+      test('$label: the browse drops yesterday, keeps today', () async {
+        final repository = WebTripListingRepository(api: api, clock: () => now);
+
+        final open = await repository.getOpenTrips();
+
+        expect(open.map((t) => t.tripId), ['today', 'tomorrow']);
+      });
+    }
+
+    test('from the next Ethiopia midnight today has left too', () async {
+      final repository = WebTripListingRepository(
+        api: api,
+        clock: () => DateTime.utc(2026, 11, 4, 21),
+      );
+
+      final open = await repository.getOpenTrips();
+
+      expect(open.map((t) => t.tripId), ['tomorrow']);
+    });
+
+    test("the trucker's own list keeps every departure", () async {
+      final repository = WebTripListingRepository(
+        api: api,
+        clock: () => DateTime.utc(2026, 11, 4, 12),
+      );
+
+      final own = await repository.getTripsByTrucker('trucker-1');
+
+      expect(own.map((t) => t.tripId), ['yesterday', 'today', 'tomorrow']);
+    });
   });
 
   // Create trip offers the first recent route as "Repeat Last Trip", so the

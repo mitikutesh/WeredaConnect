@@ -126,6 +126,12 @@ public static class OrderCommitment
     /// <summary>Permanent refusal: the party's response window closed (the cron settles the order).</summary>
     public const string DeadlinePassedCode = "ORDER_DEADLINE_PASSED";
 
+    /// <summary>
+    /// Permanent refusal: the trip an order names cannot take it. Sent on an order create
+    /// naming a trip that has left (L-7, <c>Helpers.TripDeparture</c>).
+    /// </summary>
+    public const string TripNotEligibleCode = "ORDER_TRIP_NOT_ELIGIBLE";
+
     /// <summary>Audit actions of the commands.</summary>
     public const string FarmerAuditAction = "farmer_responded";
     public const string TruckerAuditAction = "trucker_responded";

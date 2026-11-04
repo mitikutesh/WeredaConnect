@@ -38,14 +38,21 @@ class TripLeg {
 
 /// Where the deliveries of a trip stand, from the phone's own copy.
 class TripProgress {
-  const TripProgress(this.legs);
+  const TripProgress(this.legs, {this.tripClosed = false});
 
   final List<TripLeg> legs;
 
-  /// Every delivery is delivered, cancelled or disputed: sharing stops
-  /// (`live-trip.md` section 5.2). A trip with no delivery the phone knows
-  /// of is not finished: the phone just cannot tell.
+  /// The trip itself is delivered or cancelled (T-5).
+  final bool tripClosed;
+
+  /// Every delivery is delivered, cancelled or disputed (`live-trip.md`
+  /// section 5.2). A trip with no delivery the phone knows of is not
+  /// finished: the phone just cannot tell.
   bool get allDone => legs.isNotEmpty && legs.every((l) => l.isDone);
+
+  /// Sharing stops: every delivery is done, or the trip is delivered or
+  /// cancelled.
+  bool get finished => tripClosed || allDone;
 
   /// The drop-off points of the deliveries not done yet.
   List<GeoPoint> get undeliveredDropoffs => [

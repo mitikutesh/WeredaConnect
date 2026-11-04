@@ -68,8 +68,8 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         code: DeliveryErrorCode.qrPending,
       );
     }
-    // Web calls /sync directly, so the server's cancel and dispute refusals
-    // arrive here.
+    // Web calls /sync directly, so the server's cancel, dispute and typed
+    // code (T-1) refusals arrive here.
     if (e is SyncRejectedException) {
       final code = isDeliveryCancelRefusalMessage(e.message)
           ? DeliveryErrorCode.cancelNotAllowed
@@ -77,7 +77,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
               ? DeliveryErrorCode.disputeRefused
               : isDeliveryDisputeExpiredMessage(e.message)
                   ? DeliveryErrorCode.disputeExpired
-                  : null;
+                  : deliveryCodeErrorOf(e.message);
       if (code != null) return DeliveryError(message: e.message, code: code);
     }
     return DeliveryError(
@@ -162,6 +162,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         gpsPickup: event.gpsPickup,
         photoRef: event.photoRef,
         scannedQrNonce: event.scannedQrNonce,
+        scannedQrCode: event.scannedQrCode,
       );
       _checkInAfterScan(event.tripId);
       emit(const PickupConfirmed());
@@ -208,6 +209,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         gpsDropoff: event.gpsDropoff,
         photoRef: event.photoRef,
         scannedQrNonce: event.scannedQrNonce,
+        scannedQrCode: event.scannedQrCode,
       );
       _checkInAfterScan(event.tripId);
       emit(const DeliveryConfirmed());
