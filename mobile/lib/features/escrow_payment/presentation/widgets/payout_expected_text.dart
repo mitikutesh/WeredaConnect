@@ -19,7 +19,9 @@ class PayoutExpectedText extends StatelessWidget {
     super.key,
   });
 
-  static final _dateFormat = DateFormat.yMMMd();
+  // A getter: a formatter keeps the locale it was made in, and the app
+  // language can change while the app runs.
+  static DateFormat get _dateFormat => DateFormat.yMMMd();
 
   @override
   Widget build(BuildContext context) {

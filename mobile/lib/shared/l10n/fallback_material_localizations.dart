@@ -3,12 +3,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
-/// Custom Material localizations delegate that falls back to English
-/// for locales that don't have Material translations (am, om).
+import 'package:wereda_connect/core/utils/date_locale.dart';
+
+/// Material localizations for the app's languages: Flutter's own for
+/// English and Amharic (the back button, date picker, "OK" and "Cancel"
+/// in Amharic), English for Afaan Oromoo, which Flutter does not ship.
 ///
-/// This prevents crashes when using Amharic or Afan Oromo while ensuring
-/// Material widgets (buttons, dialogs, date pickers) still work by using
-/// English labels as fallback.
+/// Loading them also sets the date locale ([applyDateLocale]), so dates
+/// follow the app language from the first frame after a language change.
 class FallbackMaterialLocalizationsDelegate
     extends LocalizationsDelegate<MaterialLocalizations> {
   const FallbackMaterialLocalizationsDelegate();
@@ -21,22 +23,26 @@ class FallbackMaterialLocalizationsDelegate
 
   @override
   Future<MaterialLocalizations> load(Locale locale) async {
-    // For Amharic and Afan Oromo, use English Material localizations
-    if (locale.languageCode == 'am' || locale.languageCode == 'om') {
-      return SynchronousFuture<MaterialLocalizations>(
-        await GlobalMaterialLocalizations.delegate.load(const Locale('en')),
+    final MaterialLocalizations localizations;
+    if (GlobalMaterialLocalizations.delegate.isSupported(locale)) {
+      localizations = await GlobalMaterialLocalizations.delegate.load(locale);
+    } else {
+      // Afaan Oromoo (om): no Flutter translation, English labels.
+      localizations = await GlobalMaterialLocalizations.delegate.load(
+        const Locale('en'),
       );
     }
-
-    // For other locales, use the default Material localizations
-    return GlobalMaterialLocalizations.delegate.load(locale);
+    // After the load above, which brings intl's date data with it.
+    applyDateLocale(locale);
+    return SynchronousFuture<MaterialLocalizations>(localizations);
   }
 
   @override
   bool shouldReload(FallbackMaterialLocalizationsDelegate old) => false;
 }
 
-/// Custom Cupertino localizations delegate with fallback to English
+/// Cupertino localizations: Flutter's own for English and Amharic, English
+/// for Afaan Oromoo.
 class FallbackCupertinoLocalizationsDelegate
     extends LocalizationsDelegate<CupertinoLocalizations> {
   const FallbackCupertinoLocalizationsDelegate();
@@ -46,14 +52,13 @@ class FallbackCupertinoLocalizationsDelegate
 
   @override
   Future<CupertinoLocalizations> load(Locale locale) async {
-    // For Amharic and Afan Oromo, use English Cupertino localizations
-    if (locale.languageCode == 'am' || locale.languageCode == 'om') {
-      return SynchronousFuture<CupertinoLocalizations>(
-        await GlobalCupertinoLocalizations.delegate.load(const Locale('en')),
-      );
+    if (GlobalCupertinoLocalizations.delegate.isSupported(locale)) {
+      return GlobalCupertinoLocalizations.delegate.load(locale);
     }
-
-    return GlobalCupertinoLocalizations.delegate.load(locale);
+    // Afaan Oromoo (om): no Flutter translation, English labels.
+    return SynchronousFuture<CupertinoLocalizations>(
+      await GlobalCupertinoLocalizations.delegate.load(const Locale('en')),
+    );
   }
 
   @override

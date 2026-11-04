@@ -416,7 +416,9 @@ class _PaymentCard extends StatelessWidget {
 
   const _PaymentCard({required this.payment, this.viewerRole, this.onTap});
 
-  static final _dateFormat = DateFormat.yMMMd();
+  // A getter: a formatter keeps the locale it was made in, and the app
+  // language can change while the app runs.
+  static DateFormat get _dateFormat => DateFormat.yMMMd();
 
   static String _short(String id) => id.length > 8 ? id.substring(0, 8) : id;
 
