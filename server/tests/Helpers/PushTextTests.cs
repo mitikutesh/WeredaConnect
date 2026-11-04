@@ -191,7 +191,8 @@ public class PushTextTests
         var (title, body) = PushText.Render(NotificationTypes.OrderRequest, "en", Full);
 
         title.Should().Be("New order: 500 kg teff");
-        body.Should().Be("Buyer Abebe Tesfaye paid 42,500 ETB, held safely until delivery. Please accept or decline by 27 Oct 18:00.");
+        // F-1: the amount is the farmer's own leg (cropCost), said as theirs.
+        body.Should().Be("Buyer Abebe Tesfaye paid 42,500 ETB for you, held safely until delivery. Please accept or decline by 27 Oct 18:00.");
     }
 
     [Fact]

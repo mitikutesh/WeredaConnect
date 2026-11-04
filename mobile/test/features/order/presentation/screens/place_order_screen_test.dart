@@ -1,12 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
@@ -20,6 +25,8 @@ class MockOrderBloc extends Mock implements OrderBloc {}
 class MockAuthBloc extends Mock implements AuthBloc {}
 
 class FakeOrderEvent extends Fake implements OrderEvent {}
+
+class MockConnectivityMonitor extends Mock implements ConnectivityMonitor {}
 
 /// The order quantity is kg; the listing stock is quintals. A buyer must be
 /// able to order a whole listing (up to 10,000 quintals = 1,000,000 kg), and
@@ -360,5 +367,125 @@ void main() {
       expect(created.single.quantity, 1200);
       expect(created.single.tripId, 'trip-001');
     });
+  });
+
+  // E-5: placing an order says whether it went out or waits on the phone,
+  // from the connectivity when it was saved (never waiting on the network).
+  for (final (online, message) in [
+    (true, 'Order placed successfully!'),
+    (false, 'Saved on your phone. It will be sent when you have network.'),
+  ]) {
+    testWidgets('placed ${online ? 'online' : 'offline'}: "$message"',
+        (tester) async {
+      final monitor = MockConnectivityMonitor();
+      when(() => monitor.isConnected()).thenAnswer((_) async => online);
+      final states = StreamController<OrderState>.broadcast();
+      addTearDown(states.close);
+      when(() => orderBloc.stream).thenAnswer((_) => states.stream);
+      await tester.pumpWidget(
+        Provider<ConnectivityMonitor>.value(
+          value: monitor,
+          child: MultiBlocProvider(
+            providers: [
+              BlocProvider<OrderBloc>.value(value: orderBloc),
+              BlocProvider<AuthBloc>.value(value: authBloc),
+            ],
+            child: MaterialApp(
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('en'),
+              home: PlaceOrderScreen(
+                listing: listing(quintals: 10),
+                farmerName: 'Kedir',
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final order = Order()
+        ..orderId = 'order-1'
+        ..listingId = 'listing-001'
+        ..buyerId = 'buyer-001'
+        ..farmerId = 'farmer-001'
+        ..buyerName = 'Meron Alemu'
+        ..farmerName = 'Kedir'
+        ..cropType = 'lentils'
+        ..quantity = 1000
+        ..pricePerUnit = 1000
+        ..totalPrice = 1000000
+        ..status = OrderStatus.created
+        ..createdAt = DateTime.utc(2026, 11, 4)
+        ..version = 1;
+      states.add(OrderCreated(order: order));
+      await tester.pumpAndSettle();
+
+      expect(find.text(message), findsOneWidget);
+    });
+  }
+
+  // A second tap while the snackbar reads the connectivity never creates a
+  // second order.
+  testWidgets('Place Order stays disabled once the order is created',
+      (tester) async {
+    final monitor = MockConnectivityMonitor();
+    final connectivity = Completer<bool>();
+    when(() => monitor.isConnected()).thenAnswer((_) => connectivity.future);
+    final states = StreamController<OrderState>.broadcast();
+    addTearDown(states.close);
+    when(() => orderBloc.stream).thenAnswer((_) => states.stream);
+    await tester.pumpWidget(
+      Provider<ConnectivityMonitor>.value(
+        value: monitor,
+        child: MultiBlocProvider(
+          providers: [
+            BlocProvider<OrderBloc>.value(value: orderBloc),
+            BlocProvider<AuthBloc>.value(value: authBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: PlaceOrderScreen(
+              listing: listing(quintals: 10),
+              farmerName: 'Kedir',
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byType(FilledButton));
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    expect(created, hasLength(1));
+
+    final order = Order()
+      ..orderId = 'order-1'
+      ..listingId = 'listing-001'
+      ..buyerId = 'buyer-001'
+      ..farmerId = 'farmer-001'
+      ..buyerName = 'Meron Alemu'
+      ..farmerName = 'Kedir'
+      ..cropType = 'lentils'
+      ..quantity = 1000
+      ..pricePerUnit = 1000
+      ..totalPrice = 1000000
+      ..status = OrderStatus.created
+      ..createdAt = DateTime.utc(2026, 11, 4)
+      ..version = 1;
+    // OrderCreated while the connectivity read has not answered yet.
+    states.add(OrderCreated(order: order));
+    await tester.pump();
+    await tester.pump();
+
+    expect(placeOrderButton(tester).onPressed, isNull);
+    await tester.tap(find.byType(FilledButton), warnIfMissed: false);
+    await tester.pump();
+    expect(created, hasLength(1));
+
+    connectivity.complete(true);
+    await tester.pumpAndSettle();
   });
 }

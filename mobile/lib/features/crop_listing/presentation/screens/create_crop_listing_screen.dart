@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -16,7 +17,9 @@ import 'package:wereda_connect/features/crop_listing/presentation/widgets/crop_p
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/place.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/utils/contact_in_text.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/route_preview_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
@@ -24,6 +27,7 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/labeled_field.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 import 'package:wereda_connect/shared/widgets/voice_note_widget.dart';
 
@@ -92,10 +96,32 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
       if (mounted) setState(() {});
     }).ignore();
     _locationController.addListener(_onLocationTyped);
+    // F-3: the total under quantity and price follows what is typed.
+    _quantityController.addListener(_onAmountTyped);
+    _priceController.addListener(_onAmountTyped);
   }
 
   void _onLocationTyped() {
     if (mounted) setState(() {});
+  }
+
+  void _onAmountTyped() {
+    if (mounted) setState(() {});
+  }
+
+  /// F-3: quantity is in quintals and price in ETB per kg, so the form says
+  /// what the whole listing sells for and the price per quintal, once both
+  /// are numbers above zero. Null otherwise.
+  String? _totalLine(AppLocalizations l10n) {
+    final quintals = double.tryParse(_quantityController.text);
+    final pricePerKg = double.tryParse(_priceController.text);
+    if (quintals == null || quintals <= 0) return null;
+    if (pricePerKg == null || pricePerKg <= 0) return null;
+    final perQuintal = pricePerKg * kgPerQuintal;
+    return l10n.cropFormTotalLine(
+      formatEtbAmount(quintals * perQuintal),
+      formatEtbAmount(perQuintal),
+    );
   }
 
   Future<void> _captureGps() async {
@@ -111,6 +137,8 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
   @override
   void dispose() {
     _locationController.removeListener(_onLocationTyped);
+    _quantityController.removeListener(_onAmountTyped);
+    _priceController.removeListener(_onAmountTyped);
     _quantityController.dispose();
     _priceController.dispose();
     _locationController.dispose();
@@ -182,9 +210,8 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
       listener: (context, state) {
         if (state is CropListingCreated) {
           _isSubmitting = false;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(l10n.listingSaved)),
-          );
+          // E-5: saved and sent, or saved on the phone to send later.
+          showSavedOrSent(context, sent: l10n.listingSaved).ignore();
           Navigator.of(context).pop();
         } else if (state is CropListingError) {
           setState(() => _isSubmitting = false);
@@ -275,7 +302,8 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
                     )
                   : Text(l10n.save),
             ),
-            FwActionNote(l10n.savedOnPhoneFirstNote),
+            // Web saves straight to the server, nothing waits in a browser.
+            if (!kIsWeb) FwActionNote(l10n.savedOnPhoneFirstNote),
           ],
         ),
       ),
@@ -368,6 +396,14 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
             ),
           ),
         ),
+        if (_totalLine(l10n) case final total?) ...[
+          const SizedBox(height: 6),
+          Text(
+            total,
+            key: const Key('create_listing_total'),
+            style: LabeledField.helperStyle,
+          ),
+        ],
         const SizedBox(height: 18),
 
         // Location: the place, then the board's card with the farm drawn

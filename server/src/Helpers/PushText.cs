@@ -536,7 +536,7 @@ public static class PushText
             "Your payment[ of {amount}][ for {qty} {crop}] is held safely. We will tell you when the farmer answers."),
         [NotificationTypes.OrderRequest] = new(
             "New order[: {qty} {crop}]",
-            "Buyer {buyer} paid[ {amount}], held safely until delivery. Please accept or decline[ by {deadline}]."),
+            "Buyer {buyer} paid[ {amount} for you], held safely until delivery. Please accept or decline[ by {deadline}]."),
         [NotificationTypes.FarmerAccepted] = new(
             "Farmer accepted",
             "Farmer {farmer} accepted your order[ of {qty} {crop}]. We are now asking the trucker."),
@@ -639,7 +639,7 @@ public static class PushText
             "[ለ{qty} {crop} ]የከፈሉት ገንዘብ[ {amount}] በጥንቃቄ ተይዟል። ገበሬው መልስ ሲሰጥ እናሳውቅዎታለን።"),
         [NotificationTypes.OrderRequest] = new(
             "አዲስ ትዕዛዝ[: {qty} {crop}]",
-            "ገዢ {buyer}[ {amount}] ከፍለዋል፤ ገንዘቡ እስከ ርክክብ በጥንቃቄ ይቆያል። እባክዎ[ እስከ {deadline}] ይቀበሉ ወይም ውድቅ ያድርጉ።"),
+            "ገዢ {buyer}[ ለእርስዎ {amount}] ከፍለዋል፤ ገንዘቡ እስከ ርክክብ በጥንቃቄ ይቆያል። እባክዎ[ እስከ {deadline}] ይቀበሉ ወይም ውድቅ ያድርጉ።"),
         [NotificationTypes.FarmerAccepted] = new(
             "ገበሬው ትዕዛዝዎን ተቀብለዋል",
             "ገበሬ {farmer}[ የ{qty} {crop}] ትዕዛዝዎን ተቀብለዋል። አሁን የጭነት መኪና ሹፌሩን እየጠየቅን ነው።"),
@@ -742,7 +742,7 @@ public static class PushText
             "Kaffaltiin keessan[ {amount}] nageenyaan qabameera.[ Ajaja: {crop} {qty}.] Yeroo qonnaan bulaan deebii kennu isinitti himna."),
         [NotificationTypes.OrderRequest] = new(
             "Ajaja haaraa[: {crop} {qty}]",
-            "Bitataan {buyer}[ {amount}] kaffaleera, nageenyaan qabameera. Maaloo[ hanga {deadline} tti] fudhadhaa ykn didaa."),
+            "Bitataan {buyer}[ {amount} isiniif] kaffaleera, nageenyaan qabame. Maaloo[ hanga {deadline} tti] fudhadhaa ykn didaa."),
         [NotificationTypes.FarmerAccepted] = new(
             "Qonnaan bulaan fudhateera",
             "Qonnaan bulaan {farmer} ajaja keessan[ {crop} {qty}] fudhateera. Amma konkolaataa fe'aa gaafachaa jirra."),

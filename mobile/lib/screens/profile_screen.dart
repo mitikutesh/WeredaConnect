@@ -21,6 +21,11 @@ import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/payment_intent.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
+import 'package:wereda_connect/core/sync/sync_executor.dart'
+    if (dart.library.html) 'package:wereda_connect/core/sync/sync_executor_web.dart';
+import 'package:wereda_connect/core/sync/sync_queue.dart'
+    if (dart.library.html) 'package:wereda_connect/core/sync/sync_queue_web.dart';
 import 'package:wereda_connect/features/account/presentation/screens/delete_account_screen.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
@@ -51,7 +56,30 @@ class ProfileScreen extends StatefulWidget {
   /// App lock settings behind the switch; tests inject one.
   final AppLockService? appLockService;
 
-  const ProfileScreen({this.loadUser, this.appLockService, super.key});
+  /// What a logout would delete before it reached the server (E-1).
+  /// Defaults to [AuthBloc.unsentWorkFor]; tests inject one.
+  final Future<LogoutUnsentWork> Function(String userId)? loadUnsentWork;
+
+  /// Sends the queued changes now (the logout dialog's Sync now). Defaults
+  /// to the app's sync queue and executor (mobile); tests inject one.
+  final Future<void> Function()? syncUnsentWork;
+
+  /// Whether the phone has a network, for the logout dialog's wording.
+  /// Defaults to the app's connectivity monitor; tests inject one.
+  final Future<bool> Function()? isOnline;
+
+  /// How long the logout dialog's Sync now may run before the counts are
+  /// read again (the sync itself goes on).
+  static const logoutSyncTimeout = Duration(seconds: 20);
+
+  const ProfileScreen({
+    this.loadUser,
+    this.appLockService,
+    this.loadUnsentWork,
+    this.syncUnsentWork,
+    this.isOnline,
+    super.key,
+  });
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -519,31 +547,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
     };
   }
 
+  /// E-1: logout deletes this user's unsent changes from the phone (the
+  /// shared-device protection), so the dialog first says how many there
+  /// are, with Sync now and Log out anyway. With nothing unsent (always on
+  /// web, where writes go straight to the API) it only asks.
   Future<void> _showLogoutConfirmation(
     BuildContext context,
     AppLocalizations l10n,
   ) async {
+    final auth = context.read<AuthBloc>();
+    final authState = auth.state;
+    final userId = authState is AuthAuthenticated ? authState.userId : '';
+    final load = widget.loadUnsentWork ?? auth.unsentWorkFor;
+    Future<LogoutUnsentWork> unsent() async {
+      try {
+        return await load(userId);
+      } on Object {
+        // Unreadable: never block the logout on it.
+        return (changes: 0, payments: 0);
+      }
+    }
+
+    final syncNow = widget.syncUnsentWork ?? _appSync(context);
+    final isOnline = widget.isOnline ?? _appConnectivity(context);
+    final work = await unsent();
+    // Only the warning says offline.
+    final online = !_hasUnsent(work) || await isOnline();
+    if (!context.mounted) return;
+
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: Text(l10n.logout),
-          content: Text(l10n.logoutConfirmation),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: Text(l10n.cancel),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              style: TextButton.styleFrom(
-                foregroundColor: AppTheme.statusError,
-              ),
-              child: Text(l10n.logout),
-            ),
-          ],
-        );
-      },
+      builder: (dialogContext) => _LogoutDialog(
+        work: work,
+        online: online,
+        reload: unsent,
+        syncNow: syncNow,
+        isOnline: isOnline,
+      ),
     );
     // Only logout when the user explicitly confirms.
     // Escape key or barrier tap returns null, which is not true.
@@ -554,6 +594,46 @@ class _ProfileScreenState extends State<ProfileScreen> {
       // clearCache:false here previously defeated it.
       context.read<AuthBloc>().add(const AuthLogoutRequested());
     }
+  }
+
+  static bool _hasUnsent(LogoutUnsentWork work) =>
+      work.changes > 0 || work.payments > 0;
+
+  /// The app's Sync now: failed changes are retried, then the queue is sent
+  /// (the sync status sheet's Retry). Nothing on web, which has no queue.
+  static Future<void> Function() _appSync(BuildContext context) {
+    SyncQueue? queue;
+    SyncExecutor? executor;
+    if (!kIsWeb) {
+      try {
+        queue = context.read<SyncQueue>();
+        executor = context.read<SyncExecutor>();
+      } on Object {
+        // No sync above this screen.
+      }
+    }
+    return () async {
+      await queue?.retryFailed();
+      await executor?.syncNow();
+    };
+  }
+
+  /// The app's connectivity (the device's network, no request); online
+  /// when unknown, so the dialog never claims an offline it cannot see.
+  static Future<bool> Function() _appConnectivity(BuildContext context) {
+    ConnectivityMonitor? monitor;
+    try {
+      monitor = context.read<ConnectivityMonitor>();
+    } on Object {
+      monitor = null;
+    }
+    return () async {
+      try {
+        return await monitor?.isConnected() ?? true;
+      } on Object {
+        return true;
+      }
+    };
   }
 
   void _showResetTestData(BuildContext context) {
@@ -963,6 +1043,116 @@ class _AppLockRowState extends State<_AppLockRow> {
           ),
           value: _enabled,
           onChanged: _busy ? null : _toggle,
+        ),
+      ],
+    );
+  }
+}
+
+/// The logout confirmation (E-1). With unsent work: how many changes are
+/// not sent yet and how many payments waiting to be sent will be
+/// cancelled, that logging in again needs internet when offline, then
+/// Cancel, Sync now (with queued changes) and Log out anyway. Logout waits while Sync now runs
+/// (at most [ProfileScreen.logoutSyncTimeout]); the counts are then read
+/// again, and once nothing is left the dialog only asks. Pops true to log
+/// out.
+class _LogoutDialog extends StatefulWidget {
+  final LogoutUnsentWork work;
+  final bool online;
+  final Future<LogoutUnsentWork> Function() reload;
+  final Future<void> Function() syncNow;
+  final Future<bool> Function() isOnline;
+
+  const _LogoutDialog({
+    required this.work,
+    required this.online,
+    required this.reload,
+    required this.syncNow,
+    required this.isOnline,
+  });
+
+  @override
+  State<_LogoutDialog> createState() => _LogoutDialogState();
+}
+
+class _LogoutDialogState extends State<_LogoutDialog> {
+  late LogoutUnsentWork _work = widget.work;
+  late bool _online = widget.online;
+  bool _syncing = false;
+
+  bool get _unsent => _work.changes > 0 || _work.payments > 0;
+
+  Future<void> _sync() async {
+    setState(() => _syncing = true);
+    try {
+      await widget.syncNow().timeout(ProfileScreen.logoutSyncTimeout);
+    } on Object {
+      // Timed out or failed: the counts read below say what is left.
+    }
+    final work = await widget.reload();
+    final online = await widget.isOnline();
+    if (!mounted) return;
+    setState(() {
+      _work = work;
+      _online = online;
+      _syncing = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final lines = [
+      if (!_unsent) l10n.logoutConfirmation,
+      if (_work.changes > 0) l10n.logoutUnsentChanges(_work.changes),
+      if (_work.payments > 0) l10n.logoutUnpaidPayments(_work.payments),
+      if (_unsent && !_online) l10n.logoutOfflineNeedsInternet,
+    ];
+    return AlertDialog(
+      title: Text(l10n.logout),
+      content: Column(
+        key: const Key('logout_dialog_text'),
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < lines.length; i++)
+            Padding(
+              padding: EdgeInsets.only(top: i == 0 ? 0 : 8),
+              child: Text(lines[i]),
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(l10n.cancel),
+        ),
+        // Only queued changes: a payment waiting to be sent goes with the
+        // escrow sync on reconnect, which this button does not drive.
+        if (_work.changes > 0)
+          TextButton(
+            key: const Key('logout_sync_now'),
+            onPressed: _syncing ? null : _sync,
+            child: _syncing
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(l10n.syncInProgress),
+                    ],
+                  )
+                : Text(l10n.syncNow),
+          ),
+        TextButton(
+          key: const Key('logout_confirm'),
+          onPressed: _syncing ? null : () => Navigator.of(context).pop(true),
+          style: TextButton.styleFrom(foregroundColor: AppTheme.statusError),
+          child: Text(_unsent ? l10n.logoutAnyway : l10n.logout),
         ),
       ],
     );

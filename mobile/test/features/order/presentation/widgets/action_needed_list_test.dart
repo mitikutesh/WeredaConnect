@@ -1,10 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/action_needed_list.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+
+class MockOrderBloc extends Mock implements OrderBloc {}
+
+class MockOrderRepository extends Mock implements BaseOrderRepository {}
 
 Order _order(
   String id,
@@ -219,6 +228,78 @@ void main() {
         actionNeededFacts(order, UserRole.farmer, en),
         'Abebe Trading · Teff · 1,500 kg',
       );
+    });
+  });
+
+  // E-6: a failed read is said as such, with Retry, never "nothing waits".
+  group('ActionNeededList on Home', () {
+    final en = lookupAppLocalizations(const Locale('en'));
+    late MockOrderRepository repository;
+
+    Future<void> pump(WidgetTester tester) async {
+      final bloc = MockOrderBloc();
+      when(() => bloc.state).thenReturn(const OrderInitial());
+      when(() => bloc.stream).thenAnswer((_) => const Stream.empty());
+      when(() => bloc.repository).thenReturn(repository);
+      await tester.pumpWidget(
+        BlocProvider<OrderBloc>.value(
+          value: bloc,
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: ActionNeededList(userId: 'farmer-1', role: UserRole.farmer),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    setUp(() => repository = MockOrderRepository());
+
+    testWidgets('a failed read shows the error with Retry, then the card',
+        (tester) async {
+      var fail = true;
+      when(
+        () => repository.getOrdersByUser(
+          any(),
+          role: any(named: 'role'),
+          statusFilter: any(named: 'statusFilter'),
+        ),
+      ).thenAnswer((_) async {
+        if (fail) throw Exception('offline');
+        return [orders.first];
+      });
+
+      await pump(tester);
+      expect(
+        find.byKey(const Key('action_needed_load_failed')),
+        findsOneWidget,
+      );
+      expect(find.text(en.homeActionNeededLoadFailed), findsOneWidget);
+      expect(find.text(en.actionAnswerOrder), findsNothing);
+
+      fail = false;
+      await tester.tap(find.text(en.retry));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('action_needed_load_failed')), findsNothing);
+      expect(find.text(en.actionAnswerOrder), findsOneWidget);
+    });
+
+    testWidgets('nothing waiting shows nothing, not an error', (tester) async {
+      when(
+        () => repository.getOrdersByUser(
+          any(),
+          role: any(named: 'role'),
+          statusFilter: any(named: 'statusFilter'),
+        ),
+      ).thenAnswer((_) async => const []);
+
+      await pump(tester);
+      expect(find.byKey(const Key('action_needed_load_failed')), findsNothing);
+      expect(find.text(en.actionAnswerOrder), findsNothing);
     });
   });
 }

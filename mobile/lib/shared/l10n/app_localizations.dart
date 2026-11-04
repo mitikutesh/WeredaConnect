@@ -4858,6 +4858,72 @@ abstract class AppLocalizations {
   /// **'{count} waiting to sync'**
   String syncPendingCount(int count);
 
+  /// Create crop listing (F-3): live line under the quantity (quintals) and price (ETB per kg): what the whole listing sells for, then the price per kg as a price per quintal (100 kg); both are grouped numbers
+  ///
+  /// In en, this message translates to:
+  /// **'Total: {total} ETB ({perQuintal} ETB per quintal)'**
+  String cropFormTotalLine(String total, String perQuintal);
+
+  /// Logout dialog (E-1): changes made on this phone that are still in the sync queue; logging out deletes them (shared-device protection)
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 change on this phone is not sent yet. Logging out deletes it.} other{{count} changes on this phone are not sent yet. Logging out deletes them.}}'**
+  String logoutUnsentChanges(int count);
+
+  /// Logout dialog (E-1): buyer payments started offline that wait on this phone; logging out cancels them, no money has moved
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 payment waiting to be sent will be cancelled.} other{{count} payments waiting to be sent will be cancelled.}}'**
+  String logoutUnpaidPayments(int count);
+
+  /// Logout dialog (E-1), offline: logout clears the offline login, so signing in again needs a connection
+  ///
+  /// In en, this message translates to:
+  /// **'You are offline. Logging in again will need internet.'**
+  String get logoutOfflineNeedsInternet;
+
+  /// Logout dialog (E-1): the button that logs out although changes are not sent yet
+  ///
+  /// In en, this message translates to:
+  /// **'Log out anyway'**
+  String get logoutAnyway;
+
+  /// Snackbar (E-5) after an order, a crop listing or an answer to an order was saved while the phone had no network: it waits in the sync queue
+  ///
+  /// In en, this message translates to:
+  /// **'Saved on your phone. It will be sent when you have network.'**
+  String get savedOnPhoneWillSend;
+
+  /// Snackbar (E-5) after the farmer accepted an order with a network
+  ///
+  /// In en, this message translates to:
+  /// **'You accepted the order.'**
+  String get orderAcceptedSent;
+
+  /// Snackbar (E-5) after the farmer declined an order with a network; the buyer is refunded
+  ///
+  /// In en, this message translates to:
+  /// **'You declined the order. The buyer gets the money back.'**
+  String get orderRejectedSent;
+
+  /// Home, At a glance (E-6): the tiles' counts and amounts failed to load; shown with Retry instead of zeros
+  ///
+  /// In en, this message translates to:
+  /// **'These numbers could not be loaded.'**
+  String get homeTilesLoadFailed;
+
+  /// Home, Action needed (E-6): the orders waiting for the user failed to load; shown with Retry instead of no card
+  ///
+  /// In en, this message translates to:
+  /// **'Could not check for orders that need you.'**
+  String get homeActionNeededLoadFailed;
+
+  /// Deliveries tab (E-6): the list failed to load; shown with Retry, unlike the empty state 'No deliveries yet'
+  ///
+  /// In en, this message translates to:
+  /// **'Your deliveries could not be loaded.'**
+  String get deliveriesLoadFailed;
+
   /// Payment notification title with status. {status} is the localized payment status label, not the enum name
   ///
   /// In en, this message translates to:

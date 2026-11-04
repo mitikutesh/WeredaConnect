@@ -14,11 +14,13 @@ import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
+import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/open_order_detail.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
+import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
 /// What an order is waiting for from the signed-in user (ESC-15/21).
 enum ActionNeededKind {
@@ -158,7 +160,8 @@ String actionNeededLabel(AppLocalizations l10n, ActionNeededKind kind) =>
 /// (best-effort and throttled, as the Orders tab does) so a new request
 /// shows without visiting that tab. Shows nothing when nothing waits. The
 /// card opens its order; when more orders wait, a "N more" link under it
-/// opens the full list through [onShowAll].
+/// opens the full list through [onShowAll]. A read that fails (offline on
+/// web) says so with Retry (E-6), never an empty "nothing waits".
 class ActionNeededList extends StatefulWidget {
   final String userId;
   final UserRole role;
@@ -203,25 +206,34 @@ class _ActionNeededListState extends State<ActionNeededList> {
     if (widget.userId.isEmpty) return const [];
     await _pullOrders();
     if (!mounted) return const [];
+    final BaseOrderRepository repository;
     try {
-      final orders = await context
-          .read<OrderBloc>()
-          .repository
-          .getOrdersByUser(widget.userId, role: widget.role.name);
-      var withDelivery = const <String>{};
-      if (widget.role == UserRole.trucker && mounted) {
-        withDelivery = await _ordersWithDelivery();
-      }
-      return actionNeededItems(
-        orders: orders,
-        userId: widget.userId,
-        role: widget.role,
-        ordersWithDelivery: withDelivery,
-      );
+      repository = context.read<OrderBloc>().repository;
     } on Object {
-      // Offline on web, or no order side above this widget: no cards.
+      // No order side above this widget: no cards.
       return const [];
     }
+    // A failed read (offline on web) is an error, not "nothing waits".
+    final orders = await repository.getOrdersByUser(
+      widget.userId,
+      role: widget.role.name,
+    );
+    var withDelivery = const <String>{};
+    if (widget.role == UserRole.trucker && mounted) {
+      withDelivery = await _ordersWithDelivery();
+    }
+    return actionNeededItems(
+      orders: orders,
+      userId: widget.userId,
+      role: widget.role,
+      ordersWithDelivery: withDelivery,
+    );
+  }
+
+  void _retry() {
+    setState(() {
+      _items = _load();
+    });
   }
 
   /// Mobile only (web has no MarketplaceSync and reads the server anyway).
@@ -268,6 +280,14 @@ class _ActionNeededListState extends State<ActionNeededList> {
     return FutureBuilder<List<ActionNeededItem>>(
       future: _items,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return LoadErrorChip(
+            key: const Key('action_needed_load_failed'),
+            message: l10n.homeActionNeededLoadFailed,
+            retryLabel: l10n.retry,
+            onRetry: _retry,
+          );
+        }
         final items = snapshot.data ?? const <ActionNeededItem>[];
         if (items.isEmpty) return const SizedBox.shrink();
         final more = items.length - 1;
