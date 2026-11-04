@@ -181,7 +181,7 @@ class _Radio extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(
-          color: selected ? AppTheme.soilDark : const Color(0xFFB9BDB7),
+          color: selected ? AppTheme.soilDark : AppTheme.fieldBorder,
           width: 2,
         ),
       ),

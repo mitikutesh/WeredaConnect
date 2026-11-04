@@ -786,7 +786,11 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                 _loadListings();
               },
               backgroundColor: AppTheme.accentGold,
-              child: const Icon(Icons.add, color: Colors.white),
+              // Dark ink on gold (white was 2.6:1), and a name for screen
+              // readers and a long press.
+              foregroundColor: AppTheme.soilDark,
+              tooltip: AppLocalizations.of(context)!.sellCrops,
+              child: const Icon(Icons.add),
             ),
           ),
       ],

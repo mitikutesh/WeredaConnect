@@ -197,7 +197,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       onPressed: _openRegister,
                       style: OutlinedButton.styleFrom(
                         minimumSize: const Size.fromHeight(48),
-                        side: const BorderSide(color: Color(0xFFD6D3C8)),
+                        side: const BorderSide(color: AppTheme.fieldBorder),
                       ),
                       child: Text(
                         l10n.loginNoAccountRegister,

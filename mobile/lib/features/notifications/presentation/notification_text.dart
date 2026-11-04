@@ -265,7 +265,7 @@ ClockLabel? notificationDetailLine(
   return switch (type) {
     'order_request' || 'transport_request' || 'request_reminder' => (
         icon: Icons.assignment_late_outlined,
-        color: AppTheme.accentGold
+        color: AppTheme.statusWarning
       ),
     'transport_failed' ||
     'transport_failed_keep_crops' ||
@@ -299,7 +299,7 @@ ClockLabel? notificationDetailLine(
     'dispute_received' ||
     'dispute_resolved' ||
     'under_review' =>
-      (icon: Icons.gavel_outlined, color: AppTheme.accentGold),
+      (icon: Icons.gavel_outlined, color: AppTheme.statusWarning),
     _ => (icon: Icons.notifications_outlined, color: AppTheme.statusInfo),
   };
 }
