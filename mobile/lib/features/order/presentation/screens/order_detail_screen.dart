@@ -1081,8 +1081,15 @@ class _FarmerReceiveCard extends StatelessWidget {
                 ),
               ),
               Text(
+                // A legacy order without cropCost: weight times price, never
+                // the buyer's total (F-1).
                 l10n.etbCurrency(
-                  formatEtbAmount(order.cropCost ?? order.totalPrice),
+                  formatEtbAmount(
+                    farmerEscrowShare(
+                      subtotal: order.quantity * order.pricePerUnit,
+                      cropCost: order.cropCost,
+                    ),
+                  ),
                 ),
                 style: const TextStyle(
                   fontSize: 24,

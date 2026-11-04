@@ -86,6 +86,14 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
     return false;
   }
 
+  bool _isTrucker() {
+    final authState = context.read<AuthBloc>().state;
+    if (authState is AuthAuthenticated) {
+      return authState.role == UserRole.trucker;
+    }
+    return false;
+  }
+
   void _loadOrders() {
     final userId = _getUserId();
     if (userId != null) {
@@ -280,6 +288,7 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
     if (state.orders.isEmpty) return _buildEmpty(l10n);
 
     final isFarmer = _isFarmer();
+    final isTrucker = _isTrucker();
     return RefreshIndicator(
       // Preserve the active status tab (not reset to "All"), and hold
       // the refresh spinner until the reload actually finishes.
@@ -305,6 +314,7 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
           return OrderCard(
             order: order,
             isFarmerView: isFarmer,
+            isTruckerView: isTrucker,
             // A cached `held` row is stale once the order moved on.
             underReview: _heldOrderIds.contains(order.orderId) &&
                 orderHoldableStatuses.contains(order.status),

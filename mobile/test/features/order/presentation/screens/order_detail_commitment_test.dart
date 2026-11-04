@@ -554,6 +554,25 @@ void main() {
       expect(find.text(en.detailPaidIntoEscrow), findsOneWidget);
     });
 
+    // F-1: an order from before the cost breakdown carries no cropCost; a
+    // synced row has no totalPrice either. The farmer reads weight times
+    // price, never the buyer's total.
+    testWidgets('the farmer of a legacy order reads weight times price',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded)
+          ..totalPrice = 0
+          ..orderTotal = 8725,
+        UserRole.farmer,
+        'farmer-001',
+      );
+
+      expect(find.text(en.orderYouReceive), findsOneWidget);
+      expect(find.text(en.etbCurrency('8,500')), findsOneWidget);
+      expect(find.text(en.etbCurrency('8,725')), findsNothing);
+    });
+
     testWidgets('the buyer sees the total and the farmer', (tester) async {
       await show(
         tester,

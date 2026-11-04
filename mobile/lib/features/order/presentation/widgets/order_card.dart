@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/order_commitment.dart';
+import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
@@ -18,12 +19,19 @@ import 'package:wereda_connect/shared/widgets/status_chip.dart';
 /// quantity as the title, the other party under it, the amount on the right
 /// with the order day, then the status pill. A farmer's unanswered funded
 /// order ends with Reject and Accept, the boards' two-button row.
+///
+/// The amount is the viewer's own (F-1): the buyer's total with the
+/// transport line, the farmer's crop money as "You receive", the trucker's
+/// transport pay. A farmer never sees the buyer's total next to Accept.
 class OrderCard extends StatelessWidget {
   final Order order;
   final VoidCallback? onTap;
   final VoidCallback? onAccept;
   final VoidCallback? onReject;
   final bool isFarmerView;
+
+  /// The trucker of the order looks at it: the amount is the transport pay.
+  final bool isTruckerView;
 
   /// The order's escrow is held for review (FRD-06): an "Under Review" chip,
   /// and no Accept, which the server refuses while it is held (Reject stays).
@@ -40,6 +48,7 @@ class OrderCard extends StatelessWidget {
     this.onAccept,
     this.onReject,
     this.isFarmerView = false,
+    this.isTruckerView = false,
     this.underReview = false,
     this.acceptEnabled = true,
   });
@@ -50,10 +59,22 @@ class OrderCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final day = DateFormat.yMMMd().format(dayInEthiopia(order.createdAt));
-    final amount = l10n.etbCurrency(
-      formatEtbAmount(order.orderTotal ?? order.totalPrice),
-    );
-    final transport = order.transportCost;
+    // A legacy order without cropCost: the crop subtotal, never the total.
+    final (double value, String? amountLabel) = isFarmerView
+        ? (
+            farmerEscrowShare(
+              subtotal: order.quantity * order.pricePerUnit,
+              cropCost: order.cropCost,
+            ),
+            l10n.orderYouReceive,
+          )
+        : isTruckerView
+            ? (order.transportCost ?? 0, l10n.orderYourTransportPay)
+            : (order.orderTotal ?? order.totalPrice, null);
+    final amount = l10n.etbCurrency(formatEtbAmount(value));
+    // Only the buyer pays the transport on top of the crops.
+    final transport =
+        isFarmerView || isTruckerView ? null : order.transportCost;
     // Show accept/reject buttons only once the order is funded (buyer
     // has paid into escrow). This matches the order detail screen, the
     // repositories, and the server's funded→accepted transition: at
@@ -105,6 +126,15 @@ class OrderCard extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
+                  if (amountLabel != null)
+                    Text(
+                      amountLabel,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: AppTheme.mutedSteel,
+                      ),
+                    ),
                   Text(
                     amount,
                     style: const TextStyle(

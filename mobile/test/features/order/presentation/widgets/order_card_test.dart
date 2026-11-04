@@ -5,27 +5,39 @@ import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
-Order _order(OrderStatus status, {String? farmerResponse}) => Order()
-  ..farmerResponse = farmerResponse
-  ..orderId = 'o1'
-  ..listingId = 'l1'
-  ..buyerId = 'b1'
-  ..farmerId = 'f1'
-  ..buyerName = 'Buyer'
-  ..farmerName = 'Farmer'
-  ..cropType = 'wheat'
-  ..quantity = 100
-  ..pricePerUnit = 50
-  ..totalPrice = 5000
-  ..status = status
-  ..createdAt = DateTime(2026)
-  ..version = 1;
+Order _order(
+  OrderStatus status, {
+  String? farmerResponse,
+  double? cropCost,
+  double? transportCost,
+  double? orderTotal,
+}) =>
+    Order()
+      ..farmerResponse = farmerResponse
+      ..cropCost = cropCost
+      ..transportCost = transportCost
+      ..orderTotal = orderTotal
+      ..orderId = 'o1'
+      ..listingId = 'l1'
+      ..buyerId = 'b1'
+      ..farmerId = 'f1'
+      ..buyerName = 'Buyer'
+      ..farmerName = 'Farmer'
+      ..cropType = 'wheat'
+      ..quantity = 100
+      ..pricePerUnit = 50
+      ..totalPrice = 5000
+      ..status = status
+      ..createdAt = DateTime(2026)
+      ..version = 1;
 
 Future<void> _pumpCard(
   WidgetTester tester, {
   required OrderStatus status,
   required bool isFarmerView,
+  bool isTruckerView = false,
   String? farmerResponse,
+  Order? order,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -33,8 +45,9 @@ Future<void> _pumpCard(
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(
         body: OrderCard(
-          order: _order(status, farmerResponse: farmerResponse),
+          order: order ?? _order(status, farmerResponse: farmerResponse),
           isFarmerView: isFarmerView,
+          isTruckerView: isTruckerView,
           onAccept: () {},
           onReject: () {},
         ),
@@ -127,6 +140,86 @@ void main() {
       // amount), so a deleted party still reads "Farmer: Deleted user".
       expect(find.text('${l10n.farmer}: Farmer'), findsOneWidget);
       expect(find.text(l10n.statusFunded), findsOneWidget);
+    });
+  });
+
+  // F-1: each party reads its own money, never the buyer's total next to
+  // the farmer's Accept.
+  group('OrderCard amount per role (F-1)', () {
+    // 100 kg x 50 ETB = 5,000 crop, 400 transport, 250 commission.
+    Order tripOrder() => _order(
+          OrderStatus.funded,
+          cropCost: 5000,
+          transportCost: 400,
+          orderTotal: 5650,
+        );
+
+    testWidgets('farmer: the crop money as You receive, no transport line',
+        (tester) async {
+      await _pumpCard(
+        tester,
+        status: OrderStatus.funded,
+        isFarmerView: true,
+        order: tripOrder(),
+      );
+      final l10n = l10nOf(tester);
+
+      expect(find.text(l10n.orderYouReceive), findsOneWidget);
+      expect(find.text('5,000 ETB'), findsOneWidget);
+      expect(find.text('5,650 ETB'), findsNothing);
+      expect(find.textContaining(l10n.transportCost), findsNothing);
+      // The Accept the amount sits next to is still there.
+      expect(find.text(l10n.acceptOrder), findsOneWidget);
+    });
+
+    testWidgets('farmer, legacy order without cropCost: weight times price',
+        (tester) async {
+      await _pumpCard(
+        tester,
+        status: OrderStatus.funded,
+        isFarmerView: true,
+        order: _order(OrderStatus.funded, orderTotal: 5650)..totalPrice = 5650,
+      );
+
+      expect(find.text('5,000 ETB'), findsOneWidget);
+      expect(find.text('5,650 ETB'), findsNothing);
+    });
+
+    testWidgets('trucker: the transport pay, no transport line',
+        (tester) async {
+      await _pumpCard(
+        tester,
+        status: OrderStatus.funded,
+        isFarmerView: false,
+        isTruckerView: true,
+        order: tripOrder(),
+      );
+      final l10n = l10nOf(tester);
+
+      expect(find.text(l10n.orderYourTransportPay), findsOneWidget);
+      expect(find.text('400 ETB'), findsOneWidget);
+      expect(find.text('5,650 ETB'), findsNothing);
+      expect(find.textContaining(l10n.transportCost), findsNothing);
+      expect(find.text(l10n.acceptOrder), findsNothing);
+    });
+
+    testWidgets('buyer: the order total with the transport line, unchanged',
+        (tester) async {
+      await _pumpCard(
+        tester,
+        status: OrderStatus.funded,
+        isFarmerView: false,
+        order: tripOrder(),
+      );
+      final l10n = l10nOf(tester);
+
+      expect(find.text('5,650 ETB'), findsOneWidget);
+      expect(
+        find.text('${l10n.transportCost}: 400 ETB'),
+        findsOneWidget,
+      );
+      expect(find.text(l10n.orderYouReceive), findsNothing);
+      expect(find.text(l10n.orderYourTransportPay), findsNothing);
     });
   });
 }
